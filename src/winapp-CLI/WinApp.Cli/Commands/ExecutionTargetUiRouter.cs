@@ -44,7 +44,8 @@ internal sealed class ExecutionTargetUiRouter(
     public static bool ShouldRoute(ParseResult parseResult)
     {
         ArgumentNullException.ThrowIfNull(parseResult);
-        return IsUiCommand(parseResult.CommandResult.Command) &&
+        return ExecutionTargetSelection.IsCommandInvocation(parseResult) &&
+            IsUiCommand(parseResult.CommandResult.Command) &&
             !ExecutionTargetSelection.Resolve(parseResult).IsLocal;
     }
 

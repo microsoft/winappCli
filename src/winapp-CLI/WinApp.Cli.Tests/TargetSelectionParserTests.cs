@@ -469,11 +469,9 @@ public class TargetSelectionParserTests : BaseCommandTests
 
         Assert.IsGreaterThan(0, parsed.Errors.Count, $"'{option} {value}' must not parse.");
 
-        // ShouldRoute answers only about the selector; Program gates it on there being no parse
-        // error, which is what this asserts alongside.
-        Assert.IsTrue(
-            ExecutionTargetUiRouter.ShouldRoute(parsed),
-            "The selector is still valid, so the guard has to be the parse-error check.");
+        Assert.IsFalse(ExecutionTargetSelection.IsCommandInvocation(parsed));
+        Assert.IsFalse(ExecutionTargetUiRouter.ShouldRoute(parsed),
+            "A valid target selector must not route an invocation rejected by the parser.");
     }
 
     /// <summary>

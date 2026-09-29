@@ -1,0 +1,543 @@
+<!-- In-process DevTools inspector window chrome. ONE contiguous, reviewable XAML document for
+     the static shell (toolbar, filter box, scrollable tree container, column separator, properties
+     pane), loaded at runtime through the app's own Microsoft.UI.Xaml.Markup.XamlReader.Load. Named elements
+     (TreeFilter, PropsHost,...) are wired up afterwards via FindName in DevToolsWindow.cpp. This file
+     is embedded verbatim by gen-xaml-resources.ps1 into DevToolsWindowXaml.g.h (DevToolsXaml::WindowShell) at build time.
+
+     ENCODING: the shared `cl` line has no /utf-8, so this file is ASCII-only. Non-ASCII glyphs are written as
+     XAML numeric character references (e.g. &#x2014; em dash, &#x00B7; middle dot); XamlReader decodes them at
+     parse time. Do NOT put raw non-ASCII bytes here.
+
+     TOKENS (substituted by BuildWindowMarkup before the document is parsed):
+       $TREEHEADER$ -> "VISUAL TREE - N NODES" (node-count header above the tree list)
+     The data-driven rows are parsed into their own namescope and swapped through TreeRowsHost. That lets a
+     Just-my-XAML toggle rebuild the capped population without tearing down PropsHost or an in-flight edit. -->
+<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="Transparent">
+  <Grid.RowDefinitions>
+    <RowDefinition Height="Auto"/>
+    <RowDefinition Height="*"/>
+  </Grid.RowDefinitions>
+
+  <Grid Padding="12,8" ColumnSpacing="16"
+        BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="*"/>
+      <ColumnDefinition Width="Auto"/>
+    </Grid.ColumnDefinitions>
+    <TextBlock x:Name="SnapshotNotice" VerticalAlignment="Center" TextWrapping="Wrap"
+               Text="Snapshot values. F5 to refresh."
+               AutomationProperties.HelpText="Property values and tree previews are snapshots, not live updates."
+               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+               Style="{StaticResource CaptionTextBlockStyle}"/>
+    <Button x:Name="RefreshSnapshotBtn" Grid.Column="1" Content="Refresh snapshot" AllowFocusOnInteraction="False"
+            ToolTipService.ToolTip="Refresh property values and tree previews (F5). Finish edits first."
+            AutomationProperties.AutomationId="RefreshInspectorSnapshot"/>
+  </Grid>
+
+  <!-- Row 1: content (tree | splitter | props). The tree pane carries an explicit Width and its column is
+       Auto, so a drag can resize it directly via FrameworkElement.Width; the props column takes the rest.
+       (A star/star split cannot be resized without writing GridLength through the ABI, and WinUI ships no
+       GridSplitter -- that control lives in the Community Toolkit, which this overlay deliberately does not
+       take a dependency on. A Thumb is the primitive underneath it and needs nothing new.) -->
+  <Grid Grid.Row="1">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="Auto"/>
+      <ColumnDefinition Width="6"/>
+      <ColumnDefinition Width="1*" MinWidth="300"/>
+    </Grid.ColumnDefinitions>
+
+    <Grid Grid.Column="0" x:Name="TreePane" Width="420">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+      </Grid.RowDefinitions>
+      <!-- RadioButtons expose one exclusive SelectionItem group. SetCommentsView owns IsChecked;
+           mode is accessible state, not only a painted accent or changing label. -->
+      <Grid Grid.Row="0" x:Name="ViewTabs" Margin="8,6,8,0"
+            BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+        <Grid.Resources>
+          <Style x:Key="DevToolsViewTab" TargetType="RadioButton">
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="Padding" Value="11,6,11,7"/>
+            <Setter Property="VerticalAlignment" Value="Bottom"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <Setter Property="Template">
+              <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                  <Grid x:Name="TabRoot" Background="{TemplateBinding Background}" CornerRadius="4,4,0,0">
+                    <VisualStateManager.VisualStateGroups>
+                      <VisualStateGroup x:Name="CommonStates">
+                        <VisualState x:Name="Normal"/>
+                        <VisualState x:Name="PointerOver">
+                          <VisualState.Setters>
+                            <Setter Target="TabRoot.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}"/>
+                          </VisualState.Setters>
+                        </VisualState>
+                        <VisualState x:Name="Pressed">
+                          <VisualState.Setters>
+                            <Setter Target="TabRoot.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}"/>
+                          </VisualState.Setters>
+                        </VisualState>
+                        <VisualState x:Name="Disabled">
+                          <VisualState.Setters>
+                            <Setter Target="TabText.Foreground" Value="{ThemeResource TextFillColorDisabledBrush}"/>
+                          </VisualState.Setters>
+                        </VisualState>
+                      </VisualStateGroup>
+                      <VisualStateGroup x:Name="CheckStates">
+                        <VisualState x:Name="Checked">
+                          <VisualState.Setters>
+                            <Setter Target="TabRule.Visibility" Value="Visible"/>
+                            <Setter Target="TabText.Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+                            <Setter Target="TabText.FontWeight" Value="SemiBold"/>
+                          </VisualState.Setters>
+                        </VisualState>
+                        <VisualState x:Name="Unchecked"/>
+                        <VisualState x:Name="Indeterminate"/>
+                      </VisualStateGroup>
+                    </VisualStateManager.VisualStateGroups>
+                    <StackPanel Orientation="Horizontal" Margin="{TemplateBinding Padding}">
+                      <!-- The tab already owns its accessible name; its label must not announce a duplicate. -->
+                      <TextBlock x:Name="TabText" FontSize="12" VerticalAlignment="Center"
+                                 AutomationProperties.AccessibilityView="Raw"
+                                 Foreground="{TemplateBinding Foreground}"
+                                 Text="{TemplateBinding Tag}"/>
+                      <ContentPresenter VerticalAlignment="Center"
+                                        Content="{TemplateBinding Content}"
+                                        ContentTemplate="{TemplateBinding ContentTemplate}"/>
+                    </StackPanel>
+                    <Border x:Name="TabRule" Height="2" CornerRadius="1" Visibility="Collapsed"
+                            VerticalAlignment="Bottom" Margin="8,0,8,0"
+                            Background="{ThemeResource AccentFillColorDefaultBrush}"/>
+                  </Grid>
+                </ControlTemplate>
+              </Setter.Value>
+            </Setter>
+          </Style>
+        </Grid.Resources>
+        <StackPanel Orientation="Horizontal" Spacing="2" HorizontalAlignment="Left">
+          <!-- Qualify the accessible Comments name because the inspector and overlay share one app UIA
+               namespace. SelectionItemPattern reports mode independently of the visible label. -->
+          <RadioButton x:Name="TreeTabBtn" Style="{StaticResource DevToolsViewTab}" Tag="Visual tree"
+                       IsChecked="True"
+                       ToolTipService.ToolTip="Show this app's visual tree"
+                       AutomationProperties.Name="Visual tree (inspector)"
+                       AutomationProperties.AutomationId="ViewTabTree"/>
+          <!-- The badge is the open-comment count: the same set the overlay's marker toggle shows. It is
+               Collapsed at zero so "no comments" is a readable state and not a 0 chip. -->
+          <RadioButton x:Name="CommentsTabBtn" Style="{StaticResource DevToolsViewTab}" Tag="Comments"
+                       ToolTipService.ToolTip="Show this app's UI comments"
+                       AutomationProperties.Name="Comments (inspector)"
+                       AutomationProperties.AutomationId="ViewTabComments">
+            <Border x:Name="CommentsBadge" Visibility="Collapsed" Margin="6,0,0,0"
+                    MinWidth="18" Height="16" CornerRadius="8" Padding="5,0"
+                    Background="{ThemeResource AccentFillColorDefaultBrush}">
+              <TextBlock x:Name="CommentsLbl" Text="0" FontSize="10" FontWeight="SemiBold"
+                         Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center"
+                         AutomationProperties.AccessibilityView="Raw"/>
+            </Border>
+          </RadioButton>
+        </StackPanel>
+      </Grid>
+      <Grid x:Name="TreeControls" Grid.Row="1" Margin="8,8,8,4" ColumnSpacing="8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="PickBtn" Grid.Column="0" Width="32" Height="32" Padding="0"
+               ToolTipService.ToolTip="Pick element (Ctrl+Shift+P)"
+               AutomationProperties.Name="Pick element (inspector)"
+               AutomationProperties.AutomationId="PickElementToggle">
+          <Grid Width="28" Height="28">
+            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE7C9;" FontSize="14"/>
+            <Border x:Name="PickOn" Width="16" Height="2" CornerRadius="1"
+                   Background="{ThemeResource AccentFillColorDefaultBrush}"
+                   HorizontalAlignment="Center" VerticalAlignment="Bottom" Visibility="Collapsed"/>
+          </Grid>
+        </Button>
+        <Button x:Name="FocusBtn" Grid.Column="1" Width="32" Height="32" Padding="0"
+               ToolTipService.ToolTip="Track keyboard focus"
+               AutomationProperties.Name="Track keyboard focus"
+               AutomationProperties.AutomationId="FocusTrackingToggle">
+          <Grid Width="28" Height="28">
+            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE7B3;" FontSize="14"/>
+            <Border x:Name="FocusOn" Width="16" Height="2" CornerRadius="1"
+                   Background="{ThemeResource AccentFillColorDefaultBrush}"
+                   HorizontalAlignment="Center" VerticalAlignment="Bottom" Visibility="Collapsed"/>
+          </Grid>
+        </Button>
+        <TextBox x:Name="TreeFilter" Grid.Column="2" PlaceholderText="Filter tree &#x2014; type or #name" AutomationProperties.Name="TreeFilter"/>
+        <!-- The wrapper owns the tooltip so the unavailable reason remains discoverable even while the
+             ToggleButton itself is disabled. JmxLbl is the single live text source: it is collapsed, so it is
+             absent from the UIA tree by construction, and the toggle's AutomationProperties.Name is what
+             carries the state and the unavailable reason to assistive tech. Do not drop that binding. -->
+        <Grid Grid.Column="3" Width="32" Height="32" Background="Transparent"
+              ToolTipService.ToolTip="{Binding Text, ElementName=JmxLbl}">
+          <ToggleButton x:Name="JmxBtn" Width="32" Height="32" Padding="0"
+                        AutomationProperties.Name="{Binding Text, ElementName=JmxLbl}"
+                        AutomationProperties.AutomationId="JustMyXamlToggle">
+            <FontIcon Glyph="&#xE943;" FontSize="14"/>
+          </ToggleButton>
+          <TextBlock x:Name="JmxLbl" Text="Just my XAML" Visibility="Collapsed"
+                     AutomationProperties.AccessibilityView="Raw"/>
+        </Grid>
+      </Grid>
+      <Border x:Name="FocusNoticeHost" Grid.Row="2" Visibility="Collapsed"
+              Margin="8,0,8,4" Padding="8,6,8,6" CornerRadius="4"
+              Background="{ThemeResource ControlFillColorSecondaryBrush}">
+        <TextBlock x:Name="FocusNotice" FontSize="11" TextWrapping="Wrap"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   AutomationProperties.AutomationId="FocusNotice"/>
+      </Border>
+      <ScrollViewer x:Name="TreeScroll" Grid.Row="3" ZoomMode="Disabled" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto">
+        <StackPanel Margin="8">
+          <TextBlock x:Name="TreeHeader" Margin="4,4,4,10" Text="$TREEHEADER$" Style="{StaticResource CaptionTextBlockStyle}"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" CharacterSpacing="60"/>
+          <StackPanel x:Name="TreeRowsHost">
+            <StackPanel.Resources>
+              <SolidColorBrush x:Key="DevToolsChevronTransparent" Color="Transparent"/>
+              <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="DevToolsChevronTransparent"/>
+              <StaticResource x:Key="ToggleButtonBackgroundCheckedDisabled" ResourceKey="DevToolsChevronTransparent"/>
+              <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="SubtleFillColorSecondaryBrush"/>
+              <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="SubtleFillColorTertiaryBrush"/>
+              <StaticResource x:Key="ToggleButtonBorderBrushChecked" ResourceKey="DevToolsChevronTransparent"/>
+              <StaticResource x:Key="ToggleButtonBorderBrushCheckedPointerOver" ResourceKey="DevToolsChevronTransparent"/>
+              <StaticResource x:Key="ToggleButtonBorderBrushCheckedPressed" ResourceKey="DevToolsChevronTransparent"/>
+              <StaticResource x:Key="ToggleButtonBorderBrushCheckedDisabled" ResourceKey="DevToolsChevronTransparent"/>
+              <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="TextFillColorPrimaryBrush"/>
+              <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="TextFillColorPrimaryBrush"/>
+              <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="TextFillColorSecondaryBrush"/>
+              <StaticResource x:Key="ToggleButtonForegroundCheckedDisabled" ResourceKey="TextFillColorDisabledBrush"/>
+            </StackPanel.Resources>
+          </StackPanel>
+          <StackPanel x:Name="RowPalette" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw">
+            <Border x:Name="PalTransparent" Background="Transparent"/>
+            <TextBlock x:Name="PalAccent" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+            <TextBlock x:Name="PalPrimary" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+            <TextBlock x:Name="PalSecondary" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <TextBlock x:Name="PalTertiary" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+            <TextBlock x:Name="PalMonoFont" FontFamily="Cascadia Mono,Consolas"/>
+            <TextBlock x:Name="PalGlyphFont" FontFamily="Segoe Fluent Icons"/>
+            <TextBlock x:Name="PalCaption" Style="{StaticResource CaptionTextBlockStyle}"/>
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+      <ScrollViewer x:Name="CommentsScroll" Grid.Row="3" Visibility="Collapsed" ZoomMode="Disabled" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="CommentsHost" Margin="8"/>
+      </ScrollViewer>
+    </Grid>
+
+    <Grid Grid.Column="1">
+      <Thumb x:Name="PaneSplitter" Background="Transparent" BorderThickness="0"
+             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+             AutomationProperties.AutomationId="PaneSplitter"
+             AutomationProperties.Name="Resize the tree and properties panes"
+             ToolTipService.ToolTip="Drag to resize"/>
+    </Grid>
+
+    <!-- Collapsed ContentControls expose templates through FindName/ContentTemplate without
+         interactive or accessible host elements. TmplRow creates the compact name/value line;
+         PExpand loads editors and provenance on demand. Type styles preserve state in High Contrast.
+         PDot is status only. Restore and Clear remain separately named actions with different outcomes.
+         PopulateRowLine/PopulateExpansionInto must wire every named part. -->
+
+    <StackPanel x:Name="PropRowTemplates" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw">
+
+      <ContentControl x:Name="TmplHeader">
+        <ContentControl.ContentTemplate>
+          <DataTemplate>
+            <TextBlock x:Name="PName" Style="{StaticResource CaptionTextBlockStyle}" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,8,0,0"/>
+          </DataTemplate>
+        </ContentControl.ContentTemplate>
+      </ContentControl>
+
+      <!-- THE COLLAPSED ROW. Every property row, whatever its value shape, realizes this one.
+
+           The name column is a FIXED 126px and left-aligned so the values form a straight vertical edge down
+           the pane. A reflowing row is the defect being fixed, so this width is load-bearing rather than
+           taste. Both columns are monospace for the same reason.
+
+           PValueBtn is a flat Button rather than a bare TextBlock for two reasons that are not aesthetic:
+           clicking the value must expand the row AND land in the editor in one action, and the row has to
+           stay reachable as "<Property> value" through UIA so the pane is drivable and screen-readable.
+           Its MinHeight is 22, not the Button style's 32 -- the row's floor is the text. -->
+      <ContentControl x:Name="TmplRow">
+        <ContentControl.ContentTemplate>
+          <DataTemplate>
+            <StackPanel x:Name="PRoot" Spacing="0">
+              <Grid ColumnSpacing="8" ColumnDefinitions="14,126,*" MinHeight="22" Padding="4,1,4,1">
+                <Button x:Name="PChevron" Grid.Column="0" Content="&#xE76C;" FontFamily="Segoe Fluent Icons" FontSize="8"
+                        Background="Transparent" BorderThickness="0" Padding="0" MinWidth="0" MinHeight="0"
+                        Width="14" Height="18" VerticalAlignment="Center" Visibility="Collapsed"/>
+                <TextBlock x:Name="PName" Grid.Column="1" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
+                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                <!-- Keep the changed marker outside the value Button so UIA invocation cannot turn status
+                     into the nearest ancestor's action. Both share the value cell without another column. -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
+                  <TextBlock x:Name="PDot" Text="&#x25CF;" FontSize="10" Margin="2,0,5,0" VerticalAlignment="Center"
+                             Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                  <Button x:Name="PValueBtn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                          Background="Transparent" BorderThickness="0" Padding="2,0,2,0" MinHeight="22" MinWidth="0">
+                    <TextBlock x:Name="PValue" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
+                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                  </Button>
+                </StackPanel>
+              </Grid>
+              <StackPanel x:Name="PExpand" Visibility="Collapsed" Spacing="0"/>
+            </StackPanel>
+          </DataTemplate>
+        </ContentControl.ContentTemplate>
+      </ContentControl>
+
+
+      <ContentControl x:Name="TmplExpRead">
+        <ContentControl.ContentTemplate>
+          <DataTemplate>
+            <Border x:Name="PExpFrame" Margin="22,1,0,6" Padding="9,7,9,8" CornerRadius="0,4,4,0"
+                    BorderThickness="2,0,0,0" BorderBrush="{ThemeResource AccentFillColorSecondaryBrush}"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+              <StackPanel Spacing="0">
+                <TextBlock x:Name="PDerivedHdr" Text="DERIVED FROM" FontSize="10" CharacterSpacing="60" Margin="0,0,0,3" Visibility="Collapsed" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                <StackPanel x:Name="PWitAuthored" Visibility="Collapsed">
+                  <TextBlock x:Name="POrigin" Style="{StaticResource CaptionTextBlockStyle}" Margin="0,0,0,4" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <StackPanel x:Name="PWitSession" Visibility="Collapsed" Spacing="4">
+                  <TextBlock x:Name="PSessionText" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                  <TextBlock x:Name="PSessionNote" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                </StackPanel>
+                <StackPanel x:Name="PWitChain" Visibility="Collapsed" Margin="0,4,0,4">
+                  <StackPanel x:Name="PChain" Spacing="4"/>
+                </StackPanel>
+                <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,2,0,2" Spacing="0"/>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ContentControl.ContentTemplate>
+      </ContentControl>
+
+      <!-- THE EDITABLE EXPANSION. Blocks appear only when they apply, in the order the design settled on
+           (rounds 8-10): what it is -> what you can do -> what you did -> why it is that way.
+
+               KIND -> the selected kind's editor -> (staged) -> EDITED -> ACTIONS -> DERIVED FROM -> DIAGNOSIS
+
+           A plain literal is four lines. Only the hard cases are tall.
+
+           EXACTLY ONE of PEdText / PEdBool / PEdEnum / PEdColor / PEdFields / PEdRes / PEdBind / PEdXBind is
+           ever Visible, and it is the one the KIND dropdown names. PopulateKindEditor is the single place that
+           decides, so there is one function to read rather than a Visibility rule per editor.
+
+           {x:Bind} HAS NO EDITABLE FIELD AT ALL. PEdXBind is a read-only TextBlock, an explanation, and an
+           EXIT -- a button that stages {Binding}. That is not a cosmetic difference from the other kinds: an
+           {x:Bind} is compiled into generated code at build time, so a box that accepted typing could only
+           ever destroy it. The row that needs the exit most is the BROKEN one, which produces no value at all
+           and cannot be diagnosed from this pane, so without it that row is a dead end ('s defect).
+
+           A RESOURCE KEY IS TEXT AND ONLY TEXT. PEdRes holds the key; the resolved literal is on the
+           row line above. `{ThemeResource K}` must NEVER enter this document or anything parsed from it --
+           every reference a XAML parse resolves costs +0.003 ms more than the last one for the life of the
+           process. The reference is put on the APP's element through an ABI call (ResolveResource), so this
+           pane's markup gains zero of them.
+
+           NOTHING HERE USES A FILL TO CARRY STATE. The staged banner and the session witness are
+           strokes and type style, because High Contrast keeps those and drops fills. -->
+      <ContentControl x:Name="TmplExpEdit">
+        <ContentControl.ContentTemplate>
+          <DataTemplate>
+            <Border x:Name="PExpFrame" Margin="22,1,0,6" Padding="9,7,9,8" CornerRadius="0,4,4,0"
+                    BorderThickness="2,0,0,0" BorderBrush="{ThemeResource AccentFillColorSecondaryBrush}"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+              <StackPanel Spacing="0">
+
+                <!-- KIND. Selecting stages; it does not apply. Opening this list to see the options must not
+                     destroy a live binding, and a kind without its content ({StaticResource} with no key) is
+                     not a valid state, so the kind and its editor commit together as one edit. -->
+                <TextBlock x:Name="PKindHdr" Text="KIND" FontSize="10" CharacterSpacing="60" Margin="0,0,0,3" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                <ComboBox x:Name="PKind" MinWidth="150" HorizontalAlignment="Stretch" FontSize="12"/>
+
+                <StackPanel x:Name="PEdWrap" Margin="0,7,0,0" Spacing="0">
+
+                  <StackPanel x:Name="PEdText" Visibility="Collapsed" Spacing="3">
+                    <TextBlock x:Name="PEdTextLbl" Text="VALUE" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <TextBox x:Name="PEdit" MinHeight="30" FontSize="12" FontFamily="Consolas"/>
+                  </StackPanel>
+
+                  <StackPanel x:Name="PEdBool" Visibility="Collapsed" Spacing="3">
+                    <TextBlock Text="VALUE" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                    <ToggleSwitch x:Name="PToggle" MinWidth="0" HorizontalAlignment="Left" OnContent="True" OffContent="False"/>
+                  </StackPanel>
+
+                  <StackPanel x:Name="PEdEnum" Visibility="Collapsed" Spacing="3">
+                    <TextBlock Text="VALUE" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                    <ComboBox x:Name="PCombo" MinWidth="150" HorizontalAlignment="Left"/>
+                  </StackPanel>
+
+                  <StackPanel x:Name="PEdColor" Visibility="Collapsed" Spacing="3">
+                    <TextBlock Text="COLOR" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
+                      <Border x:Name="PSwatch" Grid.Column="0" Width="30" Height="30" CornerRadius="4"
+                              BorderThickness="1" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"/>
+                      <TextBox x:Name="PHex" Grid.Column="1" MinHeight="30" FontSize="12" FontFamily="Consolas"/>
+                    </Grid>
+                    <ComboBox x:Name="PPreset" MinWidth="132" FontSize="12" PlaceholderText="preset colour" Visibility="Collapsed" Margin="0,3,0,0"/>
+                  </StackPanel>
+
+                  <StackPanel x:Name="PEdFields" Visibility="Collapsed" Spacing="3">
+                    <TextBlock x:Name="PFieldsLbl" Text="FIELDS" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <StackPanel x:Name="PFieldBoxes" Orientation="Horizontal" Spacing="6"/>
+                  </StackPanel>
+
+                  <StackPanel x:Name="PEdRes" Visibility="Collapsed" Spacing="3">
+                    <TextBlock x:Name="PResLbl" Text="RESOURCE KEY" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <TextBox x:Name="PResKey" MinHeight="30" FontSize="12" FontFamily="Consolas" PlaceholderText="type a key"/>
+                    <StackPanel x:Name="PResSug" Spacing="0" Visibility="Collapsed"/>
+                    <TextBlock x:Name="PResNote" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="the key, as text. The resolved value is on the row above."/>
+                  </StackPanel>
+
+                  <!-- {Binding}: the binding's OWN fields. Write-a-test-value is one of them and not a
+                       bolt-on action, because writing through to the source exists only because Mode is
+                       TwoWay -- it is a property of the binding, not of the value. On OneWay it is disabled
+                       with the reason on its face rather than hidden. -->
+                  <StackPanel x:Name="PEdBind" Visibility="Collapsed" Spacing="3">
+                    <TextBlock Text="PATH" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                    <TextBox x:Name="PPath" MinHeight="30" FontSize="12" FontFamily="Consolas" PlaceholderText="a path on the DataContext"/>
+                    <TextBlock x:Name="PPathMsg" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,3,0,0"
+                               IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="MODE" FontSize="10" CharacterSpacing="60" Margin="0,4,0,0" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                    <ComboBox x:Name="PMode" MinWidth="150" HorizontalAlignment="Left" FontSize="12"/>
+                    <TextBlock x:Name="PWriteLbl" Text="WRITE A TEST VALUE" FontSize="10" CharacterSpacing="60" Margin="0,6,0,0" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                      <TextBox x:Name="PWriteVal" Grid.Column="0" MinHeight="30" FontSize="12" FontFamily="Consolas"/>
+                      <Button x:Name="PWriteSrc" Grid.Column="1" FontSize="11" Padding="8,4,8,4" MinHeight="0" VerticalAlignment="Stretch"/>
+                    </Grid>
+                    <TextBlock x:Name="PBindNote" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="applied to the running app only. Your .xaml is not changed."/>
+                  </StackPanel>
+
+                  <StackPanel x:Name="PEdXBind" Visibility="Collapsed" Spacing="3">
+                    <TextBlock Text="EXPRESSION" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                    <Border BorderThickness="1" CornerRadius="4" Padding="7,5,7,5"
+                            BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}">
+                      <TextBlock x:Name="PXExpr" FontSize="12" FontFamily="Consolas" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Border>
+                    <!-- Keep explanation on enabled PXInfo, not the potentially disabled action. Tooltip plus
+                         focus-revealed text supports keyboard and touch as well as hover. -->
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,4,0,0">
+                      <TextBlock x:Name="PXWhy" Grid.Column="0" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center"
+                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                      <Button x:Name="PXInfo" Grid.Column="1" Width="22" Height="22" MinWidth="0" MinHeight="0" Padding="0"
+                              VerticalAlignment="Top"
+                              ToolTipService.ToolTip="An {x:Bind} is compiled into generated code when the app is built, and the runtime exposes no way to create or change one.&#x0A;&#x0A;Choosing {Binding} installs a runtime binding with SetBinding &#x2014; on the running app only. Your .xaml is not changed, and the compiled binding cannot be restored without restarting.">
+                        <FontIcon Glyph="&#xE946;" FontSize="12" AutomationProperties.AccessibilityView="Raw"/>
+                      </Button>
+                    </Grid>
+                    <!-- The same text the tooltip carries, revealed while PXInfo has focus. This is the half a
+                         tooltip cannot do, and it is what the keyboard route is asserted against. -->
+                    <TextBlock x:Name="PXInfoText" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,3,0,0"
+                               IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <Button x:Name="PXBindExit" FontSize="11" Padding="8,4,8,4" MinHeight="0" HorizontalAlignment="Left" Margin="0,3,0,0"
+                            Content="Switch to {Binding}..."/>
+                  </StackPanel>
+
+                </StackPanel>
+
+                <Border x:Name="PStaged" Visibility="Collapsed" Margin="0,8,0,0" Padding="8,6,8,7"
+                        BorderThickness="2,0,0,0" CornerRadius="0,4,4,0"
+                        BorderBrush="{ThemeResource SystemFillColorCautionBrush}">
+                  <StackPanel Spacing="3">
+                    <TextBlock x:Name="PStagedHead" FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="PStagedBody" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                      <Button x:Name="PApply" Content="Apply" FontSize="11" Padding="8,4,8,4" MinHeight="0"/>
+                      <Button x:Name="PCancel" Content="Cancel" FontSize="11" Padding="8,4,8,4" MinHeight="0"/>
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+
+                <TextBlock x:Name="PStageHint" Visibility="Collapsed" FontSize="11" TextWrapping="Wrap" Margin="0,7,0,0"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                <!-- The confirm: a commit refused because it would replace a binding or a resource link. -->
+                <Button x:Name="PConfirm" Visibility="Collapsed" Margin="0,6,0,0" Padding="6,2,6,2" HorizontalAlignment="Left">
+                  <TextBlock x:Name="PConfirmText" FontSize="11" TextWrapping="Wrap"/>
+                </Button>
+
+                <TextBlock x:Name="PEditedHdr" Text="EDITED" FontSize="10" CharacterSpacing="60" Margin="0,9,0,3" Visibility="Collapsed" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                <TextBlock x:Name="PEditedWas" FontSize="11" FontFamily="Consolas" TextWrapping="Wrap" Visibility="Collapsed" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+                  <Button x:Name="PRestore" Content="Restore original" FontSize="11" Padding="8,4,8,4" MinHeight="0" Visibility="Collapsed" ToolTipService.ToolTip="Restore: put this property back to the value it had before you changed it."/>
+                  <Button x:Name="PClear" Content="Clear value" FontSize="11" Padding="8,4,8,4" MinHeight="0" Visibility="Collapsed" ToolTipService.ToolTip="Clear value: DELETES the local value. The property falls back to its default and any binding or resource link is gone. This is not an undo."/>
+                </StackPanel>
+
+                <TextBlock x:Name="PDerivedHdr" Text="DERIVED FROM" FontSize="10" CharacterSpacing="60" Margin="0,10,0,3" Visibility="Collapsed" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                <Border x:Name="PWitAuthored" Visibility="Collapsed" Margin="0,0,0,4" Padding="7,4,0,4"
+                        BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                  <StackPanel Spacing="1">
+                    <TextBlock Text="the app's source" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                    <TextBlock x:Name="POrigin" FontSize="11" FontFamily="Consolas" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                  </StackPanel>
+                </Border>
+                <Border x:Name="PWitSession" Visibility="Collapsed" Margin="0,0,0,4" Padding="7,4,0,4"
+                        BorderThickness="1,0,0,0" CornerRadius="0"
+                        BorderBrush="{ThemeResource TextFillColorTertiaryBrush}">
+                  <StackPanel Spacing="1">
+                    <TextBlock Text="DevTools, this session" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                    <TextBlock x:Name="PSessionText" FontSize="11" FontFamily="Consolas" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="PSessionNote" FontSize="10" TextWrapping="Wrap" FontStyle="Italic" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                  </StackPanel>
+                </Border>
+                <Border x:Name="PWitChain" Visibility="Collapsed" Margin="0,0,0,4" Padding="7,4,0,4"
+                        BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                  <StackPanel Spacing="1">
+                    <TextBlock x:Name="PChainWho" Text="the runtime's precedence chain" FontSize="10" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                    <StackPanel x:Name="PChain" Spacing="1"/>
+                  </StackPanel>
+                </Border>
+
+                <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,6,0,0" Spacing="0"/>
+
+                <StackPanel x:Name="PDiagBlock" Visibility="Collapsed" Margin="0,10,0,0" Spacing="2">
+                  <TextBlock x:Name="PDiagQ" FontSize="12" FontFamily="Consolas" TextWrapping="Wrap" Visibility="Collapsed"
+                             IsTextSelectionEnabled="True"/>
+                  <TextBlock x:Name="PDiag" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" IsTextSelectionEnabled="True"
+                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                  <Border x:Name="PWalk" Visibility="Collapsed" Margin="0,4,0,0" Padding="7,3,0,3"
+                          BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <StackPanel x:Name="PWalkLines" Spacing="1"/>
+                  </Border>
+                  <TextBlock x:Name="PWalkAgentNote" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,4,0,0"
+                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                </StackPanel>
+
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ContentControl.ContentTemplate>
+      </ContentControl>
+
+
+    </StackPanel>
+
+    <Grid x:Name="DetailsPane" Grid.Column="2"
+          Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+          BorderBrush="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+          BorderThickness="1"
+          CornerRadius="8,0,0,0">
+      <ScrollViewer x:Name="PropsScroll" AutomationProperties.AutomationId="WinAppDevToolsPropScroll"
+                    AutomationProperties.Name="Properties pane scroller">
+        <StackPanel x:Name="PropsHost" Margin="14">
+          <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Text="Select a node on the left to inspect and edit its properties."/>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+  </Grid>
+</Grid>

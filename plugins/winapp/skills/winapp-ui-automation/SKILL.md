@@ -10,6 +10,12 @@ description: Inspect and interact with running Windows app UIs from the command 
 - Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs
 
 ## Prerequisites
+For WinUI 3 XAML source/tree, bindings or dependency-property diagnosis and edits,
+use the `winui-devtools` skill and `winapp devtools`. It requires an attached
+target or explicit authorization to inject with `--attach`; a PID alone is not
+consent. UIA selectors do not transfer to DevTools. Continue using `winapp ui`
+for cross-framework actions, screenshots, waits and accessibility.
+
 - For UIA mode (any app): No setup needed — works with any running Windows app
 - For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
 - `screenshot` is **not** in that group: it always takes an exclusive turn, so it queues behind other UI workflows, and capture can need a usable interactive desktop — the engine restores the target if it is minimized, and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used.

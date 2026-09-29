@@ -250,7 +250,7 @@ export interface CreateDebugIdentityOptions extends CommonOptions {
 export async function createDebugIdentity(options: CreateDebugIdentityOptions = {}): Promise<WinappResult> {
   const args: string[] = ['create-debug-identity'];
   const positionals: string[] = [];
-  if (options.entrypoint) positionals.push(options.entrypoint);
+  if (options.entrypoint !== undefined) positionals.push(options.entrypoint);
   if (options.keepIdentity) args.push('--keep-identity');
   if (options.manifest !== undefined) args.push('--manifest', options.manifest);
   if (options.noInstall) args.push('--no-install');
@@ -289,6 +289,643 @@ export async function createExternalCatalog(options: CreateExternalCatalogOption
   if (options.output !== undefined) args.push('--output', options.output);
   if (options.recursive) args.push('--recursive');
   if (options.usePageHashes) args.push('--use-page-hashes');
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools attach
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsAttachOptions extends CommonOptions {
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** App PID, process name, or window title; use --on sandbox for a guest app. */
+  app?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Show the in-app DevTools overlay after attaching. */
+  overlay?: boolean;
+  /** Process id of the running WinUI 3 app to attach to. */
+  pid?: number;
+  /** Open the in-process DevTools inspector window and its supporting overlay after attaching. */
+  showWindow?: boolean;
+}
+
+/**
+ * Enable DevTools in a running WinUI 3 app until that app exits.
+ */
+export async function devtoolsAttach(options: DevtoolsAttachOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'attach'];
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.json) args.push('--json');
+  if (options.overlay) args.push('--overlay');
+  if (options.pid !== undefined) args.push('--pid', options.pid.toString());
+  if (options.showWindow) args.push('--show-window');
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools call
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsCallOptions extends CommonOptions {
+  /** The DevTools method to call, e.g. DevTools.ping, Layout.get, Overlay.highlight. */
+  method?: string;
+  /** Method parameters. name=value sends a string; name:=value sends raw JSON (e.g. appAuthoredOnly:=true, depth:=4). */
+  params?: string | string[];
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Authorize attaching DevTools if the target is not already attached. */
+  attach?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
+  root?: string;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+/**
+ * Call an advertised DevTools protocol method (advanced).
+ */
+export async function devtoolsCall(options: DevtoolsCallOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'call'];
+  const positionals: string[] = [];
+  if (options.method !== undefined) positionals.push(options.method);
+  if (options.params !== undefined) {
+    const paramsArr = Array.isArray(options.params) ? options.params : [options.params];
+    positionals.push(...paramsArr);
+  }
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.attach) args.push('--attach');
+  if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools comments add
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsCommentsAddOptions extends CommonOptions {
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Live capture and marker target: PID, process name, or window title. */
+  app?: string;
+  /** Source column (advisory). */
+  column?: number;
+  /** Confirm the displayed likely source declaration for this capture; its compiled identity is unverified. */
+  confirmLikelySource?: boolean;
+  /** Source file leaf the element lives in (e.g. MainWindow.xaml). */
+  file?: string;
+  /** Use an element's x:Name or handle in a running DevTools app (requires --app). */
+  fromElement?: string;
+  /** Use the picked element in a running DevTools app (requires --app). */
+  fromSelection?: boolean;
+  /** Create or replace the comment with this ID. */
+  id?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Triage: visual | binding | behavior | a11y | other. */
+  kind?: string;
+  /** Source line (advisory). */
+  line?: number;
+  /** Element x:Name. */
+  name?: string;
+  /** Project directory (default: current directory); comments are stored at the repository root. */
+  sourceRoot?: string;
+  /** The comment text (required). */
+  text?: string;
+}
+
+/**
+ * Author a source-anchored UI review comment into .winapp/ui-comments.json.
+ */
+export async function devtoolsCommentsAdd(options: DevtoolsCommentsAddOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'comments', 'add'];
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.column !== undefined) args.push('--column', options.column.toString());
+  if (options.confirmLikelySource) args.push('--confirm-likely-source');
+  if (options.file !== undefined) args.push('--file', options.file);
+  if (options.fromElement !== undefined) args.push('--from-element', options.fromElement);
+  if (options.fromSelection) args.push('--from-selection');
+  if (options.id !== undefined) args.push('--id', options.id);
+  if (options.json) args.push('--json');
+  if (options.kind !== undefined) args.push('--kind', options.kind);
+  if (options.line !== undefined) args.push('--line', options.line.toString());
+  if (options.name !== undefined) args.push('--name', options.name);
+  if (options.sourceRoot !== undefined) args.push('--source-root', options.sourceRoot);
+  if (options.text !== undefined) args.push('--text', options.text);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools comments delete
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsCommentsDeleteOptions extends CommonOptions {
+  /** The comment id. */
+  id: string;
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Optional marker refresh target: PID, process name, or window title. */
+  app?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Project directory (default: current directory); comments are stored at the repository root. */
+  sourceRoot?: string;
+}
+
+/**
+ * Delete a UI comment from .winapp/ui-comments.json permanently.
+ */
+export async function devtoolsCommentsDelete(options: DevtoolsCommentsDeleteOptions): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'comments', 'delete'];
+  const positionals: string[] = [];
+  positionals.push(options.id);
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.json) args.push('--json');
+  if (options.sourceRoot !== undefined) args.push('--source-root', options.sourceRoot);
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools comments get
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsCommentsGetOptions extends CommonOptions {
+  /** The comment id. */
+  id: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Project directory (default: current directory); comments are stored at the repository root. */
+  sourceRoot?: string;
+}
+
+/**
+ * Show one locally saved UI comment and source matches; use --source-root, not --app or --on.
+ */
+export async function devtoolsCommentsGet(options: DevtoolsCommentsGetOptions): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'comments', 'get'];
+  const positionals: string[] = [];
+  positionals.push(options.id);
+  if (options.json) args.push('--json');
+  if (options.sourceRoot !== undefined) args.push('--source-root', options.sourceRoot);
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools comments list
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsCommentsListOptions extends CommonOptions {
+  /** Include all statuses (the default for --json). */
+  all?: boolean;
+  /** App display name included in the output. */
+  appTitle?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Filter by the captured project root. */
+  project?: string;
+  /** Project directory (default: current directory); comments are stored at the repository root. */
+  sourceRoot?: string;
+  /** Filter by status: open | resolved | stale | dismissed (default: open for human output; all statuses with --json). */
+  status?: string;
+}
+
+/**
+ * List locally saved UI comments and source matches; use --source-root, not --app or --on.
+ */
+export async function devtoolsCommentsList(options: DevtoolsCommentsListOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'comments', 'list'];
+  if (options.all) args.push('--all');
+  if (options.appTitle !== undefined) args.push('--app-title', options.appTitle);
+  if (options.json) args.push('--json');
+  if (options.project !== undefined) args.push('--project', options.project);
+  if (options.sourceRoot !== undefined) args.push('--source-root', options.sourceRoot);
+  if (options.status !== undefined) args.push('--status', options.status);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools comments update
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsCommentsUpdateOptions extends CommonOptions {
+  /** The comment id. */
+  id: string;
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Optional marker refresh target: PID, process name, or window title. */
+  app?: string;
+  /** Who made the update (default: current user). */
+  by?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** What changed, or why work is deferred. */
+  note?: string;
+  /** Project directory (default: current directory); comments are stored at the repository root. */
+  sourceRoot?: string;
+  /** New status: open | resolved | stale | dismissed. */
+  status?: string;
+}
+
+/**
+ * Update a saved UI comment's status and optional note.
+ */
+export async function devtoolsCommentsUpdate(options: DevtoolsCommentsUpdateOptions): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'comments', 'update'];
+  const positionals: string[] = [];
+  positionals.push(options.id);
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.by !== undefined) args.push('--by', options.by);
+  if (options.json) args.push('--json');
+  if (options.note !== undefined) args.push('--note', options.note);
+  if (options.sourceRoot !== undefined) args.push('--source-root', options.sourceRoot);
+  if (options.status !== undefined) args.push('--status', options.status);
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools diagnose-binding
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsDiagnoseBindingOptions extends CommonOptions {
+  /** Element to inspect: the selector printed in brackets, an x:Name, or a handle. */
+  selector?: string;
+  /** The bound dependency property, e.g. IsEnabled or Text. */
+  property?: string;
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Authorize attaching DevTools if the target is not already attached. */
+  attach?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
+  root?: string;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+/**
+ * Explain a live binding's path, source, and any failure.
+ */
+export async function devtoolsDiagnoseBinding(options: DevtoolsDiagnoseBindingOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'diagnose-binding'];
+  const positionals: string[] = [];
+  if (options.selector !== undefined) positionals.push(options.selector);
+  if (options.property !== undefined) positionals.push(options.property);
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.attach) args.push('--attach');
+  if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools get-layout
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsGetLayoutOptions extends CommonOptions {
+  /** Element to read: the selector printed in brackets, an x:Name, or a handle. */
+  selector?: string;
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Authorize attaching DevTools if the target is not already attached. */
+  attach?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
+  root?: string;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+/**
+ * Read an element's size, position, and parent layout.
+ */
+export async function devtoolsGetLayout(options: DevtoolsGetLayoutOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'get-layout'];
+  const positionals: string[] = [];
+  if (options.selector !== undefined) positionals.push(options.selector);
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.attach) args.push('--attach');
+  if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools get-property
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsGetPropertyOptions extends CommonOptions {
+  /** Element to read: the selector printed in brackets, an x:Name, or a handle. */
+  selector?: string;
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Include default-valued properties, not only explicitly set ones. */
+  all?: boolean;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Authorize attaching DevTools if the target is not already attached. */
+  attach?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Match an exact XAML runtime type; short names must be unambiguous. */
+  ofType?: string;
+  /** Dependency property name (e.g. Width, IsEnabled, Background). */
+  property?: string;
+  /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
+  root?: string;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+  /** Property<operator>Literal predicate. Repeat for AND; quote the whole argument. */
+  with?: string | string[];
+}
+
+/**
+ * Read an element's live property values and where they come from.
+ */
+export async function devtoolsGetProperty(options: DevtoolsGetPropertyOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'get-property'];
+  const positionals: string[] = [];
+  if (options.selector !== undefined) positionals.push(options.selector);
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.all) args.push('--all');
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.attach) args.push('--attach');
+  if (options.json) args.push('--json');
+  if (options.ofType !== undefined) args.push('--of-type', options.ofType);
+  if (options.property !== undefined) args.push('--property', options.property);
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (options.with) {
+    const withArr = Array.isArray(options.with) ? options.with : [options.with];
+    for (const v of withArr) args.push('--with', v);
+  }
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools get-source
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsGetSourceOptions extends CommonOptions {
+  /** Element to read: the selector printed in brackets, an x:Name, or a handle. */
+  selector?: string;
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Authorize attaching DevTools if the target is not already attached. */
+  attach?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
+  root?: string;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+/**
+ * Find an element's XAML declaration, when source information is available.
+ */
+export async function devtoolsGetSource(options: DevtoolsGetSourceOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'get-source'];
+  const positionals: string[] = [];
+  if (options.selector !== undefined) positionals.push(options.selector);
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.attach) args.push('--attach');
+  if (options.json) args.push('--json');
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools inspect
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsInspectOptions extends CommonOptions {
+  /** Element to inspect: the selector printed in brackets, an x:Name, or a handle. Defaults to the whole tree. */
+  selector?: string;
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Include framework and control-template elements, not just the ones your XAML declares. */
+  all?: boolean;
+  /** Show the path from the selected element up to the tree root instead of its subtree. */
+  ancestors?: boolean;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Authorize attaching DevTools if the target is not already attached. */
+  attach?: boolean;
+  /** Levels to expand in your XAML (--all counts framework levels too). */
+  depth?: number;
+  /** Comma-separated runtime property names to return on every match. */
+  fields?: string;
+  /** Keep only elements whose type, x:Name, or source file matches this text (ancestors are kept for context). */
+  filter?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Match an exact XAML runtime type; short names must be unambiguous. */
+  ofType?: string;
+  /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
+  root?: string;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+  /** Property<operator>Literal predicate. Repeat for AND; quote the whole argument. */
+  with?: string | string[];
+}
+
+/**
+ * Show the app's live XAML tree and reusable element selectors.
+ */
+export async function devtoolsInspect(options: DevtoolsInspectOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'inspect'];
+  const positionals: string[] = [];
+  if (options.selector !== undefined) positionals.push(options.selector);
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.all) args.push('--all');
+  if (options.ancestors) args.push('--ancestors');
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.attach) args.push('--attach');
+  if (options.depth !== undefined) args.push('--depth', options.depth.toString());
+  if (options.fields !== undefined) args.push('--fields', options.fields);
+  if (options.filter !== undefined) args.push('--filter', options.filter);
+  if (options.json) args.push('--json');
+  if (options.ofType !== undefined) args.push('--of-type', options.ofType);
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (options.with) {
+    const withArr = Array.isArray(options.with) ? options.with : [options.with];
+    for (const v of withArr) args.push('--with', v);
+  }
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools list
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsListOptions extends CommonOptions {
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Include running WinUI apps that do not yet have DevTools attached. */
+  includeAvailable?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+}
+
+/**
+ * List apps with DevTools attached.
+ */
+export async function devtoolsList(options: DevtoolsListOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'list'];
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.includeAvailable) args.push('--include-available');
+  if (options.json) args.push('--json');
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools search
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsSearchOptions extends CommonOptions {
+  /** Match text content, type, x:Name, or source file (case-insensitive). */
+  query?: string;
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Include framework and control-template elements, not just the ones your XAML declares. */
+  all?: boolean;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Authorize attaching DevTools if the target is not already attached. */
+  attach?: boolean;
+  /** Comma-separated runtime property names to return on every match. */
+  fields?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Maximum matches to print (default 50). */
+  max?: number;
+  /** Match an exact XAML runtime type; short names must be unambiguous. */
+  ofType?: string;
+  /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
+  root?: string;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+  /** Property<operator>Literal predicate. Repeat for AND; quote the whole argument. */
+  with?: string | string[];
+}
+
+/**
+ * Find live XAML elements and print their reusable selectors.
+ */
+export async function devtoolsSearch(options: DevtoolsSearchOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'search'];
+  const positionals: string[] = [];
+  if (options.query !== undefined) positionals.push(options.query);
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.all) args.push('--all');
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.attach) args.push('--attach');
+  if (options.fields !== undefined) args.push('--fields', options.fields);
+  if (options.json) args.push('--json');
+  if (options.max !== undefined) args.push('--max', options.max.toString());
+  if (options.ofType !== undefined) args.push('--of-type', options.ofType);
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (options.with) {
+    const withArr = Array.isArray(options.with) ? options.with : [options.with];
+    for (const v of withArr) args.push('--with', v);
+  }
+  if (positionals.length > 0) args.push('--', ...positionals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// devtools set-property
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsSetPropertyOptions extends CommonOptions {
+  /** Element to change: the selector printed in brackets, an x:Name, or a handle. */
+  selector?: string;
+  /** The new value, e.g. 200, false, #FF0067C0, or "Save changes". */
+  value?: string;
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  on?: string;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Authorize attaching DevTools if the target is not already attached. */
+  attach?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Match an exact XAML runtime type; short names must be unambiguous. */
+  ofType?: string;
+  /** Dependency property name (e.g. Width, IsEnabled, Background). */
+  property?: string;
+  /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
+  root?: string;
+  /** XAML type to create the value as (e.g. Double, Boolean, String, Thickness). Inferred from the value when omitted. */
+  type?: string;
+  /** New literal value for a query-targeted set; omit the positional selector. */
+  queryValue?: string;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+  /** Property<operator>Literal predicate. Repeat for AND; quote the whole argument. */
+  with?: string | string[];
+}
+
+/**
+ * Change a live property and read it back; source files stay unchanged.
+ */
+export async function devtoolsSetProperty(options: DevtoolsSetPropertyOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['devtools', 'set-property'];
+  const positionals: string[] = [];
+  if (options.selector !== undefined) positionals.push(options.selector);
+  if (options.value !== undefined) positionals.push(options.value);
+  if (options.on !== undefined) args.push('--on', options.on);
+  if (options.app !== undefined) args.push('--app', options.app);
+  if (options.attach) args.push('--attach');
+  if (options.json) args.push('--json');
+  if (options.ofType !== undefined) args.push('--of-type', options.ofType);
+  if (options.property !== undefined) args.push('--property', options.property);
+  if (options.root !== undefined) args.push('--root', options.root);
+  if (options.type !== undefined) args.push('--type', options.type);
+  if (options.queryValue !== undefined) args.push('--value=' + options.queryValue);
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  if (options.with) {
+    const withArr = Array.isArray(options.with) ? options.with : [options.with];
+    for (const v of withArr) args.push('--with', v);
+  }
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
 }
@@ -339,7 +976,7 @@ export interface FindApiOptions extends CommonOptions {
 export async function findApi(options: FindApiOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-api'];
   const positionals: string[] = [];
-  if (options.query) {
+  if (options.query !== undefined) {
     const queryArr = Array.isArray(options.query) ? options.query : [options.query];
     positionals.push(...queryArr);
   }
@@ -374,8 +1011,8 @@ export interface FindApiCheckPropertyOptions extends CommonOptions {
 export async function findApiCheckProperty(options: FindApiCheckPropertyOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-api', 'check-property'];
   const positionals: string[] = [];
-  if (options.type) positionals.push(options.type);
-  if (options.property) {
+  if (options.type !== undefined) positionals.push(options.type);
+  if (options.property !== undefined) {
     const propertyArr = Array.isArray(options.property) ? options.property : [options.property];
     positionals.push(...propertyArr);
   }
@@ -409,7 +1046,7 @@ export interface FindApiEnumsOptions extends CommonOptions {
 export async function findApiEnums(options: FindApiEnumsOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-api', 'enums'];
   const positionals: string[] = [];
-  if (options.type) {
+  if (options.type !== undefined) {
     const typeArr = Array.isArray(options.type) ? options.type : [options.type];
     positionals.push(...typeArr);
   }
@@ -446,7 +1083,7 @@ export interface FindApiMembersOptions extends CommonOptions {
 export async function findApiMembers(options: FindApiMembersOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-api', 'members'];
   const positionals: string[] = [];
-  if (options.type) {
+  if (options.type !== undefined) {
     const typeArr = Array.isArray(options.type) ? options.type : [options.type];
     positionals.push(...typeArr);
   }
@@ -561,7 +1198,7 @@ export interface FindUiOptions extends CommonOptions {
 export async function findUi(options: FindUiOptions = {}): Promise<WinappResult> {
   const args: string[] = ['find-ui'];
   const positionals: string[] = [];
-  if (options.query) positionals.push(options.query);
+  if (options.query !== undefined) positionals.push(options.query);
   if (options.id) {
     const idArr = Array.isArray(options.id) ? options.id : [options.id];
     for (const v of idArr) args.push('--id', v);
@@ -632,7 +1269,7 @@ export interface InitOptions extends CommonOptions {
 export async function init(options: InitOptions = {}): Promise<WinappResult> {
   const args: string[] = ['init'];
   const positionals: string[] = [];
-  if (options.baseDirectory) positionals.push(options.baseDirectory);
+  if (options.baseDirectory !== undefined) positionals.push(options.baseDirectory);
   if (options.configDir !== undefined) args.push('--config-dir', options.configDir);
   if (options.configOnly) args.push('--config-only');
   if (options.exe !== undefined) args.push('--exe', options.exe);
@@ -704,7 +1341,7 @@ export interface ManifestGenerateOptions extends CommonOptions {
 export async function manifestGenerate(options: ManifestGenerateOptions = {}): Promise<WinappResult> {
   const args: string[] = ['manifest', 'generate'];
   const positionals: string[] = [];
-  if (options.directory) positionals.push(options.directory);
+  if (options.directory !== undefined) positionals.push(options.directory);
   if (options.description !== undefined) args.push('--description', options.description);
   if (options.executable !== undefined) args.push('--executable', options.executable);
   if (options.ifExists !== undefined) args.push('--if-exists', options.ifExists);
@@ -880,7 +1517,7 @@ export interface RestoreOptions extends CommonOptions {
 export async function restore(options: RestoreOptions = {}): Promise<WinappResult> {
   const args: string[] = ['restore'];
   const positionals: string[] = [];
-  if (options.baseDirectory) positionals.push(options.baseDirectory);
+  if (options.baseDirectory !== undefined) positionals.push(options.baseDirectory);
   if (options.configDir !== undefined) args.push('--config-dir', options.configDir);
   if (positionals.length > 0) args.push('--', ...positionals);
   return execCommand(args, options);
@@ -895,7 +1532,7 @@ export interface RunOptions extends CommonOptions {
   input?: string;
   /** @deprecated Use `input` instead. Retained for backward compatibility. */
   inputFolder?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. */
   aot?: boolean;
@@ -911,6 +1548,8 @@ export interface RunOptions extends CommonOptions {
   debugOutput?: boolean;
   /** Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Local runs print the PID; target runs print the scoped UI target. JSON includes the PID and target scope. */
   detach?: boolean;
+  /** Launch with WinUI XAML inspection and managed binding support. Opens the in-app overlay; use --no-overlay to suppress it. Automatically prepares a staged execution alias for packaged apps; the alias must be enabled and verifiable. Native AOT apps support native inspection but not managed binding instrumentation. Cannot be combined with --no-launch or --without-alias. With --on sandbox, requires a project with XAML sources and does not support --with-alias, --debug-output or --unregister-on-exit. */
+  devtools?: boolean;
   /** Path to the executable relative to the input folder. Use to disambiguate when the manifest contains a $targetnametoken$ placeholder and multiple .exe files are present in the input folder. */
   executable?: string;
   /** Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored in folder mode. Rejected for a .cs file-based app, which declares its own with '#:property TargetFramework=...'. */
@@ -923,6 +1562,8 @@ export interface RunOptions extends CommonOptions {
   noBuild?: boolean;
   /** Only create the debug identity and register the package without launching the application */
   noLaunch?: boolean;
+  /** Suppress the in-app DevTools overlay. Requires --devtools; independent of --json output. */
+  noOverlay?: boolean;
   /** Project and single-file mode: skip restoring before build or Native AOT publish. Ignored in folder mode. */
   noRestore?: boolean;
   /** Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. */
@@ -951,7 +1592,7 @@ export interface RunOptions extends CommonOptions {
 export async function run(options: RunOptions = {}): Promise<WinappResult> {
   const args: string[] = ['run'];
   const inputValue = options.input ?? options.inputFolder;
-  if (inputValue) args.push(inputValue);
+  if (inputValue !== undefined) args.push(inputValue);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.aot) args.push('--aot');
   if (options.arch !== undefined) args.push('--arch', options.arch);
@@ -960,12 +1601,14 @@ export async function run(options: RunOptions = {}): Promise<WinappResult> {
   if (options.configuration !== undefined) args.push('--configuration', options.configuration);
   if (options.debugOutput) args.push('--debug-output');
   if (options.detach) args.push('--detach');
+  if (options.devtools) args.push('--devtools');
   if (options.executable !== undefined) args.push('--executable', options.executable);
   if (options.framework !== undefined) args.push('--framework', options.framework);
   if (options.json) args.push('--json');
   if (options.manifest !== undefined) args.push('--manifest', options.manifest);
   if (options.noBuild) args.push('--no-build');
   if (options.noLaunch) args.push('--no-launch');
+  if (options.noOverlay) args.push('--no-overlay');
   if (options.noRestore) args.push('--no-restore');
   if (options.outputAppxDirectory !== undefined) args.push('--output-appx-directory', options.outputAppxDirectory);
   if (options.project !== undefined) args.push('--project', options.project);
@@ -1232,7 +1875,7 @@ export async function tool(options: ToolOptions = {}): Promise<WinappResult> {
 export interface UiClickOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1258,7 +1901,7 @@ export interface UiClickOptions extends CommonOptions {
 export async function uiClick(options: UiClickOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'click'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.className !== undefined) args.push('--class-name', options.className);
@@ -1281,7 +1924,7 @@ export interface UiDragOptions extends CommonOptions {
   from?: string;
   /** End point — an element selector (drops at its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-target-d746 or 300,400). */
   to?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1303,8 +1946,8 @@ export interface UiDragOptions extends CommonOptions {
 export async function uiDrag(options: UiDragOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'drag'];
   const positionals: string[] = [];
-  if (options.from) positionals.push(options.from);
-  if (options.to) positionals.push(options.to);
+  if (options.from !== undefined) positionals.push(options.from);
+  if (options.to !== undefined) positionals.push(options.to);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.dwellMs !== undefined) args.push('--dwell-ms', options.dwellMs.toString());
@@ -1323,7 +1966,7 @@ export async function uiDrag(options: UiDragOptions = {}): Promise<WinappResult>
 export interface UiFocusOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1362,7 +2005,7 @@ export async function uiFocus(options: UiFocusOptions): Promise<WinappResult> {
 // ---------------------------------------------------------------------------
 
 export interface UiGetFocusedOptions extends CommonOptions {
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1391,7 +2034,7 @@ export async function uiGetFocused(options: UiGetFocusedOptions = {}): Promise<W
 export interface UiGetPropertyOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1415,7 +2058,7 @@ export interface UiGetPropertyOptions extends CommonOptions {
 export async function uiGetProperty(options: UiGetPropertyOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'get-property'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.className !== undefined) args.push('--class-name', options.className);
@@ -1435,7 +2078,7 @@ export async function uiGetProperty(options: UiGetPropertyOptions = {}): Promise
 export interface UiGetValueOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1457,7 +2100,7 @@ export interface UiGetValueOptions extends CommonOptions {
 export async function uiGetValue(options: UiGetValueOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'get-value'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.className !== undefined) args.push('--class-name', options.className);
@@ -1476,7 +2119,7 @@ export async function uiGetValue(options: UiGetValueOptions = {}): Promise<Winap
 export interface UiHoverOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1500,7 +2143,7 @@ export interface UiHoverOptions extends CommonOptions {
 export async function uiHover(options: UiHoverOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'hover'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.className !== undefined) args.push('--class-name', options.className);
@@ -1520,7 +2163,7 @@ export async function uiHover(options: UiHoverOptions = {}): Promise<WinappResul
 export interface UiInspectOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Walk up the tree from the specified element to the root */
   ancestors?: boolean;
@@ -1552,7 +2195,7 @@ export interface UiInspectOptions extends CommonOptions {
 export async function uiInspect(options: UiInspectOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'inspect'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.ancestors) args.push('--ancestors');
   if (options.app !== undefined) args.push('--app', options.app);
@@ -1576,7 +2219,7 @@ export async function uiInspect(options: UiInspectOptions = {}): Promise<WinappR
 export interface UiInvokeOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Perform exactly this action on the selected element, without pattern or ancestor fallback: invoke, select, toggle, toggle-on, toggle-off, expand, collapse. */
   action?: string;
@@ -1600,7 +2243,7 @@ export interface UiInvokeOptions extends CommonOptions {
 export async function uiInvoke(options: UiInvokeOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'invoke'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.action !== undefined) args.push('--action', options.action);
   if (options.app !== undefined) args.push('--app', options.app);
@@ -1618,7 +2261,7 @@ export async function uiInvoke(options: UiInvokeOptions = {}): Promise<WinappRes
 // ---------------------------------------------------------------------------
 
 export interface UiListWindowsOptions extends CommonOptions {
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1647,7 +2290,7 @@ export async function uiListWindows(options: UiListWindowsOptions = {}): Promise
 export interface UiPenOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1683,7 +2326,7 @@ export interface UiPenOptions extends CommonOptions {
 export async function uiPen(options: UiPenOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'pen'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.at !== undefined) args.push('--at', options.at);
@@ -1709,7 +2352,7 @@ export async function uiPen(options: UiPenOptions = {}): Promise<WinappResult> {
 export interface UiRecordOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1749,7 +2392,7 @@ export interface UiRecordOptions extends CommonOptions {
 export interface UiScreenshotOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1777,7 +2420,7 @@ export interface UiScreenshotOptions extends CommonOptions {
 export async function uiScreenshot(options: UiScreenshotOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'screenshot'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.captureScreen) args.push('--capture-screen');
@@ -1799,7 +2442,7 @@ export async function uiScreenshot(options: UiScreenshotOptions = {}): Promise<W
 export interface UiScrollOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1827,7 +2470,7 @@ export interface UiScrollOptions extends CommonOptions {
 export async function uiScroll(options: UiScrollOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'scroll'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.className !== undefined) args.push('--class-name', options.className);
@@ -1849,7 +2492,7 @@ export async function uiScroll(options: UiScrollOptions = {}): Promise<WinappRes
 export interface UiScrollIntoViewOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1871,7 +2514,7 @@ export interface UiScrollIntoViewOptions extends CommonOptions {
 export async function uiScrollIntoView(options: UiScrollIntoViewOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'scroll-into-view'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.className !== undefined) args.push('--class-name', options.className);
@@ -1890,7 +2533,7 @@ export async function uiScrollIntoView(options: UiScrollIntoViewOptions = {}): P
 export interface UiSearchOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1914,7 +2557,7 @@ export interface UiSearchOptions extends CommonOptions {
 export async function uiSearch(options: UiSearchOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'search'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.className !== undefined) args.push('--class-name', options.className);
@@ -1934,7 +2577,7 @@ export async function uiSearch(options: UiSearchOptions = {}): Promise<WinappRes
 export interface UiSendKeysOptions extends CommonOptions {
   /** Keys to send. Whitespace-separated tokens: named keys (down, enter, tab, esc, f5), modifier combos (ctrl+shift+t, alt+f4), raw virtual keys (vk=0x42), or literal text (hello). Use text=<literal> to type a single value verbatim when it would otherwise be read as a key name or combo (text=enter types "enter"; text=ctrl+a types "ctrl+a"); backslash escapes \s \t \n \r \\ are supported (text=a\s\sb types "a b"). To type the whole argument literally without escaping each token, pass --verbatim instead. Quote multi-token strings, e.g. "ctrl+a delete". */
   keys?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Allow synthesizing system-/shell-reserved combos (win+<key>, alt+f4, alt+tab, ctrl+esc, …) via --via send-input, which are refused by default because they act on the OS/shell beyond the target app. Opt in to drive global hotkeys (e.g. PowerToys' win+shift+v, win+r). No effect on --via post-message (already window-scoped; a warning is emitted if set without send-input). Note: win+l and ctrl+alt+del stay blocked even with this flag — win+l locks the workstation (LockWorkStation() via the shell hook), which is unrecoverable from automation, and ctrl+alt+del is a Secure Attention Sequence (SAS) that Windows drops from injected input regardless of this flag, so it can never take effect. */
   allowSystemKeys?: boolean;
@@ -1958,7 +2601,7 @@ export interface UiSendKeysOptions extends CommonOptions {
 export async function uiSendKeys(options: UiSendKeysOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'send-keys'];
   const positionals: string[] = [];
-  if (options.keys) positionals.push(options.keys);
+  if (options.keys !== undefined) positionals.push(options.keys);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.allowSystemKeys) args.push('--allow-system-keys');
   if (options.app !== undefined) args.push('--app', options.app);
@@ -1980,7 +2623,7 @@ export interface UiSetValueOptions extends CommonOptions {
   selector?: string;
   /** Value to set (text for TextBox/ComboBox, number for Slider) */
   value?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2002,8 +2645,8 @@ export interface UiSetValueOptions extends CommonOptions {
 export async function uiSetValue(options: UiSetValueOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'set-value'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
-  if (options.value) positionals.push(options.value);
+  if (options.selector !== undefined) positionals.push(options.selector);
+  if (options.value !== undefined) positionals.push(options.value);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.className !== undefined) args.push('--class-name', options.className);
@@ -2020,7 +2663,7 @@ export async function uiSetValue(options: UiSetValueOptions = {}): Promise<Winap
 // ---------------------------------------------------------------------------
 
 export interface UiStatusOptions extends CommonOptions {
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2049,7 +2692,7 @@ export async function uiStatus(options: UiStatusOptions = {}): Promise<WinappRes
 export interface UiTouchOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2087,7 +2730,7 @@ export interface UiTouchOptions extends CommonOptions {
 export async function uiTouch(options: UiTouchOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'touch'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.at !== undefined) args.push('--at', options.at);
@@ -2114,7 +2757,7 @@ export async function uiTouch(options: UiTouchOptions = {}): Promise<WinappResul
 export interface UiWaitForOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2146,7 +2789,7 @@ export interface UiWaitForOptions extends CommonOptions {
 export async function uiWaitFor(options: UiWaitForOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'wait-for'];
   const positionals: string[] = [];
-  if (options.selector) positionals.push(options.selector);
+  if (options.selector !== undefined) positionals.push(options.selector);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.app !== undefined) args.push('--app', options.app);
   if (options.className !== undefined) args.push('--class-name', options.className);
@@ -2168,7 +2811,7 @@ export async function uiWaitFor(options: UiWaitForOptions = {}): Promise<WinappR
 // ---------------------------------------------------------------------------
 
 export interface UiYieldOptions extends CommonOptions {
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Format output as JSON */
   json?: boolean;
@@ -2191,7 +2834,7 @@ export async function uiYield(options: UiYieldOptions = {}): Promise<WinappResul
 export interface UnregisterOptions extends CommonOptions {
   /** Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest. */
   input?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
   /** Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input. */
   arch?: string;
@@ -2219,7 +2862,7 @@ export interface UnregisterOptions extends CommonOptions {
 export async function unregister(options: UnregisterOptions = {}): Promise<WinappResult> {
   const args: string[] = ['unregister'];
   const positionals: string[] = [];
-  if (options.input) positionals.push(options.input);
+  if (options.input !== undefined) positionals.push(options.input);
   if (options.on !== undefined) args.push('--on', options.on);
   if (options.arch !== undefined) args.push('--arch', options.arch);
   if (options.configuration !== undefined) args.push('--configuration', options.configuration);

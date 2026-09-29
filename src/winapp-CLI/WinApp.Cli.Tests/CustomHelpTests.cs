@@ -11,6 +11,50 @@ namespace WinApp.Cli.Tests;
 public class CustomHelpTests : BaseCommandTests
 {
     [TestMethod]
+    public void Comments_HasListGetAndUpdateWithoutRedundantCommands()
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        var comments = root.Subcommands.Single(c => c.Name == "devtools").Subcommands.Single(c => c.Name == "comments");
+        Assert.IsFalse(comments.Subcommands.Any(c => c.Name is "handoff" or "resolve" or "flag"));
+        Assert.IsEmpty(root.Parse(["devtools", "comments", "list", "--status", "open", "--json"]).Errors);
+        Assert.IsEmpty(root.Parse(["devtools", "comments", "get", "cmt_example", "--json"]).Errors);
+        Assert.IsNotEmpty(root.Parse(["devtools", "comments", "handoff"]).Errors);
+        Assert.IsNotEmpty(root.Parse(["devtools", "comments", "update", "cmt_example"]).Errors);
+        foreach (var status in new[] { "open", "resolved", "stale", "dismissed" })
+        {
+            Assert.IsEmpty(root.Parse(["devtools", "comments", "update", "cmt_example", "--status", status]).Errors);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(80)]
+    [DataRow(100)]
+    [DataRow(120)]
+    public void DevToolsHelp_KeepsEveryCommandDiscoverable(int width)
+    {
+        var devtools = GetRequiredService<WinAppRootCommand>().Subcommands.Single(c => c.Name == "devtools");
+        foreach (var command in new[] { devtools }.Concat(EnumerateCommands(devtools)))
+        {
+            using var writer = new StringWriter();
+            var parse = command.Parse(["--help"]);
+            parse.InvocationConfiguration.Output = writer;
+            Assert.AreEqual(0, new HelpAction { MaxWidth = width }.Invoke(parse));
+            var output = writer.ToString();
+            Console.WriteLine($"{command.Name} width={width} lines={output.Split('\n').Length} chars={output.Length}\n{output}");
+            foreach (var child in command.Subcommands.Where(c => !c.Hidden))
+            {
+                Assert.Contains(child.Name, output);
+            }
+            Assert.Contains("Usage:", output);
+            if (command == devtools)
+            {
+                Assert.IsLessThanOrEqualTo(48, output.Split('\n').Length,
+                    "DevTools overview should fit a concise command list at ordinary terminal widths.");
+            }
+        }
+    }
+
+    [TestMethod]
     public void AllTopLevelCommands_ShouldBeInHelpCategories()
     {
         // Arrange

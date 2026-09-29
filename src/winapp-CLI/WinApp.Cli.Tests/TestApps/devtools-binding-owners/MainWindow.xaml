@@ -1,0 +1,21 @@
+<Window
+    x:Class="BindingOwnersFixture.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:BindingOwnersFixture">
+    <StackPanel Spacing="8" Padding="24">
+        <TextBlock x:Name="WindowHeading" AutomationProperties.AutomationId="WindowHeading" Text="{x:Bind HeadingText, Mode=OneWay}" />
+        <TextBlock Text="{x:Bind HeadingText, Mode=OneWay}" />
+        <local:OwnerPage />
+        <local:OwnerControl />
+        <ItemsControl ItemsSource="{x:Bind Rows, Mode=OneWay}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="local:Row">
+                    <TextBlock x:Name="TemplateHeading" Text="{x:Bind Name, Mode=OneWay}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock x:Name="CommentAndTreeProbeWithAnIntentionallyLongAuthoredNameToExerciseHorizontalScrollingAtTheNormalInspectorPaneWidth"
+                   AutomationProperties.AutomationId="NarrowCommentProbe" HorizontalAlignment="Left" Text="I" />
+    </StackPanel>
+</Window>

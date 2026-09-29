@@ -251,14 +251,30 @@ independent jobs. The test suite uses `-OnlyTests -UseExistingArtifacts`; it mus
 not republish or delete the downloaded CLI and NuGet packages.
 CI runs `-TestSuite Cli -CliShard 1`, `-TestSuite Cli -CliShard 2`,
 `-TestSuite Auxiliary`, and `-TestSuite UIAutomation` on separate runners, never
-concurrently in one workspace. Together they cover the default `All` suite.
+concurrently in one workspace. Together with the native integration shard below,
+they cover the default `All` suite.
 Auxiliary owns Node unit tests, analyzer tests/stand-down, and both Pester suites.
 Both CLI shards prepare the Node CLI needed by integration tests, but do not
 rerun Node unit tests.
 
-`scripts\test-cli-shard.ps1` partitions the CLI suite using a class predicate and
-its exact complement: package-command tests versus all remaining tests. New tests
-always enter one shard. Each invocation requires at least one executed test,
+`validate-devtools` verifies the downloaded engine payload, runs the native
+security/ABI/protocol and inspector tests in a separate output directory, and
+runs managed binding/startup-hook contracts on .NET 8 and 10. It never overwrites
+`artifacts\cli`. The real native-element capture lifetime gate remains in the
+interactive UI job. Both jobs are required by `build-and-package`.
+
+`scripts\test-managed-devtools.ps1` runs the headless managed contracts with a
+test-only, app-local Windows App Runtime; it does not install a runtime or change
+the desktop lifetime gate. Restore, build, discovery and execution each retain
+bounded phase logs under `artifacts\TestResults\devtools`. The validation job
+uploads partial results even on failure or cancellation.
+
+`scripts\test-cli-shard.ps1` partitions the CLI suite into three disjoint sets:
+native integration tests (shard 3, in `validate-devtools` after its fixture build),
+then package-command tests (shard 1) and all remaining tests (shard 2).
+The native lane sets `WINAPP_NATIVE_TEST_FIXTURE` to its freshly built dispatcher
+fixture; ordinary artifact-reuse lanes do not build or require native test fixtures.
+New tests always enter one shard. Each invocation requires at least one executed test,
 accounts for every discovered case in TRX (including intentional skips), and
 checks its unique TRX/coverage outputs. Keep the combined
 `test-results` artifact and union source-line coverage across reports; do not

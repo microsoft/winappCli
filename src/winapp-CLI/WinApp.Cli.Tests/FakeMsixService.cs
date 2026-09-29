@@ -35,6 +35,7 @@ internal class FakeMsixService : IMsixService
 
     /// <summary>Records the <c>ensureExecutionAlias</c> flag passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<bool> AddLooseLayoutEnsureAliasCalls { get; } = [];
+    public List<InspectorAliasRequest?> AddLooseLayoutInspectorRequests { get; } = [];
     public List<(string? ProjectFile, string? Architecture, string? Framework, bool NoRestore)> EnsureRuntimeInstalledCalls { get; } = [];
     public List<(string? EntryPoint, string? ManifestPath, bool NoInstall, bool KeepIdentity)> AddSparseIdentityCalls { get; } = [];
     public Exception? ExceptionToThrow { get; set; }
@@ -109,6 +110,7 @@ internal class FakeMsixService : IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        InspectorAliasRequest? inspectorAlias = null,
         FileInfo? appxRecipe = null,
         CancellationToken cancellationToken = default)
     {
@@ -119,6 +121,7 @@ internal class FakeMsixService : IMsixService
         AddLooseLayoutSelfContainedCalls.Add(selfContained);
         AddLooseLayoutExecutableCalls.Add(executable);
         AddLooseLayoutEnsureAliasCalls.Add(ensureExecutionAlias);
+        AddLooseLayoutInspectorRequests.Add(inspectorAlias);
         AddLooseLayoutAssetsFileCalls.Add(packageGraph?.AssetsFile.FullName);
         AddLooseLayoutRuntimeIdentifierCalls.Add(packageGraph?.RuntimeIdentifier);
         AddLooseLayoutRecipeCalls.Add(appxRecipe?.FullName);

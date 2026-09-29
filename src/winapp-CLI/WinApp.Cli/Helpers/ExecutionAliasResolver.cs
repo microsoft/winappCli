@@ -3,6 +3,7 @@
 
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace WinApp.Cli.Helpers;
@@ -250,6 +251,76 @@ internal static partial class ExecutionAliasResolver
 
     #region Alias ownership
 
+    internal sealed record AliasTarget(string PackageFamilyName, string? ApplicationUserModelId, string? TargetExecutable)
+    {
+        public bool MatchesApplication(AliasTarget expected)
+        {
+            try
+            {
+                return string.Equals(PackageFamilyName, expected.PackageFamilyName, StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(ApplicationUserModelId)
+                    && string.Equals(ApplicationUserModelId, expected.ApplicationUserModelId, StringComparison.OrdinalIgnoreCase)
+                    && TargetExecutable is not null && Path.IsPathFullyQualified(TargetExecutable)
+                    && expected.TargetExecutable is not null && Path.IsPathFullyQualified(expected.TargetExecutable)
+                    && string.Equals(Path.GetFullPath(TargetExecutable), Path.GetFullPath(expected.TargetExecutable), StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+    }
+
+    internal const int MaxInspectorAliasCandidates = 8;
+
+    internal static string? BuildInspectorAliasName(string packageFamilyName, int attempt)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(attempt);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(attempt, MaxInspectorAliasCandidates);
+        if (attempt == 0)
+        {
+            return BuildDefaultAliasName(packageFamilyName);
+        }
+
+        var seed = packageFamilyName.ToUpperInvariant() + "#" + attempt.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return GeneratedAliasPrefix + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(seed)).AsSpan(0, 6)) + ".exe";
+    }
+
+    internal static string? SelectInspectorAlias(
+        AliasTarget expected,
+        string? windowsAppsDirectory = null,
+        Func<string, bool>? exists = null,
+        Func<string, AliasTarget?>? readTarget = null,
+        IReadOnlySet<string>? claimedAliases = null)
+    {
+        exists ??= File.Exists;
+        readTarget ??= TryReadAliasTarget;
+        string? firstFree = null;
+        for (var attempt = 0; attempt < MaxInspectorAliasCandidates; attempt++)
+        {
+            var candidate = BuildInspectorAliasName(expected.PackageFamilyName, attempt);
+            if (candidate is null || claimedAliases?.Contains(candidate) == true)
+            {
+                continue;
+            }
+            var proxy = ResolveAliasPath(candidate, windowsAppsDirectory);
+            if (proxy is null)
+            {
+                continue;
+            }
+            if (!exists(proxy.FullName))
+            {
+                firstFree ??= candidate;
+            }
+            else if (readTarget(proxy.FullName)?.MatchesApplication(expected) == true)
+            {
+                return candidate;
+            }
+        }
+
+        return firstFree;
+    }
+
     private const uint IoReparseTagAppExecLink = 0x8000001B;
     private const uint FsctlGetReparsePoint = 0x000900A8;
     private const uint FileFlagOpenReparsePoint = 0x00200000;
@@ -270,16 +341,20 @@ internal static partial class ExecutionAliasResolver
     /// (<see cref="FileSystemInfo.LinkTarget"/> is null for it), so the payload is read directly. Its
     /// data is a version DWORD followed by null-terminated UTF-16 strings, the first of which is the
     /// package family name. Returns <see langword="false"/> for anything unreadable or not an
-    /// app-exec-link, and the caller then proceeds rather than blocking a launch on a diagnostic.
+    /// app-exec-link. Callers must not launch an alias whose owner cannot be verified.
     /// </para>
     /// </remarks>
     public static bool TryGetAliasPackageFamilyName(string aliasPath, out string? packageFamilyName)
     {
-        packageFamilyName = null;
+        packageFamilyName = TryReadAliasTarget(aliasPath)?.PackageFamilyName;
+        return packageFamilyName is not null;
+    }
 
-        if (string.IsNullOrEmpty(aliasPath) || !OperatingSystem.IsWindows())
+    internal static AliasTarget? TryReadAliasTarget(string aliasPath)
+    {
+        if (string.IsNullOrWhiteSpace(aliasPath) || !Path.IsPathFullyQualified(aliasPath) || !OperatingSystem.IsWindows())
         {
-            return false;
+            return null;
         }
 
         using var handle = CreateFileW(
@@ -293,42 +368,60 @@ internal static partial class ExecutionAliasResolver
 
         if (handle.IsInvalid)
         {
-            return false;
+            return null;
         }
 
         var buffer = new byte[MaximumReparseDataBufferSize];
         if (!DeviceIoControl(handle, FsctlGetReparsePoint, IntPtr.Zero, 0, buffer, (uint)buffer.Length, out var returned, IntPtr.Zero))
         {
-            return false;
+            return null;
         }
 
-        // REPARSE_DATA_BUFFER: ReparseTag (4) + ReparseDataLength (2) + Reserved (2), then the payload,
-        // which for an app-exec-link starts with a version DWORD before the string list.
+        return returned <= buffer.Length ? ParseAliasTarget(buffer.AsSpan(0, (int)returned)) : null;
+    }
+
+    internal static AliasTarget? ParseAliasTarget(ReadOnlySpan<byte> buffer)
+    {
         const int headerSize = 8;
         const int versionSize = 4;
-        if (returned < headerSize + versionSize || BitConverter.ToUInt32(buffer, 0) != IoReparseTagAppExecLink)
+        if (buffer.Length < headerSize + versionSize || BitConverter.ToUInt32(buffer[..4]) != IoReparseTagAppExecLink)
         {
-            return false;
+            return null;
         }
 
-        var payloadLength = BitConverter.ToUInt16(buffer, 4);
-        var available = Math.Min((int)returned - headerSize, payloadLength);
-        if (available <= versionSize)
+        var payloadLength = BitConverter.ToUInt16(buffer.Slice(4, 2));
+        if (payloadLength <= versionSize || headerSize + payloadLength > buffer.Length || (payloadLength & 1) != 0)
         {
-            return false;
+            return null;
         }
 
-        // The first string ends at the first UTF-16 NUL; a payload whose strings are absent or unterminated
-        // is not something to guess at.
-        var strings = Encoding.Unicode.GetString(buffer, headerSize + versionSize, available - versionSize);
-        var terminator = strings.IndexOf('\0');
-        if (terminator <= 0)
+        // The leading DWORD is not a documented string count. Read bounded, terminated fields without
+        // inventing a version cap. Owner-only callers do not require the inspector's additional fields.
+        var strings = buffer.Slice(headerSize + versionSize, payloadLength - versionSize);
+        var family = ReadAliasString(ref strings);
+        if (string.IsNullOrWhiteSpace(family))
         {
-            return false;
+            return null;
         }
 
-        packageFamilyName = strings[..terminator];
-        return true;
+        var aumid = ReadAliasString(ref strings);
+        var executable = aumid is null ? null : ReadAliasString(ref strings);
+        return new AliasTarget(family, aumid, executable);
+    }
+
+    private static string? ReadAliasString(ref ReadOnlySpan<byte> data)
+    {
+        for (var offset = 0; offset + 1 < data.Length; offset += 2)
+        {
+            if (data[offset] == 0 && data[offset + 1] == 0)
+            {
+                var value = Encoding.Unicode.GetString(data[..offset]);
+                data = data[(offset + 2)..];
+                return value;
+            }
+        }
+
+        return null;
     }
 
     [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]

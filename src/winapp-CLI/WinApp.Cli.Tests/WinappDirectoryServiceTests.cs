@@ -14,6 +14,17 @@ public class WinappDirectoryServiceTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void Correction_EngineUsesCanonicalDefault_NotInstanceCacheOverride()
+    {
+        var directories = GetRequiredService<IWinappDirectoryService>();
+        directories.SetCacheDirectoryForTesting(_tempDirectory);
+        Assert.AreEqual(_tempDirectory.FullName, directories.GetGlobalWinappDirectory().FullName);
+        var expected = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".winapp");
+        Assert.AreEqual(expected, WinappDirectoryService.GetDefaultGlobalWinappDirectory().FullName);
+        Assert.AreEqual(Path.Combine(expected, "engine"), EngineStaging.EngineRoot);
+    }
+
+    [TestMethod]
     public void GetGlobalWinappDirectory_WithoutOverride_ReturnsDefaultDirectory()
     {
         // Act - Create a fresh instance without override to test default behavior
@@ -92,6 +103,8 @@ public class WinappDirectoryServiceTests : BaseCommandTests
 
             // Assert
             Assert.AreEqual(envTestDirectory.FullName, result?.FullName, "Should return environment variable path when set");
+            Assert.AreEqual(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".winapp", "engine"),
+                EngineStaging.EngineRoot, "Foreign-load staging must not follow the general cache override.");
         }
         finally
         {

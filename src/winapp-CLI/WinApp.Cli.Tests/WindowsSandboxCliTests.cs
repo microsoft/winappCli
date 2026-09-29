@@ -353,21 +353,47 @@ public class WindowsSandboxCliTests
     }
 
     [TestMethod]
-    public async Task ConnectAsync_StillDetectsAnImmediateNonzeroExit()
+    [DataRow(0)]
+    [DataRow(17)]
+    public async Task ConnectAsync_ReportsAnImmediateExit(int exitCode)
     {
         _cli.UseExecutable(Path.Join(Environment.SystemDirectory, "wsb.exe"));
-        _cli.ConnectLauncher = _ => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
             FileName = Environment.GetEnvironmentVariable("ComSpec")!,
-            Arguments = "/d /c exit 17",
+            Arguments = $"/d /c exit {exitCode}",
             UseShellExecute = false,
             CreateNoWindow = true,
         });
+        Assert.IsNotNull(process);
+        using var startup = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationTokenSource.Token);
+        startup.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            // Establish immediate exit at the launch seam without racing process scheduling against the watch window.
+            await process.WaitForExitAsync(startup.Token);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None);
+            }
+        }
+        Assert.AreEqual(exitCode, process.ExitCode);
+        _cli.ConnectLauncher = _ => process;
 
+        if (exitCode == 0)
+        {
+            using var attempt = await _cli.ConnectAsync("sandbox-1", TestContext.CancellationTokenSource.Token);
+            return;
+        }
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => _cli.ConnectAsync("sandbox-1", TestContext.CancellationTokenSource.Token));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, failure.Error.Code);
+        Assert.AreEqual("17", failure.Error.Context!["exitCode"]);
     }
 
     [TestMethod]

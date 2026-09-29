@@ -24,6 +24,9 @@ param(
     [switch]$Stable = $false
 )
 
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'DevToolsEngine.psm1') -Force
+
 # Ensure we're running from the project root
 $ProjectRoot = $PSScriptRoot | Split-Path -Parent
 Push-Location $ProjectRoot
@@ -76,6 +79,9 @@ try
         exit 1
     }
     
+    Assert-DevToolsArchiveSupport -Format Npm
+    Assert-DevToolsEnginePayload -Directory $X64Path
+    Assert-DevToolsEnginePayload -Directory $Arm64Path
     Write-Host "[VALIDATE] All required files found!" -ForegroundColor Green
     
     # Calculate version if not provided
@@ -131,108 +137,68 @@ try
     
     Write-Host "[NPM] Preparing npm package..." -ForegroundColor Blue
     
-    # Clean npm bin directory first
     Push-Location $NpmProjectPath
-    npm run clean
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "npm clean failed, continuing..."
-    }
+    $PackageJsonPath = Join-Path $NpmProjectPath 'package.json'
+    $OriginalPackageBytes = $null
+    $PackagingFailure = $null
+    try {
+        $OriginalPackageBytes = [IO.File]::ReadAllBytes($PackageJsonPath)
+        npm run clean
+        if ($LASTEXITCODE -ne 0) { throw 'npm clean failed; refusing to package stale binaries.' }
 
-    # Install dependencies and compile TypeScript
-    Write-Host "[NPM] Installing dependencies..." -ForegroundColor Blue
-    npm ci
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "npm ci failed"
-        Pop-Location
-        exit 1
-    }
+        # Stage first: command generation prefers npm bin over repository artifacts.
+        foreach ($arch in 'x64', 'arm64') {
+            $destination = Join-Path $NpmProjectPath "bin\win-$arch"
+            New-Item -ItemType Directory -Path $destination -Force | Out-Null
+            Copy-Item "$CliBinariesPath\win-$arch\*" $destination -Recurse -Force
+        }
 
-    # Validate the generated source too; artifact-only builds do not run the test setup first.
-    npm run generate-commands
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Command code generation failed"
-        Pop-Location
-        exit 1
-    }
+        npm ci
+        if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+        npm run generate-commands
+        if ($LASTEXITCODE -ne 0) { throw 'Command code generation failed' }
+        npm run format:check
+        if ($LASTEXITCODE -ne 0) { throw "Format check failed - run 'npm run format' to fix" }
+        npm run lint
+        if ($LASTEXITCODE -ne 0) { throw 'Lint failed' }
+        npm run compile
+        if ($LASTEXITCODE -ne 0) { throw 'TypeScript compilation failed' }
 
-    Write-Host "[NPM] Running format check, lint, and compile..." -ForegroundColor Blue
-    npm run format:check
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Format check failed - run 'npm run format' to fix"
-        Pop-Location
-        exit 1
-    }
+        $PackageJson = Get-Content $PackageJsonPath -Raw | ConvertFrom-Json
+        $PackageJson.version = $Version
+        $PackageJson | ConvertTo-Json -Depth 100 | Set-Content $PackageJsonPath
 
-    npm run lint
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Lint failed"
-        Pop-Location
-        exit 1
-    }
-
-    npm run compile
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "TypeScript compilation failed"
-        Pop-Location
-        exit 1
-    }
-    
-    # Backup original package.json
-    Write-Host "[NPM] Setting package version to $Version..." -ForegroundColor Blue
-    $PackageJsonPath = "package.json"
-    Copy-Item $PackageJsonPath "$PackageJsonPath.backup" -Force
-    
-    # Update package.json version temporarily
-    $PackageJson = Get-Content $PackageJsonPath | ConvertFrom-Json
-    $PackageJson.version = $Version
-    $PackageJson | ConvertTo-Json -Depth 100 | Set-Content $PackageJsonPath
-    
-    # Copy the CLI binaries to npm package
-    Write-Host "[NPM] Copying CLI binaries to npm package..." -ForegroundColor Blue
-    $NpmBinPath = "bin"
-    New-Item -ItemType Directory -Path "$NpmBinPath\win-x64" -Force | Out-Null
-    New-Item -ItemType Directory -Path "$NpmBinPath\win-arm64" -Force | Out-Null
-    
-    # Copy from CLI binaries to npm bin folders
-    Copy-Item "$CliBinariesPath\win-x64\*" "$NpmBinPath\win-x64\" -Recurse -Force
-    Copy-Item "$CliBinariesPath\win-arm64\*" "$NpmBinPath\win-arm64\" -Recurse -Force
-    
-    # Create npm package tarball
-    Write-Host "[PACK] Creating npm package tarball..." -ForegroundColor Blue
-    
-    # Calculate relative path from npm project to output directory
-    $RelativeOutputPath = [System.IO.Path]::GetRelativePath($NpmProjectPath, $OutputPath)
-    
-    npm pack --pack-destination $RelativeOutputPath
-    $PackResult = $LASTEXITCODE
-    
-    # Restore original package.json
-    Write-Host "[NPM] Restoring original package.json..." -ForegroundColor Blue
-    if (Test-Path "$PackageJsonPath.backup") {
-        Move-Item "$PackageJsonPath.backup" $PackageJsonPath -Force
-    }
-    
-    Pop-Location
-    
-    if ($PackResult -ne 0) {
-        Write-Error "Failed to create npm package"
-        exit 1
-    }
-    
-    # Find the created tarball and report success
-    # Get the latest .tgz file in the output directory
-    $CreatedTarball = Get-ChildItem -Path $OutputPath -Filter "*.tgz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    
-    if ($CreatedTarball) {
+        $RelativeOutputPath = [IO.Path]::GetRelativePath($NpmProjectPath, $OutputPath)
+        $PackOutput = @(npm pack --json --pack-destination $RelativeOutputPath)
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to create npm package' }
+        $PackRows = @(($PackOutput -join "`n") | ConvertFrom-Json)
+        $TarballName = if ($PackRows.Count -eq 1) { [string]$PackRows[0].filename } else { '' }
+        if (-not $TarballName.EndsWith('.tgz', [StringComparison]::OrdinalIgnoreCase) -or
+            $TarballName.IndexOfAny([char[]]('/','\')) -ge 0 -or
+            [IO.Path]::IsPathRooted($TarballName)) {
+            throw 'npm pack did not return exactly one local .tgz filename.'
+        }
+        $TarballPath = Join-Path $OutputPath $TarballName
+        Assert-DevToolsEngineArchive -ArchivePath $TarballPath -Format Npm -CliBinariesPath $CliBinariesPath
+        $CreatedTarball = Get-Item -LiteralPath $TarballPath
         $TarballSize = [math]::Round($CreatedTarball.Length / 1MB, 2)
-        Write-Host ""
-        Write-Host "[SUCCESS] npm package created successfully!" -ForegroundColor Green
-        Write-Host "[INFO] Package: $($CreatedTarball.Name) ($TarballSize MB)" -ForegroundColor Cyan
-        Write-Host "[INFO] Location: $($CreatedTarball.FullName)" -ForegroundColor Cyan
-    } else {
-        Write-Warning "npm package was created but could not be located in $OutputPath"
+    } catch {
+        $PackagingFailure = $_
+        throw
+    } finally {
+        try {
+            if ($null -ne $OriginalPackageBytes) {
+                [IO.File]::WriteAllBytes($PackageJsonPath, $OriginalPackageBytes)
+            }
+        } catch {
+            if ($null -eq $PackagingFailure) { throw }
+            Write-Error "Also failed to restore package.json: $_" -ErrorAction Continue
+        } finally {
+            Pop-Location
+        }
     }
-    
+
+    Write-Host "[SUCCESS] npm package: $($CreatedTarball.Name) ($TarballSize MB)" -ForegroundColor Green
     Write-Host "[DONE] npm packaging complete!" -ForegroundColor Green
 }
 finally

@@ -471,6 +471,27 @@ public class RunCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task RunCommand_AccessDeniedUsesFactualSharedFailure(bool devTools, bool json)
+    {
+        await CreateTestManifestAsync();
+        _fakeMsixService.ExceptionToThrow = new UnauthorizedAccessException("UnauthorizedAccess_IODenied_NoPathName");
+        var args = new List<string> { _tempDirectory.FullName, "--detach" };
+        if (devTools) { args.Add("--devtools"); }
+        if (json) { args.Add("--json"); }
+        var code = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(), args.ToArray());
+        Assert.AreEqual(1, code);
+        var message = json ? ParseJsonOutput().GetProperty("Error").GetString()! : ConsoleStdErr.ToString();
+        StringAssert.Contains(message, "Access was denied");
+        StringAssert.Contains(message, "Win32 5");
+        Assert.IsFalse(message.Contains("UnauthorizedAccess_IODenied_NoPathName", StringComparison.Ordinal));
+        Assert.IsFalse(message.Contains("is locked by", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public async Task RunCommand_WithJsonAndError_OutputsJsonWithErrorField()
     {
         // Arrange
@@ -587,6 +608,8 @@ public class RunCommandTests : BaseCommandTests
             GetRequiredService<IManifestTemplateService>(),
             GetRequiredService<IManifestService>(),
             GetRequiredService<IProjectContextDetector>(),
+            GetRequiredService<WinApp.Cli.Services.DevTools.IDevToolsService>(),
+            GetRequiredService<InspectorAliasLauncher>(),
             GetRequiredService<ExecutionTargetOrchestrator>(),
             GetRequiredService<GuestApplicationRunner>(),
             GetRequiredService<TargetRuntimeService>(),
@@ -1623,49 +1646,61 @@ public class RunCommandTests : BaseCommandTests
         StringAssert.Contains(error, "--badtoken", "Error message should name the offending token");
     }
 
-    // --- BuildAliasProcessStartInfo: passthrough forwarded into execution-alias ProcessStartInfo ---
-
     [TestMethod]
-    public void BuildAliasProcessStartInfo_WithAppArgs_SetsArgumentsOnProcessStartInfo()
+    [DataRow("uap3")]
+    [DataRow("uap5")]
+    public async Task RunCommand_WithAlias_Uap8LeafUsesAuthoredAlias(string container)
     {
-        // The execution-alias launch path uses a separate Process.Start, so this test
-        // verifies that passthrough args (after merge with --args) are forwarded into
-        // ProcessStartInfo.Arguments verbatim.
-        var psi = RunCommand.Handler.BuildAliasProcessStartInfo("myalias.exe", "--flag value");
-
-        Assert.AreEqual("myalias.exe", psi.FileName);
-        Assert.AreEqual("--flag value", psi.Arguments);
-        Assert.IsFalse(psi.UseShellExecute, "UseShellExecute must be false so stdio inherits");
+        await CreateTestManifestAsync();
+        var output = await CreateProcessedManifestAsync("alias-uap8", alias: "authored-uap8.exe");
+        var manifestPath = Path.Join(output.FullName, "appxmanifest.xml");
+        var doc = AppxManifestDocument.Load(manifestPath);
+        var ns = container == "uap3" ? AppxManifestDocument.Uap3Ns : AppxManifestDocument.Uap5Ns;
+        foreach (var element in doc.Document.Descendants()
+            .Where(e => e.Name.LocalName is "Extension" or "AppExecutionAlias").ToArray())
+        {
+            element.Name = ns + element.Name.LocalName;
+        }
+        doc.Document.Descendants().Single(e => e.Name.LocalName == "ExecutionAlias").Name =
+            System.Xml.Linq.XName.Get("ExecutionAlias", "http://schemas.microsoft.com/appx/manifest/uap/windows10/8");
+        doc.Save(manifestPath);
+        var proxy = CreateExistingFile("authored-uap8.exe");
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ResolveAliasProxy = alias => alias == proxy.Name ? proxy : null;
+        handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(),
+            [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", output.FullName]);
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(proxy.FullName, _fakeAppLauncherService.LaunchExecutableCalls.Single().ExePath);
+        Assert.AreEqual(LaunchStdioMode.Inherit, _fakeAppLauncherService.LastLaunchStdioMode);
     }
 
     [TestMethod]
-    public void BuildAliasProcessStartInfo_WithQuotedAppArgs_PreservesQuoting()
+    [DataRow("--flag value")]
+    [DataRow("--title \"hello world\"")]
+    [DataRow(null)]
+    [DataRow("")]
+    public async Task RunCommand_WithAlias_ForwardsArgumentsToSharedLauncher(string? arguments)
     {
-        // The merged appArgs string for the alias path has already been escaped via
-        // WindowsCommandLine.JoinArguments. BuildAliasProcessStartInfo must pass the
-        // escaped string through unchanged so CommandLineToArgvW recovers original tokens.
-        var psi = RunCommand.Handler.BuildAliasProcessStartInfo("myalias.exe", "--title \"hello world\"");
+        await CreateTestManifestAsync();
+        var output = await CreateProcessedManifestAsync("alias-arguments", alias: "winapp-run-test.exe");
+        var proxy = CreateExistingFile("winapp-run-test.exe");
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ResolveAliasProxy = _ => proxy;
+        handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
+        var args = new List<string> { _tempDirectory.FullName, "--with-alias", "--output-appx-directory", output.FullName };
+        if (arguments is not null)
+        {
+            args.AddRange(["--args", arguments]);
+        }
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(), [.. args]);
 
-        Assert.AreEqual("--title \"hello world\"", psi.Arguments);
-    }
-
-    [TestMethod]
-    public void BuildAliasProcessStartInfo_WithNullAppArgs_LeavesArgumentsEmpty()
-    {
-        var psi = RunCommand.Handler.BuildAliasProcessStartInfo("myalias.exe", null);
-
-        Assert.AreEqual("myalias.exe", psi.FileName);
-        Assert.AreEqual(string.Empty, psi.Arguments,
-            "Null appArgs must NOT set Arguments (default ProcessStartInfo.Arguments is empty string)");
-    }
-
-    [TestMethod]
-    public void BuildAliasProcessStartInfo_WithEmptyAppArgs_LeavesArgumentsEmpty()
-    {
-        var psi = RunCommand.Handler.BuildAliasProcessStartInfo("myalias.exe", string.Empty);
-
-        Assert.AreEqual(string.Empty, psi.Arguments,
-            "Empty appArgs must NOT set Arguments");
+        Assert.AreEqual(0, exitCode, "An immediately successful console process is not an inspector failure.");
+        var call = _fakeAppLauncherService.LaunchExecutableCalls.Single();
+        Assert.AreEqual(proxy.FullName, call.ExePath);
+        Assert.AreEqual(arguments ?? "", call.Arguments ?? "");
+        Assert.AreEqual(LaunchStdioMode.Inherit, _fakeAppLauncherService.LastLaunchStdioMode);
+        Assert.IsTrue(_fakeAppLauncherService.LastLaunchedProcess!.Disposed);
     }
 
     #endregion
@@ -1928,12 +1963,12 @@ public class RunCommandTests : BaseCommandTests
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
-        handler.ProcessStarter = _ =>
+        _fakeAppLauncherService.LaunchOverride = () =>
         {
             var p = StartHelperProcess("/c ping -n 6 127.0.0.1");
             helperPid = p.Id;
             processStarted.SetResult();
-            return p;
+            return new LaunchedProcess(p);
         };
         var command = GetRequiredService<RunCommand>();
         var parseResult = command.Parse(
@@ -2084,7 +2119,7 @@ public class RunCommandTests : BaseCommandTests
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ReadAliasOwner = _ => null;
         var started = false;
-        handler.ProcessStarter = _ => { started = true; return null; };
+        _fakeAppLauncherService.LaunchOverride = () => { started = true; throw new InvalidOperationException("Unexpected launch"); };
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -2107,7 +2142,7 @@ public class RunCommandTests : BaseCommandTests
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ReadAliasOwner = _ => "com.contoso.someoneelse_8wekyb3d8bbwe";
         var started = false;
-        handler.ProcessStarter = _ => { started = true; return null; };
+        _fakeAppLauncherService.LaunchOverride = () => { started = true; throw new InvalidOperationException("Unexpected launch"); };
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -2152,7 +2187,7 @@ public class RunCommandTests : BaseCommandTests
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
         Process? started = null;
-        handler.ProcessStarter = _ => started = StartHelperProcess("/c exit 7");
+        _fakeAppLauncherService.LaunchOverride = () => new LaunchedProcess(started = StartHelperProcess("/c exit 7"));
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -2163,23 +2198,23 @@ public class RunCommandTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task RunCommand_WithAlias_ProcessStartReturnsNull_ReturnsError()
+    public async Task RunCommand_WithAlias_LauncherReportsStartFailure_ReturnsError()
     {
-        // Defensive branch: if Process.Start returns null the command reports a start failure.
+        // The shared launcher turns a failed Process.Start into an exception.
         await CreateTestManifestAsync();
         var outputDir = await CreateProcessedManifestAsync("appx-null", alias: "winapp-run-test.exe");
         var aliasProxy = CreateExistingFile("winapp-run-test.exe");
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
-        handler.ProcessStarter = _ => null;
+        _fakeAppLauncherService.LaunchOverride = () => throw new InvalidOperationException("Failed to start process.");
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
             [_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to start process via execution alias");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "Failed to launch via execution alias");
     }
 
     [TestMethod]
@@ -2194,7 +2229,6 @@ public class RunCommandTests : BaseCommandTests
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
-        handler.ProcessStarter = _ => StartHelperProcess("/c exit 0");
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -2217,7 +2251,6 @@ public class RunCommandTests : BaseCommandTests
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
-        handler.ProcessStarter = _ => StartHelperProcess("/c exit 0");
         var command = GetRequiredService<RunCommand>();
         var parseResult = command.Parse([_tempDirectory.FullName, "--with-alias", "--debug-output", "--output-appx-directory", outputDir.FullName]);
         using var cts = new CancellationTokenSource();
@@ -2241,7 +2274,7 @@ public class RunCommandTests : BaseCommandTests
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
-        handler.ProcessStarter = _ => throw new InvalidOperationException("boom");
+        _fakeAppLauncherService.LaunchOverride = () => throw new InvalidOperationException("boom");
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command,
@@ -2265,12 +2298,12 @@ public class RunCommandTests : BaseCommandTests
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ResolveAliasProxy = _ => aliasProxy;
         handler.ReadAliasOwner = _ => "TestPackage_fakefamily";
-        handler.ProcessStarter = _ =>
+        _fakeAppLauncherService.LaunchOverride = () =>
         {
             var p = StartHelperProcess("/c ping -n 6 127.0.0.1");
             helperPid = p.Id;
             processStarted.SetResult();
-            return p;
+            return new LaunchedProcess(p);
         };
         var command = GetRequiredService<RunCommand>();
         var parseResult = command.Parse([_tempDirectory.FullName, "--with-alias", "--output-appx-directory", outputDir.FullName]);

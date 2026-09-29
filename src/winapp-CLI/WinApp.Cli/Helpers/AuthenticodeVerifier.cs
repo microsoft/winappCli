@@ -35,6 +35,7 @@ internal static unsafe partial class AuthenticodeVerifier
     private const int CERT_E_REVOCATION_FAILURE = unchecked((int)0x800B010E);
     private const int CRYPT_E_REVOCATION_OFFLINE = unchecked((int)0x80092013);
     private const int CRYPT_E_NO_REVOCATION_CHECK = unchecked((int)0x80092012);
+    private const int TRUST_E_NOSIGNATURE = unchecked((int)0x800B0100);
 
     // Attribute type of the organization (O) component of an X.509 subject.
     private const string OrganizationOid = "2.5.4.10";
@@ -53,6 +54,9 @@ internal static unsafe partial class AuthenticodeVerifier
     public static bool IsTrustedMicrosoftSigned(string filePath, ILogger logger) =>
         IsTrustedMicrosoftSigned(filePath, logger, VerifyTrustCore, IsMicrosoftSigner);
 
+    internal static bool IsTrustedMicrosoftSignedFileOrCatalog(string filePath, ILogger logger) =>
+        IsTrustedMicrosoftSigned(filePath, logger, VerifyTrustCore, IsMicrosoftSigner, VerifyCatalogSignature);
+
     /// <summary>
     /// Core of <see cref="IsTrustedMicrosoftSigned(string, ILogger)"/> with the two OS-boundary
     /// probes injected: <paramref name="verifyTrustCore"/> runs <c>WinVerifyTrust</c> (returning its
@@ -64,7 +68,8 @@ internal static unsafe partial class AuthenticodeVerifier
         string filePath,
         ILogger logger,
         Func<string, uint, uint, int> verifyTrustCore,
-        Func<string, bool> isMicrosoftSigner)
+        Func<string, bool> isMicrosoftSigner,
+        Func<string, ILogger, bool>? verifyCatalog = null)
     {
         try
         {
@@ -73,8 +78,13 @@ internal static unsafe partial class AuthenticodeVerifier
                 return false;
             }
 
-            if (!VerifyTrust(filePath, logger, verifyTrustCore))
+            var trust = VerifyTrust(filePath, logger, verifyTrustCore);
+            if (trust != 0)
             {
+                if (trust == TRUST_E_NOSIGNATURE && verifyCatalog is not null)
+                {
+                    return verifyCatalog(filePath, logger);
+                }
                 logger.LogDebug("Authenticode trust verification failed for {File}.", filePath);
                 return false;
             }
@@ -94,7 +104,7 @@ internal static unsafe partial class AuthenticodeVerifier
         }
     }
 
-    private static bool VerifyTrust(string filePath, ILogger logger, Func<string, uint, uint, int> verifyTrustCore)
+    private static int VerifyTrust(string filePath, ILogger logger, Func<string, uint, uint, int> verifyTrustCore)
     {
         // Prefer full-chain revocation using locally cached CRLs only (no network fetch, so a
         // locked-down/offline environment does not hang). A definitively revoked certificate is a hard
@@ -103,22 +113,22 @@ internal static unsafe partial class AuthenticodeVerifier
         var hr = verifyTrustCore(filePath, WTD_REVOKE_WHOLECHAIN, WTD_CACHE_ONLY_URL_RETRIEVAL);
         if (hr == 0)
         {
-            return true;
+            return 0;
         }
 
         if (hr is CERT_E_REVOKED)
         {
             logger.LogDebug("Authenticode certificate for {File} is revoked.", filePath);
-            return false;
+            return hr;
         }
 
         if (hr is CERT_E_REVOCATION_FAILURE or CRYPT_E_REVOCATION_OFFLINE or CRYPT_E_NO_REVOCATION_CHECK)
         {
             logger.LogDebug("Revocation data unavailable for {File} (0x{Hr:X8}); falling back to signature-only verification.", filePath, hr);
-            return verifyTrustCore(filePath, WTD_REVOKE_NONE, WTD_REVOCATION_CHECK_NONE) == 0;
+            return verifyTrustCore(filePath, WTD_REVOKE_NONE, WTD_REVOCATION_CHECK_NONE);
         }
 
-        return false;
+        return hr;
     }
 
     private static int VerifyTrustCore(string filePath, uint revocationChecks, uint provFlags)

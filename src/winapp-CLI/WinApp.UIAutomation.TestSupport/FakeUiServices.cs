@@ -335,6 +335,13 @@ public class FakeUiAutomationService : IUiAutomation
 /// </summary>
 public class FakeUiTargetResolver : IUiTargetResolver
 {
+    public bool ProcessOnlyRequested { get; private set; }
+    public Task<UiTarget> ResolveProcessAsync(string app, CancellationToken ct)
+    {
+        ProcessOnlyRequested = true;
+        return ResolveAsync(app, null, ct);
+    }
+
     public UiTarget TargetResult { get; set; } = new()
     {
         ProcessId = 1234,

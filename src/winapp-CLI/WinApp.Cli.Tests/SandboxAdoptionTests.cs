@@ -25,6 +25,101 @@ public class SandboxAdoptionTests
     private const string ManualInstanceId = "manually-started-sandbox";
 
     [TestMethod]
+    [DataRow("libSkiaSharp.dll")]
+    [DataRow("libHarfBuzzSharp.dll")]
+    public async Task MissingGraphicsCompanionFailsBeforeStartingOrAdoptingSandbox(string name)
+    {
+        using var harness = new AdoptionHarness();
+        File.Delete(Path.Combine(harness.BinaryDirectory, name));
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.Backend.EnsureConnectedAsync(new EnsureTargetOptions(true), TestContext.CancellationToken));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.AgentUpgradeFailed, error.Error.Code);
+        StringAssert.Contains(error.Message, name);
+        Assert.IsEmpty(harness.Cli.Operations);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task MissingGraphicsCompanionCannotReuseWarmAgent(bool readOnly)
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        File.Delete(Path.Combine(harness.BinaryDirectory, "libHarfBuzzSharp.dll"));
+        var reconnects = 0;
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+        {
+            reconnects++;
+            throw new InvalidOperationException("An incomplete host payload must not reconnect.");
+        };
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(async () =>
+        {
+            if (readOnly)
+            {
+                await harness.Backend.TryAttachAsync(TestContext.CancellationToken);
+            }
+            else
+            {
+                await harness.Backend.EnsureConnectedAsync(new EnsureTargetOptions(true), TestContext.CancellationToken);
+            }
+        });
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.AgentUpgradeFailed, error.Error.Code);
+        Assert.AreEqual(0, reconnects);
+    }
+
+    [TestMethod]
+    public async Task Bootstrap_StagesBothDevToolsEnginesAndRefreshesChangedBytes()
+    {
+        using var harness = new AdoptionHarness();
+        var destination = Path.Combine(harness.TargetRoot, "bundle-test");
+        Directory.CreateDirectory(destination);
+        foreach (var name in GuestDevTools.EngineFileNames)
+        {
+            File.WriteAllText(Path.Combine(harness.BinaryDirectory, name), name + "-v1");
+        }
+        var binary = new FileInfo(Path.Combine(harness.BinaryDirectory, "winapp.exe"));
+        var first = await WindowsSandboxBackend.StageBootstrapPayloadAsync(binary, destination, TestContext.CancellationToken);
+        foreach (var name in GuestDevTools.EngineFileNames)
+        {
+            Assert.AreEqual(name + "-v1", File.ReadAllText(Path.Combine(destination, first.DirectoryName, name)));
+            File.WriteAllText(Path.Combine(harness.BinaryDirectory, name), name + "-v2");
+        }
+        var second = await WindowsSandboxBackend.StageBootstrapPayloadAsync(binary, destination, TestContext.CancellationToken);
+        Assert.AreNotEqual(first.DirectoryName, second.DirectoryName);
+        foreach (var name in GuestDevTools.EngineFileNames)
+        {
+            Assert.AreEqual(name + "-v2", File.ReadAllText(Path.Combine(destination, second.DirectoryName, name)));
+            Assert.AreEqual(name + "-v1", File.ReadAllText(Path.Combine(destination, first.DirectoryName, name)));
+        }
+        Assert.HasCount(0, harness.Cli.Operations, "Staging must not start a VM or load an engine.");
+    }
+
+    [TestMethod]
+    public async Task Bootstrap_LockedCorruptedPayloadFailsInsteadOfReusingIt()
+    {
+        using var harness = new AdoptionHarness();
+        var destination = Path.Combine(harness.TargetRoot, "bundle-locked");
+        Directory.CreateDirectory(destination);
+        var name = GuestDevTools.NativeFileName;
+        File.WriteAllText(Path.Combine(harness.BinaryDirectory, name), "new");
+        var binary = new FileInfo(Path.Combine(harness.BinaryDirectory, "winapp.exe"));
+        var first = await WindowsSandboxBackend.StageBootstrapPayloadAsync(binary, destination, TestContext.CancellationToken);
+        var oldPath = Path.Combine(destination, first.DirectoryName, name);
+        File.WriteAllText(oldPath, "old");
+        using var locked = new FileStream(oldPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            WindowsSandboxBackend.StageBootstrapPayloadAsync(binary, destination, TestContext.CancellationToken));
+        Assert.AreEqual(ExecutionTargetErrorCodes.AgentUpgradeFailed, error.Error.Code);
+        Assert.AreEqual("old", File.ReadAllText(oldPath));
+    }
+
+    [TestMethod]
     public async Task FailedWarmAttachment_IsNotRetriedBeforeRepair()
     {
         using var harness = new AdoptionHarness();
@@ -493,7 +588,11 @@ public class SandboxAdoptionTests
         var bootstrapShare = GuestSharePaths(harness)
             .Single(path => !path.StartsWith(@"C:\WinAppBootstrapResult", StringComparison.Ordinal));
 
-        StringAssert.Contains(rule, $@"{bootstrapShare}\{GuestAgentCommandNames.BinaryName}", StringComparison.Ordinal);
+        var launch = harness.Cli.Operations.Single(op => op.StartsWith("launch-agent:", StringComparison.Ordinal));
+        var executable = launch.Split('"')[1];
+        StringAssert.StartsWith(executable, bootstrapShare + @"\payload-", StringComparison.Ordinal);
+        StringAssert.EndsWith(executable, @"\" + GuestAgentCommandNames.BinaryName, StringComparison.Ordinal);
+        StringAssert.Contains(rule, $"$agent='{executable}'", StringComparison.Ordinal);
     }
 
     [TestMethod]
@@ -799,6 +898,8 @@ public class SandboxAdoptionTests
 
             var binary = new FileInfo(Path.Join(_root.FullName, "winapp.exe"));
             File.WriteAllText(binary.FullName, "agent");
+            File.WriteAllText(Path.Join(_root.FullName, "libSkiaSharp.dll"), "skia");
+            File.WriteAllText(Path.Join(_root.FullName, "libHarfBuzzSharp.dll"), "harfbuzz");
 
             Backend = new WindowsSandboxBackend(
                 Cli,
@@ -824,6 +925,8 @@ public class SandboxAdoptionTests
         public AdoptionSandboxCli Cli { get; }
 
         public WindowsSandboxBackend Backend { get; }
+
+        public string BinaryDirectory => _root.FullName;
 
         /// <summary>Where this target's per-generation bootstrap folders live.</summary>
         public string TargetRoot { get; }

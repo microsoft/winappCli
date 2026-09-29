@@ -1,8 +1,13 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+extern alias winappcli;
+
 using System.Diagnostics;
+using System.Text;
 using WinApp.Cli.Services;
+using winappcli::Windows.Win32.System.Threading;
+using PInvoke = winappcli::Windows.Win32.PInvoke;
 
 namespace WinApp.Cli.Tests;
 
@@ -208,6 +213,129 @@ public class AppLauncherServiceTests
     }
 
     // ---- LaunchExecutable (real stdio paths) -------------------------------
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(LaunchStdioMode.Inherit)]
+    [DataRow(LaunchStdioMode.Suppress)]
+    public async Task LaunchExecutable_EnvironmentIsChildPrivate_AndRemovalDoesNotChangeParent(object stdio)
+    {
+        var workingDir = Directory.CreateTempSubdirectory("winapp-private-env-");
+        var key = "WINAPP_TEST_" + Guid.NewGuid().ToString("N");
+        var removeKey = key + "_REMOVE";
+        Environment.SetEnvironmentVariable(key, "parent");
+        Environment.SetEnvironmentVariable(removeKey, "parent");
+        try
+        {
+            var environment = new Dictionary<string, string?> { [key] = "child value", [removeKey] = null };
+            using var process = _service.LaunchExecutable(
+                Environment.GetEnvironmentVariable("ComSpec")!,
+                $"/d /c \"echo %{key}%> \"sentinel file.txt\" & if defined {removeKey} exit /b 9 & if not defined PATH exit /b 8\"",
+                workingDir.FullName, (LaunchStdioMode)stdio, environment);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await process.WaitForExitAsync(cts.Token);
+            Assert.IsTrue(process.HasExited);
+            Assert.AreEqual(0, process.ExitCode);
+            Assert.AreEqual("child value", (await File.ReadAllTextAsync(Path.Join(workingDir.FullName, "sentinel file.txt"), cts.Token)).Trim());
+            Assert.AreEqual("parent", Environment.GetEnvironmentVariable(key));
+            Assert.AreEqual("parent", Environment.GetEnvironmentVariable(removeKey));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(key, null);
+            Environment.SetEnvironmentVariable(removeKey, null);
+            workingDir.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task LaunchExecutable_OwnedHandleReportsUnpackagedIdentityAndImage()
+    {
+        var identity = Guid.NewGuid().ToString("N");
+        using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, @"Local\winapp-ready-" + identity);
+        using var release = new EventWaitHandle(false, EventResetMode.ManualReset, @"Local\winapp-release-" + identity);
+        var script = "$ready=[Threading.EventWaitHandle]::OpenExisting('Local\\winapp-ready-" + identity + "');" +
+            "$release=[Threading.EventWaitHandle]::OpenExisting('Local\\winapp-release-" + identity + "');" +
+            "$ready.Set()|Out-Null;if(-not $release.WaitOne(30000)){exit 9}";
+        var shell = TestPaths.SystemExecutable(@"WindowsPowerShell\v1.0\powershell.exe");
+        using var process = _service.LaunchExecutable(
+            Environment.GetEnvironmentVariable("ComSpec")!,
+            $"/d /c \"\"{shell}\" -NoProfile -NonInteractive -EncodedCommand {Convert.ToBase64String(Encoding.Unicode.GetBytes(script))}\"",
+            stdioMode: LaunchStdioMode.Suppress);
+        try
+        {
+            Assert.IsTrue(ready.WaitOne(TimeSpan.FromSeconds(10)), "The child must acknowledge its release gate, not rely on ping duration.");
+            Assert.IsFalse(process.HasExited);
+            Assert.IsNull(process.PackageFamilyName);
+            Assert.IsNull(process.ApplicationUserModelId);
+            Assert.AreEqual(Path.GetFullPath(Environment.GetEnvironmentVariable("ComSpec")!), process.ExecutablePath, true);
+            release.Set();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await process.WaitForExitAsync(cts.Token);
+            Assert.AreEqual(0, process.ExitCode);
+        }
+        finally
+        {
+            release.Set();
+            process.Kill();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await process.WaitForExitAsync(cts.Token);
+        }
+    }
+
+    [TestMethod]
+    public unsafe void OwnedHandle_ReportsImageBeforeTheUserModeLoaderStarts()
+    {
+        var executable = TestPaths.SystemExecutable("cmd.exe");
+        var startup = new STARTUPINFOW { cb = (uint)sizeof(STARTUPINFOW) };
+        var arguments = ("\"" + executable + "\" /d /c exit /b 7\0").ToCharArray();
+        PROCESS_INFORMATION created;
+        fixed (char* command = arguments)
+        {
+            if (!PInvoke.CreateProcess(null, command, null, null, false,
+                PROCESS_CREATION_FLAGS.CREATE_SUSPENDED | PROCESS_CREATION_FLAGS.CREATE_NO_WINDOW,
+                null, null, &startup, &created))
+            {
+                throw new System.ComponentModel.Win32Exception();
+            }
+        }
+        try
+        {
+            using var process = Process.GetProcessById(checked((int)created.dwProcessId));
+            using var owned = new LaunchedProcess(process);
+            Assert.IsFalse(owned.HasExited);
+            Assert.AreEqual(executable, owned.ExecutablePath, true,
+                "Image identity must not depend on the child initializing its module list.");
+        }
+        finally
+        {
+            try
+            {
+                _ = PInvoke.TerminateProcess(created.hProcess, 1);
+                Assert.AreEqual(0u, (uint)PInvoke.WaitForSingleObject(created.hProcess, 10_000),
+                    "The exact owned suspended child must terminate before its handles are released.");
+            }
+            finally
+            {
+                PInvoke.CloseHandle(created.hThread);
+                PInvoke.CloseHandle(created.hProcess);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task LaunchExecutable_EarlyExitNeverInventsImageIdentity()
+    {
+        var executable = TestPaths.SystemExecutable("cmd.exe");
+        using var process = _service.LaunchExecutable(executable, "/d /c exit /b 7", stdioMode: LaunchStdioMode.Suppress);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await process.WaitForExitAsync(cts.Token);
+        Assert.IsTrue(process.HasExited);
+        Assert.AreEqual(7, process.ExitCode);
+        var image = process.ExecutablePath;
+        Assert.IsTrue(image is null || string.Equals(executable, image, StringComparison.OrdinalIgnoreCase),
+            "An exited owned handle may be unverifiable, but must never report another process's image.");
+    }
 
     [TestMethod]
     [DoNotParallelize]

@@ -101,7 +101,7 @@ const DEPRECATED_ARG_ALIASES = {
 
 /**
  * Option property renames, keyed by command path, for options whose natural camelCase name
- * would collide with a `CommonOptions` member.
+ * would collide with another wrapper property.
  *
  * `CommonOptions.cwd` is where the winapp *process* is spawned on this machine. A CLI option
  * that also camelCases to `cwd` would silently make one property drive two unrelated things —
@@ -111,6 +111,7 @@ const DEPRECATED_ARG_ALIASES = {
  */
 const OPTION_PROP_RENAMES = {
   'target exec': { '--cwd': 'targetCwd' },
+  'devtools set-property': { '--value': 'queryValue' },
 };
 
 /**
@@ -125,7 +126,7 @@ const OPTION_PROP_RENAMES = {
  * Kept in step with `ITargetAwareCommand` in the CLI by
  * `ExecutionTargetSelectionTests.TargetAwareCommands_MatchTheGeneratorList`.
  */
-const TARGET_AWARE_COMMANDS = ['run', 'ui', 'unregister'];
+const TARGET_AWARE_COMMANDS = ['run', 'ui', 'unregister', 'devtools'];
 
 /** The recursive selector option, which only target-aware commands should expose. */
 const TARGET_SELECTOR_OPTION = '--on';
@@ -285,7 +286,11 @@ function rootSelectorOption(root) {
  * non-zero exit.
  */
 function dropUnsupportedSelector(cmdPath, inherited) {
-  if (TARGET_AWARE_COMMANDS.includes(cmdPath[0]) || !(TARGET_SELECTOR_OPTION in inherited)) {
+  const localComments =
+    cmdPath[0] === 'devtools' &&
+    cmdPath[1] === 'comments' &&
+    ['list', 'get'].includes(cmdPath[2]);
+  if ((!localComments && TARGET_AWARE_COMMANDS.includes(cmdPath[0])) || !(TARGET_SELECTOR_OPTION in inherited)) {
     return inherited;
   }
 
@@ -536,7 +541,7 @@ function generate(schema) {
           L(`  const ${arg.propName}Arr = Array.isArray(${accessor}) ? ${accessor} : [${accessor}];`);
           L(`  ${positionalSink}.push(...${arg.propName}Arr);`);
         } else {
-          L(`  if (${accessor}) {`);
+          L(`  if (${accessor} !== undefined) {`);
           L(`    const ${arg.propName}Arr = Array.isArray(${accessor}) ? ${accessor} : [${accessor}];`);
           L(`    ${positionalSink}.push(...${arg.propName}Arr);`);
           L('  }');
@@ -544,7 +549,7 @@ function generate(schema) {
       } else if (required) {
         L(`  ${positionalSink}.push(${accessor});`);
       } else {
-        L(`  if (${accessor}) ${positionalSink}.push(${accessor});`);
+        L(`  if (${accessor} !== undefined) ${positionalSink}.push(${accessor});`);
       }
     }
 
@@ -560,6 +565,9 @@ function generate(schema) {
         L('  }');
       } else if (tsType(opt.def.valueType) === 'number') {
         L(`  if (options.${opt.propName} !== undefined) args.push('${opt.cliName}', options.${opt.propName}.toString());`);
+      } else if (cmdPathStr === 'devtools set-property' && opt.cliName === '--value') {
+        // A literal beginning with "--" must not become another CLI option.
+        L(`  if (options.${opt.propName} !== undefined) args.push('${opt.cliName}=' + options.${opt.propName});`);
       } else {
         L(`  if (options.${opt.propName} !== undefined) args.push('${opt.cliName}', options.${opt.propName});`);
       }

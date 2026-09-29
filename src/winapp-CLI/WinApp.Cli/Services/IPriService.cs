@@ -5,8 +5,12 @@ using WinApp.Cli.ConsoleTasks;
 
 namespace WinApp.Cli.Services;
 
+internal sealed record PriXamlResources(string PriHash, IReadOnlyDictionary<string, string[]> Paths);
+
 internal interface IPriService
 {
+    Task<PriXamlResources> VerifyXamlResourcesAsync(FileInfo priFile, IReadOnlyDictionary<string, string> expectedHashes,
+        TaskContext taskContext, CancellationToken cancellationToken);
     Task<FileInfo> CreatePriConfigAsync(
         DirectoryInfo packageDir,
         TaskContext taskContext,

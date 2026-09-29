@@ -220,7 +220,8 @@ internal partial class RunCommand
             // Build (unless --no-build) and resolve the output properties. ProjectRunService owns the build
             // UX: it streams dotnet's output live and prints the exact invocation; in --json/--quiet mode it
             // routes both to stderr to keep stdout pure.
-            var buildOptions = new ProjectRunOptions(configuration, architecture, framework, noBuild, noRestore, properties, isJson, solution);
+            var buildOptions = new ProjectRunOptions(configuration, architecture, framework, noBuild, noRestore, properties, isJson, solution,
+                CaptureDevToolsSources: parseResult.GetValue(DevToolsOption));
 
             // Fail fast (issue #676): identity-only options like --no-launch are meaningless for an
             // unpackaged app but are only rejected authoritatively AFTER packaging is known (post-build).
@@ -267,11 +268,11 @@ internal partial class RunCommand
                 ? await RunPackagedProjectAsync(
                     resolution, csproj, manifest, layoutOutput, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, noBuild, isJson,
-                    executionTarget, cancellationToken)
+                    executionTarget, cancellationToken, devTools: parseResult.GetValue(DevToolsOption), showOverlay: !parseResult.GetValue(NoOverlayOption))
                 : await RunUnpackagedProjectAsync(
                     resolution, csproj, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, manifest, outputAppXDirectory, isJson,
-                    executionTarget, cancellationToken);
+                    executionTarget, cancellationToken, devTools: parseResult.GetValue(DevToolsOption), showOverlay: !parseResult.GetValue(NoOverlayOption));
         }
 
         /// <summary>
@@ -297,7 +298,9 @@ internal partial class RunCommand
             bool noBuild,
             bool isJson,
             ExecutionTargetRef executionTarget,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool devTools = false,
+            bool showOverlay = true)
         {
             var targetDir = new DirectoryInfo(resolution.TargetDir);
             if (resolution.IsAot &&
@@ -337,11 +340,11 @@ internal partial class RunCommand
                 targetDir, effectiveManifest, layoutOutput, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: resolution.Architecture, projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore, selfContained: resolution.SelfContained,
-                aliasDecision, executionTarget, cancellationToken,
-                packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier),
+                aliasDecision, executionTarget, cancellationToken, packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier),
+                devTools: devTools, showOverlay: showOverlay, devToolsSources: resolution.DevToolsXamlSources, nativeAot: resolution.IsAot,
                 appxRecipe: string.IsNullOrWhiteSpace(resolution.AppxRecipePath)
                     ? null
-                    : new FileInfo(resolution.AppxRecipePath));
+                    : new FileInfo(resolution.AppxRecipePath), devToolsCompilerArtifacts: resolution.DevToolsCompilerArtifacts);
         }
 
         /// <summary>
@@ -366,7 +369,9 @@ internal partial class RunCommand
             DirectoryInfo? outputAppXDirectory,
             bool isJson,
             ExecutionTargetRef executionTarget,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool devTools = false,
+            bool showOverlay = true)
         {
             // AUTHORITATIVE gate — rejects packaged-only options once packaging is definitively known.
             // RunProjectModeAsync fails fast on the definitively-unpackaged case before building (issue
@@ -380,7 +385,7 @@ internal partial class RunCommand
             if (!executionTarget.IsLocal)
             {
                 return await ExecuteUnpackagedSandboxRunAsync(
-                    resolution, csproj, appArgs, debugOutput, detach, isJson, cancellationToken);
+                    resolution, csproj, appArgs, debugOutput, detach, isJson, cancellationToken, devTools, showOverlay);
             }
 
             var exePath = resolution.RunCommand!; // guaranteed non-null for unpackaged by BuildAndResolveAsync
@@ -448,13 +453,24 @@ internal partial class RunCommand
             }
 
             ILaunchedProcess launched;
+            using var coordinates = devTools
+                ? await Services.DevTools.XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(csproj, resolution.DevToolsXamlSources,
+                    resolution.DevToolsCompilerArtifacts, cancellationToken,
+                    (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(exePath)!, token)) : null;
             try
             {
                 // For --detach and --json the child must not inherit winapp's standard handles: inheritance
                 // would keep the npm wrapper's captured stdout pipe open (blocking a detached launch) and let
                 // app output corrupt --json stdout. A foreground, non-JSON run streams inline like `dotnet run`.
                 var stdioMode = (detach || isJson) ? LaunchStdioMode.Suppress : LaunchStdioMode.Inherit;
-                launched = appLauncherService.LaunchExecutable(exePath, launchArgs, workingDirectory, stdioMode);
+                var environment = devTools ? CreateDevToolsEnvironment(csproj.DirectoryName, !resolution.IsAot) : null;
+                if (coordinates is not null && environment is not null)
+                {
+                    environment = coordinates.Apply(environment, Path.GetDirectoryName(exePath)!);
+                    if (coordinates.Error is { } coordinateError) { logger.LogWarning("{Message}", coordinateError); }
+                    LogSourceExclusions(coordinates.Exclusions);
+                }
+                launched = appLauncherService.LaunchExecutable(exePath, launchArgs, workingDirectory, stdioMode, environment);
             }
             catch (Exception ex)
             {
@@ -462,8 +478,8 @@ internal partial class RunCommand
                 // Win32 "not a valid application" error. If the resolved arch can't run on this machine,
                 // enrich the message with actionable guidance instead of surfacing the raw OS error.
                 var detail = resolution.Architecture is { Length: > 0 } arch && !CanCurrentOsRunArchitecture(arch)
-                    ? BuildArchMismatchMessage(arch, ex.Message)
-                    : ex.Message;
+                    ? BuildArchMismatchMessage(arch, RunFailure.Describe(ex))
+                    : RunFailure.Describe(ex);
                 logger.LogError("{UISymbol} Failed to launch '{Exe}': {Message}", UiSymbols.Error, exePath, detail);
                 if (isJson)
                 {
@@ -478,6 +494,12 @@ internal partial class RunCommand
             using (launched)
             {
                 var processId = launched.ProcessId;
+
+                if (devTools)
+                {
+                    return await RunInspectedProcessAsync(launched, null, resolution.TargetDir, debugOutput, useSymbols,
+                        detach, isJson, showOverlay, cancellationToken, coordinates);
+                }
 
                 // --detach: return immediately, surfacing the PID for automation.
                 if (detach)

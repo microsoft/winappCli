@@ -44,8 +44,17 @@ internal partial class RunCommand
             bool selfContained,
             PackageGraphSource? packageGraph,
             FileInfo? appxRecipe,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool devTools = false,
+            bool showOverlay = true,
+            IReadOnlyList<string>? devToolsSources = null,
+            bool nativeAot = false,
+            Services.DevTools.XamlCompilerArtifacts? devToolsCompilerArtifacts = null)
         {
+            if (devTools && (projectFile is null || devToolsSources is not { Count: > 0 }))
+            {
+                return Fail("Sandbox DevTools requires a project with evaluated XAML sources; output-only input cannot establish a persistent host comment owner.", isJson);
+            }
             FileInfo resolvedManifest;
             DirectoryInfo layout;
             MsixIdentityResult? identity = null;
@@ -81,7 +90,7 @@ internal partial class RunCommand
                                 identity = await msixService.MaterializeLooseLayoutAsync(
                                     resolvedManifest, inputFolder, layout, taskContext, layoutOutput.Reconciliation,
                                     executable, projectFile, framework, noRestore,
-                                    selfContained, aliasDecision.UseAlias, packageGraph, appxRecipe, ct);
+                                    selfContained, aliasDecision.UseAlias && !devTools, packageGraph, appxRecipe, ct);
                                 return (0, $"{identity.PackageName} ready to deploy");
                             }
                             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -147,7 +156,9 @@ internal partial class RunCommand
                     layoutLease: layoutLease,
                     applicationArchitecture: runtimeArch,
                     packageGraph: selfContained ? null : packageGraph,
-                    framework: framework);
+                    framework: framework,
+                    inspector: devTools ? new(projectFile!, devToolsSources!, string.Empty, appArgs, showOverlay, detach, identity,
+                        Managed: !nativeAot, Compiler: devToolsCompilerArtifacts) : null);
             }
             finally
             {
@@ -172,7 +183,9 @@ internal partial class RunCommand
             bool debugOutput,
             bool detach,
             bool isJson,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool devTools = false,
+            bool showOverlay = true)
         {
             var targetDir = new DirectoryInfo(resolution.TargetDir);
 
@@ -182,6 +195,10 @@ internal partial class RunCommand
             {
                 GuestRunPlanner.EnsureSupportedForUnpackaged(debugOutput);
                 executableRelativePath = ResolveGuestRelativeExecutable(targetDir, resolution.RunCommand!, csproj);
+                if (devTools && resolution.DevToolsXamlSources is not { Count: > 0 })
+                {
+                    return Fail("Sandbox DevTools requires evaluated project XAML sources for its read-only snapshot and persistent host comments.", isJson);
+                }
             }
             catch (ExecutionTargetException ex)
             {
@@ -219,7 +236,10 @@ internal partial class RunCommand
                 packageGraph: !resolution.SelfContained && resolution.ProjectAssetsFile is { } assetsFile
                     ? new PackageGraphSource(new FileInfo(assetsFile), resolution.ProjectAssetsRuntimeIdentifier)
                     : null,
-                framework: resolution.Framework);
+                framework: resolution.Framework,
+                inspector: devTools ? new(csproj, resolution.DevToolsXamlSources ?? [],
+                    executableRelativePath, WindowsCommandLine.JoinArguments(launchArguments), showOverlay, detach,
+                    Managed: !resolution.IsAot, Compiler: resolution.DevToolsCompilerArtifacts) : null);
         }
 
         /// <summary>
@@ -260,13 +280,29 @@ internal partial class RunCommand
             LayoutLease? layoutLease = null,
             string? applicationArchitecture = null,
             PackageGraphSource? packageGraph = null,
-            string? framework = null)
+            string? framework = null,
+            GuestInspectorRun? inspector = null)
         {
             try
             {
+                GuestDevToolsCapabilities? expectedInspector = null;
+                if (inspector is not null)
+                {
+                    _ = GuestSourceSnapshot.ValidateSources(inspector.Project, inspector.Sources);
+                    expectedInspector = await ReadGuestDevToolsCapabilities(cancellationToken)
+                        ?? throw new InvalidOperationException("Sandbox DevTools requires a complete winapp build with its matching native and managed engines.");
+                    if (!string.Equals(applicationArchitecture, expectedInspector.Architecture, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException("The app architecture must match the Sandbox DevTools engines. " +
+                            $"Build with --arch {expectedInspector.Architecture}.");
+                    }
+                }
                 await using var target = await executionTargetOrchestrator.PrepareAsync(
                     PrepareTargetOptions.Mutating with { RequireInteractiveDesktop = requiresRealInput },
                     cancellationToken);
+
+                var inspectorLaunch = inspector is null ? null :
+                    await PrepareGuestInspectorAsync(target, inspector, expectedInspector!, sourceRoot, cancellationToken);
 
                 if (identity is not null)
                 {
@@ -307,7 +343,8 @@ internal partial class RunCommand
                     // Even --no-launch registers under the mutation lease.
                     WriteProgress(isJson, "Registering the application in the Windows Sandbox...");
 
-                    var registration = await RegisterPackageAsync(target, deployment, clean, isJson, cancellationToken);
+                    var registration = await RegisterPackageAsync(target, deployment, clean, isJson, cancellationToken,
+                        inspector?.Package?.ApplicationId);
 
                     try
                     {
@@ -384,6 +421,12 @@ internal partial class RunCommand
 
                 WriteProgress(isJson, "Starting the application in the Windows Sandbox...");
 
+                if (inspectorLaunch is not null)
+                {
+                    return await RunGuestInspectorAsync(
+                        target, deployment, state, inspector!, inspectorLaunch, ownerEnvironment, isJson, cancellationToken);
+                }
+
                 GuestRunOutcome run;
                 try
                 {
@@ -451,6 +494,15 @@ internal partial class RunCommand
             {
                 return TargetOutput.Fail(ansiConsole, isJson, ex.Error);
             }
+            catch (OperationCanceledException) when (inspector is not null && cancellationToken.IsCancellationRequested)
+            {
+                return -1;
+            }
+            catch (Exception ex) when (inspector is not null &&
+                ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                return Fail(ex.Message, isJson);
+            }
         }
 
         /// <summary>
@@ -474,7 +526,8 @@ internal partial class RunCommand
             GuestDeployment deployment,
             bool clean,
             bool isJson,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? inspectorApplicationId = null)
         {
             target.RequireMutationLease();
 
@@ -484,7 +537,7 @@ internal partial class RunCommand
                 Arguments = GuestRunPlanner.BuildRegistrationArguments(
                     deployment.PayloadPath,
                     deployment.LayoutPath,
-                    clean, isJson),
+                    clean, isJson, inspectorApplicationId),
                 WorkingDirectory = deployment.PayloadPath,
             };
 

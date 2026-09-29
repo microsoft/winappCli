@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Startup hooks run in the target's CLR, including.NET 8 hosts. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- The RID resolves reference assets; the emitted hook must remain architecture-neutral. -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <OutputType>Library</OutputType>
+    <AssemblyName>WinApp.DevTools.Managed</AssemblyName>
+    <RootNamespace>WinApp.DevTools.Managed</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <WindowsPackageType>None</WindowsPackageType>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <!-- An eager WinRT module initializer can crash a non-WinUI host before Initialize runs. -->
+    <CsWinRTAotOptimizerEnabled>false</CsWinRTAotOptimizerEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="BindingDiagnosis.cs" />
+    <Compile Include="BindingCaptureStore.cs" />
+    <Compile Include="StartupHook.cs" />
+    <InternalsVisibleTo Include="WinApp.DevTools.Managed.Tests" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
+  </ItemGroup>
+</Project>

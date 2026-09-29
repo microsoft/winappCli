@@ -37,7 +37,7 @@
       "recursive": true
     },
     "--on": {
-      "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+      "description": "Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local.",
       "hidden": false,
       "valueType": "System.String",
       "hasDefaultValue": false,
@@ -706,6 +706,2033 @@
           },
           "required": false,
           "recursive": false
+        }
+      }
+    },
+    "devtools": {
+      "description": "Inspect live WinUI elements, edit properties, and review UI comments.",
+      "hidden": false,
+      "subcommands": {
+        "attach": {
+          "description": "Enable DevTools in a running WinUI 3 app until that app exits.",
+          "hidden": false,
+          "options": {
+            "--app": {
+              "description": "App PID, process name, or window title; use --on sandbox for a guest app.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--overlay": {
+              "description": "Show the in-app DevTools overlay after attaching.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--pid": {
+              "description": "Process id of the running WinUI 3 app to attach to.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--show-window": {
+              "description": "Open the in-process DevTools inspector window and its supporting overlay after attaching.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "call": {
+          "description": "Call an advertised DevTools protocol method (advanced).",
+          "hidden": false,
+          "arguments": {
+            "method": {
+              "description": "The DevTools method to call, e.g. DevTools.ping, Layout.get, Overlay.highlight.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "params": {
+              "description": "Method parameters. name=value sends a string; name:=value sends raw JSON (e.g. appAuthoredOnly:=true, depth:=4).",
+              "order": 1,
+              "hidden": false,
+              "valueType": "System.String[]",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0
+              }
+            }
+          },
+          "options": {
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--attach": {
+              "description": "Authorize attaching DevTools if the target is not already attached.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "comments": {
+          "description": "Manage saved UI review comments anchored to app source.",
+          "hidden": false,
+          "subcommands": {
+            "add": {
+              "description": "Author a source-anchored UI review comment into .winapp/ui-comments.json.",
+              "hidden": false,
+              "options": {
+                "--app": {
+                  "description": "Live capture and marker target: PID, process name, or window title.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--column": {
+                  "description": "Source column (advisory).",
+                  "hidden": false,
+                  "valueType": "System.Nullable<System.Int32>",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--confirm-likely-source": {
+                  "description": "Confirm the displayed likely source declaration for this capture; its compiled identity is unverified.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--file": {
+                  "description": "Source file leaf the element lives in (e.g. MainWindow.xaml).",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--from-element": {
+                  "description": "Use an element's x:Name or handle in a running DevTools app (requires --app).",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--from-selection": {
+                  "description": "Use the picked element in a running DevTools app (requires --app).",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--id": {
+                  "description": "Create or replace the comment with this ID.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--json": {
+                  "description": "Format output as JSON",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--kind": {
+                  "description": "Triage: visual | binding | behavior | a11y | other.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--line": {
+                  "description": "Source line (advisory).",
+                  "hidden": false,
+                  "valueType": "System.Nullable<System.Int32>",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--name": {
+                  "description": "Element x:Name.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--source-root": {
+                  "description": "Project directory (default: current directory); comments are stored at the repository root.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--text": {
+                  "description": "The comment text (required).",
+                  "hidden": false,
+                  "aliases": [
+                    "-t"
+                  ],
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": true,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "delete": {
+              "description": "Delete a UI comment from .winapp/ui-comments.json permanently.",
+              "hidden": false,
+              "arguments": {
+                "id": {
+                  "description": "The comment id.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--app": {
+                  "description": "Optional marker refresh target: PID, process name, or window title.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--json": {
+                  "description": "Format output as JSON",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--source-root": {
+                  "description": "Project directory (default: current directory); comments are stored at the repository root.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "get": {
+              "description": "Show one locally saved UI comment and source matches; use --source-root, not --app or --on.",
+              "hidden": false,
+              "arguments": {
+                "id": {
+                  "description": "The comment id.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--json": {
+                  "description": "Format output as JSON",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--source-root": {
+                  "description": "Project directory (default: current directory); comments are stored at the repository root.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "list": {
+              "description": "List locally saved UI comments and source matches; use --source-root, not --app or --on.",
+              "hidden": false,
+              "options": {
+                "--all": {
+                  "description": "Include all statuses (the default for --json).",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--app-title": {
+                  "description": "App display name included in the output.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--json": {
+                  "description": "Format output as JSON",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--project": {
+                  "description": "Filter by the captured project root.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--source-root": {
+                  "description": "Project directory (default: current directory); comments are stored at the repository root.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--status": {
+                  "description": "Filter by status: open | resolved | stale | dismissed (default: open for human output; all statuses with --json).",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "update": {
+              "description": "Update a saved UI comment's status and optional note.",
+              "hidden": false,
+              "arguments": {
+                "id": {
+                  "description": "The comment id.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--app": {
+                  "description": "Optional marker refresh target: PID, process name, or window title.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--by": {
+                  "description": "Who made the update (default: current user).",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--json": {
+                  "description": "Format output as JSON",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--note": {
+                  "description": "What changed, or why work is deferred.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--source-root": {
+                  "description": "Project directory (default: current directory); comments are stored at the repository root.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--status": {
+                  "description": "New status: open | resolved | stale | dismissed.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": true,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            }
+          }
+        },
+        "diagnose-binding": {
+          "description": "Explain a live binding's path, source, and any failure.",
+          "hidden": false,
+          "arguments": {
+            "selector": {
+              "description": "Element to inspect: the selector printed in brackets, an x:Name, or a handle.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "property": {
+              "description": "The bound dependency property, e.g. IsEnabled or Text.",
+              "order": 1,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--attach": {
+              "description": "Authorize attaching DevTools if the target is not already attached.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "get-layout": {
+          "description": "Read an element's size, position, and parent layout.",
+          "hidden": false,
+          "arguments": {
+            "selector": {
+              "description": "Element to read: the selector printed in brackets, an x:Name, or a handle.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--attach": {
+              "description": "Authorize attaching DevTools if the target is not already attached.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "get-property": {
+          "description": "Read an element's live property values and where they come from.",
+          "hidden": false,
+          "arguments": {
+            "selector": {
+              "description": "Element to read: the selector printed in brackets, an x:Name, or a handle.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--all": {
+              "description": "Include default-valued properties, not only explicitly set ones.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--attach": {
+              "description": "Authorize attaching DevTools if the target is not already attached.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--of-type": {
+              "description": "Match an exact XAML runtime type; short names must be unambiguous.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--property": {
+              "description": "Dependency property name (e.g. Width, IsEnabled, Background).",
+              "hidden": false,
+              "aliases": [
+                "-p"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--with": {
+              "description": "Property<operator>Literal predicate. Repeat for AND; quote the whole argument.",
+              "hidden": false,
+              "valueType": "System.String[]",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "get-source": {
+          "description": "Find an element's XAML declaration, when source information is available.",
+          "hidden": false,
+          "arguments": {
+            "selector": {
+              "description": "Element to read: the selector printed in brackets, an x:Name, or a handle.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--attach": {
+              "description": "Authorize attaching DevTools if the target is not already attached.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "inspect": {
+          "description": "Show the app's live XAML tree and reusable element selectors.",
+          "hidden": false,
+          "arguments": {
+            "selector": {
+              "description": "Element to inspect: the selector printed in brackets, an x:Name, or a handle. Defaults to the whole tree.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--all": {
+              "description": "Include framework and control-template elements, not just the ones your XAML declares.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--ancestors": {
+              "description": "Show the path from the selected element up to the tree root instead of its subtree.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--attach": {
+              "description": "Authorize attaching DevTools if the target is not already attached.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--depth": {
+              "description": "Levels to expand in your XAML (--all counts framework levels too).",
+              "hidden": false,
+              "aliases": [
+                "-d"
+              ],
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 4,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--fields": {
+              "description": "Comma-separated runtime property names to return on every match.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--filter": {
+              "description": "Keep only elements whose type, x:Name, or source file matches this text (ancestors are kept for context).",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--of-type": {
+              "description": "Match an exact XAML runtime type; short names must be unambiguous.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--with": {
+              "description": "Property<operator>Literal predicate. Repeat for AND; quote the whole argument.",
+              "hidden": false,
+              "valueType": "System.String[]",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "list": {
+          "description": "List apps with DevTools attached.",
+          "hidden": false,
+          "options": {
+            "--include-available": {
+              "description": "Include running WinUI apps that do not yet have DevTools attached.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "search": {
+          "description": "Find live XAML elements and print their reusable selectors.",
+          "hidden": false,
+          "arguments": {
+            "query": {
+              "description": "Match text content, type, x:Name, or source file (case-insensitive).",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--all": {
+              "description": "Include framework and control-template elements, not just the ones your XAML declares.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--attach": {
+              "description": "Authorize attaching DevTools if the target is not already attached.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--fields": {
+              "description": "Comma-separated runtime property names to return on every match.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--max": {
+              "description": "Maximum matches to print (default 50).",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 50,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--of-type": {
+              "description": "Match an exact XAML runtime type; short names must be unambiguous.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--with": {
+              "description": "Property<operator>Literal predicate. Repeat for AND; quote the whole argument.",
+              "hidden": false,
+              "valueType": "System.String[]",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "set-property": {
+          "description": "Change a live property and read it back; source files stay unchanged.",
+          "hidden": false,
+          "arguments": {
+            "selector": {
+              "description": "Element to change: the selector printed in brackets, an x:Name, or a handle.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "value": {
+              "description": "The new value, e.g. 200, false, #FF0067C0, or \"Save changes\".",
+              "order": 1,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--attach": {
+              "description": "Authorize attaching DevTools if the target is not already attached.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--of-type": {
+              "description": "Match an exact XAML runtime type; short names must be unambiguous.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--property": {
+              "description": "Dependency property name (e.g. Width, IsEnabled, Background).",
+              "hidden": false,
+              "aliases": [
+                "-p"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root": {
+              "description": "Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--type": {
+              "description": "XAML type to create the value as (e.g. Double, Boolean, String, Thickness). Inferred from the value when omitted.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--value": {
+              "description": "New literal value for a query-targeted set; omit the positional selector.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--with": {
+              "description": "Property<operator>Literal predicate. Repeat for AND; quote the whole argument.",
+              "hidden": false,
+              "valueType": "System.String[]",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
         }
       }
     },
@@ -2738,6 +4765,19 @@
           "required": false,
           "recursive": false
         },
+        "--devtools": {
+          "description": "Launch with WinUI XAML inspection and managed binding support. Opens the in-app overlay; use --no-overlay to suppress it. Automatically prepares a staged execution alias for packaged apps; the alias must be enabled and verifiable. Native AOT apps support native inspection but not managed binding instrumentation. Cannot be combined with --no-launch or --without-alias. With --on sandbox, requires a project with XAML sources and does not support --with-alias, --debug-output or --unregister-on-exit.",
+          "hidden": false,
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
         "--executable": {
           "description": "Path to the executable relative to the input folder. Use to disambiguate when the manifest contains a $targetnametoken$ placeholder and multiple .exe files are present in the input folder.",
           "hidden": false,
@@ -2808,6 +4848,19 @@
         },
         "--no-launch": {
           "description": "Only create the debug identity and register the package without launching the application",
+          "hidden": false,
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        },
+        "--no-overlay": {
+          "description": "Suppress the in-app DevTools overlay. Requires --devtools; independent of --json output.",
           "hidden": false,
           "valueType": "System.Boolean",
           "hasDefaultValue": true,

@@ -567,7 +567,7 @@ public class RunCommandSingleFileModeTests : BaseCommandTests
         // for it makes registration fail on a machine that lacks that framework, even though the app
         // never needed it.
         var (singleFile, outputDir) = CreateSingleFileApp();
-        SetOutcome(singleFile, outputDir, "counter.exe", selfContained: true);        var command = GetRequiredService<RunCommand>();
+        SetOutcome(singleFile, outputDir, "counter.exe", selfContained: true); var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [singleFile.FullName, "--detach"]);
 

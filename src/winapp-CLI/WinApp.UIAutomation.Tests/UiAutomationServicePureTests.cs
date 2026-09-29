@@ -4,6 +4,8 @@
 using Windows.Win32.UI.Accessibility;
 using Windows.Win32.Foundation;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Reflection;
+using System.Runtime.InteropServices;
 
 using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.TestSupport;
 
@@ -28,6 +30,118 @@ public class UiAutomationServicePureTests
         UiAutomationService.ResetNativeSeams();
         WgcCapture.s_isSupported = global::Windows.Graphics.Capture.GraphicsCaptureSession.IsSupported;
         WgcCapture.s_startGrabber = (hwnd, logger, fps) => WgcCapture.StartGrabber(hwnd, logger, fps);
+    }
+
+    [TestMethod]
+    [DataRow("bulk")]
+    [DataRow("manual")]
+    [DataRow("combined")]
+    [DataRow("provider-alias")]
+    [DataRow("comparison-unavailable")]
+    public void DescendantMatches_DeduplicatesOnlyProvenProviderIdentityBeforeLimit(string source)
+    {
+        var first = IdentityProxy<IUIAutomationElement>((_, _) => throw new COMException("No runtime ID"));
+        var second = IdentityProxy<IUIAutomationElement>((_, _) => throw new COMException("No runtime ID"));
+        var alias = IdentityProxy<IUIAutomationElement>((_, _) => throw new COMException("No runtime ID"));
+        IUIAutomationElement[] bulk = source switch
+        {
+            "manual" => [],
+            "combined" => [first, first],
+            "provider-alias" => [first, alias, second],
+            _ => [first, first, second],
+        };
+        var manualCalls = 0;
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            IdentityProxy<IUIAutomationElementArray>((method, args) => method.Name switch
+            {
+                "get_Length" => bulk.Length,
+                "GetElement" => bulk[(int)args![0]!],
+                _ => throw new AssertFailedException(method.Name),
+            });
+        UiAutomationService.s_compareElements = (_, left, right) =>
+            source == "comparison-unavailable" ? throw new COMException("Comparison unavailable")
+                : ReferenceEquals(left, right) || (ReferenceEquals(left, first) && ReferenceEquals(right, alias));
+        var service = new UiAutomationService(NullLogger<UiAutomationService>.Instance, new UiSelectorParser());
+        var method = typeof(UiAutomationService).GetMethod("FindAllDescendantMatches", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Func<List<IUIAutomationElement>> manualSearch = () =>
+        {
+            manualCalls++;
+            return [first, first, second, second];
+        };
+
+        var result = (List<IUIAutomationElement>)method.Invoke(service,
+            [first, null, 2, manualSearch, null, false, true, CancellationToken.None])!;
+
+        CollectionAssert.AreEqual(new[] { first, second }, result);
+        Assert.AreEqual(source is "manual" or "combined" ? 1 : 0, manualCalls,
+            "The cap counts distinct providers, not duplicate bulk entries.");
+    }
+
+    private static T IdentityProxy<T>(Func<MethodInfo, object?[]?, object?> handler) where T : class
+    {
+        var proxy = DispatchProxy.Create<T, IdentityDispatchProxy>();
+        ((IdentityDispatchProxy)(object)proxy).Handler = handler;
+        return proxy;
+    }
+
+    private class IdentityDispatchProxy : DispatchProxy
+    {
+        public Func<MethodInfo, object?[]?, object?> Handler { get; set; } =
+            (_, _) => throw new AssertFailedException("Missing provider behavior.");
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) => Handler(targetMethod!, args);
+    }
+
+    [TestMethod]
+    public void InspectIdentity_ShallowOwnedRouteRetainsChildrenAndWindowContext()
+    {
+        var mainHeader = new UiElement { Type = "---", Depth = 0, WindowHandle = 1 };
+        var main = new UiElement { Depth = 0, WindowHandle = 1 };
+        var container = new UiElement { Depth = 1, WindowHandle = 1 };
+        var deep = new UiElement { Depth = 2, WindowHandle = 1, HasMoreChildren = true };
+        var popupHeader = new UiElement { Type = "---", Depth = 0, WindowHandle = 2 };
+        var popup = new UiElement { Depth = 0, WindowHandle = 2 };
+        var shallow = new UiElement { Depth = 1, WindowHandle = 2, Selector = "shared" };
+        var child = new UiElement { Depth = 2, WindowHandle = 2, ParentSelector = "shared" };
+        List<UiElement> elements = [mainHeader, main, container, deep, popupHeader, popup, shallow, child];
+
+        UiAutomationService.DeduplicateInspectedElements(elements,
+            new Dictionary<UiElement, string> { [deep] = "shared-runtime-id", [shallow] = "shared-runtime-id" });
+
+        CollectionAssert.AreEqual(
+            new List<UiElement> { mainHeader, main, container, popupHeader, popup, shallow, child }, elements);
+        Assert.IsFalse(elements.Any(element => element.HasMoreChildren == true));
+        Assert.AreEqual(shallow.WindowHandle, child.WindowHandle);
+        Assert.AreEqual(shallow.Selector, child.ParentSelector);
+    }
+
+    [TestMethod]
+    public void InspectIdentity_IdenticalNamesAndSlugHashesAreNotProviderIdentity()
+    {
+        var first = new UiElement { Depth = 0, Name = "Save", Selector = "btn-save-0210" };
+        var second = new UiElement { Depth = 0, Name = "Save", Selector = "btn-save-0210" };
+        List<UiElement> elements = [first, second];
+
+        UiAutomationService.DeduplicateInspectedElements(elements,
+            new Dictionary<UiElement, string> { [first] = "1;", [second] = "65537;" });
+
+        Assert.AreEqual(2, elements.Count);
+    }
+
+    [TestMethod]
+    public void InspectIdentity_UnverifiablePeersRemainAndRedundantWindowHeadersAreRemoved()
+    {
+        var firstHeader = new UiElement { Type = "---", Depth = 0, WindowHandle = 1 };
+        var first = new UiElement { Depth = 0, WindowHandle = 1 };
+        var secondHeader = new UiElement { Type = "---", Depth = 0, WindowHandle = 2 };
+        var second = new UiElement { Depth = 0, WindowHandle = 2 };
+        List<UiElement> elements = [firstHeader, first, secondHeader, second];
+        UiAutomationService.DeduplicateInspectedElements(elements, new Dictionary<UiElement, string>());
+        Assert.AreEqual(4, elements.Count);
+
+        UiAutomationService.DeduplicateInspectedElements(elements,
+            new Dictionary<UiElement, string> { [first] = "same", [second] = "same" });
+        CollectionAssert.AreEqual(new List<UiElement> { firstHeader, first }, elements);
     }
 
     // Note: UIA_CONTROLTYPE_ID is an internal (CsWin32-generated) enum, so it cannot appear in a

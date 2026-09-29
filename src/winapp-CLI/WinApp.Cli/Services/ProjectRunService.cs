@@ -352,7 +352,8 @@ internal sealed partial class ProjectRunService(
 
         // Builds keep their evaluate-only output-discovery fallback. Publishes capture properties
         // after targets execute: a separate evaluation cannot recover target-assigned PublishDir.
-        if (!publish && !options.NoBuild)
+        var captureBuild = options.CaptureDevToolsSources && !options.NoBuild;
+        if (!publish && !options.NoBuild && !captureBuild)
         {
             var buildExit = await RunBuildPassAsync(csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken);
             if (buildExit != 0)
@@ -366,11 +367,11 @@ internal sealed partial class ProjectRunService(
         int exitCode;
         string stdout;
         string stderr;
-        if (publish)
+        if (publish || captureBuild)
         {
             // Publish output already streamed; its properties come from the MSBuild result file.
             (exitCode, _, stderr, stdout) = await RunPublishPassAsync(
-                csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken);
+                csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken, publish: publish);
         }
         else
         {
@@ -385,7 +386,7 @@ internal sealed partial class ProjectRunService(
             logger.LogError("{UISymbol} {Operation} failed for {Project} (exit code {ExitCode}).", UiSymbols.Error, publish ? "Publish" : "Property evaluation", csproj.Name, exitCode);
             var combined = string.Join(Environment.NewLine,
                 new[] { stdout, stderr }.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.TrimEnd()));
-            if (!publish && !string.IsNullOrWhiteSpace(combined))
+            if (!publish && !captureBuild && !string.IsNullOrWhiteSpace(combined))
             {
                 // Keep stdout clean for --json consumers; route diagnostics to stderr instead.
                 if (options.Json)
@@ -447,6 +448,7 @@ internal sealed partial class ProjectRunService(
                             "{UISymbol} --no-build: '{Primary}' not found; using existing output '{Fallback}' (RID={Rid}, Platform={Platform}, PublishProfile={PublishProfile}).",
                             UiSymbols.Note, primaryTargetDir, fallbackTargetDir, includeRid, includePlatform, includePublishProfile);
                         props = fallbackProps;
+                        stdout = fallbackStdout;
                         break;
                     }
                 }
@@ -518,6 +520,9 @@ internal sealed partial class ProjectRunService(
             }
         }
 
+        var devToolsSources = options.CaptureDevToolsSources ? ReadDevToolsSources(stdout) : null;
+        var compiler = options.CaptureDevToolsSources
+            ? DevTools.XamlSourceCoordinates.FromProperties(csproj, props) : null;
         var resolution = new ProjectRunResolution(
             csproj,
             targetDir,
@@ -532,10 +537,22 @@ internal sealed partial class ProjectRunService(
             ReadAliasPreference(props),
             GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null,
             GetProp(props, "RuntimeIdentifier") is { Length: > 0 } assetsRid ? assetsRid : null,
+            DevToolsXamlSources: devToolsSources,
             AppxManifestPath: appxManifestPath,
-            AppxRecipePath: appxRecipePath);
+            AppxRecipePath: appxRecipePath,
+            DevToolsCompilerArtifacts: compiler);
 
         return new ProjectBuildOutcome(resolution, 0);
+    }
+
+    internal static IReadOnlyList<string> ReadDevToolsSources(string output)
+    {
+        var items = MsBuildPropertyReader.ParseItems(output);
+        if (!items.ContainsKey("Page") || !items.ContainsKey("ApplicationDefinition"))
+        {
+            throw new ProjectRunException("MSBuild did not report the requested XAML source items. Host-backed Sandbox comments require a verified project source snapshot.");
+        }
+        return items["Page"].Concat(items["ApplicationDefinition"]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     /// <summary>

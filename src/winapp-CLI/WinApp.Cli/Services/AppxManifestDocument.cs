@@ -5,6 +5,7 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Services;
 
@@ -17,7 +18,9 @@ internal class AppxManifestDocument
     // AppxManifest XML namespaces
     public static readonly XNamespace DefaultNs = "http://schemas.microsoft.com/appx/manifest/foundation/windows10";
     public static readonly XNamespace UapNs = "http://schemas.microsoft.com/appx/manifest/uap/windows10";
+    public static readonly XNamespace Uap3Ns = "http://schemas.microsoft.com/appx/manifest/uap/windows10/3";
     public static readonly XNamespace Uap5Ns = "http://schemas.microsoft.com/appx/manifest/uap/windows10/5";
+    public static readonly XNamespace Uap8Ns = "http://schemas.microsoft.com/appx/manifest/uap/windows10/8";
     public static readonly XNamespace Uap10Ns = "http://schemas.microsoft.com/appx/manifest/uap/windows10/10";
     public static readonly XNamespace RescapNs = "http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities";
     public static readonly XNamespace BuildNs = "http://schemas.microsoft.com/developer/appx/2015/build";
@@ -539,14 +542,12 @@ internal class AppxManifestDocument
     }
 
     /// <summary>
-    /// Returns the execution aliases the given application declares, or all of them when
-    /// <paramref name="appId"/> is null.
+    /// Returns the execution aliases the given application declares, or those of the first
+    /// application when <paramref name="appId"/> is null.
     /// </summary>
     /// <remarks>
-    /// Matches <c>ExecutionAlias</c> in either the <c>uap5</c> or the <c>desktop</c> namespace, as
-    /// <see cref="MsixService.ExtractExecutionAliases"/> does. Both are valid, and recognizing only
-    /// <c>uap5</c> would read a legacy <c>desktop:ExecutionAlias</c> as "no alias declared" — so winapp
-    /// would stage a second, generated one instead of using the command name the author chose.
+    /// Uses the same desktop, uap5 and uap8 leaf reader as package-wide alias extraction.
+    /// Recognizing authored aliases prevents staging a generated replacement.
     /// </remarks>
     public IReadOnlyList<string> GetExecutionAliases(string? appId = null)
     {
@@ -556,13 +557,26 @@ internal class AppxManifestDocument
             return [];
         }
 
-        return [.. app.Descendants()
-            .Where(e => e.Name.LocalName == "ExecutionAlias"
-                && (e.Name.Namespace == Uap5Ns || e.Name.Namespace == DesktopNs))
-            .Select(e => e.Attribute("Alias")?.Value)
-            .Where(v => !string.IsNullOrEmpty(v))
-            .Select(v => v!)];
+        return [.. ReadExecutionAliases(app).Where(alias => alias.Length > 0)];
     }
+
+    internal IReadOnlySet<string> GetExecutionAliasesClaimedByOtherApplications(string? appId = null)
+    {
+        var selected = FindApplication(appId);
+        return (_document.Root?.Descendants(DefaultNs + "Application") ?? [])
+            .Where(app => app != selected)
+            .SelectMany(ReadExecutionAliases)
+            .Where(alias => alias.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal static IEnumerable<string> ReadExecutionAliases(XElement app) =>
+        app.Descendants()
+            .Where(e => e.Name.LocalName == "ExecutionAlias"
+                && (e.Name.Namespace == Uap5Ns || e.Name.Namespace == DesktopNs || e.Name.Namespace == Uap8Ns))
+            .Select(e => e.Attribute("Alias")?.Value)
+            .Where(v => v is not null)
+            .Select(v => v!);
 
     /// <summary>
     /// Declares <paramref name="aliasName"/> as an execution alias, unless the application already
@@ -576,55 +590,122 @@ internal class AppxManifestDocument
     /// </remarks>
     public string? EnsureExecutionAlias(string aliasName, string? appId = null)
     {
+        var result = AddExecutionAlias(aliasName, appId, ExecutionAliasConflictPolicy.PreserveExisting);
+        return result.Status is AddExecutionAliasStatus.Added or AddExecutionAliasStatus.AlreadyExists
+            ? result.AliasName : null;
+    }
+
+    internal AddExecutionAliasResult AddExecutionAlias(
+        string aliasName,
+        string? appId = null,
+        ExecutionAliasConflictPolicy conflictPolicy = ExecutionAliasConflictPolicy.Reject)
+    {
         var root = _document.Root;
         var app = FindApplication(appId);
-        if (root == null || app == null || !ExecutionAliasResolver.IsSafeAliasName(aliasName))
+        if (root is null)
         {
-            return null;
+            return new(AddExecutionAliasStatus.ManifestEmpty);
+        }
+        if (app is null)
+        {
+            return new(FindApplication(null) is null
+                ? AddExecutionAliasStatus.NoApplicationElement : AddExecutionAliasStatus.ApplicationIdNotFound);
+        }
+        if (!ExecutionAliasResolver.IsSafeAliasName(aliasName))
+        {
+            return new(AddExecutionAliasStatus.InvalidAliasName, aliasName);
         }
 
         var existing = GetExecutionAliases(appId);
-        if (existing.Count > 0)
+        var effectiveAlias = existing.Count > 0 && conflictPolicy == ExecutionAliasConflictPolicy.PreserveExisting
+            ? existing[0] : aliasName;
+        if (GetExecutionAliasesClaimedByOtherApplications(appId).Contains(effectiveAlias))
         {
-            return existing[0];
+            return new(AddExecutionAliasStatus.ConflictingAliasExists, effectiveAlias, effectiveAlias,
+                ErrorMessage: $"Execution alias '{effectiveAlias}' is already declared by another application. Choose a different alias name.");
         }
-
-        EnsureNamespace("uap5", Uap5Ns);
-        AddIgnorableNamespace("uap5");
+        if (existing.Count > 0 && conflictPolicy == ExecutionAliasConflictPolicy.PreserveExisting)
+        {
+            return new(AddExecutionAliasStatus.AlreadyExists, existing[0]);
+        }
 
         var extensions = app.Element(DefaultNs + "Extensions");
-        if (extensions == null)
+        var aliasExtensions = extensions?.Elements()
+            .Where(e => e.Name.LocalName == "Extension"
+                && (e.Name.Namespace == Uap5Ns || e.Name.Namespace == Uap3Ns)
+                && string.Equals(e.Attribute("Category")?.Value, "windows.appExecutionAlias", StringComparison.OrdinalIgnoreCase))
+            .ToList() ?? [];
+        var aliasExtension = aliasExtensions.FirstOrDefault();
+        if (conflictPolicy == ExecutionAliasConflictPolicy.Coexist)
         {
-            extensions = new XElement(DefaultNs + "Extensions");
-            app.Add(extensions);
+            if (aliasExtensions.Count > 1 || aliasExtension is not null && (
+                !TargetsApplication(aliasExtension, app, "Executable")
+                || !TargetsApplication(aliasExtension, app, "EntryPoint")))
+            {
+                return new(AddExecutionAliasStatus.CoexistenceUnsafe, aliasName,
+                    ErrorMessage: "The execution-alias extension does not unambiguously target the requested application.");
+            }
         }
 
-        var aliasElement = new XElement(Uap5Ns + "ExecutionAlias", new XAttribute("Alias", aliasName));
-
-        var aliasExtension = extensions.Elements(Uap5Ns + "Extension")
-            .FirstOrDefault(e => string.Equals(e.Attribute("Category")?.Value, "windows.appExecutionAlias", StringComparison.OrdinalIgnoreCase));
+        if (existing.Contains(aliasName, StringComparer.OrdinalIgnoreCase))
+        {
+            return new(AddExecutionAliasStatus.AlreadyExists, aliasName);
+        }
+        if (existing.Count > 0 && conflictPolicy == ExecutionAliasConflictPolicy.Reject)
+        {
+            return new(AddExecutionAliasStatus.ConflictingAliasExists, aliasName, existing[0]);
+        }
 
         if (aliasExtension == null)
         {
-            extensions.Add(new XElement(
-                Uap5Ns + "Extension",
-                new XAttribute("Category", "windows.appExecutionAlias"),
-                new XElement(Uap5Ns + "AppExecutionAlias", aliasElement)));
-        }
-        else
-        {
-            var appExecAlias = aliasExtension.Element(Uap5Ns + "AppExecutionAlias");
-            if (appExecAlias == null)
+            EnsureNamespace("uap5", Uap5Ns);
+            AddIgnorableNamespace("uap5");
+            if (extensions is null)
             {
-                aliasExtension.Add(new XElement(Uap5Ns + "AppExecutionAlias", aliasElement));
+                extensions = new XElement(DefaultNs + "Extensions");
+                app.Add(extensions);
             }
-            else
-            {
-                appExecAlias.Add(aliasElement);
-            }
+            aliasExtension = new XElement(Uap5Ns + "Extension", new XAttribute("Category", "windows.appExecutionAlias"));
+            extensions.Add(aliasExtension);
         }
 
-        return aliasName;
+        var aliasNamespace = aliasExtension.Name.Namespace;
+        var appExecAlias = aliasExtension.Element(aliasNamespace + "AppExecutionAlias");
+        if (appExecAlias is null)
+        {
+            appExecAlias = new XElement(aliasNamespace + "AppExecutionAlias");
+            aliasExtension.Add(appExecAlias);
+        }
+        var leafNamespace = aliasNamespace == Uap3Ns ? DesktopNs : aliasNamespace;
+        if (leafNamespace == DesktopNs)
+        {
+            EnsureNamespace("desktop", DesktopNs);
+            AddIgnorableNamespace("desktop");
+        }
+        appExecAlias.Add(new XElement(leafNamespace + "ExecutionAlias", new XAttribute("Alias", aliasName)));
+
+        return new(AddExecutionAliasStatus.Added, aliasName);
+    }
+
+    private static bool TargetsApplication(XElement extension, XElement app, string attribute) =>
+        extension.Attribute(attribute) is not { } target
+        || !target.Value.Contains('$') && string.Equals(target.Value, app.Attribute(attribute)?.Value, StringComparison.OrdinalIgnoreCase);
+
+    internal ExecutionAliasResolver.AliasTarget GetExecutionAliasTarget(string layoutDirectory, string? appId = null)
+    {
+        var app = FindApplication(appId) ?? throw new InvalidOperationException("The requested application is not in the staged manifest.");
+        var id = app.Attribute("Id")?.Value;
+        var executable = app.Attribute("Executable")?.Value;
+        if (string.IsNullOrWhiteSpace(IdentityName) || string.IsNullOrWhiteSpace(IdentityPublisher)
+            || string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(executable)
+            || executable.Contains('$') || Path.IsPathRooted(executable)
+            || executable.Split('\\', '/').Contains("..", StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException("The staged manifest has no usable identity/application executable for inspection.");
+        }
+
+        var family = AppLauncherService.ComputeFamilyName(IdentityName, IdentityPublisher);
+        return new(family, $"{family}!{id}", Path.GetFullPath(executable, layoutDirectory));
     }
 
     private XElement? FindApplication(string? appId)

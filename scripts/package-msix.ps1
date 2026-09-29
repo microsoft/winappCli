@@ -44,6 +44,9 @@ param(
     [string]$Tag
 )
 
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'DevToolsEngine.psm1') -Force
+
 # Ensure we're running from the project root
 $ProjectRoot = $PSScriptRoot | Split-Path -Parent
 Push-Location $ProjectRoot
@@ -101,6 +104,9 @@ try
         exit 1
     }
     
+    Assert-DevToolsArchiveSupport -Format Msix
+    Assert-DevToolsEnginePayload -Directory $X64Path
+    Assert-DevToolsEnginePayload -Directory $Arm64Path
     Write-Host "[VALIDATE] All required files found!" -ForegroundColor Green
     
     # Detect current processor architecture and set the appropriate CLI exe
@@ -164,16 +170,6 @@ try
     }
     
     Write-Host "[VERSION] MSIX package version: $MsixVersion" -ForegroundColor Cyan
-    
-    # [Temporary], Ensure build tools are available in CI
-    Write-Host "[CLI] Ensure build tools are available" -ForegroundColor Cyan
-    Write-Host "  Command: & `"$CliExe`" update" -ForegroundColor DarkGray
-    & $CliExe update
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to download build tools"
-        exit 1
-    }
     
     # Define paths
     $ArtifactsPath = Join-Path $ProjectRoot "artifacts"
@@ -380,6 +376,7 @@ try
         Write-Error "Failed to create x64 MSIX package"
         exit 1
     }
+    Assert-DevToolsEngineArchive -ArchivePath $X64OutputPath -Format Msix -Architecture x64 -CliBinariesPath $CliBinariesPath
     Write-Host "  - Created: $X64PackageName" -ForegroundColor Gray
     Write-Host ""
     
@@ -393,6 +390,7 @@ try
         Write-Error "Failed to create arm64 MSIX package"
         exit 1
     }
+    Assert-DevToolsEngineArchive -ArchivePath $Arm64OutputPath -Format Msix -Architecture arm64 -CliBinariesPath $CliBinariesPath
     Write-Host "  - Created: $Arm64PackageName" -ForegroundColor Gray
     Write-Host ""
     
@@ -450,5 +448,4 @@ finally
     # Restore original working directory
     Pop-Location
 }
-
 

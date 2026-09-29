@@ -9,7 +9,7 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 /// Generates deterministic, shell-safe, token-efficient semantic slugs for UIA elements.
 /// Format: prefix-normalizedname-hash (e.g., btn-minimize-c4b9)
 /// </summary>
-internal static partial class SlugGenerator
+public static partial class SlugGenerator
 {
     [GeneratedRegex("[^a-z0-9]")]
     private static partial Regex NonAlphanumericRegex();
@@ -58,13 +58,13 @@ internal static partial class SlugGenerator
     };
 
     /// <summary>Maps a UIA ControlType name to a 3-letter prefix.</summary>
-    public static string GetPrefix(string controlType)
+    internal static string GetPrefix(string controlType)
     {
         return TypePrefixes.GetValueOrDefault(controlType, "elm");
     }
 
     /// <summary>Maps a 3-letter prefix back to UIA ControlType names (for resolution).</summary>
-    public static string[] GetTypesForPrefix(string prefix)
+    internal static string[] GetTypesForPrefix(string prefix)
     {
         var types = new List<string>();
         foreach (var kvp in TypePrefixes)
@@ -90,7 +90,7 @@ internal static partial class SlugGenerator
     }
 
     /// <summary>Computes a 4-char hex hash from a UIA RuntimeId array.</summary>
-    public static string ComputeHash(int[] runtimeId)
+    internal static string ComputeHash(int[] runtimeId)
     {
         unchecked
         {
@@ -105,7 +105,7 @@ internal static partial class SlugGenerator
     }
 
     /// <summary>Computes hash directly from a SAFEARRAY* RuntimeId (CsWin32 COM interop).</summary>
-    public static unsafe string ComputeHashFromSafeArray(global::Windows.Win32.System.Com.SAFEARRAY* safeArray)
+    internal static unsafe string ComputeHashFromSafeArray(global::Windows.Win32.System.Com.SAFEARRAY* safeArray)
     {
         if (safeArray == null)
         {
@@ -131,7 +131,7 @@ internal static partial class SlugGenerator
     /// <summary>
     /// Generates the full semantic slug from a SAFEARRAY RuntimeId (CsWin32 COM interop).
     /// </summary>
-    public static unsafe string GenerateSlugFromSafeArray(string controlType, string? automationId, string? name, global::Windows.Win32.System.Com.SAFEARRAY* runtimeId)
+    internal static unsafe string GenerateSlugFromSafeArray(string controlType, string? automationId, string? name, global::Windows.Win32.System.Com.SAFEARRAY* runtimeId)
     {
         var prefix = GetPrefix(controlType);
         var hash = ComputeHashFromSafeArray(runtimeId);
@@ -146,7 +146,7 @@ internal static partial class SlugGenerator
     /// Parses a slug string into its components.
     /// Returns (prefix, nameSlug, hash) or null if not a valid slug format.
     /// </summary>
-    public static (string Prefix, string? NameSlug, string Hash)? ParseSlug(string input)
+    internal static (string Prefix, string? NameSlug, string Hash)? ParseSlug(string input)
     {
         if (string.IsNullOrWhiteSpace(input))
         {

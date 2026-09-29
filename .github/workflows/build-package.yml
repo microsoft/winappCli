@@ -183,6 +183,67 @@ jobs:
         IS_PR: ${{ github.event_name == 'pull_request' }}
       run: .\scripts\validate-llm-docs.ps1 -FailOnDrift:($env:IS_PR -eq 'true')
 
+  validate-devtools:
+    needs: build-artifacts
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        dotnet-version: |
+          8.0.x
+          10.0.x
+
+    - name: Download CLI binaries
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-binaries
+        path: artifacts/cli
+
+    - name: Validate shipped engines and native source contracts
+      run: |
+        .\scripts\test-devtools-engine.ps1 -EngineRoot .\artifacts\cli
+        if (-not $?) { throw 'Published engine validation failed' }
+        # Test builds never replace the downloaded payload consumed by other gates.
+        .\src\winapp-devtools\build-devtools.ps1 -Configuration Release -Arch x64 -EngineOut .\artifacts\validation-devtools\win-x64
+        if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Native DevTools validation failed' }
+
+    - name: Run CLI native integration shard
+      run: |
+        $env:WINAPP_NATIVE_TEST_FIXTURE = (Resolve-Path .\src\winapp-devtools\test\bin\native-runtime-tests.exe).Path
+        $project = '.\src\winapp-CLI\WinApp.Cli.Tests\WinApp.Cli.Tests.csproj'
+        dotnet build $project -c Debug -p:TreatWarningsAsErrors=true
+        if ($LASTEXITCODE -ne 0) { throw 'CLI native integration build failed' }
+        .\scripts\test-cli-shard.ps1 -Shard 3 -TestProjectPath $project `
+          -ResultsDirectory .\artifacts\TestResults\devtools `
+          -CoverageSettings .\src\winapp-CLI\coverage.runsettings
+        if (-not $? -or $LASTEXITCODE -ne 0) { throw 'CLI native integration tests failed' }
+
+    - name: Run managed binding and startup-hook contracts (.NET 8)
+      timeout-minutes: 30
+      run: |
+        $env:WINAPP_BINDING_TEST_FIXTURE = (Resolve-Path .\src\winapp-devtools\test\bin\binding-transfer-fixture.dll).Path
+        .\scripts\test-managed-devtools.ps1 -Framework net8.0-windows10.0.19041.0
+
+    - name: Run managed binding and startup-hook contracts (.NET 10)
+      if: ${{ !cancelled() }}
+      timeout-minutes: 30
+      run: |
+        $env:WINAPP_BINDING_TEST_FIXTURE = (Resolve-Path .\src\winapp-devtools\test\bin\binding-transfer-fixture.dll).Path
+        .\scripts\test-managed-devtools.ps1 -Framework net10.0-windows10.0.19041.0
+
+    - name: Upload DevTools validation results
+      if: ${{ always() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: devtools-validation-results
+        path: artifacts/TestResults/devtools/
+        if-no-files-found: error
+        overwrite: true
+
   # Called locally, within this run and with the PR token, including for forks.
   samples:
     if: github.event_name == 'pull_request'
@@ -207,8 +268,8 @@ jobs:
         }
 
   metrics:
-    needs: [build-artifacts, validate-tests]
-    if: ${{ !cancelled() && needs.build-artifacts.result == 'success' && (needs.validate-tests.result == 'success' || needs.validate-tests.result == 'failure') }}
+    needs: [build-artifacts, validate-tests, validate-devtools]
+    if: ${{ !cancelled() && needs.build-artifacts.result == 'success' && (needs.validate-tests.result == 'success' || needs.validate-tests.result == 'failure') && (needs.validate-devtools.result == 'success' || needs.validate-devtools.result == 'failure') }}
     runs-on: windows-latest
     permissions:
       contents: read
@@ -254,6 +315,13 @@ jobs:
         name: validation-results-Cli-2
         path: artifacts/TestResults
 
+    - name: Download native integration and managed test results
+      if: ${{ !cancelled() }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: devtools-validation-results
+        path: artifacts/TestResults/devtools
+
     - name: Download auxiliary test results
       if: ${{ !cancelled() }}
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -284,7 +352,7 @@ jobs:
     - name: Report build metrics
       # Failed main/manual validation still publishes test-results above, but
       # must not promote failed measurements to the main comparison baseline.
-      if: github.event_name == 'pull_request' || needs.validate-tests.result == 'success'
+      if: github.event_name == 'pull_request' || (needs.validate-tests.result == 'success' && needs.validate-devtools.result == 'success')
       uses: ./.github/actions/report-metrics
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -326,6 +394,50 @@ jobs:
     - name: Run UI coordination multiprocess and real-app tests
       run: .\scripts\test-ui-coordination.ps1
 
+    - name: Run native-element binding lifetime regression
+      run: .\scripts\test-binding-lifetime.ps1
+
+    - name: Run compiled binding owner regression
+      run: |
+        $cli = "artifacts\cli\win-x64\winapp.exe"
+        $evidence = "artifacts\TestResults\binding-owners"
+        .\scripts\test-devtools-binding-owners.ps1 -Cli $cli -EvidenceDirectory $evidence -VerifyComments -PrepareOnly
+        .\scripts\test-devtools-binding-owners.ps1 -Cli $cli -EvidenceDirectory $evidence -VerifyComments
+
+    - name: Observe owned DevTools quick-peek UI
+      run: |
+        $cli = "artifacts\cli\win-x64\winapp.exe"
+        $evidence = "artifacts\TestResults\devtools-overlay-observations"
+        .\scripts\test-devtools-binding-owners.ps1 -Cli $cli -EvidenceDirectory $evidence -ProbeOverlay -PrepareOnly
+        .\scripts\test-devtools-binding-owners.ps1 -Cli $cli -EvidenceDirectory $evidence -ProbeOverlay
+
+    - name: Upload owned DevTools UI observations
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: devtools-overlay-observations
+        path: artifacts/TestResults/devtools-overlay-observations/
+        if-no-files-found: warn
+        overwrite: true
+
+    - name: Upload compiled binding owner results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: binding-owner-test-results
+        path: artifacts/TestResults/binding-owners/
+        if-no-files-found: warn
+        overwrite: true
+
+    - name: Upload binding lifetime test results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: binding-lifetime-test-results
+        path: artifacts/TestResults/binding-lifetime/
+        if-no-files-found: warn
+        overwrite: true
+
     - name: Upload UI coordination test results
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -347,7 +459,7 @@ jobs:
   # Retain the original required check, but only turn it green after every lane.
   build-and-package:
     if: always()
-    needs: [build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics]
+    needs: [build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples, metrics]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs

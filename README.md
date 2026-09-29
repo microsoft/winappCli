@@ -333,7 +333,12 @@ To build the CLI:
 .\scripts\build-cli.ps1
 ```
 
-The binaries and packages will be placed in the `artifacts` folder
+The binaries and packages will be placed in the `artifacts` folder. The build
+also builds and stages the matching DevTools engines beside each `winapp.exe`.
+Install the Visual Studio C++ x64/x86 and ARM64 build tools before a full build.
+Npm packaging requires PowerShell 7.3 or newer for tarball verification.
+From `src\winapp-npm`, `npm run build-x64` or `npm run build-arm64` builds only
+that architecture and its engines, without running tests.
 
 ### Reviewing your changes before pushing
 

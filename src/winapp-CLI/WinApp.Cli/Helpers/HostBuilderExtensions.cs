@@ -14,6 +14,8 @@ using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 using WinApp.Cli.Services;
 using WinApp.Cli.Services.ApiSearch;
 using WinApp.Cli.Services.Controls;
+using WinApp.Cli.Services.DevTools;
+using WinApp.Cli.Services.DevTools.Comments;
 using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Helpers;
@@ -61,6 +63,14 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IFirstRunService, FirstRunService>()
             .AddSingleton<ICodeIntegrityCatalogService, CodeIntegrityCatalogService>()
             .AddSingleton<IAppLauncherService, AppLauncherService>()
+            .AddSingleton<InspectorAliasLauncher>()
+            .AddSingleton<IDevToolsService, DevToolsService>()
+            .AddSingleton<IDevToolsTargetResolver, DevToolsTargetResolver>()
+            .AddSingleton<CommentStore>()
+            .AddSingleton<GuestCommentContext>()
+            .AddSingleton<ICommentStore, GuestCommentStore>()
+            .AddSingleton<ICommentAnchorResolver, CommentAnchorResolver>()
+            .AddSingleton<ICommentPusher, CommentPusher>()
             .AddSingleton<IPackageRegistrationService, PackageRegistrationService>()
             .AddSingleton<IDebugOutputService, DebugOutputService>()
             .AddSingleton<IXamlTriageService, XamlTriageService>()
@@ -110,6 +120,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<TargetDeploymentService>()
             .AddSingleton<GuestApplicationRunner>()
             .AddSingleton<ExecutionTargetUiRouter>()
+            .AddSingleton<ExecutionTargetDevToolsRouter>()
             .AddSingleton<IExecutionTargetBackend, WindowsSandboxBackend>()
             .AddSingleton<ExecutionTargetOrchestrator>();
     }
@@ -130,6 +141,23 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<CreateDebugIdentityCommand, CreateDebugIdentityCommand.Handler>()
                 .UseCommandHandler<EmbedIdentityCommand, EmbedIdentityCommand.Handler>()
                 .UseCommandHandler<RunCommand, RunCommand.Handler>()
+                .ConfigureCommand<DevToolsCommand>()
+                .UseCommandHandler<DevToolsAttachCommand, DevToolsAttachCommand.Handler>()
+                .UseCommandHandler<DevToolsListCommand, DevToolsListCommand.Handler>()
+                .UseCommandHandler<DevToolsInspectCommand, DevToolsInspectCommand.Handler>()
+                .UseCommandHandler<DevToolsSearchCommand, DevToolsSearchCommand.Handler>()
+                .UseCommandHandler<DevToolsGetPropertyCommand, DevToolsGetPropertyCommand.Handler>()
+                .UseCommandHandler<DevToolsGetLayoutCommand, DevToolsGetLayoutCommand.Handler>()
+                .UseCommandHandler<DevToolsGetSourceCommand, DevToolsGetSourceCommand.Handler>()
+                .UseCommandHandler<DevToolsDiagnoseBindingCommand, DevToolsDiagnoseBindingCommand.Handler>()
+                .UseCommandHandler<DevToolsSetPropertyCommand, DevToolsSetPropertyCommand.Handler>()
+                .UseCommandHandler<DevToolsCallCommand, DevToolsCallCommand.Handler>()
+                .ConfigureCommand<DevToolsCommentsCommand>()
+                .UseCommandHandler<DevToolsCommentsAddCommand, DevToolsCommentsAddCommand.Handler>()
+                .UseCommandHandler<DevToolsCommentsGetCommand, DevToolsCommentsGetCommand.Handler>()
+                .UseCommandHandler<DevToolsCommentsListCommand, DevToolsCommentsListCommand.Handler>()
+                .UseCommandHandler<DevToolsCommentsUpdateCommand, DevToolsCommentsUpdateCommand.Handler>()
+                .UseCommandHandler<DevToolsCommentsDeleteCommand, DevToolsCommentsDeleteCommand.Handler>()
                 // GuestLaunchCommand shares RunCommand.Handler rather than a second handler
                 // instance: it is a structurally distinct, hidden verb (see
                 // RunCommand.GuestLaunch.cs) dispatched from the same class, because it reuses
@@ -192,6 +220,10 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<UiYieldCommand, UiYieldCommand.Handler>()
                 // Execution-target guest agent: hidden, internal transport endpoint
                 .UseCommandHandler<GuestAgentCommand, GuestAgentCommand.Handler>()
+                .UseCommandHandler<GuestCommentRelayCommand, GuestCommentRelayCommand.Handler>()
+                .UseCommandHandler<GuestDevToolsLaunchCommand, GuestDevToolsLaunchCommand.Handler>()
+                .UseCommandHandler<GuestDevToolsHostCommand, GuestDevToolsHostCommand.Handler>()
+                .AddSingleton<GuestDevToolsHost>()
                 .UseCommandHandler<GuestDesktopScreenshotCommand, GuestDesktopScreenshotCommand.Handler>()
                 .UseCommandHandler<GuestDesktopRecordCommand, GuestDesktopRecordCommand.Handler>()
                 .ConfigureCommand<GuestDesktopCaptureCommand>()

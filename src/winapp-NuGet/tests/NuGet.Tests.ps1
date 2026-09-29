@@ -22,7 +22,9 @@ Run from repo root:
 #>
 
 param(
-    [string]$NupkgPath
+    [string]$NupkgPath,
+    [string]$CliBinariesPath,
+    [string]$NugetDirectory
 )
 
 BeforeDiscovery {
@@ -1429,11 +1431,18 @@ Describe "Microsoft.Windows.SDK.BuildTools.WinApp package layout" -Skip:$script:
             }
         }
         $script:nupkg = $NupkgPath
+        if (-not $CliBinariesPath) { $CliBinariesPath = Join-Path $script:repoRoot 'artifacts\cli' }
+        Import-Module (Join-Path $script:repoRoot 'scripts\DevToolsEngine.psm1') -Force
     }
 
     It "Has been built (artifacts\nuget\Microsoft.Windows.SDK.BuildTools.WinApp.*.nupkg exists)" {
         $script:nupkg | Should -Not -BeNullOrEmpty -Because "Run scripts\build-cli.ps1 to produce the package, or pass -NupkgPath."
         Test-Path $script:nupkg | Should -BeTrue
+    }
+
+    It 'Contains matching DevTools runtime and reference files, without PDBs' -Tag 'EngineArchive' {
+        { Assert-DevToolsEngineArchive -ArchivePath $script:nupkg -Format NuGet -CliBinariesPath $CliBinariesPath } |
+            Should -Not -Throw
     }
 
     It "Mirrors build\ to buildTransitive\ exactly (parity required for transitive flow)" {
@@ -1456,7 +1465,7 @@ Describe "Microsoft.Windows.SDK.BuildTools.WinApp package layout" -Skip:$script:
 Describe "UI Automation library packages" -Skip:$script:skip {
     BeforeAll {
         $script:repoRoot = (Resolve-Path "$PSScriptRoot\..\..\..").Path
-        $script:nugetDir = Join-Path $script:repoRoot "artifacts\nuget"
+        $script:nugetDir = if ($NugetDirectory) { $NugetDirectory } else { Join-Path $script:repoRoot "artifacts\nuget" }
         Add-Type -AssemblyName System.IO.Compression.FileSystem
 
         function Get-LibraryPackage([string]$Id) {
@@ -1488,6 +1497,17 @@ Describe "UI Automation library packages" -Skip:$script:skip {
     }
 
     Context "Package contents" {
+        It 'Keeps DevTools engines out of UIAutomation, Recording and analyzer packages' -Tag 'EngineArchive' {
+            foreach ($id in @($script:baseId, $script:recordingId, 'Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer')) {
+                $pkg = Get-LibraryPackage $id
+                $pkg | Should -Not -BeNullOrEmpty -Because "$id must have been packaged"
+                $entries = @(Get-NupkgEntries $pkg.FullName | Where-Object {
+                    ($_ -split '/')[-1] -in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.DevTools.Native.pdb', 'winapp-devtools-schema.json'
+                })
+                $entries | Should -BeNullOrEmpty -Because 'library-only packages must not acquire the CLI engines'
+            }
+        }
+
         It "Both library packages have been built" {
             $script:basePkg | Should -Not -BeNullOrEmpty -Because "Run scripts\build-cli.ps1 (or scripts\package-nuget.ps1 -SkipCliPackage) first."
             $script:recordingPkg | Should -Not -BeNullOrEmpty

@@ -118,12 +118,12 @@ internal partial class MsixService
         return new MsixIdentityResult(debugIdentity.PackageName, debugIdentity.Publisher, debugIdentity.ApplicationId);
     }
 
-    public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation = LayoutReconciliation.Additive, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, FileInfo? appxRecipe = null, CancellationToken cancellationToken = default)
-        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Registered, reconciliation, clean, executable, runtimeArch, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, appxRecipe, cancellationToken);
+    public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation = LayoutReconciliation.Additive, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, InspectorAliasRequest? inspectorAlias = null, FileInfo? appxRecipe = null, CancellationToken cancellationToken = default)
+        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Registered, reconciliation, clean, executable, runtimeArch, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, inspectorAlias, appxRecipe, cancellationToken);
 
     /// <inheritdoc/>
     public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation, string? executable = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, FileInfo? appxRecipe = null, CancellationToken cancellationToken = default)
-        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Materialized, reconciliation, clean: false, executable, runtimeArch: null, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, appxRecipe, cancellationToken);
+        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Materialized, reconciliation, clean: false, executable, runtimeArch: null, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, inspectorAlias: null, appxRecipe, cancellationToken);
 
     /// <summary>How far <see cref="BuildLooseLayoutAsync"/> takes a loose layout.</summary>
     private enum LooseLayoutOutcome
@@ -151,9 +151,16 @@ internal partial class MsixService
     /// to reproduce locally.
     /// </para>
     /// </remarks>
-    private async Task<MsixIdentityResult> BuildLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LooseLayoutOutcome outcome, LayoutReconciliation reconciliation, bool clean, string? executable, string? runtimeArch, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained, bool ensureExecutionAlias, PackageGraphSource? packageGraph, FileInfo? appxRecipe, CancellationToken cancellationToken)
+    private async Task<MsixIdentityResult> BuildLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LooseLayoutOutcome outcome, LayoutReconciliation reconciliation, bool clean, string? executable, string? runtimeArch, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained, bool ensureExecutionAlias, PackageGraphSource? packageGraph, InspectorAliasRequest? inspectorAlias, FileInfo? appxRecipe, CancellationToken cancellationToken)
     {
         // Validate inputs
+        if (inspectorAlias is not null && string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(appxManifestPath.DirectoryName!)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputAppXDirectory.FullName)),
+            StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Inspector alias staging requires an output directory separate from the source manifest.");
+        }
         if (!appxManifestPath.Exists)
         {
             throw new FileNotFoundException($"AppX manifest not found at: {appxManifestPath}. You can generate one using 'winapp manifest generate'.");
@@ -255,13 +262,18 @@ internal partial class MsixService
                 await EnsureWindowsAppRuntimeInstalledAsync(msbuildPackageList, runtimeArch, taskContext, cancellationToken);
             }
 
-            var skipResult = TrySkipRegistration(
+            var preparedAlias = inspectorAlias is null ? null : PrepareInspectorAlias(registrationManifest, inspectorAlias);
+            if (preparedAlias?.Target?.ApplicationUserModelId is { } targetAumid)
+            {
+                identity = identity with { ApplicationId = targetAumid[(targetAumid.IndexOf('!') + 1)..] };
+            }
+            var skipResult = preparedAlias?.RequiresRegistration == true ? null : TrySkipRegistration(
                 identity.PackageName, identity.Publisher, identity.ApplicationId,
                 previousManifestBytes, registrationManifest, outputAppXDirectory,
                 clean, taskContext, cancellationToken);
             if (skipResult is not null)
             {
-                return skipResult;
+                return skipResult with { InspectorAlias = preparedAlias };
             }
 
             // Unregister any existing package first (preserving app data by default)
@@ -275,7 +287,7 @@ internal partial class MsixService
             // Register from the AppX layout directory
             await RegisterLooseLayoutPackageAsync(registrationManifest, taskContext, cancellationToken);
 
-            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId);
+            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId) { InspectorAlias = preparedAlias };
         }
 
         // --- Non-MSBuild manifest path (raw Package.appxmanifest with unresolved placeholders) ---
@@ -416,13 +428,18 @@ internal partial class MsixService
             }
 
             // See MSBuild branch above for the rationale (issue #537).
-            var skipResult = TrySkipRegistration(
+            var preparedAlias = inspectorAlias is null ? null : PrepareInspectorAlias(copiedAppxManifestPath, inspectorAlias);
+            if (preparedAlias?.Target?.ApplicationUserModelId is { } targetAumid)
+            {
+                identity = identity with { ApplicationId = targetAumid[(targetAumid.IndexOf('!') + 1)..] };
+            }
+            var skipResult = preparedAlias?.RequiresRegistration == true ? null : TrySkipRegistration(
                 identity.PackageName, identity.Publisher, identity.ApplicationId,
                 previousRawManifestBytes, copiedAppxManifestPath, outputAppXDirectory,
                 clean, taskContext, cancellationToken);
             if (skipResult is not null)
             {
-                return skipResult;
+                return skipResult with { InspectorAlias = preparedAlias };
             }
 
             // Unregister any existing package first (preserving app data by default)
@@ -436,7 +453,49 @@ internal partial class MsixService
             // Register the new debug manifest with external location
             await RegisterLooseLayoutPackageAsync(copiedAppxManifestPath, taskContext, cancellationToken);
 
-            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId);
+            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId) { InspectorAlias = preparedAlias };
+        }
+    }
+
+    internal Func<string, bool> AliasProxyExists { get; set; } = File.Exists;
+    internal Func<string, ExecutionAliasResolver.AliasTarget?> ReadAliasTarget { get; set; } = ExecutionAliasResolver.TryReadAliasTarget;
+
+    private InspectorAlias PrepareInspectorAlias(FileInfo stagedManifest, InspectorAliasRequest request)
+    {
+        try
+        {
+            var document = AppxManifestDocument.Load(stagedManifest.FullName);
+            var target = document.GetExecutionAliasTarget(stagedManifest.DirectoryName!, request.ApplicationId);
+            var alias = ExecutionAliasResolver.SelectInspectorAlias(target, exists: AliasProxyExists, readTarget: ReadAliasTarget,
+                claimedAliases: document.GetExecutionAliasesClaimedByOtherApplications(request.ApplicationId));
+            if (alias is null)
+            {
+                return Failed("No available execution alias could be verified for the requested application.");
+            }
+
+            var result = document.AddExecutionAlias(alias, request.ApplicationId, ExecutionAliasConflictPolicy.Coexist);
+            if (result.Status is not (AddExecutionAliasStatus.Added or AddExecutionAliasStatus.AlreadyExists))
+            {
+                return Failed(result.ErrorMessage ?? $"Could not stage execution alias '{alias}': {result.Status}.");
+            }
+            if (result.Status == AddExecutionAliasStatus.Added)
+            {
+                document.Save(stagedManifest.FullName);
+            }
+            stagedManifest.Refresh();
+
+            var proxy = ExecutionAliasResolver.ResolveAliasPath(alias)!;
+            return new(alias, target, RequiresRegistration: !AliasProxyExists(proxy.FullName));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException or InvalidOperationException or ArgumentException)
+        {
+            return Failed($"Could not prepare an inspector execution alias: {ex.Message}");
+        }
+
+        InspectorAlias Failed(string error)
+        {
+            logger.LogWarning("{UISymbol} {Error}", UiSymbols.Warning, error);
+            return new(null, null, RequiresRegistration: false, Error: error);
         }
     }
 
@@ -809,7 +868,11 @@ internal partial class MsixService
                 EnsureDestinationIsInsideLayout(outputDir, destPath);
             }
 
-            AtomicFile.Copy(entry.SourcePath, destPath);
+            try { AtomicFile.Copy(entry.SourcePath, destPath); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                throw new IOException($"Could not stage '{entry.SourcePath}' as '{destPath}': {RunFailure.Describe(error)}", error);
+            }
             copied++;
         }
 
