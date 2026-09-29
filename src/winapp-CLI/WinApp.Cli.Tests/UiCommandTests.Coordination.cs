@@ -467,6 +467,67 @@ public partial class UiCommandTests
             $"an ordinary failure must not be reported as a coordination error; got: {stderr}");
     }
 
+    // ------------------------------------------------ blocked coordination folder runs uncoordinated
+
+    private static UiCoordinationException CoordinationFolderDenied() => new(
+        UiCoordinationErrorCodes.Unavailable,
+        "The UI coordination directory could not be created.",
+        innerException: new UnauthorizedAccessException("Access to the path is denied."));
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task Inspect_CoordinationFolderDenied_RunsWithAWarning()
+    {
+        _fakeDesktopLock.ThrowOnRun = CoordinationFolderDenied();
+        var command = GetRequiredService<UiInspectCommand>();
+
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, ["-a", "TestApp"]);
+
+        Assert.AreEqual(0, exitCode, $"stderr: {ConsoleStdErr}");
+        StringAssert.Contains(ambientOutput, "can't access its UI coordination folder");
+    }
+
+    [TestMethod]
+    public async Task Invoke_CoordinationFolderDenied_StillRuns()
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "btn", Selector = "btn", Name = "Button" };
+        _fakeDesktopLock.ThrowOnRun = CoordinationFolderDenied();
+        var command = GetRequiredService<UiInvokeCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["btn", "-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(0, exitCode, $"stderr: {ConsoleStdErr}");
+        Assert.DoesNotContain(UiCoordinationErrorCodes.Unavailable, ConsoleStdOut.ToString() + ConsoleStdErr.ToString());
+    }
+
+    [TestMethod]
+    public async Task Inspect_CoordinationUnavailableForAnotherReason_StillFails()
+    {
+        _fakeDesktopLock.ThrowOnRun = new UiCoordinationException(
+            UiCoordinationErrorCodes.Unavailable, "UI turn coordination state was written by a newer version of winapp.");
+        var command = GetRequiredService<UiInspectCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode(UiCoordinationErrorCodes.Unavailable);
+    }
+
+    [TestMethod]
+    public async Task Record_AccessDeniedAfterTheBodyStarted_IsNotRunAgain()
+    {
+        // Falling back is only safe before the command did anything; rerunning would repeat its work.
+        _fakeRecording.RecordException = CoordinationFolderDenied();
+
+        var outputPath = Path.Combine(_tempDirectory.FullName, "denied-mid-body.mp4");
+        var command = GetRequiredService<UiRecordCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", outputPath, "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode(UiCoordinationErrorCodes.Unavailable);
+    }
+
     // ------------------------------------------- pre-start recording cancellation must not renew grace
 
     [TestMethod]

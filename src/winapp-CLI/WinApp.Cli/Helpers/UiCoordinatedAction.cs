@@ -70,14 +70,34 @@ internal abstract class UiCoordinatedAction(IInteractiveDesktopLock coordinator,
             return preflightExitCode;
         }
 
+        var bodyStarted = false;
         try
         {
             return await coordinator.RunCoordinatedAsync(
                 ResolveMode(parseResult),
                 Operation,
                 parseResult,
-                (turn, token) => ExecuteAsync(parseResult, turn, token),
+                (turn, token) =>
+                {
+                    bodyStarted = true;
+                    return ExecuteAsync(parseResult, turn, token);
+                },
                 cancellationToken).ConfigureAwait(false);
+        }
+        catch (UiCoordinationException ex) when (!bodyStarted && ex.InnerException is UnauthorizedAccessException)
+        {
+            // The coordination folder is blocked, as in agent sandboxes that deny the user profile. Such
+            // a process can't take turns with anyone, so refusing to run would only block it.
+            var outputMode = UiCoordinationOutputMode.FromParseResult(parseResult);
+            logger.LogDebug("{Message}", ex.Message);
+            if (!outputMode.Json && !outputMode.Quiet)
+            {
+                logger.LogWarning(
+                    "{Symbol} winapp can't access its UI coordination folder, so this command won't wait for other winapp UI commands on this desktop.",
+                    UiSymbols.Warning);
+            }
+
+            return await ExecuteAsync(parseResult, new UncoordinatedTurn(ResolveMode(parseResult)), cancellationToken).ConfigureAwait(false);
         }
         catch (UiCoordinationException ex)
         {
@@ -95,6 +115,23 @@ internal abstract class UiCoordinatedAction(IInteractiveDesktopLock coordinator,
                 errorOut: parseResult.InvocationConfiguration.Error,
                 recoveryHint: ex.RecoveryHint);
             return 1;
+        }
+    }
+
+    private sealed class UncoordinatedTurn(UiTurnMode mode) : IUiTurn
+    {
+        public UiTurnMode Mode { get; } = mode;
+
+        public long WaitedMs => 0;
+
+        public Task<IAsyncDisposable> EnterAsync(CancellationToken cancellationToken)
+            => Task.FromResult<IAsyncDisposable>(NoopScope.Instance);
+
+        private sealed class NoopScope : IAsyncDisposable
+        {
+            public static readonly NoopScope Instance = new();
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
     }
 }

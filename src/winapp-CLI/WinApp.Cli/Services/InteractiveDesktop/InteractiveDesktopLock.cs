@@ -254,7 +254,8 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                 throw new UiCoordinationException(
                     UiCoordinationErrorCodes.Unavailable,
                     $"The UI desktop lock could not be opened: {ex.Message}",
-                    "Check that the current user can write to the coordination directory.");
+                    "Check that the current user can write to the coordination directory.",
+                    ex);
             }
 
             await _pollDelay

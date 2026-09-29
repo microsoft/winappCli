@@ -2119,7 +2119,9 @@ These commands need to write to the cache directory and stop with an error that 
 
 To fix it, set `WINAPP_CLI_CACHE_DIRECTORY` to a folder winapp can write to (for example, one inside your project), then retry.
 
-`winapp ui` and Windows Sandbox commands keep their state in `%USERPROFILE%\.winapp\state` instead. If that folder isn't writable, they stop with `desktop_coordination_unavailable` or `sandbox_state_unavailable` and name the variable to set.
+`winapp ui` commands keep their turn-taking state in `%USERPROFILE%\.winapp\state\ui`. If they can't access it, they still run, but without waiting for other `winapp ui` commands on the same desktop, and print one warning (omitted with `--json` or `--quiet`). Avoid running other `winapp ui` commands on that desktop at the same time.
+
+Windows Sandbox commands keep their state in `%USERPROFILE%\.winapp\state`. If that folder isn't writable, they stop with `sandbox_state_unavailable` and name the variable to set.
 
 ### Update Checks
 
