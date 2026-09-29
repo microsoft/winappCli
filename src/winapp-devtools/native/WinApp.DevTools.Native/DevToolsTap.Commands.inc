@@ -8,7 +8,7 @@ static std::wstring HandleCommand(const std::wstring& line,
     if (line == L"hello") {
         // Pure read on the pipe thread. The CLI-only setup back-channel (devtools.cli|) is deliberately omitted from
         // the advertised verb list.
-        std::wstring out = L"{\"protocol\":\"winapp-devtools\",\"protocolVersion\":\"0\",\"experimental\":true,\"pid\":";
+        std::wstring out = L"{\"protocol\":\"winapp-devtools\",\"protocolVersion\":\"0\",\"experimental\":true,\"processId\":";
         out += std::to_wstring(GetCurrentProcessId());
         out += L",\"mutation\":";
         out += DevToolsTrust_MutationEnabled() ? L"true" : L"false";

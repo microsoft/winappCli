@@ -105,7 +105,7 @@ internal sealed record TapHello(
                 ? v.GetString() ?? string.Empty
                 : string.Empty;
             var experimental = root.TryGetProperty("experimental", out var e) && e.ValueKind == JsonValueKind.True;
-            var pid = root.TryGetProperty("pid", out var pidEl) && pidEl.ValueKind == JsonValueKind.Number &&
+            var pid = root.TryGetProperty("processId", out var pidEl) && pidEl.ValueKind == JsonValueKind.Number &&
                 pidEl.TryGetInt32(out var pidVal) ? pidVal : 0;
             if (version.Length == 0 || pid <= 0 ||
                 !root.TryGetProperty("mutation", out var m) ||

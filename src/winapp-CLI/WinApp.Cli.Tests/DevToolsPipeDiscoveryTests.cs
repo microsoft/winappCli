@@ -81,7 +81,7 @@ public class DevToolsPipeDiscoveryTests
     public void TapHello_TryParse_ValidReply_PopulatesFields()
     {
         const string line = """
-            {"protocol":"winapp-devtools","protocolVersion":"1","experimental":true,"pid":12345,"mutation":true,"posture":"mutation"}
+            {"protocol":"winapp-devtools","protocolVersion":"1","experimental":true,"processId":12345,"mutation":true,"posture":"mutation"}
             """;
 
         var hello = TapHello.TryParse(line);
@@ -97,7 +97,7 @@ public class DevToolsPipeDiscoveryTests
     [TestMethod]
     public void TapHello_TryParse_MutationDenied_ReportsReadOnly()
     {
-        const string line = """{"protocol":"winapp-devtools","protocolVersion":"1","experimental":true,"pid":7,"mutation":false,"posture":"ui"}""";
+        const string line = """{"protocol":"winapp-devtools","protocolVersion":"1","experimental":true,"processId":7,"mutation":false,"posture":"ui"}""";
 
         var hello = TapHello.TryParse(line);
 
@@ -116,11 +116,11 @@ public class DevToolsPipeDiscoveryTests
     [DataRow("[1,2,3]")]                                              // JSON but not an object
     [DataRow("""{"protocol":"devtools","protocolVersion":"1"}""")]        // wrong protocol id
     [DataRow("""{"protocolVersion":"0"}""")]                          // missing protocol field
-    [DataRow("""{"protocol":"winapp-devtools","protocolVersion":"1","pid":7,"mutation":false}""")] // posture required
-    [DataRow("""{"protocol":"winapp-devtools","protocolVersion":"1","pid":7,"mutation":false,"posture":"admin"}""")]
-    [DataRow("""{"protocol":"winapp-devtools","protocolVersion":"1","pid":7,"mutation":true,"posture":"read"}""")] // contradictory
-    [DataRow("""{"protocol":"winapp-devtools","protocolVersion":"1","pid":"7","mutation":true,"posture":"mutation"}""")]
-    [DataRow("""{"protocol":"winapp-devtools","protocolVersion":"1","pid":null,"mutation":true,"posture":"mutation"}""")]
+    [DataRow("""{"protocol":"winapp-devtools","protocolVersion":"1","processId":7,"mutation":false}""")] // posture required
+    [DataRow("""{"protocol":"winapp-devtools","protocolVersion":"1","processId":7,"mutation":false,"posture":"admin"}""")]
+    [DataRow("""{"protocol":"winapp-devtools","protocolVersion":"1","processId":7,"mutation":true,"posture":"read"}""")] // contradictory
+    [DataRow("""{"protocol":"winapp-devtools","protocolVersion":"1","processId":"7","mutation":true,"posture":"mutation"}""")]
+    [DataRow("""{"protocol":"winapp-devtools","protocolVersion":"1","processId":null,"mutation":true,"posture":"mutation"}""")]
     public void TapHello_TryParse_InvalidReplies_ReturnNull(string? line)
     {
         Assert.IsNull(TapHello.TryParse(line));
