@@ -49,7 +49,7 @@ winapp ui screenshot --on sandbox -a MyApp -o .\result.png
    also end during guest-agent repair; rerun it if it disappears.
 
 For WinUI XAML inspection and persistent review comments, use
-[`run --devtools --on sandbox`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#inspect-inside-windows-sandbox)
+[`run --devtools --on sandbox`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#inspect-inside-windows-sandbox)
 and the `winui-devtools` skill. DevTools selectors and startup instrumentation
 are separate from the UI Automation commands above.
 

@@ -19,7 +19,7 @@ app to exit. The Sandbox stays running between commands and rebuilds.
 preparing Windows Sandbox.
 
 For WinUI XAML inspection, managed binding diagnostics and persistent host-backed
-comments, see [DevTools inside Sandbox](guides/devtools.md#inspect-inside-windows-sandbox).
+comments, see [DevTools inside Sandbox](guides/devtools-advanced.md#inspect-inside-windows-sandbox).
 This runs the overlay in the guest and uses qualified DevTools app selectors,
 not the UI Automation selectors above.
 

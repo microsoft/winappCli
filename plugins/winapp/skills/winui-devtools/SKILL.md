@@ -25,11 +25,10 @@ Never stop another app automatically to make a rebuild succeed.
 agent workflow. It does not hide the overlay. Use `--no-overlay` explicitly for
 an authorized headless inspection launch; it requires `--devtools`.
 For a script, capture `$run = winapp run . --devtools --detach --json | ConvertFrom-Json`,
-then use `winapp devtools inspect -a $run.ProcessId`. Launch JSON uses `ProcessId`;
-DevTools JSON uses `pid`. After the human leaves a comment, follow
+then use `winapp devtools inspect -a $run.ProcessId`. After the human leaves a comment, follow
 [the comment workflow below](#turn-the-users-comments-into-changes).
 If attachment succeeds but the overlay reports a missing XAML resource/type,
-see [visual UI prerequisites](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#visual-ui-prerequisites);
+see [visual UI prerequisites](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#visual-ui-prerequisites);
 do not mistake unavailable visual UI for failed protocol attachment.
 
 Packaged aliases are prepared automatically in the staged manifest, not manually
@@ -68,7 +67,7 @@ Names and window titles work when unambiguous. Never fall back to a local app.
 The overlay runs in the guest; comments persist
 in the host project store. Source snapshots are read-only and project-scoped.
 After app exit, use ordinary host comments commands with `--source-root`.
-Follow the [Sandbox DevTools workflow](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#inspect-inside-windows-sandbox)
+Follow the [Sandbox DevTools workflow](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#inspect-inside-windows-sandbox)
 for supported inputs, options, late attachment and disconnected-save handling.
 Sandbox selection is not consent to enable Windows features, install, reboot,
 repair a shared guest or start a live test.
@@ -139,14 +138,15 @@ before editing XAML or capturing a source-anchored comment.
 Use `set-property <selector> <property> <value>` for an authorized in-memory
 change. Report its observed read-back, not the requested value as if it succeeded.
 If the result has `replacedBinding`, say so: the local value replaced a `{Binding}`
-or overrode an `x:Bind`. This does not edit source. `call` is for advertised protocol methods without a
+or overrode an `x:Bind`, and restarting the app restores it. This does not edit source. `call` is for advertised protocol methods without a
 curated command; it rejects internal methods and requires `--attach` to inject.
 
 Before a binding edit or restore, follow the guide's
-[binding safety and confirmation workflow](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#try-a-live-property-change).
+[binding safety and confirmation workflow](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#capture-and-restore-a-binding).
 Do not treat a forward evaluation as proof of synchronization or an owner refresh
 as proof that the selected property was restored.
 
 See the [DevTools guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md)
+and [Advanced DevTools](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md)
 for launch restrictions, binding capture/restore, store location, commands and
 troubleshooting. Use `winapp devtools <command> --help` for exact options.

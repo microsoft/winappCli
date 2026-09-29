@@ -1,32 +1,48 @@
 # Inspect a WinUI app with DevTools
 
 DevTools lets you inspect a running WinUI 3 app built with the Windows App SDK,
-try live dependency-property changes, diagnose bindings, and leave source-anchored
-comments for an agent to turn into code changes.
+try live property changes, diagnose bindings, and leave comments on elements for an
+agent to turn into code changes. For Sandbox, attaching to a running app, window
+and subtree targeting, comment storage and the raw protocol, see
+[Advanced DevTools](devtools-advanced.md).
 
-```powershell
-winapp run . --devtools
-```
+## Get started
 
-This builds and launches your app with the in-app overlay open. Pick an element to
-inspect it or leave a review comment. The command waits for the app; cancelling it
-stops the process it launched.
+1. From your WinUI project directory, build and launch the app with DevTools:
 
-For a short terminal workflow, detach once and reuse the returned PID:
+   ```powershell
+   winapp run . --devtools
+   ```
 
-```powershell
-$run = winapp run . --devtools --detach --json | ConvertFrom-Json
-winapp devtools inspect -a $run.ProcessId
-winapp devtools comments list
-```
+   The app opens with the DevTools toolbar in a corner. The command waits for the
+   app; cancelling it stops the process it launched.
 
-For scripts, launch JSON uses `ProcessId`; DevTools JSON uses `pid`. Pass the
-launch PID to `-a` when more than one app is attached.
+2. Select **Select element** on the toolbar, then click an element in your app.
+   The quick-edit panel opens next to it.
 
-The quick peek opens with a **Comment** box, followed by up to five property values.
+   ![The DevTools toolbar and the quick-edit panel on a selected button](../images/devtools-quick-edit.png)
+
+3. Type a note in the **Comment** box and select **Save** (or press **Ctrl+Enter**).
+   Wait for **Saved**.
+
+4. For the full element tree, properties and bindings, select **Open in DevTools**.
+
+   ![The DevTools inspector window with the element tree and properties](../images/devtools-inspector.png)
+
+5. Ask your agent to read the comments and make the changes:
+
+   ```powershell
+   winapp devtools comments list
+   ```
+
+   See [Review comments with an agent](#review-comments-with-an-agent).
+
+### The overlay
+
+The quick-edit panel opens with a **Comment** box, followed by up to five property values.
 Expand a value to edit it, or expand its XAML file-and-line header to read the
 source. **Open in DevTools** opens the full inspector for detailed binding work.
-Hover picking pauses while the quick peek or comment editor is open, preserving
+Hover picking pauses while the quick-edit panel or comment editor is open, preserving
 your selection and draft.
 
 Picking selects the element you declared: clicking a control's template part or its
@@ -56,102 +72,8 @@ Native inspection and comments remain available. Managed binding diagnosis and
 binding source writes require the CLR and are unavailable in Native AOT apps.
 
 By default, DevTools inspects apps on this machine. To inspect inside Windows
-Sandbox, use the [Sandbox workflow](#inspect-inside-windows-sandbox). Never pass a
+Sandbox, use the [Sandbox workflow](devtools-advanced.md#inspect-inside-windows-sandbox). Never pass a
 guest PID to local `devtools attach` or inspection commands.
-
-## Inspect inside Windows Sandbox
-
-From your WinUI project directory:
-
-```powershell
-$run = winapp run . --on sandbox --devtools --detach --json | ConvertFrom-Json
-winapp devtools inspect --on sandbox --app $run.appSelector
-winapp devtools comments list --status open --json
-```
-
-Complete the [Windows Sandbox prerequisites](../sandbox-execution.md#before-you-start)
-first. The project builds on your machine; the app, overlay, and inspector run
-inside Sandbox. Add `--no-overlay` to suppress the guest overlay, or omit
-`--detach` to wait for the app and stop the owned launch when you cancel.
-
-Guest DevTools requests a normal app close before forced cleanup. Save your app's
-work before cancelling the session.
-
-For interactive commands, use `--on sandbox --app <pid>` with a PID from
-`winapp devtools list --on sandbox`. Process names and window titles also work
-when unambiguous. Scripts can keep using the returned `appSelector`, which
-identifies that launch. Saved comment reads do not need a live target.
-
-Discovery and inspection do not start or repair Sandbox. If the guest disconnects,
-the app exits, or Sandbox is recreated, rediscover or relaunch. Stale launch
-selectors and element handles are rejected. There is no fallback to an app on your
-desktop.
-
-A Sandbox DevTools launch requires a project with evaluated XAML source files.
-Build-output-only inputs and .NET file-based apps are not supported. Keep the
-packaged app's Windows execution alias enabled. The host and guest must have
-matching winapp and DevTools engines; a mismatch fails with guidance.
-
-Only admitted project XAML files are copied into a read-only guest source
-snapshot. This does not share your project or comment store for writing. Rebuild
-and relaunch after changing source; a running app keeps its launch snapshot.
-Guest inspection and source capture cannot override the mapping with `--source-root`,
-`--project`, or a window handle.
-
-**Comments belong to the host project.** Comments written in the guest overlay,
-inspector, or scoped CLI are saved in the same durable host store as local
-comments. The UI reports success only after host acknowledgement. A failed save
-keeps the draft; a marker-refresh warning is distinct from a failed save. Do not
-automatically replay uncertain mutations after disconnecting.
-
-Saved comments survive app exit and Sandbox recreation. Once the app is gone, read
-them on the host without `--on sandbox`:
-
-```powershell
-winapp devtools comments list --source-root C:\src\MyApp
-winapp devtools comments list --status open --json --source-root C:\src\MyApp
-```
-
-For an app already running in the guest, discover its PID first:
-
-```powershell
-winapp devtools list --on sandbox --include-available
-winapp devtools attach --on sandbox --app 12345
-```
-
-Use the displayed PID in place of `12345`; `sandbox:<pid>` is not a selector. Late
-attachment cannot add startup-only binding support, recover missing source
-information, or establish a persistent host comment mapping. Use the project launch
-above when you need those capabilities.
-
-## Refresh inspector values
-
-In the inspector window, select **Refresh snapshot** or press **F5** to reread
-property values and tree previews after your app changes them. Values are
-snapshots, not live subscriptions. Selecting the same element again does not refresh
-them. Finish or cancel pending edits before refreshing.
-
-## Continue from a terminal
-
-Use a second terminal for inspection commands while the app runs:
-
-```powershell
-winapp devtools inspect
-```
-
-Alternatively, `winapp run . --devtools --detach` prints the PID and the next
-command, then returns to your terminal. Use that PID with `-a` when more than one
-app is attached.
-
-Add `--json` only when a script or structured consumer needs JSON output. It
-changes output formatting, not the overlay. For example:
-
-```powershell
-winapp run . --devtools --detach --json --no-overlay
-```
-
-`--no-overlay` explicitly suppresses the in-app overlay and requires `--devtools`.
-Both human-readable and JSON launches open the overlay unless you opt out.
 
 ## Review comments with an agent
 
@@ -196,55 +118,6 @@ rather than guessing. Listing comments does not edit source automatically.
 add/update/delete refreshes the markers of your running DevTools apps whose project
 uses the same store, including a Sandbox app launched with `winapp run --devtools`
 (within about a second). `--app <pid>` only names an extra target to refresh.
-
-## Attach to an app that is already running
-
-DevTools connections are local-only; remote named-pipe clients are rejected. Crash
-diagnostics are off by default. To opt in, set `WINAPP_DEVTOOLS_LOG=1` in the
-app's environment before launch. Dumps may contain app memory; keep them private
-and delete them after diagnosis.
-
-```powershell
-winapp devtools list --include-available
-winapp devtools attach --pid 12345
-winapp devtools inspect -a 12345 --all
-```
-
-`list` does not inject anything. `attach` loads the inspection agent into the named
-process without restarting it; repeated attachment reuses the agent. Attachment is
-headless by default. Add `--overlay` for the in-app toolbar or `--show-window` for
-the inspector window. The agent remains until the app exits.
-
-Late attachment cannot add a .NET startup hook or recover source information that
-was not recorded at launch. Native tree/property inspection is still available,
-but managed binding operations need an app launched with the hook. Source reporting
-also depends on the app providing XAML source information. Use `winapp run --devtools`
-when you need startup instrumentation.
-
-### Visual UI prerequisites
-
-```powershell
-winapp run . --devtools --no-overlay
-winapp devtools inspect -a 12345
-```
-
-Use headless inspection when the app cannot load the DevTools visual UI. The toolbar
-and inspector use the app's own WinUI XAML metadata and theme resources. A
-programmatic app can support tree/property inspection while lacking those visual
-prerequisites.
-
-If a requested overlay fails, the command returns nonzero and includes the XAML
-runtime diagnostic, such as a missing `AcrylicBackgroundFillColorDefaultBrush`.
-For a local app, the process remains attached and can still be inspected by PID. A
-failed Sandbox startup stops its owned guest app; relaunch with `--no-overlay` for
-headless inspection.
-
-For a custom C++/WinRT startup, delegate the application's `IXamlMetadataProvider`
-to `Microsoft.UI.Xaml.XamlTypeInfo.XamlControlsXamlMetaDataProvider` and merge
-`Microsoft.UI.Xaml.Controls.XamlControlsResources` into the application resources,
-as standard WinUI templates do. DevTools does not add these resources or replace
-the application's metadata provider. Keep the reported error if the app already
-supplies both.
 
 ## Find and inspect an element
 
@@ -340,7 +213,7 @@ edit source or guarantee that a binding remains healthy. If a dispatched write t
 out, its outcome is **indeterminate**. Read the target's property to reconcile; do
 not automatically retry. These options apply to XAML DevTools, not `winapp ui`.
 
-### Diagnose bindings
+## Diagnose bindings
 
 Binding diagnosis is a point-in-time path/type evaluation, not a test of freshness
 or change notifications. Add `--json` to `diagnose-binding` to see all observations.
@@ -352,46 +225,13 @@ Without authored source information, no runtime binding does **not** prove a
 property is unbound. Use a build with XAML source information to inspect otherwise
 invisible compiled bindings.
 
-For a native path read, use:
-
-```powershell
-winapp devtools call Binding.walk handle=123 prop=Text -a 12345
-```
-
-This does not require a .NET host or startup hook. It checks path getters, not
-converters, source notifications, or reverse propagation. `unknown`,
-`path-unavailable`, and `not-probeable` are walker limitations, not proof that a
-binding is broken.
+For a native path read that needs no .NET startup hook, see
+[`Binding.walk`](devtools-advanced.md#read-a-binding-path-natively).
 
 `-a` accepts a PID, process name, or window title; `-w` accepts a window handle.
 Without either, the command requires exactly one attached app. Live commands never
 inject just because a target was selected. To authorize injection, use
 `winapp devtools attach --pid <pid>` first, or add `--attach` to the live command.
-
-### Target a window or subtree
-
-```powershell
-winapp devtools call Surface.list -a 12345
-winapp devtools inspect --window 657922 -a 12345
-winapp devtools search --root 9001 --of-type TextBlock --fields Text -a 12345
-```
-
-Use the live `window` value returned by `Surface.list` for `--window`. For `--root`,
-copy an element handle from window-scoped `inspect`. `Surface.list`'s `rootHandle`
-can identify a popup subtree rather than the app's content. Do not substitute
-`winapp ui` selectors. `--root` constrains searches, reads, and writes to that
-element and its descendants; it does not change process-wide identities. When both
-options are supplied, the root must belong to the selected window. Refresh
-inspection after a rebuild or closed window rather than reusing stale handles.
-
-`--window <HWND>` constrains tree searches, element reads, and property writes to
-that window's live XAML elements. Cross-window handles, closed windows, and
-unverifiable mappings fail rather than falling back to the whole process. Advanced
-protocol operations without scope support fail explicitly when a scope is supplied.
-Attach and app discovery remain process-scoped.
-
-Interactive `Selection.arm` supports window scope, not `--root` subtree scope. It
-refuses a subtree constraint rather than allowing subsequent picks outside it.
 
 ## Try a live property change
 
@@ -403,9 +243,10 @@ The command reads the value before and after the write and reports what actually
 took effect. Changes are in-memory; they do not edit your source files and disappear
 when the app restarts. Writing a bound property replaces its `{Binding}`, or
 overrides its `x:Bind` until the binding updates again; the output warns and JSON
-reports `replacedBinding`. In JSON, `valueSource` is the runtime precedence slot,
-`binding` is a remaining runtime expression, and `authored` is the original XAML
-when available.
+reports `replacedBinding`. Restart the app to restore the binding.
+
+In JSON, `valueSource` is the runtime precedence slot, `binding` is a remaining
+runtime expression, and `authored` is the original XAML when available.
 
 In the inspector's Binding editor, path and mode edits are **full replacements**,
 not edits to the existing Binding object. Review the warning and click
@@ -416,89 +257,41 @@ If a literal cannot be converted or is outside the property's allowed range, the
 error names the property, requested value, and XAML type. Correct that input and
 retry; for example, Width must be nonnegative, not `banana` or `-1`.
 
-For a managed binding, capture it before temporarily replacing its value:
+For capture and restore through the protocol, see [Advanced DevTools](devtools-advanced.md#capture-and-restore-a-binding).
+
+## Refresh inspector values
+
+In the inspector window, select **Refresh snapshot** or press **F5** to reread
+property values and tree previews after your app changes them. Values are
+snapshots, not live subscriptions. Selecting the same element again does not refresh
+them. Finish or cancel pending edits before refreshing.
+
+## Continue from a terminal
+
+Use a second terminal for inspection commands while the app runs:
 
 ```powershell
-winapp devtools call Binding.capture handle=123 prop=Content -a 12345
-winapp devtools set-property 123 Content "Temporary label" -a 12345
-winapp devtools call Binding.restore handle=123 prop=Content -a 12345
+winapp devtools inspect
 ```
 
-Classic binding restore affects only that element/property. Compiled x:Bind restore
-can refresh all compiled binding targets on the owning object. If restore reports
-`confirmation-required`, review its owner/scope warning, then confirm only when
-that broader refresh is intended:
+Alternatively, `winapp run . --devtools --detach` prints the PID and the next
+command, then returns to your terminal. Use that PID with `-a` when more than one
+app is attached.
+
+Add `--json` only when a script or structured consumer needs JSON output. It
+changes output formatting, not the overlay. For example:
 
 ```powershell
-winapp devtools call Binding.restore handle=123 prop=Content confirmOwnerRebind:=true -a 12345
+winapp run . --devtools --detach --json --no-overlay
 ```
 
-Before editing a bound value, inspect `Binding.capture`. `writesThrough` reports
-whether a source write is known, false, or unknown. For TwoWay TextBox.Text, a
-PropertyChanged trigger can update the view model immediately. **Restore binding is
-not model undo**: it re-reads the current source, including any edits already
-written there.
-
-To clear a local property override, use `Binding.clearValue` for a managed target
-or `HotReload.clearProperty` for a native dependency property, with the same
-`handle` and `prop` parameters. Captures are process-local, not durable backups.
-
-`call` exposes methods advertised by `DevTools.negotiate`; it rejects internal and
-unknown methods. Parameters use `name=value` for strings and `name:=value` for JSON
-numbers, booleans, arrays, objects, or null:
-
-```powershell
-winapp devtools call DevTools.negotiate -a 12345
-winapp devtools call VisualTree.enumerate depth:=4 -a 12345
-```
-
-Raw `call` does not resolve element names or selectors. Copy the element's numeric
-`handle` string from `inspect --json` or `search --json`, then pass it unchanged as
-`handle=123`. Do not pass the `selector` field or use `handle:=123`: handles are
-opaque decimal strings.
-
-## Comment storage and advanced authoring
-
-The usual workflow starts with comments a person leaves in the overlay. For
-explicit programmatic authoring, `comments add` is also available:
-
-```powershell
-winapp devtools comments add -a 12345 --from-element SaveButton --text "Make this label clearer"
-```
-
-You can also pick an element in the overlay and use `--from-selection`, or author a
-comment without a running app using `--file`, `--name`, and `--text`. `add --id <id>`
-updates an existing comment. `comments update <id> --status stale --note "Element moved"`
-records an uncertain anchor; `delete <id>` permanently removes the comment.
-
-Comments persist in `.winapp/ui-comments.json` at the enclosing repository root.
-Without a repository, the supplied source directory is used. Live capture uses the
-app's reported source root; `--source-root <dir>` overrides it and also locates the
-store for later commands.
-
-Live markers include only comments from the app's reported project or explicit
-`--source-root`. Unassigned comments remain in the store but are not sent to a
-running app. If `--from-element` reports an incomplete name search, pass an exact
-handle or identity selector from `inspect` instead.
-
-In the inline comment editor, choose **Save**, press **Ctrl+Enter**, or leave the
-field to save. **Saving...** is not confirmation: wait for **Saved**. If saving
-fails, the draft stays available and the status shows the failing stage and code.
-Copy the text before closing an unconfirmed draft.
-
-Comments preserve multiline text, Unicode, and whitespace. A live marker requires
-matching source and parent context: a same-named control on another page or dialog
-does not inherit the note. If a note cannot be placed, select its intended element
-and recapture it with `comments add --id <id> --from-selection`.
-
-A failed marker refresh does not undo a saved comment; the command reports a warning
-and does not claim it placed a marker. Reattach to retry. A corrupt store is left intact; fix or recover
-it before retrying a write.
+`--no-overlay` explicitly suppresses the in-app overlay and requires `--devtools`.
+Both human-readable and JSON launches open the overlay unless you opt out.
 
 ## When a command fails
 
 Commands return nonzero for invalid targets, refused operations, or unusable
-responses. Live-command JSON includes `ok`, `pid`, and an `error` object; `attach`
+responses. Live-command JSON includes `ok`, `processId`, and an `error` object; `attach`
 and comment commands use a string `error`. Check exit status and `ok`, not just
 whether JSON was printed.
 
@@ -532,7 +325,7 @@ integration forwards a `false` alias preference as `--without-alias`, so adding
 If the newly launched process exits or redirects to an existing instance before
 DevTools connects, `run` reports failure. It does not adopt another instance. Close
 that instance and relaunch, or attach to its exact PID with the
-[late-attachment limitations](#attach-to-an-app-that-is-already-running).
+[late-attachment limitations](devtools-advanced.md#attach-to-an-app-that-is-already-running).
 
 If attachment cannot find the target's Windows App Runtime, ensure the target is a
 running WinUI 3 app. For an explicit runtime override, set
