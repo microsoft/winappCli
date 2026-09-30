@@ -6,6 +6,7 @@ native/**/*.lib
 native/**/*.obj
 native/**/*.pdb
 native/**/*.ilk
+native/**/*.res
 
 # Generated overlay XAML header — emitted from native/WinApp.DevTools.Native/xaml/*.xaml by gen-xaml-resources.ps1
 # at build time (DevToolsOverlay.cpp #includes it). Build output, not source; edit the.xaml files instead.

@@ -248,6 +248,24 @@ static std::wstring TitleWithPid()
     return buf;
 }
 
+extern "C" IMAGE_DOS_HEADER __ImageBase;
+
+// Without an icon of its own, the window shows the generic application glyph in its caption and Alt+Tab.
+static void SetInspectorIcon(HWND hwnd)
+{
+    const UINT dpi = GetDpiForWindow(hwnd);
+    const HINSTANCE module = reinterpret_cast<HINSTANCE>(&__ImageBase);
+    int set = 0;
+    for (const auto& [which, metric] : { std::pair{ ICON_SMALL, SM_CXSMICON }, std::pair{ ICON_BIG, SM_CXICON } }) {
+        const int size = GetSystemMetricsForDpi(metric, dpi);
+        if (HANDLE icon = LoadImageW(module, L"WINAPP_DEVTOOLS", IMAGE_ICON, size, size, LR_SHARED)) {
+            SendMessageW(hwnd, WM_SETICON, which, reinterpret_cast<LPARAM>(icon));
+            ++set;
+        }
+    }
+    DevToolsOverlayLog(L"route1.icon set=%d of 2", set);
+}
+
 static HRESULT ConfigureInspectorCaptionTheme(IInspectable* window, IInspectable* content)
 {
     winrt::com_ptr<IInspectable> appWindow, caption;

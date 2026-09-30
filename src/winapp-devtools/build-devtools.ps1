@@ -137,7 +137,7 @@ $sources = @(
 )
 $flags = "/nologo /MP /std:c++20 /W3 /WX /MT /EHsc /Zi /DUNICODE $optFlags /I`"$projectionInclude`""
 $libs = 'ole32.lib oleaut32.lib uuid.lib runtimeobject.lib advapi32.lib user32.lib gdi32.lib shell32.lib dbghelp.lib dwmapi.lib winmm.lib WindowsApp.lib'
-$cl = "cl $flags /LD $($sources -join ' ') DevToolsTap.def /Fe:WinApp.DevTools.Native.dll /Fd:WinApp.DevTools.Native.pdb /link /DEBUG /PDB:WinApp.DevTools.Native.pdb $libs"
+$cl = "rc /nologo /fo DevToolsTap.res DevToolsTap.rc && cl $flags /LD $($sources -join ' ') DevToolsTap.def DevToolsTap.res /Fe:WinApp.DevTools.Native.dll /Fd:WinApp.DevTools.Native.pdb /link /DEBUG /PDB:WinApp.DevTools.Native.pdb $libs"
 Write-Host "Building win-$Arch with $VcVars"
 & $env:ComSpec /c "call `"$VcVars`" >nul && cd /d `"$nativeDir`" && $cl"
 Assert-BuildSucceeded 'Native inspector build'

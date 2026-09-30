@@ -441,6 +441,7 @@ if (g_route1WindowHidden) {
 
     ConfigureInspectorCaptionTheme(winInsp, content);
     if (HWND preHwnd = HwndFromWindowInsp(winInsp)) {
+        SetInspectorIcon(preHwnd);
         // Only record the HWND as cloaked when DWM actually accepted the cloak. If it failed, the window is
         // still visible (we take the flash) and there is nothing to uncloak -- recording it would make the log
         // claim a cloak that never happened. Uncloaking an uncloaked window is a harmless no-op regardless.

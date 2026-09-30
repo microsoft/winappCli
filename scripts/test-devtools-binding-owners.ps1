@@ -96,6 +96,7 @@ public static class BindingOwnersGuard {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     public static uint InputTick() {
         var input = new Input { size = 8 };
         if (!GetLastInputInfo(ref input)) throw new Win32Exception();
@@ -392,6 +393,10 @@ try {
         $null = Invoke-Cli @('devtools', 'call', 'Window.open', '-a', $app)
         try {
             $null = Invoke-Cli @('ui', 'wait-for', 'TreeScroll', '-a', $app, '-t', '5000')
+            $inspector = @((Invoke-Cli @('ui', 'list-windows', '-a', $app)) | Where-Object title -like 'WinApp DevTools*')
+            Check ($inspector.Count -eq 1 -and @(0, 1 | Where-Object {
+                [BindingOwnersGuard]::SendMessage([IntPtr][long]$inspector[0].hwnd, 0x7F, [IntPtr]$_, [IntPtr]::Zero) -eq [IntPtr]::Zero
+            }).Count -eq 0) 'inspector window has its own small and large icon'
             $null = Invoke-Cli @('devtools', 'call', 'Selection.select', "handle=$($heading[0].handle)", '-a', $app)
             $baseline = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
             Check ($baseline.result.handle -eq [string]$heading[0].handle -and
