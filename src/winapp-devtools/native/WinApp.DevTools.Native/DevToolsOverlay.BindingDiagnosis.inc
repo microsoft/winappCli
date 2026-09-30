@@ -748,7 +748,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
         g_selUi = cui;
     }
     if (g_selPopup) {
-        HostLiftPopup(g_selPopup, g_selectionPopup.get());
+        HostSeedPopup(g_selPopup, g_selectionPopup.get());
         void* popup = nullptr;
         if (SUCCEEDED(g_selPopup->QueryInterface(DevToolsIid<DevToolsXCP::IPopup>(), &popup)) && popup) {
             const HRESULT hrOpen = DevToolsPopupPutIsOpen(popup, true);
