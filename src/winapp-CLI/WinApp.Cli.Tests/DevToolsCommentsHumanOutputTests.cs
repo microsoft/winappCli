@@ -112,6 +112,33 @@ public class DevToolsCommentsHumanOutputTests
     }
 
     [TestMethod]
+    public void OfflineUniqueName_IsAStrongAnchorWithItsLine()
+    {
+        File.WriteAllText(Path.Combine(_root, "MainWindow.xaml"), Page);
+        var added = JsonSerializer.Deserialize(Success("add", "--id", "cmt_named0000001", "--text", "Wider",
+            "--file", "MainWindow.xaml", "--name", "SaveButton", "--json"), CommentsJsonContext.Default.CommentResultPayload)!;
+        Assert.IsTrue(added.Comment!.AnchorConfirmed);
+        Assert.IsFalse(added.Comment.RequiresConfirmation);
+        Assert.AreEqual(6, added.Comment.Anchor.Line);
+        Assert.AreEqual("strong", added.Comment.Hits.Single().Confidence);
+        var human = Success("get", "cmt_named0000001");
+        StringAssert.Contains(human, "MainWindow.xaml:6");
+        Assert.IsFalse(human.Contains("historical", StringComparison.Ordinal), human);
+    }
+
+    [TestMethod]
+    public void OfflineDuplicateName_StaysWeak()
+    {
+        File.WriteAllText(Path.Combine(_root, "MainWindow.xaml"), Page.Replace("</Grid>",
+            "<Grid><Button x:Name=\"SaveButton\" /></Grid></Grid>", StringComparison.Ordinal));
+        var added = JsonSerializer.Deserialize(Success("add", "--id", "cmt_named0000002", "--text", "Wider",
+            "--file", "MainWindow.xaml", "--name", "SaveButton", "--json"), CommentsJsonContext.Default.CommentResultPayload)!;
+        Assert.IsFalse(added.Comment!.AnchorConfirmed);
+        Assert.IsTrue(added.Comment.RequiresConfirmation);
+        Assert.IsNull(added.Comment.Anchor.Line);
+    }
+
+    [TestMethod]
     public void CommentWithoutSourceIsWeakAndSaysItIsNotLinked()
     {
         File.WriteAllText(Path.Combine(_root, "MainWindow.xaml"), Page);

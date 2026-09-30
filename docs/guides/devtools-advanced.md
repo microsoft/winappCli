@@ -154,7 +154,9 @@ winapp devtools comments add -a 12345 --from-element SaveButton --text "Make thi
 ```
 
 You can also pick an element in the overlay and use `--from-selection`, or author a
-comment without a running app using `--file`, `--name`, and `--text`. `add --id <id>`
+comment without a running app using `--file`, `--name`, and `--text`. When `--name`
+matches exactly one element in `--file`, the comment is anchored to that declaration
+as if it had been captured live. `add --id <id>`
 updates an existing comment. `comments update <id> --status stale --note "Element moved"`
 records an uncertain anchor; `delete <id>` permanently removes the comment.
 

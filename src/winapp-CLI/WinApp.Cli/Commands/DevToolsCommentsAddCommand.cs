@@ -228,6 +228,11 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             {
                 comment.Anchor.Weak = true;
             }
+            else if (captured is null && comment.Anchor.Line is null && !comment.Anchor.Weak &&
+                !string.IsNullOrEmpty(comment.Anchor.Identity.Name))
+            {
+                CaptureNamedDeclaration(comment, sourceRoot);
+            }
 
             try
             {
@@ -276,6 +281,42 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
     }
 
     internal static string? Nullify(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    /// <summary>
+    /// An offline <c>--file --name</c> comment names one declaration when the file has exactly one element with that
+    /// x:Name, so it gets the same authored identity (and line) a live capture of that element would.
+    /// </summary>
+    internal static void CaptureNamedDeclaration(Comment comment, string sourceRoot)
+    {
+        var anchor = comment.Anchor;
+        try
+        {
+            if (CommentAnchorResolver.ResolveKnownSourcePath(sourceRoot, anchor) is not string path)
+            {
+                return;
+            }
+            var matches = CommentAuthoredIdentity.Read(path, sourceRoot)
+                .Where(item => CommentAuthoredIdentity.Name(item.Element) == anchor.Identity.Name &&
+                    CommentAuthoredIdentity.MatchesType(item.Element, anchor.Identity.Type))
+                .Take(2).ToArray();
+            if (matches is not [var declaration])
+            {
+                return;
+            }
+            var authored = CommentAuthoredIdentity.Capture(sourceRoot, Path.GetRelativePath(sourceRoot, path),
+                declaration, declaration.Text, uniqueInstance: false);
+            authored.UniquenessReason = "unique x:Name in file";
+            anchor.Authored = authored;
+            anchor.Templated |= authored.Templated;
+            anchor.Line = declaration.Line;
+            anchor.Column = declaration.Column;
+            anchor.Identity.Type ??= declaration.Element.Name.LocalName;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Xml.XmlException)
+        {
+            // Unreadable source leaves the comment as authored: a weak, searchable anchor.
+        }
+    }
 
     /// <summary>
     /// Resolves <c>--app</c> (a pid, or a process name with/without <c>.exe</c>) to a single pid. Errors when a
