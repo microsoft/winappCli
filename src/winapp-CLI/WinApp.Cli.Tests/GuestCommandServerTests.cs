@@ -270,9 +270,9 @@ public class GuestCommandServerTests
         await harness.Channel.DisposeAsync();
         await process.EmitAsync(GuestStreamId.StandardOutput, "after disconnect").WaitAsync(TimeSpan.FromSeconds(5));
         process.Exit(17);
-        Assert.IsTrue(
-            SpinWait.SpinUntil(() => process.Disposed, TimeSpan.FromSeconds(1)),
-            "The agent should release the detached process after it exits.");
+
+        // The agent should release the detached process after it exits.
+        await WaitUntilAsync(() => process.Disposed, harness.Token);
     }
 
     [TestMethod]
