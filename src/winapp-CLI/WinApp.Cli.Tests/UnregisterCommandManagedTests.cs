@@ -396,6 +396,23 @@ public class UnregisterCommandManagedTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task PruneRemovesSameNamedOrphanFromAnotherPublisher()
+    {
+        var owner = WriteFile(Path.Join(_tempDirectory.FullName, "App.cs"), "");
+        var registration = CreateRegistration(owner, "layout", unique: false);
+        var foreignFamily = DevelopmentIdentityHelper.ComputeFamilyName("TestPackage", "CN=OtherPublisher");
+        var foreign = new DevPackageInfo($"TestPackage_1.0.0.0_x64__{foreignFamily.Split('_')[1]}", "TestPackage", "1.0.0.0",
+            Path.Join(_tempDirectory.FullName, "deleted"), true, "CN=OtherPublisher", foreignFamily);
+        _packages.FakeOrphanedDevPackages = [foreign];
+
+        var exitCode = await InvokeAsync("--prune", "--force", "--json");
+
+        Assert.AreEqual(0, exitCode, TestAnsiConsole.Output);
+        CollectionAssert.AreEqual(new[] { foreign.FullName }, _packages.UnregisterByFullNameCalls.Select(call => call.PackageFullName).ToArray());
+        Assert.IsNotNull(DevelopmentRegistrationStore.Read(new DirectoryInfo(registration.Identity.LayoutPath)));
+    }
+
+    [TestMethod]
     public async Task PruneForceDoesNotBypassManagedOwnership()
     {
         var owner = WriteFile(Path.Join(_tempDirectory.FullName, "App.cs"), "");

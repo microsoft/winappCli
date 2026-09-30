@@ -622,7 +622,8 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
         {
             var recorded = registrations.FirstOrDefault(record =>
                 string.Equals(record.Identity.PackageFullName, package.FullName, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(record.Identity.EffectivePackageName, package.Name, StringComparison.OrdinalIgnoreCase));
+                || (string.Equals(record.Identity.EffectivePackageName, package.Name, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(record.Identity.Publisher, package.Publisher, StringComparison.Ordinal)));
             return recorded ?? (string.IsNullOrWhiteSpace(package.InstallLocation)
                 ? null
                 : DevelopmentRegistrationStore.Read(new DirectoryInfo(package.InstallLocation)));
