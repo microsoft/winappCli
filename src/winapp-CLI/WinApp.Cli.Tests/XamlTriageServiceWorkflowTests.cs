@@ -248,8 +248,8 @@ public sealed class XamlTriageServiceWorkflowTests
         // to lose this race on demand, so this checks the invariant rather than forcing the race.
         XamlTriageService.TriageTimeoutOverride = TimeSpan.FromMilliseconds(200);
         var childName = $"triage-child-{Guid.NewGuid():N}";
-        var childExe = Path.Combine(_tempRoot, childName + ".exe");
-        File.Copy(Path.Combine(Environment.SystemDirectory, "PING.EXE"), childExe);
+        var childExe = Path.Join(_tempRoot, childName + ".exe");
+        File.Copy(Path.Join(Environment.SystemDirectory, "PING.EXE"), childExe);
 
         var hold = new TrackingHold();
         var childRunningWhenReleased = false;
