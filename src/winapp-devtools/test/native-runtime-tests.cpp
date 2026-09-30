@@ -905,6 +905,44 @@ static int GuestNegotiation(int argc, wchar_t** argv)
 
 #include "query-runtime-tests.inc"
 
+// An opening ComboBox or Flyout moves its content with an Add under the new parent and no Remove from the old one,
+// and a closing one removes it with no parent at all. The census must never keep a child it no longer knows: a
+// whole-app query write treats such a child as an element it could not evaluate and refuses as incomplete.
+static void CheckCensusFollowsReparentsAndParentlessRemoves(const std::function<void(bool,const char*)>& check)
+{
+    auto event = [](InstanceHandle handle, InstanceHandle parent, unsigned index, const wchar_t* type, VisualMutationType mutation) {
+        ParentChildRelation relation{}; relation.Parent = parent; relation.Child = handle; relation.ChildIndex = index;
+        VisualElement element{}; element.Handle = handle; element.Type = const_cast<BSTR>(type);
+        g_treeCb.OnVisualTreeChange(relation, element, mutation);
+    };
+    auto kids = [](InstanceHandle parent) {
+        CensusSharedLock lock;
+        const auto found = g_children.find(parent);
+        return found == g_children.end() ? std::vector<InstanceHandle>{} : found->second;
+    };
+    event(7001, 0, 0, L"Microsoft.UI.Xaml.Controls.Grid", Add);
+    event(7002, 7001, 0, L"Microsoft.UI.Xaml.Controls.ComboBox", Add);
+    event(7004, 7001, 1, L"Microsoft.UI.Xaml.Controls.ItemsPresenter", Add);
+    event(7003, 7002, 0, L"Microsoft.UI.Xaml.Controls.Primitives.CarouselPanel", Add);
+    event(7003, 7004, 0, L"Microsoft.UI.Xaml.Controls.Primitives.CarouselPanel", Add);
+    event(7005, 7001, 2, L"Microsoft.UI.Xaml.Controls.Canvas", Add);
+    event(7005, 7004, 1, L"Microsoft.UI.Xaml.Controls.Canvas", Add);
+    event(7005, 7001, 0, nullptr, Remove);
+    check(kids(7002).empty() && kids(7004) == std::vector<InstanceHandle>{7003, 7005} && kids(7001) == std::vector<InstanceHandle>{7002, 7004},
+        "a reparent lists the element once, under its new parent, and a stale remove from the old parent keeps it");
+    event(7003, 0, 0, nullptr, Remove);
+    event(7005, 0, 0, nullptr, Remove);
+    bool known = true;
+    {
+        CensusSharedLock lock;
+        for (const InstanceHandle parent : {7001ull, 7002ull, 7004ull})
+            if (const auto found = g_children.find(parent); found != g_children.end())
+                for (const auto child : found->second) known = known && g_type.count(child);
+    }
+    check(known && kids(7004).empty(), "a remove without a parent detaches the element from the parent it was added under");
+    for (const InstanceHandle handle : {7004ull, 7002ull, 7001ull}) event(handle, 0, 0, nullptr, Remove);
+}
+
 int wmain(int argc, wchar_t** argv)
 {
     if (argc == 9 && std::wstring(argv[1]) == L"--overlay-comment-command") {
@@ -1019,6 +1057,7 @@ int wmain(int argc, wchar_t** argv)
     CheckSecretRedaction(check);
     CheckEmptyString(check);
     CheckEffectiveValues(check);
+    CheckCensusFollowsReparentsAndParentlessRemoves(check);
     CheckQueries(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
     auto call = [&](const wchar_t* method) {

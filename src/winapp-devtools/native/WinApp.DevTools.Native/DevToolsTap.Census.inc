@@ -249,6 +249,12 @@ static bool OverlayContains(InstanceHandle h) {
 
 static std::wstring BuildTreeRemoved(unsigned long long w);
 
+static void DetachChild_nolock(InstanceHandle parent, InstanceHandle child)
+{
+    const auto kids = g_children.find(parent);
+    if (kids != g_children.end()) kids->second.erase(std::remove(kids->second.begin(), kids->second.end(), child), kids->second.end());
+}
+
 // At child-add time the parent isn't in g_overlaySet yet, so the child is classified mine=0 and censused -- it then
 // leaks permanently (inflating the pong baseline, and appearing in visualtree.enumerate and the inspector window
 // tree). Lock order matches the rest of the file (census, then overlay; never nested).
@@ -526,8 +532,12 @@ struct TreeCb : IVisualTreeServiceCallback2
                 }
             }
             if (rel.Parent) {
+                // A reparent can arrive as an Add under the new parent with no Remove from the old one.
+                const auto previous = g_parent.find(e.Handle);
+                if (previous != g_parent.end() && previous->second != rel.Parent) DetachChild_nolock(previous->second, e.Handle);
                 g_parent[e.Handle] = rel.Parent;
                 auto& kids = g_children[rel.Parent];
+                kids.erase(std::remove(kids.begin(), kids.end(), e.Handle), kids.end());
                 if (rel.ChildIndex <= kids.size()) kids.insert(kids.begin() + rel.ChildIndex, e.Handle);
                 else kids.push_back(e.Handle);
             }
@@ -544,6 +554,13 @@ struct TreeCb : IVisualTreeServiceCallback2
         } else {
             std::wstring treeDelta;
             AcquireSRWLockExclusive(&g_censusLock);
+            const auto recorded = g_parent.find(e.Handle);
+            if (rel.Parent && recorded != g_parent.end() && recorded->second != rel.Parent) {
+                // The element was already added under another parent: this removes the old placement only.
+                DetachChild_nolock(rel.Parent, e.Handle);
+                ReleaseSRWLockExclusive(&g_censusLock);
+                return S_OK;
+            }
             if (e.Name && *e.Name) {
                 // A XAML hot reload re-creates a page and can deliver the new element's Add before the old one's
                 // Remove; an unconditional erase by name then wipes the LIVE element out of the name census, and
@@ -554,8 +571,10 @@ struct TreeCb : IVisualTreeServiceCallback2
             // Keyed by HANDLE, so this erase is unambiguous and needs no such guard.
             g_nameOf.erase(e.Handle);
             const bool wasCensus = g_type.erase(e.Handle) != 0;
+            // Removes usually arrive without a parent; detach from the parent the element was added under.
+            if (recorded != g_parent.end()) DetachChild_nolock(recorded->second, e.Handle);
             g_parent.erase(e.Handle);
-            if (rel.Parent) { auto& kids = g_children[rel.Parent]; kids.erase(std::remove(kids.begin(), kids.end(), e.Handle), kids.end()); }
+            if (rel.Parent) DetachChild_nolock(rel.Parent, e.Handle);
             g_children.erase(e.Handle);
             // Retire a removed census slot under the same lock; generation protects against reuse.
             if (wasCensus) {
