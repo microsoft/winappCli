@@ -426,6 +426,22 @@ try {
         finally {
             $null = Invoke-Cli @('devtools', 'call', 'Window.close', '-a', $app)
         }
+
+        # Ctrl+Shift+F12 moves keyboard focus to the toolbar; Esc returns it to the app element that had it.
+        function Wait-Focused([string]$Expected) {
+            $deadline = [DateTime]::UtcNow.AddSeconds(3)
+            do {
+                $current = Invoke-Cli @('ui', 'get-focused', '-a', $app)
+                if ($current.element.automationId -eq $Expected) { break }
+                Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $deadline)
+            return [string]$current.element.automationId
+        }
+        $null = Invoke-Cli @('ui', 'focus', 'ShortcutReturn', '-a', $app)
+        $null = Invoke-Cli @('ui', 'send-keys', 'ctrl+shift+f12', '-a', $app, '--via', 'send-input')
+        Check ((Wait-Focused 'DevToolsProtoPick') -eq 'DevToolsProtoPick') 'Ctrl+Shift+F12 moves keyboard focus to the toolbar'
+        $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+        Check ((Wait-Focused 'ShortcutReturn') -eq 'ShortcutReturn') 'Esc from the toolbar returns keyboard focus to the app'
         [ordered]@{
             processId = $owned.Id; startTicksUtc = $started.Ticks; executable = $executable
             sourceHandle = [string]$heading[0].handle

@@ -17,5 +17,6 @@
         </ItemsControl>
         <TextBlock x:Name="CommentAndTreeProbeWithAnIntentionallyLongAuthoredNameToExerciseHorizontalScrollingAtTheNormalInspectorPaneWidth"
                    AutomationProperties.AutomationId="NarrowCommentProbe" HorizontalAlignment="Left" Text="I" />
+        <Button x:Name="ShortcutReturn" AutomationProperties.AutomationId="ShortcutReturn" Content="Focus return" />
     </StackPanel>
 </Window>

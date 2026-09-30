@@ -16,7 +16,8 @@ winapp run . --devtools
 ```
 
 This opens the in-app overlay and waits for the app. Let the user inspect elements
-and leave comments there. Use a second terminal for commands, or add `--detach`
+and leave comments there. Ctrl+Shift+F12 moves keyboard focus to the toolbar, and
+Esc returns it. Use a second terminal for commands, or add `--detach`
 to return to the terminal with the app still running and its PID printed.
 Use an exact PID with `-a` when multiple apps are attached.
 Never stop another app automatically to make a rebuild succeed.

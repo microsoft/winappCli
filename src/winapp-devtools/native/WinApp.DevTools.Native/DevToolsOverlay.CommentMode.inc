@@ -87,7 +87,8 @@ void DevToolsOverlay_SetPickModeSink(DevToolsPickModeFn fn) { g_pickModeSink = f
 
 // Wired as PreviewKeyDown on the app's own content root, which TUNNELS root->target, so it fires even when
 // keyboard focus is inside the app's own controls rather than the overlay -- which is the stated requirement.
-// PreviewKeyDown tunnels from the app root, so Esc disarms even when focus is inside app controls.
+// PreviewKeyDown tunnels from the app root, so Esc disarms even when focus is inside app controls. It also
+// carries the toolbar focus shortcut (Ctrl+Shift+F12) and Esc's return from the toolbar.
 static void OnAppEscape(void* /*sender*/, void* args)
 {
     if (!args) return;
@@ -96,6 +97,12 @@ static void OnAppEscape(void* /*sender*/, void* args)
     if (FAILED(ai->QueryInterface(DevToolsIid<DevToolsXI::IKeyRoutedEventArgs>(), &kr)) || !kr) return;
     int key = 0;
     HRESULT hr = DevToolsGetKey(kr, &key);
+    if (SUCCEEDED(hr) && ((IsToolbarShortcut(key) && FocusToolbarFromShortcut()) ||
+                          (key == VK_ESCAPE && ReturnFocusFromToolbar()))) {
+        DevToolsPutHandled(kr, true);
+        reinterpret_cast<IUnknown*>(kr)->Release();
+        return;
+    }
     const bool isEsc = SUCCEEDED(hr) && key == VK_ESCAPE;
     const bool acting = isEsc && (g_pickCatcher != nullptr || g_selectedHandle != 0 || g_selRootLost);
     if (acting) {

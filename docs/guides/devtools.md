@@ -62,8 +62,12 @@ not just markers currently visible.
 The toolbar, highlight and markers draw above your app, including over open dialogs
 and flyouts, and stay out of your app's visual tree and layout. Menus and drop-downs
 that open in their own window, such as a `MenuFlyout`, draw over them. Screen readers
-and `winapp ui` find the toolbar under a **DevTools** pane in the window. Once focus
-is on the toolbar, Tab moves between its actions and Esc leaves pick mode.
+and `winapp ui` find the toolbar under a **DevTools** pane in the window.
+
+Press **Ctrl+Shift+F12** in your app to move keyboard focus to the toolbar. Tab moves
+between its actions, and Esc returns focus to where it was. If pick mode is on, the
+next Esc turns it off. The shortcut does nothing while the toolbar is hidden,
+for example after `winapp run --devtools --no-overlay`.
 
 Use a project, solution, build-output folder, or .NET file-based app as the `run`
 input. A DevTools launch prepares source diagnostics and, for managed apps, startup

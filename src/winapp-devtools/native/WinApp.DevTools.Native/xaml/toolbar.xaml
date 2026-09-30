@@ -29,7 +29,8 @@
           BackgroundSizing="InnerBorderEdge"
           IsTabStop="True" UseSystemFocusVisuals="True"
           AutomationProperties.AutomationId="DevToolsProtoRailL"
-          AutomationProperties.Name="DevTools (open toolbar)">
+          AutomationProperties.Name="DevTools (open toolbar)"
+          AutomationProperties.AcceleratorKey="Ctrl+Shift+F12">
     <Border.Transitions>
       <TransitionCollection>
         <EntranceThemeTransition FromVerticalOffset="6" />
@@ -70,7 +71,9 @@
           Background="$SURFACE$" CornerRadius="8" BorderBrush="$RIM$" BorderThickness="1" Padding="6,0"
           BackgroundSizing="InnerBorderEdge"
           AutomationProperties.AutomationId="DevToolsProtoPill"
-          AutomationProperties.Name="DevTools toolbar">
+          AutomationProperties.Name="DevTools toolbar"
+          AutomationProperties.AcceleratorKey="Ctrl+Shift+F12"
+          ToolTipService.ToolTip="DevTools (Ctrl+Shift+F12)">
     <Border.RenderTransform>
       <TranslateTransform x:Name="DevToolsBarShift" />
     </Border.RenderTransform>

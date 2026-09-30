@@ -113,9 +113,8 @@ static void OnAExpand(void*, void*)  { if (g_dragging) return; ShowARow(true); }
 static void OnACollapse(void*, void*){ if (g_pinned || g_dragging || g_toolbarFocusWithin > 0) return; ShowARow(false); }
 static void OnToolbarGotFocus(void*, void*) { ++g_toolbarFocusWithin; }
 static void OnToolbarLostFocus(void*, void*) { if (g_toolbarFocusWithin > 0) --g_toolbarFocusWithin; }
-static void OnPillGotFocus(void*, void*)
+static bool FocusToolbarFirstAction()
 {
-    if (g_dragging || !g_toolbarVisible) return;
     ShowARow(true);
     winrt::com_ptr<IInspectable> pick;
     pick.attach(DevToolsSelFindName(g_protoRoot, L"DevToolsProtoPick"));
@@ -124,6 +123,54 @@ static void OnPillGotFocus(void*, void*)
     bool focused = false;
     if (SUCCEEDED(hr)) hr = DevToolsFocus(ui.get(), 2, &focused);
     DevToolsOverlayLog(L"overlay.toolbar focus Pick hr=0x%08X succeeded=%d", hr, (int)focused);
+    return SUCCEEDED(hr) && focused;
+}
+static void OnPillGotFocus(void*, void*)
+{
+    if (g_dragging || !g_toolbarVisible) return;
+    FocusToolbarFirstAction();
+}
+
+// Ctrl+Shift+F12 moves keyboard focus to the toolbar while it is shown; Esc from the toolbar returns focus to
+// the app element that had it.
+static winrt::weak_ref<DevToolsX::UIElement> g_toolbarReturnFocus;
+
+static bool IsToolbarShortcut(int key)
+{
+    return key == VK_F12 && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000) &&
+        !(GetKeyState(VK_MENU) & 0x8000) && !(GetKeyState(VK_LWIN) & 0x8000) && !(GetKeyState(VK_RWIN) & 0x8000);
+}
+
+static bool FocusToolbarFromShortcut()
+{
+    if (!g_toolbarVisible || !g_protoRoot || g_dragging) return false;
+    if (g_toolbarFocusWithin == 0) {
+        g_toolbarReturnFocus = nullptr;
+        try {
+            winrt::Windows::Foundation::IInspectable root{ nullptr };
+            winrt::copy_from_abi(root, g_protoRoot);
+            if (auto xamlRoot = root.as<DevToolsX::UIElement>().XamlRoot())
+                if (auto focused = DevToolsXI::FocusManager::GetFocusedElement(xamlRoot).try_as<DevToolsX::UIElement>())
+                    g_toolbarReturnFocus = winrt::make_weak(focused);
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"overlay.toolbar shortcut focus read failed hr=0x%08X", e.code().value);
+        }
+    }
+    return FocusToolbarFirstAction();
+}
+
+static bool ReturnFocusFromToolbar()
+{
+    if (g_toolbarFocusWithin == 0) return false;
+    auto target = g_toolbarReturnFocus.get();
+    g_toolbarReturnFocus = nullptr;
+    if (!target) return false;
+    bool returned = false;
+    try { returned = target.Focus(DevToolsX::FocusState::Keyboard); }
+    catch (const winrt::hresult_error&) {}
+    if (returned && !g_pinned) ShowARow(false);
+    DevToolsOverlayLog(L"overlay.toolbar focus returned=%d", (int)returned);
+    return returned;
 }
 
 static void ProtoSetToggle(const wchar_t* button, const wchar_t* onPart, const wchar_t* offPart, bool on);
