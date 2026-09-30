@@ -119,16 +119,17 @@ public class UiHelpTests : BaseCommandTests
     }
 
     [TestMethod]
-    [DataRow("tree", typeof(UiInspectCommand))]
-    [DataRow("find", typeof(UiSearchCommand))]
-    public async Task Aliases_RunTheTargetCommandIncludingHelp(string alias, Type target)
+    // Command names rather than Type arguments: MSTest cannot serialize a Type for discovery, so a Type
+    // DataRow folds into one discovered case and runs as two, which breaks CI's shard accounting.
+    [DataRow("tree", "inspect")]
+    [DataRow("find", "search")]
+    public async Task Aliases_RunTheTargetCommandIncludingHelp(string alias, string name)
     {
         var root = GetRequiredService<WinAppRootCommand>();
-        Assert.IsInstanceOfType(root.Parse(["ui", alias, "Save", "-a", "app"]).CommandResult.Command, target);
+        Assert.AreEqual(name, root.Parse(["ui", alias, "Save", "-a", "app"]).CommandResult.Command.Name);
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(root, ["ui", alias, "--help"]);
         Assert.AreEqual(0, exitCode);
-        var name = UiGroup.Subcommands.Single(c => c.GetType() == target).Name;
         StringAssert.StartsWith(TestAnsiConsole.Output, $"winapp ui {name} - ");
     }
 
