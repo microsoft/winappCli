@@ -382,9 +382,8 @@ static void SelLookupComment(InstanceHandle key, std::wstring* outId, std::wstri
     if (outId) *outId = GenCommentId();
 }
 
-// NOT through the diagnostics chain: `ResolveResourceValue(h, "Text")` answers "0" for an EMPTY TextBox, so a
-// cleared box read back as the one-character string "0" — which the blur commit then dutifully SAVED. The
-// diagnostics read stays as a fallback for a box that will not QI.
+// NOT through the diagnostics chain: the live read of the box is exact. The diagnostics read stays as a fallback
+// for a box that will not QI.
 static bool SelReadCommentText(std::wstring* out)
 {
     if (!g_selComment || !out) return false;

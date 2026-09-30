@@ -340,7 +340,7 @@ static void CheckCuratedText(const std::function<void(bool,const char*)>& check)
                 "curated effective Text preserves exact String value/type/state");
             check(p.chain.size()==2 && p.chain[0].value==diagnostics.text.text &&
                 p.chain[1].value.empty(),"curated Text chain shows a null default as empty, not as the raw handle \"0\"");
-            check(props[1].value==L"0" && props[1].valueState==L"null" && props[1].type==L"Windows.Foundation.Object",
+            check(props[1].value.empty() && props[1].valueState==L"null" && props[1].type==L"Windows.Foundation.Object",
                 "object Content null is not an empty String");
             check(props[2].value==L"0" && props[2].valueState.empty(),"unrelated literal String zero is preserved");
             check(diagnostics.text.refs==1,"curated Text releases resolved element and typed interface");
@@ -354,8 +354,8 @@ static void CheckCuratedText(const std::function<void(bool,const char*)>& check)
     diagnostics.text.canRead=false;
     std::vector<DevToolsReadProp> props;
     ReadCuratedProps(901,&props,nullptr);
-    check(props.size()==3 && props[0].value==L"0" && props[0].valueState==L"null",
-        "unsupported custom Text keeps existing diagnostic semantics");
+    check(props.size()==3 && props[0].value.empty() && props[0].valueState==L"null",
+        "unsupported custom Text reads null, not the handle text \"0\"");
     g_diag=nullptr;g_vts3=nullptr;
 }
 
@@ -399,6 +399,39 @@ static void CheckSecretRedaction(const std::function<void(bool,const char*)>& ch
         tree.writes==0 && error.find(L"secret")!=std::wstring::npos,"a write to a secret is refused before it can echo");
     check(ResolveResourceApply(901,L"Password",L"Key",false)==E_ACCESSDENIED && tree.writes==0,
         "a resource assignment to a secret is refused");
+    g_diag=nullptr;g_vts3=nullptr;
+}
+
+// AccessKey="" reaches the chain as a null "0" handle with an Object value type, though the property is a String.
+struct EmptyStringTreeService : TextTreeService {
+    using TextTreeService::TextTreeService;
+    HRESULT STDMETHODCALLTYPE GetPropertyValuesChain(InstanceHandle handle,unsigned int* sc,PropertyChainSource** sources,
+        unsigned int* pc,PropertyChainValue** values) override {
+        const HRESULT hr=TextTreeService::GetPropertyValuesChain(handle,sc,sources,pc,values);
+        if(SUCCEEDED(hr) && *pc==4){
+            auto& v=(*values)[3];
+            SysFreeString(v.PropertyName);v.PropertyName=SysAllocString(L"AccessKey");
+            SysFreeString(v.ValueType);v.ValueType=SysAllocString(L"Windows.Foundation.Object");
+            v.MetadataBits=IsValueNull;
+        }
+        return hr;
+    }
+};
+
+static void CheckEmptyString(const std::function<void(bool,const char*)>& check)
+{
+    TextDiagnostics diagnostics;
+    EmptyStringTreeService tree(diagnostics.text);
+    g_diag=&diagnostics;g_vts3=&tree;
+    diagnostics.text.text=L"visible";
+    std::vector<DevToolsReadProp> props;
+    ReadCuratedProps(901,&props,nullptr);
+    const auto key=std::find_if(props.begin(),props.end(),[](const DevToolsReadProp& p){return p.name==L"AccessKey";});
+    check(key!=props.end() && key->value.empty(),
+        "an empty String property reads as \"\", not \"0\"");
+    ResolveState resolved;
+    check(SUCCEEDED(ResolveResourceValue(901,L"AccessKey",&resolved)) && resolved.value.empty(),
+        "the quick-peek read of an empty String is \"\" too");
     g_diag=nullptr;g_vts3=nullptr;
 }
 
@@ -968,6 +1001,7 @@ int wmain(int argc, wchar_t** argv)
     check(!CardReadInputBridge(&input, &unchanged), "unsupported input is refused");
     CheckCuratedText(check);
     CheckSecretRedaction(check);
+    CheckEmptyString(check);
     CheckEffectiveValues(check);
     CheckQueries(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);

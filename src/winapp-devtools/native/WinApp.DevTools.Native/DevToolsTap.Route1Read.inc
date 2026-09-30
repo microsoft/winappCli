@@ -455,7 +455,8 @@ static HRESULT ResolveResourceValue(InstanceHandle h, const std::wstring& prop, 
         for (unsigned int i = 0; i < pc; i++) {
             if (v[i].PropertyName && prop == v[i].PropertyName) {
                 st->type = v[i].ValueType ? v[i].ValueType : (v[i].Type ? v[i].Type : L"");
-                st->value = v[i].Value ? v[i].Value : L"";
+                // A null value arrives as the handle text "0"; show it as empty, like the property rows.
+                st->value = ((long long)v[i].MetadataBits & 0x20) || !v[i].Value ? L"" : v[i].Value;
                 break;
             }
         }

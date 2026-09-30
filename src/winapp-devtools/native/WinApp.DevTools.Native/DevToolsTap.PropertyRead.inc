@@ -407,6 +407,9 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
             else if (isNull)   prop.valueState = L"null";
             else if (isHandle && !readable) prop.valueState = L"unresolved";
 
+            // A null value arrives as the handle text "0", which is not a value; valueState says it is null.
+            if (isNull && !isBinding) prop.value.clear();
+
             if (isBinding) {
                 prop.binding = DevToolsBinding_Describe(g_diag, wcstoull(rawValue.c_str(), nullptr, 10));
                 std::wstring evaluated;
