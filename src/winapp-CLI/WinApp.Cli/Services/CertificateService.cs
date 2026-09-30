@@ -88,7 +88,7 @@ internal partial class CertificateService(
 
         CngKey? cngKey = null;
         string? storedThumbprint = null;
-        var stagedFiles = new List<string>();
+        var outputs = new List<StagedOutput>();
         try
         {
             // 1) Create a CNG key in MS Software KSP with AllowExport. It is persisted (named) only
@@ -121,22 +121,18 @@ internal partial class CertificateService(
             cert.FriendlyName = "MSIX Dev Certificate";
 
             // Stage every output next to its target first, so a failure never leaves a store entry
-            // without its files and never deletes a file the user already had.
-            var outputs = new List<(string Target, string Staged)>();
-            var pfxStaged = StagingPathFor(outputPath.FullName);
-            outputs.Add((outputPath.FullName, pfxStaged));
-            stagedFiles.Add(pfxStaged);
-            await File.WriteAllBytesAsync(pfxStaged, cert.Export(X509ContentType.Pfx, password), cancellationToken);
+            // without its files and never loses or mismatches files the user already had.
+            var pfxOutput = new StagedOutput(outputPath.FullName);
+            outputs.Add(pfxOutput);
+            await File.WriteAllBytesAsync(pfxOutput.Staged, cert.Export(X509ContentType.Pfx, password), cancellationToken);
 
             FileInfo? publicCertPath = null;
             if (exportCer)
             {
-                var cerPath = Path.ChangeExtension(outputPath.FullName, ".cer");
-                var cerStaged = StagingPathFor(cerPath);
-                outputs.Add((cerPath, cerStaged));
-                stagedFiles.Add(cerStaged);
-                await File.WriteAllBytesAsync(cerStaged, cert.Export(X509ContentType.Cert), cancellationToken);
-                publicCertPath = new FileInfo(cerPath);
+                var cerOutput = new StagedOutput(Path.ChangeExtension(outputPath.FullName, ".cer"));
+                outputs.Add(cerOutput);
+                await File.WriteAllBytesAsync(cerOutput.Staged, cert.Export(X509ContentType.Cert), cancellationToken);
+                publicCertPath = new FileInfo(cerOutput.Target);
             }
 
             if (PersistToCurrentUserStore)
@@ -147,11 +143,25 @@ internal partial class CertificateService(
                 storedThumbprint = cert.Thumbprint;
             }
 
-            // Replace the .pfx last: it holds the private key, so a failure replacing the .cer must
-            // leave the user's existing .pfx untouched.
-            for (var i = outputs.Count - 1; i >= 0; i--)
+            // Move existing files aside rather than overwriting them, so rollback can restore them.
+            foreach (var output in outputs)
             {
-                File.Move(outputs[i].Staged, outputs[i].Target, overwrite: true);
+                if (File.Exists(output.Target))
+                {
+                    var backup = StagingPathFor(output.Target);
+                    File.Move(output.Target, backup);
+                    output.Backup = backup;
+                }
+                File.Move(output.Staged, output.Target);
+                output.Committed = true;
+            }
+
+            foreach (var output in outputs)
+            {
+                if (output.Backup != null)
+                {
+                    TryDelete(output.Backup, taskContext);
+                }
             }
 
             taskContext.AddDebugMessage($"Certificate generated: {outputPath}");
@@ -175,7 +185,7 @@ internal partial class CertificateService(
         }
         catch (Exception error)
         {
-            RollBackFailedGeneration(cngKey, storedThumbprint, stagedFiles, taskContext);
+            RollBackFailedGeneration(cngKey, storedThumbprint, outputs, taskContext);
             throw new InvalidOperationException($"Failed to generate development certificate: {error.Message}", error);
         }
         finally
@@ -186,13 +196,54 @@ internal partial class CertificateService(
 
     private static string StagingPathFor(string target) => $"{target}.{Guid.NewGuid():N}.tmp";
 
+    private sealed class StagedOutput(string target)
+    {
+        public string Target { get; } = target;
+        public string Staged { get; } = StagingPathFor(target);
+        public string? Backup { get; set; }
+        public bool Committed { get; set; }
+    }
+
+    private static void TryDelete(string path, TaskContext taskContext)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            taskContext.AddDebugMessage($"Could not delete '{path}': {ex.Message}");
+        }
+    }
+
     /// <summary>
-    /// Best-effort cleanup after a failed generation: removes the store entry and persisted key
-    /// container this call created and any staged files, leaving the user's existing files untouched.
+    /// Best-effort cleanup after a failed generation: restores the user's previous output files and
+    /// removes the store entry, persisted key container and staged files this call created.
     /// Never throws.
     /// </summary>
-    private void RollBackFailedGeneration(CngKey? cngKey, string? storedThumbprint, List<string> stagedFiles, TaskContext taskContext)
+    private void RollBackFailedGeneration(CngKey? cngKey, string? storedThumbprint, List<StagedOutput> outputs, TaskContext taskContext)
     {
+        for (var i = outputs.Count - 1; i >= 0; i--)
+        {
+            var output = outputs[i];
+            if (output.Committed)
+            {
+                TryDelete(output.Target, taskContext);
+            }
+            if (output.Backup != null)
+            {
+                try
+                {
+                    File.Move(output.Backup, output.Target, overwrite: true);
+                }
+                catch (Exception ex)
+                {
+                    taskContext.AddDebugMessage($"Could not restore '{output.Target}' from '{output.Backup}': {ex.Message}");
+                }
+            }
+            TryDelete(output.Staged, taskContext);
+        }
+
         if (storedThumbprint != null)
         {
             try
@@ -222,18 +273,6 @@ internal partial class CertificateService(
             catch (Exception ex)
             {
                 taskContext.AddDebugMessage($"Could not delete the generated key: {ex.Message}");
-            }
-        }
-
-        foreach (var path in stagedFiles)
-        {
-            try
-            {
-                File.Delete(path);
-            }
-            catch (Exception ex)
-            {
-                taskContext.AddDebugMessage($"Could not delete '{path}': {ex.Message}");
             }
         }
     }
