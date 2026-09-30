@@ -797,6 +797,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             string? errorMessage = null;
             DirectoryInfo? resolvedOutputDir = null;
             InspectorAlias? inspectorAlias = null;
+            int[] replaced = [];
             var statusMessage = noLaunch ? "Registering packaged application..." : "Launching packaged application...";
             var success = await statusService.ExecuteWithStatusAsync(statusMessage, async (taskContext, cancellationToken) =>
             {
@@ -894,6 +895,15 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
                     // Step 2: Create and register the debug identity
                     taskContext.AddDebugMessage($"{UiSymbols.Package} Creating debug identity...");
+                    // DevTools must start the app itself: a running instance would either keep the old
+                    // files locked or receive this launch without DevTools, depending on the app.
+                    var runningBefore = ProcessesRunningFromLayout(outputAppXDirectory);
+                    if (devTools && runningBefore.Count > 0)
+                    {
+                        errorMessage = $"The app is already running (PID {string.Join(", ", runningBefore)}). " +
+                            "DevTools needs to start it, so close it, then run again.";
+                        return (1, $"{UiSymbols.Error} {errorMessage}");
+                    }
                     var identityResult = await msixService.AddLooseLayoutIdentityAsync(
                         resolvedManifest,
                         inputFolder,
@@ -914,6 +924,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         cancellationToken: cancellationToken);
 
                     resolvedUseAlias = effectiveAlias.UseAlias;
+                    // Re-registering a changed package closes its running instances.
+                    replaced = [.. runningBefore.Where(ProcessHasExited)];
 
                     packageFamilyName = appLauncherService.ComputePackageFamilyName(
                         identityResult.PackageName,
@@ -986,6 +998,12 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     PrintJson(aumid, processId: null, errorMessage);
                 }
                 return success;
+            }
+
+            if (replaced.Length > 0 && !isJson)
+            {
+                ansiConsole.MarkupLineInterpolated(
+                    $"{UiSymbols.Note} Closed the running instance (PID {string.Join(", ", replaced)}) to update its registration.");
             }
 
             if (noLaunch)

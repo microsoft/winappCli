@@ -325,10 +325,11 @@ Use `winapp run --devtools` directly for this workflow. The NuGet `dotnet run`
 integration forwards a `false` alias preference as `--without-alias`, so adding
 `--devtools` through `WinAppRunArgs` can conflict with that forwarded option.
 
-If the newly launched process exits or redirects to an existing instance before
-DevTools connects, `run` reports failure. It does not adopt another instance. Close
-that instance and relaunch, or attach to its exact PID with the
+If the app is already running when you run `winapp run . --devtools`, `run` stops
+and names its PID: DevTools needs to start the app itself. Close that instance and
+run again, or attach to its exact PID with the
 [late-attachment limitations](devtools-advanced.md#attach-to-an-app-that-is-already-running).
+When re-registering a changed package closes a running instance, `run` says so.
 
 If attachment cannot find the target's Windows App Runtime, ensure the target is a
 running WinUI 3 app. For an explicit runtime override, set

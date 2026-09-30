@@ -111,6 +111,6 @@ internal sealed class InspectorAliasLauncher(IAppLauncherService launcher)
 
     private static InspectorAliasLaunchResult Exited(ILaunchedProcess process) =>
         new(InspectorAliasLaunchStatus.Exited, null,
-            "The launched process exited before inspection. An existing instance has not been confirmed to receive this launch's environment.",
+            "The app exited right after launch, before DevTools could inspect it.",
             process.ProcessId, process.ExitCode);
 }

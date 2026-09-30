@@ -80,6 +80,12 @@ internal partial class RunCommand
         internal Func<string?, bool, IReadOnlyDictionary<string, string?>> CreateDevToolsEnvironment { get; set; } =
             DevToolsArtifacts.CreateLaunchEnvironment;
 
+        internal Func<DirectoryInfo, IReadOnlyList<int>> ProcessesRunningFromLayout { get; set; } = RunFailure.ProcessesRunningFromLayout;
+
+        internal Func<string, IReadOnlyList<int>> ProcessesRunningFrom { get; set; } = RunFailure.ProcessesRunningFrom;
+
+        internal Func<int, bool> ProcessHasExited { get; set; } = RunFailure.HasExited;
+
         private async Task<int> RunInspectorAliasAsync(
             InspectorAlias? alias, DirectoryInfo inputFolder, FileInfo? projectFile, string? aumid, string? arguments,
             bool debugOutput, bool useSymbols, bool detach, bool isJson, bool showOverlay, bool unregisterOnExit,
@@ -109,14 +115,26 @@ internal partial class RunCommand
                     cancellationToken: cancellationToken);
                 if (result.Process is null)
                 {
+                    var running = result.Status == InspectorAliasLaunchStatus.Exited && alias.Target.TargetExecutable is { } image
+                        ? ProcessesRunningFrom(image) : [];
+                    if (running.Count > 0)
+                    {
+                        return InspectorFailure(aumid, (uint)running[0],
+                            $"The app is already running (PID {string.Join(", ", running)}) and took over this launch, " +
+                            "so DevTools could not start it. Close it, then run again.", isJson, coordinates);
+                    }
                     var error = result.Error ?? $"Inspector launch failed ({result.Status}).";
                     if (result.ExitCode is int exitCode)
                     {
                         error += $" Exit code: {exitCode}.";
                     }
-                    error += " No existing instance was adopted. Check App execution aliases, or launch normally and use " +
-                        "'winapp devtools attach --pid <pid>' without startup-only binding/source instrumentation.";
-                    return InspectorFailure(aumid, result.ProcessId, error, isJson, coordinates);
+                    if (result.Status != InspectorAliasLaunchStatus.Exited)
+                    {
+                        error += " No existing instance was adopted. Check App execution aliases, or launch normally and use " +
+                            "'winapp devtools attach --pid <pid>' without startup-only binding/source instrumentation.";
+                    }
+                    return InspectorFailure(aumid, result.Status == InspectorAliasLaunchStatus.Exited ? null : result.ProcessId,
+                        error, isJson, coordinates);
                 }
 
                 using var launched = result.Process;
@@ -148,8 +166,8 @@ internal partial class RunCommand
             {
                 if (launched.HasExited)
                 {
-                    return InspectorFailure(aumid, pid, $"The launched process exited before inspection (exit code {launched.ExitCode}). " +
-                        "No existing instance was adopted. If an earlier instance is still running, close it and retry.", isJson, coordinates);
+                    return InspectorFailure(aumid, pid, $"The app exited right after launch (exit code {launched.ExitCode}), " +
+                        "before DevTools could inspect it.", isJson, coordinates);
                 }
                 var connection = await devToolsService.ConnectAsync(pid, showOverlay, DevToolsAccess.Mutation, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
@@ -158,7 +176,7 @@ internal partial class RunCommand
                     var reason = launched.HasExited
                         ? $"The launched process exited before inspection completed (exit code {launched.ExitCode})."
                         : connection.Error ?? "The requested DevTools overlay did not open.";
-                    return InspectorFailure(aumid, pid, $"{reason} No existing instance was adopted. " +
+                    return InspectorFailure(aumid, pid, $"{reason} " +
                         $"If process {pid} is still running, inspect it with 'winapp devtools attach --pid {pid}'.", isJson, coordinates);
                 }
                 if (showOverlay && !connection.OverlayShown)

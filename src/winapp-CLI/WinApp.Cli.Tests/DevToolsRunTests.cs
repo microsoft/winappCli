@@ -421,6 +421,44 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
+    public async Task Rerun_WhileTheAppIsRunning_NamesItsPidBeforeRegistering()
+    {
+        var app = Prepare("folder", true);
+        GetRequiredService<RunCommand.Handler>().ProcessesRunningFromLayout = _ => [4242];
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "--detach"));
+        var output = TestAnsiConsole.Output + ConsoleStdErr + ConsoleStdOut;
+        StringAssert.Contains(output, "The app is already running (PID 4242)");
+        StringAssert.Contains(output, "close it, then run again");
+        Assert.IsEmpty(_msix.AddLooseLayoutCalls);
+        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+    }
+
+    [TestMethod]
+    public async Task LaunchTakenOverByARunningInstance_NamesThatPid()
+    {
+        var app = Prepare("folder", true);
+        _process.HasExited = true;
+        GetRequiredService<RunCommand.Handler>().ProcessesRunningFrom = image =>
+            image == _target.TargetExecutable ? [4242] : [];
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "--detach", "--json"));
+        StringAssert.Contains(TestAnsiConsole.Output, "already running (PID 4242)");
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("exited", StringComparison.Ordinal), TestAnsiConsole.Output);
+        using var json = JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual(4242u, json.RootElement.GetProperty("ProcessId").GetUInt32());
+    }
+
+    [TestMethod]
+    public async Task PlainRerun_SaysWhenRegistrationClosedTheRunningInstance()
+    {
+        var app = Prepare("folder", true);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ProcessesRunningFromLayout = _ => [4242];
+        handler.ProcessHasExited = pid => pid == 4242;
+        Assert.AreEqual(0, await Run(app.Input, "--detach"), TestAnsiConsole.Output);
+        StringAssert.Contains(TestAnsiConsole.Output, "Closed the running instance (PID 4242)");
+    }
+
+    [TestMethod]
     public async Task AttachFailure_ReportsOwnedPidWithoutKillingApp()
     {
         var app = Prepare("project", false);

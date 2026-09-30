@@ -37,6 +37,46 @@ internal static class RunFailure
         return $"{guidance} (Win32 {code}, HRESULT 0x{error.HResult:X8}).{context}";
     }
 
+    /// <summary>PIDs of processes running the app last registered from <paramref name="layout"/>.</summary>
+    internal static IReadOnlyList<int> ProcessesRunningFromLayout(DirectoryInfo layout)
+    {
+        try
+        {
+            var manifest = Path.Combine(layout.FullName, "AppxManifest.xml");
+            if (!File.Exists(manifest) ||
+                Services.AppxManifestDocument.Load(manifest).ApplicationExecutable is not { Length: > 0 } executable ||
+                executable.Contains('$'))
+            {
+                return [];
+            }
+            var root = Path.GetFullPath(layout.FullName).TrimEnd('\\') + '\\';
+            var image = Path.GetFullPath(Path.Join(root, executable));
+            return image.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? ProcessesRunningFrom(image) : [];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or
+            NotSupportedException or System.Xml.XmlException)
+        {
+            return [];
+        }
+    }
+
+    internal static bool HasExited(int processId)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(processId);
+            return process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>PIDs of this user's processes whose executable is <paramref name="imagePath"/>.</summary>
     internal static IReadOnlyList<int> ProcessesRunningFrom(string imagePath)
     {

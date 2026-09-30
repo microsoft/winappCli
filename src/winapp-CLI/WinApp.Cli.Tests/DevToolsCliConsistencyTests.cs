@@ -61,6 +61,41 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void RunningInstancesAreFoundFromTheLayoutManifest()
+    {
+        var layout = Directory.CreateTempSubdirectory("winapp-layout-");
+        try
+        {
+            var self = Path.GetRelativePath(layout.FullName, Environment.ProcessPath!);
+            File.WriteAllText(Path.Combine(layout.FullName, "AppxManifest.xml"),
+                $"""<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"><Applications><Application Id="App" Executable="{self}" /></Applications></Package>""");
+            Assert.IsEmpty(RunFailure.ProcessesRunningFromLayout(layout), "An executable outside the layout is not this app.");
+            File.WriteAllText(Path.Combine(layout.FullName, "AppxManifest.xml"),
+                """<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"><Applications><Application Id="App" Executable="App.exe" /></Applications></Package>""");
+            Assert.IsEmpty(RunFailure.ProcessesRunningFromLayout(layout));
+            Assert.IsFalse(RunFailure.HasExited(Environment.ProcessId));
+
+            File.Copy(Path.Combine(Environment.SystemDirectory, "PING.EXE"), Path.Combine(layout.FullName, "App.exe"));
+            using var app = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                Path.Combine(layout.FullName, "App.exe"), "-n 30 127.0.0.1") { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true })!;
+            try
+            {
+                CollectionAssert.AreEqual(new[] { app.Id }, RunFailure.ProcessesRunningFromLayout(layout).ToArray());
+            }
+            finally
+            {
+                app.Kill();
+                app.WaitForExit();
+            }
+            Assert.IsTrue(RunFailure.HasExited(app.Id));
+        }
+        finally
+        {
+            layout.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void DevToolsPayloadsNameTheProcessProcessId()
     {
         var list = System.Text.Json.JsonSerializer.Serialize(new DevToolsListPayload { Apps = [new() { Pid = 7 }] },
