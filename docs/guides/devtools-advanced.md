@@ -2,8 +2,8 @@
 
 This page covers DevTools beyond the everyday workflow in
 [Inspect a WinUI app with DevTools](devtools.md): Windows Sandbox, attaching to an app
-that is already running, targeting one window or subtree, comment storage, and the
-DevTools protocol.
+that is already running, targeting one window or subtree, comment storage, the DevTools protocol, and what
+DevTools costs a running app.
 
 ## Inspect inside Windows Sandbox
 
@@ -243,3 +243,13 @@ written there.
 To clear a local property override, use `Binding.clearValue` for a managed target
 or `HotReload.clearProperty` for a native dependency property, with the same
 `handle` and `prop` parameters. Captures are process-local, not durable backups.
+
+## Performance
+
+Measured on a small WinUI sample app:
+
+- A visible, idle overlay does no work on the app's UI thread.
+- Highlighting an element takes about 1.6 ms on the UI thread.
+- Opening the inspector window stalls the UI thread once, for about 0.2 s, and adds about 20 MB of private memory while it is open.
+- The overlay itself adds 2–3 MB of private memory.
+- Attaching to an app that is already running takes 0.7–1.1 s.
