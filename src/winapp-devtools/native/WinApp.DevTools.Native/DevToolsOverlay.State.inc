@@ -545,6 +545,7 @@ static DevToolsSeedFn           g_pickSeed = nullptr;
 static DevToolsIsOverlayFn      g_pickIsOverlay = nullptr;
 static DevToolsPickedFn         g_pickedSink = nullptr;
 static DevToolsPickTargetFn     g_pickTarget = nullptr;
+static DevToolsPickRawFn        g_pickRaw = nullptr;
 static DevToolsFocusedFn        g_focusedSink = nullptr;
 static DevToolsAnchorOfFn       g_anchorOf = nullptr;
 static DevToolsResolveAnchorFn  g_resolveAnchor = nullptr;

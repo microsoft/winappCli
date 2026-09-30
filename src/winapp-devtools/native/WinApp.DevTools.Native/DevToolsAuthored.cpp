@@ -388,6 +388,53 @@ bool DevToolsAuthored_IsProjectSource(const std::wstring& fileUri)
     return !UriToDiskPath(fileUri).empty();
 }
 
+namespace {
+
+bool IsControlTemplateName(const std::wstring& s, size_t at)
+{
+    static constexpr wchar_t kName[] = L"ControlTemplate";
+    constexpr size_t length = sizeof(kName) / sizeof(kName[0]) - 1;
+    if (s.compare(at, length, kName) != 0) return false;
+    return at + length == s.size() || iswspace(s[at + length]) || s[at + length] == L'>' || s[at + length] == L'/';
+}
+
+// Counts <ControlTemplate> nesting before line/column (1-based; column 0 means the line start), skipping comments.
+bool InsideControlTemplate(const std::vector<std::wstring>& lines, unsigned int line, unsigned int column)
+{
+    int depth = 0;
+    bool comment = false, opening = false;
+    wchar_t quote = 0;
+    for (size_t l = 0; l < lines.size() && l < line; ++l) {
+        const std::wstring& s = lines[l];
+        const size_t end = l + 1 == line ? std::min<size_t>(column ? column - 1 : 0, s.size()) : s.size();
+        for (size_t c = 0; c < end; ++c) {
+            if (comment) {
+                if (s.compare(c, 3, L"-->") == 0) { comment = false; c += 2; }
+            } else if (opening) {
+                if (quote) { if (s[c] == quote) quote = 0; }
+                else if (s[c] == L'"' || s[c] == L'\'') quote = s[c];
+                else if (s[c] == L'>') { opening = false; if (c > 0 && s[c - 1] == L'/') --depth; }
+            } else if (s[c] == L'<') {
+                if (s.compare(c, 4, L"<!--") == 0) { comment = true; c += 3; }
+                else if (IsControlTemplateName(s, c + 1)) { ++depth; opening = true; }
+                else if (c + 1 < s.size() && s[c + 1] == L'/' && IsControlTemplateName(s, c + 2)) --depth;
+            }
+        }
+    }
+    return depth > 0;
+}
+
+}
+
+bool DevToolsAuthored_IsControlTemplatePart(const std::wstring& fileUri, unsigned int line, unsigned int column)
+{
+    if (line == 0) return false;
+    const std::wstring path = UriToDiskPath(fileUri);
+    if (path.empty()) return false;
+    const CachedFile& file = GetFile(path);
+    return file.ok && !file.stale && InsideControlTemplate(file.lines, line, column);
+}
+
 void DevToolsAuthored_InitCoordinates(const std::wstring& inventoryPath, const std::wstring& inventoryHash,
     const std::wstring& payloadRoot)
 {

@@ -33,7 +33,7 @@ static std::map<std::wstring, InstanceHandle> g_byName;
 static std::map<InstanceHandle, std::wstring> g_nameOf;
 static std::map<InstanceHandle, std::wstring> g_type;
 // Backfill blank entries in bounded UI-thread batches; a warm-up race is not framework evidence.
-struct SourceInfoEntry { std::wstring file; unsigned long long epoch; };
+struct SourceInfoEntry { std::wstring file; unsigned long long epoch; unsigned int line = 0; unsigned int column = 0; };
 static std::map<InstanceHandle, SourceInfoEntry> g_sourceInfo;
 static SRWLOCK g_sourceUriLock = SRWLOCK_INIT;
 static std::atomic<unsigned long long> g_sourceEpoch{ 0 };
@@ -48,12 +48,12 @@ static void SourceUri_Evict_nolock(InstanceHandle h)
     ReleaseSRWLockExclusive(&g_sourceUriLock);
 }
 
-static void SourceUri_SeedFromAdd_nolock(InstanceHandle h, const wchar_t* fileName)
+static void SourceUri_SeedFromAdd_nolock(InstanceHandle h, const wchar_t* fileName, unsigned int line, unsigned int column)
 {
     if (!fileName || !*fileName) return;
     if (!g_sawAnySourceInfo.exchange(true)) g_sourceEpoch.fetch_add(1, std::memory_order_release);
     AcquireSRWLockExclusive(&g_sourceUriLock);
-    g_sourceInfo[h] = SourceInfoEntry{ DevToolsSourcePath_AppUri(fileName), g_sourceEpoch.load(std::memory_order_acquire) };
+    g_sourceInfo[h] = SourceInfoEntry{ DevToolsSourcePath_AppUri(fileName), g_sourceEpoch.load(std::memory_order_acquire), line, column };
     ReleaseSRWLockExclusive(&g_sourceUriLock);
 }
 
@@ -512,7 +512,7 @@ struct TreeCb : IVisualTreeServiceCallback2
                 g_type[e.Handle] = e.Type;
                 // the add notification already carries this element's SourceInfo, so bank it now. The
                 // app-authored pass then needs no COM read at all for elements seen this way.
-                SourceUri_SeedFromAdd_nolock(e.Handle, e.SrcInfo.FileName);
+                SourceUri_SeedFromAdd_nolock(e.Handle, e.SrcInfo.FileName, e.SrcInfo.LineNumber, e.SrcInfo.ColumnNumber);
                 // Mint the generation-stamped slot under the census lock, after overlay self-exclusion.
                 MintSlot_nolock(e.Handle);
                 // Remember the outermost Panel (first StackPanel/Grid/Canvas in tree order) as the overlay

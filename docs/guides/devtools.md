@@ -48,7 +48,8 @@ your selection and draft.
 
 Picking selects the element you declared: clicking a control's template part or its
 generated text, such as a TextBox's placeholder or a Button's string content, selects
-the control from your XAML. An element with no authored ancestor is selected as-is;
+the control from your XAML. This includes parts of control templates your app restyles
+in its own XAML. An element with no authored ancestor is selected as-is;
 a comment on it is saved but marked **Not linked to source**. To pick framework and
 template parts themselves, turn off **Just my XAML** in the inspector window.
 

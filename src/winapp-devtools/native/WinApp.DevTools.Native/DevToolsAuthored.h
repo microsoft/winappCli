@@ -25,6 +25,9 @@ void DevToolsAuthored_Init(const std::wstring& sourceRoot, unsigned long long bu
 // of the developer's files under it (framework and library templates never are).
 bool DevToolsAuthored_HasSourceRoot();
 bool DevToolsAuthored_IsProjectSource(const std::wstring& fileUri);
+
+// True when the declaration at line/column of a project file sits inside a <ControlTemplate>.
+bool DevToolsAuthored_IsControlTemplatePart(const std::wstring& fileUri, unsigned int line, unsigned int column);
 void DevToolsAuthored_InitCoordinates(const std::wstring& inventoryPath, const std::wstring& inventoryHash,
     const std::wstring& payloadRoot);
 

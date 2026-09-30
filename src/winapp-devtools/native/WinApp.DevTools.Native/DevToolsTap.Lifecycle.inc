@@ -211,7 +211,7 @@ static const wchar_t* TryBuildOverlayOnUiThread(std::wstring* errorMessage)
     }
     Log(L"overlay: BuildAndInsert panel=%llu type=%s index=%u hr=0x%08X count=%d", panel, TypeOf(panel).c_str(), index, hr, g_elemCount.load());
     DevToolsOverlay_SetPickedSink(&OnOverlayReleasedPick);
-    DevToolsOverlay_SetPickTarget(&PickTarget);
+    DevToolsOverlay_SetPickTarget(&PickTarget, &DevToolsWindow_ShowsFrameworkRows);
     DevToolsOverlay_SetFocusedSink(&OnOverlayFocused);
     // One owner for pick mode: the overlay's catcher. The DevTools window's toggle follows it from here, so
     // the two can no longer disagree about whether the app is picking.

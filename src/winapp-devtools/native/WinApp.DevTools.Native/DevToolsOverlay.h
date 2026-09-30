@@ -123,7 +123,9 @@ void DevToolsOverlay_SetPickedSink(DevToolsPickedFn sink);
 
 // Maps a raw hit to the element a pick selects. UI thread only.
 typedef InstanceHandle (*DevToolsPickTargetFn)(InstanceHandle hit);
-void DevToolsOverlay_SetPickTarget(DevToolsPickTargetFn target);
+// True while picks select raw hits (Just my XAML off); hover re-picks when it changes.
+typedef bool (*DevToolsPickRawFn)();
+void DevToolsOverlay_SetPickTarget(DevToolsPickTargetFn target, DevToolsPickRawFn raw);
 
 // Focus tracking has independent in-process and external owners.
 typedef void (*DevToolsFocusedFn)(InstanceHandle);

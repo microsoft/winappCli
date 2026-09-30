@@ -383,7 +383,7 @@ static std::wstring BackfillSourceInfo(InstanceHandle ih)
     if (!file.empty() && !g_sawAnySourceInfo.exchange(true))
         g_sourceEpoch.fetch_add(1, std::memory_order_release);
     AcquireSRWLockExclusive(&g_sourceUriLock);
-    g_sourceInfo[ih] = SourceInfoEntry{ file, g_sourceEpoch.load(std::memory_order_acquire) };
+    g_sourceInfo[ih] = SourceInfoEntry{ file, g_sourceEpoch.load(std::memory_order_acquire), line, col };
     ReleaseSRWLockExclusive(&g_sourceUriLock);
     return file;
 }

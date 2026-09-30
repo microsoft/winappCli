@@ -368,7 +368,7 @@ static void CheckSearchText(const std::function<void(bool,const char*)>& check)
     MintSlot_nolock(901);
     g_type[901] = L"TextBlock";
     g_nameOf[901] = L"Heading";
-    SourceUri_SeedFromAdd_nolock(901, L"ms-appx:///MainPage.xaml");
+    SourceUri_SeedFromAdd_nolock(901, L"ms-appx:///MainPage.xaml", 1, 1);
     g_dispatcher = reinterpret_cast<IInspectable*>(1);
     g_testEnqueueUiOperation = [](void*, IUnknown* handler, bool* enqueued) {
         winrt::com_ptr<IDispatcherQueueHandler> callback;
@@ -1012,6 +1012,37 @@ int wmain(int argc, wchar_t** argv)
         g_sourceInfo[1] = SourceInfoEntry{ L"ms-appx:///Pages/NotInProject.xaml", 0 };
         ReleaseSRWLockExclusive(&g_sourceUriLock);
         check(PickTarget(3) == 3, "an ancestor whose source is not a project file is not treated as authored");
+        // An app-authored ControlTemplate (NavigationViewItem -> template Border "Backplate" -> text): a pick on
+        // the template part selects the item the developer declared, not the part.
+        const std::wstring styles = root + L"\\Styles.xaml";
+        const std::string stylesText =
+            "<ResourceDictionary>\r\n"
+            "  <!-- <ControlTemplate> in a comment does not count -->\r\n"
+            "  <Style TargetType=\"NavigationViewItem\"><Setter Property=\"Template\"><Setter.Value>\r\n"
+            "    <ControlTemplate TargetType=\"NavigationViewItem\">\r\n"
+            "      <Border x:Name=\"Backplate\" />\r\n"
+            "    </ControlTemplate>\r\n"
+            "  </Setter.Value></Setter></Style>\r\n"
+            "  <DataTemplate><TextBlock /></DataTemplate>\r\n"
+            "</ResourceDictionary>\r\n";
+        const HANDLE stylesFile = CreateFileW(styles.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (stylesFile != INVALID_HANDLE_VALUE) {
+            DWORD written = 0;
+            WriteFile(stylesFile, stylesText.data(), (DWORD)stylesText.size(), &written, nullptr);
+            CloseHandle(stylesFile);
+        }
+        DevToolsAuthored_Init(root, 0);
+        AcquireSRWLockExclusive(&g_sourceUriLock);
+        g_sourceInfo[1] = SourceInfoEntry{ L"ms-appx:///Pages/Main.xaml", 0, 1, 1 };
+        g_sourceInfo[2] = SourceInfoEntry{ L"ms-appx:///Styles.xaml", 0, 5, 7 };
+        g_sourceInfo[3] = SourceInfoEntry{ L"", 0 };
+        ReleaseSRWLockExclusive(&g_sourceUriLock);
+        check(DevToolsAuthored_IsControlTemplatePart(L"ms-appx:///Styles.xaml", 5, 7), "a declaration inside <ControlTemplate> is a template part");
+        check(!DevToolsAuthored_IsControlTemplatePart(L"ms-appx:///Styles.xaml", 8, 17), "a DataTemplate declaration is not a template part");
+        check(!DevToolsAuthored_IsControlTemplatePart(L"ms-appx:///Styles.xaml", 3, 3), "a commented <ControlTemplate> does not open a template");
+        check(PickTarget(3) == 1, "a pick inside the app's own ControlTemplate selects the declared templated parent");
+        check(PickTarget(2) == 1, "a pick on an app-authored template part selects the declared templated parent");
+        DeleteFileW(styles.c_str());
         DevToolsAuthored_Init(L"", 0);
         DeleteFileW(page.c_str());
         RemoveDirectoryW((root + L"\\Pages").c_str());

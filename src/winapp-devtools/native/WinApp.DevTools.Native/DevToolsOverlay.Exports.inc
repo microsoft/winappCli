@@ -446,8 +446,11 @@ static void OnCatcherPointerMoved(void* sender, void*)
     if (!IsCurrentCatcher(sender) || PickerEditorIsOpen()) return;
     peekUs = QpcNow() - tPeek0;
     guard.peeked = true;
-    if (top == g_hoverLastHandle) return;
+    // The same raw hit selects a different element once Just my XAML changes, so that invalidates the highlight too.
+    const bool raw = g_pickRaw && g_pickRaw();
+    if (top == g_hoverLastHandle && raw == g_hoverLastRaw) return;
     g_hoverLastHandle = top;
+    g_hoverLastRaw = raw;
     guard.changed = true;
     if (!top) {
         ClearAdorner();

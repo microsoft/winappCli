@@ -21,6 +21,7 @@ static EventSink g_highlightOriginSink;
 // hit-test tick, so we debounce -- only re-run the (edge-probing) pick+adorner when the hovered element
 // actually changes, and rate-limit the cheap peek hit-test so a fast drag can't hammer the app UI thread.
 static InstanceHandle g_hoverLastHandle = 0;
+static bool           g_hoverLastRaw = false;
 static ULONGLONG      g_hoverLastTick = 0;
 static void OnCatcherPointerMoved(void*, void*);
 
@@ -545,7 +546,7 @@ static void OnPickClick(void* sender, void*)
 }
 
 void DevToolsOverlay_SetPickedSink(DevToolsPickedFn sink) { g_pickedSink = sink; }
-void DevToolsOverlay_SetPickTarget(DevToolsPickTargetFn target) { g_pickTarget = target; }
+void DevToolsOverlay_SetPickTarget(DevToolsPickTargetFn target, DevToolsPickRawFn raw) { g_pickTarget = target; g_pickRaw = raw; }
 void DevToolsOverlay_SetFocusedSink(DevToolsFocusedFn sink) { g_focusedSink = sink; }
 void DevToolsOverlay_SetAnchorBridge(DevToolsAnchorOfFn a, DevToolsResolveAnchorFn r, DevToolsWireOfFn w)
 { g_anchorOf = a; g_resolveAnchor = r; g_wireOf = w; }

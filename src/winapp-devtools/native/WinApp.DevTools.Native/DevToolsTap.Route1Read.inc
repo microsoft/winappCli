@@ -569,14 +569,18 @@ static bool PublishOverlayPick(InstanceHandle h, bool releaseCommit) {
 }
 
 // UI thread only: a missing cache entry is read from the live property chain.
-static std::wstring SourceOf_ui(InstanceHandle h)
+static std::wstring SourceOf_ui(InstanceHandle h, unsigned int* line = nullptr, unsigned int* column = nullptr)
 {
     AcquireSRWLockShared(&g_sourceUriLock);
     const auto it = g_sourceInfo.find(h);
     const bool cached = it != g_sourceInfo.end();
     std::wstring file = cached ? it->second.file : std::wstring();
+    if (cached && line) *line = it->second.line;
+    if (cached && column) *column = it->second.column;
     ReleaseSRWLockShared(&g_sourceUriLock);
-    return cached ? file : BackfillSourceInfo(h);
+    if (cached) return file;
+    file = BackfillSourceInfo(h);
+    return line || column ? SourceOf_ui(h, line, column) : file;
 }
 
 // With a bound source root, "authored" means a file under it: the package scan misses XAML compiled into
@@ -586,14 +590,22 @@ static bool IsAuthoredSource(const std::wstring& source)
     return DevToolsAuthored_HasSourceRoot() ? DevToolsAuthored_IsProjectSource(source) : DevToolsAppXaml_IsAppAuthored(source);
 }
 
+// The element the developer declared: authored source, and not a part of a ControlTemplate (the app's own restyled
+// templates included), whose parts the developer never declares per instance.
+static bool IsDeclaredElement(InstanceHandle h)
+{
+    unsigned int line = 0, column = 0;
+    const std::wstring source = SourceOf_ui(h, &line, &column);
+    return !source.empty() && IsAuthoredSource(source) && !DevToolsAuthored_IsControlTemplatePart(source, line, column);
+}
+
 // A pick selects the author's element, not a control template's part or runtime-generated text (a Button's string
-// content, a placeholder): a hit without authored source resolves to its nearest ancestor with authored source.
-// A hit with no such ancestor is kept.
+// content, a placeholder): any other hit resolves to its nearest declared ancestor. A hit with no such ancestor is
+// kept.
 static InstanceHandle PickTarget(InstanceHandle hit)
 {
     if (DevToolsWindow_ShowsFrameworkRows()) return hit;
-    const std::wstring source = SourceOf_ui(hit);
-    if (!source.empty() && IsAuthoredSource(source)) return hit;
+    if (IsDeclaredElement(hit)) return hit;
     std::vector<InstanceHandle> ancestors;
     AcquireSRWLockShared(&g_censusLock);
     for (InstanceHandle current = hit; ancestors.size() < 256;) {
@@ -604,8 +616,7 @@ static InstanceHandle PickTarget(InstanceHandle hit)
     }
     ReleaseSRWLockShared(&g_censusLock);
     for (const InstanceHandle ancestor : ancestors) {
-        const std::wstring ancestorSource = SourceOf_ui(ancestor);
-        if (!ancestorSource.empty() && IsAuthoredSource(ancestorSource)) return ancestor;
+        if (IsDeclaredElement(ancestor)) return ancestor;
     }
     return hit;
 }
