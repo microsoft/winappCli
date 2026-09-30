@@ -63,37 +63,18 @@ internal sealed partial class XamlTriageService(
                 winappDirectoryService.GetGlobalWinappDirectory().FullName, "dbgtools"));
             var cacheBinDir = new DirectoryInfo(Path.Combine(dbgToolsRoot.FullName, XamlTriageBinaries.KitsArch));
 
-            ResolvedTriageBinaries? ResolveExisting(DirectoryInfo dir) =>
-                (BinariesResolverOverride ?? (d => XamlTriageBinaries.ResolveExisting(d, logger)))(dir);
-
-            // Resolve an existing debugger layout; if none, populate the download-on-first-use cache:
-            // engine bits from NuGet (global cache or download) and JsProvider.dll from the WinDbg bundle.
-            var binaries = ResolveExisting(cacheBinDir);
-            if (binaries == null && !XamlTriageBinaries.IsEnvOverrideSet)
-            {
-                // Only populate the download-on-first-use cache when no authoritative override is set;
-                // with an override configured, ResolveExisting never consults the cache, so acquiring
-                // into it would waste the download and still report triage as unavailable.
-                var nugetCacheDir = TryGetNuGetCacheDir();
-                await XamlTriageBinaries.TryAcquireFromNuGetAsync(cacheBinDir, nugetCacheDir, logger, cancellationToken);
-
-                // JsProvider.dll only ships in the WinDbg bundle; acquire it once the engine is present.
-                if (XamlTriageBinaries.HasEngine(cacheBinDir))
-                {
-                    await WinDbgJsProviderAcquirer.TryAcquireAsync(cacheBinDir, logger, cancellationToken);
-                }
-
-                binaries = ResolveExisting(cacheBinDir);
-            }
-
+            // Holds the verified debugger DLLs until the triage child has exited, so the files it loads
+            // are the files that were checked.
+            using var binaries = await ResolveBinariesAsync(cacheBinDir, cancellationToken);
             if (binaries == null)
             {
                 logger.LogDebug("WinUI triage skipped: debugging binaries (incl. JsProvider.dll) unavailable.");
                 return XamlTriageResult.Skipped(UnavailableNote());
             }
 
-            var extPath = await EnsureExtensionAsync(dbgToolsRoot, cancellationToken);
-            if (extPath == null)
+            // The script runs inside the debugger, so it is held like the DLLs until the child has exited.
+            using var extension = await EnsureExtensionAsync(dbgToolsRoot, cancellationToken);
+            if (extension == null)
             {
                 logger.LogDebug("WinUI triage skipped: could not obtain {Ext}.", ExtFileName);
                 return XamlTriageResult.Skipped(
@@ -104,7 +85,7 @@ internal sealed partial class XamlTriageService(
             // Run the DbgEng pass in a dedicated child process. The parent has already loaded the
             // system32 dbghelp.dll (dump capture + ClrMD analysis), which prevents the modern NuGet
             // dbgeng.dll from binding to its co-located dbghelp.dll. A clean process avoids that.
-            var (output, skipNote) = await RunTriageProcessAsync(dumpPath, binaries, extPath, useSymbols, cancellationToken);
+            var (output, skipNote) = await RunTriageProcessAsync(dumpPath, binaries, extension.Path, useSymbols, cancellationToken);
             if (skipNote != null)
             {
                 return XamlTriageResult.Skipped($"WinUI Triage: skipped — {skipNote}");
@@ -150,6 +131,36 @@ internal sealed partial class XamlTriageService(
             logger.LogWarning(ex, "WinUI triage pass failed.");
             return XamlTriageResult.None;
         }
+    }
+
+    /// <summary>
+    /// Resolves an existing debugger layout; if none, populates the download-on-first-use cache (engine
+    /// bits from NuGet, <c>JsProvider.dll</c> from the WinDbg bundle) and resolves again. The caller
+    /// owns the result and must dispose it once the triage child has exited.
+    /// </summary>
+    private async Task<ResolvedTriageBinaries?> ResolveBinariesAsync(DirectoryInfo cacheBinDir, CancellationToken cancellationToken)
+    {
+        ResolvedTriageBinaries? ResolveExisting(DirectoryInfo dir) =>
+            (BinariesResolverOverride ?? (d => XamlTriageBinaries.ResolveExisting(d, logger)))(dir);
+
+        var binaries = ResolveExisting(cacheBinDir);
+        if (binaries != null || XamlTriageBinaries.IsEnvOverrideSet)
+        {
+            // With an authoritative override configured, ResolveExisting never consults the cache, so
+            // acquiring into it would waste the download and still report triage as unavailable.
+            return binaries;
+        }
+
+        var nugetCacheDir = TryGetNuGetCacheDir();
+        await XamlTriageBinaries.TryAcquireFromNuGetAsync(cacheBinDir, nugetCacheDir, logger, cancellationToken);
+
+        // JsProvider.dll only ships in the WinDbg bundle; acquire it once the engine is present.
+        if (XamlTriageBinaries.HasEngine(cacheBinDir))
+        {
+            await WinDbgJsProviderAcquirer.TryAcquireAsync(cacheBinDir, logger, cancellationToken);
+        }
+
+        return ResolveExisting(cacheBinDir);
     }
 
     /// <summary>
@@ -381,7 +392,10 @@ internal sealed partial class XamlTriageService(
         return startInfo;
     }
 
-    private static void TryKill(Process process)
+    // How often to note that a killed triage child still has not exited.
+    private static readonly TimeSpan KillExitWait = TimeSpan.FromSeconds(30);
+
+    private void TryKill(Process process)
     {
         try
         {
@@ -392,25 +406,59 @@ internal sealed partial class XamlTriageService(
         }
         catch
         {
-            // best effort
+            // The child raced its own exit, or could not be killed; either way, wait for it below.
+        }
+
+        WaitUntilExited(process.WaitForExit, logger);
+    }
+
+    /// <summary>
+    /// Blocks until <paramref name="waitForExit"/> reports that the triage child has exited.
+    /// <see cref="Process.Kill(bool)"/> only starts termination, and the caller releases the verified
+    /// debugger DLLs next, so they must stay held until the child is really gone, however long that
+    /// takes. Giving up after a fixed time would reopen the window in which a still-running child
+    /// could load a file swapped in after the release.
+    /// </summary>
+    internal static void WaitUntilExited(Func<TimeSpan, bool> waitForExit, ILogger logger)
+    {
+        while (!waitForExit(KillExitWait))
+        {
+            logger.LogDebug("Still waiting for the WinUI triage child to exit before releasing its debugger DLLs.");
         }
     }
 
     /// <summary>
     /// Ensures the pinned <c>winui-dbgext.js</c> is present in the cache and matches its pinned
-    /// git blob hash, downloading it on first use. Returns the local path or <c>null</c> on failure.
+    /// git blob hash, downloading it on first use. Returns the script held open, or <c>null</c> on
+    /// failure. The script runs inside the debugger and can run debugger commands, so the caller must
+    /// pass <see cref="VerifiedTool.Path"/> to the child and keep the hold until the child has exited;
+    /// otherwise the cache could be swapped between the hash check and <c>.scriptload</c>.
     /// </summary>
-    internal async Task<string?> EnsureExtensionAsync(DirectoryInfo dbgToolsRoot, CancellationToken cancellationToken)
+    internal async Task<VerifiedTool?> EnsureExtensionAsync(DirectoryInfo dbgToolsRoot, CancellationToken cancellationToken)
     {
-        var extDir = Path.Combine(dbgToolsRoot.FullName, "ext");
+        var extDir = Path.Join(dbgToolsRoot.FullName, "ext");
         Directory.CreateDirectory(extDir);
-        var extPath = Path.Combine(extDir, ExtFileName);
+        var extPath = Path.Join(extDir, ExtFileName);
 
         bool MatchesHash(byte[] content) => (ExtensionHashValidatorOverride ?? MatchesPinnedExtensionHash)(content);
 
-        if (File.Exists(extPath) && MatchesHash(await File.ReadAllBytesAsync(extPath, cancellationToken)))
+        // Hash the file only once it is held, and by the path its handle resolves to, so the bytes that
+        // were checked are the bytes the child loads.
+        VerifiedTool? HoldVerified()
         {
-            return extPath;
+            try
+            {
+                return VerifiedTool.Open(new FileInfo(extPath), (path, _) => MatchesHash(File.ReadAllBytes(path)), logger);
+            }
+            catch (BuildToolSignatureException)
+            {
+                return null;
+            }
+        }
+
+        if (File.Exists(extPath) && HoldVerified() is { } cached)
+        {
+            return cached;
         }
 
         try
@@ -426,13 +474,20 @@ internal sealed partial class XamlTriageService(
             }
 
             await File.WriteAllBytesAsync(extPath, bytes, cancellationToken);
-            return extPath;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogDebug(ex, "Failed to download {Ext}.", ExtFileName);
             return null;
         }
+
+        var held = HoldVerified();
+        if (held == null)
+        {
+            logger.LogDebug("{Ext} changed on disk after it was written; refusing to use it.", ExtFileName);
+        }
+
+        return held;
     }
 
     /// <summary>Real GitHub download boundary for the debugger extension; seamed via <see cref="ExtensionBytesDownloader"/>.</summary>

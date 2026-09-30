@@ -29,17 +29,23 @@ public sealed class XamlTriageBinariesAcquisitionTests
     private static readonly string[] SymSrvFiles = ["symsrv.dll"];
 
     private string _tempDir = null!;
+    private Func<string, Microsoft.Extensions.Logging.ILogger, bool> _originalVerifier = null!;
 
     [TestInitialize]
     public void Setup()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"XamlBinAcq_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDir);
+
+        // The stand-in DLLs here are unsigned; the signature gate is exercised explicitly below.
+        _originalVerifier = XamlTriageBinaries.SignatureVerifier;
+        XamlTriageBinaries.SignatureVerifier = (_, _) => true;
     }
 
     [TestCleanup]
     public void Cleanup()
     {
+        XamlTriageBinaries.SignatureVerifier = _originalVerifier;
         if (Directory.Exists(_tempDir))
         {
             try { Directory.Delete(_tempDir, true); } catch { /* best effort */ }
@@ -114,6 +120,30 @@ public sealed class XamlTriageBinariesAcquisitionTests
         Assert.AreEqual(2, acquired);
         Assert.AreEqual("dbgeng.dll-content", File.ReadAllText(Path.Combine(binDir.FullName, "dbgeng.dll")),
             "The non-PE engine file should have been overwritten from the global cache.");
+    }
+
+    [TestMethod]
+    public async Task TryAcquireFromNuGetAsync_UnsignedCachedEngine_ReacquiresFromGlobalCache()
+    {
+        // A cached engine DLL that is intact but not Microsoft-signed (replaced in the cache) is refused
+        // at resolve time. Treating it as present would disable triage for good, so it is re-acquired.
+        var binDir = new DirectoryInfo(Path.Join(_tempDir, "bin"));
+        binDir.Create();
+        foreach (var file in DbgEngFiles.Concat(SymSrvFiles))
+        {
+            WriteFakePe(Path.Join(binDir.FullName, file));
+        }
+
+        var tampered = Path.Join(binDir.FullName, "dbgmodel.dll");
+        XamlTriageBinaries.SignatureVerifier = (path, _) => !string.Equals(path, tampered, StringComparison.OrdinalIgnoreCase);
+        var globalCache = SeedGlobalCache();
+
+        var acquired = await XamlTriageBinaries.TryAcquireFromNuGetAsync(
+            binDir, globalCache, NullLogger.Instance, CancellationToken.None);
+
+        Assert.AreEqual(2, acquired);
+        Assert.AreEqual("dbgmodel.dll-content", File.ReadAllText(tampered),
+            "The unsigned engine file should have been overwritten from the global cache.");
     }
 
     [TestMethod]
