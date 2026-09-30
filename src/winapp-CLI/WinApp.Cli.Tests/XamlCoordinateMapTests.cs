@@ -181,6 +181,28 @@ public sealed class XamlCoordinateMapTests
     }
 
     [TestMethod]
+    [DataRow("\n", "\r\n")]
+    [DataRow("\r\n", "\r\n")]
+    [DataRow("mixed", "\r\n")]
+    [DataRow("\n", "\n")]
+    [DataRow("\r", "\r\n")]
+    public void SourceLineEndings_DoNotBreakTheRewriteProofOrItsLines(string sourceNewline, string compilerNewline)
+    {
+        // The compiler writes CRLF whatever the checked-out source uses (LF with autocrlf=false, eol=lf, WSL, agents).
+        string Join(string newline, params string[] lines) => newline == "mixed"
+            ? string.Concat(lines.Select((line, index) => line + (index % 2 == 0 ? "\n" : "\r\n")))
+            : string.Join(newline, lines) + newline;
+        var source = Join(sourceNewline, Root, "<Grid>", Heading, "</Grid>", "</Page>");
+        var generated = Join(compilerNewline, Root, "<Grid>", RewrittenHeading, "</Grid>", "</Page>");
+        var fixture = Fixture(source, generated);
+        var hit = fixture.Create().Resolve(fixture.Proof, "MainPage.xaml", 3, 128, "TextBlock", null);
+        Assert.AreEqual(3, hit.AuthoredLine);
+        Assert.AreEqual(25, hit.AuthoredColumn);
+        Assert.ThrowsExactly<InvalidDataException>(() =>
+            Fixture(source, generated.Replace("FontSize=\"24\"", "FontSize=\"26\"", StringComparison.Ordinal)).Create());
+    }
+
+    [TestMethod]
     [DataRow("Button", "Click=\"OnSave\"", true, true)]
     [DataRow("local:Downloader", "DownloadClicked=\"OnDownload\"", true, true)]
     [DataRow("AutoSuggestBox", "TextChanged=\"_OnText2\"", true, true)]

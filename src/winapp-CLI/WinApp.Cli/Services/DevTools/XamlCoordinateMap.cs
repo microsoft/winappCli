@@ -222,8 +222,9 @@ internal sealed class XamlCoordinateMap
         }
         var expected = normalizedSource.ToString();
         var actual = normalizedGenerated.ToString();
-        // The compiler may append line breaks at end of file; they carry no coordinates.
-        if (actual.TrimEnd('\r', '\n') != expected.TrimEnd('\r', '\n'))
+        // The compiler writes CRLF whatever the source uses, and may append line breaks at end of file; neither
+        // moves a line, so compare the text with line endings normalized.
+        if (actual.ReplaceLineEndings("\n").TrimEnd('\n') != expected.ReplaceLineEndings("\n").TrimEnd('\n'))
         {
             throw new InvalidDataException("Unknown rewrite or changed authored source.");
         }
@@ -344,12 +345,16 @@ internal sealed class XamlCoordinateMap
         return (index + 1, offset - lines[index] + 1);
     }
 
+    // Line breaks as XML counts them: CRLF, LF, or a lone CR.
     private static int[] LineStarts(string text)
     {
         var starts = new List<int> { 0 };
         for (var index = 0; index < text.Length; index++)
         {
-            if (text[index] == '\n') { starts.Add(index + 1); }
+            if (text[index] == '\n' || (text[index] == '\r' && (index + 1 == text.Length || text[index + 1] != '\n')))
+            {
+                starts.Add(index + 1);
+            }
         }
         return starts.ToArray();
     }
