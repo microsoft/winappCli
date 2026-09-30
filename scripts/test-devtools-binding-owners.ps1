@@ -452,6 +452,11 @@ try {
         Check ((Wait-Focused 'DevToolsProtoPick') -eq 'DevToolsProtoPick') 'Ctrl+Shift+F12 moves keyboard focus to the toolbar'
         $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
         Check ((Wait-Focused 'ShortcutReturn') -eq 'ShortcutReturn') 'Esc from the toolbar returns keyboard focus to the app'
+        $null = Invoke-Cli @('ui', 'focus', 'ShortcutOther', '-a', $app)
+        $null = Invoke-Cli @('ui', 'send-keys', 'ctrl+shift+f12', '-a', $app, '--via', 'send-input')
+        Check ((Wait-Focused 'DevToolsProtoPick') -eq 'DevToolsProtoPick') 'the first shortcut after focus moves on from an Esc return reaches the toolbar'
+        $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+        Check ((Wait-Focused 'ShortcutOther') -eq 'ShortcutOther') 'Esc returns focus to the element the shortcut left'
 
         # A windowed app menu drawn over the toolbar takes the click; the toolbar under it does not.
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)

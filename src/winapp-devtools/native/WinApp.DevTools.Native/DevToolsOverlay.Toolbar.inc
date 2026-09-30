@@ -2,6 +2,9 @@
 // Licensed under the MIT License.
 // Part of DevToolsOverlay.cpp; included into that translation unit, not compiled on its own.
 
+#include <winrt/Windows.System.h>
+#include <winrt/Windows.UI.Core.h>
+
 static void DevToolsSetSelectionPanelRequestedTheme(int requestedTheme);
 
 static void DevToolsSetToolbarRequestedTheme(int appTheme)
@@ -160,8 +163,18 @@ static winrt::weak_ref<DevToolsX::UIElement> g_toolbarReturnFocus;
 
 static bool IsToolbarShortcut(int key)
 {
-    return key == VK_F12 && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000) &&
-        !(GetKeyState(VK_MENU) & 0x8000) && !(GetKeyState(VK_LWIN) & 0x8000) && !(GetKeyState(VK_RWIN) & 0x8000);
+    if (key != VK_F12) return false;
+    // Ask the input stack that delivered this key, not the Win32 queue state, which can lag behind island input.
+    auto down = [](winrt::Windows::System::VirtualKey modifier) {
+        return (winrt::Microsoft::UI::Input::InputKeyboardSource::GetKeyStateForCurrentThread(modifier) &
+            winrt::Windows::UI::Core::CoreVirtualKeyStates::Down) == winrt::Windows::UI::Core::CoreVirtualKeyStates::Down;
+    };
+    using winrt::Windows::System::VirtualKey;
+    const bool chord = down(VirtualKey::Control) && down(VirtualKey::Shift) && !down(VirtualKey::Menu) &&
+        !down(VirtualKey::LeftWindows) && !down(VirtualKey::RightWindows);
+    const bool win32 = (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000);
+    if (chord != win32) DevToolsOverlayLog(L"overlay.toolbar shortcut modifiers: input=%d win32=%d", (int)chord, (int)win32);
+    return chord;
 }
 
 // The element with keyboard focus in the toolbar's XamlRoot, and whether it is part of the toolbar.
