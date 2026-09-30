@@ -498,6 +498,54 @@ public class NugetServiceDownloadTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task GetLatestVersionAsync_WindowsAppSdk_SelectsReleaseAsSoonAsItsSubPackageIsPublished_DespiteCachedVersionList()
+    {
+        NugetSourceProvider.EnsureCredentialService();
+
+        // Mid-release: the 1.7.0 metapackage is listed but the .Runtime 1.7.0 it pins is not published yet.
+        using var feed = new BasicAuthNuGetFeed(
+            "winapp-user",
+            "s3cret-token!",
+            advertiseRegistration: true,
+            ("Microsoft.WindowsAppSDK", "1.6.0", true, [("Microsoft.WindowsAppSDK.Runtime", "[1.6.0]")]),
+            ("Microsoft.WindowsAppSDK.Runtime", "1.6.0", true, []),
+            ("Microsoft.WindowsAppSDK", "1.7.0", true, [("Microsoft.WindowsAppSDK.Runtime", "[1.7.0]")]));
+        var root = CreateFeedTestDirectory();
+        try
+        {
+            WriteNuGetConfig(root, $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="private" value="{feed.IndexUrl}" allowInsecureConnections="true" />
+                  </packageSources>
+                  <packageSourceCredentials>
+                    <private>
+                      <add key="Username" value="{feed.Username}" />
+                      <add key="ClearTextPassword" value="{feed.Password}" />
+                    </private>
+                  </packageSourceCredentials>
+                </configuration>
+                """);
+
+            var during = await CreateServiceRootedAt(root).GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, TestContext.CancellationToken);
+            Assert.AreEqual("1.6.0", during, "While .Runtime 1.7.0 is unpublished, 1.7.0 cannot be restored.");
+
+            // NuGet's HTTP cache now holds a .Runtime version list without 1.7.0. A new run (for example
+            // `winapp update` a few minutes later) must not trust that stale list once 1.7.0 is published.
+            feed.Publish("Microsoft.WindowsAppSDK.Runtime", "1.7.0");
+
+            var after = await CreateServiceRootedAt(root).GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, TestContext.CancellationToken);
+            Assert.AreEqual("1.7.0", after);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [TestMethod]
     public async Task GetLatestVersionAsync_PlainHttpSourceWithoutOptIn_IsRejected()
     {
         // SDK packages are executable tools, so a plain-HTTP feed is a code-substitution vector. NuGet's
@@ -696,6 +744,21 @@ public class NugetServiceDownloadTests : BaseCommandTests
 
             (_listener, BaseUrl) = StartListener();
             _serveLoop = Task.Run(() => ServeAsync(_cts.Token));
+        }
+
+        /// <summary>
+        /// Publishes a package after the feed has started, so a test can observe a client that cached the feed's
+        /// earlier answer. Call only between requests.
+        /// </summary>
+        public void Publish(string id, string version, params (string Id, string Version)[] dependencies)
+        {
+            var lowerId = id.ToLowerInvariant();
+            var lowerVersion = version.ToLowerInvariant();
+            _nupkgsByPath[$"{lowerId}/{lowerVersion}"] = BuildNupkgBytes(id, version, dependencies);
+            _versionsById[lowerId] = _versionsById.TryGetValue(lowerId, out var existing)
+                ? [.. existing, version]
+                : [version];
+            _listedByPath[$"{lowerId}/{lowerVersion}"] = true;
         }
 
         private static (HttpListener Listener, string BaseUrl) StartListener()

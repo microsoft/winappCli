@@ -244,6 +244,118 @@ public class NugetServiceCoverageTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task GetLatestVersionAsync_WindowsAppSdk_SkipsReleaseWhosePinnedSubPackageIsNotPublishedYet()
+    {
+        if (NugetPackagesEnvOverridesConfig)
+        {
+            Assert.Inconclusive("NUGET_PACKAGES is set; it overrides the config's globalPackagesFolder, so the local feed would not be exercised.");
+        }
+
+        var root = CreateFeedTestDirectory();
+        try
+        {
+            var (feed, _) = SetUpLocalFeed(root);
+
+            // Mid-release: the 1.7.0 metapackage is listed but the .Runtime 1.7.0 it pins is not published yet,
+            // so restoring 1.7.0 fails with NU1102. 1.6.0 is complete.
+            WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK", "1.6.0", ("Microsoft.WindowsAppSDK.Runtime", "[1.6.0]"));
+            WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK.Runtime", "1.6.0");
+            WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK", "1.7.0", ("Microsoft.WindowsAppSDK.Runtime", "[1.7.0]"));
+
+            var service = CreateServiceRootedAt(root);
+
+            var stable = await service.GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, TestContext.CancellationToken);
+
+            Assert.AreEqual("1.6.0", stable, "A release that cannot be restored yet must not be selected.");
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetLatestVersionAsync_WindowsAppSdk_SelectsNewestReleaseOnceItsSubPackagesArePublished()
+    {
+        if (NugetPackagesEnvOverridesConfig)
+        {
+            Assert.Inconclusive("NUGET_PACKAGES is set; it overrides the config's globalPackagesFolder, so the local feed would not be exercised.");
+        }
+
+        var root = CreateFeedTestDirectory();
+        try
+        {
+            var (feed, _) = SetUpLocalFeed(root);
+
+            WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK", "1.6.0", ("Microsoft.WindowsAppSDK.Runtime", "[1.6.0]"));
+            WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK.Runtime", "1.6.0");
+            WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK", "1.7.0", ("Microsoft.WindowsAppSDK.Runtime", "[1.7.0]"));
+            WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK.Runtime", "1.7.0");
+
+            var service = CreateServiceRootedAt(root);
+
+            var stable = await service.GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, TestContext.CancellationToken);
+
+            Assert.AreEqual("1.7.0", stable);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetLatestVersionAsync_WindowsAppSdk_KeepsNewestWhenSubPackageAvailabilityCannotBeDetermined()
+    {
+        if (NugetPackagesEnvOverridesConfig)
+        {
+            Assert.Inconclusive("NUGET_PACKAGES is set; it overrides the config's globalPackagesFolder, so the local feed would not be exercised.");
+        }
+
+        var root = CreateFeedTestDirectory();
+        try
+        {
+            var feed = new DirectoryInfo(Path.Join(root.FullName, "feed"));
+            feed.Create();
+            var packages = new DirectoryInfo(Path.Join(root.FullName, "packages"));
+
+            // No source is mapped for the sub-package, so its availability is unknown rather than known-missing.
+            // Unknown must never downgrade: keep the newest release, exactly as before.
+            WriteNuGetConfig(root, $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <config>
+                    <add key="globalPackagesFolder" value="{packages.FullName}" />
+                  </config>
+                  <packageSources>
+                    <clear />
+                    <add key="local" value="{feed.FullName}" />
+                  </packageSources>
+                  <packageSourceMapping>
+                    <clear />
+                    <packageSource key="local">
+                      <package pattern="Microsoft.WindowsAppSDK" />
+                    </packageSource>
+                  </packageSourceMapping>
+                </configuration>
+                """);
+
+            WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK", "1.6.0", ("Microsoft.WindowsAppSDK.Runtime", "[1.6.0]"));
+            WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK", "1.7.0", ("Microsoft.WindowsAppSDK.Runtime", "[1.7.0]"));
+
+            var service = CreateServiceRootedAt(root);
+
+            var stable = await service.GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, TestContext.CancellationToken);
+
+            Assert.AreEqual("1.7.0", stable);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [TestMethod]
     public async Task GetPackageDependenciesAsync_VersionlessDependency_ResolvesLowestAvailable()
     {
         if (NugetPackagesEnvOverridesConfig)

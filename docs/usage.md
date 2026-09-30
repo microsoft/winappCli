@@ -47,6 +47,7 @@ winapp init [base-directory] [options]
 
 - Creates `winapp.yaml` configuration file (only when SDK packages are managed; skipped with `--setup-sdks none`)
 - Downloads Windows SDK and Windows App SDK packages
+- Uses the newest Windows App SDK release in the selected `--setup-sdks` channel. If that release is still being published and some of its packages aren't available yet, `init` (and `winapp update`) uses the previous release instead. To move to the new release later, run `winapp update`, or for a .NET project, `dotnet add package Microsoft.WindowsAppSDK --version <new version>`.
 - Generates C++/WinRT headers and binaries
 - Creates Package.appxmanifest
 - Sets up build tools and enables developer mode
