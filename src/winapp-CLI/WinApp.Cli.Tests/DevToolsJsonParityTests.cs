@@ -318,8 +318,8 @@ public class DevToolsJsonParityTests
         using var document = JsonDocument.Parse(output);
         Assert.AreEqual("unverifiedBuild", document.RootElement.GetProperty("authoredState").GetString());
         Assert.IsFalse(document.RootElement.TryGetProperty("xaml", out _));
-        StringAssert.Contains(document.RootElement.GetProperty("xamlUnavailable").GetString()!, "could not be verified together");
-        StringAssert.Contains(document.RootElement.GetProperty("xamlUnavailable").GetString()!, "rebuilding alone does not verify");
+        StringAssert.Contains(document.RootElement.GetProperty("xamlUnavailable").GetString()!, "could not confirm that MainPage.xaml matches the running build");
+        StringAssert.Contains(document.RootElement.GetProperty("xamlUnavailable").GetString()!, "Rebuild and run again (without --no-build)");
     }
 
     [TestMethod]
@@ -339,6 +339,17 @@ public class DevToolsJsonParityTests
         Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean());
         StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString()!, "managed DevTools agent",
             "The agent's own reason must reach the caller.");
+    }
+
+    [TestMethod]
+    public async Task DiagnoseBinding_LiteralSaysItHasNoBinding()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Binding.diagnose", """{"state":"none"}""");
+        var (exit, output) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "IsEnabled"]);
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "No binding: the XAML sets this property to a literal value.");
     }
 
     [TestMethod]

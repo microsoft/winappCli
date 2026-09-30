@@ -170,7 +170,8 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             "noFile" => $"The authored markup is not shown: {file} could not be opened from here.",
             "noSourceInfo" => "The authored markup is not shown: the runtime reported no XAML source text for this element.",
             "stale" => $"The authored markup is not shown: {file} no longer matches the inspected build.",
-            "unverifiedBuild" => "The authored markup is not shown: the compiler output, original source and deployed XAML could not be verified together. Check the original XAML before editing; rebuilding alone does not verify the column mapping.",
+            "unverifiedBuild" => $"The authored markup is not shown: DevTools could not confirm that {file} matches the running build. " +
+                "Rebuild and run again (without --no-build); if this persists, check the original XAML before editing.",
             _ => $"The authored markup is not shown ({state}).",
         };
 

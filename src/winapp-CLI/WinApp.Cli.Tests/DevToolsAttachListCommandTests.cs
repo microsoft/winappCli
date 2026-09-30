@@ -126,6 +126,20 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task List_PipedOutputKeepsOneLinePerApp()
+    {
+        var command = GetRequiredService<DevToolsListCommand>();
+        var console = new Spectre.Console.Testing.TestConsole();
+        console.Profile.Width = 30;
+        var handler = new DevToolsListCommand.Handler(console,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<DevToolsListCommand>.Instance, () => [Environment.ProcessId]);
+        Assert.AreEqual(0, await handler.InvokeAsync(command.Parse([])));
+        var lines = console.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.HasCount(1, lines, console.Output);
+        StringAssert.StartsWith(lines[0], Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [TestMethod]
     public void List_IncludeAvailable_IsOptIn()
     {
         var command = GetRequiredService<DevToolsListCommand>();

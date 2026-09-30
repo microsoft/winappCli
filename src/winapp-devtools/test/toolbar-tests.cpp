@@ -110,8 +110,8 @@ static void TestToolbarContract()
                  "Pinned uses the accent on-state and a UIA toggle, not a corner dot that reads as a badge");
     CheckToolbar(xaml.find("ToolTipService.ToolTip=\"Switch app theme\"") != std::string::npos,
                  "Theme tooltip is short enough not to clip at the window edge");
-    CheckToolbar(xaml.find("AutomationProperties.Name=\"Toggle app theme\"") != std::string::npos,
-                 "Theme has an accessible name");
+    CheckToolbar(xaml.find("AutomationProperties.Name=\"Switch app theme\"") != std::string::npos,
+                 "Theme's accessible name matches its tooltip");
     CheckToolbar(xaml.find("Glyph=\"&#xE706;\"") != std::string::npos,
                  "Theme uses the Segoe MDL2 Brightness glyph");
     const size_t inspectPos = xaml.find("x:Name=\"DevToolsProtoInspect\"");

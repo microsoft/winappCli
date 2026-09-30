@@ -80,7 +80,7 @@ internal class DevToolsListCommand : Command, IShortDescription, IHelpExamples
 
             if (apps.Count == 0)
             {
-                ansiConsole.MarkupLine(includeAvailable
+                DevToolsRender.WriteMarkupLine(ansiConsole, includeAvailable
                     ? "[grey]No running WinUI apps found.[/]"
                     : "[grey]No DevTools-injected apps found. Use --include-available to show running WinUI apps.[/]");
                 return Task.FromResult(0);
@@ -92,7 +92,7 @@ internal class DevToolsListCommand : Command, IShortDescription, IHelpExamples
                 var title = app.WindowTitle is null ? string.Empty : $" \"{Markup.Escape(app.WindowTitle)}\"";
                 if (!app.Attached)
                 {
-                    ansiConsole.MarkupLine(
+                    DevToolsRender.WriteMarkupLine(ansiConsole,
                         $"[cyan]{app.Pid}[/]{name}{title}  [yellow]available[/]  [grey]ready to attach[/]");
                     continue;
                 }
@@ -100,7 +100,7 @@ internal class DevToolsListCommand : Command, IShortDescription, IHelpExamples
                 var proto = app.ProtocolVersion is null ? "[grey]?[/]" : $"v{Markup.Escape(app.ProtocolVersion)}";
                 var nodes = app.NodeCount is int n ? $"{n} nodes" : "unresponsive";
                 var posture = app.Posture is null ? string.Empty : $" [grey]({Markup.Escape(app.Posture)})[/]";
-                ansiConsole.MarkupLine(
+                DevToolsRender.WriteMarkupLine(ansiConsole,
                     $"[cyan]{app.Pid}[/]{name}{title}  [green]attached[/]  " +
                     $"[grey]{Markup.Escape(app.PipeName ?? string.Empty)}[/]  {proto}  {nodes}{posture}");
             }

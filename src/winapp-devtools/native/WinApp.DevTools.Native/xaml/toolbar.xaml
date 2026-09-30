@@ -151,7 +151,7 @@
               IsEnabled="$THEMEENABLED$"
               ToolTipService.ToolTip="Switch app theme"
               AutomationProperties.AutomationId="DevToolsProtoTheme"
-              AutomationProperties.Name="Toggle app theme">
+              AutomationProperties.Name="Switch app theme">
         <FontIcon FlowDirection="LeftToRight" Glyph="&#xE706;" FontSize="15"
                   Foreground="$TEXT$" />
       </Button>

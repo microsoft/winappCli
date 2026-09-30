@@ -138,6 +138,10 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
             {
                 Console.MarkupLine("[grey]The agent did not report a binding state for this property.[/]");
             }
+            else if (state == "none" && ReadString(root, "reason").Length == 0)
+            {
+                Console.MarkupLine("  No binding: the XAML sets this property to a literal value.");
+            }
 
             return Task.FromResult(diagnosed ? 0 : 1);
         }
