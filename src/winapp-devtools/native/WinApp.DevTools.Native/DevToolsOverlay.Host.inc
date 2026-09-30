@@ -424,6 +424,17 @@ static void HostYieldToWindowedPopups()
 
 void DevToolsOverlay_YieldToWindowedPopups() { HostYieldToWindowedPopups(); }
 
+// The active surface's XamlRoot when the chrome is hosted in its UI layer; null otherwise (including headless tests).
+static winrt::Microsoft::UI::Xaml::XamlRoot HostedXamlRoot()
+{
+    for (auto& layer : g_layerRoots) {
+        if (layer.key != g_activeSurface.xamlRootKey) continue;
+        try { return layer.xamlRoot.as<winrt::Windows::Foundation::IInspectable>().as<winrt::Microsoft::UI::Xaml::XamlRoot>(); }
+        catch (const winrt::hresult_error&) { return nullptr; }
+    }
+    return nullptr;
+}
+
 // A closed window's XamlRoot is gone: drop its layer root and UIA bridge.
 static bool HostXamlRootClosed(const winrt::com_ptr<IUnknown>& identity)
 {

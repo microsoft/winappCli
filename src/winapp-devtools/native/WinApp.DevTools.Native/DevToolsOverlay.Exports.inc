@@ -262,14 +262,13 @@ void DevToolsOverlay_ClassifyPickPoint(IXamlDiagnostics* diag, InstanceHandle ro
 static bool IsInPopupLayer(IXamlDiagnostics* diag, InstanceHandle handle)
 {
     try {
+        auto xamlRoot = HostedXamlRoot();
+        auto content = xamlRoot ? xamlRoot.Content() : nullptr;
+        if (!content) return false;
         winrt::com_ptr<IInspectable> object;
         if (FAILED(diag->GetIInspectableFromHandle(handle, object.put())) || !object) return false;
         winrt::Windows::Foundation::IInspectable element{ nullptr };
         winrt::copy_from_abi(element, object.get());
-        auto ui = element.try_as<DevToolsX::UIElement>();
-        auto xamlRoot = ui ? ui.XamlRoot() : nullptr;
-        auto content = xamlRoot ? xamlRoot.Content() : nullptr;
-        if (!content) return false;
         for (auto node = element.try_as<DevToolsX::DependencyObject>(); node; node = DevToolsXM::VisualTreeHelper::GetParent(node))
             if (node == content) return false;
         return true;
@@ -285,12 +284,9 @@ static InstanceHandle PopupTopHandleAt(IXamlDiagnostics* diag, InstanceHandle ro
                                        DevToolsIsOverlayFn isOverlay, bool* overPopup)
 {
     *overPopup = false;
+    (void)rootHandle;
     try {
-        winrt::com_ptr<IInspectable> rootObject;
-        if (FAILED(diag->GetIInspectableFromHandle(rootHandle, rootObject.put())) || !rootObject) return 0;
-        winrt::Windows::Foundation::IInspectable object{ nullptr };
-        winrt::copy_from_abi(object, rootObject.get());
-        auto xamlRoot = object.as<DevToolsX::UIElement>().XamlRoot();
+        auto xamlRoot = HostedXamlRoot();
         if (!xamlRoot) return 0;
         auto handleOf = [&](winrt::Windows::Foundation::IInspectable const& element) {
             InstanceHandle handle = 0;
