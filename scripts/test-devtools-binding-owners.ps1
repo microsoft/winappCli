@@ -454,6 +454,7 @@ try {
         Check ((Wait-Focused 'ShortcutReturn') -eq 'ShortcutReturn') 'Esc from the toolbar returns keyboard focus to the app'
 
         # A windowed app menu drawn over the toolbar takes the click; the toolbar under it does not.
+        $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
         $beforeMenu = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
         $toolbarHalf = @($beforeMenu.windows | ForEach-Object { Nodes $_.elements } | Where-Object {
             $_.automationId -in @('DevToolsProtoRailL', 'DevToolsProtoPill') -and -not $_.isOffscreen })
