@@ -1052,6 +1052,21 @@ int wmain(int argc, wchar_t** argv)
         g_sourceInfo.clear();
         ReleaseSRWLockExclusive(&g_sourceUriLock);
     }
+    {
+        // After a navigation, several hundred new elements lack source info: one request classifies all of them.
+        for (InstanceHandle h = 5001; h <= 5350; ++h) { MintSlot_nolock(h); g_type[h] = L"TextBlock"; }
+        CensusSnapshot cs;
+        cs.type = g_type; cs.children = g_children; cs.parent = g_parent;
+        for (auto& kv : g_type) cs.wire[kv.first] = PackWire_nolock(kv.first);
+        SourceInfo_Snapshot(cs.sourceUri);
+        const AuthoredVerdicts verdicts = ClassifyAuthored(cs, true);
+        check(!verdicts.err && verdicts.classifiedNodes >= 350,
+              "one request classifies a navigation's worth of new elements");
+        for (InstanceHandle h = 5001; h <= 5350; ++h) g_type.erase(h);
+        AcquireSRWLockExclusive(&g_sourceUriLock);
+        g_sourceInfo.clear();
+        ReleaseSRWLockExclusive(&g_sourceUriLock);
+    }
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     check(SUCCEEDED(apartment), "binding test COM initialization");
     if (SUCCEEDED(apartment)) {

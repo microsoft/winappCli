@@ -458,16 +458,22 @@ static AuthoredVerdicts ClassifyAuthored(CensusSnapshot& cs, bool onUiThread)
         if (!unreached.empty()) SelectBoundedBreadthFirst(cs, unreached, -1, budget, included);
     }
 
+    // Backfill in UI-thread batches, but finish a whole navigation's new elements in one request when that is quick:
+    // one batch per request left `search` and `inspect` unclassified for several calls after navigating.
     static const size_t kBackfillBatch = 100;
-    std::vector<unsigned long long> backfillWires;
+    static const ULONGLONG kBackfillBudgetMs = 250;
+    std::vector<unsigned long long> pending;
     for (InstanceHandle h : included) {
         if (cs.sourceUri.find(h) != cs.sourceUri.end()) continue;
         auto wi = cs.wire.find(h);
         if (wi == cs.wire.end() || !wi->second) continue;
-        backfillWires.push_back(wi->second);
-        if (backfillWires.size() == kBackfillBatch) break;
+        pending.push_back(wi->second);
     }
-    if (!backfillWires.empty()) {
+    const ULONGLONG backfillStart = GetTickCount64();
+    for (size_t next = 0; next < pending.size() && (next == 0 || GetTickCount64() - backfillStart < kBackfillBudgetMs);
+         next += kBackfillBatch) {
+        std::vector<unsigned long long> backfillWires(pending.begin() + next,
+            pending.begin() + (std::min)(pending.size(), next + kBackfillBatch));
         auto backfill = [backfillWires]() -> HRESULT {
             for (size_t i = 0; i < backfillWires.size(); ++i) {
                 InstanceHandle raw = 0; const wchar_t* err = nullptr; bool ok;
@@ -481,6 +487,8 @@ static AuthoredVerdicts ClassifyAuthored(CensusSnapshot& cs, bool onUiThread)
         };
         HRESULT hr = onUiThread ? backfill() : RunOnUiThread(backfill);
         if (FAILED(hr)) { out.err = L"not-ready"; return out; }
+    }
+    if (!pending.empty()) {
         cs.sourceUri.clear();
         SourceInfo_Snapshot(cs.sourceUri);
     }
