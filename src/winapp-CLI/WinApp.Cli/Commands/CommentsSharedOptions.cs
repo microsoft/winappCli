@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
+using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 using WinApp.Cli.Services.DevTools.Comments;
 
 namespace WinApp.Cli.Commands;
@@ -39,6 +40,38 @@ internal static class CommentsSharedOptions
     {
         Description = "App display name included in the output."
     };
+
+    public static Option<string?> ReadAppOption { get; } = new("--app", "-a")
+    {
+        Description = "Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project."
+    };
+
+    internal static string? ReadTapSourceRoot(uint pid, CancellationToken cancellationToken) =>
+        Services.DevTools.CommentSelectionCapture.ReadStringResult(
+            new Services.DevTools.VisualTreeTap(pid).GetSourceRoot(cancellationToken), "sourceRoot");
+
+    /// <summary>Resolves <c>--app</c> to the running app's project directory. Without <c>--app</c>, returns true and null.</summary>
+    internal static bool TryReadAppRoot(IUiTargetResolver targets, string? app, Func<uint, CancellationToken, string?> readSourceRoot,
+        CancellationToken cancellationToken, out string? root, out string? error)
+    {
+        root = null;
+        if (string.IsNullOrWhiteSpace(app))
+        {
+            error = null;
+            return true;
+        }
+        if (!DevToolsCommentsAddCommand.TryResolvePid(targets, app, cancellationToken, out var pid, out error))
+        {
+            return false;
+        }
+        root = readSourceRoot(pid, cancellationToken);
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            error = $"Process {pid} did not report a project folder. Launch it with 'winapp run <project> --devtools', or pass --source-root.";
+            return false;
+        }
+        return true;
+    }
 
     public static string NoStoreMessage(CommentStoreLocation location)
         => $"No comment store found. Looked for {location.Explain()}. "

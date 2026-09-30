@@ -59,13 +59,12 @@ public partial class ExecutionTargetSelectionTests : BaseCommandTests
     [TestMethod]
     [DataRow("list")]
     [DataRow("get c1")]
-    public void SavedCommentReads_DoNotAdvertiseOrAcceptAnApp(string command)
+    public void SavedCommentReads_ReadTheLocalStoreEvenWithAnApp(string command)
     {
         var root = GetRequiredService<WinAppRootCommand>();
         var parsed = root.Parse($"devtools comments {command} --app guest:{new string('a', 32)}");
-        Assert.IsNotEmpty(parsed.Errors);
-        Assert.IsFalse(ExecutionTargetDevToolsRouter.ShouldRoute(parsed));
-        Assert.IsFalse(parsed.CommandResult.Command.Options.Any(option => option.Name == "--app"));
+        Assert.IsEmpty(parsed.Errors);
+        Assert.IsFalse(ExecutionTargetDevToolsRouter.ShouldRoute(parsed), "--app names a local app's project; it never routes to a guest.");
     }
 
     [TestMethod]

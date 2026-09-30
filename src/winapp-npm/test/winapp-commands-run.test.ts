@@ -47,9 +47,9 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-test('saved comment reads expose only local store options', async () => {
-  const listHasNoTarget: Extract<keyof DevtoolsCommentsListOptions, 'on' | 'app'> extends never ? true : false = true;
-  const getHasNoTarget: Extract<keyof DevtoolsCommentsGetOptions, 'on' | 'app'> extends never ? true : false = true;
+test('saved comment reads expose no target and forward the app only when asked', async () => {
+  const listHasNoTarget: Extract<keyof DevtoolsCommentsListOptions, 'on'> extends never ? true : false = true;
+  const getHasNoTarget: Extract<keyof DevtoolsCommentsGetOptions, 'on'> extends never ? true : false = true;
   assert.ok(listHasNoTarget && getHasNoTarget);
   const state = captureSpawnArgs();
   await devtoolsCommentsList({ sourceRoot: 'C:\\host project', project: 'C:\\host project', status: 'open', json: true });
@@ -58,6 +58,8 @@ test('saved comment reads expose only local store options', async () => {
     assert.ok(!argv.includes('--on') && !argv.includes('--app'));
     assert.equal(argv[argv.indexOf('--source-root') + 1], 'C:\\host project');
   }
+  await devtoolsCommentsList({ app: '4321' });
+  assert.equal(state.calls[2][state.calls[2].indexOf('--app') + 1], '4321');
 });
 
 test('comment status update keeps explicit marker refresh optional', async () => {

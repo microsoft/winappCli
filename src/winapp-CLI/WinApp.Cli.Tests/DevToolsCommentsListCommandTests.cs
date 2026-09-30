@@ -96,7 +96,8 @@ public class DevToolsCommentsListCommandTests
             new CommentAnchorResolver(),
             new FixedCwd(Project),
             console,
-            NullLogger<DevToolsCommentsListCommand>.Instance);
+            NullLogger<DevToolsCommentsListCommand>.Instance,
+            new CommentTestTargetResolver());
         var exit = handler.InvokeAsync(command.Parse(args)).GetAwaiter().GetResult();
         return (exit, console.Output);
     }
@@ -327,7 +328,8 @@ public class DevToolsCommentsListCommandTests
             new CommentAnchorResolver(),
             new FixedCwd(_root),                 // list from ABOVE both projects, the way you list from a repo root
             console,
-            NullLogger<DevToolsCommentsListCommand>.Instance);
+            NullLogger<DevToolsCommentsListCommand>.Instance,
+            new CommentTestTargetResolver());
         handler.InvokeAsync(command.Parse(["--json"])).GetAwaiter().GetResult();
 
         var payload = JsonSerializer.Deserialize(console.Output, CommentsJsonContext.Default.CommentsListPayload);

@@ -308,6 +308,7 @@ function devtoolsCommentsGet(options: DevtoolsCommentsGetOptions): Promise<Winap
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | The comment id. |
+| `app` | `string \| undefined` | No | Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `sourceRoot` | `string \| undefined` | No | Project directory (default: current directory); comments are stored at the repository root. |
 
@@ -328,6 +329,7 @@ function devtoolsCommentsList(options?: DevtoolsCommentsListOptions): Promise<Wi
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `all` | `boolean \| undefined` | No | Include all statuses (the default for --json). |
+| `app` | `string \| undefined` | No | Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project. |
 | `appTitle` | `string \| undefined` | No | App display name included in the output. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `project` | `string \| undefined` | No | Filter by the captured project root. |
@@ -2297,6 +2299,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | The comment id. |
+| `app` | `string \| undefined` | No | Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `sourceRoot` | `string \| undefined` | No | Project directory (default: current directory); comments are stored at the repository root. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
@@ -2310,6 +2313,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `all` | `boolean \| undefined` | No | Include all statuses (the default for --json). |
+| `app` | `string \| undefined` | No | Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project. |
 | `appTitle` | `string \| undefined` | No | App display name included in the output. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `project` | `string \| undefined` | No | Filter by the captured project root. |

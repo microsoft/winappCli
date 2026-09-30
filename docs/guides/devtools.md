@@ -91,8 +91,9 @@ Human `list` output shows open comments; use `list --all` to include resolved,
 stale, and dismissed comments. `list --json` includes all statuses by default.
 Saved `list`, `get`, `update`, and `delete` operations use the host's local store;
 they do not require the app or Sandbox to be running. Choose the host project with
-`--source-root`; use `list --project` to filter a shared repository store. `list`
-and `get` do not accept `--app` or `--on`.
+`--source-root`; use `list --project` to filter a shared repository store. With
+`-a <pid>`, `list` and `get` use that running DevTools app's project instead. They
+do not accept `--on`.
 
 `get` shows the captured declaration and current source matches, and the historical
 creation location only when there is no current match. Runtime text is context, not

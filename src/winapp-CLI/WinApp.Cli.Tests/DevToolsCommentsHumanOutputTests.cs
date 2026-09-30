@@ -17,6 +17,7 @@ namespace WinApp.Cli.Tests;
 public class DevToolsCommentsHumanOutputTests
 {
     private string _root = string.Empty;
+    private string? _appRoot;
     private readonly CommentStore _store = new();
     private string StorePath => Path.Combine(_root, ".winapp", "ui-comments.json");
     private const string DeferralNote = "Blocked pending design approval; do not widen this button yet.";
@@ -55,8 +56,8 @@ public class DevToolsCommentsHumanOutputTests
                 _store, resolver, pusher, target, cwd, console,
                 NullLogger<DevToolsCommentsAddCommand>.Instance)),
             "list" => (new DevToolsCommentsListCommand(), new DevToolsCommentsListCommand.Handler(
-                _store, resolver, cwd, console, NullLogger<DevToolsCommentsListCommand>.Instance)),
-            "get" => (new DevToolsCommentsGetCommand(), new DevToolsCommentsGetCommand.Handler(_store, resolver, cwd, console)),
+                _store, resolver, cwd, console, NullLogger<DevToolsCommentsListCommand>.Instance, target) { ReadSourceRoot = (_, _) => _appRoot ?? _root }),
+            "get" => (new DevToolsCommentsGetCommand(), new DevToolsCommentsGetCommand.Handler(_store, resolver, cwd, console, target) { ReadSourceRoot = (_, _) => _appRoot ?? _root }),
             "update" => (new DevToolsCommentsUpdateCommand(), new DevToolsCommentsUpdateCommand.Handler(
                 _store, resolver, pusher, target, cwd, console, NullLogger<DevToolsCommentsUpdateCommand>.Instance)),
             "delete" => (new DevToolsCommentsDeleteCommand(), new DevToolsCommentsDeleteCommand.Handler(
@@ -109,6 +110,23 @@ public class DevToolsCommentsHumanOutputTests
         Assert.IsFalse(payload.Comment.RequiresConfirmation);
         Assert.AreEqual(6, payload.Comment.Anchor.Line);
         Assert.AreEqual(8, payload.Comment.Hits.Single().Line);
+    }
+
+    [TestMethod]
+    public void ListAndGetAcceptTheRunningAppLikeOtherCommentCommands()
+    {
+        var appA = Directory.CreateDirectory(Path.Combine(_root, "AppA")).FullName;
+        var appB = Directory.CreateDirectory(Path.Combine(_root, "AppB")).FullName;
+        foreach (var (project, id) in new[] { (appA, "cmt_aaaaaaaaaaaa"), (appB, "cmt_bbbbbbbbbbbb") })
+        {
+            File.WriteAllText(Path.Combine(project, "MainWindow.xaml"), Page);
+            Success("add", "--id", id, "--text", "Wider", "--file", "MainWindow.xaml", "--name", "SaveButton", "--source-root", project);
+        }
+        _appRoot = appA;
+        var listed = Success("list", "-a", "4321");
+        StringAssert.Contains(listed, "cmt_aaaaaaaaaaaa");
+        Assert.IsFalse(listed.Contains("cmt_bbbbbbbbbbbb", StringComparison.Ordinal), "-a lists only that app's project.");
+        StringAssert.Contains(Success("get", "cmt_aaaaaaaaaaaa", "-a", "4321"), "Wider");
     }
 
     [TestMethod]

@@ -4,6 +4,7 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
@@ -35,6 +36,7 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
         Options.Add(StatusOption);
         Options.Add(AllOption);
         Options.Add(ProjectOption);
+        Options.Add(CommentsSharedOptions.ReadAppOption);
         Options.Add(CommentsSharedOptions.SourceRootOption);
         Options.Add(CommentsSharedOptions.AppTitleOption);
         Options.Add(WinAppRootCommand.JsonOption);
@@ -45,8 +47,11 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
         ICommentAnchorResolver resolver,
         ICurrentDirectoryProvider currentDirectory,
         IAnsiConsole ansiConsole,
-        ILogger<DevToolsCommentsListCommand> logger) : AsynchronousCommandLineAction
+        ILogger<DevToolsCommentsListCommand> logger,
+        IUiTargetResolver targets) : AsynchronousCommandLineAction
     {
+        internal Func<uint, CancellationToken, string?> ReadSourceRoot { get; init; } = CommentsSharedOptions.ReadTapSourceRoot;
+
         public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
@@ -66,7 +71,13 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
                     "--status and --all are alternatives; pass one."));
             }
 
-            var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ?? currentDirectory.GetCurrentDirectory();
+            if (!CommentsSharedOptions.TryReadAppRoot(targets, parseResult.GetValue(CommentsSharedOptions.ReadAppOption), ReadSourceRoot,
+                cancellationToken, out var appRoot, out var appError))
+            {
+                return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json, appError!));
+            }
+            project ??= appRoot;
+            var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ?? appRoot ?? currentDirectory.GetCurrentDirectory();
             var appTitle = parseResult.GetValue(CommentsSharedOptions.AppTitleOption);
 
             try

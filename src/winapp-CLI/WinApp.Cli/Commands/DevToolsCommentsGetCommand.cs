@@ -4,6 +4,7 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 using System.Text.Json;
 using Spectre.Console;
 using WinApp.Cli.Services;
@@ -27,6 +28,7 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription, IHelpExa
         : base("get", "Show one locally saved UI comment and its current source matches; choose the project with --source-root.")
     {
         Arguments.Add(IdArgument);
+        Options.Add(CommentsSharedOptions.ReadAppOption);
         Options.Add(CommentsSharedOptions.SourceRootOption);
         Options.Add(WinAppRootCommand.JsonOption);
     }
@@ -35,13 +37,21 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription, IHelpExa
         ICommentStore store,
         ICommentAnchorResolver resolver,
         ICurrentDirectoryProvider currentDirectory,
-        IAnsiConsole ansiConsole) : AsynchronousCommandLineAction
+        IAnsiConsole ansiConsole,
+        IUiTargetResolver targets) : AsynchronousCommandLineAction
     {
+        internal Func<uint, CancellationToken, string?> ReadSourceRoot { get; init; } = CommentsSharedOptions.ReadTapSourceRoot;
+
         public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var id = parseResult.GetValue(IdArgument);
-            var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ?? currentDirectory.GetCurrentDirectory();
+            if (!CommentsSharedOptions.TryReadAppRoot(targets, parseResult.GetValue(CommentsSharedOptions.ReadAppOption), ReadSourceRoot,
+                cancellationToken, out var appRoot, out var appError))
+            {
+                return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json, appError!));
+            }
+            var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ?? appRoot ?? currentDirectory.GetCurrentDirectory();
 
             if (string.IsNullOrWhiteSpace(id))
             {

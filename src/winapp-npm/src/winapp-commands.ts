@@ -466,6 +466,8 @@ export async function devtoolsCommentsDelete(options: DevtoolsCommentsDeleteOpti
 export interface DevtoolsCommentsGetOptions extends CommonOptions {
   /** The comment id. */
   id: string;
+  /** Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project. */
+  app?: string;
   /** Format output as JSON */
   json?: boolean;
   /** Project directory (default: current directory); comments are stored at the repository root. */
@@ -479,6 +481,7 @@ export async function devtoolsCommentsGet(options: DevtoolsCommentsGetOptions): 
   const args: string[] = ['devtools', 'comments', 'get'];
   const positionals: string[] = [];
   positionals.push(options.id);
+  if (options.app !== undefined) args.push('--app', options.app);
   if (options.json) args.push('--json');
   if (options.sourceRoot !== undefined) args.push('--source-root', options.sourceRoot);
   if (positionals.length > 0) args.push('--', ...positionals);
@@ -492,6 +495,8 @@ export async function devtoolsCommentsGet(options: DevtoolsCommentsGetOptions): 
 export interface DevtoolsCommentsListOptions extends CommonOptions {
   /** Include all statuses (the default for --json). */
   all?: boolean;
+  /** Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project. */
+  app?: string;
   /** App display name included in the output. */
   appTitle?: string;
   /** Format output as JSON */
@@ -510,6 +515,7 @@ export interface DevtoolsCommentsListOptions extends CommonOptions {
 export async function devtoolsCommentsList(options: DevtoolsCommentsListOptions = {}): Promise<WinappResult> {
   const args: string[] = ['devtools', 'comments', 'list'];
   if (options.all) args.push('--all');
+  if (options.app !== undefined) args.push('--app', options.app);
   if (options.appTitle !== undefined) args.push('--app-title', options.appTitle);
   if (options.json) args.push('--json');
   if (options.project !== undefined) args.push('--project', options.project);

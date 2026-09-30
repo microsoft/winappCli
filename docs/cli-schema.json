@@ -1293,6 +1293,21 @@
                 }
               },
               "options": {
+                "--app": {
+                  "description": "Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project.",
+                  "hidden": false,
+                  "aliases": [
+                    "-a"
+                  ],
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
                 "--json": {
                   "description": "Format output as JSON",
                   "hidden": false,
@@ -1364,6 +1379,21 @@
                   "defaultValue": false,
                   "arity": {
                     "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--app": {
+                  "description": "Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project.",
+                  "hidden": false,
+                  "aliases": [
+                    "-a"
+                  ],
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
                     "maximum": 1
                   },
                   "required": false,
