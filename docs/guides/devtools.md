@@ -140,6 +140,10 @@ handle. Ambiguous names fail rather than selecting the first match. Handles belo
 to the current live tree: inspect again after replacing an element or restarting
 the app.
 
+Passwords never leave the app: a `PasswordBox.Password` value, or any property
+whose name ends in `Password`, shows as `<redacted>` everywhere (JSON adds
+`"redacted": true`), and DevTools refuses to set it.
+
 `winapp devtools get-source <element> --json` preserves the runtime's file, line,
 and column. When compiler artifacts let DevTools verify a unique authored XAML
 declaration, JSON adds authored coordinates and provenance. New comments captured

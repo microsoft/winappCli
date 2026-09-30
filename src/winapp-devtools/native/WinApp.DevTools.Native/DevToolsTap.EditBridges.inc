@@ -173,7 +173,7 @@ static bool IsPropBoundLive(InstanceHandle h, const std::wstring& prop)
 {
     if (!g_vts3) return false;
     unsigned int sc = 0, pc = 0; PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
-    if (FAILED(g_vts3->GetPropertyValuesChain(h, &sc, &s, &pc, &v)) || !v) { FreePropChain(sc, s, pc, v); return false; }
+    if (FAILED(ReadPropChain(h, &sc, &s, &pc, &v)) || !v) { FreePropChain(sc, s, pc, v); return false; }
     bool bound = false;
     for (unsigned int i = 0; i < pc; i++) {
         if (!v[i].PropertyName || prop != v[i].PropertyName) continue;
@@ -197,7 +197,7 @@ static bool ResolveWriteTarget(InstanceHandle h, const std::wstring& path,
     if (parent.empty() || leaf.empty() || leaf.find(L'.') != std::wstring::npos) return false;
     if (!g_vts3) return false;
     unsigned int sc = 0, pc = 0; PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
-    if (FAILED(g_vts3->GetPropertyValuesChain(h, &sc, &s, &pc, &v)) || !v) { FreePropChain(sc, s, pc, v); return false; }
+    if (FAILED(ReadPropChain(h, &sc, &s, &pc, &v)) || !v) { FreePropChain(sc, s, pc, v); return false; }
     InstanceHandle child = 0;
     for (unsigned int i = 0; i < pc; i++) {
         if (!v[i].PropertyName || parent != v[i].PropertyName) continue;
@@ -626,7 +626,7 @@ static void ReadParentContext(InstanceHandle elem, InstanceHandle parent, void* 
     if (g_vts3) {
         unsigned int sc = 0, pc = 0;
         PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
-        if (SUCCEEDED(g_vts3->GetPropertyValuesChain(parent, &sc, &s, &pc, &v)) && v) {
+        if (SUCCEEDED(ReadPropChain(parent, &sc, &s, &pc, &v)) && v) {
             std::set<std::wstring> taken;
             for (unsigned int i = 0; i < pc; i++) {
                 if (!v[i].PropertyName) continue;
@@ -651,7 +651,7 @@ static void ReadParentContext(InstanceHandle elem, InstanceHandle parent, void* 
         if (ShortTypeName(TypeOf(parent)) == L"Grid") {
             unsigned int esc = 0, epc = 0;
             PropertyChainSource* es = nullptr; PropertyChainValue* ev = nullptr;
-            if (SUCCEEDED(g_vts3->GetPropertyValuesChain(elem, &esc, &es, &epc, &ev)) && ev) {
+            if (SUCCEEDED(ReadPropChain(elem, &esc, &es, &epc, &ev)) && ev) {
                 std::set<std::wstring> taken;
                 for (unsigned int i = 0; i < epc; i++) {
                     if (!ev[i].PropertyName) continue;

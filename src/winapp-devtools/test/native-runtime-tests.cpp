@@ -359,6 +359,49 @@ static void CheckCuratedText(const std::function<void(bool,const char*)>& check)
     g_diag=nullptr;g_vts3=nullptr;
 }
 
+// The chain reports a PasswordBox's secret like any other string; nothing that leaves the process may carry it.
+struct SecretTreeService : TextTreeService {
+    using TextTreeService::TextTreeService;
+    HRESULT STDMETHODCALLTYPE GetPropertyValuesChain(InstanceHandle handle,unsigned int* sc,PropertyChainSource** sources,
+        unsigned int* pc,PropertyChainValue** values) override {
+        const HRESULT hr=TextTreeService::GetPropertyValuesChain(handle,sc,sources,pc,values);
+        if(SUCCEEDED(hr) && *pc==4){
+            SysFreeString((*values)[3].PropertyName);(*values)[3].PropertyName=SysAllocString(L"Password");
+            SysFreeString((*values)[3].Value);(*values)[3].Value=SysAllocString(L"hunter2");
+        }
+        return hr;
+    }
+};
+
+static void CheckSecretRedaction(const std::function<void(bool,const char*)>& check)
+{
+    TextDiagnostics diagnostics;
+    SecretTreeService tree(diagnostics.text);
+    g_diag=&diagnostics;g_vts3=&tree;
+    diagnostics.text.text=L"visible";
+    std::vector<DevToolsReadProp> props;
+    check(SUCCEEDED(ReadCuratedProps(901,&props,nullptr)),"a chain with a secret still reads");
+    const auto secret=std::find_if(props.begin(),props.end(),[](const DevToolsReadProp& p){return p.name==L"Password";});
+    check(secret!=props.end() && secret->value==kDevToolsRedacted && secret->redacted && secret->writeType.empty(),
+        "a Password row is redacted and read-only");
+    bool chainClean=true;
+    for(const auto& p : props) for(const auto& entry : p.chain) chainClean=chainClean && entry.value.find(L"hunter2")==std::wstring::npos;
+    check(chainClean,"no precedence value carries the secret");
+    const std::wstring json=DevToolsRead_SerializeProps(901,props,L"available");
+    check(json.find(L"hunter2")==std::wstring::npos && json.find(L"\"value\":\"<redacted>\"")!=std::wstring::npos &&
+        json.find(L"\"redacted\":true")!=std::wstring::npos,"Property.get keeps the key, redacts the value and marks it");
+    check(json.find(L"\"value\":\"visible\"")!=std::wstring::npos,"other values are untouched");
+    ResolveState resolved;
+    check(SUCCEEDED(ResolveResourceValue(901,L"Password",&resolved)) && resolved.value==kDevToolsRedacted,
+        "the quick-peek chain read is redacted too");
+    std::wstring error;
+    check(SetLiteral(901,L"Password",L"Windows.Foundation.String",L"typed",&error)==E_ACCESSDENIED &&
+        tree.writes==0 && error.find(L"secret")!=std::wstring::npos,"a write to a secret is refused before it can echo");
+    check(ResolveResourceApply(901,L"Password",L"Key",false)==E_ACCESSDENIED && tree.writes==0,
+        "a resource assignment to a secret is refused");
+    g_diag=nullptr;g_vts3=nullptr;
+}
+
 static void CheckSearchText(const std::function<void(bool,const char*)>& check)
 {
     TextDiagnostics diagnostics;
@@ -924,6 +967,7 @@ int wmain(int argc, wchar_t** argv)
     input.canRead = false;
     check(!CardReadInputBridge(&input, &unchanged), "unsupported input is refused");
     CheckCuratedText(check);
+    CheckSecretRedaction(check);
     CheckEffectiveValues(check);
     CheckQueries(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);

@@ -145,6 +145,27 @@ public sealed class BindingDiagnosisTests
     }
 
     [TestMethod]
+    [DataRow("Password", "Value")]
+    [DataRow("Text", "Password")]
+    public void SecretsAreRedactedOnEitherSideOfTheBinding(string targetProperty, string sourcePath)
+    {
+        var source = new SecretSource();
+        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate(sourcePath, source, "Source", "{Binding}", "TwoWay",
+            typeof(string), targetProperty, () => "hunter2"));
+        Assert.AreEqual("evaluated", result.RootElement.GetProperty("state").GetString());
+        Assert.IsFalse(result.RootElement.GetRawText().Contains("hunter2", StringComparison.Ordinal), result.RootElement.GetRawText());
+        Assert.AreEqual("<redacted>", result.RootElement.GetProperty("resolvedValue").GetString());
+        Assert.IsTrue(result.RootElement.GetProperty("redacted").GetBoolean());
+    }
+
+    private sealed class SecretSource
+    {
+        public string Value { get; } = "hunter2";
+
+        public string Password { get; } = "hunter2";
+    }
+
+    [TestMethod]
     public void UnreadableTargetIsDisclosedWithoutChangingPathObservation()
     {
         using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate("Value", new Source(), "Source", "{Binding}", "OneWay",

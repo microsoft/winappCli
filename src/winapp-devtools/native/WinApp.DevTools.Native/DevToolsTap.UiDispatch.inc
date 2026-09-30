@@ -186,6 +186,32 @@ static void FreePropChain(unsigned int sc, PropertyChainSource* s, unsigned int 
     }
 }
 
+// Every chain read goes through here, so a secret's value (DevToolsRead_IsSecretProperty) is replaced before any
+// caller can format, compare, search or send it.
+static HRESULT ReadPropChain(InstanceHandle h, unsigned int* sc, PropertyChainSource** s, unsigned int* pc, PropertyChainValue** v)
+{
+    const HRESULT hr = g_vts3->GetPropertyValuesChain(h, sc, s, pc, v);
+    if (SUCCEEDED(hr) && *v) {
+        for (unsigned int i = 0; i < *pc; i++) {
+            PropertyChainValue& value = (*v)[i];
+            if (!value.PropertyName || !DevToolsRead_IsSecretProperty(value.PropertyName)) continue;
+            SysFreeString(value.Value);
+            value.Value = SysAllocString(kDevToolsRedacted);
+            value.MetadataBits &= ~static_cast<decltype(value.MetadataBits)>(0x1); // no longer an object handle
+        }
+    }
+    return hr;
+}
+
+// Writing a secret would echo it through the write result and change events.
+static bool RefuseSecretWrite(const std::wstring& prop, std::wstring* error)
+{
+    if (!DevToolsRead_IsSecretProperty(prop)) return false;
+    if (error) *error = L"'" + prop + L"' holds a secret; DevTools does not read or write it.";
+    Log(L"setprop: refused secret property '%s'", prop.c_str());
+    return true;
+}
+
 // Resolve a property's diagnostics index from its chain on the UI thread. Do not cache by
 // raw handle: handles can be reused for an element with different property indices.
 // GetPropertyIndex needs a fully qualified name whose declaring type also requires that chain.
@@ -193,7 +219,7 @@ static unsigned int FindPropIndex(InstanceHandle h, const std::wstring& prop)
 {
     unsigned int idx = 0xFFFFFFFF, sc = 0, pc = 0;
     PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
-    if (g_vts3 && SUCCEEDED(g_vts3->GetPropertyValuesChain(h, &sc, &s, &pc, &v)) && v)
+    if (g_vts3 && SUCCEEDED(ReadPropChain(h, &sc, &s, &pc, &v)) && v)
         for (unsigned int i = 0; i < pc; i++)
             if (v[i].PropertyName && prop == v[i].PropertyName) { idx = v[i].Index; break; }
     FreePropChain(sc, s, pc, v);
@@ -204,6 +230,7 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
                           std::wstring* error = nullptr)
 {
     if (!WindowElementCurrent_ui(h)) return E_ACCESSDENIED;
+    if (RefuseSecretWrite(prop, error)) return E_ACCESSDENIED;
 #ifdef WINAPP_DEVTOOLS_NATIVE_RUNTIME_TESTS
     if (g_testPropertyMutation) return g_testPropertyMutation(h, prop, type, value, false);
 #endif
@@ -255,6 +282,7 @@ static HRESULT ClearPropertyByPath(InstanceHandle h, const std::wstring& prop)
 // returned S_OK, so callers never report a miss as a successful assignment.
 static HRESULT ResolveResourceApply(InstanceHandle h, const std::wstring& prop, const std::wstring& resourceName, bool asTheme)
 {
+    if (RefuseSecretWrite(prop, nullptr)) return E_ACCESSDENIED;
     unsigned int idx = FindPropIndex(h, prop);
     if (idx == 0xFFFFFFFF) { Log(L"resolveres: '%s' not found on %llu", prop.c_str(), h); return E_INVALIDARG; }
     if (!g_vts3) return E_NOINTERFACE;

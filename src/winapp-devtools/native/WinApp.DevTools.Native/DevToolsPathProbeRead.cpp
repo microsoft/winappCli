@@ -3,6 +3,7 @@
 
 #include "DevToolsProjected.h"
 #include "DevToolsPathProbe.h"
+#include "DevToolsRead.h"
 
 namespace {
 
@@ -164,7 +165,7 @@ void DevToolsPathProbe_Walk(::IInspectable* source, const std::wstring& path, De
 
         seg.type = TypeOf(value);
         std::wstring text;
-        if (ScalarText(value, &text)) seg.value = text;
+        if (ScalarText(value, &text)) seg.value = DevToolsRead_IsSecretProperty(seg.path) ? std::wstring(kDevToolsRedacted) : text;
         out->segments.push_back(seg);
 
         current->Release();

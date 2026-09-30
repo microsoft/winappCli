@@ -450,7 +450,7 @@ static HRESULT ResolveResourceValue(InstanceHandle h, const std::wstring& prop, 
     if (!g_vts3) return E_FAIL;
     unsigned int sc = 0, pc = 0;
     PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
-    HRESULT hr = g_vts3->GetPropertyValuesChain(h, &sc, &s, &pc, &v);
+    HRESULT hr = ReadPropChain(h, &sc, &s, &pc, &v);
     if (SUCCEEDED(hr) && v) {
         for (unsigned int i = 0; i < pc; i++) {
             if (v[i].PropertyName && prop == v[i].PropertyName) {

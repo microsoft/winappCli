@@ -61,7 +61,17 @@ struct DevToolsReadProp
     std::vector<DevToolsReadProp> children;
 
     std::vector<DevToolsReadChainEntry> chain;
+
+    // The value is a secret (see DevToolsRead_IsSecretProperty) and was replaced by kDevToolsRedacted.
+    bool redacted = false;
 };
+
+// A secret's value never leaves the app: PasswordBox.Password, or any property whose name ends in "Password".
+inline constexpr wchar_t kDevToolsRedacted[] = L"<redacted>";
+bool DevToolsRead_IsSecretProperty(const std::wstring& name);
+
+// Replaces a secret row's value, literal authored value and precedence values, and makes it read-only.
+void DevToolsRead_Redact(DevToolsReadProp& prop);
 
 std::wstring DevToolsRead_SerializeTree(const std::vector<DevToolsReadNode>& roots);
 

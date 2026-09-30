@@ -46,8 +46,33 @@ std::wstring DevToolsRead_SerializeTree(const std::vector<DevToolsReadNode>& roo
     return out;
 }
 
-static void AppendProp(std::wstring& out, const DevToolsReadProp& p, int depth = 0)
+bool DevToolsRead_IsSecretProperty(const std::wstring& name)
 {
+    static constexpr wchar_t kSuffix[] = L"password";
+    constexpr size_t length = sizeof(kSuffix) / sizeof(kSuffix[0]) - 1;
+    return name.size() >= length && _wcsicmp(name.c_str() + name.size() - length, kSuffix) == 0;
+}
+
+void DevToolsRead_Redact(DevToolsReadProp& p)
+{
+    if (!DevToolsRead_IsSecretProperty(p.name)) return;
+    p.redacted = true;
+    p.value = kDevToolsRedacted;
+    p.valueState.clear();
+    p.writeType.clear();
+    p.editKind = L"none";
+    // A binding or resource reference names where the value comes from, not the value itself.
+    if (!p.authored.empty() && p.authored.front() != L'{') p.authored = kDevToolsRedacted;
+    for (auto& entry : p.chain) entry.value = kDevToolsRedacted;
+    p.children.clear();
+}
+
+static void AppendProp(std::wstring& out, const DevToolsReadProp& source, int depth = 0)
+{
+    DevToolsReadProp redacted;
+    const bool secret = DevToolsRead_IsSecretProperty(source.name) && !source.redacted;
+    if (secret) { redacted = source; DevToolsRead_Redact(redacted); }
+    const DevToolsReadProp& p = secret ? redacted : source;
     out += L"{\"name\":\"";
     out += DevToolsJsonEscape(p.name);
     out += L"\",\"value\":\"";
@@ -89,6 +114,7 @@ static void AppendProp(std::wstring& out, const DevToolsReadProp& p, int depth =
     if (!p.authored.empty())    { out += L",\"authored\":\"";    out += DevToolsJsonEscape(p.authored);    out += L"\""; }
     if (!p.authoredKind.empty()) { out += L",\"authoredKind\":\""; out += DevToolsJsonEscape(p.authoredKind); out += L"\""; }
     if (!p.authoredKey.empty()) { out += L",\"authoredKey\":\""; out += DevToolsJsonEscape(p.authoredKey); out += L"\""; }
+    if (p.redacted) out += L",\"redacted\":true";
     if (!p.chain.empty())
     {
         out += L",\"chain\":[";

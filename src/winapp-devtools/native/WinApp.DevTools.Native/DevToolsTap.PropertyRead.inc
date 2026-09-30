@@ -269,7 +269,7 @@ static void ReadChildProps(InstanceHandle childHandle, const std::wstring& expan
 
     unsigned int sc = 0, pc = 0;
     PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
-    if (FAILED(g_vts3->GetPropertyValuesChain(childHandle, &sc, &s, &pc, &v)) || !v) {
+    if (FAILED(ReadPropChain(childHandle, &sc, &s, &pc, &v)) || !v) {
         FreePropChain(sc, s, pc, v);
         return;
     }
@@ -374,7 +374,7 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
     if (outAuthoredXaml) *outAuthoredXaml = authoredXaml;
     unsigned int sc = 0, pc = 0;
     PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
-    HRESULT hr = g_vts3->GetPropertyValuesChain(h, &sc, &s, &pc, &v);
+    HRESULT hr = ReadPropChain(h, &sc, &s, &pc, &v);
     if (retrievedRows) *retrievedRows += pc;
     if (SUCCEEDED(hr) && v) {
         // Count the runtime's handle bits across the WHOLE chain: the detector's premise is that a real
@@ -510,6 +510,7 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                 }
             }
 
+            DevToolsRead_Redact(prop);
             out->push_back(std::move(prop));
         }
 

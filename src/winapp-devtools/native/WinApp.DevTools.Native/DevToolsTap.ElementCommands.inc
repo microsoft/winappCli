@@ -98,7 +98,7 @@ static std::wstring CmdBindingInstall(unsigned long long wire, const std::wstrin
             DevToolsBindingReadBack rb;
             unsigned int sc = 0, pc = 0;
             PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
-            if (g_vts3 && SUCCEEDED(g_vts3->GetPropertyValuesChain(ih, &sc, &s, &pc, &v)) && v) {
+            if (g_vts3 && SUCCEEDED(ReadPropChain(ih, &sc, &s, &pc, &v)) && v) {
                 for (unsigned int i = 0; i < pc; i++) {
                     if (v[i].Index != idx) continue;
                     rb.found = true;
@@ -362,7 +362,7 @@ static bool ReadElementSourceInfo(InstanceHandle ih, std::wstring& outFile, unsi
     if (!g_vts3) return false;
     unsigned int sc = 0, pc = 0;
     PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
-    if (SUCCEEDED(g_vts3->GetPropertyValuesChain(ih, &sc, &s, &pc, &v)) && s) {
+    if (SUCCEEDED(ReadPropChain(ih, &sc, &s, &pc, &v)) && s) {
         for (unsigned int i = 0; i < sc; i++) {
             if (!s[i].SrcInfo.FileName || !*s[i].SrcInfo.FileName) continue;
             if (s[i].Handle != ih) continue;

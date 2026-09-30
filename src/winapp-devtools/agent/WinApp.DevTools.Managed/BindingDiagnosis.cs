@@ -98,6 +98,8 @@ internal static class BindingDiagnosis
     private static string Dispatch(FrameworkElement element, string op, string prop, string authored) => op switch
     {
         "diagnose" => Diagnose(element, prop, authored),
+        // Every other op reports the property's before/after values.
+        _ when IsSecret(prop) => Unavailable("'" + prop + "' holds a secret; DevTools does not read or write it.", nativeFallback: false),
         "capture" => Capture(element, prop, authored),
         "restore" => Restore(element, prop, authored, false),
         "restoreconfirmed" => Restore(element, prop, authored, true),
@@ -268,21 +270,29 @@ internal static class BindingDiagnosis
 
         bool differentType = current is not null && targetType != typeof(object) && !targetType.IsInstanceOfType(current);
         var sb = new StringBuilder(differentType ? "{\"state\":\"silent\"" : "{\"state\":\"evaluated\"");
+        // A secret's value never leaves the app, whichever side of the binding names it.
+        bool secret = IsSecret(prop) || segments.Length > 0 && IsSecret(segments[^1]);
+        string Value(object? value) => secret ? Redacted : Str(value);
         // This diagnosis is read-only evidence; it deliberately avoids claiming source freshness or ConvertBack success.
         Field(sb, "reason", "Forward path and CLR type evaluated only; target freshness, change notifications, ConvertBack and source setters were not checked. Prior reverse-write failures cannot be validated by this read.");
         Field(sb, "updateSourceTrigger", updateSourceTrigger);
-        Field(sb, "sourceValue", Str(sourceValue));
-        Field(sb, "resolvedValue", Str(current));
+        Field(sb, "sourceValue", Value(sourceValue));
+        Field(sb, "resolvedValue", Value(current));
         Field(sb, "resolvedType", current is null ? "(null)" : ShortName(current.GetType()));
         Field(sb, "targetProperty", prop);
         Field(sb, "targetType", ShortName(targetType));
-        try { Field(sb, "targetValue", Str(readTarget())); }
+        try { Field(sb, "targetValue", Value(readTarget())); }
         catch (Exception ex) { Field(sb, "targetUnavailable", Describe(ex.InnerException ?? ex)); }
+        if (secret) sb.Append(",\"redacted\":true");
         Field(sb, "converterEvaluation", converter is not null ? "executed" : kind == "{x:Bind}" ? "not inspected" : "none");
         Common(sb, path, sourceLabel, kind, mode);
         sb.Append('}');
         return sb.ToString();
     }
+
+    private const string Redacted = "<redacted>";
+
+    private static bool IsSecret(string name) => name.EndsWith("Password", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSimplePath(string path)
         => path.Length == 0 || path == "." || path.Split('.').All(segment =>
