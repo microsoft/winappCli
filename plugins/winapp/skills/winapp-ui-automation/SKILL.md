@@ -1,6 +1,6 @@
 ---
 name: winapp-ui-automation
-description: Inspect and interact with running Windows app UIs from the command line using UI Automation (UIA). Use when an AI agent or developer needs to inspect a UI element tree, find controls, take screenshots, click buttons, read or set text, or verify UI state in a running Windows app. Works with any framework WinUI 3, WPF, WinForms, Win32, Electron.
+description: Read, click, and type in any running Windows app's UI from the command line with UI Automation (winapp ui). Use to inspect the element tree, find controls, take screenshots, invoke buttons, fill in text boxes, read values, or verify UI state. Works with WinUI 3, WPF, WinForms, Win32, and Electron. To change a WinUI 3 app's text or properties live without editing source (for example translate or restyle the running UI), use winui-devtools instead.
 ---
 ## When to use
 - Inspecting a running Windows app's UI from the command line
@@ -8,6 +8,7 @@ description: Inspect and interact with running Windows app UIs from the command 
 - Verifying UI state during development or testing
 - Automating UI workflows without Playwright or Selenium
 - Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs
+- Not for changing a WinUI 3 app's text or properties live: use `winui-devtools`
 
 ## Prerequisites
 For WinUI 3 XAML source/tree, bindings or dependency-property diagnosis and edits,

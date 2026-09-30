@@ -4,7 +4,8 @@ DevTools lets you inspect a running WinUI 3 app built with the Windows App SDK,
 try live property changes, diagnose bindings, and leave comments on elements for an
 agent to turn into code changes. For Sandbox, attaching to a running app, window
 and subtree targeting, comment storage and the raw protocol, see
-[Advanced DevTools](devtools-advanced.md).
+[Advanced DevTools](devtools-advanced.md). From a terminal, `winapp devtools --help` shows the
+workflow and commands; each command's `--help` shows examples.
 
 ## Get started
 

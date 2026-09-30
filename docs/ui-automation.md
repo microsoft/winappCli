@@ -23,6 +23,11 @@ command's `--help` shows examples. `find` and `tree` are aliases for `search` an
 An unknown command, such as `winapp ui dump`, exits with code 1 and suggests the closest
 commands (as a JSON error with `suggestions` when you pass `--json`).
 
+To change a WinUI 3 app's text or properties live without editing its source, use
+[DevTools](guides/devtools.md) (`winapp devtools --help`). When the app you target already has
+DevTools attached, `winapp ui` commands print a one-line tip to stderr saying so (not with `--json`
+or `--quiet`).
+
 ```bash
 # Connect to any app and see its UI tree
 winapp ui inspect -a notepad

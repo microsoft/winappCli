@@ -1,6 +1,6 @@
 ---
 name: winui-devtools
-description: Inspect WinUI XAML, diagnose bindings, try live dependency-property changes, and act on source-anchored review comments with winapp DevTools. Use for WinUI 3 apps built with the Windows App SDK, rather than general Windows UI Automation.
+description: Read and change a running WinUI 3 app live with winapp devtools, without modifying source. Use to change, translate, or restyle the running UI, set text or any property at runtime, inspect the live XAML visual tree, properties and bindings, diagnose bindings, or act on review comments left in the app. For clicking, typing, and reading values in any app, use winapp-ui-automation.
 ---
 
 ## Start with the target
