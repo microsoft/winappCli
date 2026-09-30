@@ -22,12 +22,13 @@ public sealed class CommentAuthoredIdentityTests
     [TestCleanup]
     public void Cleanup() => Directory.Delete(_root, recursive: true);
 
-    private Comment Capture(string body, bool unique = true)
+    private Comment Capture(string body, bool unique = true, string? containing = null)
     {
         var source = Root + "\n" + body + "\n</Page>";
         File.WriteAllText(Path.Combine(_root, "Page.xaml"), source);
         var selected = XamlCoordinateMap.SourceDeclarations(Encoding.UTF8.GetBytes(source))
-            .First(declaration => declaration.Element.Name.LocalName == "TextBlock");
+            .First(declaration => declaration.Element.Name.LocalName == "TextBlock" &&
+                (containing is null || declaration.Text.Contains(containing, StringComparison.Ordinal)));
         return new Comment
         {
             ProjectRoot = _root,
@@ -110,18 +111,59 @@ public sealed class CommentAuthoredIdentityTests
     }
 
     [TestMethod]
-    public void ImplementedUnnamedTextEdit_RemainsARankedCandidate_NotAutomaticIdentity()
+    public void ImplementedUnnamedTextEdit_KeepsItsTreePositionAsAStrongAnchor()
     {
         var comment = Capture("""<TextBlock Text="Original authored text" />""");
         var path = Path.Combine(_root, "Page.xaml");
         File.WriteAllText(path, File.ReadAllText(path).Replace("Original authored text", "Implemented text", StringComparison.Ordinal));
         var view = View(comment);
-        Assert.IsFalse(view.AnchorConfirmed);
-        Assert.IsTrue(view.RequiresConfirmation);
-        Assert.IsFalse(CommentViewBuilder.IsMaybeStale(view));
+        Assert.IsTrue(view.AnchorConfirmed);
+        Assert.IsFalse(view.RequiresConfirmation);
         Assert.AreEqual("treePath", view.Hits.Single().Via);
         StringAssert.Contains(view.Hits[0].Text, "Implemented text");
         StringAssert.Contains(comment.Anchor.Authored!.Declaration, "Original authored text");
+    }
+
+    [TestMethod]
+    public void ImplementedEditOnAnUnnamedSibling_SurvivesRebuildWithoutTypeCandidates()
+    {
+        const string before = """
+            <StackPanel>
+                <TextBlock AutomationProperties.AutomationId="PageTitle" Text="WinUI Sample App" />
+                <TextBlock AutomationProperties.AutomationId="PageSubtitle" Text="Used by tests" />
+                <TextBlock FontSize="18" Text="Repro heading" />
+                <StackPanel><TextBlock x:Name="CounterText" Text="Count: 0" /></StackPanel>
+                <TextBlock x:Name="ResultText" Text="" />
+            </StackPanel>
+            """;
+        var comment = Capture(before, containing: "Repro heading");
+        var path = Path.Combine(_root, "Page.xaml");
+        File.WriteAllText(path, File.ReadAllText(path).Replace(
+            """<TextBlock FontSize="18" Text="Repro heading" />""",
+            "<!-- one -->\n<!-- two -->\n<TextBlock FontSize=\"24\" Text=\"Repro heading\" />", StringComparison.Ordinal));
+        var view = View(comment);
+        Assert.IsTrue(view.AnchorConfirmed, string.Join(", ", view.Hits.Select(hit => $"{hit.Line} {hit.Via} {hit.Confidence}")));
+        Assert.IsFalse(view.RequiresConfirmation);
+        Assert.AreEqual(comment.Anchor.Line + 2, view.Hits.Single().Line);
+        Assert.IsNull(CommentViewBuilder.AnchorHealthWarning(view));
+    }
+
+    [TestMethod]
+    public void AnInsertedSiblingAtTheOldTreePositionIsNotAStrongAnchor()
+    {
+        var comment = Capture("""
+            <StackPanel>
+                <TextBlock FontSize="18" Text="Repro heading" />
+            </StackPanel>
+            """);
+        var path = Path.Combine(_root, "Page.xaml");
+        File.WriteAllText(path, File.ReadAllText(path).Replace(
+            """<TextBlock FontSize="18" Text="Repro heading" />""",
+            """<TextBlock Text="Inserted" /><TextBlock FontSize="24" Text="Repro heading" />""", StringComparison.Ordinal));
+        var view = View(comment);
+        Assert.IsFalse(view.AnchorConfirmed);
+        Assert.IsTrue(view.RequiresConfirmation);
+        Assert.IsFalse(view.Hits.Any(hit => hit.Confidence == "strong"));
     }
 
     [TestMethod]

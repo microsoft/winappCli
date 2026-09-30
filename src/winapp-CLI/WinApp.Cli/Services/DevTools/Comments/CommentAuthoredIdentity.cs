@@ -150,7 +150,21 @@ internal static class CommentAuthoredIdentity
 
     private static void Append(StringBuilder value, string field) => value.Append(field.Length).Append(':').Append(field);
 
-    private static XElement ParseOpeningTag(string markup, XElement context)
+    /// <summary>How much of the captured declaration survives in <paramref name="element"/>: unchanged attributes count double.</summary>
+    internal static int Similarity(XElement captured, XElement element)
+    {
+        var score = 0;
+        foreach (var attribute in captured.Attributes().Where(attribute => !attribute.IsNamespaceDeclaration))
+        {
+            if (element.Attribute(attribute.Name) is { } current)
+            {
+                score += current.Value == attribute.Value ? 2 : 1;
+            }
+        }
+        return score;
+    }
+
+    internal static XElement ParseOpeningTag(string markup, XElement context)
     {
         var names = new NameTable();
         var namespaces = new XmlNamespaceManager(names);

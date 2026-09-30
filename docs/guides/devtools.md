@@ -97,7 +97,9 @@ and `get` do not accept `--app` or `--on`.
 creation location only when there is no current match. Runtime text is context, not
 a required XAML literal. A declaration or `x:Name` that matches exactly one place in
 the captured project, file, and ancestor scope is confirmed, including after line
-moves and when the element is shown more than once at runtime. Templates, moved
+moves and when the element is shown more than once at runtime. An edited element
+without `x:Name` stays confirmed when it keeps its place in the tree and resembles
+the captured declaration more than any other element of its type. Templates, moved
 files, and ambiguous matches remain ranked candidates; confirm the intended candidate
 before editing. A comment on an element without source is not linked to source:
 it reports `weak` and `requiresConfirmation`, and any candidates come from a

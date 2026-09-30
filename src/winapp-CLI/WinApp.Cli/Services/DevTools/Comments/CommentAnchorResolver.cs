@@ -3,6 +3,7 @@
 
 namespace WinApp.Cli.Services.DevTools.Comments;
 
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using WinApp.Cli.Helpers;
@@ -49,12 +50,15 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
         }
 
         var hits = new List<SourceHit>();
+        // Same-type declarations in the captured file, scored against the captured declaration.
+        var scored = new List<(SourceHit Hit, int Similarity, bool TreePathCandidate)>();
 
         foreach (var file in files)
         {
             try
             {
                 var relative = Path.GetRelativePath(sourceRoot, file);
+                XElement? captured = null;
                 foreach (var declaration in CommentAuthoredIdentity.Read(file, sourceRoot))
                 {
                     var element = declaration.Element;
@@ -87,7 +91,7 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
                         CommentStoreLocator.SameProject(authored.ProjectRoot, sourceRoot) &&
                         relative.Equals(authored.SourceFile, StringComparison.OrdinalIgnoreCase) && scope;
                     var strong = qualified && (exact || named || automated);
-                    hits.Add(new SourceHit
+                    var hit = new SourceHit
                     {
                         File = relative,
                         Line = declaration.Line,
@@ -96,7 +100,14 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
                         Confidence = strong ? "strong" : "weak",
                         Rank = strong ? 0 : exact ? 1 : named ? 2 : automationSuggestion ? 3 : structural ? 4 : content ? 5 : 6,
                         Text = declaration.Text,
-                    });
+                    };
+                    hits.Add(hit);
+                    if (authored is not null && relative.Equals(authored.SourceFile, StringComparison.OrdinalIgnoreCase))
+                    {
+                        captured ??= ParseCaptured(authored.Declaration, element);
+                        scored.Add((hit, captured is null ? 0 : CommentAuthoredIdentity.Similarity(captured, element),
+                            qualified && structural && !exact && string.IsNullOrEmpty(identity.Name) && !automated));
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Xml.XmlException)
@@ -105,8 +116,18 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
             }
         }
 
-        // A type-only match is noise once the declaration or x:Name identified candidates.
-        if (hits.Exists(hit => hit.Via is "declaration" or "x:Name"))
+        // An edited unnamed declaration keeps its tree position. It is the same element when nothing matches
+        // the captured declaration exactly and it keeps more of the captured attributes than any other candidate.
+        if (!hits.Exists(hit => hit.Via == "declaration") &&
+            scored.Where(item => item.TreePathCandidate).Take(2).ToArray() is [var moved] &&
+            moved.Similarity > 0 && scored.All(item => ReferenceEquals(item.Hit, moved.Hit) || item.Similarity < moved.Similarity))
+        {
+            moved.Hit.Confidence = "strong";
+            moved.Hit.Rank = 0;
+        }
+
+        // A type-only match is noise once the declaration, x:Name or a strong tree position identified candidates.
+        if (hits.Exists(hit => hit.Via is "declaration" or "x:Name" || hit.Confidence == "strong"))
         {
             hits.RemoveAll(hit => hit.Via == "type");
         }
@@ -231,6 +252,18 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
         var candidate = Path.GetFullPath(Path.Combine(root, relative));
         return !PathSafety.HasReparsePointOnPath(candidate, Path.GetFullPath(root)) && File.Exists(candidate)
             ? candidate : null;
+    }
+
+    private static XElement? ParseCaptured(string declaration, XElement context)
+    {
+        try
+        {
+            return CommentAuthoredIdentity.ParseOpeningTag(declaration, context);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or System.Xml.XmlException)
+        {
+            return null;
+        }
     }
 
     private static bool IsBuildOutput(string path)

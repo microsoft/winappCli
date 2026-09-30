@@ -246,7 +246,7 @@ internal sealed class SourceHit
 
     public string Confidence { get; set; } = "weak";
 
-    internal int Rank { get; init; }
+    internal int Rank { get; set; }
 
     public string Via { get; set; } = string.Empty;
 
