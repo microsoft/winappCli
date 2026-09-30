@@ -143,7 +143,7 @@ public class CertificateServiceTests : BaseCommandTests
     {
         var (svc, _, _) = NewService();
         svc.PersistToCurrentUserStore = true;
-        var pfx = new FileInfo(Path.Combine(_tempDirectory.FullName, "persist.pfx"));
+        var pfx = new FileInfo(Path.Join(_tempDirectory.FullName, "persist.pfx"));
 
         await svc.GenerateDevCertificateAsync(
             $"CN=WinappPersistTest-{Guid.NewGuid():N}", pfx, TestTaskContext, password: "pw", validDays: 1,
@@ -200,8 +200,8 @@ public class CertificateServiceTests : BaseCommandTests
         svc.PersistToCurrentUserStore = true;
         var subject = $"WinappOverwriteFail-{Guid.NewGuid():N}";
         var dir = _tempDirectory.CreateSubdirectory("overwrite");
-        var pfx = new FileInfo(Path.Combine(dir.FullName, "devcert.pfx"));
-        var cer = Path.Combine(dir.FullName, "devcert.cer");
+        var pfx = new FileInfo(Path.Join(dir.FullName, "devcert.pfx"));
+        var cer = Path.Join(dir.FullName, "devcert.cer");
         byte[] originalPfx = [1, 2, 3, 4];
         byte[] originalCer = [5, 6, 7, 8];
         await File.WriteAllBytesAsync(pfx.FullName, originalPfx, TestContext.CancellationToken);

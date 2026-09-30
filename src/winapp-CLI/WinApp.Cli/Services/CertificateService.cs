@@ -156,12 +156,9 @@ internal partial class CertificateService(
                 output.Committed = true;
             }
 
-            foreach (var output in outputs)
+            foreach (var output in outputs.Where(o => o.Backup != null))
             {
-                if (output.Backup != null)
-                {
-                    TryDelete(output.Backup, taskContext);
-                }
+                TryDelete(output.Backup!, taskContext);
             }
 
             taskContext.AddDebugMessage($"Certificate generated: {outputPath}");

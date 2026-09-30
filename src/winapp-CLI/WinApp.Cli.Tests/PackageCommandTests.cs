@@ -2539,7 +2539,7 @@ public class PackageCommandTests : BaseCommandTests
         Assert.IsNotNull(result, "Result should not be null");
         Assert.IsTrue(result.Signed, "Package should be signed with the generated dev certificate");
         Assert.IsTrue(result.MsixPath.Exists, "MSIX package file should exist");
-        var generatedCert = new FileInfo(Path.Combine(_tempDirectory.FullName, "GenDevCertPackage_cert.pfx"));
+        var generatedCert = new FileInfo(Path.Join(_tempDirectory.FullName, "GenDevCertPackage_cert.pfx"));
         Assert.IsTrue(generatedCert.Exists, "The generated dev certificate PFX should be written next to the package");
     }
 
