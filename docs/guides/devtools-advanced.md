@@ -204,6 +204,11 @@ opaque decimal strings.
 is experimental (`"experimental": true`), its `protocolVersion` is `"0"` and methods
 may change between releases.
 
+`Overlay.getState` reports where the in-app chrome is hosted in `host`: `uiLayer`
+(the XAML diagnostics layer above the app) or `popup`, the fallback used when that
+layer is unavailable, which places the chrome in the app's outermost panel and under
+open dialogs.
+
 ### Read a binding path natively
 
 ```powershell

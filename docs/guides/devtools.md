@@ -59,6 +59,12 @@ element or an ancestor is collapsed, unloaded, or fully transparent, and return
 when the element is shown again. The Comments badge counts all saved open comments,
 not just markers currently visible.
 
+The toolbar, highlight and markers draw above your app, including over open dialogs
+and flyouts, and stay out of your app's visual tree and layout. Menus and drop-downs
+that open in their own window, such as a `MenuFlyout`, draw over them. Screen readers
+and `winapp ui` find the toolbar under a **DevTools** pane in the window. Once focus
+is on the toolbar, Tab moves between its actions and Esc leaves pick mode.
+
 Use a project, solution, build-output folder, or .NET file-based app as the `run`
 input. A DevTools launch prepares source diagnostics and, for managed apps, startup
 binding support before the app starts. It preserves unrelated startup hooks and
