@@ -53,6 +53,60 @@ bool DevToolsRead_IsSecretProperty(const std::wstring& name)
     return name.size() >= length && _wcsicmp(name.c_str() + name.size() - length, kSuffix) == 0;
 }
 
+static bool IsXamlNameChar(wchar_t c) { return iswalnum(c) || c == L'_' || c == L'.' || c == L':'; }
+
+// Authored XAML text: Password="..." attributes and <X.Password>...</X.Password> elements keep their names and lose
+// their values. Attribute values are skipped whole, so '=' or '<' inside another value is never taken for markup.
+void DevToolsRead_RedactXaml(std::wstring& xaml)
+{
+    std::wstring out;
+    out.reserve(xaml.size());
+    size_t i = 0;
+    while (i < xaml.size()) {
+        const wchar_t c = xaml[i];
+        if (c == L'=') {
+            size_t nameEnd = out.size();
+            while (nameEnd > 0 && iswspace(out[nameEnd - 1])) --nameEnd;
+            size_t nameStart = nameEnd;
+            while (nameStart > 0 && IsXamlNameChar(out[nameStart - 1])) --nameStart;
+            size_t open = i + 1;
+            while (open < xaml.size() && iswspace(xaml[open])) ++open;
+            if (open < xaml.size() && (xaml[open] == L'"' || xaml[open] == L'\'')) {
+                const size_t close = xaml.find(xaml[open], open + 1);
+                if (close != std::wstring::npos) {
+                    const std::wstring value = xaml.substr(open + 1, close - open - 1);
+                    const bool secret = nameStart < nameEnd && (nameStart == 0 || iswspace(out[nameStart - 1])) &&
+                        DevToolsRead_IsSecretProperty(out.substr(nameStart, nameEnd - nameStart)) &&
+                        (value.empty() || value.front() != L'{');
+                    out.append(xaml, i, open + 1 - i);
+                    out += secret ? std::wstring(kDevToolsRedacted) : value;
+                    out += xaml[close];
+                    i = close + 1;
+                    continue;
+                }
+            }
+        } else if (c == L'<' && i + 1 < xaml.size() && xaml[i + 1] != L'/') {
+            const size_t tagEnd = xaml.find(L'>', i);
+            size_t nameEnd = i + 1;
+            while (nameEnd < xaml.size() && IsXamlNameChar(xaml[nameEnd])) ++nameEnd;
+            const std::wstring tag = xaml.substr(i + 1, nameEnd - i - 1);
+            if (tagEnd != std::wstring::npos && xaml[tagEnd - 1] != L'/' && tag.find(L'.') != std::wstring::npos &&
+                DevToolsRead_IsSecretProperty(tag)) {
+                const size_t closing = xaml.find(L"</" + tag, tagEnd);
+                if (closing != std::wstring::npos) {
+                    out.append(xaml, i, tagEnd + 1 - i);
+                    out += kDevToolsRedacted;
+                    i = closing;
+                    continue;
+                }
+            }
+        }
+        out += c;
+        ++i;
+    }
+    xaml.swap(out);
+}
+
 void DevToolsRead_Redact(DevToolsReadProp& p)
 {
     if (!DevToolsRead_IsSecretProperty(p.name)) return;

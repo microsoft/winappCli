@@ -52,6 +52,49 @@ public sealed class CommentAuthoredIdentityTests
     private CommentView View(Comment comment) => CommentViewBuilder.ToView(comment, new CommentAnchorResolver(), _root);
 
     [TestMethod]
+    public void SecretAttribute_IsRedactedInTheStoreAndCandidates_AndStillAnchors()
+    {
+        const string authored = """<PasswordBox x:Name="SecretBox" Password="hunter2" PasswordChar="*" Header="Pw" />""";
+        const string redacted = """<PasswordBox x:Name="SecretBox" Password="<redacted>" PasswordChar="*" Header="Pw" />""";
+        var path = Path.Combine(_root, "Page.xaml");
+        File.WriteAllText(path, Root + "\n" + authored + "\n</Page>");
+        var declaration = CommentAuthoredIdentity.Read(path, _root).Single(item => item.Element.Name.LocalName == "PasswordBox");
+
+        // The running app reports the declaration already redacted; an unredacted report anchors the same way.
+        var captured = CommentAuthoredIdentity.Capture(_root, "Page.xaml", declaration, redacted, true);
+        Assert.AreEqual(captured.Signature, CommentAuthoredIdentity.Capture(_root, "Page.xaml", declaration, authored, true).Signature);
+        Assert.AreEqual(redacted, captured.Declaration);
+
+        var comment = new Comment
+        {
+            ProjectRoot = _root,
+            Anchor = new CommentAnchor
+            {
+                SourceFile = "Page.xaml",
+                SourceUri = "ms-appx:///Page.xaml",
+                Line = declaration.Line,
+                Column = declaration.Column,
+                Identity = new CommentIdentity { Type = "PasswordBox", Name = "SecretBox" },
+                Authored = captured,
+            },
+        };
+        var view = View(comment);
+        Assert.IsTrue(view.AnchorConfirmed);
+        Assert.AreEqual(redacted, view.Hits.Single().Text);
+        StringAssert.DoesNotMatch(System.Text.Json.JsonSerializer.Serialize(new CommentStoreDocument { Comments = [comment] },
+            CommentsJsonContext.Default.CommentStoreDocument), new System.Text.RegularExpressions.Regex("hunter2"));
+    }
+
+    [TestMethod]
+    [DataRow("""<PasswordBox Password='hunter2'/>""", """<PasswordBox Password='<redacted>'/>""")]
+    [DataRow("<PasswordBox\n  PasswordBox.Password = \"hunter2\"/>", "<PasswordBox\n  PasswordBox.Password = \"<redacted>\"/>")]
+    [DataRow("""<PasswordBox Password="{x:Bind Secret}"/>""", """<PasswordBox Password="{x:Bind Secret}"/>""")]
+    [DataRow("""<PasswordBox.Password>hunter2</PasswordBox.Password>""", """<PasswordBox.Password><redacted></PasswordBox.Password>""")]
+    [DataRow("""<PasswordBox PasswordChar="#" PasswordRevealMode="Peek"/>""", """<PasswordBox PasswordChar="#" PasswordRevealMode="Peek"/>""")]
+    public void RedactXaml_KeepsNamesAndBindings(string xaml, string expected)
+        => Assert.AreEqual(expected, DevToolsSecrets.RedactXaml(xaml));
+
+    [TestMethod]
     [DataRow("utf-8")]
     [DataRow("utf-16")]
     [DataRow("utf-16BE")]

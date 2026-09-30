@@ -323,6 +323,7 @@ static DevToolsAuthoredState ReadElementAuthoredContext(InstanceHandle h, const 
         }
     }
     auto state = DevToolsAuthored_ReadElement(file, line, xaml, column, type, name, location);
+    if (xaml) DevToolsRead_RedactXaml(*xaml);
     if (state != DevToolsAuthoredState::Likely) return state;
     if (parents.size() == 64) { xaml->clear(); *location = {}; return DevToolsAuthoredState::Unavailable; }
     bool matched = location->parentLine == 0;

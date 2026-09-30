@@ -70,7 +70,7 @@ internal static class CommentAuthoredIdentity
         {
             ProjectRoot = Path.GetFullPath(projectRoot),
             SourceFile = sourceFile,
-            Declaration = declaration.Text,
+            Declaration = DevToolsSecrets.RedactXaml(declaration.Text),
             Signature = Signature(declaration.Element),
             Type = TypeIdentity(declaration.Element),
             Scope = Scope(declaration.Element),
@@ -118,7 +118,7 @@ internal static class CommentAuthoredIdentity
             .OrderBy(attribute => attribute.Name.ToString(), StringComparer.Ordinal))
         {
             Append(key, attribute.Name.ToString());
-            Append(key, attribute.Value);
+            Append(key, DevToolsSecrets.AttributeValue(attribute));
         }
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key.ToString())));
     }
@@ -158,7 +158,7 @@ internal static class CommentAuthoredIdentity
         {
             if (element.Attribute(attribute.Name) is { } current)
             {
-                score += current.Value == attribute.Value ? 2 : 1;
+                score += DevToolsSecrets.AttributeValue(current) == DevToolsSecrets.AttributeValue(attribute) ? 2 : 1;
             }
         }
         return score;
@@ -175,7 +175,7 @@ internal static class CommentAuthoredIdentity
                 namespaces.AddNamespace(attribute.Name.LocalName == "xmlns" ? "" : attribute.Name.LocalName, attribute.Value);
             }
         }
-        var opening = markup.Trim();
+        var opening = DevToolsSecrets.EscapeForXml(markup).Trim();
         if (!opening.EndsWith('>'))
         {
             throw new InvalidDataException("The captured authored declaration is incomplete.");

@@ -375,6 +375,22 @@ struct SecretTreeService : TextTreeService {
 
 static void CheckSecretRedaction(const std::function<void(bool,const char*)>& check)
 {
+    {
+        std::wstring xaml=L"<PasswordBox x:Name=\"SecretBox\" Password=\"hunter2\" PasswordChar=\"*\" Header='a=b Password=\"no\"'/>";
+        DevToolsRead_RedactXaml(xaml);
+        check(xaml==L"<PasswordBox x:Name=\"SecretBox\" Password=\"<redacted>\" PasswordChar=\"*\" Header='a=b Password=\"no\"'/>",
+            "authored XAML keeps the Password attribute name and loses its value only");
+        std::wstring single=L"<PasswordBox\r\n  PasswordBox.Password = 'hunter2' />";
+        DevToolsRead_RedactXaml(single);
+        check(single==L"<PasswordBox\r\n  PasswordBox.Password = '<redacted>' />","single quotes and attached syntax are redacted");
+        std::wstring bound=L"<PasswordBox Password=\"{x:Bind Secret, Mode=TwoWay}\"/>";
+        DevToolsRead_RedactXaml(bound);
+        check(bound==L"<PasswordBox Password=\"{x:Bind Secret, Mode=TwoWay}\"/>","a binding names its source and stays");
+        std::wstring element=L"<PasswordBox><PasswordBox.Password>hunter2</PasswordBox.Password></PasswordBox>";
+        DevToolsRead_RedactXaml(element);
+        check(element==L"<PasswordBox><PasswordBox.Password><redacted></PasswordBox.Password></PasswordBox>",
+            "a property element's value is redacted");
+    }
     TextDiagnostics diagnostics;
     SecretTreeService tree(diagnostics.text);
     g_diag=&diagnostics;g_vts3=&tree;

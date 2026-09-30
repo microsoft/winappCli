@@ -99,7 +99,7 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
                         Via = via,
                         Confidence = strong ? "strong" : "weak",
                         Rank = strong ? 0 : exact ? 1 : named ? 2 : automationSuggestion ? 3 : structural ? 4 : content ? 5 : 6,
-                        Text = declaration.Text,
+                        Text = DevToolsSecrets.RedactXaml(declaration.Text),
                     };
                     hits.Add(hit);
                     if (authored is not null && relative.Equals(authored.SourceFile, StringComparison.OrdinalIgnoreCase))

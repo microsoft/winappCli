@@ -69,6 +69,8 @@ struct DevToolsReadProp
 // A secret's value never leaves the app: PasswordBox.Password, or any property whose name ends in "Password".
 inline constexpr wchar_t kDevToolsRedacted[] = L"<redacted>";
 bool DevToolsRead_IsSecretProperty(const std::wstring& name);
+// Replaces secret attribute and property-element values in authored XAML text, keeping the names.
+void DevToolsRead_RedactXaml(std::wstring& xaml);
 
 // Replaces a secret row's value, literal authored value and precedence values, and makes it read-only.
 void DevToolsRead_Redact(DevToolsReadProp& prop);

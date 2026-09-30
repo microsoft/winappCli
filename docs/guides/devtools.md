@@ -154,7 +154,9 @@ the app.
 
 Passwords never leave the app: a `PasswordBox.Password` value, or any property
 whose name ends in `Password`, shows as `<redacted>` everywhere (JSON adds
-`"redacted": true`), and DevTools refuses to set it.
+`"redacted": true`), and DevTools refuses to set it. The same goes for a password
+written in your XAML: source previews, `get-source`, and comments show and store
+`Password="<redacted>"`.
 
 `winapp devtools get-source <element> --json` preserves the runtime's file, line,
 and column. When compiler artifacts let DevTools verify a unique authored XAML
