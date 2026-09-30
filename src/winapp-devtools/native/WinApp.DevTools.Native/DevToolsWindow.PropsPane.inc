@@ -175,33 +175,6 @@ g_propRows = rows;
             }
             lt->Release();
         }
-        if (IInspectable* lm = findByName(L"LayoutMore")) {
-            lm->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_layoutMore);
-            lm->Release();
-        }
-        if (IInspectable* lc = findByName(L"LayoutChev")) {
-            lc->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), (void**)&g_layoutChev);
-            lc->Release();
-        }
-        if (IInspectable* ll = findByName(L"LayoutMoreLbl")) {
-            ll->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), (void**)&g_layoutMoreLbl);
-            ll->Release();
-        }
-        if (g_layoutMore && g_layoutExpanded) {
-            DevToolsPutVisibility(g_layoutMore, 0);
-            SetToggleLabel(g_layoutMoreLbl, L"Less");
-            SetToggleLabel(g_layoutChev, L"\uE70E");
-        }
-        if (IInspectable* lt = findByName(L"LayoutToggle")) {
-            void* bb = nullptr;
-            if (SUCCEEDED(lt->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                LayoutToggleSink* lts = new LayoutToggleSink(); lts->Init();
-                __int64 tok = 0;
-                DevToolsAddClick(bb, lts, &tok);
-                reinterpret_cast<IUnknown*>(bb)->Release();
-            }
-            lt->Release();
-        }
         if (IInspectable* a1 = findByName(L"AxmlOne")) {
             a1->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_axmlOne);
             a1->Release();
@@ -446,7 +419,7 @@ static void ResetRoute1State()
     g_editRows.clear();
     if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
     ReleaseBreadcrumbRefs(); ReleaseLayoutSectionRefs(); ReleasePropFilterState();
-    g_bcExpanded = false; g_layoutExpanded = false; g_axmlExpanded = false;
+    g_bcExpanded = false; g_axmlExpanded = false;
     g_propFilterQuery.clear(); g_propFilterRaw.clear();
     g_dirtySeed.clear(); g_dirtyNode = 0; g_propView = DevToolsPropView::Computed; g_propShowAll = false;
     g_bindingLost.clear(); g_linkedRows.clear(); g_linkLost.clear();

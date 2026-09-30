@@ -532,7 +532,7 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
     const std::wstring dim = L"{ThemeResource TextFillColorSecondaryBrush}";
 
     std::wstring m = L"<StackPanel Spacing=\"0\""
-                     L" AutomationProperties.AutomationId=\"WinAppDevToolsLayout\">";
+                     L" AutomationProperties.AutomationId=\"WinAppDevToolsBoxModel\">";
 
     std::wstring more;
     m += BuildBoxModel(L, rows, ink, dim, more);
@@ -577,21 +577,7 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
              L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></Border>";
     }
 
-    m += L"<HyperlinkButton x:Name=\"LayoutToggle\" Padding=\"0\" Margin=\"0,8,0,0\""
-         L" HorizontalAlignment=\"Left\" AutomationProperties.Name=\"Show more layout detail\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutToggle\">";
-    m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"5\">";
-    m += L"<TextBlock x:Name=\"LayoutMoreLbl\" Text=\"More\" FontSize=\"11.5\" VerticalAlignment=\"Center\""
-         L" AutomationProperties.AccessibilityView=\"Raw\"/>";
-    m += L"<TextBlock x:Name=\"LayoutChev\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\" FontSize=\"8\""
-         L" VerticalAlignment=\"Center\" Text=\"\uE70D\" AutomationProperties.AccessibilityView=\"Raw\"/>";
-    m += L"</StackPanel></HyperlinkButton>";
-
-    // Emitted collapsed and flipped by Visibility rather than rebuilt -- same discipline as the breadcrumb
-    // toggle, so opening costs no XamlReader work, keeps scroll position, and cannot re-enter the pane
-    // rebuild teardown.
-    m += L"<StackPanel x:Name=\"LayoutMore\" Spacing=\"0\" Margin=\"0,7,0,0\" Visibility=\"Collapsed\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutMore\">";
+    m += L"<StackPanel Spacing=\"0\" Margin=\"0,7,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsBoxModelDetail\">";
     m += more;
     m += L"</StackPanel>";
 
@@ -599,23 +585,24 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
     return m;
 }
 
-// The box model and the offered/took explanation, after the property grid and collapsed unless opened before.
+// Size & spacing: the box model and the offered/took explanation, after the header and collapsed unless opened
+// before. Named apart from the property grid's "Layout" category.
 static std::wstring BuildLayoutDisclosure(const DevToolsWindowLayout& L, const std::vector<DevToolsCardRow>& rows)
 {
     const bool open = LayoutSectionOpen();
-    std::wstring m = L"<StackPanel Margin=\"0,8,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutSection\">";
+    std::wstring m = L"<StackPanel Margin=\"0,8,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacing\">";
     m += L"<HyperlinkButton x:Name=\"LayoutSectionToggle\" Padding=\"0\" HorizontalAlignment=\"Stretch\""
-         L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Layout\""
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutSectionToggle\">";
+         L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Size and spacing\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingToggle\">";
     m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"7\">";
     m += L"<TextBlock x:Name=\"LayoutSectionChev\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\" FontSize=\"8\""
          L" VerticalAlignment=\"Center\" Text=\"" + std::wstring(open ? L"\uE70D" : L"\uE76C") + L"\""
          L" AutomationProperties.AccessibilityView=\"Raw\"/>";
-    m += L"<TextBlock Text=\"LAYOUT\" Style=\"{StaticResource CaptionTextBlockStyle}\" CharacterSpacing=\"60\""
+    m += L"<TextBlock Text=\"SIZE &amp; SPACING\" Style=\"{StaticResource CaptionTextBlockStyle}\" CharacterSpacing=\"60\""
          L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.AccessibilityView=\"Raw\"/>";
     m += L"</StackPanel></HyperlinkButton>";
     m += L"<StackPanel x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\" Visibility=\"" +
-         std::wstring(open ? L"Visible" : L"Collapsed") + L"\" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutSectionBody\">";
+         std::wstring(open ? L"Visible" : L"Collapsed") + L"\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\">";
     m += BuildLayoutSection(L, rows);
     m += L"</StackPanel></StackPanel>";
     return m;

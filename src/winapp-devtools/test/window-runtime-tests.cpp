@@ -361,15 +361,20 @@ int main()
         const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noSourceInfo",L"",&stretched);
         const auto crumb=pane.find(L"WinAppDevToolsBreadcrumb"), filter=pane.find(L"PropFilter"),
-            section=pane.find(L"WinAppDevToolsLayoutSection"), box=pane.find(L"WinAppDevToolsLayout\"");
-        check(crumb<filter && filter<section && section<box && box!=std::wstring::npos,
-            "properties pane: header, then filter and grid, then the Layout section");
+            section=pane.find(L"WinAppDevToolsSizeSpacing"), box=pane.find(L"WinAppDevToolsBoxModel\"");
+        check(crumb<section && section<box && box<filter && filter!=std::wstring::npos,
+            "properties pane: header, then the Size & spacing section, then filter and grid");
+        check(pane.find(L"SIZE &amp; SPACING")!=std::wstring::npos && pane.find(L"Text=\"LAYOUT\"")==std::wstring::npos,
+            "the section is named apart from the grid's Layout category");
+        check(pane.find(L"LayoutToggle\"")==std::wstring::npos && pane.find(L"x:Name=\"LayoutMore\"")==std::wstring::npos &&
+            BuildLayoutSection(stretched,{}).find(L"WinAppDevToolsBoxModelDetail")!=std::wstring::npos,
+            "the section has no nested More disclosure; its details show when it is open");
         check(pane.find(L"x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\" Visibility=\"Collapsed\"")!=std::wstring::npos,
-            "Layout section is collapsed until opened");
+            "Size & spacing section is collapsed until opened");
         g_layoutSectionOpen=1;
         check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
-            L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"Visibility=\"Visible\" AutomationProperties.AutomationId=\"WinAppDevToolsLayoutSectionBody\"")!=std::wstring::npos,
-            "an opened Layout section stays open");
+            L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"Visibility=\"Visible\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\"")!=std::wstring::npos,
+            "an opened Size & spacing section stays open");
         check(pane.find(L"Authored values unavailable (why?)")!=std::wstring::npos &&
             pane.find(L"TextWrapping=\"Wrap\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.Name=\"Authored values unavailable\"")==std::wstring::npos,
             "source verification is one line; the reason is on hover");

@@ -355,21 +355,6 @@ struct BreadcrumbSink : DevToolsSinkBase
 };
 
 // Disclosure sinks hold AddRef’d pane elements only for the current pane lifetime.
-struct LayoutToggleSink : DevToolsSinkBase
-{
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
-    {
-        if (gen != g_route1Gen) return S_OK;
-        if (!g_layoutMore) return S_OK;
-        g_layoutExpanded = !g_layoutExpanded;
-        DevToolsPutVisibility(g_layoutMore, g_layoutExpanded ? 0 : 1);
-        SetToggleLabel(g_layoutMoreLbl, g_layoutExpanded ? L"Less" : L"More");
-        SetToggleLabel(g_layoutChev, g_layoutExpanded ? L"\uE70E" : L"\uE70D");
-        return S_OK;
-    }
-    void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
-};
-
 struct LayoutSectionSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
@@ -377,7 +362,7 @@ struct LayoutSectionSink : DevToolsSinkBase
         if (gen != g_route1Gen) return S_OK;
         if (!g_layoutBody) return S_OK;
         g_layoutSectionOpen = LayoutSectionOpen() ? 0 : 1;
-        DevToolsSettingsSetBool(L"InspectorLayoutOpen", g_layoutSectionOpen == 1);
+        DevToolsSettingsSetBool(L"InspectorSizeSpacingOpen", g_layoutSectionOpen == 1);
         DevToolsPutVisibility(g_layoutBody, g_layoutSectionOpen == 1 ? 0 : 1);
         SetToggleLabel(g_layoutBodyChev, g_layoutSectionOpen == 1 ? L"\uE70D" : L"\uE76C");
         return S_OK;

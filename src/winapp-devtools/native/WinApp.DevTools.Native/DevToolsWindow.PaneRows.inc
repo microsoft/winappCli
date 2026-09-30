@@ -249,6 +249,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(why) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredUnavailable\"/>";
     }
+    if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
 
     m += L"<Grid ColumnSpacing=\"8\" Margin=\"0,2,0,0\"><Grid.ColumnDefinitions>"
          L"<ColumnDefinition Width=\"*\"/><ColumnDefinition Width=\"Auto\"/>"
@@ -336,7 +337,6 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.AutomationId=\"WinAppDevToolsPropStatus\""
              L" Margin=\"0,4,0,0\" TextWrapping=\"Wrap\"/>";
     }
-    if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
     m += L"</StackPanel>";
     return m;
 }
