@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 using Microsoft.Extensions.Logging;
 using Spectre.Console.Testing;
 using WinApp.Cli.ConsoleTasks;
@@ -234,6 +236,33 @@ public class CertificateServiceTests : BaseCommandTests
                 RemoveFromCurrentUserStore(leaked.Thumbprint);
             }
         }
+    }
+
+    [TestMethod]
+    public async Task GenerateDevCertificateAsync_Overwrite_PreservesExistingFileAcl()
+    {
+        var (svc, _, _) = NewService();
+        var dir = _tempDirectory.CreateSubdirectory("acl");
+        var pfx = new FileInfo(Path.Join(dir.FullName, "devcert.pfx"));
+        await File.WriteAllBytesAsync(pfx.FullName, [1, 2, 3], TestContext.CancellationToken);
+
+        // Lock the existing PFX down to the current user only, with no inherited entries.
+        var restricted = new FileSecurity();
+        restricted.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        restricted.AddAccessRule(new FileSystemAccessRule(
+            WindowsIdentity.GetCurrent().User!, FileSystemRights.FullControl, AccessControlType.Allow));
+        pfx.SetAccessControl(restricted);
+        var expected = pfx.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+
+        await svc.GenerateDevCertificateAsync("CN=AclTest", pfx, TestTaskContext, password: "pw",
+            cancellationToken: TestContext.CancellationToken);
+
+        pfx.Refresh();
+        Assert.AreEqual(expected, pfx.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access),
+            "Overwriting must keep the existing PFX's access control list");
+        using var generated = X509CertificateLoader.LoadPkcs12FromFile(pfx.FullName, "pw", X509KeyStorageFlags.EphemeralKeySet);
+        StringAssert.Contains(generated.Subject, "AclTest");
+        Assert.IsEmpty(dir.GetFiles("*.tmp"), "Backup files must be cleaned up");
     }
 
     // ── InstallCertificate ──────────────────────────────────────────────

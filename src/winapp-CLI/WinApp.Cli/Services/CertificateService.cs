@@ -143,16 +143,20 @@ internal partial class CertificateService(
                 storedThumbprint = cert.Thumbprint;
             }
 
-            // Move existing files aside rather than overwriting them, so rollback can restore them.
+            // Replace existing files with File.Replace: it swaps in one step, keeps the existing file's
+            // ACL (a PFX may be locked down beyond its directory's defaults), and keeps the original
+            // under the backup name so rollback can restore it.
             foreach (var output in outputs)
             {
                 if (File.Exists(output.Target))
                 {
-                    var backup = StagingPathFor(output.Target);
-                    File.Move(output.Target, backup);
-                    output.Backup = backup;
+                    output.Backup = StagingPathFor(output.Target);
+                    File.Replace(output.Staged, output.Target, output.Backup);
                 }
-                File.Move(output.Staged, output.Target);
+                else
+                {
+                    File.Move(output.Staged, output.Target);
+                }
                 output.Committed = true;
             }
 
@@ -227,7 +231,9 @@ internal partial class CertificateService(
             {
                 TryDelete(output.Target, taskContext);
             }
-            if (output.Backup != null)
+            // File.Replace can fail after moving the original to its backup name, so restore whenever
+            // the backup exists, not only after a successful commit.
+            if (output.Backup != null && File.Exists(output.Backup))
             {
                 try
                 {
