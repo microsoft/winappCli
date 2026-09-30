@@ -13,14 +13,28 @@ namespace WinApp.Cli.Services;
 
 /// <summary>
 /// Native debugging binaries required to host DbgEng and run the WinUI JavaScript
-/// extension (<c>!xamlstowed</c> / <c>!xamltriage</c>).
+/// extension (<c>!xamlstowed</c> / <c>!xamltriage</c>). Dispose it once the triage child has exited.
 /// </summary>
 /// <param name="BinDir">Directory containing <c>dbgeng.dll</c> (and co-located providers).</param>
 /// <param name="JsProviderPath">Full path to the resolved <c>JsProvider.dll</c> (may live in a
 /// <c>winext</c> subfolder rather than directly in <see cref="BinDir"/>).</param>
 /// <param name="HasSymSrv"><c>symsrv.dll</c> is co-located, enabling <c>srv*</c> symbol paths.</param>
 /// <param name="Source">Human-readable description of where the binaries were resolved from.</param>
-internal sealed record ResolvedTriageBinaries(string BinDir, string JsProviderPath, bool HasSymSrv, string Source);
+internal sealed record ResolvedTriageBinaries(string BinDir, string JsProviderPath, bool HasSymSrv, string Source) : IDisposable
+{
+    /// <summary>
+    /// The verified DLLs, held open so the files the child loads are the files that were checked.
+    /// </summary>
+    internal IReadOnlyList<IDisposable> Holds { get; init; } = [];
+
+    public void Dispose()
+    {
+        foreach (var hold in Holds)
+        {
+            hold.Dispose();
+        }
+    }
+}
 
 /// <summary>
 /// Locates (and, when missing, downloads on first use) the host-architecture native
@@ -100,6 +114,17 @@ internal static class XamlTriageBinaries
     internal static IReadOnlyList<(string Package, string Version, string Sha512)> PinnedPackages =>
         NuGetComponents.Select(c => (c.Package, c.Version, c.Sha512)).ToList();
 
+    // Engine files the triage child loads by name from the engine directory, alongside dbgeng.dll:
+    // dbghelp/dbgcore are preloaded by the DbgEng host, the rest are pulled in by dbgeng itself. Each
+    // one present is held and verified; msdia140.dll is absent from Windows Kits layouts.
+    private static readonly string[] SupportingEngineFiles = ["dbghelp.dll", "dbgcore.dll", "dbgmodel.dll", "msdia140.dll", "symsrv.dll"];
+
+    /// <summary>
+    /// Authenticode gate applied to every debugger DLL before it is loaded. Tests replace it so
+    /// resolution and acquisition can run against unsigned stand-in files.
+    /// </summary>
+    internal static Func<string, ILogger, bool> SignatureVerifier { get; set; } = AuthenticodeVerifier.IsTrustedMicrosoftSigned;
+
     /// <summary>Folder token used by the Windows Kits Debuggers layout for the host arch.</summary>
     public static string KitsArch => KitsArchFor(RuntimeInformation.ProcessArchitecture);
 
@@ -126,46 +151,138 @@ internal static class XamlTriageBinaries
 
     /// <summary>
     /// Resolves an existing directory that contains both <c>dbgeng.dll</c> and
-    /// <c>JsProvider.dll</c> for the host architecture, or <c>null</c> when none is found.
+    /// <c>JsProvider.dll</c> for the host architecture, or <c>null</c> when none is found. Dispose the
+    /// result once the triage child has exited.
     /// <para>
-    /// On every resolve (including cache hits) the <c>JsProvider.dll</c> is re-verified as validly
-    /// Microsoft-signed <em>and</em> checked to be the same build as the co-located <c>dbgeng.dll</c>:
-    /// it is loaded into the debugger process, and a copy that was replaced on disk, or that drifted
-    /// from the engine build (which crashes the triage child with STATUS_BREAKPOINT), must be rejected
-    /// so the cache self-heals instead of silently breaking triage.
+    /// Every DLL the triage child loads — the engine files and <c>JsProvider.dll</c> — is held open,
+    /// re-verified as validly Microsoft-signed on every resolve (including cache hits), and reported by
+    /// the location its handle resolves to (see <see cref="VerifiedTool"/>). The holds last until the
+    /// result is disposed, so whoever can write the cache cannot swap a file between the check and the
+    /// load. <c>JsProvider.dll</c> is also checked to be the same build as the engine, because a
+    /// mismatched provider crashes the triage child with STATUS_BREAKPOINT. A layout that fails any
+    /// check is rejected so the cache self-heals instead of silently breaking triage.
     /// </para>
     /// </summary>
     public static ResolvedTriageBinaries? ResolveExisting(DirectoryInfo cacheBinDir, ILogger logger) =>
-        ResolveExisting(cacheBinDir, logger, b =>
-            AuthenticodeVerifier.IsTrustedMicrosoftSigned(b.JsProviderPath, logger)
-            && IsProviderCompatibleWithEngine(b.BinDir, b.JsProviderPath, logger));
+        ResolveExisting(cacheBinDir, logger, SignatureVerifier, IsProviderCompatibleWithEngine);
 
     /// <summary>
-    /// Testable core of <see cref="ResolveExisting(DirectoryInfo, ILogger)"/> with an injectable
-    /// <paramref name="validator"/> so unit tests can exercise resolution without requiring a real
-    /// Authenticode-signed, version-matched <c>JsProvider.dll</c>.
+    /// Testable core of <see cref="ResolveExisting(DirectoryInfo, ILogger)"/> with the signature and
+    /// engine-compatibility checks injected, so unit tests can exercise resolution and holding without
+    /// real Authenticode-signed, version-matched binaries.
     /// </summary>
-    internal static ResolvedTriageBinaries? ResolveExisting(DirectoryInfo cacheBinDir, ILogger logger, Func<ResolvedTriageBinaries, bool> validator)
+    internal static ResolvedTriageBinaries? ResolveExisting(
+        DirectoryInfo cacheBinDir,
+        ILogger logger,
+        Func<string, ILogger, bool> signatureVerifier,
+        Func<string, string, ILogger, bool> providerCompatibility)
     {
         foreach (var (dir, source) in CandidateDirectories(cacheBinDir))
         {
-            var resolved = TryDirectory(dir, source);
+            var jsProviderPath = FindLayout(dir);
+            if (jsProviderPath == null)
+            {
+                continue;
+            }
+
+            var resolved = TryHold(dir, jsProviderPath, source, signatureVerifier, providerCompatibility, logger);
             if (resolved == null)
             {
                 continue;
             }
 
-            if (!validator(resolved))
-            {
-                logger.LogDebug("Rejecting WinUI triage binaries from {Source}: {Path} failed signature/version validation.", source, resolved.JsProviderPath);
-                continue;
-            }
-
-            logger.LogDebug("Resolved WinUI triage debugging binaries from {Source}: {Dir}", source, dir);
+            logger.LogDebug("Resolved WinUI triage debugging binaries from {Source}: {Dir}", source, resolved.BinDir);
             return resolved;
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Holds and verifies every DLL the triage child will load from <paramref name="dir"/>. Returns
+    /// <c>null</c>, with nothing left held, when any of them cannot be held, is not validly signed, or
+    /// does not match the engine build.
+    /// </summary>
+    private static ResolvedTriageBinaries? TryHold(
+        string dir,
+        string jsProviderPath,
+        string source,
+        Func<string, ILogger, bool> signatureVerifier,
+        Func<string, string, ILogger, bool> providerCompatibility,
+        ILogger logger)
+    {
+        var holds = new List<VerifiedTool>();
+        var owned = false;
+        var current = "dbgeng.dll";
+
+        VerifiedTool Hold(string path)
+        {
+            current = Path.GetFileName(path);
+            var held = VerifiedTool.Open(new FileInfo(path), signatureVerifier, logger);
+            holds.Add(held);
+            return held;
+        }
+
+        try
+        {
+            // The child loads the engine from the directory dbgeng.dll really lives in, so every other
+            // engine file is looked up there too. It also loads dbgeng.dll by that name, so a link to
+            // a differently named file would leave the name the child loads unpinned.
+            var dbgeng = Hold(Path.Combine(dir, "dbgeng.dll"));
+            var binDir = Path.GetDirectoryName(dbgeng.Path)!;
+            if (!Path.GetFileName(dbgeng.Path).Equals("dbgeng.dll", StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogDebug("Rejecting WinUI triage binaries from {Source}: dbgeng.dll resolves to a differently named file ({Path}).", source, dbgeng.Path);
+                return null;
+            }
+
+            var hasSymSrv = false;
+            foreach (var name in SupportingEngineFiles)
+            {
+                var expected = Path.Combine(binDir, name);
+                if (!File.Exists(expected))
+                {
+                    continue;
+                }
+
+                // These are loaded by name from binDir, so a file that resolves anywhere else (a file
+                // symlink) leaves that name unpinned: the link could be replaced while its target is held.
+                var held = Hold(expected);
+                if (!string.Equals(held.Path, expected, StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogDebug("Rejecting WinUI triage binaries from {Source}: {File} resolves outside the engine directory ({Path}).", source, name, held.Path);
+                    return null;
+                }
+
+                hasSymSrv |= name.Equals("symsrv.dll", StringComparison.OrdinalIgnoreCase);
+            }
+
+            // JsProvider.dll is loaded by explicit path, so its resolved location can be passed as is.
+            var jsProvider = Hold(jsProviderPath);
+            if (!providerCompatibility(binDir, jsProvider.Path, logger))
+            {
+                logger.LogDebug("Rejecting WinUI triage binaries from {Source}: {Path} does not match the engine build.", source, jsProvider.Path);
+                return null;
+            }
+
+            owned = true;
+            return new ResolvedTriageBinaries(binDir, jsProvider.Path, hasSymSrv, source) { Holds = holds };
+        }
+        catch (BuildToolSignatureException)
+        {
+            logger.LogDebug("Rejecting WinUI triage binaries from {Source}: {File} could not be held open or is not validly signed by Microsoft.", source, current);
+            return null;
+        }
+        finally
+        {
+            if (!owned)
+            {
+                foreach (var held in holds)
+                {
+                    held.Dispose();
+                }
+            }
+        }
     }
 
     private static IEnumerable<(string Dir, string Source)> CandidateDirectories(DirectoryInfo cacheBinDir)
@@ -199,36 +316,29 @@ internal static class XamlTriageBinaries
     }
 
     /// <summary>
-    /// Returns a resolved descriptor when <paramref name="dir"/> contains a usable engine
-    /// (dbgeng.dll) and a co-located JsProvider.dll (in the directory or its <c>winext</c> child).
+    /// Returns the path of <c>JsProvider.dll</c> when <paramref name="dir"/> contains a usable engine
+    /// (dbgeng.dll) and a co-located JsProvider.dll (in the directory or its <c>winext</c> child);
+    /// otherwise <c>null</c>.
     /// </summary>
-    private static ResolvedTriageBinaries? TryDirectory(string dir, string source)
+    private static string? FindLayout(string dir)
     {
         if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
         {
             return null;
         }
 
-        var dbgeng = Path.Combine(dir, "dbgeng.dll");
-        if (!File.Exists(dbgeng))
+        if (!File.Exists(Path.Combine(dir, "dbgeng.dll")))
         {
             return null;
         }
 
         // dbgeng searches its own directory and the winext subfolder for extension providers, but the
         // child runner must .load JsProvider.dll by explicit path, so capture where it actually lives.
-        var jsProviderPath = new[]
+        return new[]
         {
             Path.Combine(dir, "JsProvider.dll"),
             Path.Combine(dir, "winext", "JsProvider.dll"),
         }.FirstOrDefault(File.Exists);
-        if (jsProviderPath == null)
-        {
-            return null;
-        }
-
-        var hasSymSrv = File.Exists(Path.Combine(dir, "symsrv.dll"));
-        return new ResolvedTriageBinaries(dir, jsProviderPath, hasSymSrv, source);
     }
 
     /// <summary>
@@ -297,8 +407,7 @@ internal static class XamlTriageBinaries
     /// <summary>
     /// Returns <c>true</c> when <paramref name="path"/> exists and looks like an intact PE image (starts
     /// with the <c>MZ</c> signature and is not implausibly small). Used to detect a truncated/corrupt
-    /// cached engine DLL so it is re-acquired instead of poisoning the cache across runs — unlike
-    /// <c>JsProvider.dll</c>, the engine DLLs are not otherwise re-verified on a cache hit.
+    /// cached engine DLL so it is re-acquired instead of poisoning the cache across runs.
     /// </summary>
     private static bool IsUsablePeFile(string path)
     {
@@ -382,7 +491,13 @@ internal static class XamlTriageBinaries
         {
             try
             {
-                if (files.All(f => IsUsablePeFile(Path.Combine(cacheBinDir.FullName, f))))
+                // A file that is not Microsoft-signed would be refused at resolve time forever, so
+                // re-acquire it (re-checking the pinned hash) rather than treating it as present.
+                if (files.All(f =>
+                {
+                    var path = Path.Combine(cacheBinDir.FullName, f);
+                    return IsUsablePeFile(path) && SignatureVerifier(path, logger);
+                }))
                 {
                     acquired++;
                     continue;

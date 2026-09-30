@@ -63,29 +63,9 @@ internal sealed partial class XamlTriageService(
                 winappDirectoryService.GetGlobalWinappDirectory().FullName, "dbgtools"));
             var cacheBinDir = new DirectoryInfo(Path.Combine(dbgToolsRoot.FullName, XamlTriageBinaries.KitsArch));
 
-            ResolvedTriageBinaries? ResolveExisting(DirectoryInfo dir) =>
-                (BinariesResolverOverride ?? (d => XamlTriageBinaries.ResolveExisting(d, logger)))(dir);
-
-            // Resolve an existing debugger layout; if none, populate the download-on-first-use cache:
-            // engine bits from NuGet (global cache or download) and JsProvider.dll from the WinDbg bundle.
-            var binaries = ResolveExisting(cacheBinDir);
-            if (binaries == null && !XamlTriageBinaries.IsEnvOverrideSet)
-            {
-                // Only populate the download-on-first-use cache when no authoritative override is set;
-                // with an override configured, ResolveExisting never consults the cache, so acquiring
-                // into it would waste the download and still report triage as unavailable.
-                var nugetCacheDir = TryGetNuGetCacheDir();
-                await XamlTriageBinaries.TryAcquireFromNuGetAsync(cacheBinDir, nugetCacheDir, logger, cancellationToken);
-
-                // JsProvider.dll only ships in the WinDbg bundle; acquire it once the engine is present.
-                if (XamlTriageBinaries.HasEngine(cacheBinDir))
-                {
-                    await WinDbgJsProviderAcquirer.TryAcquireAsync(cacheBinDir, logger, cancellationToken);
-                }
-
-                binaries = ResolveExisting(cacheBinDir);
-            }
-
+            // Holds the verified debugger DLLs until the triage child has exited, so the files it loads
+            // are the files that were checked.
+            using var binaries = await ResolveBinariesAsync(cacheBinDir, cancellationToken);
             if (binaries == null)
             {
                 logger.LogDebug("WinUI triage skipped: debugging binaries (incl. JsProvider.dll) unavailable.");
@@ -150,6 +130,36 @@ internal sealed partial class XamlTriageService(
             logger.LogWarning(ex, "WinUI triage pass failed.");
             return XamlTriageResult.None;
         }
+    }
+
+    /// <summary>
+    /// Resolves an existing debugger layout; if none, populates the download-on-first-use cache (engine
+    /// bits from NuGet, <c>JsProvider.dll</c> from the WinDbg bundle) and resolves again. The caller
+    /// owns the result and must dispose it once the triage child has exited.
+    /// </summary>
+    private async Task<ResolvedTriageBinaries?> ResolveBinariesAsync(DirectoryInfo cacheBinDir, CancellationToken cancellationToken)
+    {
+        ResolvedTriageBinaries? ResolveExisting(DirectoryInfo dir) =>
+            (BinariesResolverOverride ?? (d => XamlTriageBinaries.ResolveExisting(d, logger)))(dir);
+
+        var binaries = ResolveExisting(cacheBinDir);
+        if (binaries != null || XamlTriageBinaries.IsEnvOverrideSet)
+        {
+            // With an authoritative override configured, ResolveExisting never consults the cache, so
+            // acquiring into it would waste the download and still report triage as unavailable.
+            return binaries;
+        }
+
+        var nugetCacheDir = TryGetNuGetCacheDir();
+        await XamlTriageBinaries.TryAcquireFromNuGetAsync(cacheBinDir, nugetCacheDir, logger, cancellationToken);
+
+        // JsProvider.dll only ships in the WinDbg bundle; acquire it once the engine is present.
+        if (XamlTriageBinaries.HasEngine(cacheBinDir))
+        {
+            await WinDbgJsProviderAcquirer.TryAcquireAsync(cacheBinDir, logger, cancellationToken);
+        }
+
+        return ResolveExisting(cacheBinDir);
     }
 
     /// <summary>
@@ -381,6 +391,9 @@ internal sealed partial class XamlTriageService(
         return startInfo;
     }
 
+    // How long to wait for a killed triage child to finish exiting before its DLLs are released.
+    private static readonly TimeSpan KillExitWait = TimeSpan.FromSeconds(30);
+
     private static void TryKill(Process process)
     {
         try
@@ -388,6 +401,10 @@ internal sealed partial class XamlTriageService(
             if (!process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
+
+                // Kill only starts termination. The caller releases the verified DLLs next, so wait
+                // for the child to be gone rather than leave it running while they can be swapped.
+                process.WaitForExit(KillExitWait);
             }
         }
         catch

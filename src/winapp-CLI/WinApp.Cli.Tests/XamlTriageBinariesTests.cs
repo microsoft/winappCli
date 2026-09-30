@@ -41,10 +41,57 @@ public class XamlTriageBinariesTests
     private string _tempDir = null!;
     private string? _originalOverride;
 
-    // Pass-through validator for tests that use dummy (unsigned) binary files: resolution logic is under
-    // test here, not the real Authenticode/version gate (covered by AuthenticodeVerifierTests, the L4
-    // test, and the VersionsMatch tests below).
-    private static readonly Func<ResolvedTriageBinaries, bool> AcceptAny = _ => true;
+    // Engine files a full NuGet-cache layout holds alongside dbgeng.dll.
+    private static readonly string[] EngineFiles = ["dbgeng.dll", "dbghelp.dll", "dbgcore.dll", "dbgmodel.dll", "msdia140.dll", "symsrv.dll"];
+
+    /// <summary>
+    /// Resolves with the signature and engine-build gates replaced, for tests that use dummy (unsigned)
+    /// binary files: resolution and holding are under test here, not the real Authenticode/version gate
+    /// (covered by AuthenticodeVerifierTests, the public-overload test, and the VersionsMatch tests below).
+    /// </summary>
+    private static ResolvedTriageBinaries? Resolve(
+        DirectoryInfo cacheBinDir, Func<string, bool>? signed = null, Func<string, string, bool>? compatible = null) =>
+        XamlTriageBinaries.ResolveExisting(
+            cacheBinDir,
+            NullLogger.Instance,
+            (path, _) => signed?.Invoke(path) ?? true,
+            (binDir, jsProvider, _) => compatible?.Invoke(binDir, jsProvider) ?? true);
+
+    /// <summary>
+    /// Where a file really lives, as the resolver reports it. Temp paths can contain 8.3 short names
+    /// (as on CI), which the resolver expands.
+    /// </summary>
+    private static string RealPath(string path)
+    {
+        using var held = VerifiedTool.Open(new FileInfo(path), (_, _) => true, NullLogger.Instance);
+        return held.Path;
+    }
+
+    private static bool CanBeReplaced(string path)
+    {
+        try
+        {
+            using var writable = File.Open(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Lays out every engine file plus <c>winext\JsProvider.dll</c> and returns all their paths.</summary>
+    private static List<string> WriteFullLayout(string dir)
+    {
+        Directory.CreateDirectory(Path.Combine(dir, "winext"));
+        var files = EngineFiles.Select(f => Path.Combine(dir, f)).Append(Path.Combine(dir, "winext", "JsProvider.dll")).ToList();
+        foreach (var file in files)
+        {
+            File.WriteAllText(file, Path.GetFileName(file));
+        }
+
+        return files;
+    }
 
     [TestInitialize]
     public void Setup()
@@ -86,10 +133,10 @@ public class XamlTriageBinariesTests
         File.WriteAllText(Path.Combine(dir, "symsrv.dll"), "");
         Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, dir);
 
-        var resolved = XamlTriageBinaries.ResolveExisting(new DirectoryInfo(_tempDir), NullLogger.Instance, AcceptAny);
+        using var resolved = Resolve(new DirectoryInfo(_tempDir));
 
         Assert.IsNotNull(resolved);
-        Assert.AreEqual(dir, resolved.BinDir);
+        Assert.AreEqual(Path.GetDirectoryName(RealPath(Path.Combine(dir, "dbgeng.dll"))), resolved.BinDir);
         Assert.IsTrue(resolved.HasSymSrv, "symsrv.dll is present, so HasSymSrv must be true.");
     }
 
@@ -102,11 +149,11 @@ public class XamlTriageBinariesTests
         File.WriteAllText(Path.Combine(dir, "winext", "JsProvider.dll"), "");
         Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, dir);
 
-        var resolved = XamlTriageBinaries.ResolveExisting(new DirectoryInfo(_tempDir), NullLogger.Instance, AcceptAny);
+        using var resolved = Resolve(new DirectoryInfo(_tempDir));
 
         Assert.IsNotNull(resolved);
         Assert.IsFalse(resolved.HasSymSrv, "No symsrv.dll present, so HasSymSrv must be false.");
-        Assert.AreEqual(Path.Combine(dir, "winext", "JsProvider.dll"), resolved.JsProviderPath,
+        Assert.AreEqual(RealPath(Path.Combine(dir, "winext", "JsProvider.dll")), resolved.JsProviderPath,
             "The resolved JsProvider path must point at the winext copy so the child runner can .load it.");
     }
 
@@ -184,7 +231,7 @@ public class XamlTriageBinariesTests
         File.WriteAllText(Path.Combine(dir, "JsProvider.dll"), "");
         Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, dir);
 
-        var resolved = XamlTriageBinaries.ResolveExisting(new DirectoryInfo(_tempDir), NullLogger.Instance, _ => false);
+        var resolved = Resolve(new DirectoryInfo(_tempDir), signed: _ => false);
 
         Assert.IsNull(resolved, "A JsProvider.dll that fails signature verification must not resolve.");
     }
@@ -198,10 +245,10 @@ public class XamlTriageBinariesTests
         File.WriteAllText(Path.Combine(dir, "JsProvider.dll"), "");
         Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, dir);
 
-        var resolved = XamlTriageBinaries.ResolveExisting(new DirectoryInfo(_tempDir), NullLogger.Instance, AcceptAny);
+        using var resolved = Resolve(new DirectoryInfo(_tempDir));
 
         Assert.IsNotNull(resolved);
-        Assert.AreEqual(Path.Combine(dir, "JsProvider.dll"), resolved.JsProviderPath);
+        Assert.AreEqual(RealPath(Path.Combine(dir, "JsProvider.dll")), resolved.JsProviderPath);
     }
 
     [TestMethod]
@@ -215,6 +262,196 @@ public class XamlTriageBinariesTests
         var resolved = XamlTriageBinaries.ResolveExisting(new DirectoryInfo(_tempDir), NullLogger.Instance);
 
         Assert.IsNull(resolved, "Without JsProvider.dll the JS extension cannot load, so resolution must fail.");
+    }
+
+    [TestMethod]
+    public void ResolveExisting_WhileResolved_EveryDllTheChildLoadsIsLocked()
+    {
+        // The triage child loads these files by path after resolution returns. If any of them could be
+        // replaced in between, whoever can write the cache would choose what runs in the debugger.
+        var dir = Path.Combine(_tempDir, "held");
+        var files = WriteFullLayout(dir);
+        Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, dir);
+
+        using (var resolved = Resolve(new DirectoryInfo(_tempDir)))
+        {
+            Assert.IsNotNull(resolved);
+            foreach (var file in files)
+            {
+                Assert.IsFalse(CanBeReplaced(file), $"{Path.GetFileName(file)} must not be writable while triage uses it.");
+                Assert.ThrowsExactly<IOException>(() => File.Delete(file), $"{Path.GetFileName(file)} must not be deletable while triage uses it.");
+            }
+
+            Assert.ThrowsExactly<IOException>(() => Directory.Move(dir, dir + "-old"),
+                "Renaming the engine directory aside would let a replacement take its path.");
+        }
+
+        foreach (var file in files)
+        {
+            Assert.IsTrue(CanBeReplaced(file), $"{Path.GetFileName(file)} must be released once triage is done, so the cache stays usable.");
+        }
+    }
+
+    [TestMethod]
+    public void ResolveExisting_VerifiesEveryDllTheChildLoads_ByThePathItReports()
+    {
+        var dir = Path.Combine(_tempDir, "verify-all");
+        var files = WriteFullLayout(dir);
+        Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, dir);
+        var checkedPaths = new List<string>();
+
+        using var resolved = Resolve(new DirectoryInfo(_tempDir), signed: path => { checkedPaths.Add(path); return true; });
+
+        Assert.IsNotNull(resolved);
+        CollectionAssert.AreEquivalent(files.Select(RealPath).ToList(), checkedPaths,
+            "Every engine DLL and JsProvider.dll must pass the signature check, each by its resolved path.");
+        CollectionAssert.Contains(checkedPaths, resolved.JsProviderPath);
+        Assert.IsTrue(checkedPaths.All(p => p == resolved.JsProviderPath || Path.GetDirectoryName(p) == resolved.BinDir),
+            "The engine files that were checked must be the ones the child loads from BinDir.");
+    }
+
+    [TestMethod]
+    [DataRow("dbgeng.dll")]
+    [DataRow("dbghelp.dll")]
+    [DataRow("dbgmodel.dll")]
+    [DataRow("msdia140.dll")]
+    [DataRow("symsrv.dll")]
+    [DataRow("JsProvider.dll")]
+    public void ResolveExisting_AnyUnsignedDll_RejectsTheLayoutAndReleasesEverything(string rejectedFile)
+    {
+        var dir = Path.Combine(_tempDir, "one-unsigned");
+        var files = WriteFullLayout(dir);
+        Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, dir);
+
+        var resolved = Resolve(new DirectoryInfo(_tempDir),
+            signed: path => !Path.GetFileName(path).Equals(rejectedFile, StringComparison.OrdinalIgnoreCase));
+
+        Assert.IsNull(resolved, $"An unsigned {rejectedFile} is loaded into the debugger, so the layout must be rejected.");
+        foreach (var file in files)
+        {
+            Assert.IsTrue(CanBeReplaced(file), $"A rejected layout must not leave {Path.GetFileName(file)} locked.");
+        }
+    }
+
+    [TestMethod]
+    public void ResolveExisting_ProviderBuildMismatch_RejectsAndReleasesEverything()
+    {
+        var dir = Path.Combine(_tempDir, "mismatch");
+        var files = WriteFullLayout(dir);
+        Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, dir);
+        (string BinDir, string JsProvider)? compared = null;
+
+        var resolved = Resolve(new DirectoryInfo(_tempDir), compatible: (binDir, jsProvider) =>
+        {
+            compared = (binDir, jsProvider);
+            return false;
+        });
+
+        Assert.IsNull(resolved);
+        Assert.AreEqual(Path.GetDirectoryName(RealPath(Path.Combine(dir, "dbgeng.dll"))), compared?.BinDir,
+            "The build check must read the held engine, not a path that could since have been re-pointed.");
+        Assert.AreEqual(RealPath(Path.Combine(dir, "winext", "JsProvider.dll")), compared?.JsProvider);
+        Assert.IsTrue(files.All(CanBeReplaced), "A rejected layout must not stay locked.");
+    }
+
+    [TestMethod]
+    public void ResolveExisting_ARePointedJunctionCannotSubstituteADifferentLayout()
+    {
+        // Holding a file pins the file, not the path. A junction on the way can be deleted and re-created
+        // while the handles stay valid, so the child must be given the files' own locations.
+        var good = Path.Combine(_tempDir, "good");
+        var evil = Path.Combine(_tempDir, "evil");
+        WriteFullLayout(good);
+        WriteFullLayout(evil);
+        var junction = Path.Combine(_tempDir, "pkg");
+        if (!TryCreateJunction(junction, good))
+        {
+            Assert.Inconclusive("Could not create a directory junction on this machine.");
+        }
+
+        Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, junction);
+        using var resolved = Resolve(new DirectoryInfo(_tempDir));
+        Assert.IsNotNull(resolved);
+
+        Directory.Delete(junction);
+        Assert.IsTrue(TryCreateJunction(junction, evil), "Re-pointing the junction must succeed for this test to mean anything.");
+
+        var realGood = Path.GetDirectoryName(RealPath(Path.Combine(good, "dbgeng.dll")));
+        Assert.AreEqual(realGood, resolved.BinDir, "The child must load the engine from the verified directory.");
+        Assert.AreEqual(RealPath(Path.Combine(good, "winext", "JsProvider.dll")), resolved.JsProviderPath);
+    }
+
+    [TestMethod]
+    public void ResolveExisting_EngineDllLinkedFromElsewhere_IsRejected()
+    {
+        // The child loads the engine's companions by name from BinDir. A file symlink there pins only
+        // its target, so the link itself could be swapped after the check.
+        var dir = Path.Combine(_tempDir, "linked");
+        WriteFullLayout(dir);
+        var elsewhere = Path.Combine(_tempDir, "elsewhere-dbghelp.dll");
+        File.WriteAllText(elsewhere, "dbghelp");
+        File.Delete(Path.Combine(dir, "dbghelp.dll"));
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(dir, "dbghelp.dll"), elsewhere);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive("Creating a file symbolic link needs Developer Mode or elevation on this machine.");
+        }
+
+        Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, dir);
+
+        var resolved = Resolve(new DirectoryInfo(_tempDir));
+
+        Assert.IsNull(resolved, "An engine file that resolves outside the engine directory must not be trusted.");
+        Assert.IsTrue(CanBeReplaced(elsewhere), "A rejected layout must not stay locked.");
+    }
+
+    [TestMethod]
+    public void ResolveExisting_DbgEngLinkedToADifferentlyNamedFile_IsRejected()
+    {
+        // The child loads BinDir\dbgeng.dll by name. If dbgeng.dll links to target\other.dll, the held,
+        // verified file is other.dll while target\dbgeng.dll stays unpinned and replaceable.
+        var dir = Path.Combine(_tempDir, "engine-link");
+        WriteFullLayout(dir);
+        var target = Path.Combine(_tempDir, "engine-target");
+        Directory.CreateDirectory(target);
+        var verifiedCopy = Path.Combine(target, "verified-copy.dll");
+        File.WriteAllText(verifiedCopy, "dbgeng");
+        File.WriteAllText(Path.Combine(target, "dbgeng.dll"), "unverified");
+        File.Delete(Path.Combine(dir, "dbgeng.dll"));
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(dir, "dbgeng.dll"), verifiedCopy);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive("Creating a file symbolic link needs Developer Mode or elevation on this machine.");
+        }
+
+        Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, dir);
+
+        var resolved = Resolve(new DirectoryInfo(_tempDir));
+
+        Assert.IsNull(resolved, "dbgeng.dll must resolve to a file the child would load by that name.");
+        Assert.IsTrue(CanBeReplaced(verifiedCopy), "A rejected layout must not stay locked.");
+    }
+
+    private static bool TryCreateJunction(string linkPath, string targetPath)
+    {
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/c mklink /J \"{linkPath}\" \"{targetPath}\"",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        })!;
+
+        process.WaitForExit();
+        return process.ExitCode == 0 && Directory.Exists(linkPath);
     }
 
     [TestMethod]
@@ -420,22 +657,20 @@ public class XamlTriageBinariesTests
     {
         // No override: CandidateDirectories enumerates the installed Debugging-Tools roots
         // (Program Files\Windows Kits\10\Debuggers\<arch>) and finally the download-on-first-use
-        // cache. A validator that only accepts the seeded cache forces the full traversal — each
+        // cache. A signature gate that only accepts the seeded cache forces the full traversal — each
         // installed root that resolves is rejected (or is absent) before the cache fallback resolves.
         Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, null);
         var cache = new DirectoryInfo(Path.Combine(_tempDir, "cache-bin"));
         cache.Create();
         File.WriteAllText(Path.Combine(cache.FullName, "dbgeng.dll"), "");
         File.WriteAllText(Path.Combine(cache.FullName, "JsProvider.dll"), "");
+        var realCache = Path.GetDirectoryName(RealPath(Path.Combine(cache.FullName, "dbgeng.dll")))!;
 
-        Func<ResolvedTriageBinaries, bool> onlyCache =
-            r => r.JsProviderPath.StartsWith(cache.FullName, StringComparison.OrdinalIgnoreCase);
-
-        var resolved = XamlTriageBinaries.ResolveExisting(cache, NullLogger.Instance, onlyCache);
+        using var resolved = Resolve(cache, signed: path => path.StartsWith(realCache, StringComparison.OrdinalIgnoreCase));
 
         Assert.IsNotNull(resolved,
             "After rejecting/exhausting the installed roots, the candidate walk must fall back to the seeded cache.");
-        StringAssert.StartsWith(resolved.JsProviderPath, cache.FullName);
+        StringAssert.StartsWith(resolved.JsProviderPath, realCache);
         StringAssert.EndsWith(resolved.JsProviderPath, "JsProvider.dll");
     }
 
@@ -448,7 +683,7 @@ public class XamlTriageBinariesTests
         var missing = Path.Combine(_tempDir, "no-such-dir");
         Environment.SetEnvironmentVariable(XamlTriageBinaries.EnvOverride, missing);
 
-        var resolved = XamlTriageBinaries.ResolveExisting(new DirectoryInfo(_tempDir), NullLogger.Instance, AcceptAny);
+        var resolved = Resolve(new DirectoryInfo(_tempDir));
 
         Assert.IsNull(resolved, "A non-existent override directory must resolve to null.");
     }
@@ -463,7 +698,7 @@ public class XamlTriageBinariesTests
         var cache = new DirectoryInfo(Path.Combine(_tempDir, "empty-cache"));
         cache.Create();
 
-        var resolved = XamlTriageBinaries.ResolveExisting(cache, NullLogger.Instance, _ => false);
+        var resolved = Resolve(cache, signed: _ => false);
 
         Assert.IsNull(resolved, "When every candidate is rejected, resolution must return null.");
     }

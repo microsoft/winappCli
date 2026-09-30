@@ -201,6 +201,101 @@ public sealed class XamlTriageServiceWorkflowTests
     }
 
     [TestMethod]
+    public async Task TryAnalyzeAsync_HoldsTheVerifiedDllsUntilTheChildHasExited()
+    {
+        // The child loads the DLLs that resolution verified. Releasing them before it has exited would
+        // reopen the window in which the cache can be swapped between the check and the load.
+        var hold = new TrackingHold();
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true) with { Holds = [hold] };
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        bool? heldWhenChildStarted = null;
+        service.TriageStartInfoFactory = (_, _, _, _) =>
+        {
+            heldWhenChildStarted = !hold.Disposed;
+            return BatchStartInfo("@echo off\r\necho Stowed exception breakdown\r\nexit /b 0\r\n");
+        };
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.Succeeded, result.Outcome);
+        Assert.IsTrue(heldWhenChildStarted, "The DLLs must still be held when the triage child starts.");
+        Assert.IsTrue(hold.Disposed, "The DLLs must be released once the child has exited.");
+    }
+
+    [TestMethod]
+    public async Task TryAnalyzeAsync_ChildFails_StillReleasesTheVerifiedDlls()
+    {
+        var hold = new TrackingHold();
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true) with { Holds = [hold] };
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        service.TriageStartInfoFactory = (_, _, _, _) => throw new InvalidOperationException("child could not be built");
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.None, result.Outcome);
+        Assert.IsTrue(hold.Disposed, "A failed triage run must not leave the cache locked.");
+    }
+
+    [TestMethod]
+    public async Task TryAnalyzeAsync_ChildTimesOut_ReleasesTheDllsOnlyAfterTheChildIsGone()
+    {
+        // Process.Kill only starts termination. If the DLLs were released straight away, a child that is
+        // still running could load a file swapped in after the release. Termination is usually too fast
+        // to lose this race on demand, so this checks the invariant rather than forcing the race.
+        XamlTriageService.TriageTimeoutOverride = TimeSpan.FromMilliseconds(200);
+        var childName = $"triage-child-{Guid.NewGuid():N}";
+        var childExe = Path.Combine(_tempRoot, childName + ".exe");
+        File.Copy(Path.Combine(Environment.SystemDirectory, "PING.EXE"), childExe);
+
+        var hold = new TrackingHold();
+        var childRunningWhenReleased = false;
+        hold.OnDispose = () => childRunningWhenReleased = Process.GetProcessesByName(childName).Length > 0;
+
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true) with { Holds = [hold] };
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        service.TriageStartInfoFactory = (_, _, _, _) =>
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = childExe,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add("-n");
+            psi.ArgumentList.Add("30");
+            psi.ArgumentList.Add("127.0.0.1");
+            return psi;
+        };
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.Skipped, result.Outcome);
+        Assert.IsTrue(hold.Disposed);
+        Assert.IsFalse(childRunningWhenReleased, "The DLLs must stay held until the killed child has exited.");
+    }
+
+    private sealed class TrackingHold : IDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public Action? OnDispose { get; set; }
+
+        public void Dispose()
+        {
+            OnDispose?.Invoke();
+            Disposed = true;
+        }
+    }
+
+    [TestMethod]
     public async Task TryAnalyzeAsync_SymbolsRequestedButNoSymSrv_IncludesSymbolNote()
     {
         var service = CreateService();

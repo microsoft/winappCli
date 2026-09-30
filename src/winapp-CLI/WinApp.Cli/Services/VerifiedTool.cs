@@ -9,8 +9,9 @@ using System.Runtime.InteropServices;
 namespace WinApp.Cli.Services;
 
 /// <summary>
-/// A downloaded build tool that has passed the Authenticode gate and is being kept in place until
-/// the caller has finished running it. Dispose it once the tool has exited.
+/// A downloaded native binary (a build tool, or a DLL the triage debugger loads) that has passed the
+/// Authenticode gate and is being kept in place until the caller has finished using it. Dispose it
+/// once the tool has exited.
 /// </summary>
 /// <remarks>
 /// Verifying a tool and launching it are two separate moments, and both name the tool by path, so on
