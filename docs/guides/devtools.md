@@ -49,7 +49,9 @@ your selection and draft.
 Picking selects the element you declared: clicking a control's template part or its
 generated text, such as a TextBox's placeholder or a Button's string content, selects
 the control from your XAML. This includes parts of control templates your app restyles
-in its own XAML. An element with no authored ancestor is selected as-is;
+in its own XAML. With a menu, drop-down or flyout open, picking selects the item you
+see under the pointer. An element with no authored ancestor, such as a generated list
+item, selects the control it belongs to (for example the `ComboBoxItem`);
 a comment on it is saved but marked **Not linked to source**. To pick framework and
 template parts themselves, turn off **Just my XAML** in the inspector window.
 
@@ -63,7 +65,7 @@ The toolbar, highlight and markers draw above your app, including over open dial
 and flyouts, and stay out of your app's visual tree and layout. Menus and drop-downs
 that open in their own window, such as a `MenuFlyout` or a `ComboBox` list, draw over
 them; clicks there go to the menu, and the toolbar or marker underneath responds again
-once the menu closes. In pick mode, clicks still pick. The quick-edit panel opens clear
+once the menu closes. In pick mode, a click on a menu picks the menu item. The quick-edit panel opens clear
 of the toolbar. Screen readers and `winapp ui` find the toolbar under a **DevTools** pane in the window.
 
 Press **Ctrl+Shift+F12** in your app to move keyboard focus to the toolbar. Tab moves

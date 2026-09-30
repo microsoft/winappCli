@@ -619,6 +619,18 @@ static InstanceHandle PickTarget(InstanceHandle hit)
     for (const InstanceHandle ancestor : ancestors) {
         if (IsDeclaredElement(ancestor)) return ancestor;
     }
+    // Nothing declared above it (a generated list item, a menu built in code): select the control the hit belongs
+    // to, such as the ComboBoxItem or MenuFlyoutItem, rather than a part of its template.
+    auto isControl = [](InstanceHandle h) {
+        winrt::com_ptr<IInspectable> object;
+        if (!g_diag || FAILED(g_diag->GetIInspectableFromHandle(h, object.put())) || !object) return false;
+        winrt::com_ptr<IUnknown> control;
+        return SUCCEEDED(object->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), control.put_void()));
+    };
+    if (isControl(hit)) return hit;
+    for (const InstanceHandle ancestor : ancestors) {
+        if (isControl(ancestor)) return ancestor;
+    }
     return hit;
 }
 

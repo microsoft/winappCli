@@ -405,6 +405,7 @@ static void HostYieldToWindowedPopups()
         }
     }
     size_t restored = 0;
+    const size_t previous = g_hostYielded.size();
     for (auto const& weak : g_hostYielded) {
         auto element = weak.get();
         if (element && std::find(covered.begin(), covered.end(), element) == covered.end()) {
@@ -417,7 +418,7 @@ static void HostYieldToWindowedPopups()
         element.IsHitTestVisible(false);
         g_hostYielded.push_back(winrt::make_weak(element));
     }
-    if (!covered.empty() || restored)
+    if (restored || covered.size() != previous)
         DevToolsOverlayLog(L"overlay.host yield to windowed popups: %zu covered, %zu restored", covered.size(), restored);
 }
 

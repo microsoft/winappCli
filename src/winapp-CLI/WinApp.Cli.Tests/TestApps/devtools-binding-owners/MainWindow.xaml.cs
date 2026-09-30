@@ -38,22 +38,27 @@ public sealed partial class MainWindow : Window
         Bindings.Initialize();
     }
 
-    // Opens a windowed MenuFlyout whose item is centered near the given screen pixel.
+    // Opens the app's windowed MenuFlyout with its item centered near the given screen pixel.
     public void OpenMenuAt(int screenX, int screenY, Action clicked)
     {
         var origin = new NativePoint();
         ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref origin);
         var scale = Content.XamlRoot.RasterizationScale;
-        var item = new MenuFlyoutItem { Text = "Fixture menu item", Width = 120 };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(item, "FixtureMenuItem");
-        item.Click += (_, _) => clicked();
-        var menu = new MenuFlyout();
-        menu.Items.Add(item);
+        var menu = (MenuFlyout)((FrameworkElement)Content).Resources["FixtureMenu"];
+        _menuClicked = clicked;
+        if (!_menuWired)
+        {
+            ((MenuFlyoutItem)menu.Items[0]).Click += (_, _) => _menuClicked?.Invoke();
+            _menuWired = true;
+        }
         menu.ShowAt(Content, new FlyoutShowOptions
         {
             Position = new Point((screenX - origin.X) / scale - 64, (screenY - origin.Y) / scale - 20),
         });
     }
+
+    private Action? _menuClicked;
+    private bool _menuWired;
 
     [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X; public int Y; }
     [DllImport("user32.dll")] private static extern bool ClientToScreen(nint window, ref NativePoint point);

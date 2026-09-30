@@ -256,6 +256,74 @@ void DevToolsOverlay_ClassifyPickPoint(IXamlDiagnostics* diag, InstanceHandle ro
     }
 }
 
+// While a light-dismiss popup is open, the window's hit test also answers with PopupRoot and the popup's dismiss
+// surface around it: framework plumbing that draws nothing. Popup content is hit-tested separately
+// (PopupTopHandleAt), so only elements inside the window's content count here.
+static bool IsInPopupLayer(IXamlDiagnostics* diag, InstanceHandle handle)
+{
+    try {
+        winrt::com_ptr<IInspectable> object;
+        if (FAILED(diag->GetIInspectableFromHandle(handle, object.put())) || !object) return false;
+        winrt::Windows::Foundation::IInspectable element{ nullptr };
+        winrt::copy_from_abi(element, object.get());
+        auto ui = element.try_as<DevToolsX::UIElement>();
+        auto xamlRoot = ui ? ui.XamlRoot() : nullptr;
+        auto content = xamlRoot ? xamlRoot.Content() : nullptr;
+        if (!content) return false;
+        for (auto node = element.try_as<DevToolsX::DependencyObject>(); node; node = DevToolsXM::VisualTreeHelper::GetParent(node))
+            if (node == content) return false;
+        return true;
+    } catch (const winrt::hresult_error&) {}
+    return false;
+}
+
+// Pick what is visible: an open app popup (a menu, a drop-down, a flyout) is drawn above the window content, but the
+// window's hit test does not reach into it. Returns the front-most app element under the content-DIP point inside
+// an open popup; *overPopup reports whether the point is on one at all, so a miss is not taken for what lies
+// beneath it.
+static InstanceHandle PopupTopHandleAt(IXamlDiagnostics* diag, InstanceHandle rootHandle, long px, long py,
+                                       DevToolsIsOverlayFn isOverlay, bool* overPopup)
+{
+    *overPopup = false;
+    try {
+        winrt::com_ptr<IInspectable> rootObject;
+        if (FAILED(diag->GetIInspectableFromHandle(rootHandle, rootObject.put())) || !rootObject) return 0;
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, rootObject.get());
+        auto xamlRoot = object.as<DevToolsX::UIElement>().XamlRoot();
+        if (!xamlRoot) return 0;
+        auto handleOf = [&](winrt::Windows::Foundation::IInspectable const& element) {
+            InstanceHandle handle = 0;
+            return SUCCEEDED(diag->GetHandleFromIInspectable(reinterpret_cast<IInspectable*>(winrt::get_abi(element)), &handle))
+                ? handle : 0;
+        };
+        const winrt::Windows::Foundation::Point point{ (float)px + 0.5f, (float)py + 0.5f };
+        for (auto const& popup : DevToolsXM::VisualTreeHelper::GetOpenPopupsForXamlRoot(xamlRoot)) {
+            auto child = popup.Child().try_as<DevToolsX::FrameworkElement>();
+            if (!child) continue;
+            const InstanceHandle popupHandle = handleOf(popup), childHandle = handleOf(child);
+            if (isOverlay && ((popupHandle && isOverlay(popupHandle)) || (childHandle && isOverlay(childHandle)))) continue;
+            const auto bounds = child.TransformToVisual(nullptr).TransformBounds({ 0, 0, (float)child.ActualWidth(), (float)child.ActualHeight() });
+            if (point.X < bounds.X || point.Y < bounds.Y || point.X >= bounds.X + bounds.Width || point.Y >= bounds.Y + bounds.Height) continue;
+            // A light-dismiss surface spans the window around the menu; only content in the popup counts.
+            bool content = false;
+            for (auto const& element : DevToolsXM::VisualTreeHelper::FindElementsInHostCoordinates(point, child, false)) {
+                if (element == child) break;
+                content = true;
+                const InstanceHandle handle = handleOf(element);
+                if (handle && (!isOverlay || !isOverlay(handle))) { *overPopup = true; return handle; }
+            }
+            if (!content) continue;
+            *overPopup = true;
+            DevToolsOverlayLog(L"overlay.pick point is on an open popup, but no element in it could be identified");
+            return 0;
+        }
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.pick popup hit test failed hr=0x%08X", e.code().value);
+    }
+    return 0;
+}
+
 HRESULT DevToolsOverlay_Pick(IXamlDiagnostics* diag, InstanceHandle rootHandle, int screenX, int screenY,
                         DevToolsSeedFn seed, DevToolsIsOverlayFn isOverlay, InstanceHandle* outHandle, RECT* outBoundsDip)
 {
@@ -300,7 +368,7 @@ HRESULT DevToolsOverlay_Pick(IXamlDiagnostics* diag, InstanceHandle rootHandle, 
                                : diag->HitTest(r, &count, &hs);
         if (SUCCEEDED(hr) && count && hs) {
             for (unsigned int i = 0; i < count; ++i) {
-                if (topOut && !*topOut && hs[i] && (!isOverlay || !isOverlay(hs[i]))) *topOut = hs[i];
+                if (topOut && !*topOut && hs[i] && (!isOverlay || !isOverlay(hs[i])) && !IsInPopupLayer(diag, hs[i])) *topOut = hs[i];
                 if (hasFind && find && hs[i] == find) *hasFind = true;
             }
         }
@@ -310,7 +378,9 @@ HRESULT DevToolsOverlay_Pick(IXamlDiagnostics* diag, InstanceHandle rootHandle, 
 
     InstanceHandle picked = 0;
     const double tHit0 = QpcNow();
-    const HRESULT hitResult = hitAt(px, py, 0, &picked, nullptr);
+    bool overPopup = false;
+    picked = PopupTopHandleAt(diag, rootHandle, px, py, isOverlay, &overPopup);
+    const HRESULT hitResult = overPopup ? S_OK : hitAt(px, py, 0, &picked, nullptr);
     if (FAILED(hitResult)) {
         g_lastPickBoundsDip = RECT{};
         return hitResult;
@@ -377,6 +447,12 @@ static InstanceHandle PeekTopHandleAt(IXamlDiagnostics* diag, InstanceHandle roo
     DevToolsOverlay_ClassifyPickPoint(diag, rootHandle, screenX, screenY, &point);
     if (!point.resolved || point.outside) return 0;
     const long px = point.contentDipX, py = point.contentDipY;
+    bool overPopup = false;
+    const InstanceHandle popupTop = PopupTopHandleAt(diag, rootHandle, px, py, isOverlay, &overPopup);
+    if (overPopup) {
+        if (result) *result = S_OK;
+        return popupTop;
+    }
     RECT r{ px, py, px + 1, py + 1 };
     unsigned int count = 0; InstanceHandle* hs = nullptr;
     HRESULT hr = hasDiag2 ? diag2->HitTestForXamlRoot(rootHandle, r, &count, &hs) : diag->HitTest(r, &count, &hs);
@@ -384,7 +460,7 @@ static InstanceHandle PeekTopHandleAt(IXamlDiagnostics* diag, InstanceHandle roo
     InstanceHandle top = 0;
     if (SUCCEEDED(hr) && count && hs) {
         for (unsigned int i = 0; i < count; ++i) {
-            if (hs[i] && (!isOverlay || !isOverlay(hs[i]))) { top = hs[i]; break; }
+            if (hs[i] && (!isOverlay || !isOverlay(hs[i])) && !IsInPopupLayer(diag, hs[i])) { top = hs[i]; break; }
         }
     }
     if (hs) CoTaskMemFree(hs);

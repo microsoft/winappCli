@@ -480,6 +480,19 @@ try {
         $afterMenu = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
         Check (@($afterMenu.windows | ForEach-Object { Nodes $_.elements } | Where-Object {
             $_.automationId -eq $toolbarHalf[0].automationId -and -not $_.isOffscreen }).Count -eq 1) 'the toolbar under the menu did not react to the click'
+
+        # Pick mode picks what is visible: a menu item in an open app menu, not the element beneath it.
+        $anchor = @((Invoke-Cli @('ui', 'search', 'WindowHeading', '-a', $app)).matches | Where-Object automationId -eq 'WindowHeading')[0]
+        Control "menu:$([int]($anchor.x + 80)),$([int]($anchor.y + 60))"
+        $null = Invoke-Cli @('ui', 'wait-for', 'FixtureMenuItem', '-a', $app, '-t', '5000')
+        $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
+        $null = Invoke-Cli @('ui', 'click', 'FixtureMenuItem', '-a', $app)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
+        $pickedTitle = Invoke-Cli @('ui', 'get-property', 'DevToolsSelTitle', '-a', $app, '-p', 'Name')
+        Check ($pickedTitle.properties.Name -like 'MenuFlyoutItem*') 'pick mode selects the menu item under the pointer in an open app menu'
+        $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelClose', '-a', $app)
+        $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
+        $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
         [ordered]@{
             processId = $owned.Id; startTicksUtc = $started.Ticks; executable = $executable
             sourceHandle = [string]$heading[0].handle

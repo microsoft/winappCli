@@ -4,6 +4,11 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:BindingOwnersFixture">
     <StackPanel Spacing="8" Padding="24">
+        <StackPanel.Resources>
+            <MenuFlyout x:Key="FixtureMenu">
+                <MenuFlyoutItem AutomationProperties.AutomationId="FixtureMenuItem" Text="Fixture menu item" Width="120" />
+            </MenuFlyout>
+        </StackPanel.Resources>
         <TextBlock x:Name="WindowHeading" AutomationProperties.AutomationId="WindowHeading" Text="{x:Bind HeadingText, Mode=OneWay}" />
         <TextBlock Text="{x:Bind HeadingText, Mode=OneWay}" />
         <local:OwnerPage />
