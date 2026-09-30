@@ -707,7 +707,7 @@ public class PackageRegistrationServiceTests
 
             var found = svc.FindPackagesAtLocation(layout.FullName);
 
-            CollectionAssert.AreEqual(new[] { "Live.App_1.0.0.0_x64__abc" }, found.Select(package => package.FullName).ToArray());
+            Assert.AreEqual("Live.App_1.0.0.0_x64__abc", found.Single().FullName);
         }
         finally
         {
