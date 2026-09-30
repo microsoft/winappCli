@@ -84,7 +84,9 @@ public class WindowsSandboxBootstrapTests
 
         // A heartbeat from a previous boot describes an agent that no longer exists. Accepting it
         // would connect the host to a port nothing is listening on, or worse, the wrong thing.
-        await Assert.ThrowsExactlyAsync<TaskCanceledException>(
+        // The poll loop observes cancellation both directly and through Task.Delay, so either
+        // OperationCanceledException or its TaskCanceledException subtype is correct.
+        await Assert.ThrowsAsync<OperationCanceledException>(
             () => WindowsSandboxBackend.WaitForHeartbeatAsync(_resultDirectory, Epoch, cancellation.Token));
     }
 
@@ -134,7 +136,7 @@ public class WindowsSandboxBootstrapTests
 
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
 
-        await Assert.ThrowsExactlyAsync<TaskCanceledException>(
+        await Assert.ThrowsAsync<OperationCanceledException>(
             () => WindowsSandboxBackend.WaitForHeartbeatAsync(_resultDirectory, Epoch, cancellation.Token));
 
         // The diagnostics themselves are covered by the timeout path; this confirms an oversized or

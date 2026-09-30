@@ -564,7 +564,35 @@ internal class NewCommand : Command, IShortDescription
             tel.Template = entry.ShortName;
             tel.TemplateIsItem = entry.IsItem;
 
-            // 1a. Resolve the target-framework pin now, before any name prompt, so a template the
+            // 1a. dotnet new selects a template by short name and refuses one that matches templates
+            // from more than one installed pack. When another pack registers every alias this template
+            // has, there is no name dotnet new can scaffold it by, so stop before prompting for a name.
+            var scaffoldShortName = entry.ScaffoldShortName;
+            if (scaffoldShortName is null)
+            {
+                var packs = string.Join(", ", entry.ConflictingPackages);
+                var uninstall = string.Join(" and ", entry.ConflictingPackages.Select(p => $"'dotnet new uninstall {p}'"));
+                var conflictError = $"Template '{entry.ShortName}' can't be created because every short name it has ({string.Join(", ", entry.ShortNames)}) "
+                    + $"is also registered by another installed template pack ({packs}), so 'dotnet new' can't tell them apart. "
+                    + $"Remove the other pack with {uninstall}, then re-run 'winapp new'.";
+                if (isJson)
+                {
+                    PrintJson(false, entry.ShortName, name ?? string.Empty, (output ?? currentDir).FullName, conflictError, entry.IsExperimental);
+                }
+                else
+                {
+                    logger.LogError("{Error} {Detail}", UiSymbols.Error, conflictError);
+                }
+                return ExitTemplatePackFailed;
+            }
+
+            if (!string.Equals(scaffoldShortName, entry.ShortName, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogDebug("'{ShortName}' is also registered by {Packs}; scaffolding with '{Alias}' instead.",
+                    entry.ShortName, string.Join(", ", entry.ConflictingPackages), scaffoldShortName);
+            }
+
+            // 1b. Resolve the target-framework pin now, before any name prompt, so a template the
             // installed SDK is too old for (the Reactor templates require .NET 10) fails immediately
             // with an actionable message instead of scaffolding a project that cannot be built.
             var frameworkArgs = new List<string>();
@@ -681,9 +709,9 @@ internal class NewCommand : Command, IShortDescription
 
             // Pass each token via ArgumentList (injection-safe) so a crafted --name or --output cannot
             // inject additional dotnet new options.
-            var args = new List<string> { "new", entry.ShortName, "-n", name!, "-o", outputDir.FullName };
+            var args = new List<string> { "new", scaffoldShortName, "-n", name!, "-o", outputDir.FullName };
 
-            // Target framework, resolved and validated in step 1a (empty for item templates, which take
+            // Target framework, resolved and validated in step 1b (empty for item templates, which take
             // no framework, and for project templates whose metadata declares nothing to pin).
             args.AddRange(frameworkArgs);
 
@@ -1119,7 +1147,11 @@ internal class NewCommand : Command, IShortDescription
                 return ([], $"Could not verify which templates '{TemplatePackageId}' owns: no template list for it in 'dotnet new uninstall' output. Re-run with --verbose to see that output.");
             }
 
-            return (WinUiTemplateCatalog.RestrictToPack(parsed, packRows), null);
+            // Another installed pack (e.g. the standalone Microsoft.UI.Reactor.Templates) may register
+            // the same aliases; dotnet new refuses a short name that matches templates from more than
+            // one pack, so record which aliases are shared and scaffold with one that isn't.
+            var owned = WinUiTemplateCatalog.RestrictToPack(parsed, packRows);
+            return (WinUiTemplateCatalog.MarkSharedAliases(owned, WinUiTemplateCatalog.ParseInstalledPacks(packOutput), TemplatePackageId), null);
         }
 
         private async Task<WinUiTemplateEntry> PromptTemplateAsync(IReadOnlyList<WinUiTemplateEntry> templates, CancellationToken cancellationToken)
