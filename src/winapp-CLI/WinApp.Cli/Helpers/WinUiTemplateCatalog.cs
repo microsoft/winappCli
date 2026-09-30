@@ -64,6 +64,23 @@ internal sealed record WinUiTemplateEntry(
     /// </summary>
     public bool IsExperimental
         => HasTag("Experimental") || DisplayName.Contains("(Experimental)", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Aliases of this template that another installed template pack also registers. <c>dotnet new</c>
+    /// refuses a short name that matches templates from more than one pack, so these can't be used to
+    /// scaffold this template.
+    /// </summary>
+    public IReadOnlyList<string> SharedAliases { get; init; } = [];
+
+    /// <summary>The other installed packs that register any of <see cref="SharedAliases"/>.</summary>
+    public IReadOnlyList<string> ConflictingPackages { get; init; } = [];
+
+    /// <summary>
+    /// The short name to hand <c>dotnet new</c>: the first alias no other installed pack registers, or
+    /// <c>null</c> when every alias is shared (so <c>dotnet new</c> can't select this template by name).
+    /// </summary>
+    public string? ScaffoldShortName
+        => ShortNames.FirstOrDefault(a => !SharedAliases.Contains(a, StringComparer.OrdinalIgnoreCase));
 }
 
 /// <summary>
@@ -72,6 +89,9 @@ internal sealed record WinUiTemplateEntry(
 /// is never truncated and <see cref="Aliases"/> is authoritative for what the pack actually owns.
 /// </summary>
 internal sealed record PackTemplateRow(string DisplayName, IReadOnlyList<string> Aliases);
+
+/// <summary>An installed template pack and the templates it owns, parsed from <c>dotnet new uninstall</c>.</summary>
+internal sealed record InstalledTemplatePack(string PackageId, IReadOnlyList<PackTemplateRow> Templates);
 
 /// <summary>
 /// Pure parsing of <c>dotnet</c> template subcommand output. Enumerating a pack's templates and
@@ -276,10 +296,8 @@ internal static class WinUiTemplateCatalog
             }
 
             // Scan this package's block (lines indented deeper than the header) for its "Templates:"
-            // sub-header, then collect the template rows nested under it (deeper still), stopping when
-            // the indent returns to the "Templates:" level (the sibling "Uninstall Command:" block).
+            // sub-header, then collect the template rows nested under it.
             var headerIndent = IndentWidth(lines[i]);
-            var templatesIndent = -1;
             for (var j = i + 1; j < lines.Length; j++)
             {
                 var raw = lines[j];
@@ -288,35 +306,148 @@ internal static class WinUiTemplateCatalog
                     continue;
                 }
 
-                var indent = IndentWidth(raw);
-                if (indent <= headerIndent)
+                if (IndentWidth(raw) <= headerIndent)
                 {
                     break; // next package block
                 }
 
-                if (templatesIndent < 0)
+                if (IsTemplatesHeader(raw))
                 {
-                    if (raw.Trim().Equals("Templates:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        templatesIndent = indent;
-                    }
-
-                    continue;
-                }
-
-                if (indent <= templatesIndent)
-                {
-                    break; // left the Templates block (e.g. "Uninstall Command:")
-                }
-
-                var aliases = ExtractAliases(raw);
-                if (aliases.Length > 0)
-                {
-                    rows.Add(new PackTemplateRow(ExtractDisplayName(raw), aliases));
+                    rows.AddRange(ReadTemplateRows(lines, j));
+                    break;
                 }
             }
 
             break;
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// Parses every installed pack's "Templates:" block from a <c>dotnet new uninstall</c> listing.
+    /// The owning package of a block is the nearest preceding line indented less than its
+    /// "Templates:" sub-header (sibling lines such as "Version:" and "Details:" sit at the same
+    /// indent, and their children deeper). Packs without a Templates block are omitted.
+    /// </summary>
+    internal static IReadOnlyList<InstalledTemplatePack> ParseInstalledPacks(string uninstallListOutput)
+    {
+        var packs = new List<InstalledTemplatePack>();
+        if (string.IsNullOrEmpty(uninstallListOutput))
+        {
+            return packs;
+        }
+
+        var lines = uninstallListOutput.Replace("\r\n", "\n").Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (!IsTemplatesHeader(lines[i]))
+            {
+                continue;
+            }
+
+            var templatesIndent = IndentWidth(lines[i]);
+            string? packageId = null;
+            for (var j = i - 1; j >= 0; j--)
+            {
+                if (lines[j].Trim().Length > 0 && IndentWidth(lines[j]) < templatesIndent)
+                {
+                    packageId = lines[j].Trim();
+                    break;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(packageId))
+            {
+                packs.Add(new InstalledTemplatePack(packageId, ReadTemplateRows(lines, i)));
+            }
+        }
+
+        return packs;
+    }
+
+    /// <summary>
+    /// Records, on each of <paramref name="entries"/> (templates owned by <paramref name="packageId"/>),
+    /// which of its aliases another installed pack in <paramref name="installedPacks"/> also registers,
+    /// and which packs those are. <c>dotnet new &lt;alias&gt;</c> fails when an alias matches templates
+    /// from more than one pack, so the scaffold must use an alias no other pack claims
+    /// (<see cref="WinUiTemplateEntry.ScaffoldShortName"/>).
+    /// </summary>
+    internal static IReadOnlyList<WinUiTemplateEntry> MarkSharedAliases(
+        IReadOnlyList<WinUiTemplateEntry> entries, IReadOnlyList<InstalledTemplatePack> installedPacks, string packageId)
+    {
+        var foreignOwners = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pack in installedPacks)
+        {
+            if (pack.PackageId.Equals(packageId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var alias in pack.Templates.SelectMany(t => t.Aliases))
+            {
+                if (!foreignOwners.TryGetValue(alias, out var owners))
+                {
+                    owners = [];
+                    foreignOwners[alias] = owners;
+                }
+
+                if (!owners.Contains(pack.PackageId, StringComparer.OrdinalIgnoreCase))
+                {
+                    owners.Add(pack.PackageId);
+                }
+            }
+        }
+
+        return entries
+            .Select(entry =>
+            {
+                var shared = entry.ShortNames.Where(foreignOwners.ContainsKey).ToList();
+                if (shared.Count == 0)
+                {
+                    return entry;
+                }
+
+                var conflicting = shared
+                    .SelectMany(a => foreignOwners[a])
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                return entry with { SharedAliases = shared, ConflictingPackages = conflicting };
+            })
+            .ToList();
+    }
+
+    /// <summary>True when <paramref name="line"/> is a pack's "Templates:" sub-header.</summary>
+    private static bool IsTemplatesHeader(string line)
+        => line.Trim().Equals("Templates:", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Collects the template rows nested under the "Templates:" sub-header at
+    /// <paramref name="templatesIndex"/>, stopping when the indent returns to that level (the sibling
+    /// "Uninstall Command:" block) or above.
+    /// </summary>
+    private static List<PackTemplateRow> ReadTemplateRows(string[] lines, int templatesIndex)
+    {
+        var rows = new List<PackTemplateRow>();
+        var templatesIndent = IndentWidth(lines[templatesIndex]);
+        for (var j = templatesIndex + 1; j < lines.Length; j++)
+        {
+            var raw = lines[j];
+            if (raw.Trim().Length == 0)
+            {
+                continue;
+            }
+
+            if (IndentWidth(raw) <= templatesIndent)
+            {
+                break;
+            }
+
+            var aliases = ExtractAliases(raw);
+            if (aliases.Length > 0)
+            {
+                rows.Add(new PackTemplateRow(ExtractDisplayName(raw), aliases));
+            }
         }
 
         return rows;
