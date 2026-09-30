@@ -228,7 +228,7 @@ std::wstring DevToolsProtocolCapabilitiesJson(unsigned long processId, DevToolsA
     }
     for (const auto& event : kEvents) events.push_back(event.name);
 
-    std::wstring json = L"{\"protocol\":\"winapp-devtools\",\"protocolVersion\":\"1\",\"experimental\":true,\"processId\":";
+    std::wstring json = L"{\"protocol\":\"winapp-devtools\",\"protocolVersion\":\"0\",\"experimental\":true,\"processId\":";
     json += std::to_wstring(processId);
     json += L",\"mutation\":";
     json += (posture == DevToolsAccess::Mutation) ? L"true" : L"false";

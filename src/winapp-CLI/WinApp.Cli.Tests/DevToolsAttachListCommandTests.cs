@@ -182,7 +182,7 @@ public class DevToolsAttachListCommandTests : BaseCommandTests
                     Attached = true,
                     Status = "attached",
                     Responsive = true,
-                    ProtocolVersion = "1",
+                    ProtocolVersion = "0",
                     Mutation = true,
                     Posture = "mutation",
                     NodeCount = 42,

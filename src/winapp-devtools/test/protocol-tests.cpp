@@ -179,7 +179,7 @@ static void TestAdvertisedCapabilitiesComeFromRegistry()
     const std::wstring json = DevToolsProtocolCapabilitiesJson(1234, DevToolsAccess::Mutation, 7, L"0f1e2d3c4b5a69788796a5b4c3d2e1f0");
     PCheck(DevToolsJsonParse(json, capabilities), "DevTools.negotiate result parses");
     PCheck(capabilities.GetString(L"protocol") == L"winapp-devtools", "  protocol identity is present");
-    PCheck(capabilities.GetString(L"protocolVersion") == L"1", "  protocol version is present");
+    PCheck(capabilities.GetString(L"protocolVersion") == L"0" && capabilities.GetBool(L"experimental", false), "  an experimental protocol is version 0");
     PCheck(capabilities.GetString(L"connectionId") == L"7", "  connection id is preserved");
     // The owner token is what a client presents to establish, and hand back, process-global UI state. It is
     // reported separately from connectionId on purpose: the id is public in every event's `origin`, so an

@@ -200,7 +200,9 @@ Raw `call` does not resolve element names or selectors. Copy the element's numer
 `handle=123`. Do not pass the `selector` field or use `handle:=123`: handles are
 opaque decimal strings.
 
-`DevTools.negotiate` lists the methods the attached app supports.
+`DevTools.negotiate` lists the methods the attached app supports. While the protocol
+is experimental (`"experimental": true`), its `protocolVersion` is `"0"` and methods
+may change between releases.
 
 ### Read a binding path natively
 
