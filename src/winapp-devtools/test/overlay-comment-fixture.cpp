@@ -43,6 +43,21 @@ bool OverlayFixtureHostFallsBack()
     return layer && fallbacks && forced && std::wstring(DevToolsOverlay_HostPath()) == L"none";
 }
 
+// Ctrl+Shift+F12 whose modifier key-downs reach the app after the F12 (the text-field case) still counts; an F12
+// followed by anything else, or by the modifiers too late, does not.
+bool OverlayFixtureLateShortcut()
+{
+    const bool bare = !IsToolbarShortcut(VK_F12);          // no modifier is down in the test process
+    const bool late = !IsLateToolbarShortcut(VK_SHIFT) && IsLateToolbarShortcut(VK_CONTROL);
+    const bool once = !IsLateToolbarShortcut(VK_SHIFT) && !IsLateToolbarShortcut(VK_CONTROL);
+    IsToolbarShortcut(VK_F12);
+    const bool interrupted = !IsLateToolbarShortcut(L'A') && !IsLateToolbarShortcut(VK_CONTROL) && !IsLateToolbarShortcut(VK_SHIFT);
+    IsToolbarShortcut(VK_F12);
+    g_bareF12At -= 1000;
+    const bool expired = !IsLateToolbarShortcut(VK_CONTROL) && !IsLateToolbarShortcut(VK_SHIFT);
+    return bare && late && once && interrupted && expired;
+}
+
 std::vector<InstanceHandle> OverlayFixtureSurfaceCandidates()
 {
     return g_surfaceRoots ? g_surfaceRoots() : std::vector<InstanceHandle>{};

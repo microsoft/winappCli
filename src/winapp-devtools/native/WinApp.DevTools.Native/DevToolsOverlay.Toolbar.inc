@@ -2,9 +2,6 @@
 // Licensed under the MIT License.
 // Part of DevToolsOverlay.cpp; included into that translation unit, not compiled on its own.
 
-#include <winrt/Windows.System.h>
-#include <winrt/Windows.UI.Core.h>
-
 static void DevToolsSetSelectionPanelRequestedTheme(int requestedTheme);
 
 static void DevToolsSetToolbarRequestedTheme(int appTheme)
@@ -161,20 +158,36 @@ static void OnPillGotFocus(void*, void*)
 // the app element that had it.
 static winrt::weak_ref<DevToolsX::UIElement> g_toolbarReturnFocus;
 
+// With a text field focused, the chord's Ctrl and Shift key-downs can reach the app right after the F12 they modify,
+// so both modifier states read up at the F12. An F12 without them still counts when both follow at once.
+static ULONGLONG g_bareF12At = 0;
+static unsigned g_lateModifiers = 0;
+
 static bool IsToolbarShortcut(int key)
 {
     if (key != VK_F12) return false;
-    // Ask the input stack that delivered this key, not the Win32 queue state, which can lag behind island input.
-    auto down = [](winrt::Windows::System::VirtualKey modifier) {
-        return (winrt::Microsoft::UI::Input::InputKeyboardSource::GetKeyStateForCurrentThread(modifier) &
-            winrt::Windows::UI::Core::CoreVirtualKeyStates::Down) == winrt::Windows::UI::Core::CoreVirtualKeyStates::Down;
-    };
-    using winrt::Windows::System::VirtualKey;
-    const bool chord = down(VirtualKey::Control) && down(VirtualKey::Shift) && !down(VirtualKey::Menu) &&
-        !down(VirtualKey::LeftWindows) && !down(VirtualKey::RightWindows);
-    const bool win32 = (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000);
-    if (chord != win32) DevToolsOverlayLog(L"overlay.toolbar shortcut modifiers: input=%d win32=%d", (int)chord, (int)win32);
+    const bool chord = (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000) &&
+        !(GetKeyState(VK_MENU) & 0x8000) && !(GetKeyState(VK_LWIN) & 0x8000) && !(GetKeyState(VK_RWIN) & 0x8000);
+    g_bareF12At = chord ? 0 : GetTickCount64();
+    g_lateModifiers = 0;
     return chord;
+}
+
+static bool IsLateToolbarShortcut(int key)
+{
+    // The late key-downs are replayed together with the F12; a person pressing Ctrl+Shift+<key> after tapping F12
+    // is far slower than this.
+    constexpr ULONGLONG kWindowMs = 50;
+    if (!g_bareF12At) return false;
+    if (GetTickCount64() - g_bareF12At > kWindowMs || (key != VK_CONTROL && key != VK_SHIFT)) {
+        g_bareF12At = 0;
+        return false;
+    }
+    g_lateModifiers |= key == VK_CONTROL ? 1u : 2u;
+    if (g_lateModifiers != 3) return false;
+    DevToolsOverlayLog(L"overlay.toolbar shortcut: Ctrl and Shift arrived %llu ms after F12", GetTickCount64() - g_bareF12At);
+    g_bareF12At = 0;
+    return true;
 }
 
 // The element with keyboard focus in the toolbar's XamlRoot, and whether it is part of the toolbar.

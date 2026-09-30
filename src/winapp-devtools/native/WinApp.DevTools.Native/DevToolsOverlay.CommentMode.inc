@@ -97,6 +97,11 @@ static void OnAppEscape(void* /*sender*/, void* args)
     if (FAILED(ai->QueryInterface(DevToolsIid<DevToolsXI::IKeyRoutedEventArgs>(), &kr)) || !kr) return;
     int key = 0;
     HRESULT hr = DevToolsGetKey(kr, &key);
+    if (SUCCEEDED(hr) && IsLateToolbarShortcut(key) && FocusToolbarFromShortcut()) {
+        DevToolsPutHandled(kr, true);
+        reinterpret_cast<IUnknown*>(kr)->Release();
+        return;
+    }
     if (SUCCEEDED(hr) && ((IsToolbarShortcut(key) && FocusToolbarFromShortcut()) ||
                           (key == VK_ESCAPE && ReturnFocusFromToolbar()))) {
         DevToolsPutHandled(kr, true);
