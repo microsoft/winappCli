@@ -9,33 +9,36 @@ using WinApp.Cli.Commands;
 namespace WinApp.Cli.Helpers;
 
 /// <summary>
-/// Plain-text help for the <c>winapp ui</c> group and its commands. Agents read this help
-/// redirected, so it has no styling, keeps the golden path first, and collapses the options
-/// every command shares into one line.
+/// Plain-text help for the command groups agents drive (<c>winapp ui</c>, <c>winapp devtools</c>) and
+/// their commands. Agents read this help redirected, so it has no styling, keeps the golden path
+/// first, and collapses the options every command shares into one line.
 /// </summary>
-internal static class UiHelpRenderer
+internal static class CompactHelpRenderer
 {
     internal const int Width = 88;
     internal const string GlobalOptionsLine = "Global options: -v, -q, --on <target>, --cli-schema   (see winapp --help)";
+    internal const string LocalGlobalOptionsLine = "Global options: -v, -q, --cli-schema   (see winapp --help)";
 
     private const int MinNameColumn = 18;
     private const int MaxNameColumn = 24;
 
     public static bool AppliesTo(Command command) =>
-        command is UiCommand || command.Parents.OfType<Command>().Any(AppliesTo);
+        command is ICompactHelpGroup || command.Parents.OfType<Command>().Any(AppliesTo);
 
     public static string Render(Command command) =>
-        command is UiCommand group ? RenderGroup(group) : RenderCommand(command);
+        command is ICompactHelpGroup ? RenderGroup(command) : RenderCommand(command);
 
-    internal static string RenderGroup(UiCommand group)
+    internal static string RenderGroup(Command group)
     {
+        var help = (ICompactHelpGroup)group;
+        var path = GetCommandPath(group);
         var sb = new StringBuilder();
-        AppendDescription(sb, "winapp ui - ", group.Description ?? "");
+        AppendDescription(sb, $"{path} - ", group.Description ?? "");
         sb.AppendLine();
-        sb.AppendLine("Usage: winapp ui <command> [options]    Details: winapp ui <command> --help");
+        sb.AppendLine($"Usage: {path} <command> [options]    Details: {path} <command> --help");
 
         var byType = group.Subcommands.ToDictionary(c => c.GetType());
-        foreach (var (category, types) in UiCommand.HelpCategories)
+        foreach (var (category, types) in help.Categories)
         {
             sb.AppendLine();
             sb.AppendLine(category);
@@ -49,11 +52,7 @@ internal static class UiHelpRenderer
 
         sb.AppendLine();
         sb.AppendLine("Options:");
-        AppendRows(sb,
-        [
-            ("--on <target>", "Run on 'sandbox' (Windows Sandbox) or 'local' (default)"),
-            ("-h, --help", "Show help"),
-        ]);
+        AppendRows(sb, help.GroupOptions);
         return sb.ToString();
     }
 
@@ -100,7 +99,8 @@ internal static class UiHelpRenderer
         }
 
         sb.AppendLine();
-        sb.AppendLine(GlobalOptionsLine);
+        // Saved-comment reads always run locally and reject --on.
+        sb.AppendLine(command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand ? LocalGlobalOptionsLine : GlobalOptionsLine);
         return sb.ToString();
     }
 
@@ -118,7 +118,7 @@ internal static class UiHelpRenderer
         var hasWindow = command.Options.Contains(SharedUiOptions.WindowOption);
         if (hasApp && hasWindow)
         {
-            parts.Add("(-a <app> | -w <hwnd>)");
+            parts.Add(command.Parents.OfType<ICompactHelpGroup>().FirstOrDefault()?.TargetUsage ?? "(-a <app> | -w <hwnd>)");
         }
         else if (hasApp)
         {

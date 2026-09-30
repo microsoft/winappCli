@@ -10,9 +10,14 @@ using WinApp.Cli.Services.DevTools;
 
 namespace WinApp.Cli.Commands;
 
-internal class DevToolsGetLayoutCommand : DevToolsLiveCommand
+internal class DevToolsGetLayoutCommand : DevToolsLiveCommand, IHelpExamples
 {
     public override string ShortDescription => "Read an element's measured/arranged layout";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools get-layout <selector> -a <app>",
+    ];
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
     {

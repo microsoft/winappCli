@@ -10,9 +10,16 @@ using WinApp.Cli.Services.DevTools;
 
 namespace WinApp.Cli.Commands;
 
-internal class DevToolsInspectCommand : DevToolsLiveCommand
+internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
 {
     public override string ShortDescription => "View a running app's XAML visual tree";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools inspect -a <app>",
+        "winapp devtools inspect <selector> --depth 2 -a <app>",
+        "winapp devtools inspect --filter <text> -a <app>",
+    ];
 
     public static Option<int> DepthOption { get; } = new("--depth", "-d")
     {

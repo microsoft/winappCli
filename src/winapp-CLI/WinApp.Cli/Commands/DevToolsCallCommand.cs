@@ -23,9 +23,15 @@ namespace WinApp.Cli.Commands;
 /// back-channels, not protocol surface — so this command rejects them by name before anything reaches the wire.
 /// </para>
 /// </summary>
-internal class DevToolsCallCommand : DevToolsLiveCommand
+internal class DevToolsCallCommand : DevToolsLiveCommand, IHelpExamples
 {
     public override string ShortDescription => "Call any advertised DevTools protocol method (advanced)";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools call DevTools.negotiate -a <app>",
+        "winapp devtools call Binding.walk handle=<handle> prop=Text -a <app>",
+    ];
 
     public static Argument<string?> MethodArgument { get; } = new("method")
     {

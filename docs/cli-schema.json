@@ -710,8 +710,23 @@
       }
     },
     "devtools": {
-      "description": "Inspect live WinUI elements, edit properties, and review UI comments.",
+      "description": "Inspect and change a running WinUI 3 app's XAML live. Changes are not written to source.\n\n  winapp run . --devtools --detach                     launch your app with DevTools\n  winapp devtools attach --pid <pid>                   or add DevTools to a running app\n  winapp devtools list                                 apps with DevTools attached\n  winapp devtools search <text> -a <app>               find elements by text or x:Name\n  winapp devtools get-property <selector> -a <app>     read its live properties\n  winapp devtools set-property <selector> <prop> <value> -a <app>\n                                                       change a property live\n  winapp devtools comments list                        comments left in the app\n\n  -a <app>     Process name, window title, or PID. Optional when only one app has\n               DevTools attached.\n  <selector>   The name in brackets from search or inspect, an x:Name, or a handle.\n\nUse 'winapp ui' to click, type, and read values in any app. Use 'winapp devtools' for a\nWinUI app's XAML tree, properties, bindings, and live edits.",
       "hidden": false,
+      "options": {
+        "--json": {
+          "description": "Format output as JSON",
+          "hidden": false,
+          "valueType": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValue": false,
+          "arity": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": false
+        }
+      },
       "subcommands": {
         "attach": {
           "description": "Enable DevTools in a running WinUI 3 app until that app exits.",
@@ -845,11 +860,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -930,11 +946,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -947,8 +964,23 @@
           }
         },
         "comments": {
-          "description": "Manage saved UI review comments anchored to app source.",
+          "description": "Read and resolve the review comments people leave on a running app's elements. Comments are saved in .winapp/ui-comments.json with the XAML file and line they point at.\n\n  winapp devtools comments list\n  winapp devtools comments get <id>\n  winapp devtools comments update <id> --status resolved --note \"<text>\"",
           "hidden": false,
+          "options": {
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          },
           "subcommands": {
             "add": {
               "description": "Author a source-anchored UI review comment into .winapp/ui-comments.json.",
@@ -1590,11 +1622,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -1675,11 +1708,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -1709,11 +1743,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -1794,11 +1829,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -1852,11 +1888,12 @@
               "recursive": false
             },
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -1964,11 +2001,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -2009,11 +2047,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -2094,11 +2133,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -2154,11 +2194,12 @@
               "recursive": false
             },
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -2291,11 +2332,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -2413,11 +2455,12 @@
               "recursive": false
             },
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -2535,11 +2578,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -2602,11 +2646,12 @@
           },
           "options": {
             "--app": {
-              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "description": "Target app by process name, window title, or PID",
               "hidden": false,
               "aliases": [
                 "-a"
               ],
+              "helpName": "app",
               "valueType": "System.String",
               "hasDefaultValue": false,
               "arity": {
@@ -2738,11 +2783,12 @@
               "recursive": false
             },
             "--window": {
-              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
               "hidden": false,
               "aliases": [
                 "-w"
               ],
+              "helpName": "hwnd",
               "valueType": "System.Nullable<System.Int64>",
               "hasDefaultValue": false,
               "arity": {
@@ -5739,7 +5785,7 @@
       }
     },
     "ui": {
-      "description": "Drive any running Windows app through UI Automation (WinUI 3, WPF, WinForms, Win32, UWP, Electron).\n\n  winapp ui inspect -a <app> --interactive           see what you can act on\n  winapp ui invoke <selector> -a <app>               press buttons, menu items, tabs, toggles\n  winapp ui set-value <selector> \"<text>\" -a <app>   fill text boxes and documents\n  winapp ui get-value <selector> -a <app>            check the result\n\n  -a <app>     Process name, window title, or PID. Targets the app's active window,\n               including an open dialog. It prints the window's -w <hwnd>; use that\n               if it picked the wrong window.\n  <selector>   A visible label (\"Save as\"), an AutomationId (stable), or a slug from\n               inspect (changes when the element is recreated). If a label matches\n               several elements, narrow it: \"Save\" --type Button, or --root <selector>.\n  After an action changes the UI (a dialog opens, a page loads), inspect again.",
+      "description": "Drive any running Windows app through UI Automation (WinUI 3, WPF, WinForms, Win32, UWP, Electron).\n\n  winapp ui inspect -a <app> --interactive           see what you can act on\n  winapp ui invoke <selector> -a <app>               press buttons, menu items, tabs, toggles\n  winapp ui set-value <selector> \"<text>\" -a <app>   fill text boxes and documents\n  winapp ui get-value <selector> -a <app>            check the result\n\n  -a <app>     Process name, window title, or PID. Targets the app's active window,\n               including an open dialog. It prints the window's -w <hwnd>; use that\n               if it picked the wrong window.\n  <selector>   A visible label (\"Save as\"), an AutomationId (stable), or a slug from\n               inspect (changes when the element is recreated). If a label matches\n               several elements, narrow it: \"Save\" --type Button, or --root <selector>.\n  After an action changes the UI (a dialog opens, a page loads), inspect again.\n\nChanging a WinUI app's properties or text live? See 'winapp devtools --help'.",
       "hidden": false,
       "options": {
         "--json": {

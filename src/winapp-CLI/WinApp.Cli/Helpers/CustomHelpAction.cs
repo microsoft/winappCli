@@ -13,7 +13,7 @@ namespace WinApp.Cli.Helpers;
 /// <summary>
 /// Custom help action that renders the root command help screen with
 /// categorized command tables and short descriptions, styled with Spectre.Console.
-/// The <c>ui</c> group and its commands get plain-text help from <see cref="UiHelpRenderer"/>.
+/// The <c>ui</c> and <c>devtools</c> groups and their commands get plain-text help from <see cref="CompactHelpRenderer"/>.
 /// Other commands use the default System.CommandLine help rendering.
 /// </summary>
 internal sealed class CustomHelpAction : SynchronousCommandLineAction
@@ -47,27 +47,17 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
     {
         var command = parseResult.CommandResult.Command;
 
-        if (UiHelpRenderer.AppliesTo(command))
+        if (CompactHelpRenderer.AppliesTo(command))
         {
-            parseResult.InvocationConfiguration.Output.Write(UiHelpRenderer.Render(command));
+            parseResult.InvocationConfiguration.Output.Write(CompactHelpRenderer.Render(command));
             return 0;
         }
 
         // Only use custom rendering for the target command; fall back to default for others
         if (command != _targetCommand)
         {
-            // --on is recursive, but these commands read the local comment store and always reject it.
-            var onOption = ExecutionTargetSelection.OnOption;
-            var wasHidden = onOption.Hidden;
-            onOption.Hidden |= command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand;
-            try
-            {
-                return new HelpAction().Invoke(parseResult);
-            }
-            finally
-            {
-                onOption.Hidden = wasHidden;
-            }
+            var defaultHelp = new HelpAction();
+            return defaultHelp.Invoke(parseResult);
         }
 
         var useColor = BannerHelper.UseEmoji;
@@ -88,7 +78,11 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
         _ansiConsole.MarkupLine($" Use '[white]{commandPath} <command> --help[/]' to get detailed help for any command.");
         if (command is RootCommand)
         {
-            _ansiConsole.MarkupLine(" Driving an app's UI from an agent or script? Start with '[white]winapp ui --help[/]'.");
+            _ansiConsole.WriteLine();
+            _ansiConsole.MarkupLine(" Start here:");
+            _ansiConsole.MarkupLine("   Drive any app's UI (click, type, read)              [white]winapp ui --help[/]");
+            _ansiConsole.MarkupLine("   Inspect or change a running WinUI app's XAML live   [white]winapp devtools --help[/]");
+            _ansiConsole.MarkupLine("   (tree, properties, bindings; no source edits)");
         }
 
         // Build a lookup from command type -> Command object

@@ -27,9 +27,15 @@ namespace WinApp.Cli.Commands;
 /// lifetime, so attaching read-only would make every later live edit impossible until the app restarts, and
 /// there is no CLI flag that could undo it.</para>
 /// </summary>
-internal class DevToolsAttachCommand : Command, IShortDescription
+internal class DevToolsAttachCommand : Command, IShortDescription, IHelpExamples
 {
     public string ShortDescription => "Enable DevTools in a running app";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools attach --pid <pid>",
+        "winapp devtools attach --pid <pid> --overlay",
+    ];
 
     public static Option<int> PidOption { get; } = new("--pid")
     {

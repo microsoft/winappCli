@@ -31,18 +31,6 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
     }
 
     [TestMethod]
-    [DataRow("list", false)]
-    [DataRow("get", false)]
-    [DataRow("update", true)]
-    public async Task HelpShowsOnOnlyWhereTheCommandAcceptsIt(string verb, bool shown)
-    {
-        Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(),
-            ["devtools", "comments", verb, "--help"]));
-        Assert.AreEqual(shown, TestAnsiConsole.Output.Contains("--on <on>", StringComparison.Ordinal), TestAnsiConsole.Output);
-        Assert.IsFalse(ExecutionTargetSelection.OnOption.Hidden, "Hiding --on for one help screen must not leak.");
-    }
-
-    [TestMethod]
     [DataRow(new[] { "SaveButton", "Width", "200" }, "Width", "200", false)]
     [DataRow(new[] { "SaveButton", "200", "-p", "Width" }, "Width", "200", false)]
     [DataRow(new[] { "SaveButton", "Width", "200", "-p", "Height" }, "Height", "200", true)]
@@ -84,6 +72,22 @@ public class DevToolsCliConsistencyTests : BaseCommandTests
             StringAssert.Contains(json, "\"processId\": 7");
             Assert.IsFalse(json.Contains("\"pid\"", StringComparison.Ordinal), json);
         }
+    }
+
+    [TestMethod]
+    public void DevToolsUiTip_MatchesOnlyAppsWithTheAgent()
+    {
+        int[] tapped = [4242];
+        (string, string)? Describe(int pid) => pid == 4242 ? ("Daylight", "Today's Tasks") : null;
+        int? Owner(long hwnd) => hwnd == 99 ? 4242 : 7;
+
+        Assert.IsTrue(DevToolsUiTip.Applies("4242", null, tapped, Owner, Describe));
+        Assert.IsTrue(DevToolsUiTip.Applies("daylight.exe", null, tapped, Owner, Describe));
+        Assert.IsTrue(DevToolsUiTip.Applies("Tasks", null, tapped, Owner, Describe));
+        Assert.IsTrue(DevToolsUiTip.Applies(null, 99, tapped, Owner, Describe));
+        Assert.IsFalse(DevToolsUiTip.Applies("notepad", null, tapped, Owner, Describe), "Only a process with the agent gets the tip.");
+        Assert.IsFalse(DevToolsUiTip.Applies(null, 100, tapped, Owner, Describe));
+        Assert.IsFalse(DevToolsUiTip.Applies("4242", null, [], Owner, _ => throw new AssertFailedException("No pipes, no process lookups.")));
     }
 
     [TestMethod]

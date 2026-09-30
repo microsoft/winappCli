@@ -18,9 +18,15 @@ namespace WinApp.Cli.Commands;
 /// candidates that can be attached by exact PID. Attached apps are probed through DevTools; available candidates
 /// are identified centrally by the loaded WinUI runtime module so external clients never scan processes.
 /// </summary>
-internal class DevToolsListCommand : Command, IShortDescription
+internal class DevToolsListCommand : Command, IShortDescription, IHelpExamples
 {
     public string ShortDescription => "List attached DevTools apps or running WinUI attach candidates";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools list",
+        "winapp devtools list --include-available",
+    ];
 
     internal static Option<bool> IncludeAvailableOption { get; } = new("--include-available")
     {

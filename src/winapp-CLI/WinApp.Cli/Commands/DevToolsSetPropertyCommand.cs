@@ -20,9 +20,16 @@ namespace WinApp.Cli.Commands;
 /// claims a source file changed — this is a live in-memory edit that disappears when the app restarts.
 /// </para>
 /// </summary>
-internal class DevToolsSetPropertyCommand : DevToolsLiveCommand
+internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
 {
     public override string ShortDescription => "Change a live property and read back what took effect";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools set-property <selector> Text \"<text>\" -a <app>",
+        "winapp devtools set-property <selector> Width 200 -a <app>",
+        "winapp devtools set-property <selector> Background \"#FF0067C0\" -a <app>",
+    ];
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
     {

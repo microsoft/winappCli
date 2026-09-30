@@ -15,9 +15,14 @@ using WinApp.Cli.Services.DevTools.Comments;
 
 namespace WinApp.Cli.Commands;
 
-internal class DevToolsCommentsAddCommand : Command, IShortDescription
+internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExamples
 {
     public string ShortDescription => "Add a UI review comment anchored to a source element";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools comments add --from-element <selector> -a <app> --text \"<text>\"",
+    ];
 
     public static Option<string> TextOption { get; } = new("--text", "-t") { Description = "The comment text (required).", Required = true };
     public static Option<string?> IdOption { get; } = new("--id") { Description = "Create or replace the comment with this ID." };

@@ -13,9 +13,15 @@ using WinApp.Cli.Services.DevTools.Comments;
 
 namespace WinApp.Cli.Commands;
 
-internal class DevToolsCommentsListCommand : Command, IShortDescription
+internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpExamples
 {
     public string ShortDescription => "List saved UI comments and current source matches";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools comments list",
+        "winapp devtools comments list --status open --json",
+    ];
 
     public static Option<string?> StatusOption { get; } = new("--status") { Description = "Filter by status: open | resolved | stale | dismissed (default: open for human output; all statuses with --json)." };
 

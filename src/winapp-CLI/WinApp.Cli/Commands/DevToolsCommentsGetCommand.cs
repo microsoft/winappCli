@@ -12,9 +12,14 @@ using WinApp.Cli.Services.DevTools.Comments;
 
 namespace WinApp.Cli.Commands;
 
-internal class DevToolsCommentsGetCommand : Command, IShortDescription
+internal class DevToolsCommentsGetCommand : Command, IShortDescription, IHelpExamples
 {
     public string ShortDescription => "Show one UI comment and current source matches";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools comments get <id>",
+    ];
 
     public static Argument<string> IdArgument { get; } = new("id") { Description = "The comment id." };
 

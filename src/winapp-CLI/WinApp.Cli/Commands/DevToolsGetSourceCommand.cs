@@ -9,9 +9,14 @@ using WinApp.Cli.Services.DevTools;
 
 namespace WinApp.Cli.Commands;
 
-internal class DevToolsGetSourceCommand : DevToolsLiveCommand
+internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
 {
     public override string ShortDescription => "Read the XAML file and line an element was declared at";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools get-source <selector> -a <app>",
+    ];
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
     {

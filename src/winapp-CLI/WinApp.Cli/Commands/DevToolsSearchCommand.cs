@@ -9,9 +9,15 @@ using WinApp.Cli.Services.DevTools;
 
 namespace WinApp.Cli.Commands;
 
-internal class DevToolsSearchCommand : DevToolsLiveCommand
+internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
 {
     public override string ShortDescription => "Find elements in a running app's XAML visual tree";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools search <text> -a <app>",
+        "winapp devtools search --of-type TextBlock --fields Text,FontSize -a <app>",
+    ];
 
     public static Argument<string?> QueryArgument { get; } = new("query")
     {

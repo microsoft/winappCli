@@ -5,7 +5,7 @@ using System.CommandLine;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiCommand : Command, IShortDescription, ITargetAwareCommand
+internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICompactHelpGroup
 {
     public string ShortDescription => "Inspect and interact with running Windows app UIs";
 
@@ -23,7 +23,9 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand
         "  <selector>   A visible label (\"Save as\"), an AutomationId (stable), or a slug from\n" +
         "               inspect (changes when the element is recreated). If a label matches\n" +
         "               several elements, narrow it: \"Save\" --type Button, or --root <selector>.\n" +
-        "  After an action changes the UI (a dialog opens, a page loads), inspect again.";
+        "  After an action changes the UI (a dialog opens, a page loads), inspect again.\n" +
+        "\n" +
+        "Changing a WinUI app's properties or text live? See 'winapp devtools --help'.";
 
     /// <summary>Command-list categories for <c>winapp ui --help</c>, in display order.</summary>
     internal static readonly (string Category, Type[] CommandTypes)[] HelpCategories =
@@ -88,4 +90,34 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand
         Subcommands.Add(getFocusedCommand);
         Subcommands.Add(yieldCommand);
     }
+
+    IReadOnlyList<(string Category, Type[] CommandTypes)> ICompactHelpGroup.Categories => HelpCategories;
+
+    IReadOnlyList<(string Name, string Description)> ICompactHelpGroup.GroupOptions { get; } =
+    [
+        ("--on <target>", "Run on 'sandbox' (Windows Sandbox) or 'local' (default)"),
+        ("-h, --help", "Show help"),
+    ];
+
+    string ICompactHelpGroup.TargetUsage => "(-a <app> | -w <hwnd>)";
+
+    IReadOnlyDictionary<string, string> ICompactHelpGroup.Synonyms { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["dump"] = "inspect",
+        ["snapshot"] = "inspect",
+        ["elements"] = "inspect",
+        ["query"] = "search",
+        ["locate"] = "search",
+        ["type"] = "send-keys",
+        ["keys"] = "send-keys",
+        ["read"] = "get-value",
+        ["text"] = "get-value",
+        ["windows"] = "list-windows",
+        ["wait"] = "wait-for",
+        ["press"] = "invoke",
+        ["activate"] = "invoke",
+    };
+
+    IReadOnlyList<string> ICompactHelpGroup.CommonCommands { get; } =
+        ["status", "list-windows", "inspect", "search", "invoke", "set-value", "send-keys", "get-value", "wait-for"];
 }

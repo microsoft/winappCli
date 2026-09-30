@@ -59,9 +59,8 @@ public class UiHelpTests : BaseCommandTests
     [TestMethod]
     public void EverySelectorCommand_AcceptsElementFilters()
     {
-        var root = GetRequiredService<WinAppRootCommand>();
         var offenders = new List<string>();
-        foreach (var command in Enumerate(root))
+        foreach (var command in Enumerate(UiGroup))
         {
             if (command.Arguments.Any(a => a.Name == "selector")
                 && !(command.Options.Contains(UiQueryOptions.Type)
@@ -103,7 +102,7 @@ public class UiHelpTests : BaseCommandTests
     {
         foreach (var command in UiGroup.Subcommands)
         {
-            var output = UiHelpRenderer.Render(command).Replace("\r\n", "\n");
+            var output = CompactHelpRenderer.Render(command).Replace("\r\n", "\n");
 
             Assert.IsTrue(output.StartsWith($"winapp ui {command.Name} - ", StringComparison.Ordinal), output);
             StringAssert.Contains(output, "\nExamples:\n");
@@ -134,17 +133,21 @@ public class UiHelpTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task RootHelp_PointsToUiHelp()
+    public async Task RootHelp_PointsToUiAndDevToolsHelp()
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["--help"]);
-        StringAssert.Contains(TestAnsiConsole.Output, "Driving an app's UI from an agent or script? Start with 'winapp ui --help'.");
+        var output = TestAnsiConsole.Output;
+        StringAssert.Contains(output, "Start here:");
+        Assert.IsLessThan(output.IndexOf("winapp devtools --help", StringComparison.Ordinal),
+            output.IndexOf("winapp ui --help", StringComparison.Ordinal));
+        StringAssert.Contains(output, "Inspect or change a running WinUI app's XAML live");
     }
 
     [TestMethod]
     public async Task OtherCommandGroups_KeepDefaultHelp()
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["cert", "--help"]);
-        Assert.DoesNotContain(UiHelpRenderer.GlobalOptionsLine, TestAnsiConsole.Output);
+        Assert.DoesNotContain(CompactHelpRenderer.GlobalOptionsLine, TestAnsiConsole.Output);
     }
 
     [TestMethod]
@@ -161,7 +164,7 @@ public class UiHelpTests : BaseCommandTests
     [DataRow("xyzzy", new string[0])]
     public void Suggest_UsesSynonymsThenEditDistance(string token, string[] expected)
     {
-        var suggestions = UiUnknownCommand.Suggest(token, UiGroup.Subcommands);
+        var suggestions = UnknownGroupCommand.Suggest(token, UiGroup);
         Assert.IsLessThanOrEqualTo(2, suggestions.Length);
         CollectionAssert.AreEqual(expected, suggestions.Take(expected.Length).ToArray());
         if (expected.Length == 0)
@@ -197,7 +200,7 @@ public class UiHelpTests : BaseCommandTests
         Assert.AreEqual(UiJsonError.CodeInvalidArguments, error.GetProperty("code").GetString());
         Assert.AreEqual("Unknown command 'dump'.", error.GetProperty("message").GetString());
         Assert.AreEqual("inspect", error.GetProperty("suggestions")[0].GetString());
-        Assert.AreEqual(UiUnknownCommand.RecoveryHint, error.GetProperty("recoveryHint").GetString());
+        Assert.AreEqual(UnknownGroupCommand.RecoveryHint(UiGroup), error.GetProperty("recoveryHint").GetString());
     }
 
     [TestMethod]

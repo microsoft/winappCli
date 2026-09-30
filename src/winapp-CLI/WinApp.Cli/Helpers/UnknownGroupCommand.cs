@@ -7,45 +7,24 @@ using WinApp.Cli.Commands;
 namespace WinApp.Cli.Helpers;
 
 /// <summary>
-/// Detects and reports an unknown command under <c>winapp ui</c> (for example <c>winapp ui dump</c>).
-/// Runs before help and <c>--on</c> routing: help is a terminating action, so
-/// <c>winapp ui dump --help</c> parses without errors and would otherwise print the group help and
-/// exit 0, and <c>--on sandbox</c> would start a sandbox for a command that does not exist.
+/// Detects and reports an unknown command under a compact-help group (for example <c>winapp ui dump</c>
+/// or <c>winapp devtools set-text</c>). Runs before help and <c>--on</c> routing: help is a terminating
+/// action, so <c>winapp ui dump --help</c> parses without errors and would otherwise print the group help
+/// and exit 0, and <c>--on sandbox</c> would start a sandbox for a command that does not exist.
 /// </summary>
-internal static class UiUnknownCommand
+internal static class UnknownGroupCommand
 {
-    internal const string RecoveryHint = "Run 'winapp ui --help' to list commands.";
-
     private const int MaxSuggestions = 2;
 
-    /// <summary>Words other UI automation tools use, mapped to the winapp command that does the job.</summary>
-    private static readonly Dictionary<string, string> Synonyms = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["dump"] = "inspect",
-        ["snapshot"] = "inspect",
-        ["elements"] = "inspect",
-        ["query"] = "search",
-        ["locate"] = "search",
-        ["type"] = "send-keys",
-        ["keys"] = "send-keys",
-        ["read"] = "get-value",
-        ["text"] = "get-value",
-        ["windows"] = "list-windows",
-        ["wait"] = "wait-for",
-        ["press"] = "invoke",
-        ["activate"] = "invoke",
-    };
-
-    private static readonly string[] CommonCommands =
-        ["status", "list-windows", "inspect", "search", "invoke", "set-value", "send-keys", "get-value", "wait-for"];
+    public static string RecoveryHint(Command group) => $"Run '{Path(group)} --help' to list commands.";
 
     /// <summary>
-    /// Returns the token in command position when the selected command is the <c>ui</c> group and
+    /// Returns the token in command position when the selected command is a compact-help group and
     /// that token names no command; otherwise <see langword="null"/>.
     /// </summary>
     public static string? Find(ParseResult parseResult)
     {
-        if (parseResult.CommandResult.Command is not UiCommand)
+        if (parseResult.CommandResult.Command is not ICompactHelpGroup)
         {
             return null;
         }
@@ -64,11 +43,11 @@ internal static class UiUnknownCommand
         return isKnown ? null : token;
     }
 
-    public static string[] Suggest(string token, IEnumerable<Command> commands)
+    public static string[] Suggest(string token, Command group)
     {
-        var visible = commands.Where(c => !c.Hidden).Select(c => c.Name).ToList();
+        var visible = group.Subcommands.Where(c => !c.Hidden).Select(c => c.Name).ToList();
         var suggestions = new List<string>();
-        if (Synonyms.TryGetValue(token, out var synonym) && visible.Contains(synonym))
+        if (((ICompactHelpGroup)group).Synonyms.TryGetValue(token, out var synonym) && visible.Contains(synonym))
         {
             suggestions.Add(synonym);
         }
@@ -89,17 +68,18 @@ internal static class UiUnknownCommand
 
     public static string Message(string token) => $"Unknown command '{token}'.";
 
-    public static void WriteText(TextWriter error, string token, string[] suggestions)
+    public static string DidYouMean(string[] suggestions) => suggestions.Length switch
     {
-        var didYouMean = suggestions.Length switch
-        {
-            0 => "",
-            1 => $" Did you mean '{suggestions[0]}'?",
-            _ => $" Did you mean '{suggestions[0]}' or '{suggestions[1]}'?",
-        };
-        error.WriteLine(Message(token) + didYouMean);
-        error.WriteLine($"Commands: {string.Join(", ", CommonCommands)}, ...");
-        error.WriteLine("Run 'winapp ui --help' for the full list.");
+        0 => "",
+        1 => $" Did you mean '{suggestions[0]}'?",
+        _ => $" Did you mean '{suggestions[0]}' or '{suggestions[1]}'?",
+    };
+
+    public static void WriteText(TextWriter error, string token, string[] suggestions, Command group)
+    {
+        error.WriteLine(Message(token) + DidYouMean(suggestions));
+        error.WriteLine($"Commands: {string.Join(", ", ((ICompactHelpGroup)group).CommonCommands)}, ...");
+        error.WriteLine($"Run '{Path(group)} --help' for the full list.");
     }
 
     internal static int Distance(string a, string b)
@@ -124,5 +104,15 @@ internal static class UiUnknownCommand
         }
 
         return previous[b.Length];
+    }
+
+    private static string Path(Command group)
+    {
+        var names = new List<string>();
+        for (var current = group; current is not null and not RootCommand; current = current.Parents.OfType<Command>().FirstOrDefault())
+        {
+            names.Insert(0, current.Name);
+        }
+        return "winapp " + string.Join(" ", names);
     }
 }

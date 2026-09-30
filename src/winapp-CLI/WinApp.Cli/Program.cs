@@ -174,20 +174,27 @@ internal static class Program
                 return 1;
             }
 
-            // `winapp ui <unknown>` fails before anything else, even with --help or --on: help is a
-            // terminating action, so the command line parses cleanly and would otherwise print the
+            // `winapp ui <unknown>` (and `devtools`) fails before anything else, even with --help or --on:
+            // help is a terminating action, so the command line parses cleanly and would otherwise print the
             // group help with exit 0, or route a command that does not exist to another target.
-            if (UiUnknownCommand.Find(parseResult) is { } unknownUiCommand)
+            if (UnknownGroupCommand.Find(parseResult) is { } unknownCommand)
             {
-                var suggestions = UiUnknownCommand.Suggest(unknownUiCommand, parseResult.CommandResult.Command.Subcommands);
-                if (ResolveEffectiveJson(parseResult))
+                var group = parseResult.CommandResult.Command;
+                var suggestions = UnknownGroupCommand.Suggest(unknownCommand, group);
+                if (ResolveEffectiveJson(parseResult) && IsUiDescendant(parseResult))
                 {
-                    UiJsonError.Emit(true, UiJsonError.CodeInvalidArguments, UiUnknownCommand.Message(unknownUiCommand),
-                        recoveryHint: UiUnknownCommand.RecoveryHint, suggestions: suggestions);
+                    UiJsonError.Emit(true, UiJsonError.CodeInvalidArguments, UnknownGroupCommand.Message(unknownCommand),
+                        recoveryHint: UnknownGroupCommand.RecoveryHint(group), suggestions: suggestions);
+                }
+                else if (ResolveEffectiveJson(parseResult))
+                {
+                    EmitDevToolsJsonError(parseResult,
+                        UnknownGroupCommand.Message(unknownCommand) + UnknownGroupCommand.DidYouMean(suggestions) + " " +
+                        UnknownGroupCommand.RecoveryHint(group), "unknown-command");
                 }
                 else
                 {
-                    UiUnknownCommand.WriteText(Console.Error, unknownUiCommand, suggestions);
+                    UnknownGroupCommand.WriteText(Console.Error, unknownCommand, suggestions, group);
                 }
 
                 return 1;
@@ -394,6 +401,11 @@ internal static class Program
                         EnableDefaultExceptionHandler = false,
                     })
                     : await parsedArgs.InvokeAsync();
+                if (!effectiveJson && IsUiDescendant(parsedArgs) && ExecutionTargetSelection.IsCommandInvocation(parsedArgs) &&
+                    !parsedArgs.GetValue(WinAppRootCommand.QuietOption))
+                {
+                    DevToolsUiTip.WriteIfApplies(parsedArgs, Console.Error);
+                }
                 return serviceProvider.GetRequiredService<ExecutionTargets.GuestAgent.GuestCommentContext>()
                     .ClassifyWriterResult(result);
             }

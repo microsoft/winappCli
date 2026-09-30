@@ -15,9 +15,16 @@ namespace WinApp.Cli.Commands;
 /// source is the part a plain UI-Automation read cannot answer, and it is usually the answer to "why is this
 /// not the colour/size I wrote".
 /// </summary>
-internal class DevToolsGetPropertyCommand : DevToolsLiveCommand
+internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
 {
     public override string ShortDescription => "Read an element's live properties and their value sources";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools get-property <selector> -a <app>",
+        "winapp devtools get-property <selector> Text -a <app>",
+        "winapp devtools get-property <selector> --all -a <app>",
+    ];
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
     {

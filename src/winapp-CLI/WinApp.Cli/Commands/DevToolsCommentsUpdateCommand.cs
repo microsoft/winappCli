@@ -17,9 +17,15 @@ namespace WinApp.Cli.Commands;
 /// <summary>
 /// Updates a comment's explicit status and resolution metadata through the atomic store.
 /// </summary>
-internal class DevToolsCommentsUpdateCommand : Command, IShortDescription
+internal class DevToolsCommentsUpdateCommand : Command, IShortDescription, IHelpExamples
 {
     public string ShortDescription => "Update a UI comment's status and note";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools comments update <id> --status resolved --note \"<text>\"",
+        "winapp devtools comments update <id> --status stale --note \"<text>\"",
+    ];
 
     public static Argument<string> IdArgument { get; } = new("id") { Description = "The comment id." };
     public static Option<string> StatusOption { get; } = new("--status") { Description = "New status: open | resolved | stale | dismissed.", Required = true };

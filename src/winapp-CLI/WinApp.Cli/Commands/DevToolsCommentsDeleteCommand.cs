@@ -23,9 +23,14 @@ namespace WinApp.Cli.Commands;
 /// behind. The store is under the gitignored <c>.winapp</c>, so this is permanent — hence "not found" is an
 /// error rather than a silent success, and the removed row is echoed so a caller can see what it destroyed.
 /// </summary>
-internal class DevToolsCommentsDeleteCommand : Command, IShortDescription
+internal class DevToolsCommentsDeleteCommand : Command, IShortDescription, IHelpExamples
 {
     public string ShortDescription => "Delete a UI comment outright (not the same as resolve)";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools comments delete <id>",
+    ];
 
     public static Argument<string> IdArgument { get; } = new("id") { Description = "The comment id." };
 

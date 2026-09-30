@@ -9,9 +9,15 @@ using WinApp.Cli.Services.DevTools;
 
 namespace WinApp.Cli.Commands;
 
-internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand
+internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExamples
 {
     public override string ShortDescription => "Explain a live binding's state, path, and failure";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp devtools diagnose-binding <selector> Text -a <app>",
+        "winapp devtools diagnose-binding <selector> IsEnabled -a <app> --json",
+    ];
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
     {
