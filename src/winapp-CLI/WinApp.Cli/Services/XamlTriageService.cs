@@ -72,8 +72,9 @@ internal sealed partial class XamlTriageService(
                 return XamlTriageResult.Skipped(UnavailableNote());
             }
 
-            var extPath = await EnsureExtensionAsync(dbgToolsRoot, cancellationToken);
-            if (extPath == null)
+            // The script runs inside the debugger, so it is held like the DLLs until the child has exited.
+            using var extension = await EnsureExtensionAsync(dbgToolsRoot, cancellationToken);
+            if (extension == null)
             {
                 logger.LogDebug("WinUI triage skipped: could not obtain {Ext}.", ExtFileName);
                 return XamlTriageResult.Skipped(
@@ -84,7 +85,7 @@ internal sealed partial class XamlTriageService(
             // Run the DbgEng pass in a dedicated child process. The parent has already loaded the
             // system32 dbghelp.dll (dump capture + ClrMD analysis), which prevents the modern NuGet
             // dbgeng.dll from binding to its co-located dbghelp.dll. A clean process avoids that.
-            var (output, skipNote) = await RunTriageProcessAsync(dumpPath, binaries, extPath, useSymbols, cancellationToken);
+            var (output, skipNote) = await RunTriageProcessAsync(dumpPath, binaries, extension.Path, useSymbols, cancellationToken);
             if (skipNote != null)
             {
                 return XamlTriageResult.Skipped($"WinUI Triage: skipped — {skipNote}");
@@ -428,19 +429,36 @@ internal sealed partial class XamlTriageService(
 
     /// <summary>
     /// Ensures the pinned <c>winui-dbgext.js</c> is present in the cache and matches its pinned
-    /// git blob hash, downloading it on first use. Returns the local path or <c>null</c> on failure.
+    /// git blob hash, downloading it on first use. Returns the script held open, or <c>null</c> on
+    /// failure. The script runs inside the debugger and can run debugger commands, so the caller must
+    /// pass <see cref="VerifiedTool.Path"/> to the child and keep the hold until the child has exited;
+    /// otherwise the cache could be swapped between the hash check and <c>.scriptload</c>.
     /// </summary>
-    internal async Task<string?> EnsureExtensionAsync(DirectoryInfo dbgToolsRoot, CancellationToken cancellationToken)
+    internal async Task<VerifiedTool?> EnsureExtensionAsync(DirectoryInfo dbgToolsRoot, CancellationToken cancellationToken)
     {
-        var extDir = Path.Combine(dbgToolsRoot.FullName, "ext");
+        var extDir = Path.Join(dbgToolsRoot.FullName, "ext");
         Directory.CreateDirectory(extDir);
-        var extPath = Path.Combine(extDir, ExtFileName);
+        var extPath = Path.Join(extDir, ExtFileName);
 
         bool MatchesHash(byte[] content) => (ExtensionHashValidatorOverride ?? MatchesPinnedExtensionHash)(content);
 
-        if (File.Exists(extPath) && MatchesHash(await File.ReadAllBytesAsync(extPath, cancellationToken)))
+        // Hash the file only once it is held, and by the path its handle resolves to, so the bytes that
+        // were checked are the bytes the child loads.
+        VerifiedTool? HoldVerified()
         {
-            return extPath;
+            try
+            {
+                return VerifiedTool.Open(new FileInfo(extPath), (path, _) => MatchesHash(File.ReadAllBytes(path)), logger);
+            }
+            catch (BuildToolSignatureException)
+            {
+                return null;
+            }
+        }
+
+        if (File.Exists(extPath) && HoldVerified() is { } cached)
+        {
+            return cached;
         }
 
         try
@@ -456,13 +474,20 @@ internal sealed partial class XamlTriageService(
             }
 
             await File.WriteAllBytesAsync(extPath, bytes, cancellationToken);
-            return extPath;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogDebug(ex, "Failed to download {Ext}.", ExtFileName);
             return null;
         }
+
+        var held = HoldVerified();
+        if (held == null)
+        {
+            logger.LogDebug("{Ext} changed on disk after it was written; refusing to use it.", ExtFileName);
+        }
+
+        return held;
     }
 
     /// <summary>Real GitHub download boundary for the debugger extension; seamed via <see cref="ExtensionBytesDownloader"/>.</summary>
