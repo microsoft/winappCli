@@ -32,7 +32,40 @@ public class CertificateServiceTests : BaseCommandTests
         // Load the install PFX in-memory only so no test ever persists a machine key container.
         // Production keeps the default MachineKeySet|PersistKeySet (see InstallKeyStorageFlags).
         svc.InstallKeyStorageFlags = X509KeyStorageFlags.EphemeralKeySet;
+        // Keep generated certificates out of the developer's CurrentUser\My store.
+        svc.PersistToCurrentUserStore = false;
         return (svc, bt, gi);
+    }
+
+    private static X509Certificate2Collection FindInCurrentUserStore(X509FindType findType, string value)
+    {
+        using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+        store.Open(OpenFlags.ReadOnly);
+        return store.Certificates.Find(findType, value, validOnly: false);
+    }
+
+    /// <summary>
+    /// Removes exactly the certificates matching <paramref name="thumbprint"/> from CurrentUser\My
+    /// and deletes their persisted keys. Keyed by thumbprint so it can never touch real developer state.
+    /// </summary>
+    private static void RemoveFromCurrentUserStore(string thumbprint)
+    {
+        using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+        store.Open(OpenFlags.ReadWrite);
+        foreach (var cert in store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, validOnly: false))
+        {
+            using (cert)
+            {
+                if (cert.GetRSAPrivateKey() is RSACng rsa)
+                {
+                    using (rsa)
+                    {
+                        rsa.Key.Delete();
+                    }
+                }
+                store.Remove(cert);
+            }
+        }
     }
 
     private static TaskContext MakeContext(LogLevel minLevel, out CapturingLogger<TaskContext> logger)
@@ -97,21 +130,67 @@ public class CertificateServiceTests : BaseCommandTests
         Assert.AreEqual("pw", result.Password);
         StringAssert.Contains(result.SubjectName, "GenDirectTest");
         Assert.IsFalse(result.UpdatedGitignore);
+
+        using var generated = X509CertificateLoader.LoadPkcs12FromFile(pfx.FullName, "pw", X509KeyStorageFlags.EphemeralKeySet);
+        Assert.IsTrue(generated.HasPrivateKey, "PFX should carry the private key");
+        Assert.IsEmpty(
+            FindInCurrentUserStore(X509FindType.FindByThumbprint, generated.Thumbprint),
+            "With persistence disabled the certificate must not be added to CurrentUser\\My");
+    }
+
+    [TestMethod]
+    public async Task GenerateDevCertificateAsync_Default_AddsCertificateToCurrentUserStore()
+    {
+        var (svc, _, _) = NewService();
+        svc.PersistToCurrentUserStore = true;
+        var pfx = new FileInfo(Path.Combine(_tempDirectory.FullName, "persist.pfx"));
+
+        await svc.GenerateDevCertificateAsync(
+            $"CN=WinappPersistTest-{Guid.NewGuid():N}", pfx, TestTaskContext, password: "pw", validDays: 1,
+            cancellationToken: TestContext.CancellationToken);
+
+        using var generated = X509CertificateLoader.LoadPkcs12FromFile(pfx.FullName, "pw", X509KeyStorageFlags.EphemeralKeySet);
+        try
+        {
+            var inStore = FindInCurrentUserStore(X509FindType.FindByThumbprint, generated.Thumbprint);
+            Assert.HasCount(1, inStore, "The certificate should be added to CurrentUser\\My");
+            Assert.IsTrue(inStore[0].HasPrivateKey, "The store entry should be linked to its persisted private key");
+        }
+        finally
+        {
+            RemoveFromCurrentUserStore(generated.Thumbprint);
+        }
     }
 
     [TestMethod]
     public async Task GenerateDevCertificateAsync_WriteFailure_ThrowsInvalidOperation()
     {
         var (svc, _, _) = NewService();
+        // Persist so the test proves a failed write does not leave an orphaned store entry.
+        svc.PersistToCurrentUserStore = true;
+        var subject = $"WinappWriteFail-{Guid.NewGuid():N}";
         // Point the output at the temp directory itself: writing bytes to a directory fails.
         var badOutput = new DirectoryInfo(_tempDirectory.FullName);
         var outputAsFile = new FileInfo(badOutput.FullName);
 
-        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            svc.GenerateDevCertificateAsync("CN=WriteFail", outputAsFile, TestTaskContext,
-                cancellationToken: TestContext.CancellationToken));
+        try
+        {
+            var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                svc.GenerateDevCertificateAsync($"CN={subject}", outputAsFile, TestTaskContext,
+                    cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "Failed to generate development certificate");
+            StringAssert.Contains(ex.Message, "Failed to generate development certificate");
+            Assert.IsEmpty(
+                FindInCurrentUserStore(X509FindType.FindBySubjectName, subject),
+                "A failed generation must not leave a certificate in CurrentUser\\My");
+        }
+        finally
+        {
+            foreach (var leaked in FindInCurrentUserStore(X509FindType.FindBySubjectName, subject))
+            {
+                RemoveFromCurrentUserStore(leaked.Thumbprint);
+            }
+        }
     }
 
     // ── InstallCertificate ──────────────────────────────────────────────

@@ -57,6 +57,11 @@ internal partial class CertificateService(
     internal X509KeyStorageFlags InstallKeyStorageFlags { get; set; } =
         X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet;
 
+    // Whether GenerateDevCertificateAsync persists its private key and adds the certificate to
+    // CurrentUser\My. Production always does; tests turn it off so the generated key is ephemeral
+    // and a test run leaves nothing behind in the user's certificate store or key containers.
+    internal bool PersistToCurrentUserStore { get; set; } = true;
+
     public record CertificateResult(
         FileInfo CertificatePath,
         string Password,
@@ -81,9 +86,13 @@ internal partial class CertificateService(
         // Normalize the publisher to a valid X.500 distinguished name.
         var subjectName = PublisherDnHelper.Normalize(publisher);
 
+        CngKey? cngKey = null;
+        var addedToStore = false;
+        var writtenFiles = new List<string>();
         try
         {
-            // 1) Create a persisted CNG key in MS Software KSP with AllowExport
+            // 1) Create a CNG key in MS Software KSP with AllowExport. It is persisted (named) only
+            // when the certificate will be added to CurrentUser\My, which needs the key container.
             var creationParams = new CngKeyCreationParameters
             {
                 Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider,
@@ -94,7 +103,8 @@ internal partial class CertificateService(
             // Set length = 2048
             creationParams.Parameters.Add(new CngProperty("Length", BitConverter.GetBytes(2048), CngPropertyOptions.None));
 
-            using var cngKey = CngKey.Create(CngAlgorithm.Rsa, $"MSIXDev-{Guid.NewGuid()}", creationParams);
+            var keyName = PersistToCurrentUserStore ? $"MSIXDev-{Guid.NewGuid()}" : null;
+            cngKey = CngKey.Create(CngAlgorithm.Rsa, keyName, creationParams);
             using var rsa = new RSACng(cngKey);
 
             // 2) Build req to mirror PS flags
@@ -110,14 +120,9 @@ internal partial class CertificateService(
             using var cert = req.CreateSelfSigned(notBefore, notAfter);
             cert.FriendlyName = "MSIX Dev Certificate";
 
-            using (var store = new X509Store(StoreName.My, StoreLocation.CurrentUser))
-            {
-                store.Open(OpenFlags.ReadWrite);
-                store.Add(cert);
-            }
-
             var pfx = cert.Export(X509ContentType.Pfx, password);
             await File.WriteAllBytesAsync(outputPath.FullName, pfx, cancellationToken);
+            writtenFiles.Add(outputPath.FullName);
 
             taskContext.AddDebugMessage($"Certificate generated: {outputPath}");
 
@@ -128,8 +133,18 @@ internal partial class CertificateService(
                 var cerPath = Path.ChangeExtension(outputPath.FullName, ".cer");
                 var cerBytes = cert.Export(X509ContentType.Cert);
                 await File.WriteAllBytesAsync(cerPath, cerBytes, cancellationToken);
+                writtenFiles.Add(cerPath);
                 publicCertPath = new FileInfo(cerPath);
                 taskContext.AddDebugMessage($"Public certificate exported: {cerPath}");
+            }
+
+            // Add to the store last, so a failed file write never leaves an orphaned store entry.
+            if (PersistToCurrentUserStore)
+            {
+                using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+                store.Open(OpenFlags.ReadWrite);
+                store.Add(cert);
+                addedToStore = true;
             }
 
             outputPath.Refresh();
@@ -147,7 +162,46 @@ internal partial class CertificateService(
         }
         catch (Exception error)
         {
+            if (!addedToStore)
+            {
+                RollBackFailedGeneration(cngKey, writtenFiles, taskContext);
+            }
             throw new InvalidOperationException($"Failed to generate development certificate: {error.Message}", error);
+        }
+        finally
+        {
+            cngKey?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Best-effort cleanup after a failed generation: removes the persisted key container and any
+    /// files this call wrote, so a failure leaves nothing behind. Never throws.
+    /// </summary>
+    private void RollBackFailedGeneration(CngKey? cngKey, List<string> writtenFiles, TaskContext taskContext)
+    {
+        if (cngKey != null && PersistToCurrentUserStore)
+        {
+            try
+            {
+                cngKey.Delete();
+            }
+            catch (Exception ex)
+            {
+                taskContext.AddDebugMessage($"Could not delete the generated key: {ex.Message}");
+            }
+        }
+
+        foreach (var path in writtenFiles)
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                taskContext.AddDebugMessage($"Could not delete '{path}': {ex.Message}");
+            }
         }
     }
 
