@@ -59,7 +59,7 @@ internal sealed partial class ProjectRunService
         }
 
         var properties = MsBuildPropertyReader.Parse(
-            publish.Output,
+            publish.Properties,
             RequestedProperties);
         if (!IsTrue(GetProp(properties, "PublishAot")))
         {
@@ -83,7 +83,7 @@ internal sealed partial class ProjectRunService
         return new ProjectBuildOutcome(resolution, 0);
     }
 
-    private async Task<(int ExitCode, string Output, string Error)> RunPublishPassAsync(
+    private async Task<(int ExitCode, string Output, string Error, string Properties)> RunPublishPassAsync(
         FileInfo csproj,
         ProjectRunOptions options,
         DirectoryInfo workingDirectory,
@@ -111,13 +111,38 @@ internal sealed partial class ProjectRunService
             writeLine = CreateSynchronizedRedactedLineWriter();
         }
 
-        return await dotNetService.RunDotnetCommandAsync(
-            workingDirectory,
-            arguments,
-            BuildAotPublishEnvironment(),
-            writeLine,
-            writeLine,
-            cancellationToken);
+        // Send the --getProperty result to a file so it stays out of the live publish output.
+        var resultFile = Path.Join(Path.GetTempPath(), $"winapp-publish-{Guid.NewGuid():N}.json");
+        try
+        {
+            var (exitCode, output, error) = await dotNetService.RunDotnetCommandAsync(
+                workingDirectory,
+                [.. arguments, $"--getResultOutputFile:{resultFile}"],
+                BuildAotPublishEnvironment(),
+                writeLine,
+                writeLine,
+                cancellationToken);
+            var properties = exitCode == 0 && File.Exists(resultFile)
+                ? await File.ReadAllTextAsync(resultFile, cancellationToken)
+                : string.Empty;
+            return (exitCode, output, error, properties);
+        }
+        finally
+        {
+            TryDeleteFile(resultFile);
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best effort: a leftover temp file must not fail the run.
+        }
     }
 
     internal static IReadOnlyDictionary<string, string>? BuildAotPublishEnvironment(
