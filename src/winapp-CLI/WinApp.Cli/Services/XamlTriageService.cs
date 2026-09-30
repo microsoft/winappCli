@@ -391,25 +391,38 @@ internal sealed partial class XamlTriageService(
         return startInfo;
     }
 
-    // How long to wait for a killed triage child to finish exiting before its DLLs are released.
+    // How often to note that a killed triage child still has not exited.
     private static readonly TimeSpan KillExitWait = TimeSpan.FromSeconds(30);
 
-    private static void TryKill(Process process)
+    private void TryKill(Process process)
     {
         try
         {
             if (!process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
-
-                // Kill only starts termination. The caller releases the verified DLLs next, so wait
-                // for the child to be gone rather than leave it running while they can be swapped.
-                process.WaitForExit(KillExitWait);
             }
         }
         catch
         {
-            // best effort
+            // The child raced its own exit, or could not be killed; either way, wait for it below.
+        }
+
+        WaitUntilExited(process.WaitForExit, logger);
+    }
+
+    /// <summary>
+    /// Blocks until <paramref name="waitForExit"/> reports that the triage child has exited.
+    /// <see cref="Process.Kill(bool)"/> only starts termination, and the caller releases the verified
+    /// debugger DLLs next, so they must stay held until the child is really gone, however long that
+    /// takes. Giving up after a fixed time would reopen the window in which a still-running child
+    /// could load a file swapped in after the release.
+    /// </summary>
+    internal static void WaitUntilExited(Func<TimeSpan, bool> waitForExit, ILogger logger)
+    {
+        while (!waitForExit(KillExitWait))
+        {
+            logger.LogDebug("Still waiting for the WinUI triage child to exit before releasing its debugger DLLs.");
         }
     }
 

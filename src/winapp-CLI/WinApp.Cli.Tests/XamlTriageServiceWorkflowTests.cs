@@ -282,6 +282,18 @@ public sealed class XamlTriageServiceWorkflowTests
         Assert.IsFalse(childRunningWhenReleased, "The DLLs must stay held until the killed child has exited.");
     }
 
+    [TestMethod]
+    public void WaitUntilExited_KeepsWaitingUntilTheChildHasReallyExited()
+    {
+        // A child that takes longer than one wait interval to die must still be waited for: releasing
+        // the verified DLLs while it runs would let it load a file swapped in after the release.
+        var calls = 0;
+
+        XamlTriageService.WaitUntilExited(_ => ++calls == 4, NullLogger.Instance);
+
+        Assert.AreEqual(4, calls, "The wait must continue until the child is confirmed gone, not give up after a timeout.");
+    }
+
     private sealed class TrackingHold : IDisposable
     {
         public bool Disposed { get; private set; }

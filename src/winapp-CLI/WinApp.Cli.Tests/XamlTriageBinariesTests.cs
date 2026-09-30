@@ -83,8 +83,8 @@ public class XamlTriageBinariesTests
     /// <summary>Lays out every engine file plus <c>winext\JsProvider.dll</c> and returns all their paths.</summary>
     private static List<string> WriteFullLayout(string dir)
     {
-        Directory.CreateDirectory(Path.Combine(dir, "winext"));
-        var files = EngineFiles.Select(f => Path.Combine(dir, f)).Append(Path.Combine(dir, "winext", "JsProvider.dll")).ToList();
+        Directory.CreateDirectory(Path.Join(dir, "winext"));
+        var files = EngineFiles.Select(f => Path.Join(dir, f)).Append(Path.Join(dir, "winext", "JsProvider.dll")).ToList();
         foreach (var file in files)
         {
             File.WriteAllText(file, Path.GetFileName(file));

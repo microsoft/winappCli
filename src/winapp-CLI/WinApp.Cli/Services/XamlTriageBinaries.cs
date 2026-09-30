@@ -211,8 +211,7 @@ internal static class XamlTriageBinaries
         Func<string, string, ILogger, bool> providerCompatibility,
         ILogger logger)
     {
-        var holds = new List<VerifiedTool>();
-        var owned = false;
+        using var holds = new HeldFiles();
         var current = "dbgeng.dll";
 
         VerifiedTool Hold(string path)
@@ -228,7 +227,7 @@ internal static class XamlTriageBinaries
             // The child loads the engine from the directory dbgeng.dll really lives in, so every other
             // engine file is looked up there too. It also loads dbgeng.dll by that name, so a link to
             // a differently named file would leave the name the child loads unpinned.
-            var dbgeng = Hold(Path.Combine(dir, "dbgeng.dll"));
+            var dbgeng = Hold(Path.Join(dir, "dbgeng.dll"));
             var binDir = Path.GetDirectoryName(dbgeng.Path)!;
             if (!Path.GetFileName(dbgeng.Path).Equals("dbgeng.dll", StringComparison.OrdinalIgnoreCase))
             {
@@ -239,7 +238,7 @@ internal static class XamlTriageBinaries
             var hasSymSrv = false;
             foreach (var name in SupportingEngineFiles)
             {
-                var expected = Path.Combine(binDir, name);
+                var expected = Path.Join(binDir, name);
                 if (!File.Exists(expected))
                 {
                     continue;
@@ -265,23 +264,40 @@ internal static class XamlTriageBinaries
                 return null;
             }
 
-            owned = true;
-            return new ResolvedTriageBinaries(binDir, jsProvider.Path, hasSymSrv, source) { Holds = holds };
+            return new ResolvedTriageBinaries(binDir, jsProvider.Path, hasSymSrv, source) { Holds = holds.TransferOwnership() };
         }
         catch (BuildToolSignatureException)
         {
             logger.LogDebug("Rejecting WinUI triage binaries from {Source}: {File} could not be held open or is not validly signed by Microsoft.", source, current);
             return null;
         }
-        finally
+    }
+
+    /// <summary>
+    /// The files held so far while a layout is checked. Disposing releases them, unless they have been
+    /// handed to a <see cref="ResolvedTriageBinaries"/> with <see cref="TransferOwnership"/>.
+    /// </summary>
+    private sealed class HeldFiles : IDisposable
+    {
+        private List<VerifiedTool> _held = [];
+
+        public void Add(VerifiedTool held) => _held.Add(held);
+
+        public List<VerifiedTool> TransferOwnership()
         {
-            if (!owned)
+            var owned = _held;
+            _held = [];
+            return owned;
+        }
+
+        public void Dispose()
+        {
+            foreach (var held in _held)
             {
-                foreach (var held in holds)
-                {
-                    held.Dispose();
-                }
+                held.Dispose();
             }
+
+            _held = [];
         }
     }
 
@@ -327,7 +343,7 @@ internal static class XamlTriageBinaries
             return null;
         }
 
-        if (!File.Exists(Path.Combine(dir, "dbgeng.dll")))
+        if (!File.Exists(Path.Join(dir, "dbgeng.dll")))
         {
             return null;
         }
@@ -336,8 +352,8 @@ internal static class XamlTriageBinaries
         // child runner must .load JsProvider.dll by explicit path, so capture where it actually lives.
         return new[]
         {
-            Path.Combine(dir, "JsProvider.dll"),
-            Path.Combine(dir, "winext", "JsProvider.dll"),
+            Path.Join(dir, "JsProvider.dll"),
+            Path.Join(dir, "winext", "JsProvider.dll"),
         }.FirstOrDefault(File.Exists);
     }
 
@@ -495,7 +511,7 @@ internal static class XamlTriageBinaries
                 // re-acquire it (re-checking the pinned hash) rather than treating it as present.
                 if (files.All(f =>
                 {
-                    var path = Path.Combine(cacheBinDir.FullName, f);
+                    var path = Path.Join(cacheBinDir.FullName, f);
                     return IsUsablePeFile(path) && SignatureVerifier(path, logger);
                 }))
                 {

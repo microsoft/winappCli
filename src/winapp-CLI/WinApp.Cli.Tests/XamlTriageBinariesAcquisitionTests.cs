@@ -127,14 +127,14 @@ public sealed class XamlTriageBinariesAcquisitionTests
     {
         // A cached engine DLL that is intact but not Microsoft-signed (replaced in the cache) is refused
         // at resolve time. Treating it as present would disable triage for good, so it is re-acquired.
-        var binDir = new DirectoryInfo(Path.Combine(_tempDir, "bin"));
+        var binDir = new DirectoryInfo(Path.Join(_tempDir, "bin"));
         binDir.Create();
         foreach (var file in DbgEngFiles.Concat(SymSrvFiles))
         {
-            WriteFakePe(Path.Combine(binDir.FullName, file));
+            WriteFakePe(Path.Join(binDir.FullName, file));
         }
 
-        var tampered = Path.Combine(binDir.FullName, "dbgmodel.dll");
+        var tampered = Path.Join(binDir.FullName, "dbgmodel.dll");
         XamlTriageBinaries.SignatureVerifier = (path, _) => !string.Equals(path, tampered, StringComparison.OrdinalIgnoreCase);
         var globalCache = SeedGlobalCache();
 
