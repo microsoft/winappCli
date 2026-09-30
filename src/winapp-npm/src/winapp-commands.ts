@@ -337,7 +337,7 @@ export interface DevtoolsCallOptions extends CommonOptions {
   params?: string | string[];
   /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Authorize attaching DevTools if the target is not already attached. */
   attach?: boolean;
@@ -345,7 +345,7 @@ export interface DevtoolsCallOptions extends CommonOptions {
   json?: boolean;
   /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
   root?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -570,7 +570,7 @@ export interface DevtoolsDiagnoseBindingOptions extends CommonOptions {
   property?: string;
   /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Authorize attaching DevTools if the target is not already attached. */
   attach?: boolean;
@@ -578,7 +578,7 @@ export interface DevtoolsDiagnoseBindingOptions extends CommonOptions {
   json?: boolean;
   /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
   root?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -609,7 +609,7 @@ export interface DevtoolsGetLayoutOptions extends CommonOptions {
   selector?: string;
   /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Authorize attaching DevTools if the target is not already attached. */
   attach?: boolean;
@@ -617,7 +617,7 @@ export interface DevtoolsGetLayoutOptions extends CommonOptions {
   json?: boolean;
   /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
   root?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -649,7 +649,7 @@ export interface DevtoolsGetPropertyOptions extends CommonOptions {
   on?: string;
   /** Include default-valued properties, not only explicitly set ones. */
   all?: boolean;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Authorize attaching DevTools if the target is not already attached. */
   attach?: boolean;
@@ -661,7 +661,7 @@ export interface DevtoolsGetPropertyOptions extends CommonOptions {
   property?: string;
   /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
   root?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
   /** Property<operator>Literal predicate. Repeat for AND; quote the whole argument. */
   with?: string | string[];
@@ -700,7 +700,7 @@ export interface DevtoolsGetSourceOptions extends CommonOptions {
   selector?: string;
   /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Authorize attaching DevTools if the target is not already attached. */
   attach?: boolean;
@@ -708,7 +708,7 @@ export interface DevtoolsGetSourceOptions extends CommonOptions {
   json?: boolean;
   /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
   root?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
 }
 
@@ -742,7 +742,7 @@ export interface DevtoolsInspectOptions extends CommonOptions {
   all?: boolean;
   /** Show the path from the selected element up to the tree root instead of its subtree. */
   ancestors?: boolean;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Authorize attaching DevTools if the target is not already attached. */
   attach?: boolean;
@@ -758,7 +758,7 @@ export interface DevtoolsInspectOptions extends CommonOptions {
   ofType?: string;
   /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
   root?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
   /** Property<operator>Literal predicate. Repeat for AND; quote the whole argument. */
   with?: string | string[];
@@ -826,7 +826,7 @@ export interface DevtoolsSearchOptions extends CommonOptions {
   on?: string;
   /** Include framework and control-template elements, not just the ones your XAML declares. */
   all?: boolean;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Authorize attaching DevTools if the target is not already attached. */
   attach?: boolean;
@@ -840,7 +840,7 @@ export interface DevtoolsSearchOptions extends CommonOptions {
   ofType?: string;
   /** Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list. */
   root?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
   /** Property<operator>Literal predicate. Repeat for AND; quote the whole argument. */
   with?: string | string[];
@@ -882,7 +882,7 @@ export interface DevtoolsSetPropertyOptions extends CommonOptions {
   value?: string;
   /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
-  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  /** Target app by process name, window title, or PID */
   app?: string;
   /** Authorize attaching DevTools if the target is not already attached. */
   attach?: boolean;
@@ -898,7 +898,7 @@ export interface DevtoolsSetPropertyOptions extends CommonOptions {
   type?: string;
   /** New literal value for a query-targeted set; omit the positional selector. */
   queryValue?: string;
-  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  /** Target window by handle (printed by -a and list-windows; overrides --app) */
   window?: number;
   /** Property<operator>Literal predicate. Repeat for AND; quote the whole argument. */
   with?: string | string[];
