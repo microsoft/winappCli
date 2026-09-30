@@ -175,7 +175,7 @@ int main()
     opener.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,false);
     opener.Invoke(nullptr,nullptr);
     check(g_propRows[0].value==L"False" && testValue.text==L"False","opening a row re-reads its live value");
-    check(!CanRereadSelection(),"an open editor keeps the snapshot");
+    check(CanRereadSelection(),"an expanded row whose editor is not being typed in does not block a re-read");
     g_propExpanded.clear();values[88]=L"True";g_propRows={row};testValue.text=L"True";
 
     g_ctx.readInputFn=[](IInspectable*,std::wstring& text){text=L"bad read";return false;};

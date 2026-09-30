@@ -632,7 +632,11 @@ static bool OnOverlayReleasedPick(InstanceHandle h)
 // applying it again and bouncing another select at the target.
 static bool PublishProtocolSelection(unsigned long long wire, const std::wstring& origin)
 {
-    if (g_lastPickHandle.load(std::memory_order_relaxed) == wire) return false;
+    if (g_lastPickHandle.load(std::memory_order_relaxed) == wire) {
+        // Selecting the element already shown is a request to look again.
+        DevToolsWindow_RereadSelection(wire);
+        return false;
+    }
     g_lastPickHandle.store(wire, std::memory_order_relaxed);
     const unsigned long long gen = g_lastPickGen.fetch_add(1, std::memory_order_release) + 1;
     if (DevToolsWindow_IsOpen()) DevToolsWindow_OnPicked(wire, /*releaseCommit*/ false);

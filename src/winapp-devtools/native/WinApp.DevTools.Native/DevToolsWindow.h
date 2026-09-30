@@ -130,6 +130,8 @@ void DevToolsWindow_SetPathWalk(DevToolsWindowWalkFn walkFn);
 void DevToolsWindow_RefreshComments();
 
 bool DevToolsWindow_OnPicked(InstanceHandle wire, bool releaseCommit);
+// Re-reads the properties pane when `wire` is the element it shows and no edit would be lost. UI thread only.
+void DevToolsWindow_RereadSelection(InstanceHandle wire);
 
 void DevToolsWindow_OnPickModeChanged(bool armed);
 

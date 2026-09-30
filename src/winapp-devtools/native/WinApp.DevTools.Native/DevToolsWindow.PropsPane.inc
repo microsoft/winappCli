@@ -2,13 +2,24 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+// A re-read rebuilds the pane. It is safe unless it would discard an edit: a queued write, a pending resource
+// choice, or text the user is typing into a property editor (an editor commits when it loses focus).
 static bool CanRereadSelection()
 {
-    for (const auto& path : g_propExpanded) {
-        const auto* row = FindPropertyRow(g_propRows, path);
-        if (row && !row->type.empty()) return false;
-    }
-    return g_pendingWrites.empty() && g_pendingKind.empty();
+    if (!g_pendingWrites.empty() || !g_pendingKind.empty()) return false;
+    if (!g_inspectorContent) return true;
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, g_inspectorContent);
+        auto root = object.as<DevToolsX::FrameworkElement>();
+        bool input = false;
+        for (auto node = DevToolsXI::FocusManager::GetFocusedElement(root.XamlRoot()).try_as<DevToolsX::DependencyObject>();
+             node; node = DevToolsXM::VisualTreeHelper::GetParent(node)) {
+            input = input || node.try_as<DevToolsXC::TextBox>() || node.try_as<DevToolsXC::ComboBox>();
+            if (auto fe = node.try_as<DevToolsX::FrameworkElement>(); fe && fe.Name() == L"PropsHost") return !input;
+        }
+    } catch (const winrt::hresult_error&) {}
+    return true;
 }
 
 static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, const std::wstring& breadcrumb,

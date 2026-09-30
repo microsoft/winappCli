@@ -603,6 +603,12 @@ bool DevToolsWindow_OnPicked(InstanceHandle wire, bool releaseCommit)
     return fromWindow;
 }
 
+void DevToolsWindow_RereadSelection(InstanceHandle wire)
+{
+    if (DevToolsWindow_IsOpen() && wire && wire == g_selWire && CanRereadSelection())
+        ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+}
+
 // The overlay reports every pick-mode transition here, whichever surface caused it (the window's toggle, the
 // rail's Pick button, or Esc). One owner, one state: this is the only writer of the window's indicator, and
 // the routing bit is cleared with the mode so a later overlay-armed pick is not mistakenly claimed by this
