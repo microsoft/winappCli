@@ -101,7 +101,7 @@ static std::wstring HandleCommand(const std::wstring& line,
             bool toolbarVisible = false; unsigned long long highlightWire = 0; bool layoutOn = false;
             unsigned long long revision = 0;
             std::wstring toolbarOwner, highlightOwner, layoutOwner;
-            std::wstring activeSurface; size_t surfaceCount = 0;
+            std::wstring activeSurface, host; size_t surfaceCount = 0;
             unsigned long long toolbarRoot = 0, selectionRoot = 0;
             uintptr_t toolbarWindow = 0, selectionWindow = 0;
         };
@@ -135,6 +135,7 @@ static std::wstring HandleCommand(const std::wstring& line,
                 st->selectionRoot = PackWire_nolock(selection.rootHandle);
             }
             st->surfaceCount = DevToolsOverlay_AllSurfaces().size();
+            st->host = DevToolsOverlay_HostPath();
             return S_OK;
         });
         if (FAILED(hr)) return L"ERR ui-thread";
@@ -153,6 +154,7 @@ static std::wstring HandleCommand(const std::wstring& line,
         out += L",\"toolbarRoot\":\"" + std::to_wstring(st->toolbarRoot) + L"\"";
         out += L",\"selectionWindow\":\"" + std::to_wstring(st->selectionWindow) + L"\"";
         out += L",\"selectionRoot\":\"" + std::to_wstring(st->selectionRoot) + L"\"";
+        out += L",\"host\":\"" + st->host + L"\"";
         out += L"}";
         return out;
     }

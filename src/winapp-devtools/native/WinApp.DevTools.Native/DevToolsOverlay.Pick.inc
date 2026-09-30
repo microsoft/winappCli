@@ -50,6 +50,7 @@ static void ExitPickMode();
 static bool DismissSelectionPanel(bool discardDetached = false);
 static bool DevToolsSelPanelIsOpen();
 static bool PickerEditorIsOpen();
+static void UpdateCatcherHole();
 static void ResetPickPointer()
 {
     g_pressValid = false;
@@ -110,6 +111,7 @@ static HRESULT ReadHostAttachment(bool* attached)
     hr = ReadHostRootIdentity(g_appPanel, identity);
     if (FAILED(hr)) return hr;
     if (g_hostRootIdentity && identity.get() != g_hostRootIdentity.get()) return S_OK;
+    if (HostLayerAttached(g_appPanel, g_popupUi, attached)) return S_OK;
     hr = g_appPanel->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), panel.put_void());
     if (FAILED(hr) || !panel) return FAILED(hr) ? hr : E_NOINTERFACE;
     hr = DevToolsPanelGetChildren(panel.get(), children.put());
@@ -539,6 +541,7 @@ static void OnPickClick(void* sender, void*)
         return;
     }
     g_pickCatcher = catcher;
+    UpdateCatcherHole();
     SetPickButtonOn(true);
     WireAppEscapeOnce();
     DevToolsOverlayLog(L"overlay.pickmode armed (%dx%d catcher, sticky)", w, h);

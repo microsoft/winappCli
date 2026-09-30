@@ -213,6 +213,8 @@ try {
         $sameNames = Invoke-Cli @('ui', 'search', 'Alpha', '-a', $app)
         Check (-not $sameNames.hasMore -and @($sameNames.matches | Where-Object { $_.type -eq 'Text' -and $_.name -eq 'Alpha' }).Count -eq 2) 'distinct same-named fixture controls remain separate'
         $null = Invoke-Cli @('devtools', 'call', 'Overlay.show', '-a', $app)
+        $overlayState = Invoke-Cli @('devtools', 'call', 'Overlay.getState', '-a', $app)
+        Check ($overlayState.result.host -eq 'uiLayer') 'overlay chrome is hosted in the XAML diagnostics UI layer'
         $tree = Invoke-Cli @('devtools', 'inspect', '-w', $window, '--all', '--depth', '30')
         Check (-not $tree.truncated -and $tree.depthLimitedElements -eq 0) 'overlay probe has a complete owned source tree'
         $heading = @(Nodes $tree.elements | Where-Object name -eq 'WindowHeading')

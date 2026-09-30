@@ -343,6 +343,7 @@ static HRESULT PopupAttached(IInspectable* panel, IInspectable* popup, IInspecta
 {
     *attached = false;
     if (!panel || !popup || !popupUi) return S_OK;
+    if (HostLayerAttached(panel, popupUi, attached)) return S_OK;
     winrt::com_ptr<IInspectable> fe, children;
     HRESULT hr = panel->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), fe.put_void());
     bool loaded = false;
@@ -411,6 +412,7 @@ HRESULT DevToolsOverlay_MoveHighlightToPanel(IXamlDiagnostics* diag, InstanceHan
             g_highlightCanvas.copy_from(reinterpret_cast<IInspectable*>(winrt::get_abi(canvas)));
             g_highlightPopup.copy_from(reinterpret_cast<IInspectable*>(winrt::get_abi(popup)));
             winrt::check_hresult(g_highlightPopup->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), g_highlightPopupUi.put_void()));
+            HostRegister(g_highlightPopup.get(), g_highlightPopupUi.get(), g_highlightCanvas.get(), false);
             auto children = canvas.Children();
             g_highlightChildren.copy_from(reinterpret_cast<IInspectable*>(winrt::get_abi(children)));
             winrt::check_hresult(g_highlightCanvas->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), g_highlightLayoutSource.put_void()));
@@ -424,7 +426,7 @@ HRESULT DevToolsOverlay_MoveHighlightToPanel(IXamlDiagnostics* diag, InstanceHan
         bool attached = false;
         winrt::check_hresult(PopupAttached(g_highlightPanel.get(), g_highlightPopup.get(), g_highlightPopupUi.get(), &attached));
         if (attached && g_highlightPanel.as<IUnknown>().get() == panel.as<IUnknown>().get()) return S_OK;
-        winrt::check_hresult(DevToolsPopupPutIsOpen(g_highlightPopup.get(), 0));
+        winrt::check_hresult(HostPutOpen(g_highlightPopup.get(), false));
         winrt::com_ptr<IInspectable> oldChildren;
         unsigned index = 0;
         unsigned char found = 0;
@@ -434,17 +436,17 @@ HRESULT DevToolsOverlay_MoveHighlightToPanel(IXamlDiagnostics* diag, InstanceHan
             if (found) winrt::check_hresult(DevToolsVecRemoveAt(oldChildren.get(), index));
         }
         winrt::check_hresult(SeedPopup(diag, g_highlightPopup.get(), g_highlightCanvas.get()));
-        const HRESULT hr = AttachViaPanelChildren(panel.get(), g_highlightPopupUi.get(), L"highlight");
+        const HRESULT hr = HostAttach(diag, panel.get(), g_highlightPopupUi.get(), L"highlight");
         if (FAILED(hr)) {
             if (found) {
                 const HRESULT restore = DevToolsVecInsertAt(oldChildren.get(), index, g_highlightPopupUi.get());
-                if (SUCCEEDED(restore)) DevToolsPopupPutIsOpen(g_highlightPopup.get(), attached ? 1 : 0);
+                if (SUCCEEDED(restore)) HostPutOpen(g_highlightPopup.get(), attached);
                 else DevToolsOverlayLog(L"overlay.highlight rollback failed hr=0x%08X", restore);
             }
             return hr;
         }
         g_highlightPanel = panel;
-        return DevToolsPopupPutIsOpen(g_highlightPopup.get(), 1);
+        return HostPutOpen(g_highlightPopup.get(), true);
     } catch (const winrt::hresult_error& e) {
         if (!g_highlightPanel) {
             if (g_highlightLayoutSource && g_highlightLayoutToken.value) {
@@ -528,6 +530,7 @@ HRESULT DevToolsOverlay_MoveSelectionToPanel(IXamlDiagnostics* diag, InstanceHan
             g_selectionCanvas.copy_from(reinterpret_cast<IInspectable*>(winrt::get_abi(canvas)));
             g_selectionPopup.copy_from(reinterpret_cast<IInspectable*>(winrt::get_abi(popup)));
             winrt::check_hresult(g_selectionPopup->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), g_selectionPopupUi.put_void()));
+            HostRegister(g_selectionPopup.get(), g_selectionPopupUi.get(), g_selectionCanvas.get(), false);
             auto children = canvas.Children();
             g_canvasChildren = reinterpret_cast<IInspectable*>(winrt::detach_abi(children));
             winrt::check_hresult(g_selectionCanvas->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), g_selectionLayoutSource.put_void()));
@@ -536,7 +539,7 @@ HRESULT DevToolsOverlay_MoveSelectionToPanel(IXamlDiagnostics* diag, InstanceHan
             winrt::check_hresult(DevToolsAbi<DevToolsX::IFrameworkElement>(g_selectionLayoutSource.get())
                 ->add_LayoutUpdated(&g_selectionOriginSink, &g_selectionLayoutToken));
         }
-        winrt::check_hresult(DevToolsPopupPutIsOpen(g_selectionPopup.get(), 0));
+        winrt::check_hresult(HostPutOpen(g_selectionPopup.get(), false));
         winrt::com_ptr<IInspectable> previousChildren;
         unsigned index = 0;
         unsigned char found = 0;
@@ -546,11 +549,11 @@ HRESULT DevToolsOverlay_MoveSelectionToPanel(IXamlDiagnostics* diag, InstanceHan
             if (found) winrt::check_hresult(DevToolsVecRemoveAt(previousChildren.get(), index));
         }
         winrt::check_hresult(SeedPopup(diag, g_selectionPopup.get(), g_selectionCanvas.get()));
-        HRESULT hr = AttachViaPanelChildren(panel.get(), g_selectionPopupUi.get(), L"selection");
+        HRESULT hr = HostAttach(diag, panel.get(), g_selectionPopupUi.get(), L"selection");
         if (FAILED(hr)) {
             if (found) {
                 const HRESULT restore = DevToolsVecInsertAt(previousChildren.get(), index, g_selectionPopupUi.get());
-                if (SUCCEEDED(restore)) DevToolsPopupPutIsOpen(g_selectionPopup.get(), 1);
+                if (SUCCEEDED(restore)) HostPutOpen(g_selectionPopup.get(), true);
                 else DevToolsOverlayLog(L"overlay.selection rollback failed hr=0x%08X", restore);
             }
             return hr;
@@ -573,12 +576,12 @@ HRESULT DevToolsOverlay_MoveSelectionToPanel(IXamlDiagnostics* diag, InstanceHan
         winrt::check_hresult(DevToolsAddSizeChanged(resizeSource.get(), &g_selectionResizeSink, &g_selectionResizeToken));
         g_selectionResizeSource = std::move(resizeSource);
         WireAppEscapeOnce();
-        winrt::check_hresult(DevToolsPopupPutIsOpen(g_selectionPopup.get(), 1));
+        winrt::check_hresult(HostPutOpen(g_selectionPopup.get(), true));
         if (g_popup && g_toolbarSurface.xamlRootKey == surface.xamlRootKey) {
             bool open = false;
-            if (SUCCEEDED(DevToolsPopupGetIsOpen(g_popup, &open)) && open) {
-                winrt::check_hresult(DevToolsPopupPutIsOpen(g_popup, 0));
-                winrt::check_hresult(DevToolsPopupPutIsOpen(g_popup, 1));
+            if (SUCCEEDED(HostGetOpen(g_popup, &open)) && open) {
+                winrt::check_hresult(HostPutOpen(g_popup, false));
+                winrt::check_hresult(HostPutOpen(g_popup, true));
             }
         }
         if (recovering && g_selExpanded && g_selPopup && !g_selDismissVisualClosed)

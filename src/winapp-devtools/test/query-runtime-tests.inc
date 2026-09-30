@@ -4,6 +4,7 @@
 
 void OverlayFixtureSeedHighlight(InstanceHandle handle);
 bool OverlayFixtureDetachedDraftGuards();
+bool OverlayFixtureHostFallsBack();
 std::vector<InstanceHandle> OverlayFixtureSurfaceCandidates();
 
 static unsigned g_queryDispatches = 0;
@@ -300,7 +301,8 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
         check(refusedHighlight.rfind(L"ERR ", 0) == 0 && DevToolsOverlay_GetHighlightHandle() == 901,
             "rejected stale highlight preserves the existing highlight");
         OverlayFixtureSeedHighlight(0);
-        check(OverlayFixtureDetachedDraftGuards(),
+        check(OverlayFixtureHostFallsBack(), "the overlay uses the UI layer only when every lookup step answers, and can be forced to Popups");
+    check(OverlayFixtureDetachedDraftGuards(),
             "detached draft refuses arming and implicit dismissal until explicit Close");
         for (bool write : {false, true}) {
             const auto response = query(write

@@ -376,6 +376,7 @@ static void ClearSelectionAnchor()
             reinterpret_cast<IUnknown*>(popup)->Release();
         }
     }
+    UpdateCatcherHole();
     if (selUi && g_canvasChildren) {
         unsigned int idx = 0; unsigned char found = 0;
         if (SUCCEEDED(DevToolsVecIndexOf(g_canvasChildren, selUi, &idx, &found)) && found) DevToolsVecRemoveAt(g_canvasChildren, idx);
@@ -747,6 +748,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
         g_selUi = cui;
     }
     if (g_selPopup) {
+        HostLiftPopup(g_selPopup, g_selectionPopup.get());
         void* popup = nullptr;
         if (SUCCEEDED(g_selPopup->QueryInterface(DevToolsIid<DevToolsXCP::IPopup>(), &popup)) && popup) {
             const HRESULT hrOpen = DevToolsPopupPutIsOpen(popup, true);
@@ -756,6 +758,14 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
                           hrOpen, (int)constrained, hrRead);
             reinterpret_cast<IUnknown*>(popup)->Release();
         }
+        if (g_selPanel) {
+            try {
+                winrt::Windows::Foundation::IInspectable panel{ nullptr };
+                winrt::copy_from_abi(panel, g_selPanel);
+                panel.as<DevToolsX::FrameworkElement>().SizeChanged([](auto&&, auto&&) { UpdateCatcherHole(); });
+            } catch (const winrt::hresult_error&) {}
+        }
+        UpdateCatcherHole();
     }
     if (!g_selOperationError.empty())
         SetSelectionOperationError(g_selOperationProperty, g_selOperationError);

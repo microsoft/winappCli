@@ -152,6 +152,11 @@ InstanceHandle DevToolsOverlay_GetHighlightHandle();
 
 // Reads the layout-toggle latch without recomputing geometry.
 bool DevToolsOverlay_IsLayoutAdornersOn();
+// Where the chrome is hosted: "uiLayer", "popup" (fallback) or "none" (not built). UI thread only.
+const wchar_t* DevToolsOverlay_HostPath();
+// Test hook (Internal.overlayHost): place chrome built from now on in the fallback Popup host. UI thread only.
+void DevToolsOverlay_ForcePopupHost(bool force);
+bool DevToolsOverlay_IsPopupHostForced();
 
 // Captures the last layout rectangles actually drawn; callers must ignore rects when placed is 0.
 struct DevToolsOverlayLayoutRects

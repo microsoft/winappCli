@@ -22,7 +22,7 @@ static HRESULT MoveToPanel(IXamlDiagnostics* diag, InstanceHandle newPanel, bool
 
     g_surfaceMoving = true;
     const auto moveGeneration = ++g_hostGeneration;
-    HRESULT closeResult = DevToolsPopupPutIsOpen(g_popup, 0);
+    HRESULT closeResult = HostPutOpen(g_popup, false);
     if (FAILED(closeResult)) {
         g_surfaceMoving = false;
         panelInsp->Release();
@@ -49,7 +49,7 @@ static HRESULT MoveToPanel(IXamlDiagnostics* diag, InstanceHandle newPanel, bool
     if (FAILED(detachResult)) {
         DevToolsOverlayLog(L"overlay.switch detach FAILED hr=0x%08X", detachResult);
         if (!recovering || (moveGeneration == g_hostGeneration && g_toolbarVisible)) {
-            const HRESULT reopen = DevToolsPopupPutIsOpen(g_popup, 1);
+            const HRESULT reopen = HostPutOpen(g_popup, true);
             if (FAILED(reopen)) DevToolsOverlayLog(L"overlay.switch detach rollback reopen FAILED hr=0x%08X", reopen);
         }
         g_surfaceMoving = false;
@@ -62,7 +62,7 @@ static HRESULT MoveToPanel(IXamlDiagnostics* diag, InstanceHandle newPanel, bool
         return E_ABORT;
     }
 
-    HRESULT hr = AttachViaPanelChildren(panelInsp, g_popupUi, L"switch");
+    HRESULT hr = HostAttach(diag, panelInsp, g_popupUi, L"switch");
     if (SUCCEEDED(hr)) {
         EndToolbarDrag();
         UnwireFocusTracking();
@@ -91,7 +91,7 @@ static HRESULT MoveToPanel(IXamlDiagnostics* diag, InstanceHandle newPanel, bool
         }
         HRESULT hrO = FAILED(hr) ? hr :
             recovering && (moveGeneration != g_hostGeneration || !g_toolbarVisible)
-                ? E_ABORT : DevToolsPopupPutIsOpen(g_popup, g_toolbarVisible ? 1 : 0);
+                ? E_ABORT : HostPutOpen(g_popup, g_toolbarVisible);
         if (FAILED(hrO)) hr = hrO;
         RepositionToolbar();
         UpdateChipLabel();
@@ -100,11 +100,11 @@ static HRESULT MoveToPanel(IXamlDiagnostics* diag, InstanceHandle newPanel, bool
         NotifyStateChanged();
     } else {
         DevToolsOverlayLog(L"overlay.switch attach FAILED hr=0x%08X; restoring the previous parent", hr);
-        const HRESULT restore = wasChild ? AttachViaPanelChildren(g_appPanel, g_popupUi, L"switch.restore") : S_FALSE;
+        const HRESULT restore = wasChild ? HostAttach(diag, g_appPanel, g_popupUi, L"switch.restore") : S_FALSE;
         if (FAILED(restore)) DevToolsOverlayLog(L"overlay.switch rollback attach FAILED hr=0x%08X", restore);
         if (SUCCEEDED(restore) && wasChild &&
             (!recovering || (moveGeneration == g_hostGeneration && g_toolbarVisible))) {
-            const HRESULT reopen = DevToolsPopupPutIsOpen(g_popup, 1);
+            const HRESULT reopen = HostPutOpen(g_popup, true);
             if (FAILED(reopen)) DevToolsOverlayLog(L"overlay.switch rollback reopen FAILED hr=0x%08X", reopen);
         }
     }
@@ -156,7 +156,7 @@ HRESULT DevToolsOverlay_RecoverHost(IXamlDiagnostics* diag, DevToolsFindHostPane
                     if (FAILED(selectionResult)) return selectionResult;
                     g_selectionResizeSource = nullptr;
                 }
-                selectionResult = DevToolsPopupPutIsOpen(g_selectionPopup.get(), 0);
+                selectionResult = HostPutOpen(g_selectionPopup.get(), false);
                 if (FAILED(selectionResult)) return selectionResult;
                 const bool draft = SelKeepDetachedIfUnsent();
                 if (!draft) DeselectAll(g_lastHighlightHandle == g_selectedHandle);

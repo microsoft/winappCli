@@ -97,11 +97,9 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
             if (DevToolsSettingsGetBool(L"LayoutAdorners", false)) SetLayoutAdornersOn(true);
             UpdateChipLabel();
 
-// Host the toolbar in a Popup created from the APP'S OWN WinUI via activation-by-name, so its content floats on
-// the framework's popup layer (on top of ALL app content, structure- agnostic, no layout push). A detached
-// Popup fires no tree-change callbacks until step 6.
-            // Popup comes from the app's WinUI and floats on the framework popup layer without reparenting
-            // Window.Content.
+// The toolbar content is hosted in the XAML diagnostics UI layer of the app panel's XamlRoot (HostAttach). Its
+// Popup, created from the APP'S OWN WinUI, is the fallback host when that layer is unavailable: inserted into the
+// app panel, its content floats on the framework's popup layer. A detached Popup fires no tree-change callbacks.
             IInspectable* overlayUi = nullptr;
             hr = overlay->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), reinterpret_cast<void**>(&overlayUi));
             DevToolsOverlayLog(L"overlay.step3 QI toolbar IUIElement hr=0x%08X ui=%p", hr, overlayUi);
@@ -122,6 +120,7 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
                     g_popup = popup; g_popup->AddRef();
                     if (g_popupUi) { g_popupUi->Release(); g_popupUi = nullptr; }
                     (void)popupInsp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), reinterpret_cast<void**>(&g_popupUi));
+                    HostRegister(popupInsp, g_popupUi, overlayUi, /*topmost*/ true);
                     HRESULT hrC = DevToolsPopupPutChild(popup, overlayUi);
                     DevToolsPopupPutHorizontalOffset(popup, 0.0);
                     DevToolsPopupPutVerticalOffset(popup, 0.0);
@@ -139,16 +138,7 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
                     {
                         if (seed) seed(ph);
 
-// ANCHOR PROBE (get-only): record what the diagnostics UI layer returns. Finding: GetUiLayer's Grid ACCEPTS
-// children (InsertAt hr=0) but does NOT visibly present them on WinUI 1.x, so we anchor via the Popup instead.
-                        // Diagnostics UI layer can accept children without presenting them on WinUI, so the
-                        // overlay uses a Popup host.
-                        IInspectable* layer = nullptr;
-                        HRESULT hrL = diag->GetUiLayer(&layer);
-                        DevToolsOverlayLog(L"overlay.step5 GetUiLayer(probe) hr=0x%08X layer=%p", hrL, layer);
-                        if (SUCCEEDED(hrL) && layer) { LogRuntimeClass(L"step5.uiLayer", layer); layer->Release(); }
-
-// Insert the zero-size Popup into the app panel's Children so it inherits the live XamlRoot.
+// Host the toolbar for the app panel's XamlRoot: the UI layer, or the zero-size Popup in the panel's Children.
                         (void)index;
                         bool attached = false;
                         IInspectable* popupUi = nullptr;
@@ -160,7 +150,7 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
                             DevToolsOverlayLog(L"overlay.step6 GetIInspectableFromHandle(panel=%llu) hr=0x%08X insp=%p", appPanel, hrP, panelInsp);
                             if (SUCCEEDED(hrP) && panelInsp)
                             {
-                                if (SUCCEEDED(AttachViaPanelChildren(panelInsp, popupUi, L"step6.popup"))) attached = true;
+                                if (SUCCEEDED(HostAttach(diag, panelInsp, popupUi, L"step6.popup"))) attached = true;
                                 if (attached) WireResizeTracking(panelInsp);
                                 if (attached && !g_appPanel) {
                                     g_appPanel = panelInsp;
@@ -177,7 +167,7 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
 // of all app content.
                         if (attached)
                         {
-                            HRESULT hrO = DevToolsPopupPutIsOpen(popup, 1);
+                            HRESULT hrO = HostPutOpen(popup, true);
                             DevToolsOverlayLog(L"overlay.step7 put_IsOpen hr=0x%08X", hrO);
 // Fire the one-shot attach pulse now the overlay is live on the popup layer -- a brief glow brighten that draws
 // the eye on attach, then settles static.

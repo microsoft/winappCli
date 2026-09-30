@@ -170,12 +170,54 @@ static bool DiscardFailedSelectionCommentDraft();
 static bool DevToolsSelPanelIsOpen() { return g_selPanel != nullptr; }
 static bool g_selDismissVisualClosed = false;
 static double g_selDismissBegan = 0;
+
+// On the UI layer a windowed Popup's input is hit-tested against the layer as well, so the full-size pick catcher
+// would take clicks meant for the open quick peek. While the peek is open there, the catcher keeps only a
+// transparent border around the peek's rectangle: clicks outside still dismiss, clicks on the peek reach it.
+static void UpdateCatcherHole()
+{
+    if (!g_pickCatcher) return;
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr }, popupObject{ nullptr }, panelObject{ nullptr };
+        winrt::copy_from_abi(object, g_pickCatcher);
+        auto catcher = object.as<DevToolsXC::Border>();
+        if (g_selPopup) winrt::copy_from_abi(popupObject, g_selPopup);
+        if (g_selPanel) winrt::copy_from_abi(panelObject, g_selPanel);
+        auto popup = popupObject ? popupObject.try_as<DevToolsXCP::Popup>() : nullptr;
+        auto panel = panelObject ? panelObject.try_as<DevToolsX::FrameworkElement>() : nullptr;
+        const DevToolsHostSlot* slot = HostSlotFor(g_selectionPopup.get());
+        const double width = catcher.Width(), height = catcher.Height();
+        double left = 0, top = 0, right = 0, bottom = 0;
+        bool hole = slot && slot->layerKey && popup && popup.IsOpen() && panel;
+        if (hole) {
+            left = (std::clamp)(popup.HorizontalOffset(), 0.0, width);
+            top = (std::clamp)(popup.VerticalOffset(), 0.0, height);
+            right = (std::clamp)(popup.HorizontalOffset() + panel.ActualWidth(), 0.0, width);
+            bottom = (std::clamp)(popup.VerticalOffset() + panel.ActualHeight(), 0.0, height);
+            hole = right > left && bottom > top;
+        }
+        const DevToolsXM::SolidColorBrush transparent{ winrt::Windows::UI::Color{ 0, 0, 0, 0 } };
+        if (!hole) {
+            catcher.BorderThickness({ 0, 0, 0, 0 });
+            catcher.Background(transparent);
+            return;
+        }
+        catcher.BorderBrush(transparent);
+        catcher.Background(nullptr);
+        catcher.BorderThickness({ left, top, width - right, height - bottom });
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.pickmode catcher hole failed hr=0x%08X", e.code().value);
+    }
+}
+
 static HRESULT SetSelectionPopupOpen(bool open)
 {
     if (!g_selPopup) return E_POINTER;
     winrt::com_ptr<IUnknown> popup;
-    const HRESULT hr = g_selPopup->QueryInterface(DevToolsIid<DevToolsXCP::IPopup>(), popup.put_void());
-    return FAILED(hr) ? hr : DevToolsPopupPutIsOpen(popup.get(), open);
+    HRESULT hr = g_selPopup->QueryInterface(DevToolsIid<DevToolsXCP::IPopup>(), popup.put_void());
+    if (SUCCEEDED(hr)) hr = DevToolsPopupPutIsOpen(popup.get(), open);
+    UpdateCatcherHole();
+    return hr;
 }
 static void CALLBACK DevToolsSelDismissTimerProc(HWND, UINT, UINT_PTR, DWORD)
 {

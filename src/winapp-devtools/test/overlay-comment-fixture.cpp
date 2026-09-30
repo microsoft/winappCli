@@ -27,6 +27,22 @@ void OverlayFixtureSeedHighlight(InstanceHandle handle)
     g_lastHighlightHandle = handle;
 }
 
+// The overlay host falls back to Popups whenever any step of the UI-layer lookup does not answer, or when forced.
+bool OverlayFixtureHostFallsBack()
+{
+    const bool layer = HostUseLayer(false, true, S_OK, S_OK, true);
+    const bool fallbacks = !HostUseLayer(true, true, S_OK, S_OK, true) &&
+        !HostUseLayer(false, false, S_OK, S_OK, true) &&
+        !HostUseLayer(false, true, E_NOINTERFACE, S_OK, true) &&
+        !HostUseLayer(false, true, S_OK, E_NOINTERFACE, true) &&
+        !HostUseLayer(false, true, S_OK, S_OK, false);
+    DevToolsOverlay_ForcePopupHost(true);
+    const bool forced = DevToolsOverlay_IsPopupHostForced() && !LayerRootFor(reinterpret_cast<IXamlDiagnostics*>(1),
+        reinterpret_cast<IInspectable*>(1));
+    DevToolsOverlay_ForcePopupHost(false);
+    return layer && fallbacks && forced && std::wstring(DevToolsOverlay_HostPath()) == L"none";
+}
+
 std::vector<InstanceHandle> OverlayFixtureSurfaceCandidates()
 {
     return g_surfaceRoots ? g_surfaceRoots() : std::vector<InstanceHandle>{};

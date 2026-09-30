@@ -18,6 +18,7 @@ static void DevToolsSetToolbarRequestedTheme(int appTheme)
         }
     }
     DevToolsSetSelectionPanelRequestedTheme(toolbarTheme);
+    HostSetLayerTheme(appTheme);
 }
 
 static void OnThemeToggleClick(void*, void*)

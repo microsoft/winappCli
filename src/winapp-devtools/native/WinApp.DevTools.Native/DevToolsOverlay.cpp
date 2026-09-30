@@ -63,6 +63,7 @@ struct __declspec(uuid("523A35EE-EB38-4AE6-A3E1-5B7D0D547BD0")) IXamlDiagnostics
 };
 
 #include "DevToolsOverlay.State.inc"
+#include "DevToolsOverlay.Host.inc"
 #include "DevToolsOverlay.Pick.inc"
 #include "DevToolsOverlay.Toolbar.inc"
 #include "DevToolsOverlay.Build.inc"

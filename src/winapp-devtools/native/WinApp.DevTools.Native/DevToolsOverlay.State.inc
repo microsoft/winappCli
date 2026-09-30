@@ -141,6 +141,7 @@ void DevToolsOverlay_SetSurfaceRootsReader(DevToolsSurfaceRootsFn fn) { g_surfac
 // `anchor` is a live element on the surface to make active; passing 0 keeps the current active root if it is
 // still among the resolved surfaces. on the hover path: the per-root coordinate converter is cached inside
 // DevToolsSurface, so a pointer move costs a map lookup rather than a re-resolve.
+static void HostPruneLayers(const std::vector<DevToolsSurface>& live);
 bool DevToolsOverlay_RefreshSurfaces(IXamlDiagnostics* diag, InstanceHandle anchor)
 {
     if (!diag) return false;
@@ -151,6 +152,7 @@ bool DevToolsOverlay_RefreshSurfaces(IXamlDiagnostics* diag, InstanceHandle anch
     if (anchor) roots.insert(roots.begin(), anchor);
     const size_t candidateCount = roots.size();
     g_allSurfaces = DevToolsSurface_ResolveAll(diag, roots);
+    HostPruneLayers(g_allSurfaces);
 
     unsigned long long wanted = g_activeSurface.xamlRootKey;
     if (anchor) {

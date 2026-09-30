@@ -550,6 +550,20 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                            L",\"y\":" + b[1] + L",\"w\":" + b[2] + L",\"h\":" + b[3] + L"}}";
         return DevToolsRpcResult(id, out);
     }
+    if (m == L"Internal.overlayHost") {
+        // Tests only: {"force":"popup"} places chrome built from now on in the fallback Popup host.
+        const std::wstring force = p.GetString(L"force");
+        auto result = std::make_shared<std::wstring>();
+        const HRESULT hr = RunOnUiThread([force, result]() -> HRESULT {
+            if (force == L"popup") DevToolsOverlay_ForcePopupHost(true);
+            else if (force == L"auto") DevToolsOverlay_ForcePopupHost(false);
+            *result = L"{\"host\":\"" + std::wstring(DevToolsOverlay_HostPath()) + L"\",\"forcePopup\":" +
+                (DevToolsOverlay_IsPopupHostForced() ? L"true" : L"false") + L"}";
+            return S_OK;
+        });
+        if (FAILED(hr)) return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher, L"The app's UI thread did not answer.", L"ui-thread");
+        return DevToolsRpcResult(id, *result);
+    }
     if (m == L"Internal.sourceRoot") {
         // The CLI asks the APP where its sources are rather than guessing from its own cwd, so the comment store the
         // overlay writes through and the one the CLI pushes back are the same file — `winapp run samples/foo` from a
