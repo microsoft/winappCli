@@ -171,7 +171,7 @@ static void DrawPinUi(PinnedComment& p)
     if (current.right <= 0 || current.bottom <= 0 || current.left >= w || current.top >= h) return;
     p.bounds = current;
     const auto pin = DevToolsSelection::PlacePin(
-        { current.left, current.top, current.right, current.bottom }, { 0, 0, w, h });
+        { current.left, current.top, current.right, current.bottom }, DevToolsSelection::PinViewport(w, h, PinTitleBarInsetDip()));
     std::wstring tip = p.text.size() > 120 ? (p.text.substr(0, 117) + L"\u2026") : p.text;
     if (tip.empty()) tip = L"Comment";
     IInspectable* insp = nullptr;

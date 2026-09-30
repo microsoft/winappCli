@@ -765,7 +765,7 @@ static void TrackingTick()
             continue;
         }
         const auto pin = DevToolsSelection::PlacePin(
-            { nb.left, nb.top, nb.right, nb.bottom }, { 0, 0, cw, ch });
+            { nb.left, nb.top, nb.right, nb.bottom }, DevToolsSelection::PinViewport(cw, ch, PinTitleBarInsetDip()));
         MoveOverlayElement(p.ui, (double)pin.x, (double)pin.y);
         SetOverlayElementVisible(p.ui, true);
     }

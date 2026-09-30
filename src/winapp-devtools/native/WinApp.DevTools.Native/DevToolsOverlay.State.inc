@@ -317,6 +317,12 @@ static double MeasureTitleBarInsetDip()
 // as a resize), so it can never be stale relative to the geometry it is added to.
 static double g_titleBarInsetDip = 0.0;
 
+// Markers sit on the active surface; the measured inset belongs to the toolbar's window.
+static int PinTitleBarInsetDip()
+{
+    return g_activeSurface.xamlRootKey == g_toolbarSurface.xamlRootKey ? (int)ceil(g_titleBarInsetDip) : 0;
+}
+
 
 static std::wstring XmlEscapeLines(const std::wstring& s)
 {

@@ -104,6 +104,18 @@ static void TestPinsAvoidTheirElementWhenThereIsRoom()
     Check(full.x == 500 && full.y == 0, "unavoidable overlap stays at the full-client element's edge");
     const auto tiny = PlacePin({ 0, 0, 4, 4 }, { 0, 0, 8, 8 });
     Check(tiny.x == 0 && tiny.y == 0, "client smaller than the marker never produces negative coordinates");
+
+    // An app-drawn title bar: a comment on the root content must not put its marker over the Close button.
+    const Rect client{ 0, 0, 1120, 800 };
+    const Rect closeButton{ 1074, 0, 1120, 32 };
+    const Rect root{ 0, 0, 1120, 800 };
+    const auto uncovered = PlacePin(root, client);
+    Check(uncovered.x + 20 > closeButton.left && uncovered.y < closeButton.bottom,
+          "control: the whole client lets a root marker sit over the caption buttons");
+    const auto below = PlacePin(root, PinViewport(client.right, client.bottom, 32));
+    Check(below.y >= 32, "a marker stays below the title bar the app draws");
+    Check(PinViewport(100, 20, 32).top == 20 && PinViewport(100, 20, -4).top == 0,
+          "the title bar inset is clamped to the client");
 }
 
 static void TestPanelKeepsClearOfTheToolbar()

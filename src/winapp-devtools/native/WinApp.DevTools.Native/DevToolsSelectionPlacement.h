@@ -30,6 +30,12 @@ struct PinPlacement
     int y;
 };
 
+// Where comment markers may sit: the client below an app-drawn title bar, whose caption buttons take clicks.
+inline Rect PinViewport(int width, int height, int titleBarInset)
+{
+    return Rect{ 0, std::clamp(titleBarInset, 0, (std::max)(0, height)), width, height };
+}
+
 inline PinPlacement PlacePin(const Rect& element, const Rect& viewport)
 {
     constexpr int size = 20, gap = 4;
