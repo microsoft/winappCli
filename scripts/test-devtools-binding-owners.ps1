@@ -183,6 +183,7 @@ function Diagnose([string]$Handle, [string]$Window, [string]$Expected) {
 }
 try {
     $launchArguments = '"' + $report + '"' + $(if ($LargeCommentTree) { ' large' } elseif ($ProbeOverlay) { ' single' } else { '' })
+    if ($ProbeOverlay) { $env:WINAPP_DEVTOOLS_LOG = '1' }
     $launch = Invoke-Cli @('run', $project, '--devtools', '--no-overlay', '--detach', '--args', $launchArguments)
     $candidate = Get-Process -Id $launch.processId -ErrorAction Stop
     $executable = $candidate.Path
@@ -590,6 +591,9 @@ finally {
         }
     }
     $package = @(Get-AppxPackage -Name $name)
+    if ($ProbeOverlay -and $owned) {
+        Copy-Item -LiteralPath (Join-Path $env:TEMP "winapp-devtools-$($owned.Id).log") -Destination $evidence -ErrorAction SilentlyContinue
+    }
     if ($owned -and $owned.HasExited) {
         [ordered]@{ pid = $owned.Id; exitCode = $owned.ExitCode } | ConvertTo-Json |
             Set-Content (Join-Path $evidence 'normal-shutdown.json')

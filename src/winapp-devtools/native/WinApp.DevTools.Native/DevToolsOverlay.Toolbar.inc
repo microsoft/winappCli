@@ -141,33 +141,50 @@ static bool IsToolbarShortcut(int key)
         !(GetKeyState(VK_MENU) & 0x8000) && !(GetKeyState(VK_LWIN) & 0x8000) && !(GetKeyState(VK_RWIN) & 0x8000);
 }
 
+// The element with keyboard focus in the toolbar's XamlRoot, and whether it is part of the toolbar.
+static DevToolsX::UIElement ToolbarFocusedElement(bool* inToolbar)
+{
+    *inToolbar = false;
+    winrt::Windows::Foundation::IInspectable object{ nullptr };
+    winrt::copy_from_abi(object, g_protoRoot);
+    auto root = object.as<DevToolsX::UIElement>();
+    auto xamlRoot = root.XamlRoot();
+    if (!xamlRoot) return nullptr;
+    auto focused = DevToolsXI::FocusManager::GetFocusedElement(xamlRoot).try_as<DevToolsX::UIElement>();
+    for (DevToolsX::DependencyObject node = focused; node; node = DevToolsXM::VisualTreeHelper::GetParent(node))
+        if (node == root) { *inToolbar = true; break; }
+    return focused;
+}
+
 static bool FocusToolbarFromShortcut()
 {
     if (!g_toolbarVisible || !g_protoRoot || g_dragging) return false;
-    if (g_toolbarFocusWithin == 0) {
-        g_toolbarReturnFocus = nullptr;
-        try {
-            winrt::Windows::Foundation::IInspectable root{ nullptr };
-            winrt::copy_from_abi(root, g_protoRoot);
-            if (auto xamlRoot = root.as<DevToolsX::UIElement>().XamlRoot())
-                if (auto focused = DevToolsXI::FocusManager::GetFocusedElement(xamlRoot).try_as<DevToolsX::UIElement>())
-                    g_toolbarReturnFocus = winrt::make_weak(focused);
-        } catch (const winrt::hresult_error& e) {
-            DevToolsOverlayLog(L"overlay.toolbar shortcut focus read failed hr=0x%08X", e.code().value);
-        }
+    try {
+        bool inToolbar = false;
+        auto focused = ToolbarFocusedElement(&inToolbar);
+        if (!inToolbar) g_toolbarReturnFocus = focused ? winrt::make_weak(focused) : nullptr;
+        DevToolsOverlayLog(L"overlay.toolbar shortcut from=%s return=%d", inToolbar ? L"toolbar" : L"app",
+            (int)(g_toolbarReturnFocus.get() != nullptr));
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar shortcut focus read failed hr=0x%08X", e.code().value);
     }
     return FocusToolbarFirstAction();
 }
 
 static bool ReturnFocusFromToolbar()
 {
-    if (g_toolbarFocusWithin == 0) return false;
-    auto target = g_toolbarReturnFocus.get();
-    g_toolbarReturnFocus = nullptr;
-    if (!target) return false;
+    if (!g_protoRoot || !g_toolbarReturnFocus) return false;
     bool returned = false;
-    try { returned = target.Focus(DevToolsX::FocusState::Keyboard); }
-    catch (const winrt::hresult_error&) {}
+    try {
+        bool inToolbar = false;
+        ToolbarFocusedElement(&inToolbar);
+        if (!inToolbar) return false;
+        auto target = g_toolbarReturnFocus.get();
+        g_toolbarReturnFocus = nullptr;
+        returned = target && target.Focus(DevToolsX::FocusState::Keyboard);
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar focus return failed hr=0x%08X", e.code().value);
+    }
     if (returned && !g_pinned) ShowARow(false);
     DevToolsOverlayLog(L"overlay.toolbar focus returned=%d", (int)returned);
     return returned;
