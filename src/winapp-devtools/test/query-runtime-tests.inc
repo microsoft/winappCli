@@ -603,7 +603,7 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
     check(winrt::to_string(nearBudget).size() <= 64 * 1024 && nearBudget.find(L"\"omitted\":0") != std::wstring::npos,
         "near-budget escaped diagnostic stays within the actual UTF-8 byte limit");
     service.onRead = [] { Sleep(550); };
-    check(query(L"{\"ofType\":\"TextBlock\",\"property\":\"Text\",\"value\":\"No\"}", true).find(L"incomplete") != std::wstring::npos &&
+    check(query(L"{\"ofType\":\"TextBlock\",\"property\":\"Text\",\"value\":\"No\"}", true).find(L"\"truncatedBy\":\"time-budget\"") != std::wstring::npos &&
         g_mutatedHandle == 0, "over-budget last candidate cannot authorize mutation");
     service.onRead = {};
     const auto exactRead = query(L"{\"ofType\":\"TextBlock\",\"mode\":\"one\"}");
@@ -653,8 +653,8 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
     check(query(L"{\"ofType\":\"TextBlock\"}").find(L"ambiguous-type") != std::wstring::npos, "short type collision refuses first-match choice");
     g_type[902] = L"Microsoft.UI.Xaml.Controls.TextBox";
     g_children[901] = {999};
-    check(query(L"{\"ofType\":\"TextBlock\",\"property\":\"Text\",\"value\":\"No\"}", true).find(L"incomplete") != std::wstring::npos &&
-        g_mutatedHandle == 0, "unknown child coverage refuses mutation");
+    check(query(L"{\"ofType\":\"TextBlock\",\"property\":\"Text\",\"value\":\"No\"}", true).find(L"\"truncatedBy\":\"unknown-child\"") != std::wstring::npos &&
+        g_mutatedHandle == 0, "unknown child coverage refuses mutation and says why");
     g_children.clear();
     check(query(L"{\"ofType\":3}").find(L"bad-args") != std::wstring::npos, "typed protocol admission rejects numeric type");
     check(query(L"{\"ofType\":\"TextBlock\",\"property\":\"Text\",\"value\":false}", true).find(L"bad-args") != std::wstring::npos,

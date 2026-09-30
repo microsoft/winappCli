@@ -248,7 +248,9 @@ internal static class DevToolsQueryOptions
                 }
 
                 console.WriteLine($"{rows.GetArrayLength()} matches; {result.GetProperty("unevaluated").GetInt32()} unevaluated; " +
-                    (result.GetProperty("complete").GetBoolean() ? "complete within requested scope." : "incomplete."));
+                    (result.GetProperty("complete").GetBoolean() ? "complete within requested scope." :
+                        result.TryGetProperty("truncatedBy", out var truncatedBy) && truncatedBy.ValueKind == JsonValueKind.String
+                            ? $"incomplete ({truncatedBy.GetString()})." : "incomplete."));
                 if (shown.Length < rows.GetArrayLength())
                 {
                     console.WriteLine($"Showing {shown.Length}; --max limits output, not matching.");

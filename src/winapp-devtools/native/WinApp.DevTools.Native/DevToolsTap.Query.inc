@@ -175,6 +175,9 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
     const bool windowCurrent = FilterWindowCensus(windowView);
     std::wstring failure = windowCurrent ? L"" : L"window-scope-changed";
     bool truncated = flat.size() < total || g_adviseFailed.load() || cs.type.empty();
+    // Why the scope is incomplete: the first cause wins, so a refused write names what to fix.
+    const wchar_t* truncatedBy = !truncated ? nullptr : g_adviseFailed.load() ? L"no-tree" : cs.type.empty() ? L"not-ready" : L"census-cap";
+    auto markTruncated = [&](const wchar_t* why) { if (!truncatedBy) truncatedBy = why; truncated = true; };
     InstanceHandle root = 0;
     if (request.root) {
         CensusSharedLock lock;
@@ -193,7 +196,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
     bool authoredFilter = request.authored;
     if (authoredFilter && failure.empty()) {
         authored = ClassifyAuthored(windowView, true);
-        truncated |= authored.truncated || authored.err != nullptr;
+        if (authored.truncated || authored.err != nullptr) markTruncated(L"classifying");
         // The same documented raw-tree fallback as inspect/search; never use it for exact targeting.
         if (authored.authored.empty()) authoredFilter = false;
     }
@@ -211,7 +214,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         const auto children = view.children.find(raw);
         if (children != view.children.end())
             for (const auto child : children->second)
-                if (!view.type.count(child) || (request.depth < 0 && !scope.count(child))) truncated = true;
+                if (!view.type.count(child) || (request.depth < 0 && !scope.count(child))) markTruncated(L"unknown-child");
     }
     flat.clear();
     std::set<InstanceHandle> emitted;
@@ -221,7 +224,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         if (parent != view.parent.end() && scope.count(parent->second)) continue;
         if (emitted.insert(item.first).second) FlattenCensusNode(view, item.first, 0, scope, emitted, flat);
     }
-    if (flat.size() != scope.size()) truncated = true;
+    if (flat.size() != scope.size()) markTruncated(L"scope-mismatch");
     std::set<std::wstring> projection(request.fields.begin(), request.fields.end());
     for (const auto& predicate : request.predicates) projection.insert(predicate.property);
     if (request.write) projection.insert(request.property);
@@ -241,14 +244,14 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         {
             CensusSharedLock lock;
             const wchar_t* error = nullptr;
-            if (!ResolveWire_nolock(node.handle, &raw, &error)) { truncated = true; continue; }
+            if (!ResolveWire_nolock(node.handle, &raw, &error)) { markTruncated(L"stale-node"); continue; }
         }
         if (!scope.count(raw)) continue;
         context.push_back({raw, node, {}, {}});
         if (!failure.empty() || (authoredFilter && !authored.authored.count(raw)) ||
             (!exactType.empty() && node.type != exactType)) continue;
         if (std::chrono::steady_clock::now() - started > std::chrono::milliseconds(500)) {
-            truncated = true; continue;
+            markTruncated(L"time-budget"); continue;
         }
         if (!request.text.empty()) {
             bool matchesText = DevToolsTreeLayout::TreeFilterMatches(node.type, node.name, node.sourceUri, normalizedText);
@@ -258,7 +261,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
                 matchesText = !text.empty() && DevToolsTreeLayout::TreeFilterMatches(L"", L"", text, normalizedText);
             }
             if (std::chrono::steady_clock::now() - started > std::chrono::milliseconds(500)) {
-                truncated = true; break;
+                markTruncated(L"time-budget"); break;
             }
             if (!matchesText) { ++evaluated; continue; }
         }
@@ -271,7 +274,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         }
         for (const auto& property : row.properties) valueUnits += property.value.size();
         if (valueUnits > 4 * 1024 * 1024 || std::chrono::steady_clock::now() - started > std::chrono::milliseconds(500)) {
-            truncated = true; break;
+            markTruncated(valueUnits > 4 * 1024 * 1024 ? L"value-budget" : L"time-budget"); break;
         }
         auto verdict = DevToolsQuery::Match(row.properties, request.predicates);
         if (!row.readError.empty() && !request.predicates.empty())
@@ -305,7 +308,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
             }
         }
     }
-    if (!QuerySnapshotCurrent(cs)) truncated = true;
+    if (!QuerySnapshotCurrent(cs)) markTruncated(L"tree-changed");
     bool complete = !truncated && !unevaluated && failure.empty();
     if (request.exact && failure.empty()) {
         if (!complete) failure = L"incomplete";
@@ -386,7 +389,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         }
     }
     if (failure == L"incomplete" || failure == L"target-changed") complete = false;
-    if (failure == L"incomplete" && request.write) truncated = true;
+    if (failure == L"incomplete" && request.write) markTruncated(L"time-budget");
     std::vector<std::wstring> fields = request.fields;
     if (request.exact && !request.write) {
         if (!request.property.empty()) fields = {request.property};
@@ -395,7 +398,9 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count();
     std::wstring out = L"{\"ok\":" + std::wstring(failure.empty() && !matches.empty() ? L"true" : L"false") +
         L",\"status\":\"" + status + L"\",\"complete\":" + (complete ? L"true" : L"false") +
-        L",\"truncated\":" + (truncated ? L"true" : L"false") + L",\"scopeNodes\":" + std::to_wstring(scope.size()) +
+        L",\"truncated\":" + (truncated ? L"true" : L"false") +
+        (truncated && truncatedBy ? L",\"truncatedBy\":\"" + std::wstring(truncatedBy) + L"\"" : std::wstring()) +
+        L",\"scopeNodes\":" + std::to_wstring(scope.size()) +
         L",\"censusNodes\":" + std::to_wstring(total) + L",\"evaluated\":" + std::to_wstring(evaluated) +
         L",\"unevaluated\":" + std::to_wstring(unevaluated) + L",\"propertyReads\":" + std::to_wstring(propertyReads) +
         L",\"propertyRows\":" + std::to_wstring(propertyRows) + L",\"uiThreadMicroseconds\":" + std::to_wstring(elapsed);
