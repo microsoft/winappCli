@@ -270,23 +270,33 @@ static HRESULT HostAttach(IXamlDiagnostics* diag, IInspectable* panel, IInspecta
     return hr;
 }
 
-// A Popup opened from the layer (the quick peek) is not a layer child: the framework reports its content to the
-// census. Seed it so it is excluded like the rest of our chrome.
-static void HostSeedPopup(IInspectable* popup, IInspectable* hostPopup)
+// A windowed Popup whose parent is in the layer makes the framework list the layer's chrome under that popup's
+// window for UI Automation, so clients resolve the toolbar to the popup and cannot focus it. On the layer path the
+// quick peek's Popup therefore opens unparented on the XamlRoot; its offsets keep their meaning because the
+// selection canvas it came from sits at the root origin. Outside the layer the framework reports its content to
+// the census, so it is seeded to stay excluded like the rest of our chrome.
+static winrt::Windows::Foundation::IInspectable g_hostLiftedChild{ nullptr };
+
+static void HostLiftPopup(IInspectable* popup, IInspectable* hostPopup)
 {
     DevToolsHostSlot* slot = HostSlotFor(hostPopup);
-    if (!popup || !slot || !slot->layerKey || !g_pickDiag || !g_pickSeed) return;
+    if (!popup || !slot || !slot->layerKey) return;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, popup);
-        auto opened = object.as<DevToolsXCP::Popup>();
-        for (const winrt::Windows::Foundation::IInspectable& part : { object, winrt::Windows::Foundation::IInspectable(opened.Child()) }) {
+        auto lifted = object.as<DevToolsXCP::Popup>();
+        auto xamlRoot = slot->content.XamlRoot();
+        g_hostLiftedChild = lifted.Child();
+        HostDetach(lifted);
+        lifted.XamlRoot(xamlRoot);
+        if (!g_pickDiag || !g_pickSeed) return;
+        for (const winrt::Windows::Foundation::IInspectable& part : { object, g_hostLiftedChild }) {
             InstanceHandle handle = 0;
             if (part && SUCCEEDED(g_pickDiag->GetHandleFromIInspectable(
                     reinterpret_cast<IInspectable*>(winrt::get_abi(part)), &handle)) && handle) g_pickSeed(handle);
         }
     } catch (const winrt::hresult_error& e) {
-        DevToolsOverlayLog(L"overlay.host popup seed failed hr=0x%08X", e.code().value);
+        DevToolsOverlayLog(L"overlay.host popup lift failed hr=0x%08X", e.code().value);
     }
 }
 

@@ -458,7 +458,7 @@ static void GuestCommentRenderStatus()
 {
     const bool composer = g_guestCommentWrite.editor == GuestCommentEditor::Composer;
     if (!GuestCommentMatchesEditor(composer, false)) return;
-    GuestCommentSetStatus(composer ? g_composerBorder : g_selDiagRoot,
+    GuestCommentSetStatus(composer ? g_composerBorder : g_selUi,
         composer ? L"GuestCommentStatus" : L"DevToolsGuestCommentStatus", g_guestCommentWrite.status);
 }
 
@@ -500,7 +500,7 @@ static void GuestCommentRestoreDraft(bool composer)
         g_selCommentRevision = write.revision;
         SetSelCommentText(write.draft);
     }
-    GuestCommentSetStatus(composer ? g_composerBorder : g_selDiagRoot,
+    GuestCommentSetStatus(composer ? g_composerBorder : g_selUi,
         composer ? L"GuestCommentStatus" : L"DevToolsGuestCommentStatus", write.status);
 }
 
@@ -659,7 +659,7 @@ static void DevToolsSelCommitComment(bool explicitSave)
                 g_selDismissCommitFailed = true;
             } else {
                 DiscardSelectionCommentDraft();
-                GuestCommentSetStatus(g_selDiagRoot, L"DevToolsGuestCommentStatus",
+                GuestCommentSetStatus(g_selUi, L"DevToolsGuestCommentStatus",
                     text.empty() ? L"" : DevToolsCommentText::SavedStatus(false, HasAuthoredSource(g_selHandle)));
             }
         }
@@ -741,7 +741,7 @@ static void OnSelCommentTextChanged(void*, void*)
         return;
     }
     if (!DevToolsCommentText::Unchanged(text, g_selCommentSaved))
-        GuestCommentSetStatus(g_selDiagRoot, L"DevToolsGuestCommentStatus", L"Unsaved changes.");
+        GuestCommentSetStatus(g_selUi, L"DevToolsGuestCommentStatus", L"Unsaved changes.");
 }
 
 // Comment box LostFocus: commit FIRST, then fall through to the focus-within decrement (the collapse gate), so

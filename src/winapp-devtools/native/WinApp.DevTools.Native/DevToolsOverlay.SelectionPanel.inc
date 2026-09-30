@@ -110,6 +110,9 @@ static IInspectable* DevToolsSelFindName(IInspectable* root, const wchar_t* name
         WindowsDeleteString(h);
     }
     reinterpret_cast<IUnknown*>(fe)->Release();
+    // Names inside the quick peek are not reachable from the selection root once its Popup is lifted.
+    if (!out && g_hostLiftedChild && root != reinterpret_cast<IInspectable*>(winrt::get_abi(g_hostLiftedChild)))
+        return DevToolsSelFindName(reinterpret_cast<IInspectable*>(winrt::get_abi(g_hostLiftedChild)), name);
     return out;
 }
 

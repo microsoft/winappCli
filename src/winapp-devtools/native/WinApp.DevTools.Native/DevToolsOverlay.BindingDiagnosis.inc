@@ -355,6 +355,7 @@ static void ClearSelectionAnchor()
     // Null globals before RemoveAt/Release because XAML can re-enter PointerExited during subtree removal.
     IInspectable* selUi      = g_selUi;      g_selUi      = nullptr;
     IInspectable* selPopup   = g_selPopup;   g_selPopup   = nullptr;
+    g_hostLiftedChild = nullptr;
     IInspectable* selPanel   = g_selPanel;   g_selPanel   = nullptr;
     IInspectable* selIcon    = g_selIcon;    g_selIcon    = nullptr;
     IInspectable* selTag     = g_selTag;     g_selTag     = nullptr;
@@ -748,7 +749,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
         g_selUi = cui;
     }
     if (g_selPopup) {
-        HostSeedPopup(g_selPopup, g_selectionPopup.get());
+        HostLiftPopup(g_selPopup, g_selectionPopup.get());
         void* popup = nullptr;
         if (SUCCEEDED(g_selPopup->QueryInterface(DevToolsIid<DevToolsXCP::IPopup>(), &popup)) && popup) {
             const HRESULT hrOpen = DevToolsPopupPutIsOpen(popup, true);

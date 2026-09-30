@@ -358,6 +358,14 @@ try {
         Check (@($stored.comments | Where-Object text -CEQ 'Owned newer draft').Count -eq 1) 'second explicit Save persists the newer draft'
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelClose', '-a', $app)
 
+        # Comment status must also show for an element whose quick peek has no binding rows.
+        $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
+        $null = Invoke-Cli @('ui', 'click', 'NarrowCommentProbe', '-w', $window)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
+        $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', 'Owned unbound draft', '-a', $app)
+        $null = Wait-CommentStatus $app 'Unsaved changes.'
+        $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', '', '-a', $app)
+        $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelClose', '-a', $app)
         $probeName = 'CommentAndTreeProbeWithAnIntentionallyLongAuthoredNameToExerciseHorizontalScrollingAtTheNormalInspectorPaneWidth'
         $narrow = @(Nodes $tree.elements | Where-Object name -EQ $probeName)
         Check ($narrow.Count -eq 1) 'one authored narrow control is available for conditional observations'
