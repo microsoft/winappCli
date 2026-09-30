@@ -193,6 +193,41 @@ public class CertificateServiceTests : BaseCommandTests
         }
     }
 
+    [TestMethod]
+    public async Task GenerateDevCertificateAsync_FailureAfterStoreAdd_KeepsExistingFilesAndStoreClean()
+    {
+        var (svc, _, _) = NewService();
+        svc.PersistToCurrentUserStore = true;
+        var subject = $"WinappOverwriteFail-{Guid.NewGuid():N}";
+        var dir = _tempDirectory.CreateSubdirectory("overwrite");
+        var pfx = new FileInfo(Path.Combine(dir.FullName, "devcert.pfx"));
+        byte[] original = [1, 2, 3, 4];
+        await File.WriteAllBytesAsync(pfx.FullName, original, TestContext.CancellationToken);
+        // A directory where the .cer should go makes the final replace step fail after the store add.
+        dir.CreateSubdirectory("devcert.cer");
+
+        try
+        {
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                svc.GenerateDevCertificateAsync($"CN={subject}", pfx, TestTaskContext, exportCer: true,
+                    cancellationToken: TestContext.CancellationToken));
+
+            CollectionAssert.AreEqual(original, await File.ReadAllBytesAsync(pfx.FullName, TestContext.CancellationToken),
+                "A failed generation must not delete or replace the user's existing PFX");
+            Assert.IsEmpty(dir.GetFiles("*.tmp"), "Staged files must be cleaned up");
+            Assert.IsEmpty(
+                FindInCurrentUserStore(X509FindType.FindBySubjectName, subject),
+                "A failed generation must remove the certificate it added to CurrentUser\\My");
+        }
+        finally
+        {
+            foreach (var leaked in FindInCurrentUserStore(X509FindType.FindBySubjectName, subject))
+            {
+                RemoveFromCurrentUserStore(leaked.Thumbprint);
+            }
+        }
+    }
+
     // ── InstallCertificate ──────────────────────────────────────────────
 
     [TestMethod]
