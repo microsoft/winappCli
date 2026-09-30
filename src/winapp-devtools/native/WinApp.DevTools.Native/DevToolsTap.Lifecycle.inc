@@ -170,6 +170,7 @@ static void OnOverlayTreeChanged()
     const HRESULT hr = DevToolsOverlay_RecoverHost(g_diag, FindOverlayRecoveryPanel, &panel);
     if (panel) g_overlayPanel = panel;
     if (FAILED(hr)) Log(L"overlay.host recovery unavailable hr=0x%08X", hr);
+    DevToolsOverlay_YieldToWindowedPopups();
 }
 
 static InstanceHandle RootVisual() {

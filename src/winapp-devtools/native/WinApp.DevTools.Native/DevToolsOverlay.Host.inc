@@ -350,6 +350,79 @@ static void HostSetLayerTheme(int theme)
     }
 }
 
+// A windowed popup (one not constrained to its root's bounds: the quick peek, a MenuFlyout, a ComboBox drop-down)
+// draws above the layer, but input is hit-tested against the layer first. Chrome that such a popup covers stops
+// taking input while it does, so a click goes to what is drawn on top.
+static bool ChromeRectOverride(IInspectable* element, winrt::Windows::Foundation::Rect* rect);
+static std::vector<winrt::weak_ref<DevToolsX::UIElement>> g_hostYielded;
+
+static winrt::Windows::Foundation::Rect HostRootBounds(DevToolsX::FrameworkElement const& element)
+{
+    const double width = std::isnan(element.Width()) ? element.ActualWidth() : element.Width();
+    const double height = std::isnan(element.Height()) ? element.ActualHeight() : element.Height();
+    return element.TransformToVisual(nullptr).TransformBounds({ 0, 0, (float)width, (float)height });
+}
+
+static bool HostOverlaps(winrt::Windows::Foundation::Rect const& a, winrt::Windows::Foundation::Rect const& b)
+{
+    return a.Width > 0 && a.Height > 0 && b.Width > 0 && b.Height > 0 &&
+        a.X < b.X + b.Width && b.X < a.X + a.Width && a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;
+}
+
+static void HostYieldToWindowedPopups()
+{
+    if (!g_overlayUiThreadId || GetCurrentThreadId() != g_overlayUiThreadId) return;
+    const auto catcher = HostIdentity(g_pickCatcher);
+    std::vector<DevToolsX::UIElement> covered;
+    auto wasYielded = [](DevToolsX::UIElement const& element) {
+        return std::any_of(g_hostYielded.begin(), g_hostYielded.end(), [&](auto const& weak) { return weak.get() == element; });
+    };
+    for (auto& layer : g_layerRoots) {
+        try {
+            auto xamlRoot = layer.xamlRoot.as<winrt::Windows::Foundation::IInspectable>().as<winrt::Microsoft::UI::Xaml::XamlRoot>();
+            std::vector<winrt::Windows::Foundation::Rect> popups;
+            for (auto const& popup : DevToolsXM::VisualTreeHelper::GetOpenPopupsForXamlRoot(xamlRoot)) {
+                if (popup == layer.bridge || popup.IsConstrainedToRootBounds()) continue;
+                if (auto child = popup.Child().try_as<DevToolsX::FrameworkElement>()) popups.push_back(HostRootBounds(child));
+            }
+            if (popups.empty()) continue;
+            for (auto const& host : layer.root.Children()) {
+                auto panel = host.try_as<DevToolsXC::Panel>();
+                if (!panel) continue;
+                for (auto const& child : panel.Children()) {
+                    auto* abi = reinterpret_cast<IInspectable*>(winrt::get_abi(child));
+                    auto element = child.try_as<DevToolsX::FrameworkElement>();
+                    if (!element || HostIdentity(abi) == catcher) continue;
+                    if (!element.IsHitTestVisible() && !wasYielded(child)) continue;
+                    winrt::Windows::Foundation::Rect bounds{};
+                    if (!ChromeRectOverride(abi, &bounds)) bounds = HostRootBounds(element);
+                    if (std::any_of(popups.begin(), popups.end(), [&](auto const& p) { return HostOverlaps(bounds, p); }))
+                        covered.push_back(child);
+                }
+            }
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"overlay.host popup yield failed hr=0x%08X", e.code().value);
+        }
+    }
+    size_t restored = 0;
+    for (auto const& weak : g_hostYielded) {
+        auto element = weak.get();
+        if (element && std::find(covered.begin(), covered.end(), element) == covered.end()) {
+            element.IsHitTestVisible(true);
+            ++restored;
+        }
+    }
+    g_hostYielded.clear();
+    for (auto const& element : covered) {
+        element.IsHitTestVisible(false);
+        g_hostYielded.push_back(winrt::make_weak(element));
+    }
+    if (!covered.empty() || restored)
+        DevToolsOverlayLog(L"overlay.host yield to windowed popups: %zu covered, %zu restored", covered.size(), restored);
+}
+
+void DevToolsOverlay_YieldToWindowedPopups() { HostYieldToWindowedPopups(); }
+
 // A closed window's XamlRoot is gone: drop its layer root and UIA bridge.
 static bool HostXamlRootClosed(const winrt::com_ptr<IUnknown>& identity)
 {

@@ -106,12 +106,48 @@ static void TestPinsAvoidTheirElementWhenThereIsRoom()
     Check(tiny.x == 0 && tiny.y == 0, "client smaller than the marker never produces negative coordinates");
 }
 
+static void TestPanelKeepsClearOfTheToolbar()
+{
+    std::printf("panel keeps clear of the DevTools toolbar\n");
+    constexpr int panelWidth = 400;
+    const Rect workArea{ 0, 0, 1920, 1040 };
+    const Rect toolbar{ 1500, 960, 1752, 996 };      // bar and pill union in the window's bottom-right corner
+    const Rect selected{ 1640, 930, 1760, 954 };     // text just above the pill
+    const Placement old = PlacePanel(selected, workArea, panelWidth, 520);
+    Check(Overlaps(Rect{ old.panelX, old.panelY, old.panelX + panelWidth, old.panelY + old.panelHeight }, toolbar),
+          "control: without the toolbar rect the panel covers the pill");
+    const Placement placed = PlacePanel(selected, workArea, panelWidth, 520, 14, 8, &toolbar);
+    const Rect panel{ placed.panelX, placed.panelY, placed.panelX + panelWidth, placed.panelY + placed.panelHeight };
+    Check(!Overlaps(panel, toolbar), "panel does not overlap the toolbar");
+    Check(!Overlaps(panel, selected), "panel does not cover the selected element");
+    Check(placed.panelHeight == 520, "panel keeps its height when there is room above the toolbar");
+    Check(panel.top >= workArea.top && panel.bottom <= workArea.bottom, "panel stays in the work area");
+
+    const Rect shortArea{ 0, 0, 1000, 700 };
+    const Rect wideBar{ 0, 600, 1000, 636 };         // toolbar spanning the whole width
+    const Placement squeezed = PlacePanel({ 300, 560, 360, 590 }, shortArea, panelWidth, 900, 14, 8, &wideBar);
+    const Rect squeezedPanel{ squeezed.panelX, squeezed.panelY, squeezed.panelX + panelWidth, squeezed.panelY + squeezed.panelHeight };
+    Check(!Overlaps(squeezedPanel, wideBar) && squeezed.panelHeight >= 200,
+          "panel shortens to the band above the toolbar when it cannot move around it");
+
+    // A small window high on the screen: the element is at its top-left, the toolbar in its bottom-right corner.
+    const Rect screen{ -200, -40, 1400, 900 };
+    const Rect cornerBar{ 252, 316, 504, 352 };
+    const Rect heading{ 24, 24, 64, 44 };
+    const Placement beside = PlacePanel(heading, screen, panelWidth, 544, 14, 8, &cornerBar);
+    const Rect besidePanel{ beside.panelX, beside.panelY, beside.panelX + panelWidth, beside.panelY + beside.panelHeight };
+    Check(!Overlaps(besidePanel, cornerBar), "panel beside a top-left element avoids a bottom-right toolbar");
+    Check(beside.panelX == heading.right + 14 && beside.panelY == 14,
+          "panel stays beside the element and ends above the toolbar");
+}
+
 int RunSelectionPlacementTests()
 {
     std::printf("\nDevToolsSelectionPlacement tests\n");
     TestPanelCanUseSpaceOutsideTheAppWindow();
     TestPanelFlipsAtTheMonitorEdge();
     TestTallPanelIsShiftedAndCapped();
+    TestPanelKeepsClearOfTheToolbar();
     TestPinsAvoidTheirElementWhenThereIsRoom();
     return g_selectionPlacementFailures;
 }

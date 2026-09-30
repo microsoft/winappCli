@@ -163,6 +163,7 @@ function Wait-CommentStatus([string]$App, [string]$Expected) {
     throw "Comment status did not become '$Expected': $($status.properties.Name)"
 }
 function Nodes($Items) { foreach ($item in $Items) { $item; Nodes $item.children } }
+function Overlaps($A, $B) { $A.x -lt $B.x + $B.width -and $B.x -lt $A.x + $A.width -and $A.y -lt $B.y + $B.height -and $B.y -lt $A.y + $A.height }
 function Control([string]$Command) {
     Set-Content -LiteralPath ($report + '.pending') -Value $Command -NoNewline
     Move-Item -LiteralPath ($report + '.pending') -Destination ($report + '.command') -Force
@@ -242,6 +243,9 @@ try {
             -not $_.isOffscreen -and $_.type -eq 'Button' -and ($_.name -match '(?i)save|commit' -or $_.automationId -match '(?i)save|commit')
         })
         Check ($saveCandidates.Count -eq 1 -and $saveCandidates[0].automationId -eq 'DevToolsSelCommentSave') 'one visible inline Save action is available'
+        $peekPanel = @($all | Where-Object { $_.automationId -eq 'DevToolsSelPanel' -and -not $_.isOffscreen })
+        $peekToolbar = @($all | Where-Object { $_.automationId -in @('DevToolsProtoRailL', 'DevToolsProtoPill') -and -not $_.isOffscreen })
+        Check ($peekPanel.Count -eq 1 -and $peekToolbar.Count -eq 1 -and -not (Overlaps $peekPanel[0] $peekToolbar[0])) 'quick peek opens clear of the toolbar'
         $popupBounds = @($all | Where-Object { $_.type -eq 'Window' -or $_.className -match 'Popup' } |
             Select-Object selector, name, className, isOffscreen, x, y, width, height)
         $null = Invoke-Cli @('ui', 'screenshot', '-w', $window, '--capture-screen', '-o', (Join-Path $evidence 'overlay-peek.png'))
@@ -448,6 +452,28 @@ try {
         Check ((Wait-Focused 'DevToolsProtoPick') -eq 'DevToolsProtoPick') 'Ctrl+Shift+F12 moves keyboard focus to the toolbar'
         $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
         Check ((Wait-Focused 'ShortcutReturn') -eq 'ShortcutReturn') 'Esc from the toolbar returns keyboard focus to the app'
+
+        # A windowed app menu drawn over the toolbar takes the click; the toolbar under it does not.
+        $beforeMenu = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+        $toolbarHalf = @($beforeMenu.windows | ForEach-Object { Nodes $_.elements } | Where-Object {
+            $_.automationId -in @('DevToolsProtoRailL', 'DevToolsProtoPill') -and -not $_.isOffscreen })
+        Check ($toolbarHalf.Count -eq 1) 'one visible toolbar half before the menu overlap probe'
+        $centerX = [int]($toolbarHalf[0].x + $toolbarHalf[0].width / 2)
+        $centerY = [int]($toolbarHalf[0].y + $toolbarHalf[0].height / 2)
+        Control "menu:$centerX,$centerY"
+        $null = Invoke-Cli @('ui', 'wait-for', 'FixtureMenuItem', '-a', $app, '-t', '5000')
+        $menuItem = @((Invoke-Cli @('ui', 'search', 'FixtureMenuItem', '-a', $app)).matches | Where-Object automationId -eq 'FixtureMenuItem')
+        $itemX = $menuItem[0].x + $menuItem[0].width / 2
+        $itemY = $menuItem[0].y + $menuItem[0].height / 2
+        Check ($menuItem.Count -eq 1 -and $itemX -gt $toolbarHalf[0].x -and $itemX -lt $toolbarHalf[0].x + $toolbarHalf[0].width -and
+            $itemY -gt $toolbarHalf[0].y -and $itemY -lt $toolbarHalf[0].y + $toolbarHalf[0].height) 'app menu item is drawn over the toolbar'
+        $null = Invoke-Cli @('ui', 'click', 'FixtureMenuItem', '-a', $app)
+        $menuDeadline = [DateTime]::UtcNow.AddSeconds(3)
+        while (-not (Test-Path -LiteralPath ($report + '.menu')) -and [DateTime]::UtcNow -lt $menuDeadline) { Start-Sleep -Milliseconds 100 }
+        Check (Test-Path -LiteralPath ($report + '.menu')) 'a click on an app menu drawn over the toolbar reaches the app'
+        $afterMenu = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+        Check (@($afterMenu.windows | ForEach-Object { Nodes $_.elements } | Where-Object {
+            $_.automationId -eq $toolbarHalf[0].automationId -and -not $_.isOffscreen }).Count -eq 1) 'the toolbar under the menu did not react to the click'
         [ordered]@{
             processId = $owned.Id; startTicksUtc = $started.Ticks; executable = $executable
             sourceHandle = [string]$heading[0].handle

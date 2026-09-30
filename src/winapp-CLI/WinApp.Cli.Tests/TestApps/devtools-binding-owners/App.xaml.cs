@@ -67,6 +67,12 @@ public partial class App : Application
                 unsupportedClosed = true;
                 File.WriteAllText(report + ".single", "beta");
             }
+            else if (command.StartsWith("menu:", StringComparison.Ordinal))
+            {
+                var point = command["menu:".Length..].Split(',');
+                (first as MainWindow)?.OpenMenuAt(int.Parse(point[0]), int.Parse(point[1]),
+                    () => File.WriteAllText(report + ".menu", "clicked"));
+            }
             else if (command == "exit" || DateTime.UtcNow >= expires)
             {
                 timer.Stop();

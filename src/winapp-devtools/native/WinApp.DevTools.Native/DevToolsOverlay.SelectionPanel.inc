@@ -179,6 +179,7 @@ static double g_selDismissBegan = 0;
 // transparent border around the peek's rectangle: clicks outside still dismiss, clicks on the peek reach it.
 static void UpdateCatcherHole()
 {
+    HostYieldToWindowedPopups();
     if (!g_pickCatcher) return;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr }, popupObject{ nullptr }, panelObject{ nullptr };

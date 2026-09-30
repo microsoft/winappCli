@@ -107,6 +107,29 @@ static void ShowARow(bool open)
     SetOverlayElementVisible(g_railL, g_toolbarVisible && !open);
     if (open && g_toolbarVisible) BeginNamedStoryboard(g_protoRoot, L"DevToolsBarReveal");
     DevToolsOverlayLog(L"overlay.toolbar bar %s corner=%d", open ? L"open" : L"closed", g_corner);
+    HostYieldToWindowedPopups();
+}
+
+// Where the toolbar can draw, in root DIPs: the chip and the bar share one corner anchor.
+static bool ToolbarRectDip(RECT* out)
+{
+    if (!g_toolbarVisible || (!g_railL && !g_aRow)) return false;
+    const double left = (std::min)(ChipX(), BarX()), top = (std::min)(ChipY(), BarY());
+    const double right = (std::max)(ChipX() + g_chipW, BarX() + kBarW);
+    const double bottom = (std::max)(ChipY() + kChipH, BarY() + kBarH);
+    *out = RECT{ (LONG)std::floor(left), (LONG)std::floor(top), (LONG)std::ceil(right), (LONG)std::ceil(bottom) };
+    return true;
+}
+
+// The chip and the bar yield together, so hovering the chip never opens a bar that a popup covers.
+static bool ChromeRectOverride(IInspectable* element, winrt::Windows::Foundation::Rect* rect)
+{
+    const auto identity = HostIdentity(element);
+    if (!identity || (identity != HostIdentity(g_railL) && identity != HostIdentity(g_aRow))) return false;
+    RECT r{};
+    if (!ToolbarRectDip(&r)) return false;
+    *rect = { (float)r.left, (float)r.top, (float)(r.right - r.left), (float)(r.bottom - r.top) };
+    return true;
 }
 static void OnAExpand(void*, void*)  { if (g_dragging) return; ShowARow(true); }
 // Collapse when the pointer leaves the bar -- unless the toolbar is pinned open (the whole point of the pin).

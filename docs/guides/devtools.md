@@ -61,8 +61,10 @@ not just markers currently visible.
 
 The toolbar, highlight and markers draw above your app, including over open dialogs
 and flyouts, and stay out of your app's visual tree and layout. Menus and drop-downs
-that open in their own window, such as a `MenuFlyout`, draw over them. Screen readers
-and `winapp ui` find the toolbar under a **DevTools** pane in the window.
+that open in their own window, such as a `MenuFlyout` or a `ComboBox` list, draw over
+them; clicks there go to the menu, and the toolbar or marker underneath responds again
+once the menu closes. In pick mode, clicks still pick. The quick-edit panel opens clear
+of the toolbar. Screen readers and `winapp ui` find the toolbar under a **DevTools** pane in the window.
 
 Press **Ctrl+Shift+F12** in your app to move keyboard focus to the toolbar. Tab moves
 between its actions, and Esc returns focus to where it was. If pick mode is on, the

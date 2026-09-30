@@ -157,6 +157,8 @@ const wchar_t* DevToolsOverlay_HostPath();
 // Test hook (Internal.overlayHost): place chrome built from now on in the fallback Popup host. UI thread only.
 void DevToolsOverlay_ForcePopupHost(bool force);
 bool DevToolsOverlay_IsPopupHostForced();
+// Chrome covered by an open windowed popup stops taking input until it is uncovered. UI thread; call after tree changes.
+void DevToolsOverlay_YieldToWindowedPopups();
 
 // Captures the last layout rectangles actually drawn; callers must ignore rects when placed is 0.
 struct DevToolsOverlayLayoutRects

@@ -580,8 +580,11 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
     DevToolsSelection::Rect workArea{};
     if (GetMonitorWorkAreaDips(&workArea)) viewport = workArea;
     const DevToolsSelection::Rect element{ ex, ey, ex + ew, ey + eh };
+    RECT toolbarDip{};
+    const bool haveToolbar = g_toolbarSurface.xamlRootKey == g_activeSurface.xamlRootKey && ToolbarRectDip(&toolbarDip);
+    const DevToolsSelection::Rect toolbar{ toolbarDip.left, toolbarDip.top, toolbarDip.right, toolbarDip.bottom };
     const DevToolsSelection::Placement placement =
-        DevToolsSelection::PlacePanel(element, viewport, pw, estimatedHeight);
+        DevToolsSelection::PlacePanel(element, viewport, pw, estimatedHeight, 14, 8, haveToolbar ? &toolbar : nullptr);
     const bool onRight = placement.onRight;
     const int px = placement.panelX;
     const int py = placement.panelY;
