@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-// See docs/devtools-protocol-v0.md for the wire contract and the mutation trust model. Threading contract: return
-// from SetSite quickly; enumerate on an MTA worker thread.
+// The wire contract is DevToolsProtocolSchema.inc (published as winapp-devtools-schema.json); see
+// docs/guides/devtools-advanced.md#use-the-devtools-protocol for usage. Mutation trust lives in DevToolsTrust.cpp.
+// Threading contract: return from SetSite quickly; enumerate on an MTA worker thread.
 
 #include <windows.h>
 #include <unknwn.h>
