@@ -18,6 +18,7 @@ static HRESULT ObserveBindingAgile(AgileReferenceOptions, REFIID, IUnknown*, IAg
 #define RoGetAgileReference ObserveBindingAgile
 #define WINAPP_DEVTOOLS_NATIVE_RUNTIME_TESTS
 #include "../native/WinApp.DevTools.Native/DevToolsTap.cpp"
+#include "../native/WinApp.DevTools.Native/DevToolsSettings.h"
 #undef RoGetAgileReference
 #undef DevToolsGetTextBoxText
 #undef DevToolsGetTextBlockText
@@ -1055,6 +1056,14 @@ int wmain(int argc, wchar_t** argv)
     check(!CardReadInputBridge(&input, &unchanged), "unsupported input is refused");
     CheckCuratedText(check);
     CheckSecretRedaction(check);
+    {
+        const std::wstring settings = DevToolsSettingsFile(L"Probe");
+        wchar_t profile[MAX_PATH] = L"";
+        GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH);
+        check(!settings.empty() && _wcsnicmp(settings.c_str(), profile, wcslen(profile)) == 0 &&
+            settings.ends_with(L"\\.winapp\\state\\devtools-Probe.setting"),
+            "DevTools UI preferences are per user, in the CLI's user state folder");
+    }
     CheckEmptyString(check);
     CheckEffectiveValues(check);
     CheckCensusFollowsReparentsAndParentlessRemoves(check);

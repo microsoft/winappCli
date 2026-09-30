@@ -2,15 +2,23 @@
 // Licensed under the MIT License.
 #pragma once
 #include <windows.h>
+#include <shlobj.h>
 #include <string>
 
-// Per-machine UI preferences (toolbar pin, layout adorners, inspector sections), one file per setting.
+// Per-user UI preferences (toolbar pin and corner, layout adorners, inspector sections), one file per setting,
+// in the CLI's per-user state folder. The user profile, unlike AppData, is not redirected per package, so every
+// app DevTools attaches to shares them.
 inline std::wstring DevToolsSettingsFile(const wchar_t* name)
 {
-    wchar_t base[MAX_PATH];
-    DWORD n = GetEnvironmentVariableW(L"ProgramData", base, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) return std::wstring();
-    std::wstring dir = std::wstring(base) + L"\\winapp";
+    PWSTR profile = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_Profile, KF_FLAG_DEFAULT, nullptr, &profile)) || !profile) {
+        CoTaskMemFree(profile);
+        return std::wstring();
+    }
+    std::wstring dir = std::wstring(profile) + L"\\.winapp";
+    CoTaskMemFree(profile);
+    CreateDirectoryW(dir.c_str(), nullptr);
+    dir += L"\\state";
     CreateDirectoryW(dir.c_str(), nullptr);
     return dir + L"\\devtools-" + name + L".setting";
 }
