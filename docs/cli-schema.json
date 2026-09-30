@@ -1,6 +1,6 @@
 {
   "name": "winapp",
-  "version": "0.7.1",
+  "version": "1.0.0",
   "schemaVersion": "1.0",
   "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
   "hidden": false,
@@ -710,7 +710,7 @@
       }
     },
     "devtools": {
-      "description": "Inspect and change a running WinUI 3 app's XAML live. Changes are not written to source.\n\n  winapp run . --devtools --detach                     launch your app with DevTools\n  winapp devtools attach --pid <pid>                   or add DevTools to a running app\n  winapp devtools list                                 apps with DevTools attached\n  winapp devtools search <text> -a <app>               find elements by text or x:Name\n  winapp devtools get-property <selector> -a <app>     read its live properties\n  winapp devtools set-property <selector> <prop> <value> -a <app>\n                                                       change a property live\n  winapp devtools comments list                        comments left in the app\n\n  -a <app>     Process name, window title, or PID. Optional when only one app has\n               DevTools attached.\n  <selector>   The name in brackets from search or inspect, an x:Name, or a handle.\n\nUse 'winapp ui' to click, type, and read values in any app. Use 'winapp devtools' for a\nWinUI app's XAML tree, properties, bindings, and live edits.",
+      "description": "Inspect and change a running WinUI 3 app's XAML live. Changes are not written to source.\n\n  winapp run . --devtools --detach                         launch your app with DevTools\n  winapp devtools attach --pid <pid>                       or attach to a running app\n  winapp devtools list                                     apps with DevTools attached\n  winapp devtools search <text>                            find by text or x:Name\n  winapp devtools get-property <selector>                  read its live properties\n  winapp devtools set-property <selector> <prop> <value>   change a property live\n  winapp devtools comments list                            comments left in the app\n\nExamples:\n  winapp devtools get-property <selector> Text\n  winapp devtools get-property <selector> --all\n  winapp devtools search --of-type TextBlock --all --fields Text\n  winapp devtools search --of-type Button --with IsEnabled==False\n  winapp devtools set-property --of-type TextBlock --with Text==OK -p Text --value Done\n  winapp devtools inspect <selector> --depth 3\n  winapp devtools diagnose-binding <selector> Text\n\n  -a <app>     Add to a command to choose the app: process name, window title, or PID.\n               Needed only when more than one app has DevTools attached.\n  <selector>   The name in brackets from search or inspect, an x:Name, or a handle.\n\nUse 'winapp ui' to click, type, and read values in any app. Use 'winapp devtools' for a\nWinUI app's XAML tree, properties, bindings, and live edits.",
       "hidden": false,
       "options": {
         "--json": {

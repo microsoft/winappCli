@@ -52,6 +52,20 @@ public class DevToolsHelpTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void DevToolsGroupExamples_ParseAgainstTheirCommands()
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        Assert.IsTrue(DevToolsCommand.Examples.Length is >= 5 and <= 7);
+        foreach (var example in DevToolsCommand.Examples)
+        {
+            StringAssert.StartsWith(example, "winapp devtools ", example);
+            var parsed = root.Parse(Tokenize(example).Skip(1).Select(Substitute).ToArray());
+            Assert.IsEmpty(parsed.Errors, $"Example '{example}' does not parse: {string.Join("; ", parsed.Errors.Select(e => e.Message))}");
+            Assert.IsInstanceOfType<IHelpExamples>(parsed.CommandResult.Command, $"Example '{example}' did not reach a devtools command.");
+        }
+    }
+
+    [TestMethod]
     public async Task DevToolsGroupHelp_IsCompactPlainTextWithWorkflowFirst()
     {
         Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["devtools", "--help"]));
@@ -61,9 +75,15 @@ public class DevToolsHelpTests : BaseCommandTests
         Assert.IsFalse(output.Any(c => c is '╭' or '│' or '─' or '\u001b'), "devtools help must be plain text.");
         Assert.IsTrue(output.StartsWith("winapp devtools - Inspect and change a running WinUI 3 app's XAML live.", StringComparison.Ordinal), output);
         StringAssert.Contains(Regex.Replace(output, @"\s+", " "), "Changes are not written to source.");
-        var workflow = output.IndexOf("winapp devtools set-property <selector> <prop> <value> -a <app>", StringComparison.Ordinal);
-        Assert.IsGreaterThan(0, workflow);
-        Assert.IsLessThan(output.IndexOf("\nDiscover\n", StringComparison.Ordinal), workflow, "The workflow comes before the command list.");
+        var workflow = output.IndexOf("  winapp devtools set-property <selector> <prop> <value>   change a property live\n", StringComparison.Ordinal);
+        Assert.IsGreaterThan(0, workflow, "Each workflow line keeps its description on the same line.");
+        var examples = output.IndexOf("\nExamples:\n", StringComparison.Ordinal);
+        Assert.IsGreaterThan(workflow, examples, "Examples follow the workflow.");
+        foreach (var example in DevToolsCommand.Examples)
+        {
+            StringAssert.Contains(output, "\n  " + example + "\n");
+        }
+        Assert.IsLessThan(output.IndexOf("\nDiscover\n", StringComparison.Ordinal), examples, "The workflow and examples come before the command list.");
         StringAssert.Contains(output, "  -a <app>");
         StringAssert.Contains(output, "  <selector>");
         StringAssert.Contains(output, "Use 'winapp ui' to click, type, and read values in any app.");
