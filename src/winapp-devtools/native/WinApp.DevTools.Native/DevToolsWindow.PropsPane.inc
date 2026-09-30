@@ -2,6 +2,15 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+static bool CanRereadSelection()
+{
+    for (const auto& path : g_propExpanded) {
+        const auto* row = FindPropertyRow(g_propRows, path);
+        if (row && !row->type.empty()) return false;
+    }
+    return g_pendingWrites.empty() && g_pendingKind.empty();
+}
+
 static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, const std::wstring& breadcrumb,
                              bool force)
 {

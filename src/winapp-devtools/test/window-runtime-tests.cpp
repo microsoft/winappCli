@@ -162,6 +162,22 @@ int main()
     check(values[77]==L"False" && values[88]==L"True","late sink writes only its captured node");
     check(testValue.text==L"True" && g_propRows[0].value==L"True","late sink cannot overwrite new selection display");
 
+    // The pane is a snapshot: opening a row reads the live value, but never over an unconfirmed write.
+    values[88]=L"False";
+    g_pendingWrites={{L"Other",L"String",L"x"}};
+    RowExpandSink guarded;
+    guarded.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,false);
+    guarded.Invoke(nullptr,nullptr);
+    check(g_propRows[0].value==L"True" && !CanRereadSelection(),"a pending write keeps the snapshot");
+    g_pendingWrites.clear();g_propExpanded.clear();
+    check(CanRereadSelection(),"a clean pane can be re-read");
+    RowExpandSink opener;
+    opener.Init(std::make_shared<const DevToolsCardRow>(row),row.name,0,&testRow,false);
+    opener.Invoke(nullptr,nullptr);
+    check(g_propRows[0].value==L"False" && testValue.text==L"False","opening a row re-reads its live value");
+    check(!CanRereadSelection(),"an open editor keeps the snapshot");
+    g_propExpanded.clear();values[88]=L"True";g_propRows={row};testValue.text=L"True";
+
     g_ctx.readInputFn=[](IInspectable*,std::wstring& text){text=L"bad read";return false;};
     LostFocusSink input;
     input.Init(88,L"Text",L"String",L"before",&testInput);

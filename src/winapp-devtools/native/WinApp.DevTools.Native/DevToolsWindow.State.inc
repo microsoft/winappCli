@@ -26,6 +26,10 @@ struct WindowContext
 static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, const std::wstring& breadcrumb,
                              bool force = false);
 
+// The props pane is a snapshot. Re-reading it rebuilds the pane, so that waits while an editor is open or a
+// write is unconfirmed.
+static bool CanRereadSelection();
+
 static void SelectRowVisual(void* rowControl);
 
 static unsigned g_route1Gen = 0;
@@ -85,7 +89,8 @@ struct NodeClickSink : DevToolsSinkBase
             reinterpret_cast<IUnknown*>(rowCtrl)->Release();
         }
         g_selectedWire = handle;
-        ShowPropsForNode(handle, label, breadcrumb);
+        // Clicking the selected row again re-reads it, unless that would discard an open editor or pending write.
+        ShowPropsForNode(handle, label, breadcrumb, /*force*/ handle == g_selWire && CanRereadSelection());
         return S_OK;
     }
     void Init(InstanceHandle h, const std::wstring& lbl, const std::wstring& bc, WindowContext* c, bool hover)

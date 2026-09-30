@@ -595,7 +595,10 @@ bool DevToolsWindow_OnPicked(InstanceHandle wire, bool releaseCommit)
         SetCommentsView(false);
         DevToolsOverlayLog(L"route1.pick committed in comments view -> switched to the Visual tree tab");
     }
+    // Picking the element already shown re-reads it: the pane is a snapshot, and a pick is a request to look again.
+    const bool reread = releaseCommit && wire && wire == g_selWire && CanRereadSelection();
     SelectNodeByWire(wire);
+    if (reread) ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
     return fromWindow;
 }
 

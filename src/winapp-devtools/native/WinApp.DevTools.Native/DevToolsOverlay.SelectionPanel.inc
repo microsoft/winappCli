@@ -161,6 +161,7 @@ static bool DevToolsSelFocusIcon();
 // Applies every dirty row's (and the comment's) commit INLINE, so a dismiss does not depend on the focus-driven
 // LostFocus winning a race it is not guaranteed to win.
 static void DevToolsSelFlushCommits();
+static bool SelRowCanEdit(const DevToolsCardRow& row);
 static void DevToolsSelCommitComment(bool explicitSave = false);
 static void DiscardSelectionCommentDraft();
 static bool DiscardFailedSelectionCommentDraft();
@@ -605,6 +606,26 @@ struct SelRowSink : DevToolsSinkBase
         original = value;
         if (number || slider) TrySelectionNumber(value, &originalNumber);
     }
+    // Rows are a snapshot; a text editor re-reads its value when it gains focus, unless the user already typed.
+    void RefreshTextFromLive() {
+        if (!box || gen != g_selGen || !g_cardRead || !g_cardReadInput || !g_selTarget) return;
+        std::wstring shown;
+        if (!g_cardReadInput(box, &shown) || shown != original) return;
+        std::wstring type, name, state, xaml;
+        std::vector<DevToolsCardRow> rows;
+        if (!g_cardRead(g_selTarget, &type, &name, &rows, &state, &xaml) || gen != g_selGen) return;
+        const auto fresh = std::find_if(rows.begin(), rows.end(), [&](const auto& row) { return row.name == prop; });
+        if (fresh == rows.end() || fresh->value == original || !SelRowCanEdit(*fresh)) return;
+        void* textBox = nullptr;
+        if (FAILED(box->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &textBox)) || !textBox) return;
+        HSTRING text = DevToolsSelMakeStr(fresh->value);
+        const HRESULT hr = DevToolsPutTextBoxText(textBox, text);
+        WindowsDeleteString(text);
+        reinterpret_cast<IUnknown*>(textBox)->Release();
+        if (FAILED(hr)) return;
+        AcceptValue(fresh->value);
+        UpdateSelectionPreview(prop);
+    }
 // `original` is load-bearing here rather than an optimisation: WinUI raises Toggled from OnIsOnChanged, so a
 // row seeded IsOn="True" in markup raises one on REALIZE -- without the compare in Invoke, merely selecting an
 // element would commit a write the user never made (and on a bound boolean would raise the binding-replace.
@@ -621,4 +642,14 @@ struct SelRowSink : DevToolsSinkBase
     double                    originalNumber = std::numeric_limits<double>::quiet_NaN();
     std::wstring              prop, type, original;
     std::vector<std::wstring> members;
+};
+
+struct SelRowFocusSink : DevToolsSinkBase
+{
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*) {
+        if (gen == g_selGen && row) row->RefreshTextFromLive();
+        return S_OK;
+    }
+    void Init(SelRowSink* r) { row = r; InitSink(IID_RoutedEventHandler_Del, g_selGen); }
+    SelRowSink* row = nullptr;
 };

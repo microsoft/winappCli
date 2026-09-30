@@ -629,6 +629,10 @@ static bool RowHasExpansion(const DevToolsCardRow& r, const std::wstring& path, 
 
 static bool EnsureExpansion(void* rowFe, const DevToolsCardRow& r, const std::wstring& path, int edit);
 
+static void RebuildExpansion(void* rowFe, const DevToolsCardRow& r, const std::wstring& path, int edit);
+
+static bool RefreshCommittedValue(const std::wstring& prop);
+
 static bool FocusExpansionEditor(void* rowFe, const std::wstring& path);
 
 static void ApplyRowExpansionState(void* rowFe, const std::wstring& path, bool open);
@@ -640,7 +644,13 @@ struct RowExpandSink : DevToolsSinkBase
         if (gen != g_route1Gen || wire != g_selWire || !rowFe || !row) return S_OK;
         const bool wantOpen = wantsEditor ? true : !PropIsExpanded(row->name);
         if (wantOpen) {
-            if (!EnsureExpansion(rowFe, ExpansionRow(), path, edit)) return S_OK;
+            // The row is a snapshot; opening it reads the property live, unless a write is still unconfirmed.
+            const bool opening = !PropIsExpanded(row->name);
+            if (opening && g_pendingWrites.empty() && g_pendingKind.empty() && RefreshCommittedValue(path)) {
+                RebuildExpansion(rowFe, ExpansionRow(), path, edit);
+            } else if (!EnsureExpansion(rowFe, ExpansionRow(), path, edit)) {
+                return S_OK;
+            }
         }
         PropSetExpanded(row->name, wantOpen);
         ApplyRowExpansionState(rowFe, path, wantOpen);

@@ -402,7 +402,12 @@ static void DevToolsSelWireRows(IInspectable* root, const std::vector<DevToolsCa
                 __int64 tok = 0;
                 HRESULT hr = DevToolsAddLostFocus(ui, s, &tok);
                 DevToolsOverlayLog(L"overlay.sel row %s text wire hr=0x%08X", rows[i].name.c_str(), hr);
-                if (SUCCEEDED(hr)) g_selRowSinks.push_back(s);
+                if (SUCCEEDED(hr)) {
+                    g_selRowSinks.push_back(s);
+                    auto* focus = new SelRowFocusSink();
+                    focus->Init(s);
+                    if (FAILED(DevToolsAddGotFocus(ui, focus, &tok))) focus->Release();
+                }
                 else { s->Release(); SetSelectionOperationError(rows[i].name, L"Couldn't connect the editor. Reopen this panel."); }
                 reinterpret_cast<IUnknown*>(ui)->Release();
             }
