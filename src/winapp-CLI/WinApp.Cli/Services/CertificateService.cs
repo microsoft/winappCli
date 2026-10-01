@@ -57,6 +57,11 @@ internal partial class CertificateService(
     internal X509KeyStorageFlags InstallKeyStorageFlags { get; set; } =
         X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet;
 
+    // Whether GenerateDevCertificateAsync persists its private key and adds the certificate to
+    // CurrentUser\My. Production always does; tests turn it off so the generated key is ephemeral
+    // and a test run leaves nothing behind in the user's certificate store or key containers.
+    internal bool PersistToCurrentUserStore { get; set; } = true;
+
     public record CertificateResult(
         FileInfo CertificatePath,
         string Password,
@@ -81,9 +86,13 @@ internal partial class CertificateService(
         // Normalize the publisher to a valid X.500 distinguished name.
         var subjectName = PublisherDnHelper.Normalize(publisher);
 
+        CngKey? cngKey = null;
+        string? storedThumbprint = null;
+        var outputs = new List<StagedOutput>();
         try
         {
-            // 1) Create a persisted CNG key in MS Software KSP with AllowExport
+            // 1) Create a CNG key in MS Software KSP with AllowExport. It is persisted (named) only
+            // when the certificate will be added to CurrentUser\My, which needs the key container.
             var creationParams = new CngKeyCreationParameters
             {
                 Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider,
@@ -94,7 +103,8 @@ internal partial class CertificateService(
             // Set length = 2048
             creationParams.Parameters.Add(new CngProperty("Length", BitConverter.GetBytes(2048), CngPropertyOptions.None));
 
-            using var cngKey = CngKey.Create(CngAlgorithm.Rsa, $"MSIXDev-{Guid.NewGuid()}", creationParams);
+            var keyName = PersistToCurrentUserStore ? $"MSIXDev-{Guid.NewGuid()}" : null;
+            cngKey = CngKey.Create(CngAlgorithm.Rsa, keyName, creationParams);
             using var rsa = new RSACng(cngKey);
 
             // 2) Build req to mirror PS flags
@@ -110,26 +120,55 @@ internal partial class CertificateService(
             using var cert = req.CreateSelfSigned(notBefore, notAfter);
             cert.FriendlyName = "MSIX Dev Certificate";
 
-            using (var store = new X509Store(StoreName.My, StoreLocation.CurrentUser))
-            {
-                store.Open(OpenFlags.ReadWrite);
-                store.Add(cert);
-            }
+            // Stage every output next to its target first, so a failure never leaves a store entry
+            // without its files and never loses or mismatches files the user already had.
+            var pfxOutput = new StagedOutput(outputPath.FullName);
+            outputs.Add(pfxOutput);
+            await File.WriteAllBytesAsync(pfxOutput.Staged, cert.Export(X509ContentType.Pfx, password), cancellationToken);
 
-            var pfx = cert.Export(X509ContentType.Pfx, password);
-            await File.WriteAllBytesAsync(outputPath.FullName, pfx, cancellationToken);
-
-            taskContext.AddDebugMessage($"Certificate generated: {outputPath}");
-
-            // Export public certificate (.cer) if requested
             FileInfo? publicCertPath = null;
             if (exportCer)
             {
-                var cerPath = Path.ChangeExtension(outputPath.FullName, ".cer");
-                var cerBytes = cert.Export(X509ContentType.Cert);
-                await File.WriteAllBytesAsync(cerPath, cerBytes, cancellationToken);
-                publicCertPath = new FileInfo(cerPath);
-                taskContext.AddDebugMessage($"Public certificate exported: {cerPath}");
+                var cerOutput = new StagedOutput(Path.ChangeExtension(outputPath.FullName, ".cer"));
+                outputs.Add(cerOutput);
+                await File.WriteAllBytesAsync(cerOutput.Staged, cert.Export(X509ContentType.Cert), cancellationToken);
+                publicCertPath = new FileInfo(cerOutput.Target);
+            }
+
+            if (PersistToCurrentUserStore)
+            {
+                using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+                store.Open(OpenFlags.ReadWrite);
+                store.Add(cert);
+                storedThumbprint = cert.Thumbprint;
+            }
+
+            // Replace existing files with File.Replace: it swaps in one step, keeps the existing file's
+            // ACL (a PFX may be locked down beyond its directory's defaults), and keeps the original
+            // under the backup name so rollback can restore it.
+            foreach (var output in outputs)
+            {
+                if (File.Exists(output.Target))
+                {
+                    output.Backup = StagingPathFor(output.Target);
+                    File.Replace(output.Staged, output.Target, output.Backup);
+                }
+                else
+                {
+                    File.Move(output.Staged, output.Target);
+                }
+                output.Committed = true;
+            }
+
+            foreach (var output in outputs.Where(o => o.Backup != null))
+            {
+                TryDelete(output.Backup!, taskContext);
+            }
+
+            taskContext.AddDebugMessage($"Certificate generated: {outputPath}");
+            if (publicCertPath != null)
+            {
+                taskContext.AddDebugMessage($"Public certificate exported: {publicCertPath}");
             }
 
             outputPath.Refresh();
@@ -147,7 +186,97 @@ internal partial class CertificateService(
         }
         catch (Exception error)
         {
+            RollBackFailedGeneration(cngKey, storedThumbprint, outputs, taskContext);
             throw new InvalidOperationException($"Failed to generate development certificate: {error.Message}", error);
+        }
+        finally
+        {
+            cngKey?.Dispose();
+        }
+    }
+
+    private static string StagingPathFor(string target) => $"{target}.{Guid.NewGuid():N}.tmp";
+
+    private sealed class StagedOutput(string target)
+    {
+        public string Target { get; } = target;
+        public string Staged { get; } = StagingPathFor(target);
+        public string? Backup { get; set; }
+        public bool Committed { get; set; }
+    }
+
+    private static void TryDelete(string path, TaskContext taskContext)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            taskContext.AddDebugMessage($"Could not delete '{path}': {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Best-effort cleanup after a failed generation: restores the user's previous output files and
+    /// removes the store entry, persisted key container and staged files this call created.
+    /// Never throws.
+    /// </summary>
+    private void RollBackFailedGeneration(CngKey? cngKey, string? storedThumbprint, List<StagedOutput> outputs, TaskContext taskContext)
+    {
+        for (var i = outputs.Count - 1; i >= 0; i--)
+        {
+            var output = outputs[i];
+            if (output.Committed)
+            {
+                TryDelete(output.Target, taskContext);
+            }
+            // File.Replace can fail after moving the original to its backup name, so restore whenever
+            // the backup exists, not only after a successful commit.
+            if (output.Backup != null && File.Exists(output.Backup))
+            {
+                try
+                {
+                    File.Move(output.Backup, output.Target, overwrite: true);
+                }
+                catch (Exception ex)
+                {
+                    taskContext.AddDebugMessage($"Could not restore '{output.Target}' from '{output.Backup}': {ex.Message}");
+                }
+            }
+            TryDelete(output.Staged, taskContext);
+        }
+
+        if (storedThumbprint != null)
+        {
+            try
+            {
+                using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+                store.Open(OpenFlags.ReadWrite);
+                foreach (var stored in store.Certificates.Find(X509FindType.FindByThumbprint, storedThumbprint, validOnly: false))
+                {
+                    using (stored)
+                    {
+                        store.Remove(stored);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                taskContext.AddDebugMessage($"Could not remove the generated certificate from the store: {ex.Message}");
+            }
+        }
+
+        if (cngKey != null && PersistToCurrentUserStore)
+        {
+            try
+            {
+                cngKey.Delete();
+            }
+            catch (Exception ex)
+            {
+                taskContext.AddDebugMessage($"Could not delete the generated key: {ex.Message}");
+            }
         }
     }
 
