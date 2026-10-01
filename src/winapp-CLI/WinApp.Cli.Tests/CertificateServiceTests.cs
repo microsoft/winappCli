@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 using Microsoft.Extensions.Logging;
 using Spectre.Console.Testing;
 using WinApp.Cli.ConsoleTasks;
@@ -32,7 +34,40 @@ public class CertificateServiceTests : BaseCommandTests
         // Load the install PFX in-memory only so no test ever persists a machine key container.
         // Production keeps the default MachineKeySet|PersistKeySet (see InstallKeyStorageFlags).
         svc.InstallKeyStorageFlags = X509KeyStorageFlags.EphemeralKeySet;
+        // Keep generated certificates out of the developer's CurrentUser\My store.
+        svc.PersistToCurrentUserStore = false;
         return (svc, bt, gi);
+    }
+
+    private static X509Certificate2Collection FindInCurrentUserStore(X509FindType findType, string value)
+    {
+        using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+        store.Open(OpenFlags.ReadOnly);
+        return store.Certificates.Find(findType, value, validOnly: false);
+    }
+
+    /// <summary>
+    /// Removes exactly the certificates matching <paramref name="thumbprint"/> from CurrentUser\My
+    /// and deletes their persisted keys. Keyed by thumbprint so it can never touch real developer state.
+    /// </summary>
+    private static void RemoveFromCurrentUserStore(string thumbprint)
+    {
+        using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+        store.Open(OpenFlags.ReadWrite);
+        foreach (var cert in store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, validOnly: false))
+        {
+            using (cert)
+            {
+                if (cert.GetRSAPrivateKey() is RSACng rsa)
+                {
+                    using (rsa)
+                    {
+                        rsa.Key.Delete();
+                    }
+                }
+                store.Remove(cert);
+            }
+        }
     }
 
     private static TaskContext MakeContext(LogLevel minLevel, out CapturingLogger<TaskContext> logger)
@@ -97,21 +132,137 @@ public class CertificateServiceTests : BaseCommandTests
         Assert.AreEqual("pw", result.Password);
         StringAssert.Contains(result.SubjectName, "GenDirectTest");
         Assert.IsFalse(result.UpdatedGitignore);
+
+        using var generated = X509CertificateLoader.LoadPkcs12FromFile(pfx.FullName, "pw", X509KeyStorageFlags.EphemeralKeySet);
+        Assert.IsTrue(generated.HasPrivateKey, "PFX should carry the private key");
+        Assert.IsEmpty(
+            FindInCurrentUserStore(X509FindType.FindByThumbprint, generated.Thumbprint),
+            "With persistence disabled the certificate must not be added to CurrentUser\\My");
+    }
+
+    [TestMethod]
+    public async Task GenerateDevCertificateAsync_Default_AddsCertificateToCurrentUserStore()
+    {
+        var (svc, _, _) = NewService();
+        svc.PersistToCurrentUserStore = true;
+        var pfx = new FileInfo(Path.Join(_tempDirectory.FullName, "persist.pfx"));
+
+        await svc.GenerateDevCertificateAsync(
+            $"CN=WinappPersistTest-{Guid.NewGuid():N}", pfx, TestTaskContext, password: "pw", validDays: 1,
+            cancellationToken: TestContext.CancellationToken);
+
+        using var generated = X509CertificateLoader.LoadPkcs12FromFile(pfx.FullName, "pw", X509KeyStorageFlags.EphemeralKeySet);
+        try
+        {
+            var inStore = FindInCurrentUserStore(X509FindType.FindByThumbprint, generated.Thumbprint);
+            Assert.HasCount(1, inStore, "The certificate should be added to CurrentUser\\My");
+            Assert.IsTrue(inStore[0].HasPrivateKey, "The store entry should be linked to its persisted private key");
+        }
+        finally
+        {
+            RemoveFromCurrentUserStore(generated.Thumbprint);
+        }
     }
 
     [TestMethod]
     public async Task GenerateDevCertificateAsync_WriteFailure_ThrowsInvalidOperation()
     {
         var (svc, _, _) = NewService();
+        // Persist so the test proves a failed write does not leave an orphaned store entry.
+        svc.PersistToCurrentUserStore = true;
+        var subject = $"WinappWriteFail-{Guid.NewGuid():N}";
         // Point the output at the temp directory itself: writing bytes to a directory fails.
         var badOutput = new DirectoryInfo(_tempDirectory.FullName);
         var outputAsFile = new FileInfo(badOutput.FullName);
 
-        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            svc.GenerateDevCertificateAsync("CN=WriteFail", outputAsFile, TestTaskContext,
-                cancellationToken: TestContext.CancellationToken));
+        try
+        {
+            var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                svc.GenerateDevCertificateAsync($"CN={subject}", outputAsFile, TestTaskContext,
+                    cancellationToken: TestContext.CancellationToken));
 
-        StringAssert.Contains(ex.Message, "Failed to generate development certificate");
+            StringAssert.Contains(ex.Message, "Failed to generate development certificate");
+            Assert.IsEmpty(
+                FindInCurrentUserStore(X509FindType.FindBySubjectName, subject),
+                "A failed generation must not leave a certificate in CurrentUser\\My");
+        }
+        finally
+        {
+            foreach (var leaked in FindInCurrentUserStore(X509FindType.FindBySubjectName, subject))
+            {
+                RemoveFromCurrentUserStore(leaked.Thumbprint);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task GenerateDevCertificateAsync_FailureAfterStoreAdd_RestoresExistingFilesAndStore()
+    {
+        var (svc, _, _) = NewService();
+        svc.PersistToCurrentUserStore = true;
+        var subject = $"WinappOverwriteFail-{Guid.NewGuid():N}";
+        var dir = _tempDirectory.CreateSubdirectory("overwrite");
+        var pfx = new FileInfo(Path.Join(dir.FullName, "devcert.pfx"));
+        var cer = Path.Join(dir.FullName, "devcert.cer");
+        byte[] originalPfx = [1, 2, 3, 4];
+        byte[] originalCer = [5, 6, 7, 8];
+        await File.WriteAllBytesAsync(pfx.FullName, originalPfx, TestContext.CancellationToken);
+        await File.WriteAllBytesAsync(cer, originalCer, TestContext.CancellationToken);
+
+        try
+        {
+            // Holding the existing .cer open makes replacing it fail after the .pfx was already
+            // replaced and the certificate added to the store, so every rollback step must run.
+            using (new FileStream(cer, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                    svc.GenerateDevCertificateAsync($"CN={subject}", pfx, TestTaskContext, exportCer: true,
+                        cancellationToken: TestContext.CancellationToken));
+            }
+
+            CollectionAssert.AreEqual(originalPfx, await File.ReadAllBytesAsync(pfx.FullName, TestContext.CancellationToken),
+                "A failed generation must restore the user's existing PFX");
+            CollectionAssert.AreEqual(originalCer, await File.ReadAllBytesAsync(cer, TestContext.CancellationToken),
+                "A failed generation must leave the user's existing CER untouched");
+            Assert.IsEmpty(dir.GetFiles("*.tmp"), "Staged and backup files must be cleaned up");
+            Assert.IsEmpty(
+                FindInCurrentUserStore(X509FindType.FindBySubjectName, subject),
+                "A failed generation must remove the certificate it added to CurrentUser\\My");
+        }
+        finally
+        {
+            foreach (var leaked in FindInCurrentUserStore(X509FindType.FindBySubjectName, subject))
+            {
+                RemoveFromCurrentUserStore(leaked.Thumbprint);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task GenerateDevCertificateAsync_Overwrite_PreservesExistingFileAcl()
+    {
+        var (svc, _, _) = NewService();
+        var dir = _tempDirectory.CreateSubdirectory("acl");
+        var pfx = new FileInfo(Path.Join(dir.FullName, "devcert.pfx"));
+        await File.WriteAllBytesAsync(pfx.FullName, [1, 2, 3], TestContext.CancellationToken);
+
+        // Lock the existing PFX down to the current user only, with no inherited entries.
+        var restricted = new FileSecurity();
+        restricted.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        restricted.AddAccessRule(new FileSystemAccessRule(
+            WindowsIdentity.GetCurrent().User!, FileSystemRights.FullControl, AccessControlType.Allow));
+        pfx.SetAccessControl(restricted);
+        var expected = pfx.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+
+        await svc.GenerateDevCertificateAsync("CN=AclTest", pfx, TestTaskContext, password: "pw",
+            cancellationToken: TestContext.CancellationToken);
+
+        pfx.Refresh();
+        Assert.AreEqual(expected, pfx.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Access),
+            "Overwriting must keep the existing PFX's access control list");
+        using var generated = X509CertificateLoader.LoadPkcs12FromFile(pfx.FullName, "pw", X509KeyStorageFlags.EphemeralKeySet);
+        StringAssert.Contains(generated.Subject, "AclTest");
+        Assert.IsEmpty(dir.GetFiles("*.tmp"), "Backup files must be cleaned up");
     }
 
     // ── InstallCertificate ──────────────────────────────────────────────

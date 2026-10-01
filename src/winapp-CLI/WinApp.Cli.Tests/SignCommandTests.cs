@@ -8,11 +8,6 @@ using WinApp.Cli.Services;
 namespace WinApp.Cli.Tests;
 
 [TestClass]
-[DoNotParallelize]  // Locally sometimes ExportCertificateFromStore fails with:
-                    //  Initialization method WinApp.Cli.Tests.SignCommandTests.Setup threw exception.
-                    //  System.InvalidOperationException: Failed to export certificate from store: No valid certificate
-                    //      found in store with subject: CN=WinappTestPublisher ---> System.InvalidOperationException:
-                    //      No valid certificate found in store with subject: CN=WinappTestPublisher.
 public class SignCommandTests : BaseCommandTests
 {
     private FileInfo _testExecutablePath = null!;
@@ -35,14 +30,6 @@ public class SignCommandTests : BaseCommandTests
         await CreateTestCertificateAsync();
     }
 
-    [TestCleanup]
-    public void Cleanup()
-    {
-        // Clean up any test certificates that might have been left in the certificate store
-        // This is optional but helps keep the certificate store clean during development
-        CleanupInvalidTestCertificatesFromStore("CN=WinappTestPublisher");
-    }
-
     /// <summary>
     /// Creates a minimal fake executable file that can be used for testing
     /// Note: This won't be signable by signtool, but it's enough for testing command logic
@@ -55,172 +42,21 @@ public class SignCommandTests : BaseCommandTests
     }
 
     /// <summary>
-    /// Creates a test certificate for signing operations
-    /// Checks for existing test certificates in the certificate store and cleans up invalid ones
+    /// Generates a fresh test certificate for signing operations.
     /// </summary>
     private async Task CreateTestCertificateAsync()
     {
-        const string testPublisher = "CN=WinappTestPublisher";
-        const string testPassword = "testpassword";
-
-        // Clean up any invalid test certificates from the certificate store first
-        CleanupInvalidTestCertificatesFromStore(testPublisher);
-
-        // Check if we have a valid certificate already installed
-        if (HasValidTestCertificateInStore(testPublisher))
-        {
-            // We have a valid certificate in the store, just create the PFX file if it doesn't exist
-            if (!_testCertificatePath.Exists || !IsCertificateFileValid(_testCertificatePath, testPassword))
-            {
-                // Export the existing certificate from the store to create the PFX file
-                ExportCertificateFromStore(testPublisher, testPassword, _testCertificatePath);
-            }
-            _testCertificatePath.Refresh();
-            return;
-        }
-
-        // No valid certificate exists, generate a new one
         var result = await _certificateService.GenerateDevCertificateAsync(
-            publisher: testPublisher,
+            publisher: "CN=WinappTestPublisher",
             outputPath: _testCertificatePath,
             TestTaskContext,
-            password: testPassword,
+            password: "testpassword",
             validDays: 30,
             cancellationToken: TestContext.CancellationToken);
 
         Assert.IsNotNull(result, "Certificate generation should succeed");
         _testCertificatePath.Refresh();
         Assert.IsTrue(_testCertificatePath.Exists, "Certificate file should exist");
-    }
-
-    /// <summary>
-    /// Checks if a certificate file exists, can be loaded, and is still valid (not expired)
-    /// </summary>
-    /// <param name="certPath">Path to the certificate file</param>
-    /// <param name="password">Certificate password</param>
-    /// <returns>True if the certificate file is valid and usable</returns>
-    private static bool IsCertificateFileValid(FileInfo certPath, string password)
-    {
-        if (!certPath.Exists)
-        {
-            return false;
-        }
-
-        try
-        {
-            // Check if certificate can be loaded with the correct password
-            if (!CanLoadCertificate(certPath, password))
-            {
-                return false;
-            }
-
-            // Check if certificate is not expired
-            using var cert = X509CertificateLoader.LoadPkcs12FromFile(
-                certPath.FullName, password, X509KeyStorageFlags.Exportable);
-
-            var now = DateTime.UtcNow;
-            return now >= cert.NotBefore && now <= cert.NotAfter;
-        }
-        catch
-        {
-            // If any operation fails, consider the certificate invalid
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Checks if there's a valid test certificate with the specified subject in the CurrentUser\My store
-    /// </summary>
-    /// <param name="subjectName">Certificate subject name (e.g., "CN=WinappTestPublisher")</param>
-    /// <returns>True if a valid certificate exists in the store</returns>
-    private static bool HasValidTestCertificateInStore(string subjectName)
-    {
-        try
-        {
-            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-            store.Open(OpenFlags.ReadOnly);
-
-            var certificates = store.Certificates.Find(X509FindType.FindBySubjectName, subjectName.Replace("CN=", ""), false);
-
-            foreach (X509Certificate2 cert in certificates)
-            {
-                var now = DateTime.UtcNow;
-                if (now >= cert.NotBefore && now <= cert.NotAfter && cert.HasPrivateKey)
-                {
-                    return true; // Found a valid certificate
-                }
-            }
-
-            return false;
-        }
-        catch
-        {
-            // If we can't check the store, assume no valid certificate
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Removes invalid test certificates from the CurrentUser\My certificate store
-    /// </summary>
-    /// <param name="subjectName">Certificate subject name to clean up</param>
-    private static void CleanupInvalidTestCertificatesFromStore(string subjectName)
-    {
-        try
-        {
-            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-            store.Open(OpenFlags.ReadWrite);
-
-            var certificates = store.Certificates.Find(X509FindType.FindBySubjectName, subjectName.Replace("CN=", ""), false);
-            var now = DateTime.UtcNow;
-
-            foreach (X509Certificate2 cert in certificates)
-            {
-                // Remove expired certificates or certificates without private keys
-                if (now < cert.NotBefore || now > cert.NotAfter || !cert.HasPrivateKey)
-                {
-                    store.Remove(cert);
-                }
-            }
-        }
-        catch
-        {
-            // Ignore cleanup errors - not critical for test functionality
-        }
-    }
-
-    /// <summary>
-    /// Exports an existing certificate from the store to a PFX file
-    /// </summary>
-    /// <param name="subjectName">Certificate subject name</param>
-    /// <param name="password">Password for the PFX file</param>
-    private static void ExportCertificateFromStore(string subjectName, string password, FileInfo outputPath)
-    {
-        try
-        {
-            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-            store.Open(OpenFlags.ReadOnly);
-
-            var certificates = store.Certificates.Find(X509FindType.FindBySubjectName, subjectName.Replace("CN=", ""), false);
-
-            foreach (X509Certificate2 cert in certificates)
-            {
-                var now = DateTime.UtcNow;
-                if (now >= cert.NotBefore && now <= cert.NotAfter && cert.HasPrivateKey)
-                {
-                    // Export the certificate as PFX
-                    var pfxData = cert.Export(X509ContentType.Pfx, password);
-                    File.WriteAllBytes(outputPath.FullName, pfxData);
-                    return;
-                }
-            }
-
-            throw new InvalidOperationException($"No valid certificate found in store with subject: {subjectName}");
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Failed to export certificate from store: {ex.Message}", ex);
-        }
     }
 
     /// <summary>
