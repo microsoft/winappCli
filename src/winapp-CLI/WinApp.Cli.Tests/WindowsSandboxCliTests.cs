@@ -64,6 +64,51 @@ public class WindowsSandboxCliTests
         Assert.AreSame(launchError, error.InnerException);
     }
 
+    /// <summary>
+    /// A share refused with <c>E_ACCESSDENIED</c> names the folder and the account that needs
+    /// access, and never sends the user to restart the host.
+    /// </summary>
+    /// <remarks>
+    /// Reproduced with <c>winapp target exec sandbox</c>: the Sandbox was healthy, but the bootstrap
+    /// folder's DACL locked SYSTEM out, and the user was told "If it keeps failing, restart the host",
+    /// which cannot help.
+    /// </remarks>
+    [TestMethod]
+    public async Task Share_AccessDenied_NamesTheFolderAndNeverSuggestsRestartingTheHost()
+    {
+        _cli.UseExecutable(@"C:\test\wsb.exe");
+        _runner.Result = new ProcessRunResult(
+            unchecked((int)0x80070005),
+            string.Empty,
+            "Access is denied. (0x80070005 (E_ACCESSDENIED))");
+        const string HostPath = @"C:\Users\someone\.winapp\state\targets\sandbox\bootstrap-0123";
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            _cli.ShareFolderAsync("sandbox-1", HostPath, @"C:\WinAppBootstrap-0123", allowWrite: false, CancellationToken.None));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, error.Error.Code);
+        StringAssert.Contains(error.Error.Message, HostPath);
+        StringAssert.Contains(error.Error.UserAction, "SYSTEM");
+        StringAssert.Contains(error.Error.UserAction, HostPath);
+        Assert.DoesNotContain("restart the host", error.Error.UserAction!, StringComparison.OrdinalIgnoreCase);
+        Assert.AreEqual("0x80070005", error.Error.Context![WsbHResult.ContextKey]);
+        Assert.AreEqual(HostPath, error.Error.Context["hostPath"]);
+    }
+
+    /// <summary>Any other share failure still never suggests restarting the host.</summary>
+    [TestMethod]
+    public async Task Share_OtherFailure_NeverSuggestsRestartingTheHost()
+    {
+        _cli.UseExecutable(@"C:\test\wsb.exe");
+        _runner.Result = new ProcessRunResult(1, string.Empty, "The system cannot find the file specified.");
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            _cli.ShareFolderAsync("sandbox-1", @"C:\host", @"C:\guest", allowWrite: true, CancellationToken.None));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, error.Error.Code);
+        Assert.DoesNotContain("restart the host", error.Error.UserAction!, StringComparison.OrdinalIgnoreCase);
+    }
+
     [TestMethod]
     public void ResolveTrustedAlias_ReturnsAFullyQualifiedPath()
     {

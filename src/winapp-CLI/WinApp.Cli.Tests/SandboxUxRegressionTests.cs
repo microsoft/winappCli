@@ -99,6 +99,40 @@ public class SandboxUxRegressionTests
         }
     }
 
+    // ---- Bootstrap folders must stay shareable under a state root locked to the current user ----
+
+    /// <summary>
+    /// Every folder handed to <c>wsb share</c> grants SYSTEM, even when the state root does not.
+    /// </summary>
+    /// <remarks>
+    /// Reproduced on a live Sandbox: once <c>%USERPROFILE%\.winapp\state</c> had a protected,
+    /// current-user-only DACL (which winapp 0.7.0 applied when UI coordination created it first),
+    /// every bootstrap folder beneath it inherited a DACL without SYSTEM, and <c>wsb share</c> failed
+    /// with <c>E_ACCESSDENIED</c> on every <c>target exec</c> and <c>run --on sandbox</c>.
+    /// </remarks>
+    [TestMethod]
+    public async Task BootstrapShares_UnderACurrentUserOnlyStateRoot_GrantSystem()
+    {
+        using var harness = new BackendHarness();
+        harness.RestrictRootToCurrentUser();
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        Assert.HasCount(2, harness.Cli.SharedHostPaths, "Both bootstrap folders must be shared.");
+        var system = new System.Security.Principal.SecurityIdentifier(
+            System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
+        foreach (var hostPath in harness.Cli.SharedHostPaths)
+        {
+            var grantsSystem = new DirectoryInfo(hostPath).GetAccessControl()
+                .GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier))
+                .Cast<System.Security.AccessControl.FileSystemAccessRule>()
+                .Any(rule => rule.AccessControlType == System.Security.AccessControl.AccessControlType.Allow &&
+                             system.Equals(rule.IdentityReference));
+
+            Assert.IsTrue(grantsSystem, $"Windows Sandbox cannot share '{hostPath}' unless SYSTEM can open it.");
+        }
+    }
+
     // ---- A second command must not disconnect the Sandbox window the first one left up ----
 
     /// <summary>
@@ -523,6 +557,26 @@ public class SandboxUxRegressionTests
 
         public ExecutionTargetEpoch Epoch { get; private set; }
 
+        /// <summary>
+        /// Gives the state root the protected, current-user-only DACL winapp 0.7.0 could leave on
+        /// <c>%USERPROFILE%\.winapp\state</c>.
+        /// </summary>
+        public void RestrictRootToCurrentUser()
+        {
+            var user = System.Security.Principal.WindowsIdentity.GetCurrent().User!;
+            var security = new System.Security.AccessControl.DirectorySecurity();
+            security.SetOwner(user);
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            security.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                user,
+                System.Security.AccessControl.FileSystemRights.FullControl,
+                System.Security.AccessControl.InheritanceFlags.ContainerInherit |
+                    System.Security.AccessControl.InheritanceFlags.ObjectInherit,
+                System.Security.AccessControl.PropagationFlags.None,
+                System.Security.AccessControl.AccessControlType.Allow));
+            _root.SetAccessControl(security);
+        }
+
         public SandboxClientWindow? ReadClient()
         {
             var state = _stateStore.Read(WindowsSandboxTarget.Default);
@@ -746,8 +800,12 @@ public class SandboxUxRegressionTests
             CancellationToken cancellationToken)
         {
             Operations.Add($"share:{sandboxPath}:{allowWrite}");
+            SharedHostPaths.Add(hostPath);
             return Task.CompletedTask;
         }
+
+        /// <summary>Every host folder handed to <c>wsb share</c>, in order.</summary>
+        public List<string> SharedHostPaths { get; } = [];
 
         public Task<SandboxConnectAttempt> ConnectAsync(
             string id,

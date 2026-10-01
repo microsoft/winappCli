@@ -156,7 +156,7 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
     }
 
     /// <inheritdoc/>
-    public Task ShareFolderAsync(
+    public async Task ShareFolderAsync(
         string id,
         string hostPath,
         string sandboxPath,
@@ -169,7 +169,50 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
             arguments.Add("--allow-write");
         }
 
-        return RunAsync(arguments, cancellationToken);
+        var result = await RunAsync(arguments, cancellationToken, throwOnFailure: false).ConfigureAwait(false);
+        if (result.ExitCode != 0)
+        {
+            throw ShareFailed(id, hostPath, sandboxPath, result);
+        }
+    }
+
+    /// <summary>The failure for a host folder <c>wsb share</c> could not map into the guest.</summary>
+    /// <remarks>
+    /// The Sandbox itself is running and the host is fine, so this never suggests restarting either.
+    /// Access denied is the one cause with a specific remedy: Windows Sandbox opens the folder as
+    /// SYSTEM, so a folder (and parent) restricted to the current user cannot be shared.
+    /// </remarks>
+    internal static ExecutionTargetException ShareFailed(
+        string id,
+        string hostPath,
+        string sandboxPath,
+        ProcessRunResult result)
+    {
+        var hresult = WsbHResult.Extract(result);
+
+        var context = new Dictionary<string, string>
+        {
+            ["sandboxId"] = id,
+            ["wsbVerb"] = "share",
+            ["hostPath"] = hostPath,
+            ["sandboxPath"] = sandboxPath,
+            ["exitCode"] = result.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
+
+        if (hresult is { } code)
+        {
+            context[WsbHResult.ContextKey] = WsbHResult.Format(code);
+        }
+
+        var userAction = hresult == WsbHResult.AccessDenied
+            ? $"Windows Sandbox shares host folders as the SYSTEM account. Grant SYSTEM access to '{hostPath}', then retry."
+            : "Retry the command. If it keeps failing, close the Sandbox and try again.";
+
+        return ExecutionTargetException.Create(
+            ExecutionTargetErrorCodes.TransportFailed,
+            $"Windows Sandbox could not share '{hostPath}' with the Sandbox: {Summarize(result)}",
+            userAction: userAction,
+            context: context);
     }
 
     /// <inheritdoc/>
