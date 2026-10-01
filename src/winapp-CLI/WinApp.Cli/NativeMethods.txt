@@ -57,6 +57,10 @@ IsWindow
 ShowWindow
 IsIconic
 GetSystemMetrics
+MonitorFromWindow
+GetMonitorInfo
+MONITORINFO
+GetWindowRect
 GetWindowThreadProcessId
 SHOW_WINDOW_CMD
 MiniDumpWriteDump

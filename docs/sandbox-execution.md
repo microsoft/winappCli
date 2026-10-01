@@ -34,8 +34,9 @@ menu and finish any client installation or update. winapp does not enable the fe
 install the client, request elevation, or restart Windows. If prerequisites are missing,
 it stops with setup instructions; an observed pending Windows restart is reported separately.
 
-A cold connection or reconnect can briefly take focus. Once connected, winapp
-keeps its own client window off-screen without activating it. A Sandbox window you
+A cold connection or reconnect can briefly take focus. Once connected, winapp puts
+its own Sandbox window behind the window you were using, without activating it;
+switch to **Windows Sandbox** in the taskbar to watch the guest. A Sandbox window you
 opened yourself is left in place.
 
 > [!IMPORTANT]
@@ -359,6 +360,7 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_agent_busy` | Wait for another command to finish, then retry |
 | `sandbox_terminated`, `sandbox_target_stale`, `sandbox_stale_handle` | Rerun the app and rediscover guest PIDs/windows |
 | `sandbox_state_unavailable` | Ensure `%USERPROFILE%\.winapp\state` is writable, or correct `WINAPP_TARGET_STATE_ROOT` if set |
+| "Only one running instance of Windows Sandbox is allowed" when opening Windows Sandbox from Start | The Sandbox winapp uses is still running, and Start cannot attach to it. Switch to **Windows Sandbox** in the taskbar; if it has no window, run `wsb list`, then `wsb connect --id <id>` |
 | `sandbox_deployment_dirty`, `sandbox_transfer_interrupted` | Retry the deployment or transfer |
 | `sandbox_runtime_provision_failed` | Resolve the named dependency or unsupported runtime configuration; see [Shared runtimes](#shared-runtimes) |
 | `sandbox_package_conflict`, `sandbox_provisioned_package_conflict` | Follow the package-specific action; do not remove unrelated or inbox packages |
