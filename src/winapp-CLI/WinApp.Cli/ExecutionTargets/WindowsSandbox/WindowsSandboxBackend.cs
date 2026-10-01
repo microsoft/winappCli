@@ -279,8 +279,8 @@ internal sealed class WindowsSandboxBackend(
         // `wsb connect` against an instance whose client is already attached starts a *second*
         // WindowsSandboxRemoteSession, and that extra client outlives `wsb stop`. winapp did not
         // start that guest and cannot assume it is unattended, so only a confirmed missing session
-        // creates a client -- and a genuinely closed client is recovered later, from the agent's own
-        // evidence rather than from a guess.
+        // or a host with no client process at all creates a client. A closed client that cannot be
+        // detected that way is recovered later, from the agent's own evidence rather than a guess.
         var session = await cli
             .ProbeInteractiveSessionAsync(lease.InstanceId, cancellationToken)
             .ConfigureAwait(false);
@@ -288,9 +288,14 @@ internal sealed class WindowsSandboxBackend(
         var startedHeadlessByWinapp =
             lease.Origin is SandboxInstanceOrigin.Created or SandboxInstanceOrigin.RecoveredStart;
 
-        var connectedClient = startedHeadlessByWinapp
+        // Windows runs one Sandbox at a time, so no client process on the host means nothing is
+        // attached to this guest: its window was closed or never opened. The login session can
+        // survive that, so the probe still says Ready, and without this the agent would have to
+        // start and fail with NoInputDesktop before the reconnect below ever happened.
+        var connectedClient = (startedHeadlessByWinapp
             ? session is not GuestSessionAvailability.Ready
-            : session is GuestSessionAvailability.NoLoginSession;
+            : session is GuestSessionAvailability.NoLoginSession)
+            || !windowController.IsAnyClientRunning();
 
         if (connectedClient)
         {
@@ -959,16 +964,18 @@ internal sealed class WindowsSandboxBackend(
                 TargetPathSafety.CombineInsideRoot(bootstrapDirectory, GuestAgentCommandNames.BinaryName),
                 cancellationToken).ConfigureAwait(false);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // The agent already serving this Sandbox is running from this exact file, so a newer
-            // winapp cannot replace it in place. Reported as the actionable thing it is: the raw
-            // exception surfaces as "IO_SharingViolation_NoFileName", which tells the user nothing
-            // and looks like a winapp defect rather than a running-agent conflict.
+            // The guest still holds the file a different winapp version staged -- a running agent,
+            // or the Sandbox's folder sharing keeping it open after the agent exited -- so it cannot
+            // be replaced in place. Windows reports that as a sharing violation or as access denied
+            // depending on how the file is held; either way it surfaced raw ("IO_SharingViolation_
+            // NoFileName", or an unhandled UnauthorizedAccessException), which looked like a winapp
+            // defect rather than a version conflict with an existing Sandbox.
             throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.AgentIncompatible,
-                "A different version of winapp is already running the Windows Sandbox agent, " +
-                "so this one could not replace it.",
+                "A different version of winapp started the Windows Sandbox agent, and the Sandbox " +
+                "is still using its files, so this version could not replace them.",
                 userAction: "Close Windows Sandbox, then run the command again to start a fresh agent.",
                 nextCommand: new ExecutionTargetNextCommand
                 {
@@ -990,7 +997,7 @@ internal sealed class WindowsSandboxBackend(
                     TargetPathSafety.CombineInsideRoot(bootstrapDirectory, SkiaCompanionName),
                     cancellationToken).ConfigureAwait(false);
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // The companion is only needed for image encoding, and a locked one is byte-identical
                 // to what a running agent already loaded. Failing the whole command over it would
