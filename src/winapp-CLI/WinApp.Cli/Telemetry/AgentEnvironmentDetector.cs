@@ -34,8 +34,8 @@ internal sealed class AgentEnvironmentDetector
     private const string AmbiguousAgentVariable = "AGENT";
 
     /// <summary>
-    /// Agent names accepted from <see cref="AmbiguousAgentVariable"/>, matched against the name
-    /// portion of the value (before any '@' or '_', e.g. "goose@1.0" -> "goose").
+    /// Agent names accepted from <see cref="AmbiguousAgentVariable"/>. Matched exactly, because
+    /// prefixed values such as "codex_worker" are just as likely to come from non-AI tools.
     /// </summary>
     private static readonly HashSet<string> KnownAgentNames = new(StringComparer.Ordinal)
     {
@@ -203,12 +203,6 @@ internal sealed class AgentEnvironmentDetector
         return value.ToLowerInvariant() is "1" or "true" or "yes" or "on";
     }
 
-    private static bool IsKnownAgentName(string value)
-    {
-        var name = value.Split('@')[0].Split('_')[0];
-        return KnownAgentNames.Contains(name);
-    }
-
     private static (string SenderOrigin, string? AgentName) DetectInternal()
     {
         // 1. AI_AGENT names the agent. A flag-like value (e.g. "1") only proves an agent is
@@ -221,7 +215,7 @@ internal sealed class AgentEnvironmentDetector
 
         // 2. AGENT is shared with non-AI tools, so only known agent names count.
         var ambiguousValue = GetEnabledValue(AmbiguousAgentVariable)?.ToLowerInvariant();
-        if (ambiguousValue is not null && IsKnownAgentName(ambiguousValue))
+        if (ambiguousValue is not null && KnownAgentNames.Contains(ambiguousValue))
         {
             return (SenderOrigins.Agent, ambiguousValue);
         }

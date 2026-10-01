@@ -240,7 +240,6 @@ public class AgentEnvironmentDetectorTests
     [DataRow("goose", "goose")]
     [DataRow("amp", "amp")]
     [DataRow("Goose", "goose")]
-    [DataRow("codex@1.2.3", "codex@1.2.3")]
     public void Detect_AGENT_KnownValue_ReturnsAgent(string value, string expectedAgentName)
     {
         Environment.SetEnvironmentVariable("AGENT", value);
@@ -256,6 +255,8 @@ public class AgentEnvironmentDetectorTests
     [DataRow("true")]
     [DataRow("build-runner")]
     [DataRow("ssh-agent")]
+    [DataRow("codex_worker")]
+    [DataRow("goose@1.0")]
     public void Detect_AGENT_UnknownValue_IsIgnored(string value)
     {
         Environment.SetEnvironmentVariable("AGENT", value);
