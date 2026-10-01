@@ -235,7 +235,8 @@ internal partial class NugetService
                     ? null
                     : await byIdResource.GetDependencyInfoAsync(packageName, nugetVersion, cacheContext, Logger, cancellationToken);
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is NuGetProtocolException or HttpRequestException or IOException
+                or UnauthorizedAccessException or TimeoutException or OperationCanceledException)
             {
                 // A canceled request can surface as a protocol exception; report it as cancellation.
                 cancellationToken.ThrowIfCancellationRequested();
