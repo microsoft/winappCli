@@ -132,6 +132,16 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
             hits.RemoveAll(hit => hit.Via == "type");
         }
 
+        // Two equally good matches (identical declarations in one file) identify neither: each is a candidate.
+        if (hits.Count(hit => hit.Confidence == "strong") > 1)
+        {
+            foreach (var hit in hits.Where(hit => hit.Confidence == "strong"))
+            {
+                hit.Confidence = "weak";
+                hit.Rank = 1;
+            }
+        }
+
         var pivot = anchor.Line ?? 0;
         hits.Sort((a, b) =>
         {

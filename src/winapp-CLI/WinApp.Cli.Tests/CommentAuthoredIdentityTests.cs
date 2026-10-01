@@ -52,6 +52,18 @@ public sealed class CommentAuthoredIdentityTests
     private CommentView View(Comment comment) => CommentViewBuilder.ToView(comment, new CommentAnchorResolver(), _root);
 
     [TestMethod]
+    public void IdenticalDeclarations_AreWeakCandidatesNotTwoStrongMatches()
+    {
+        const string target = """<TextBlock Text="Same" FontSize="14" />""";
+        var comment = Capture(target + "\n<Border />\n" + target, unique: false);
+        var view = View(comment);
+        Assert.IsFalse(view.AnchorConfirmed);
+        Assert.IsTrue(view.RequiresConfirmation);
+        Assert.AreEqual(2, view.Hits.Count);
+        Assert.IsTrue(view.Hits.All(hit => hit.Confidence == "weak"), string.Join(", ", view.Hits.Select(hit => hit.Confidence)));
+    }
+
+    [TestMethod]
     public void SecretAttribute_IsRedactedInTheStoreAndCandidates_AndStillAnchors()
     {
         const string authored = """<PasswordBox x:Name="SecretBox" Password="hunter2" PasswordChar="*" Header="Pw" />""";
