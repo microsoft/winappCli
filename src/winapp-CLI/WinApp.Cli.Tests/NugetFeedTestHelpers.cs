@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NuGet.Frameworks;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
@@ -40,10 +42,10 @@ internal static class NugetFeedTestHelpers
     internal static NugetSourceProvider CreateSourceProviderRootedAt(DirectoryInfo root) =>
         new(new CurrentDirectoryProvider(root.FullName));
 
-    internal static NugetService CreateServiceRootedAt(DirectoryInfo root)
+    internal static NugetService CreateServiceRootedAt(DirectoryInfo root, ILogger<NugetService>? logger = null)
     {
         var sourceProvider = CreateSourceProviderRootedAt(root);
-        return new NugetService(new DefaultWinappDirectoryService(), sourceProvider, new NugetPackageDownloader(sourceProvider));
+        return new NugetService(new DefaultWinappDirectoryService(), sourceProvider, new NugetPackageDownloader(sourceProvider), logger ?? NullLogger<NugetService>.Instance);
     }
 
     internal static DirectoryInfo CreateFeedTestDirectory()

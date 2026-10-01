@@ -262,11 +262,18 @@ public class NugetServiceCoverageTests : BaseCommandTests
             WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK.Runtime", "1.6.0");
             WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK", "1.7.0", ("Microsoft.WindowsAppSDK.Runtime", "[1.7.0]"));
 
-            var service = CreateServiceRootedAt(root);
+            var logger = new LevelLogger<NugetService>(Microsoft.Extensions.Logging.LogLevel.Information);
+            var service = CreateServiceRootedAt(root, logger);
 
             var stable = await service.GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, TestContext.CancellationToken);
 
             Assert.AreEqual("1.6.0", stable, "A release that cannot be restored yet must not be selected.");
+
+            // The user is told why they got the older release.
+            var note = logger.Entries.Single(e => e.Level == Microsoft.Extensions.Logging.LogLevel.Information).Message;
+            StringAssert.Contains(note, "Microsoft.WindowsAppSDK 1.7.0 is still being published", StringComparison.Ordinal);
+            StringAssert.Contains(note, "Microsoft.WindowsAppSDK.Runtime", StringComparison.Ordinal);
+            StringAssert.Contains(note, "using 1.6.0", StringComparison.Ordinal);
         }
         finally
         {
@@ -292,11 +299,13 @@ public class NugetServiceCoverageTests : BaseCommandTests
             WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK", "1.7.0", ("Microsoft.WindowsAppSDK.Runtime", "[1.7.0]"));
             WriteNupkgToFeed(feed, "Microsoft.WindowsAppSDK.Runtime", "1.7.0");
 
-            var service = CreateServiceRootedAt(root);
+            var logger = new LevelLogger<NugetService>(Microsoft.Extensions.Logging.LogLevel.Information);
+            var service = CreateServiceRootedAt(root, logger);
 
             var stable = await service.GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, TestContext.CancellationToken);
 
             Assert.AreEqual("1.7.0", stable);
+            Assert.IsEmpty(logger.Entries, "Nothing was skipped, so nothing should be reported.");
         }
         finally
         {

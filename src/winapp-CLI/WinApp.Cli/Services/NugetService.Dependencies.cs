@@ -1,10 +1,12 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
 using NuGet.Packaging;
 using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
@@ -187,13 +189,24 @@ internal partial class NugetService
         NugetSourceProvider.EnsureCredentialService();
         using var cacheContext = new SourceCacheContext();
 
+        string? newestMissing = null;
         var oldestToCheck = Math.Max(0, sortedVersions.Count - MaxReleasesToCheckForPublishedDependencies);
         for (var i = sortedVersions.Count - 1; i >= oldestToCheck; i--)
         {
-            if (!await HasUnpublishedDependencyAsync(packageName, sortedVersions[i], cacheContext, cancellationToken))
+            var missing = await FindUnpublishedDependencyAsync(packageName, sortedVersions[i], cacheContext, cancellationToken);
+            if (missing is null)
             {
+                if (newestMissing is not null)
+                {
+                    _logger.LogInformation(
+                        "{UISymbol} {PackageName} {Newest} is still being published ({Missing} is not available yet); using {Selected}.",
+                        UiSymbols.Note, packageName, sortedVersions[^1], newestMissing, sortedVersions[i]);
+                }
+
                 return sortedVersions[i];
             }
+
+            newestMissing ??= missing;
         }
 
         // Every checked release is incomplete, which is not the publishing window this guards against. Keep the
@@ -202,11 +215,11 @@ internal partial class NugetService
     }
 
     /// <summary>
-    /// Reports whether a direct dependency of <paramref name="packageName"/> <paramref name="version"/> is known
-    /// to be unpublished: every eligible source answered and none offers a version satisfying the declared
-    /// range. Returns false whenever that cannot be established.
+    /// Returns the id of a direct dependency of <paramref name="packageName"/> <paramref name="version"/> that is
+    /// known to be unpublished: every eligible source answered and none offers a version satisfying the declared
+    /// range. Returns null whenever that cannot be established.
     /// </summary>
-    private async Task<bool> HasUnpublishedDependencyAsync(string packageName, string version, SourceCacheContext cacheContext, CancellationToken cancellationToken)
+    private async Task<string?> FindUnpublishedDependencyAsync(string packageName, string version, SourceCacheContext cacheContext, CancellationToken cancellationToken)
     {
         var nugetVersion = ParseVersion(packageName, version);
         FindPackageByIdDependencyInfo? dependencyInfo = null;
@@ -222,8 +235,11 @@ internal partial class NugetService
                     ? null
                     : await byIdResource.GetDependencyInfoAsync(packageName, nugetVersion, cacheContext, Logger, cancellationToken);
             }
-            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            catch (Exception)
             {
+                // A canceled request can surface as a protocol exception; report it as cancellation.
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // This check only ever narrows the choice; a source it cannot read (including an HTTP timeout)
                 // means "unknown", never "missing", so move on and let the caller keep the newest release.
                 continue;
@@ -237,7 +253,7 @@ internal partial class NugetService
 
         if (dependencyInfo is null)
         {
-            return false;
+            return null;
         }
 
         var dependencies = dependencyInfo.DependencyGroups
@@ -264,11 +280,11 @@ internal partial class NugetService
             var fresh = await GetCandidateVersionsForRangeAsync(dependencies[i].Id, freshContext, cancellationToken);
             if (IsKnownUnpublished(dependencies[i].VersionRange, fresh))
             {
-                return true;
+                return dependencies[i].Id;
             }
         }
 
-        return false;
+        return null;
     }
 
     private static bool IsKnownUnpublished(VersionRange range, CandidateVersionsResult available)
@@ -566,6 +582,10 @@ internal partial class NugetService
             }
             catch (Exception ex)
             {
+                // A canceled request can surface as a protocol exception once NuGet's retries are exhausted;
+                // report it as cancellation rather than as a feed failure.
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // Best-effort: a source we cannot query contributes no versions; another eligible source may
                 // still satisfy the range (the dependency paths already fail over source-by-source). Remember
                 // the failure so the caller can distinguish it from a clean "no satisfying version" when
