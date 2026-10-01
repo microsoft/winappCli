@@ -44,7 +44,7 @@ internal sealed class XamlCoordinateMap
     {
         var authored = Position(_sourceLines, original.Start);
         return new Element(authored.Line, Position(_sourceLines, original.End).Line, authored.Column,
-            original.Element.Name.LocalName, (string?)original.Element.Attribute(Xaml + "Name"),
+            original.Element.Name.LocalName, NameOf(original.Element),
             (string?)original.Element.Attribute(Xaml + "Class"));
     }).ToArray();
 
@@ -57,10 +57,10 @@ internal sealed class XamlCoordinateMap
             var start = Position(lines, span.Start);
             var parent = span.Element.Parent;
             return new Element(start.Line, Position(lines, span.End).Line, start.Column,
-                span.Element.Name.LocalName, (string?)span.Element.Attribute(Xaml + "Name"),
+                span.Element.Name.LocalName, NameOf(span.Element),
                 (string?)span.Element.Attribute(Xaml + "Class"),
                 parent is null ? null : ((IXmlLineInfo)parent).LineNumber,
-                parent?.Name.LocalName, (string?)parent?.Attribute(Xaml + "Name"));
+                parent?.Name.LocalName, parent is null ? null : NameOf(parent));
         }).ToArray();
     }
 
@@ -149,9 +149,11 @@ internal sealed class XamlCoordinateMap
             foreach (var attribute in erased)
             {
                 // The compiler removes x:Bind expressions and, on elements it connects, event-handler wiring. It also
-                // blanks a typed template's x:DataType. Any other removal means the source is not what was compiled.
+                // blanks a typed template's x:DataType and the compile-time directives x:DefaultBindMode and x:Phase.
+                // Any other removal means the source is not what was compiled.
                 if (!IsBinding(attribute) && !(inserted && IsEventHandler(attribute)) &&
-                    !(attribute.Name == Xaml + "DataType" && original.Name == DataTemplate))
+                    !(attribute.Name == Xaml + "DataType" && original.Name == DataTemplate) &&
+                    attribute.Name != Xaml + "DefaultBindMode" && attribute.Name != Xaml + "Phase")
                 {
                     throw new InvalidDataException($"Unsupported compiler rewrite of '{attribute.Name.LocalName}' on <{original.Name.LocalName}> at line {((IXmlLineInfo)attribute).LineNumber}.");
                 }
@@ -166,7 +168,9 @@ internal sealed class XamlCoordinateMap
                 var classRoot = original.Parent is null && original.Attribute(Xaml + "Class") is { Value.Length: > 0 };
                 // A typed template's root is connected so the compiler can bind each item.
                 var templateRoot = original.Parent is { } template && template.Name == DataTemplate && template.Attribute(Xaml + "DataType") is not null;
-                if ((erased.Length == 0 && deferred is null && original.Attribute(Xaml + "Name") is null && !classRoot && !templateRoot) ||
+                // A named element (x:Name, or Name on a FrameworkElement) is connected so code-behind gets its field.
+                var named = NameOf(original) is not null;
+                if ((erased.Length == 0 && deferred is null && !named && !classRoot && !templateRoot) ||
                     original.GetNamespaceOfPrefix("x") != Xaml ||
                     !int.TryParse(connection!.Value, out var id) || id <= 0 || !connectionIds.Add(id))
                 {
@@ -255,7 +259,7 @@ internal sealed class XamlCoordinateMap
         var original = candidates[0];
         if ((original.Element.Name.LocalName != type.Split('.').Last() &&
             (string?)original.Element.Attribute(Xaml + "Class") != type) ||
-            ((string?)original.Element.Attribute(Xaml + "Name") ?? "") != (name ?? ""))
+            (NameOf(original.Element) ?? "") != (name ?? ""))
         {
             throw new InvalidDataException("Mapped declaration disagrees with element identity.");
         }
@@ -264,6 +268,9 @@ internal sealed class XamlCoordinateMap
         return new(line, column, info.LineNumber, info.LinePosition - 1,
             _source[original.Start..(original.End + 1)], true, "unique-source-line");
     }
+
+    // x:Name, or the Name property, which names a FrameworkElement the same way.
+    private static string? NameOf(XElement element) => (string?)element.Attribute(Xaml + "Name") ?? (string?)element.Attribute("Name");
 
     private static bool IsBinding(XAttribute attribute) =>
         attribute.Value.StartsWith("{x:Bind ", StringComparison.Ordinal) || attribute.Value.StartsWith("{x:Bind}", StringComparison.Ordinal);

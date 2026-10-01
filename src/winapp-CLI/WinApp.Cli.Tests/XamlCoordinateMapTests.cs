@@ -337,6 +337,31 @@ public sealed class XamlCoordinateMapTests
         Assert.AreEqual(element, fixture.Create().Resolve(fixture.Proof, "MainPage.xaml", 2, 35, "TextBlock", "Heading").Declaration);
     }
 
+    // Recorded from the WinUI 1.8 XAML compiler: it blanks the compile-time directives x:DefaultBindMode and x:Phase,
+    // and connects an element named with the Name property as it does one named with x:Name.
+    [TestMethod]
+    [DataRow("<Grid x:DefaultBindMode=\"OneWay\" x:Name=\"Panel\">", "x:DefaultBindMode=\"OneWay\"", 7, "Grid", "Panel")]
+    [DataRow("<Grid x:DefaultBindMode=\"OneWay\" Padding=\"4\">", "x:DefaultBindMode=\"OneWay\"", 0, "Grid", null)]
+    [DataRow("<TextBlock Text=\"{x:Bind}\" x:Phase=\"1\">", "Text=\"{x:Bind}\"|x:Phase=\"1\"", 15, "TextBlock", null)]
+    [DataRow("<PasswordBox Name=\"PlainNamedBox\" Header=\"Plain name\">", "", 9, "PasswordBox", "PlainNamedBox")]
+    public void CompileOnlyDirectivesAndPlainNames_KeepTheFileMapped(string opening, string erased, int connectionId, string type, string? name)
+    {
+        var compiled = opening;
+        foreach (var attribute in erased.Split('|', StringSplitOptions.RemoveEmptyEntries))
+        {
+            compiled = compiled.Replace(attribute, new string(' ', attribute.Length), StringComparison.Ordinal);
+        }
+        if (connectionId > 0)
+        {
+            compiled = compiled.Replace("<" + type, "<" + type + " x:ConnectionId='" + connectionId + "'", StringComparison.Ordinal);
+        }
+        var closing = "</" + type + ">";
+        var fixture = Fixture(Root + "\n" + opening + closing + "\n</Page>", Root + "\n" + compiled + closing + "\n</Page>");
+        var hit = fixture.Create().Resolve(fixture.Proof, "MainPage.xaml", 2, 10, type, name);
+        Assert.AreEqual(opening, hit.Declaration);
+        Assert.AreEqual(2, hit.AuthoredLine);
+    }
+
     [TestMethod]
     public void UnchangedDeclaration_NeedsNoRewriteAssumption()
     {
