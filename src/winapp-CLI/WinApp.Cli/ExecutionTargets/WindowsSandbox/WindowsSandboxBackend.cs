@@ -856,6 +856,10 @@ internal sealed class WindowsSandboxBackend(
         Directory.CreateDirectory(result);
         ClearDirectoryContents(result);
 
+        // Both are mapped into the guest by `wsb share`, which needs SYSTEM to be able to open them.
+        SandboxShareAccess.EnsureHostServiceAccess(bootstrap);
+        SandboxShareAccess.EnsureHostServiceAccess(result);
+
         PruneOldGenerations(root, token);
 
         return new BootstrapShare(
