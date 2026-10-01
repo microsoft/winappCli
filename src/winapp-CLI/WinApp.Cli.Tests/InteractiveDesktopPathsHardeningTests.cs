@@ -160,8 +160,8 @@ public class InteractiveDesktopPathsHardeningTests
     public void MissingAncestorsAreNotRestricted()
     {
         Directory.CreateDirectory(_root);
-        var state = Path.Combine(_root, "state");
-        var ui = Path.Combine(state, "ui");
+        var state = Path.Join(_root, "state");
+        var ui = Path.Join(state, "ui");
         Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, ui);
 
         new InteractiveDesktopPaths(new ProcessInspector()).EnsureDirectories();

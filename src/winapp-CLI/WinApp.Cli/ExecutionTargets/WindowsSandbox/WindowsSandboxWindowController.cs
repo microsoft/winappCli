@@ -110,6 +110,12 @@ internal interface IWindowsSandboxWindowController
     SandboxClientStatus InspectClient(SandboxClientWindow? remembered) =>
         new(ResolveClient(remembered), IsMinimized: false);
 
+    /// <summary>Whether any Sandbox client process is running on this host.</summary>
+    /// <remarks>
+    /// Defaults to true, which is the conservative answer: it never causes a connect.
+    /// </remarks>
+    bool IsAnyClientRunning() => true;
+
     /// <summary>
     /// Restores the exact client without activation when necessary, then verifies its identity,
     /// non-minimized state, and foreground preservation.
@@ -144,6 +150,7 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
     private static readonly TimeSpan EarlyPollInterval = TimeSpan.FromMilliseconds(10);
 
     private readonly Func<IReadOnlyList<SandboxClientCandidate>> _listClients;
+    private readonly Func<bool> _anyClientRunning;
     private readonly Action<SandboxClientWindow, HWND> _park;
     private readonly Func<nint, bool> _isIconic;
     private readonly Func<HWND> _getForeground;
@@ -163,7 +170,8 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
                 foreground,
                 foregroundService),
             handle => PInvoke.IsIconic(new HWND(handle)),
-            PInvoke.GetForegroundWindow)
+            PInvoke.GetForegroundWindow,
+            AnyClientProcessRunning)
     {
     }
 
@@ -172,9 +180,11 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         Func<IReadOnlyList<SandboxClientCandidate>> listClients,
         Action<SandboxClientWindow, HWND>? park = null,
         Func<nint, bool>? isIconic = null,
-        Func<HWND>? getForeground = null)
+        Func<HWND>? getForeground = null,
+        Func<bool>? anyClientRunning = null)
     {
         _listClients = listClients;
+        _anyClientRunning = anyClientRunning ?? (() => listClients().Count > 0);
         _park = park ?? ((client, foreground) => PlaceOffScreen(
             new HWND(client.Handle),
             foreground,
@@ -482,6 +492,26 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
                     ',',
                     live.Select(client => client.ProcessId.ToString(CultureInfo.InvariantCulture))),
             });
+    }
+
+    /// <inheritdoc/>
+    public bool IsAnyClientRunning() => _anyClientRunning();
+
+    /// <summary>Whether any remote-session client process exists, with or without a window yet.</summary>
+    /// <remarks>
+    /// Counts processes rather than windows, so a client that is still starting or has no main
+    /// window reads as running. A false answer is what lets winapp connect without first waiting for
+    /// the guest agent to fail, so it must only be given when no client could possibly exist.
+    /// </remarks>
+    private static bool AnyClientProcessRunning()
+    {
+        var processes = Process.GetProcessesByName(RemoteSessionProcessName);
+        foreach (var process in processes)
+        {
+            process.Dispose();
+        }
+
+        return processes.Length > 0;
     }
 
     /// <summary>Every remote-session client window open on this desktop right now.</summary>
