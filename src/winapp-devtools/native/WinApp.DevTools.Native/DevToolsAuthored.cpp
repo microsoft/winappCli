@@ -546,6 +546,16 @@ void DevToolsAuthored_InitCoordinates(const std::wstring& inventoryPath, const s
     g_coordinateError.clear();
 }
 
+// Whether `type` gives itself `name`: an x:Class root in this build's XAML that carries that x:Name.
+static bool SelfNamedType(const std::wstring& type, const std::wstring& name)
+{
+    if (type.empty() || name.empty()) return false;
+    for (const auto& file : g_coordinates)
+        for (const auto& element : file.second.elements)
+            if (element.GetString(L"runtimeClass") == type && element.GetString(L"name") == name) return true;
+    return false;
+}
+
 DevToolsAuthoredState DevToolsAuthored_ReadElement(const std::wstring& fileUri, unsigned int line, std::wstring* out,
     unsigned int column, const std::wstring& type, const std::wstring& name, DevToolsAuthoredLocation* authoredLocation)
 {
@@ -576,10 +586,14 @@ DevToolsAuthoredState DevToolsAuthored_ReadElement(const std::wstring& fileUri, 
                 selected = &element;
             }
         }
+        // A declaration without a name does not contradict a runtime name that the type gives itself: a UserControl
+        // with x:Name on its own x:Class root reports that name at every place it is used.
+        const std::wstring declaredName = selected ? selected->GetString(L"name") : std::wstring();
         if (!selected || type.empty() ||
             (selected->GetString(L"type") != type.substr(type.find_last_of(L'.') + 1) &&
                 selected->GetString(L"runtimeClass") != type) ||
-            selected->GetString(L"name") != name) return DevToolsAuthoredState::Unavailable;
+            (declaredName != name && !(declaredName.empty() && SelfNamedType(type, name))))
+            return DevToolsAuthoredState::Unavailable;
         line = static_cast<unsigned int>(selected->GetInt(L"line", 0));
         column = static_cast<unsigned int>(selected->GetInt(L"column", 0));
         if (authoredLocation && coordinates->likely) {
@@ -600,8 +614,8 @@ DevToolsAuthoredState DevToolsAuthored_ReadElement(const std::wstring& fileUri, 
     }
     if (!name.empty()) {
         std::wstring authoredName;
-        if ((!FindAttribute(span, L"x:Name", &authoredName) && !FindAttribute(span, L"Name", &authoredName)) ||
-            authoredName != name) return DevToolsAuthoredState::Unavailable;
+        const bool declared = FindAttribute(span, L"x:Name", &authoredName) || FindAttribute(span, L"Name", &authoredName);
+        if (declared ? authoredName != name : !SelfNamedType(type, name)) return DevToolsAuthoredState::Unavailable;
     }
     if (out) *out = std::move(span);
     if (authoredLocation) {

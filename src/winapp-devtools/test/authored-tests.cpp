@@ -228,6 +228,32 @@ static void Test_HashCoveredCoordinates()
     ACheck(DevToolsAuthored_FindAttribute(span, L"Text", &value) &&
         value == L"{x:Bind ViewModel.ListHeading, Mode=OneWay}", "mapped reader retains original binding expression");
     {
+        // A UserControl that names its own root (x:Name on its x:Class element) reports that name at an unnamed usage.
+        const std::string usage = "<local:ControlExample SampleDefinition=\"a.txt\" />";
+        const std::string page = usage + "\n";
+        write(root + L"\\Page2.xaml", page);
+        write(root + L"\\Page2.xbf", xbf);
+        const std::string selfNamed = "{\"coordinates\":[{\"source\":\"Page2.xaml\",\"resource\":\"Page2.xaml\","
+            "\"sourceHash\":\"" + FixtureHash(page) + "\",\"xbfHash\":\"" + FixtureHash(xbf) + "\",\"elements\":["
+            "{\"line\":1,\"endLine\":1,\"column\":1,\"type\":\"ControlExample\"}]},"
+            "{\"source\":\"MainPage.xaml\",\"resource\":\"MainPage.xaml\",\"sourceHash\":\"" + FixtureHash(original) +
+            "\",\"xbfHash\":\"" + FixtureHash(xbf) + "\",\"elements\":["
+            "{\"line\":246,\"endLine\":246,\"column\":25,\"type\":\"UserControl\",\"name\":\"RootPanel\",\"runtimeClass\":\"App.ControlExample\"}]}]}";
+        write(inventoryPath, selfNamed);
+        const auto selfNamedHash = FixtureHash(selfNamed);
+        initialize(root, std::wstring(selfNamedHash.begin(), selfNamedHash.end()));
+        std::wstring found;
+        ACheck(DevToolsAuthored_ReadElement(L"ms-appx:///Page2.xaml", 1, &found, 40, L"App.ControlExample", L"RootPanel")
+            == DevToolsAuthoredState::Available && found == std::wstring(usage.begin(), usage.end()),
+            "an unnamed usage of a self-named UserControl maps");
+        ACheck(DevToolsAuthored_ReadElement(L"ms-appx:///Page2.xaml", 1, &found, 40, L"App.ControlExample", L"Other")
+            == DevToolsAuthoredState::Unavailable, "a runtime name the type does not give itself is still refused");
+        DeleteFileW((root + L"\\Page2.xaml").c_str());
+        DeleteFileW((root + L"\\Page2.xbf").c_str());
+        write(inventoryPath, inventory);
+        initialize(root, std::wstring(hash.begin(), hash.end()));
+    }
+    {
         HANDLE held = CreateFileW(inventoryPath.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
             OPEN_EXISTING, FILE_FLAG_DELETE_ON_CLOSE, nullptr);
         initialize(root, std::wstring(hash.begin(), hash.end()));
