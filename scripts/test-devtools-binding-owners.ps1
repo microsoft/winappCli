@@ -218,6 +218,9 @@ try {
         $null = Invoke-Cli @('devtools', 'call', 'Overlay.show', '-a', $app)
         $overlayState = Invoke-Cli @('devtools', 'call', 'Overlay.getState', '-a', $app)
         Check ($overlayState.result.host -eq 'uiLayer') 'overlay chrome is hosted in the XAML diagnostics UI layer'
+        $surfaces = Invoke-Cli @('devtools', 'call', 'Surface.list', '-a', $app)
+        $surfaceTree = Invoke-Cli @('devtools', 'inspect', [string]$surfaces.result.surfaces[0].rootHandle, '-a', $app, '--all', '--depth', '30')
+        Check (@(Nodes $surfaceTree.elements | Where-Object name -eq 'WindowHeading').Count -eq 1) 'the surface root is the window content, not its popup layer'
         $tree = Invoke-Cli @('devtools', 'inspect', '-w', $window, '--all', '--depth', '30')
         Check (-not $tree.truncated -and $tree.depthLimitedElements -eq 0) 'overlay probe has a complete owned source tree'
         $heading = @(Nodes $tree.elements | Where-Object name -eq 'WindowHeading')

@@ -92,6 +92,16 @@ static IInspectable* XamlRootOf(IXamlDiagnostics* diag, InstanceHandle h)
     return xr;
 }
 
+static InstanceHandle ContentHandleOf(IXamlDiagnostics* diag, IInspectable* xr)
+{
+    void* content = nullptr;
+    if (FAILED(DevToolsAbi<DevToolsX::IXamlRoot>(xr)->get_Content(&content)) || !content) return 0;
+    InstanceHandle h = 0;
+    if (FAILED(diag->GetHandleFromIInspectable(static_cast<IInspectable*>(content), &h))) h = 0;
+    static_cast<IUnknown*>(content)->Release();
+    return h;
+}
+
 static unsigned long long ComIdentity(IInspectable* p)
 {
     if (!p) return 0;
@@ -246,7 +256,11 @@ std::vector<DevToolsSurface> DevToolsSurface_ResolveAll(IXamlDiagnostics* diag,
         for (const auto& s : set) if (s.xamlRootKey == key) { seen = true; break; }
         if (seen) { xr->Release(); continue; }
         DevToolsSurface s;
-        if (FillFromRoot(xr, h, &s)) { set.push_back(s); liveKeys.push_back(s.xamlRootKey); }
+        if (FillFromRoot(xr, h, &s)) {
+            // A census root can be PopupRoot, which shares the window's XamlRoot but holds only popups.
+            if (const InstanceHandle content = ContentHandleOf(diag, xr)) s.rootHandle = content;
+            set.push_back(s); liveKeys.push_back(s.xamlRootKey);
+        }
         else DevToolsOverlayLog(L"surface.resolveAll candidate %llu has a XamlRoot but no readable metrics", (unsigned long long)h);
         xr->Release();
     }
