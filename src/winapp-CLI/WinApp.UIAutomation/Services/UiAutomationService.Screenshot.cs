@@ -68,8 +68,19 @@ internal sealed partial class UiAutomationService
             Thread.Sleep(300);
         }
 
+        // Resolve the element before capturing so a window capture can target the window the element
+        // is drawn in. A popup or windowed XAML flyout is not part of the session window's surface, so
+        // cropping the session window would show whatever is behind it. Screen capture already
+        // includes overlapping windows, so it keeps the session window's region.
+        var cropElement = string.IsNullOrEmpty(elementId) ? null : FindScreenshotElement(elementId, uiTarget, root);
+        var captureHwnd = hwnd;
+        if (cropElement is not null && !captureScreen)
+        {
+            captureHwnd = ResolveScreenshotCaptureWindow(cropElement, hwnd);
+        }
+
         // Get window dimensions
-        global::Windows.Win32.PInvoke.GetWindowRect(hwnd, out var rect);
+        global::Windows.Win32.PInvoke.GetWindowRect(captureHwnd, out var rect);
         var width = rect.right - rect.left;
         var height = rect.bottom - rect.top;
 
@@ -118,8 +129,8 @@ internal sealed partial class UiAutomationService
         {
             try
             {
-                var visibleRect = GetVisibleWindowRect(hwnd, rect);
-                var result = await WgcCapture.CaptureAsync(hwnd, _logger, ct).ConfigureAwait(false);
+                var visibleRect = GetVisibleWindowRect(captureHwnd, rect);
+                var result = await WgcCapture.CaptureAsync(captureHwnd, _logger, ct).ConfigureAwait(false);
                 pixelData = result.Pixels;
                 width = result.Width;
                 height = result.Height;
@@ -133,7 +144,7 @@ internal sealed partial class UiAutomationService
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "WGC capture failed; falling back to PrintWindow");
-                pixelData = CaptureFromWindowWithBlankRetry(hwnd, width, height);
+                pixelData = CaptureFromWindowWithBlankRetry(captureHwnd, width, height);
             }
         }
 #endif
@@ -142,13 +153,13 @@ internal sealed partial class UiAutomationService
             // Without Windows Graphics Capture this is the only window-scoped path, so an occluded
             // or GPU-composited window may come back blank — CaptureFromWindowWithBlankRetry
             // foregrounds and retries once before giving up.
-            pixelData = CaptureFromWindowWithBlankRetry(hwnd, width, height);
+            pixelData = CaptureFromWindowWithBlankRetry(captureHwnd, width, height);
         }
 
         // If a selector was provided, crop to the element's bounding rectangle
-        if (!string.IsNullOrEmpty(elementId))
+        if (cropElement is not null)
         {
-            var cropped = CropToElement(pixelData, width, height, elementId, uiTarget, root, cropOriginLeft, cropOriginTop);
+            var cropped = CropToElement(pixelData, width, height, cropElement, cropOriginLeft, cropOriginTop);
             if (cropped is not null)
             {
                 return cropped.Value;
@@ -420,41 +431,69 @@ internal sealed partial class UiAutomationService
 
     /// <remarks>
     /// Coverage ceiling (issue #630): real screenshot tests cover element cropping for normal controls.
-    /// Remaining branches require stale/missing UIA selector resolution or off-surface native bounding
-    /// rectangles, which would need unsafe COM/provider fault injection or desktop mutation.
+    /// Remaining branches require stale/missing UIA selector resolution, which would need unsafe
+    /// COM/provider fault injection.
     /// </remarks>
-    private (byte[] Pixels, int Width, int Height)? CropToElement(
-        byte[] fullPixels, int fullWidth, int fullHeight,
-        string selector, UiTarget uiTarget, IUIAutomationElement root,
-        int windowLeft, int windowTop)
+    private IUIAutomationElement? FindScreenshotElement(string selector, UiTarget uiTarget, IUIAutomationElement root)
     {
         // Find the element — try slug first, then legacy selector
-        IUIAutomationElement? target = null;
-
         var slugParsed = SlugGenerator.ParseSlug(selector);
         if (slugParsed is not null)
         {
             var slugResult = FindElementBySlug(selector, root);
-            if (slugResult is not null)
-            {
-                target = GetAutomationElement(uiTarget, slugResult);
-            }
-        }
-        else
-        {
-            var parsed = _selectorParser.Parse(selector);
-            var condition = BuildCondition(parsed);
-            if (condition is not null)
-            {
-                target = root.FindFirst(TreeScope.TreeScope_Descendants, condition);
-            }
+            return slugResult is null ? null : GetAutomationElement(uiTarget, slugResult);
         }
 
-        if (target is null)
+        var parsed = _selectorParser.Parse(selector);
+        var condition = BuildCondition(parsed);
+        return condition is null ? null : root.FindFirst(TreeScope.TreeScope_Descendants, condition);
+    }
+
+    /// <summary>
+    /// The window to capture for a cropped element: the window it is drawn in when that differs from
+    /// the session window and has a usable size, otherwise <paramref name="sessionHwnd"/>.
+    /// </summary>
+    private global::Windows.Win32.Foundation.HWND ResolveScreenshotCaptureWindow(
+        IUIAutomationElement element,
+        global::Windows.Win32.Foundation.HWND sessionHwnd)
+    {
+        nint elementHwnd;
+        try
         {
-            return null;
+            elementHwnd = ResolveElementCaptureWindow(element);
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            _logger.LogDebug(ex, "Resolving the element's window failed; capturing the target window");
+            return sessionHwnd;
         }
 
+        if (elementHwnd == 0 || elementHwnd == (nint)sessionHwnd)
+        {
+            return sessionHwnd;
+        }
+
+        var candidate = new global::Windows.Win32.Foundation.HWND(elementHwnd);
+        if (!global::Windows.Win32.PInvoke.GetWindowRect(candidate, out var candidateRect)
+            || candidateRect.right <= candidateRect.left
+            || candidateRect.bottom <= candidateRect.top)
+        {
+            return sessionHwnd;
+        }
+
+        _logger.LogDebug("Element is drawn in window HWND 0x{Hwnd:X}; capturing that window", elementHwnd);
+        return candidate;
+    }
+
+    /// <remarks>
+    /// Coverage ceiling (issue #630): the empty-crop branch needs an off-surface native bounding
+    /// rectangle, which would need desktop mutation.
+    /// </remarks>
+    private static (byte[] Pixels, int Width, int Height)? CropToElement(
+        byte[] fullPixels, int fullWidth, int fullHeight,
+        IUIAutomationElement target,
+        int windowLeft, int windowTop)
+    {
         var elRect = target.get_CurrentBoundingRectangle();
         var cropX = Math.Max(0, elRect.left - windowLeft);
         var cropY = Math.Max(0, elRect.top - windowTop);

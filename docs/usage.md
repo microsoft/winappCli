@@ -2216,9 +2216,4 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.m
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
 stop reason, optional `frameArtifacts`, and warnings.
 
-> **Known limitation:** recording a *specific element* inside a popup that renders in its own
-> top-level window (WinUI/XAML flyout, teaching tip, tooltip) may capture the underlying main
-> window instead. Record the whole window, or follow the [screenshot overlay workflow](ui-automation.md#screenshot)
-> for popup stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
-
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
