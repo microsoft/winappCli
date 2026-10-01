@@ -127,7 +127,7 @@ public partial class UiCommandTests
             };
 
             encoder = new Mp4SinkWriterEncoder(finalPath, 64, 64, 1, 1_000_000);
-            encoder.WriteFrame(MakeSolidFrame(64, 64, b: 0, g: 0, r: 0), 0, 10_000_000);
+            Mp4SinkWriterEncoderTests.WritePastEncoderLookahead(encoder, MakeSolidFrame(64, 64, b: 0, g: 0, r: 0));
             Assert.ThrowsExactly<IOException>(() => encoder.Complete());
         }
         catch (Mp4EncoderInitializationException ex)
@@ -159,7 +159,7 @@ public partial class UiCommandTests
                 1,
                 1_000_000,
                 overwriteExisting: false);
-            encoder.WriteFrame(MakeSolidFrame(64, 64, b: 0, g: 0, r: 0), 0, 10_000_000);
+            Mp4SinkWriterEncoderTests.WritePastEncoderLookahead(encoder, MakeSolidFrame(64, 64, b: 0, g: 0, r: 0));
             File.WriteAllText(finalPath, "late-sentinel");
 
             Assert.ThrowsExactly<IOException>(() => encoder.Complete());
