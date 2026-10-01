@@ -18,16 +18,44 @@ public class AgentEnvironmentDetectorTests
     [
         "AI_AGENT",
         "AGENT",
+        "AMP_CURRENT_THREAD_ID",
+        "CLAUDE_CODE_IS_COWORK",
         "CLAUDECODE",
+        "CLAUDE_CODE",
         "CLAUDE_CODE_ENTRYPOINT",
         "CURSOR_AGENT",
-        "CURSOR_CLI",
+        "CURSOR_SANDBOX",
+        "CURSOR_EXTENSION_HOST_ROLE",
+        "QWEN_CODE",
+        "GEMINI_CLI",
+        "CODEX_THREAD_ID",
+        "CODEX_SANDBOX",
         "CODEX_CI",
+        "ANTIGRAVITY_AGENT",
+        "AUGMENT_AGENT",
+        "CLINE_ACTIVE",
+        "CLINE_TASK_ID",
+        "ROO_CODE_TASK_ID",
+        "CRUSH",
+        "GROK_AGENT",
+        "PI_CODING_AGENT",
+        "KIRO_AGENT_PATH",
+        "OPENCODE",
+        "OPENCODE_CLIENT",
+        "TRAE_AI_SHELL_ID",
         "GOOSE_TERMINAL",
         "COPILOT_CLI",
+        "COPILOT_AGENT",
+        "COPILOT_AGENT_SESSION_ID",
+        "COPILOT_AGENT_JOB_ID",
+
+        // No longer detected; cleared so tests can assert they are ignored
+        "CURSOR_CLI",
         "VSCODE_COPILOT_TERMINAL",
         "COPILOT_MODEL",
-        "CLINE_ACTIVE",
+        "REPL_ID",
+        "TERM_PROGRAM",
+        "VSCODE_INJECTION",
     ];
 
     // CI env vars that CIEnvironmentDetectorForTelemetry checks (must stay in sync)
@@ -130,26 +158,177 @@ public class AgentEnvironmentDetectorTests
     [TestMethod]
     public void Detect_GenericVarTakesPriorityOverToolSpecific()
     {
-        Environment.SetEnvironmentVariable("AI_AGENT", "my-custom-agent");
+        Environment.SetEnvironmentVariable("AI_AGENT", "codex@1.2.3");
         Environment.SetEnvironmentVariable("CLAUDECODE", "1");
 
         var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
 
         Assert.AreEqual("agent", senderOrigin);
-        Assert.AreEqual("my-custom-agent", agentName, "Generic AI_AGENT should take priority over tool-specific CLAUDECODE");
+        Assert.AreEqual("codex", agentName, "A recognized AI_AGENT should take priority over tool-specific CLAUDECODE");
     }
 
     [TestMethod]
+    [DataRow("claude-code_2-1-141_agent", "claude-code")]
+    [DataRow("claude-code_2.1.0_cli", "claude-code")]
+    [DataRow("claude", "claude-code")]
+    [DataRow("github_copilot_vscode_agent", "copilot-vscode")]
+    [DataRow("github_copilot_app_agent", "copilot-app")]
+    [DataRow("github_copilot_cli_agent", "copilot-cli")]
+    [DataRow("github_copilot_newsurface_agent", "copilot")]
+    [DataRow("GitHub_Copilot_VSCode_Agent", "copilot-vscode")]
+    [DataRow("github-copilot-cli", "copilot-cli")]
+    [DataRow("codex@1.2.3", "codex")]
+    [DataRow("gemini-cli@0.10.0", "gemini-cli")]
+    [DataRow("cursor-cli", "cursor")]
+    [DataRow("qwen", "qwen-code")]
+    [DataRow("goose", "goose")]
+    public void Detect_AI_AGENT_NormalizesKnownValues(string value, string expectedAgentName)
+    {
+        Environment.SetEnvironmentVariable("AI_AGENT", value);
+
+        var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("agent", senderOrigin);
+        Assert.AreEqual(expectedAgentName, agentName);
+    }
+
+    [TestMethod]
+    [DataRow("my-custom-agent")]
+    [DataRow("1")]
+    [DataRow("true")]
+    [DataRow("someone@example.com")]
+    public void Detect_AI_AGENT_UnknownValue_ReportsOther(string value)
+    {
+        Environment.SetEnvironmentVariable("AI_AGENT", value);
+
+        var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("agent", senderOrigin);
+        Assert.AreEqual("other", agentName, "Unrecognized AI_AGENT values must not be recorded verbatim");
+    }
+
+    [TestMethod]
+    [DataRow("1")]
+    [DataRow("my-custom-agent")]
+    public void Detect_AI_AGENT_UnknownValue_YieldsToToolSpecificMarker(string value)
+    {
+        Environment.SetEnvironmentVariable("AI_AGENT", value);
+        Environment.SetEnvironmentVariable("OPENCODE", "1");
+
+        var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("agent", senderOrigin);
+        Assert.AreEqual("opencode", agentName);
+    }
+
+    [TestMethod]
+    public void Detect_AI_AGENT_ClaudeWithCowork_ReturnsClaudeCowork()
+    {
+        Environment.SetEnvironmentVariable("AI_AGENT", "claude-code_2-1-141_agent");
+        Environment.SetEnvironmentVariable("CLAUDE_CODE_IS_COWORK", "1");
+
+        var (_, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("claude-cowork", agentName);
+    }
+
+    [TestMethod]
+    [DataRow("0")]
+    [DataRow("false")]
+    [DataRow("no")]
+    public void Detect_AI_AGENT_ClaudeWithFalseCowork_ReturnsClaudeCode(string value)
+    {
+        Environment.SetEnvironmentVariable("AI_AGENT", "claude-code");
+        Environment.SetEnvironmentVariable("CLAUDE_CODE_IS_COWORK", value);
+
+        var (_, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("claude-code", agentName);
+    }
+
+    [TestMethod]
+    [DataRow("AI_AGENT", "")]
+    [DataRow("AI_AGENT", "  ")]
+    [DataRow("AI_AGENT", "0")]
+    [DataRow("AI_AGENT", "false")]
+    [DataRow("AI_AGENT", "FALSE")]
+    [DataRow("AI_AGENT", "no")]
+    [DataRow("AI_AGENT", "off")]
+    [DataRow("AGENT", "0")]
+    [DataRow("CLAUDECODE", "0")]
+    [DataRow("CLAUDECODE", "false")]
+    [DataRow("CLAUDE_CODE_IS_COWORK", "off")]
+    [DataRow("OPENCODE", "no")]
+    [DataRow("COPILOT_CLI", "0")]
+    public void Detect_FalseLikeValue_IsTreatedAsNotSet(string envVar, string value)
+    {
+        Environment.SetEnvironmentVariable(envVar, value);
+
+        var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("direct", senderOrigin);
+        Assert.IsNull(agentName);
+    }
+
+    [TestMethod]
+    [DataRow("goose", "goose")]
+    [DataRow("amp", "amp")]
+    [DataRow("Goose", "goose")]
+    public void Detect_AGENT_KnownValue_ReturnsAgent(string value, string expectedAgentName)
+    {
+        Environment.SetEnvironmentVariable("AGENT", value);
+
+        var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("agent", senderOrigin);
+        Assert.AreEqual(expectedAgentName, agentName);
+    }
+
+    [TestMethod]
+    [DataRow("1")]
+    [DataRow("true")]
+    [DataRow("build-runner")]
+    [DataRow("ssh-agent")]
+    public void Detect_AGENT_UnknownValue_IsIgnored(string value)
+    {
+        Environment.SetEnvironmentVariable("AGENT", value);
+
+        var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("direct", senderOrigin);
+        Assert.IsNull(agentName);
+    }
+
+    [TestMethod]
+    [DataRow("AMP_CURRENT_THREAD_ID", "amp")]
+    [DataRow("CLAUDE_CODE_IS_COWORK", "claude-cowork")]
     [DataRow("CLAUDECODE", "claude-code")]
+    [DataRow("CLAUDE_CODE", "claude-code")]
     [DataRow("CLAUDE_CODE_ENTRYPOINT", "claude-code")]
     [DataRow("CURSOR_AGENT", "cursor")]
-    [DataRow("CURSOR_CLI", "cursor")]
+    [DataRow("CURSOR_SANDBOX", "cursor")]
+    [DataRow("QWEN_CODE", "qwen-code")]
+    [DataRow("GEMINI_CLI", "gemini-cli")]
+    [DataRow("CODEX_THREAD_ID", "codex")]
+    [DataRow("CODEX_SANDBOX", "codex")]
     [DataRow("CODEX_CI", "codex")]
+    [DataRow("ANTIGRAVITY_AGENT", "antigravity")]
+    [DataRow("AUGMENT_AGENT", "augment")]
+    [DataRow("CLINE_ACTIVE", "cline")]
+    [DataRow("CLINE_TASK_ID", "cline")]
+    [DataRow("ROO_CODE_TASK_ID", "roo-code")]
+    [DataRow("CRUSH", "crush")]
+    [DataRow("GROK_AGENT", "grok")]
+    [DataRow("PI_CODING_AGENT", "pi")]
+    [DataRow("KIRO_AGENT_PATH", "kiro")]
+    [DataRow("OPENCODE", "opencode")]
+    [DataRow("OPENCODE_CLIENT", "opencode")]
+    [DataRow("TRAE_AI_SHELL_ID", "trae")]
     [DataRow("GOOSE_TERMINAL", "goose")]
     [DataRow("COPILOT_CLI", "copilot-cli")]
-    [DataRow("VSCODE_COPILOT_TERMINAL", "copilot-vscode")]
-    [DataRow("COPILOT_MODEL", "copilot")]
-    [DataRow("CLINE_ACTIVE", "cline")]
+    [DataRow("COPILOT_AGENT", "copilot")]
+    [DataRow("COPILOT_AGENT_SESSION_ID", "copilot")]
+    [DataRow("COPILOT_AGENT_JOB_ID", "copilot")]
     public void Detect_ToolSpecificEnvVar_ReturnsExpectedAgent(string envVar, string expectedAgentName)
     {
         Environment.SetEnvironmentVariable(envVar, "1");
@@ -158,6 +337,67 @@ public class AgentEnvironmentDetectorTests
 
         Assert.AreEqual("agent", senderOrigin);
         Assert.AreEqual(expectedAgentName, agentName);
+    }
+
+    [TestMethod]
+    public void Detect_CoworkMarkerTakesPriorityOverClaudeCode()
+    {
+        Environment.SetEnvironmentVariable("CLAUDECODE", "1");
+        Environment.SetEnvironmentVariable("CLAUDE_CODE_IS_COWORK", "1");
+
+        var (_, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("claude-cowork", agentName);
+    }
+
+    [TestMethod]
+    public void Detect_QwenMarkerTakesPriorityOverGemini()
+    {
+        Environment.SetEnvironmentVariable("GEMINI_CLI", "1");
+        Environment.SetEnvironmentVariable("QWEN_CODE", "1");
+
+        var (_, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("qwen-code", agentName);
+    }
+
+    [TestMethod]
+    public void Detect_CursorExtensionHostAgentExec_ReturnsCursor()
+    {
+        Environment.SetEnvironmentVariable("CURSOR_EXTENSION_HOST_ROLE", "agent-exec");
+
+        var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("agent", senderOrigin);
+        Assert.AreEqual("cursor", agentName);
+    }
+
+    [TestMethod]
+    public void Detect_CursorExtensionHostOtherRole_IsIgnored()
+    {
+        Environment.SetEnvironmentVariable("CURSOR_EXTENSION_HOST_ROLE", "user");
+
+        var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("direct", senderOrigin);
+        Assert.IsNull(agentName);
+    }
+
+    [TestMethod]
+    [DataRow("CURSOR_CLI", "1")]
+    [DataRow("VSCODE_COPILOT_TERMINAL", "1")]
+    [DataRow("COPILOT_MODEL", "gpt-5")]
+    [DataRow("REPL_ID", "workspace-1")]
+    [DataRow("TERM_PROGRAM", "vscode")]
+    [DataRow("VSCODE_INJECTION", "1")]
+    public void Detect_NonAgentEnvVar_IsNotDetected(string envVar, string value)
+    {
+        Environment.SetEnvironmentVariable(envVar, value);
+
+        var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("direct", senderOrigin);
+        Assert.IsNull(agentName);
     }
 
     [TestMethod]
@@ -202,11 +442,11 @@ public class AgentEnvironmentDetectorTests
         var first = AgentEnvironmentDetector.Detect();
         Assert.AreEqual("direct", first.SenderOrigin);
 
-        Environment.SetEnvironmentVariable("AI_AGENT", "new-agent");
+        Environment.SetEnvironmentVariable("AI_AGENT", "codex");
         AgentEnvironmentDetector.ResetCache();
 
         var second = AgentEnvironmentDetector.Detect();
         Assert.AreEqual("agent", second.SenderOrigin);
-        Assert.AreEqual("new-agent", second.AgentName);
+        Assert.AreEqual("codex", second.AgentName);
     }
 }
