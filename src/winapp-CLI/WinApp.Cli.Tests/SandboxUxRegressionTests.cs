@@ -102,6 +102,41 @@ public class SandboxUxRegressionTests
     // ---- Bootstrap folders must stay shareable under a state root locked to the current user ----
 
     /// <summary>
+    /// An agent binary another winapp version staged, which cannot be replaced, is a version
+    /// conflict with recovery guidance, not an unhandled exception.
+    /// </summary>
+    /// <remarks>
+    /// Reproduced on a live Sandbox after switching winapp builds: with no agent running in the
+    /// guest, the Sandbox still held the previously staged <c>winapp.exe</c>, and replacing it threw
+    /// <c>UnauthorizedAccessException</c>, which crashed the command with a stack trace. A read-only
+    /// destination makes the same replace fail with the same exception, deterministically.
+    /// </remarks>
+    [TestMethod]
+    public async Task StagedAgentFromAnotherVersion_ThatCannotBeReplaced_IsAVersionConflict()
+    {
+        using var harness = new BackendHarness();
+        harness.MarkInstanceAlreadyRunning();
+        var staged = harness.WriteStagedAgent("an older winapp");
+        File.SetAttributes(staged, FileAttributes.ReadOnly);
+
+        try
+        {
+            var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+                () => harness.Backend.EnsureConnectedAsync(
+                    new EnsureTargetOptions(RequireInteractiveDesktop: false),
+                    TestContext.CancellationToken));
+
+            Assert.AreEqual(ExecutionTargetErrorCodes.AgentIncompatible, failure.Error.Code);
+            StringAssert.Contains(failure.Error.UserAction, "Close Windows Sandbox");
+            Assert.IsInstanceOfType<UnauthorizedAccessException>(failure.InnerException);
+        }
+        finally
+        {
+            File.SetAttributes(staged, FileAttributes.Normal);
+        }
+    }
+
+    /// <summary>
     /// Every folder handed to <c>wsb share</c> grants SYSTEM, even when the state root does not.
     /// </summary>
     /// <remarks>
@@ -656,6 +691,21 @@ public class SandboxUxRegressionTests
                     cancellationToken));
 
             Epoch = new ExecutionTargetEpoch(ReadStagedMaterial()!.TargetEpoch);
+        }
+
+        /// <summary>Writes the agent binary a different winapp build left in this generation's share.</summary>
+        public string WriteStagedAgent(string contents)
+        {
+            var epoch = ExecutionTargetEpoch.Create("sandbox-existing", "nonce-existing");
+            var bootstrap = Path.Join(
+                _directories.GetTargetRoot(WindowsSandboxTarget.Default, create: true).FullName,
+                "bootstrap-" + WindowsSandboxBackend.EpochToken(epoch));
+
+            Directory.CreateDirectory(bootstrap);
+
+            var path = Path.Join(bootstrap, "winapp.exe");
+            File.WriteAllText(path, contents);
+            return path;
         }
 
         /// <summary>Writes material in the shape an older build produced, for upgrade coverage.</summary>

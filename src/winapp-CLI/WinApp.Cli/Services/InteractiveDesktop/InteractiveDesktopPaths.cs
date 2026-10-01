@@ -293,7 +293,11 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
                 }
 
                 directoryInfo.Create(BuildCurrentUserOnlySecurity());
-                return;
+
+                // Not a return. Create succeeds without applying the security when the directory
+                // already exists, so one another process created after the parent appeared would
+                // otherwise be trusted as-is. Falling through verifies, and repairs or fails closed.
+                directoryInfo.Refresh();
             }
             catch (UnauthorizedAccessException ex)
             {
