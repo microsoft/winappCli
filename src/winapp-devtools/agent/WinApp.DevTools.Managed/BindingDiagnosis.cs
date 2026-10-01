@@ -210,6 +210,8 @@ internal static class BindingDiagnosis
         if (!IsSimplePath(path)) return UnsupportedPath(path, kind);
 
         object? current = source;
+        // A Nullable<T> member boxes to T or null, so its Value and HasValue are answered from the declared type.
+        Type? declared = null;
         string[] segments = string.IsNullOrEmpty(path) || path == "." ? [] : path.Split('.');
         // x:Bind is compiled against its owner, so it can reach non-public members; {Binding} reflects public ones only.
         var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy |
@@ -218,6 +220,12 @@ internal static class BindingDiagnosis
         for (int i = 0; i < segments.Length; i++)
         {
             string seg = segments[i];
+            if (declared is not null && Nullable.GetUnderlyingType(declared) is { } underlying && seg is "Value" or "HasValue")
+            {
+                declared = seg == "Value" ? underlying : typeof(bool);
+                if (seg == "HasValue") { current = current is not null; continue; }
+                if (current is not null) continue;
+            }
             if (current is null)
             {
                 string prior = i > 0 ? segments[i - 1] : sourceLabel;
@@ -236,6 +244,7 @@ internal static class BindingDiagnosis
                     return Fault("threw", seg, ShortName(t) + "." + seg + " threw " + Describe(real),
                         path, sourceLabel, kind, mode);
                 }
+                declared = pi.PropertyType;
                 continue;
             }
 
@@ -251,6 +260,7 @@ internal static class BindingDiagnosis
                 Exception real = ex.InnerException ?? ex;
                 return Fault("threw", seg, ShortName(t) + "." + seg + " threw " + Describe(real), path, sourceLabel, kind, mode);
             }
+            declared = fi.FieldType;
         }
 
         object? sourceValue = current;

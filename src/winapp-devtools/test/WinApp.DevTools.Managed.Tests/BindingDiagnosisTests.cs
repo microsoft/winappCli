@@ -63,6 +63,28 @@ public sealed class BindingDiagnosisTests
         Assert.AreEqual("evaluated", result.RootElement.GetProperty("state").GetString());
     }
 
+    // CheckBox.IsChecked is bool?; it boxes to bool, which has no Value property, yet x:Bind compiles '.Value' against
+    // the declared Nullable<bool>.
+    private sealed class NullableSource
+    {
+        public bool? IsChecked { get; set; } = true;
+        public bool? Unset { get; set; }
+        public NullableSource Alpha => this;
+    }
+
+    [TestMethod]
+    [DataRow("Alpha.IsChecked.Value", "evaluated")]
+    [DataRow("Alpha.IsChecked.HasValue", "evaluated")]
+    [DataRow("Alpha.Unset.HasValue", "evaluated")]
+    [DataRow("Alpha.Unset.Value", "null-link")]
+    [DataRow("Alpha.IsChecked.Missing", "bad-segment")]
+    public void NullableValueAndHasValue_FollowTheDeclaredType(string path, string state)
+    {
+        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate(path, new NullableSource(), "Source", "{x:Bind}",
+            "OneWay", typeof(bool), "IsEnabled", () => true));
+        Assert.AreEqual(state, result.RootElement.GetProperty("state").GetString(), result.RootElement.ToString());
+    }
+
     [TestMethod]
     [DataRow("People[1].Title", "{Binding}")]
     [DataRow("FormatTitle(Vm.Title)", "{x:Bind}")]
