@@ -149,6 +149,9 @@ suppressed with `--quiet`/`--json`.
 
 - Prerequisite errors: follow the setup guidance above; keep elevation and restart under user control.
 - Input unavailable: restore the existing client or use the error's reconnect command.
+- "Only one running instance of Windows Sandbox is allowed" from the Start menu: the Sandbox
+  winapp uses is still running. Point the user to **Windows Sandbox** in the taskbar; if it
+  has no window, `wsb list` then `wsb connect --id <id>`. Never stop it without consent.
 - Incompatible CLI: follow the error; upgrade the installed CLI through its install method,
   **not `winapp update`**. Obtain consent before closing a Sandbox for a version change.
 - Missing/unsupported runtime: use the named requirement and configuration in the error.
