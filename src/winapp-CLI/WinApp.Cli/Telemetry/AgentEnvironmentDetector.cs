@@ -20,16 +20,9 @@ internal sealed class AgentEnvironmentDetector
     }
 
     /// <summary>
-    /// Agent name reported when an agent is detected but cannot be identified. Unrecognized
-    /// <c>AI_AGENT</c> values are collapsed to this rather than recorded, because the variable is
-    /// free-form: recording it would fragment telemetry and could capture arbitrary user data.
-    /// </summary>
-    internal const string OtherAgentName = "other";
-
-    /// <summary>
-    /// Vendor-neutral variable whose value names the agent (Vercel/detect-agent convention).
-    /// Values vary by version and surface, e.g. <c>claude-code_2-1-141_agent</c>,
-    /// <c>github_copilot_vscode_agent</c>, or <c>codex@1.2.3</c>, so they are normalized.
+    /// Vendor-neutral variable whose value names the agent (Vercel/detect-agent convention),
+    /// e.g. <c>claude-code_2-1-141_agent</c> or <c>github_copilot_vscode_agent</c>. The value is
+    /// reported as-is (trimmed, lowercased); versions and surfaces are grouped downstream.
     /// </summary>
     private const string GenericAgentVariable = "AI_AGENT";
 
@@ -40,68 +33,42 @@ internal sealed class AgentEnvironmentDetector
     /// </summary>
     private const string AmbiguousAgentVariable = "AGENT";
 
-    private const string GitHubCopilotPrefix = "github_copilot_";
-
     /// <summary>
-    /// Maps the name portion of a generic agent value (before any '@' or '_') to a stable agent name.
+    /// Agent names accepted from <see cref="AmbiguousAgentVariable"/>, matched against the name
+    /// portion of the value (before any '@' or '_', e.g. "goose@1.0" -> "goose").
     /// </summary>
-    private static readonly Dictionary<string, string> KnownAgentNames = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> KnownAgentNames = new(StringComparer.Ordinal)
     {
-        ["amp"] = "amp",
-        ["amazonq"] = "amazon-q",
-        ["amazon-q"] = "amazon-q",
-        ["amazon-q-cli"] = "amazon-q",
-        ["antigravity"] = "antigravity",
-        ["augment"] = "augment",
-        ["augment-cli"] = "augment",
-        ["claude"] = "claude-code",
-        ["claude-code"] = "claude-code",
-        ["claudecode"] = "claude-code",
-        ["cowork"] = "claude-cowork",
-        ["claude-cowork"] = "claude-cowork",
-        ["cline"] = "cline",
-        ["codex"] = "codex",
-        ["codex-cli"] = "codex",
-        ["copilot"] = "copilot",
-        ["github-copilot"] = "copilot",
-        ["copilot-cli"] = "copilot-cli",
-        ["github-copilot-cli"] = "copilot-cli",
-        ["crush"] = "crush",
-        ["cursor"] = "cursor",
-        ["cursor-cli"] = "cursor",
-        ["gemini"] = "gemini-cli",
-        ["gemini-cli"] = "gemini-cli",
-        ["goose"] = "goose",
-        ["grok"] = "grok",
-        ["grok-cli"] = "grok",
-        ["kiro"] = "kiro",
-        ["kiro-cli"] = "kiro",
-        ["opencode"] = "opencode",
-        ["openhands"] = "openhands",
-        ["pi"] = "pi",
-        ["qwen"] = "qwen-code",
-        ["qwen-code"] = "qwen-code",
-        ["qwencode"] = "qwen-code",
-        ["roo"] = "roo-code",
-        ["roo-code"] = "roo-code",
-        ["roocode"] = "roo-code",
-        ["trae"] = "trae",
-    };
-
-    /// <summary>
-    /// Maps the surface in <c>github_copilot_&lt;surface&gt;_agent</c> to a stable agent name.
-    /// </summary>
-    private static readonly Dictionary<string, string> GitHubCopilotSurfaces = new(StringComparer.Ordinal)
-    {
-        ["vscode"] = "copilot-vscode",
-        ["app"] = "copilot-app",
-        ["cli"] = "copilot-cli",
+        "amp",
+        "amazon-q",
+        "antigravity",
+        "augment",
+        "claude",
+        "claude-code",
+        "cline",
+        "codex",
+        "copilot",
+        "copilot-cli",
+        "crush",
+        "cursor",
+        "gemini",
+        "gemini-cli",
+        "goose",
+        "grok",
+        "kiro",
+        "opencode",
+        "openhands",
+        "pi",
+        "qwen-code",
+        "roo-code",
+        "trae",
     };
 
     /// <summary>
     /// Tool-specific environment variables. Each entry maps an env var to a normalized agent name.
     /// Checked after the generic variables. More-specific derivatives precede the agents whose
     /// compatibility variables they inherit (e.g. Qwen Code is a Gemini CLI fork).
+    /// Legacy markers stay at the end so they only apply when no current marker is present.
     /// </summary>
     private static readonly (string EnvVar, string AgentName)[] ToolSpecificAgentVariables =
     [
@@ -117,6 +84,7 @@ internal sealed class AgentEnvironmentDetector
         // Cursor - https://cursor.com
         ("CURSOR_AGENT", "cursor"),
         ("CURSOR_SANDBOX", "cursor"),
+        ("CURSOR_CLI", "cursor"),
 
         // Qwen Code - https://github.com/QwenLM/qwen-code
         ("QWEN_CODE", "qwen-code"),
@@ -162,6 +130,10 @@ internal sealed class AgentEnvironmentDetector
         ("COPILOT_AGENT", "copilot"),
         ("COPILOT_AGENT_SESSION_ID", "copilot"),
         ("COPILOT_AGENT_JOB_ID", "copilot"),
+
+        // Legacy markers, kept for continuity with existing telemetry
+        ("VSCODE_COPILOT_TERMINAL", "copilot-vscode"),
+        ("COPILOT_MODEL", "copilot"),
     ];
 
     private static readonly Lock CacheLock = new();
@@ -225,49 +197,32 @@ internal sealed class AgentEnvironmentDetector
         };
     }
 
-    /// <summary>
-    /// Maps a generic agent value to a stable agent name, stripping version and surface suffixes
-    /// (e.g. "claude-code_2-1-141_agent" -> "claude-code", "codex@1.2.3" -> "codex").
-    /// Returns <c>null</c> when the value is not a known agent.
-    /// </summary>
-    private static string? ClassifyAgentValue(string value)
+    private static bool IsFlagLike(string value)
     {
-        var normalized = value.Trim().ToLowerInvariant();
+        return value.ToLowerInvariant() is "1" or "true" or "yes" or "on";
+    }
 
-        if (normalized.StartsWith(GitHubCopilotPrefix, StringComparison.Ordinal))
-        {
-            var surface = normalized[GitHubCopilotPrefix.Length..].Split('@', '_')[0];
-            return GitHubCopilotSurfaces.GetValueOrDefault(surface, "copilot");
-        }
-
-        var name = normalized.Split('@')[0].Split('_')[0];
-        return KnownAgentNames.GetValueOrDefault(name);
+    private static bool IsKnownAgentName(string value)
+    {
+        var name = value.Split('@')[0].Split('_')[0];
+        return KnownAgentNames.Contains(name);
     }
 
     private static (string SenderOrigin, string? AgentName) DetectInternal()
     {
-        // 1. A recognized AI_AGENT value is authoritative. A flag-like or unknown value proves an
-        //    agent is present but lets a tool-specific marker identify it first.
-        var genericValue = GetEnabledValue(GenericAgentVariable);
-        if (genericValue is not null)
+        // 1. AI_AGENT names the agent. A flag-like value (e.g. "1") only proves an agent is
+        //    present, so a tool-specific marker below gets to identify it first.
+        var genericValue = GetEnabledValue(GenericAgentVariable)?.ToLowerInvariant();
+        if (genericValue is not null && !IsFlagLike(genericValue))
         {
-            var agentName = ClassifyAgentValue(genericValue);
-            if (agentName == "claude-code" && GetEnabledValue("CLAUDE_CODE_IS_COWORK") is not null)
-            {
-                agentName = "claude-cowork";
-            }
-
-            if (agentName is not null)
-            {
-                return (SenderOrigins.Agent, agentName);
-            }
+            return (SenderOrigins.Agent, genericValue);
         }
 
         // 2. AGENT is shared with non-AI tools, so only known agent names count.
-        var ambiguousValue = GetEnabledValue(AmbiguousAgentVariable);
-        if (ambiguousValue is not null && ClassifyAgentValue(ambiguousValue) is { } knownAgentName)
+        var ambiguousValue = GetEnabledValue(AmbiguousAgentVariable)?.ToLowerInvariant();
+        if (ambiguousValue is not null && IsKnownAgentName(ambiguousValue))
         {
-            return (SenderOrigins.Agent, knownAgentName);
+            return (SenderOrigins.Agent, ambiguousValue);
         }
 
         // 3. Check tool-specific agent environment variables
@@ -286,7 +241,7 @@ internal sealed class AgentEnvironmentDetector
 
         if (genericValue is not null)
         {
-            return (SenderOrigins.Agent, OtherAgentName);
+            return (SenderOrigins.Agent, genericValue);
         }
 
         // 4. Fall back to CI detection
