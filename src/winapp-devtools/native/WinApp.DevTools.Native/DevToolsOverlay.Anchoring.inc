@@ -197,7 +197,9 @@ HRESULT DevToolsOverlay_RecoverHost(IXamlDiagnostics* diag, DevToolsFindHostPane
         if (FAILED(highlightResult)) {
             ClearAdorner();
             g_lastHighlightHandle = 0;
-            DevToolsOverlayLog(L"overlay.highlight recovery unavailable hr=0x%08X", highlightResult);
+            // E_PENDING: the element has left its window (a navigation tore it down); that is not a failure.
+            if (highlightResult != E_PENDING)
+                DevToolsOverlayLog(L"overlay.highlight recovery unavailable hr=0x%08X", highlightResult);
             NotifyStateChanged();
         }
     }
