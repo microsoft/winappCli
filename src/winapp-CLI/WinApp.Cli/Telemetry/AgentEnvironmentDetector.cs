@@ -60,6 +60,7 @@ internal sealed class AgentEnvironmentDetector
         "openhands",
         "pi",
         "qwen-code",
+        "replit",
         "roo-code",
         "trae",
     };
@@ -237,6 +238,12 @@ internal sealed class AgentEnvironmentDetector
         if (string.Equals(GetEnabledValue("CURSOR_EXTENSION_HOST_ROLE"), "agent-exec", StringComparison.OrdinalIgnoreCase))
         {
             return (SenderOrigins.Agent, "cursor");
+        }
+
+        if (string.Equals(GetEnabledValue("REPLIT_MODE"), "assistant", StringComparison.OrdinalIgnoreCase) ||
+            GetEnabledValue("REPL_ID") is not null)
+        {
+            return (SenderOrigins.Agent, "replit");
         }
 
         if (genericValue is not null)

@@ -51,9 +51,10 @@ public class AgentEnvironmentDetectorTests
         "CURSOR_CLI",
         "VSCODE_COPILOT_TERMINAL",
         "COPILOT_MODEL",
+        "REPLIT_MODE",
+        "REPL_ID",
 
         // Not agent signals; cleared so tests can assert they are ignored
-        "REPL_ID",
         "TERM_PROGRAM",
         "VSCODE_INJECTION",
     ];
@@ -364,7 +365,31 @@ public class AgentEnvironmentDetectorTests
     }
 
     [TestMethod]
+    [DataRow("REPLIT_MODE", "assistant")]
     [DataRow("REPL_ID", "workspace-1")]
+    public void Detect_ReplitMarker_ReturnsReplit(string envVar, string value)
+    {
+        Environment.SetEnvironmentVariable(envVar, value);
+
+        var (senderOrigin, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("agent", senderOrigin);
+        Assert.AreEqual("replit", agentName);
+    }
+
+    [TestMethod]
+    public void Detect_ToolMarkerTakesPriorityOverReplit()
+    {
+        Environment.SetEnvironmentVariable("REPL_ID", "workspace-1");
+        Environment.SetEnvironmentVariable("CLAUDECODE", "1");
+
+        var (_, agentName) = AgentEnvironmentDetector.Detect();
+
+        Assert.AreEqual("claude-code", agentName);
+    }
+
+    [TestMethod]
+    [DataRow("REPLIT_MODE", "workspace")]
     [DataRow("TERM_PROGRAM", "vscode")]
     [DataRow("VSCODE_INJECTION", "1")]
     public void Detect_NonAgentEnvVar_IsNotDetected(string envVar, string value)
