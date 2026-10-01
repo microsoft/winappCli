@@ -121,6 +121,7 @@ internal static class CommentSelectionCapture
             file = uri is null ? file : Comments.CommentAnchorResolver.RelativeSourcePath(uri, sourceRoot);
             CommentAuthoredAnchor? authored = null;
             string? automationId = null;
+            var selfGivenName = false;
             if (source?.AuthoredState is "available" or "likely" && !string.IsNullOrEmpty(source.Xaml) &&
                 !string.IsNullOrEmpty(sourceRoot) && file is not null && line is > 0 && column is > 0)
             {
@@ -128,14 +129,22 @@ internal static class CommentSelectionCapture
                 var path = CommentAnchorResolver.ResolveKnownSourcePath(sourceRoot, sourceAnchor) ??
                     throw new InvalidDataException("The captured source does not identify one accessible project file.");
                 var mapped = source.CoordinateProvenance is "disk-matched-unique-declaration" or "likely-source-line";
-                var declarations = CommentAuthoredIdentity.Read(path, sourceRoot)
+                var candidates = CommentAuthoredIdentity.Read(path, sourceRoot)
                     .Where(item => (mapped ? item.Line == line && item.Column == column : item.Line <= line && item.EndLine >= line) &&
-                        CommentAuthoredIdentity.MatchesType(item.Element, ShortType(node.Type)) &&
-                        (CommentAuthoredIdentity.Name(item.Element) ?? "") == (node.Name ?? "")).ToArray();
+                        CommentAuthoredIdentity.MatchesType(item.Element, ShortType(node.Type))).ToArray();
+                var declarations = candidates.Where(item => (CommentAuthoredIdentity.Name(item.Element) ?? "") == (node.Name ?? "")).ToArray();
+                // The app verified this declaration. A usage declares no name when the runtime name is one the type
+                // gives itself (x:Name on its own x:Class root, such as a UserControl's RootPanel).
+                if (declarations.Length == 0 && !string.IsNullOrEmpty(node.Name))
+                {
+                    declarations = candidates.Where(item => CommentAuthoredIdentity.Name(item.Element) is null).ToArray();
+                }
                 if (declarations.Length != 1)
                 {
                     throw new InvalidDataException("The captured authored location changed or no longer identifies one declaration.");
                 }
+                // Identity follows the declaration: a self-given runtime name is not part of where to edit.
+                selfGivenName = CommentAuthoredIdentity.Name(declarations[0].Element) is null && !string.IsNullOrEmpty(node.Name);
                 authored = CommentAuthoredIdentity.Capture(sourceRoot, Path.GetRelativePath(sourceRoot, path),
                     declarations[0], source.Xaml, unique);
                 authored.UniquenessReason = anchorJson!.RootElement.TryGetProperty("uniquenessReason", out var reason) &&
@@ -151,7 +160,8 @@ internal static class CommentSelectionCapture
                 {
                     Handle = handle,
                     Type = ShortType(node.Type),
-                    Name = Nullify(node.Name),
+                    // Identity follows the declaration: a name the type gives itself is shared by every usage.
+                    Name = selfGivenName ? null : Nullify(node.Name),
                     AutomationId = automationId,
                     Content = content,
                     SourceUri = uri,

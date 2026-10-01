@@ -322,6 +322,47 @@ public class CommentSelectionCaptureTests
         finally { root.Delete(recursive: true); }
     }
 
+    // WinUI Gallery's ControlExample sets x:Name="RootPanel" on its own x:Class root, so every instance reports that
+    // name while its usage on a page declares none. The app has already verified the declaration ('available').
+    [TestMethod]
+    public void UnnamedUsageOfASelfNamedControl_CapturesAStrongAnchor()
+    {
+        var root = Directory.CreateTempSubdirectory("winapp-capture-self-named-");
+        try
+        {
+            const string usage = "<local:ControlExample xmlns:local=\"using:App\" SampleDefinition=\"a.txt\">";
+            File.WriteAllText(Path.Combine(root.FullName, "Page.xaml"), "<Page>\n" + usage + "</local:ControlExample>\n</Page>");
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", """[{"handle":"2","type":"App.ControlExample","name":"RootPanel","children":[]}]""")
+                .Answer("Property.get", """{"props":[]}""")
+                .Answer("Source.get", System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    fileName = "ms-appx:///Page.xaml", lineNumber = 2, columnNumber = 40,
+                    authoredState = "available", authoredFileName = "Page.xaml", authoredLineNumber = 2, authoredColumnNumber = 1,
+                    coordinateProvenance = "disk-matched-unique-declaration", xaml = usage,
+                }))
+                .Answer("Internal.elementAnchor", """{"anchor":"opaque","unique":true}""")
+                .Answer("Internal.sourceRoot", System.Text.Json.JsonSerializer.Serialize(new { sourceRoot = root.FullName }));
+            var result = CommentSelectionCapture.CaptureElement((uint)agent.Pid, "2");
+            Assert.AreEqual(CaptureStatus.Ok, result.Status, result.Error?.Message);
+            var captured = result.Element!;
+            Assert.IsNull(captured.Name, "a name the type gives itself is not part of where to edit");
+            var comment = new Comment
+            {
+                ProjectRoot = root.FullName,
+                Anchor = new()
+                {
+                    SourceFile = captured.SourceFile, SourceUri = captured.SourceUri, Line = captured.Line, Column = captured.Column,
+                    Identity = new() { Type = captured.Type, Name = captured.Name }, Authored = captured.Authored,
+                },
+            };
+            var view = CommentViewBuilder.ToView(comment, new CommentAnchorResolver(), root.FullName);
+            Assert.IsTrue(view.AnchorConfirmed);
+            Assert.AreEqual("strong", view.Hits.Single().Confidence);
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
     [TestMethod]
     public void UnprefixedNameCanCaptureAnAuthoredDeclaration()
     {
