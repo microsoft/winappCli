@@ -230,6 +230,21 @@ public class TargetSelectionParserTests : BaseCommandTests
         Assert.IsEmpty(WindowsCommandLine.FindOptionLikePositionals(parsed));
     }
 
+    /// <summary>Text that starts with a dash, such as a list item, cannot be an option: option names have no spaces.</summary>
+    [TestMethod]
+    [DataRow("devtools", "search", "- Ctrl+T opens a new tab")]
+    [DataRow("ui", "search", "- First bullet")]
+    [DataRow("ui", "set-value", "-- spaced value")]
+    public void DashLedTextWithSpaces_IsNotTreatedAsAMisspeltOption(string group, string verb, string text)
+    {
+        var parsed = Parse([group, verb, text, "-a", "MyApp"]);
+
+        Assert.IsEmpty(WindowsCommandLine.FindOptionLikePositionals(parsed));
+        Assert.IsTrue(WindowsCommandLine.FindOptionLikePositionals(Parse([group, verb, "--onn=sand box", "-a", "MyApp"]))
+            .Contains("--onn=sand box") || Parse([group, verb, "--onn=sand box", "-a", "MyApp"]).Errors.Count > 0,
+            "a misspelt option with a spaced value is still rejected");
+    }
+
     /// <summary>An ordinary command line has nothing for the guard to report.</summary>
     [TestMethod]
     public void WellFormedCommand_HasNoStrayPositionals()

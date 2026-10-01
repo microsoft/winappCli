@@ -213,6 +213,13 @@ internal static class WindowsCommandLine
             return false;
         }
 
+        // An option name never contains whitespace: '- Ctrl+T opens a new tab' is text, not a misspelt option.
+        var name = value.AsSpan(0, value.IndexOfAny(['=', ':']) is var end and >= 0 ? end : value.Length);
+        if (name.ContainsAny(" \t"))
+        {
+            return false;
+        }
+
         // '-5', '-1.5': a value, not a misspelt option.
         return !double.TryParse(
             value.AsSpan(1),
