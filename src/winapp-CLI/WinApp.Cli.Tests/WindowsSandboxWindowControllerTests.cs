@@ -11,8 +11,8 @@ namespace WinApp.Cli.Tests;
 /// </summary>
 /// <remarks>
 /// The rules matter because Windows routinely leaves earlier <c>WindowsSandboxRemoteSession</c>
-/// processes behind, and the user may have opened a Sandbox of their own. Choosing wrongly parks a
-/// stranger's window off-screen, or captures someone else's desktop and reports it as this
+/// processes behind, and the user may have opened a Sandbox of their own. Choosing wrongly moves a
+/// stranger's window, or captures someone else's desktop and reports it as this
 /// target's — both of which look exactly like success.
 /// </remarks>
 [TestClass]
@@ -26,6 +26,22 @@ public class WindowsSandboxWindowControllerTests
 
     /// <summary>When a client winapp's launcher created started: after it, as a child must.</summary>
     private const long ClientStartTicks = LauncherStartTicks + 10_000;
+
+    /// <summary>
+    /// A client stranded on no monitor (for example, parked off-screen by winapp 0.7.0) is brought
+    /// back to the middle of the nearest work area, or to its top-left corner when it is larger.
+    /// </summary>
+    [TestMethod]
+    [DataRow(0, 0, 1920, 1040, 1474, 982, 223, 29, DisplayName = "fits: centred")]
+    [DataRow(-1920, 0, 0, 1040, 800, 600, -1360, 220, DisplayName = "monitor left of primary")]
+    [DataRow(0, 40, 1280, 760, 1474, 982, 0, 40, DisplayName = "larger than the work area: top-left")]
+    public void CenterInWorkArea_PlacesTheClientInsideTheWorkArea(
+        int left, int top, int right, int bottom, int width, int height, int expectedX, int expectedY)
+    {
+        Assert.AreEqual(
+            (expectedX, expectedY),
+            WindowsSandboxWindowController.CenterInWorkArea(left, top, right, bottom, width, height));
+    }
 
     [TestMethod]
     public void SelectOwnedClient_TakesTheClientTheLauncherCreated()
@@ -499,7 +515,7 @@ public class WindowsSandboxWindowControllerTests
 
         Assert.AreEqual(ExecutionTargetErrorCodes.ArtifactFailed, failure.Error.Code);
         Assert.AreEqual("True", failure.Error.Context!["adopted"]);
-        Assert.AreEqual(0, parked.Count, "A manual client must never be moved off-screen.");
+        Assert.AreEqual(0, parked.Count, "A manual client must never be moved.");
     }
 
     [TestMethod]
@@ -603,7 +619,7 @@ public class WindowsSandboxWindowControllerTests
         CollectionAssert.AreEqual(
             new nint[] { 300 },
             scripted.Parked,
-            "Another caller's window must never be moved off-screen.");
+            "Another caller's window must never be moved.");
     }
 
     /// <summary>

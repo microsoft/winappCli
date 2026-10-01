@@ -758,7 +758,7 @@ internal sealed class WindowsSandboxBackend(
     /// Never fatal: losing it only means the next command treats the single open window as adopted,
     /// and failing a connection over a contended state file would be worse. Adopted/manual clients
     /// are deliberately never written here: remembering one would later make it look winapp-owned
-    /// and allow minimized restore to move the user's window off-screen.
+    /// and allow minimized restore to move the user's own window.
     /// </remarks>
     private void RememberClientWindow(SandboxClientWindow client)
     {
