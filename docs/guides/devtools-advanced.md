@@ -258,3 +258,8 @@ Measured on a small WinUI sample app:
 - Opening the inspector window stalls the UI thread once, for about 0.2 s, and adds about 20 MB of private memory while it is open.
 - The overlay itself adds 2–3 MB of private memory.
 - Attaching to an app that is already running takes 0.7–1.1 s.
+- While DevTools is attached, memory grows by about 130 bytes for every XAML element the app creates, and that memory is not
+  released while the app runs. In an app that keeps rebuilding its pages, such as navigating between heavy pages, that is a few
+  MB per cycle. This memory is held by WinUI's diagnostics while DevTools is subscribed to the visual tree, not by DevTools'
+  own element index, which shrinks as elements leave the tree. It is the same with `--no-overlay`. Restart the app without
+  `--devtools` when you measure memory.
