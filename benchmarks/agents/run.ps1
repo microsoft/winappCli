@@ -9,6 +9,9 @@
 
 .EXAMPLE
     ./run.ps1 -Scenario electron-notifications -Configuration winapp -Model claude-sonnet-5.5 -Iterations 1
+
+.EXAMPLE
+    ./run.ps1 -Rescore results\20261002-160446
 #>
 [CmdletBinding()]
 param(
@@ -25,7 +28,8 @@ param(
     [string]$CopilotVersion,
     [string]$OutDir,
     [switch]$Plan,
-    [switch]$KeepArtifacts
+    [switch]$KeepArtifacts,
+    [string]$Rescore
 )
 
 Set-StrictMode -Version Latest
@@ -37,6 +41,15 @@ $models = if ($Model) { $Model } else { @($config.models) }
 $iterationCount = if ($PSBoundParameters.ContainsKey('Iterations')) { $Iterations } else { [int]$config.iterations }
 
 $allScenarios = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot 'scenarios')
+
+if ($Rescore) {
+    $r = Invoke-Rescore -ResultsDir (Resolve-Path $Rescore).Path -Scenarios $allScenarios
+    Write-Host "Rescored $($r.Runs) runs against the current scenarios; $($r.Changed) changed status."
+    Write-Host "Runs:    $($r.RunsPath)"
+    Write-Host "Summary: $($r.SummaryPath)"
+    return
+}
+
 $scenarios = $allScenarios
 if ($Scenario) {
     $unknown = @($Scenario | Where-Object { $_ -notin $allScenarios.Id })

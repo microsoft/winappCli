@@ -1,0 +1,12 @@
+<Page x:Class="ContosoTasks.MainPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Padding="24" Spacing="12">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBox x:Name="NewItemBox" PlaceholderText="New task" Width="280" AutomationProperties.Name="New task" />
+            <Button x:Name="AddButton" Content="Add" Click="Add_Click" />
+        </StackPanel>
+        <TextBlock x:Name="CountText" Text="0 tasks" AutomationProperties.AutomationId="TaskCount" />
+        <ListView x:Name="TaskList" ItemsSource="{x:Bind Tasks}" AutomationProperties.Name="Tasks" />
+    </StackPanel>
+</Page>

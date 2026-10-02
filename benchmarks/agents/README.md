@@ -30,10 +30,10 @@ pwsh benchmarks\agents\run.ps1 -Plan
 # Print the expanded run list and session count without calling a model
 pwsh benchmarks\agents\run.ps1 -Plan
 
-# Recommended first step: a quick baseline (one model, one iteration: 33 sessions)
+# Recommended first step: a quick baseline (one model, one iteration: 42 sessions)
 pwsh benchmarks\agents\run.ps1 -Model claude-sonnet-5.5 -Iterations 1
 
-# Then the full default matrix (3 models x 3 iterations: 297 sessions)
+# Then the full default matrix (3 models x 3 iterations: 378 sessions)
 pwsh benchmarks\agents\run.ps1
 
 # A single scenario
@@ -56,6 +56,7 @@ pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\win
 | `-OutDir <path>` | `results\<timestamp>` | |
 | `-KeepArtifacts` | off | Keeps each run's Copilot home, workspace, and logs under `%TEMP%\winapp-agent-bench` |
 | `-Plan` | | Dry run |
+| `-Rescore <resultsDir>` | | Re-evaluate recorded runs against the current scenario expectations; no model calls |
 
 Runs are sequential; parallel runs are a possible future addition.
 
@@ -108,6 +109,19 @@ Run statuses:
 | `preflight_failed` | Plugin install failed or the installed skill set did not match the configuration |
 | `harness_error` | Copilot exited with an error, no session log was found, or the workspace was modified |
 | `cleanup_failed` | The run's temporary folders could not be deleted (`reason` keeps the original status) |
+
+### Rescoring after changing expectations
+
+When you change a scenario's `expect` block, re-evaluate an earlier run instead of paying for new
+sessions:
+
+```powershell
+pwsh benchmarks\agents\run.ps1 -Rescore benchmarks\agents\results\<timestamp>
+```
+
+This writes `runs.rescored.jsonl` and `summary.rescored.md` next to the originals, which are left
+unchanged. Only `pass` and `fail` runs are re-evaluated. Each rescored run keeps its
+`originalStatus`. A changed prompt or fixture still needs a new run.
 
 ## Adding a scenario
 

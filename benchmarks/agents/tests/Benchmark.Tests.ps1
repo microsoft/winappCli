@@ -136,6 +136,38 @@ Describe 'Write-BenchmarkSummary' {
     }
 }
 
+Describe 'Invoke-Rescore' {
+    It 're-evaluates pass/fail runs against new expectations and leaves other statuses alone' {
+        $dir = Join-Path $TestDrive 'results'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        $pre = @{ expectedSkills = @('winapp-frameworks', 'winui-wpf-migration') }
+        $common = [ordered]@{ tokens = $null; skillContextTokensApprox = $null; aiCredits = $null; durationMs = 1000; expectationNotes = @(); preflight = $pre }
+        @(
+            [ordered]@{ scenario = 'wpf'; configuration = 'both'; model = 'm'; iteration = 1; status = 'pass'; reason = ''; skillsLoaded = @('winapp-frameworks') }
+            [ordered]@{ scenario = 'wpf'; configuration = 'both'; model = 'm'; iteration = 2; status = 'pass'; reason = ''; skillsLoaded = @('winui-wpf-migration') }
+            [ordered]@{ scenario = 'wpf'; configuration = 'both'; model = 'm'; iteration = 3; status = 'timeout'; reason = 'slow'; skillsLoaded = @() }
+            [ordered]@{ scenario = 'gone'; configuration = 'both'; model = 'm'; iteration = 1; status = 'fail'; reason = 'x'; skillsLoaded = @() }
+        ) | ForEach-Object { $rec = $_; foreach ($k in $common.Keys) { $rec[$k] = $common[$k] }; $rec | ConvertTo-Json -Compress -Depth 5 } |
+            Set-Content (Join-Path $dir 'runs.jsonl')
+        $original = Get-FileHash (Join-Path $dir 'runs.jsonl')
+        $scenario = [pscustomobject]@{
+            Id = 'wpf'; Configurations = @('winui', 'both')
+            Expect = [pscustomobject]@{ SkillsAny = @('winui-wpf-migration'); SkillsAll = @(); SkillsForbid = @(); MaxSkills = $null }
+        }
+
+        $r = Invoke-Rescore -ResultsDir $dir -Scenarios @($scenario)
+
+        $r.Runs | Should -Be 4
+        $r.Changed | Should -Be 1
+        $rows = Get-Content $r.RunsPath | ConvertFrom-Json
+        $rows.status | Should -Be @('fail', 'pass', 'timeout', 'fail')
+        $rows[0].originalStatus | Should -Be 'pass'
+        $rows[3].expectationNotes | Should -Contain 'scenario no longer defined; status not rescored'
+        (Get-FileHash (Join-Path $dir 'runs.jsonl')).Hash | Should -Be $original.Hash
+        Get-Content -Raw $r.SummaryPath | Should -Match 'Status changes\*\*: 1 of 4 runs'
+    }
+}
+
 Describe 'Scenario definitions' {
     It 'all scenarios load and validate' {
         $s = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot '..\scenarios')
