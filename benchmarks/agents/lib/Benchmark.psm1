@@ -380,6 +380,7 @@ function Get-Median {
 function Format-Count {
     param($Value)
     if ($null -eq $Value) { return 'n/a' }
+    if ($Value -ge 1000000) { return ('{0:N2}M' -f ($Value / 1000000)) }
     if ($Value -ge 1000) { return ('{0:N1}k' -f ($Value / 1000)) }
     return ('{0:N0}' -f $Value)
 }
@@ -468,6 +469,68 @@ function Write-BenchmarkSummary {
     Set-Content -LiteralPath $SummaryPath -Value $text -Encoding utf8NoBOM
 }
 
+function Invoke-Rescore {
+    # Re-evaluates recorded pass/fail runs against the current scenario expectations, without model
+    # calls. Writes runs.rescored.jsonl and summary.rescored.md next to the originals, which stay untouched.
+    param(
+        [Parameter(Mandatory)][string]$ResultsDir,
+        [Parameter(Mandatory)][object[]]$Scenarios
+    )
+
+    $runsPath = Join-Path $ResultsDir 'runs.jsonl'
+    if (-not (Test-Path -LiteralPath $runsPath)) { throw "No runs.jsonl in $ResultsDir" }
+    $outRuns = Join-Path $ResultsDir 'runs.rescored.jsonl'
+    $byId = @{}
+    foreach ($s in $Scenarios) { $byId[$s.Id] = $s }
+
+    $changed = 0
+    $total = 0
+    $writer = [System.IO.StreamWriter]::new($outRuns, $false, [System.Text.UTF8Encoding]::new($false))
+    try {
+        foreach ($line in [System.IO.File]::ReadLines($runsPath)) {
+            if (-not $line.Trim()) { continue }
+            $total++
+            $rec = $line | ConvertFrom-Json -AsHashtable -Depth 64
+            $rec.originalStatus = $rec.status
+            if (-not $rec.ContainsKey('expectationNotes')) { $rec.expectationNotes = @() }
+            if ($rec.status -in 'pass', 'fail') {
+                $s = $byId[$rec.scenario]
+                if (-not $s) {
+                    $rec.expectationNotes = @($rec.expectationNotes) + 'scenario no longer defined; status not rescored'
+                }
+                else {
+                    $installed = @(if ($rec.preflight) { $rec.preflight.expectedSkills })
+                    $eval = Test-Expectations -Expect $s.Expect -LoadedSkills @($rec.skillsLoaded) -InstalledSkills $installed
+                    $rec.status = $eval.Passed ? 'pass' : 'fail'
+                    $rec.reason = $eval.Failures -join '; '
+                    $rec.expectationNotes = @($eval.Notes)
+                    if ($rec.configuration -notin $s.Configurations) { $rec.expectationNotes += 'configuration no longer listed for this scenario' }
+                }
+            }
+            if ($rec.status -ne $rec.originalStatus) { $changed++ }
+            $writer.WriteLine(($rec | ConvertTo-Json -Depth 16 -Compress))
+        }
+    }
+    finally { $writer.Dispose() }
+
+    $header = [ordered]@{ 'Rescored' = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'); 'Source' = $runsPath }
+    $infoPath = Join-Path $ResultsDir 'run-info.json'
+    if (Test-Path -LiteralPath $infoPath) {
+        $info = Get-Content -Raw $infoPath | ConvertFrom-Json
+        $header['Copilot CLI'] = $info.copilotVersion
+        $header['Models'] = $info.models -join ', '
+        $header['Iterations'] = $info.iterations
+        $header['Plugins'] = ($info.plugins | ForEach-Object {
+                $sha = if ($_.sha) { " @ $($_.sha.Substring(0, 12))" } else { '' }
+                "$($_.name) v$($_.version) from $($_.source)$sha"
+            }) -join '; '
+    }
+    $header['Status changes'] = "$changed of $total runs"
+    $summary = Join-Path $ResultsDir 'summary.rescored.md'
+    Write-BenchmarkSummary -RunsPath $outRuns -SummaryPath $summary -Header $header -ScenarioOrder @($Scenarios.Id)
+    return [pscustomobject]@{ Runs = $total; Changed = $changed; RunsPath = $outRuns; SummaryPath = $summary }
+}
+
 Export-ModuleMember -Function Get-ScenarioDefinitions, Get-PluginSkillNames, Get-ConfigurationPlugins, New-ChildEnvironment,
 Invoke-LoggedProcess, Get-FileTail, Read-SessionEvents, Get-DirectorySnapshot, Compare-DirectorySnapshot, Test-Expectations,
-Get-Median, Write-BenchmarkSummary
+Get-Median, Write-BenchmarkSummary, Invoke-Rescore

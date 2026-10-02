@@ -9,8 +9,7 @@
   "fixture": "fixture",
   "expect": {
     "skillsAny": [
-      "winui-wpf-migration",
-      "winapp-frameworks"
+      "winui-wpf-migration"
     ],
     "skillsForbid": [
       "winui-session-report",
