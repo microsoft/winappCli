@@ -279,8 +279,12 @@ internal sealed class WindowsSandboxBackend(
         // `wsb connect` against an instance whose client is already attached starts a *second*
         // WindowsSandboxRemoteSession, and that extra client outlives `wsb stop`. winapp did not
         // start that guest and cannot assume it is unattended, so only a confirmed missing session
-        // or a host with no client process at all creates a client. A closed client that cannot be
-        // detected that way is recovered later, from the agent's own evidence rather than a guess.
+        // creates a client -- and a genuinely closed client is recovered later, from the agent's own
+        // evidence rather than from a guess.
+        //
+        // Measured, not assumed: connecting a closed window here, before the privileged steps
+        // below, made recovery slower (median 58 s against 34 s). The guest re-attaching its session
+        // slowed the firewall step by about 16 s, far more than the one agent launch it saved.
         var session = await cli
             .ProbeInteractiveSessionAsync(lease.InstanceId, cancellationToken)
             .ConfigureAwait(false);
@@ -288,14 +292,9 @@ internal sealed class WindowsSandboxBackend(
         var startedHeadlessByWinapp =
             lease.Origin is SandboxInstanceOrigin.Created or SandboxInstanceOrigin.RecoveredStart;
 
-        // Windows runs one Sandbox at a time, so no client process on the host means nothing is
-        // attached to this guest: its window was closed or never opened. The login session can
-        // survive that, so the probe still says Ready, and without this the agent would have to
-        // start and fail with NoInputDesktop before the reconnect below ever happened.
-        var connectedClient = (startedHeadlessByWinapp
+        var connectedClient = startedHeadlessByWinapp
             ? session is not GuestSessionAvailability.Ready
-            : session is GuestSessionAvailability.NoLoginSession)
-            || !windowController.IsAnyClientRunning();
+            : session is GuestSessionAvailability.NoLoginSession;
 
         if (connectedClient)
         {

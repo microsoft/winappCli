@@ -481,6 +481,95 @@ public class WindowsSandboxWindowControllerTests
         Assert.AreEqual(Snapshot(900).ForegroundWindow, foreground);
     }
 
+    /// <summary>
+    /// winapp's own minimized client is restored even though it cannot be verified while minimized.
+    /// </summary>
+    /// <remarks>
+    /// Reproduced live: a real minimized client's remote-desktop renderer is not in the UI tree, so
+    /// it reads as unverifiable. Verifying before restoring made <c>winapp ui hover --on sandbox</c>
+    /// fail with "its remote desktop could not be verified" and leave the window minimized.
+    /// </remarks>
+    [TestMethod]
+    public void EnsureClientReady_OwnMinimizedClient_IsRestoredBeforeItIsVerified()
+    {
+        var minimized = true;
+        var parked = 0;
+        var foreground = Snapshot(900).ForegroundWindow;
+        var controller = new WindowsSandboxWindowController(
+            () => [Candidate(12, 200, OurLauncher) with
+            {
+                Surface = minimized ? SandboxClientSurface.Unknown : SandboxClientSurface.Session,
+            }],
+            (_, _) =>
+            {
+                parked++;
+                minimized = false;
+            },
+            _ => minimized,
+            () => foreground);
+
+        var status = controller.EnsureClientReady(
+            Client(12, 200, ClientStartTicks),
+            TargetDesktopUse.RealInput);
+
+        Assert.IsFalse(status.IsMinimized);
+        Assert.AreEqual(1, parked);
+    }
+
+    /// <summary>A minimized client winapp did not open gets restore guidance and is not moved.</summary>
+    [TestMethod]
+    public void EnsureClientReady_MinimizedClientThatCannotBeVerified_AsksTheUserToRestoreIt()
+    {
+        var parked = 0;
+        var controller = new WindowsSandboxWindowController(
+            () => [Candidate(12, 200, OtherLauncher) with { Surface = SandboxClientSurface.Unknown }],
+            (_, _) => parked++,
+            _ => true,
+            () => Snapshot(900).ForegroundWindow);
+
+        var failure = Assert.ThrowsExactly<ExecutionTargetException>(() =>
+            controller.EnsureClientReady(remembered: null, TargetDesktopUse.RealInput));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InputNotReady, failure.Error.Code);
+        StringAssert.Contains(failure.Error.UserAction, "Restore");
+        Assert.AreEqual(0, parked);
+    }
+
+    /// <summary>winapp's own client is brought back when it is on no monitor, as 0.7.0 left it.</summary>
+    [TestMethod]
+    public void EnsureClientReady_OwnClientOnNoMonitor_IsBroughtBack()
+    {
+        var onScreen = false;
+        var controller = new WindowsSandboxWindowController(
+            () => [Candidate(12, 200, OurLauncher)],
+            (_, _) => onScreen = true,
+            _ => false,
+            () => Snapshot(900).ForegroundWindow,
+            _ => onScreen);
+
+        controller.EnsureClientReady(Client(12, 200, ClientStartTicks), TargetDesktopUse.RealInput);
+
+        Assert.IsTrue(onScreen);
+    }
+
+    /// <summary>A client the user opened is used where it is, even when it is on no monitor.</summary>
+    [TestMethod]
+    public void EnsureClientReady_ClientTheUserOpenedOnNoMonitor_IsNotMoved()
+    {
+        var parked = 0;
+        var controller = new WindowsSandboxWindowController(
+            () => [Candidate(12, 200, OtherLauncher)],
+            (_, _) => parked++,
+            _ => false,
+            () => Snapshot(900).ForegroundWindow,
+            _ => false);
+
+        var status = controller.EnsureClientReady(remembered: null, TargetDesktopUse.RealInput);
+
+        Assert.IsFalse(status.IsMinimized);
+        Assert.AreEqual(0, parked);
+    }
+
     [TestMethod]
     public void EnsureClientReady_RestoreRefused_FailsInsteadOfClaimingInputReadiness()
     {
