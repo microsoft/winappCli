@@ -3,20 +3,28 @@
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
 // A re-read rebuilds the pane. It is safe unless it would discard an edit: a queued write, a pending resource
-// choice, or text the user is typing into a property editor (an editor commits when it loses focus).
-static bool CanRereadSelection()
+// choice, or text the user is typing into a property editor (an editor commits when it loses focus). The property
+// filter is not an edit: the rebuilt pane keeps its text, and *filterFocused asks the caller to focus it again.
+static bool CanRereadSelection(bool* filterFocused)
 {
+    if (filterFocused) *filterFocused = false;
     if (!g_pendingWrites.empty() || !g_pendingKind.empty()) return false;
     if (!g_inspectorContent) return true;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, g_inspectorContent);
         auto root = object.as<DevToolsX::FrameworkElement>();
-        bool input = false;
+        bool input = false, filter = false;
         for (auto node = DevToolsXI::FocusManager::GetFocusedElement(root.XamlRoot()).try_as<DevToolsX::DependencyObject>();
              node; node = DevToolsXM::VisualTreeHelper::GetParent(node)) {
             input = input || node.try_as<DevToolsXC::TextBox>() || node.try_as<DevToolsXC::ComboBox>();
-            if (auto fe = node.try_as<DevToolsX::FrameworkElement>(); fe && fe.Name() == L"PropsHost") return !input;
+            auto fe = node.try_as<DevToolsX::FrameworkElement>();
+            if (!fe) continue;
+            filter = filter || fe.Name() == L"PropFilter";
+            if (fe.Name() == L"PropsHost") {
+                if (filterFocused) *filterFocused = filter;
+                return !input || filter;
+            }
         }
     } catch (const winrt::hresult_error&) {}
     return true;

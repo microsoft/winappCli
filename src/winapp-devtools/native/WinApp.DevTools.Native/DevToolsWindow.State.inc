@@ -28,7 +28,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
 
 // The props pane is a snapshot. Re-reading it rebuilds the pane, so that waits while an editor is open or a
 // write is unconfirmed.
-static bool CanRereadSelection();
+static bool CanRereadSelection(bool* filterFocused = nullptr);
 
 static void SelectRowVisual(void* rowControl);
 

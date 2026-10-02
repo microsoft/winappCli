@@ -311,5 +311,8 @@ static bool RefreshTreeFromApp(bool refreshValues)
     g_treeStale = false;
     DevToolsOverlayLog(L"route1.refresh rows now describe the live app: %zu nodes (census %zu) jmx=%d selKept=%d",
                   g_allTreeNodes.size(), g_snapshotTotal, (int)g_jmxActive, (int)selectionSurvived);
+    // The tree changed, so the shown element's properties may have too (a Button's new content, say). An explicit
+    // value refresh re-reads the pane itself.
+    if (!refreshValues && g_nodeIdxByWire.count(g_selWire)) DevToolsWindow_RereadSelection(g_selWire);
     return true;
 }

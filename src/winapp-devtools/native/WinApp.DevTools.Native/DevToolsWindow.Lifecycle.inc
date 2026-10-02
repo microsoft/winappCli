@@ -597,16 +597,42 @@ bool DevToolsWindow_OnPicked(InstanceHandle wire, bool releaseCommit)
         DevToolsOverlayLog(L"route1.pick committed in comments view -> switched to the Visual tree tab");
     }
     // Picking the element already shown re-reads it: the pane is a snapshot, and a pick is a request to look again.
-    const bool reread = releaseCommit && wire && wire == g_selWire && CanRereadSelection();
+    const bool reread = wire && wire == g_selWire;
     SelectNodeByWire(wire);
-    if (reread) ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+    if (reread) DevToolsWindow_RereadSelection(wire);
     return fromWindow;
 }
 
+// The pane is rebuilt; its filter is reapplied by ShowPropsForNode and its scroll position is kept here.
 void DevToolsWindow_RereadSelection(InstanceHandle wire)
 {
-    if (DevToolsWindow_IsOpen() && wire && wire == g_selWire && CanRereadSelection())
-        ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+    bool filterFocused = false;
+    if (!DevToolsWindow_IsOpen() || !wire || wire != g_selWire) return;
+    if (!CanRereadSelection(&filterFocused)) {
+        DevToolsOverlayLog(L"route1.reread skipped: an edit in the properties pane is in progress");
+        return;
+    }
+    DevToolsXC::ScrollViewer scroller{ nullptr };
+    double offset = 0;
+    try {
+        if (g_inspectorContent) {
+            winrt::Windows::Foundation::IInspectable object{ nullptr };
+            winrt::copy_from_abi(object, g_inspectorContent);
+            scroller = object.as<DevToolsX::FrameworkElement>().FindName(L"PropsScroll").try_as<DevToolsXC::ScrollViewer>();
+            if (scroller) offset = scroller.VerticalOffset();
+        }
+    } catch (const winrt::hresult_error&) { scroller = nullptr; }
+    ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+    try {
+        if (scroller) scroller.ChangeView(nullptr, winrt::box_value(offset).as<winrt::Windows::Foundation::IReference<double>>(), nullptr, true);
+        if (filterFocused && g_propFilterTextBox) {
+            winrt::Windows::Foundation::IInspectable object{ nullptr };
+            winrt::copy_from_abi(object, g_propFilterTextBox);
+            auto filter = object.as<DevToolsXC::TextBox>();
+            filter.Focus(winrt::Microsoft::UI::Xaml::FocusState::Programmatic);
+            filter.SelectionStart(static_cast<int32_t>(filter.Text().size()));
+        }
+    } catch (const winrt::hresult_error&) {}
 }
 
 // The overlay reports every pick-mode transition here, whichever surface caused it (the window's toggle, the
