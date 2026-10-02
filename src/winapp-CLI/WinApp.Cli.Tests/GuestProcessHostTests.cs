@@ -273,7 +273,9 @@ public partial class GuestProcessHostTests
             gate.TrySetResult();
         }
 
-        await completion.WaitAsync(TimeSpan.FromSeconds(10));
+        // Only a hang safety net: draining 10,000 lines takes over 10s on the 2-vCPU release agent
+        // under coverage with parallel tests.
+        await completion.WaitAsync(TimeSpan.FromSeconds(60));
         StringAssert.Contains(output.ToString(), "line-10000");
     }
 

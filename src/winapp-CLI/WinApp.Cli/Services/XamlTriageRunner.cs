@@ -24,8 +24,10 @@ internal static class XamlTriageRunner
     private static readonly string SymbolCachePath = Path.Combine(Path.GetTempPath(), "symbols");
 
     /// <summary>
-    /// Entry point for the isolated child process. Parses <c>--dump</c>, <c>--bin</c>, <c>--ext</c>
-    /// and optional <c>--symbols</c>, runs the extension, and writes the captured output to stdout.
+    /// Entry point for the isolated child process. Parses <c>--dump</c>, <c>--bin</c>,
+    /// <c>--jsprovider</c>, <c>--ext</c> and optional <c>--symbols</c>, runs the extension, and writes
+    /// the captured output to stdout. The parent holds the DLLs named by <c>--bin</c> and
+    /// <c>--jsprovider</c> open until this process exits, so they must be loaded from exactly those paths.
     /// </summary>
     public static int Run(string[] args)
     {
@@ -43,15 +45,11 @@ internal static class XamlTriageRunner
             }
         }
 
-        if (dump == null || bin == null || ext == null)
+        if (dump == null || bin == null || ext == null || jsProvider == null)
         {
-            Console.Error.WriteLine("xaml-triage: --dump, --bin and --ext are required.");
+            Console.Error.WriteLine("xaml-triage: --dump, --bin, --jsprovider and --ext are required.");
             return 2;
         }
-
-        // The provider may live in a winext subfolder; the parent passes its resolved path. Fall back
-        // to the engine directory for backward compatibility when it is not supplied.
-        jsProvider ??= Path.Combine(bin, "JsProvider.dll");
 
         try
         {
