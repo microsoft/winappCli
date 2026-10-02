@@ -198,9 +198,11 @@ internal sealed partial class ProjectRunService
     private static string FormatDirectoryRunExample(DirectoryInfo dir, string projectName)
     {
         var relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), dir.FullName);
-        var dirArg = relative == "." ? string.Empty : (relative.Contains(' ') ? $"\"{relative}\" " : $"{relative} ");
-        return $"winapp run {dirArg}--project {projectName}";
+        var dirArg = relative == "." ? string.Empty : $"{QuoteIfNeeded(relative)} ";
+        return $"winapp run {dirArg}--project {QuoteIfNeeded(projectName)}";
     }
+
+    private static string QuoteIfNeeded(string value) => value.Contains(' ') ? $"\"{value}\"" : value;
 
     /// <summary>
     /// Builds the "Available: …" hint for a failed <c>--project</c> match. Prefers the projects the user

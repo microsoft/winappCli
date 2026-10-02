@@ -1319,6 +1319,16 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task ResolveInput_MultipleExecutableCsproj_ExampleQuotesProjectNameWithSpace()
+    {
+        WriteFile("My App.csproj", ExecutableCsproj);
+        WriteFile("Other.csproj", ExecutableCsproj);
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
+        StringAssert.Contains(ex.Message, "--project \"My App\"'");
+    }
+
+    [TestMethod]
     public async Task ResolveInput_MultipleTestCsprojOnly_AmbiguityListsTestProjects()
     {
         WriteFile("Lib.csproj", LibraryCsproj);
