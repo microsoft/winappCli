@@ -1,0 +1,19 @@
+{
+  "id": "console-arg-parsing",
+  "description": "Near miss: plain .NET console change that needs no Windows skill.",
+  "prompt": "Add command-line parsing to this .NET console tool so it accepts --input <path> (required) and --verbose (optional), and prints a helpful usage message when --input is missing. Show me the updated Program.cs.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsForbid": [
+      "winapp-*",
+      "winui-*"
+    ],
+    "maxSkills": 0
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "find-winrt-api-battery",
+  "description": "Find the right WinRT API for reading battery status from a C++/WinRT WinUI app.",
+  "prompt": "In this C++/WinRT WinUI app I want to show the current battery percentage and whether the laptop is plugged in, and update it when that changes. Which Windows API should I use? Give me the exact namespace, types, and members, and a short code snippet.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winapp-find-api"
+    ],
+    "skillsForbid": [
+      "winui-wpf-migration",
+      "winui-session-report"
+    ]
+  }
+}
