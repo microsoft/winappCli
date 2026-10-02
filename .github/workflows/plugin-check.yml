@@ -1,0 +1,33 @@
+name: Plugin Check
+
+# Fast, build-free check of plugin manifests and skills. The post-build
+# validate-docs job in build-package.yml still runs the same script.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - 'plugin.json'
+      - 'docs/cli-schema.json'
+      - 'src/winapp-npm/src/cli.ts'
+      - 'scripts/validate-plugin-package.ps1'
+      - '.github/workflows/plugin-check.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate-plugins:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate plugin packages and skills
+        shell: pwsh
+        run: .\scripts\validate-plugin-package.ps1

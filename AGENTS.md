@@ -389,7 +389,9 @@ It needs no build output, so run it directly while editing plugin files:
 .\scripts\validate-plugin-package.ps1
 ```
 
-`validate-llm-docs.ps1` also invokes it, so CI fails on any conformance regression.
+`validate-llm-docs.ps1` also invokes it, so CI fails on any conformance regression. The
+`Plugin Check` workflow (`.github/workflows/plugin-check.yml`) also runs it on PRs that touch
+plugin files, without waiting for a CLI build.
 
 ## C# service architecture guidelines
 
