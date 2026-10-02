@@ -242,7 +242,7 @@ static void Test_NoAgentReasonDoesNotConflateTheTwoCases()
     std::printf("the no-agent reason distinguishes a missing startup host from no CLR\n");
 
     // A CLR process needs its managed binding host loaded before startup.
-    const std::wstring managed = DevToolsBindingRelay_NoAgentReason(true);
+    const std::wstring managed = DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime::Clr);
     Check(managed.find(L"DOTNET_STARTUP_HOOKS") != std::wstring::npos, "the .NET case identifies the startup prerequisite");
     Check(managed.find(L"before app startup") != std::wstring::npos, "the prerequisite must precede startup");
     // Do not recommend a removed watch command.
@@ -250,20 +250,26 @@ static void Test_NoAgentReasonDoesNotConflateTheTwoCases()
 
     // The C++/WinRT case. There is no CLR to load the agent into, so no launch option would help. Naming one
     // here would be a lie, and a wrong instruction is worse than the vague message it replaces.
-    const std::wstring native = DevToolsBindingRelay_NoAgentReason(false);
+    const std::wstring native = DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime::None);
     Check(native.find(L"--watch") == std::wstring::npos, "the native case does NOT suggest a flag that cannot help");
     Check(native.find(L"winapp run") == std::wstring::npos, "and does not hand out a command either");
     Check(native.find(L"any launch option") != std::wstring::npos,
           "it says plainly that no launch would change this");
 
+    // Native AOT has a .NET runtime; it just cannot host the managed agent.
+    const std::wstring aot = DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime::NativeAot);
+    Check(aot.find(L"Native AOT") != std::wstring::npos, "the AOT case names Native AOT");
+    Check(aot.find(L"no .NET runtime") == std::wstring::npos, "and does not claim the app has no .NET runtime");
+    Check(aot.find(L"Native binding path walking remains available") != std::wstring::npos, "and keeps the fallback");
+
     // Both are real sentences, not tokens: the row renders this as its subtitle and half an explanation
     // explains nothing.
-    Check(managed != native, "the two cases produce different text");
-    Check(managed.size() > 40 && native.size() > 40, "both are sentences a developer can read");
+    Check(managed != native && aot != native && aot != managed, "the three cases produce different text");
+    Check(managed.size() > 40 && native.size() > 40 && aot.size() > 40, "all are sentences a developer can read");
 
     // And both survive the JSON wrapper they are actually delivered through -- an em dash and a quoted
     // command are exactly the characters that break a hand-rolled serializer.
-    for (const std::wstring& r : { managed, native }) {
+    for (const std::wstring& r : { managed, native, aot }) {
         const std::wstring j = DevToolsBindingRelay_UnavailableJson(r);
         Check(j.rfind(L"{\"state\":\"unavailable\"", 0) == 0, "...wraps as an unavailable diagnosis");
         Check(j.back() == L'}', "...and is a closed object");

@@ -36,4 +36,5 @@ bool DevToolsBindingRelay_IsAllowedOp(const std::wstring& op);
 
 std::wstring DevToolsBindingRelay_UnavailableJson(const std::wstring& reason);
 
-const wchar_t* DevToolsBindingRelay_NoAgentReason(bool managedProcess);
+enum class DevToolsAppRuntime { Clr, NativeAot, None };
+const wchar_t* DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime runtime);

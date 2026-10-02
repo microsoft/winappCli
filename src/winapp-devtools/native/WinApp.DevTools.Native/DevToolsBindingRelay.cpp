@@ -87,9 +87,12 @@ std::wstring PipeName()
     return buf;
 }
 
-bool ClrIsLoaded()
+DevToolsAppRuntime AppRuntime()
 {
-    return GetModuleHandleW(L"coreclr.dll") != nullptr;
+    if (GetModuleHandleW(L"coreclr.dll")) return DevToolsAppRuntime::Clr;
+    // Every Native AOT executable exports its runtime's debugger header.
+    return GetProcAddress(GetModuleHandleW(nullptr), "DotNetRuntimeDebugHeader")
+        ? DevToolsAppRuntime::NativeAot : DevToolsAppRuntime::None;
 }
 
 bool TransferBefore(HANDLE pipe, void* buffer, DWORD size, DWORD& transferred,
@@ -130,11 +133,14 @@ std::wstring DevToolsBindingRelay_UnavailableJson(const std::wstring& reason)
     return L"{\"state\":\"unavailable\",\"reason\":\"" + DevToolsJsonEscape(reason) + L"\"}";
 }
 
-const wchar_t* DevToolsBindingRelay_NoAgentReason(bool managedProcess)
+const wchar_t* DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime runtime)
 {
-    if (managedProcess)
+    if (runtime == DevToolsAppRuntime::Clr)
         return L"this .NET app has no loaded managed binding host. The host must be loaded through "
                L"DOTNET_STARTUP_HOOKS before app startup; attaching the native inspector cannot add it.";
+    if (runtime == DevToolsAppRuntime::NativeAot)
+        return L"Native AOT apps can't load the managed binding agent, so {Binding}/{x:Bind} can't be diagnosed "
+               L"by it. Native binding path walking remains available.";
     return L"this app has no .NET runtime, so there is no managed agent to load \u2014 bindings cannot be "
            L"diagnosed by the managed host under any launch option. Native binding path walking remains available.";
 }
@@ -191,7 +197,7 @@ bool DevToolsBindingRelay_Binding(const std::wstring& op, IAgileReference* eleme
     if (!WaitNamedPipeW(name.c_str(), kConnectTimeoutMs)) {
         *outJson = DevToolsBindingRelay_UnavailableJson(
             GetLastError() == ERROR_FILE_NOT_FOUND
-                ? DevToolsBindingRelay_NoAgentReason(ClrIsLoaded())
+                ? DevToolsBindingRelay_NoAgentReason(AppRuntime())
                 : L"the managed DevTools agent did not accept a connection");
         return false;
     }
