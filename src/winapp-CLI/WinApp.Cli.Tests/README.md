@@ -51,7 +51,7 @@ This test project provides comprehensive unit tests for the winapp CLI applicati
 
 The tests use a pragmatic approach that acknowledges the complexities of testing code signing operations:
 
-1. **Certificate Generation**: Uses the actual `CertificateService.GenerateDevCertificateAsync()` method to create real test certificates via PowerShell.
+1. **Certificate Generation**: Uses the actual `CertificateService.GenerateDevCertificateAsync()` method to create real test certificates. `BaseCommandTests` turns off the service's `PersistToCurrentUserStore` seam, so generated certificates use an in-memory key and are never added to `Cert:\CurrentUser\My`. Tests that need the real store path must remove exactly what they added (by thumbprint).
 
 2. **File Validation**: Tests file existence, path resolution, and basic validation without requiring real executables.
 

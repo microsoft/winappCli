@@ -993,6 +993,91 @@ public class NewCommandHandlerTests : BaseCommandTests
             "A template from another installed pack must be filtered out of the catalog.");
     }
 
+    /// <summary>
+    /// Scripts the WinUI pack plus the standalone Reactor pack, whose template registers
+    /// <paramref name="foreignAliases"/>. Only the WinUI pack's templates match <c>dotnet new list winui</c>.
+    /// </summary>
+    private void ScriptWithStandaloneReactorPack(string foreignAliases)
+    {
+        (string Name, string Short, string Lang, string Type, string Author, string Tags)[] templates =
+        [
+            ("WinUI Blank App", "winui,winui3,wasdk-single", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
+            ("Reactor Blank App (Experimental)", "reactor,reactor-blank,winui-reactor", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/Reactor/Experimental"),
+        ];
+        var list = BuildListTable(templates);
+        var uninstall = "Currently installed items:\n"
+            + "   Microsoft.UI.Reactor.Templates\n"
+            + "      Version: 0.1.0\n"
+            + "      Templates:\n"
+            + $"         Microsoft.UI.Reactor App ({foreignAliases}) C#\n"
+            + "      Uninstall Command:\n"
+            + "         dotnet new uninstall Microsoft.UI.Reactor.Templates\n"
+            + BuildUninstallOutput("0.0.6-alpha", templates).Replace("Currently installed items:\n", string.Empty, StringComparison.Ordinal);
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args.Count >= 1 && args[0] == "--version")
+            {
+                return (0, "10.0.100\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, uninstall, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
+            {
+                return (0, list, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
+            {
+                return (0, "All template packages are up-to-date.", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
+            {
+                return (0, "ok", string.Empty);
+            }
+            return (0, "The template was created successfully.", string.Empty);
+        };
+    }
+
+    [TestMethod]
+    public async Task Handler_ShortNameAlsoRegisteredByAnotherPack_ScaffoldsWithUniqueAlias()
+    {
+        // `dotnet new reactor` is ambiguous when Microsoft.UI.Reactor.Templates is also installed, so
+        // winapp must invoke the WinUI pack's template by an alias only that pack owns (#948).
+        ScriptWithStandaloneReactorPack("reactor");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--use-defaults", "--json", "--template", "reactor", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        var json = ParseJson(TestAnsiConsole.Output);
+        Assert.AreEqual("reactor", json.GetProperty("Template").GetString(),
+            "The reported template is the one the user picked, not the alias used to invoke it.");
+
+        var scaffold = ScaffoldInvocation();
+        Assert.IsNotNull(scaffold);
+        Assert.AreEqual("reactor-blank", scaffold[1], "dotnet new must receive an alias no other installed pack registers.");
+    }
+
+    [TestMethod]
+    public async Task Handler_EveryAliasRegisteredByAnotherPack_FailsNamingThePack()
+    {
+        ScriptWithStandaloneReactorPack("reactor,reactor-blank,winui-reactor");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--use-defaults", "--json", "--template", "reactor", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitTemplatePackFailed, exitCode);
+        var json = ParseJson(TestAnsiConsole.Output);
+        Assert.IsFalse(json.GetProperty("Created").GetBoolean());
+        var error = json.GetProperty("Error").GetString() ?? string.Empty;
+        StringAssert.Contains(error, "Microsoft.UI.Reactor.Templates");
+        StringAssert.Contains(error, "dotnet new uninstall Microsoft.UI.Reactor.Templates");
+        Assert.IsNull(ScaffoldInvocation(), "No scaffold may run when dotnet new can't select the template.");
+    }
+
 
     [TestMethod]
     public async Task Handler_AppTemplate_PrintsWinappRunNextStep()
