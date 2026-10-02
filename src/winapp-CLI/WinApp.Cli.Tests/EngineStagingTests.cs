@@ -201,6 +201,55 @@ public class EngineStagingTests
         finally { File.Delete(staged); }
     }
 
+    // A managed machine can grant another principal Modify over the whole profile; that principal can already change
+    // everything the user runs, so staging must not fail on it. The same grant made only below the profile still fails.
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void Staging_AcceptsWholeProfileWritersButNotWritersBelowIt(bool grantedOnProfile)
+    {
+        var other = new SecurityIdentifier("S-1-5-21-1-2-3-1001");
+        var profile = Path.Combine(_root, "profile");
+        var winapp = Path.Combine(profile, ".winapp");
+        Directory.CreateDirectory(winapp);
+        var grantee = new DirectoryInfo(grantedOnProfile ? profile : winapp);
+        var security = grantee.GetAccessControl();
+        security.AddAccessRule(new FileSystemAccessRule(other, FileSystemRights.Modify,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+        grantee.SetAccessControl(security);
+        var source = Source("WinApp.DevTools.Native.dll", [1, 2, 3]);
+
+        if (grantedOnProfile)
+        {
+            Assert.IsTrue(File.Exists(EngineStaging.StageTo(source, Path.Combine(winapp, "engine"), profile)));
+        }
+        else
+        {
+            var error = Assert.Throws<IOException>(() => EngineStaging.StageTo(source, Path.Combine(winapp, "engine"), profile));
+            StringAssert.Contains(error.Message, winapp);
+            StringAssert.Contains(error.Message, other.Value);
+        }
+    }
+
+    [TestMethod]
+    public void ProfileWriters_AreOnlyForeignInheritableWriteGrants()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var inheritable = new SecurityIdentifier("S-1-5-21-1-2-3-1001");
+        var thisFolderOnly = new SecurityIdentifier("S-1-5-21-1-2-3-1002");
+        var reader = new SecurityIdentifier("S-1-5-21-1-2-3-1003");
+        var profile = new DirectoryInfo(Path.Combine(_root, "profile"));
+        profile.Create();
+        var security = profile.GetAccessControl();
+        var all = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+        security.AddAccessRule(new FileSystemAccessRule(inheritable, FileSystemRights.Modify, all, PropagationFlags.None, AccessControlType.Allow));
+        security.AddAccessRule(new FileSystemAccessRule(thisFolderOnly, FileSystemRights.Modify, AccessControlType.Allow));
+        security.AddAccessRule(new FileSystemAccessRule(reader, FileSystemRights.ReadAndExecute, all, PropagationFlags.None, AccessControlType.Allow));
+        profile.SetAccessControl(security);
+
+        CollectionAssert.AreEquivalent(new[] { inheritable }, EngineStaging.ProfileWriters(profile.FullName, identity.User!).ToArray());
+    }
+
     private string Source(string name, byte[] bytes)
     {
         var source = Path.Combine(_root, name);
