@@ -174,6 +174,24 @@ public class OwnedDevelopmentRegistrationTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task SameNameDifferentPublisherInOtherLayout_RegistersSideBySide()
+    {
+        var otherLayout = _tempDirectory.CreateSubdirectory("other-publisher");
+        var otherFamily = DevelopmentIdentityHelper.ComputeFamilyName("Owned.App", "CN=Other");
+        var foreign = new DevPackageInfo($"Owned.App_1.0.0.0_x64__{otherFamily.Split('_')[1]}", "Owned.App", "1.0.0.0",
+            otherLayout.FullName, true, "CN=Other", otherFamily);
+        _registration.FakeDevPackages.Add(foreign);
+
+        var result = await Run();
+
+        Assert.AreEqual("Original", result.Identity!.Mode);
+        Assert.AreNotEqual(otherFamily, result.Identity.PackageFamilyName);
+        Assert.HasCount(1, _registration.RegisterLooseLayoutCalls);
+        Assert.Contains(foreign, _registration.FakeDevPackages);
+        Assert.IsEmpty(_registration.UnregisterByFullNameCalls);
+    }
+
+    [TestMethod]
     public async Task UnrelatedFamilyAtSameLayout_IsNeverMutatedOrRemoved()
     {
         _layout.Create();

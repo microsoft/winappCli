@@ -297,9 +297,15 @@ internal partial class MsixService
     private DevPackageInfo? ValidateRegistrationSelection(DirectoryInfo layout, DevelopmentRegistration candidate, DevelopmentRegistration? prior)
     {
         var identity = candidate.Identity;
-        var named = packageRegistrationService.FindDevPackages(identity.EffectivePackageName);
-        // Publisher strings are case-sensitive Windows identity inputs. A same-name package with
-        // another publisher is not a package we may remove or silently adopt.
+        // A same-name package from another publisher is a different package family, which Windows
+        // registers side by side, so it is not a conflict. Publisher strings are case-sensitive
+        // identity inputs. When Windows reports neither publisher nor family, fail closed.
+        var named = packageRegistrationService.FindDevPackages(identity.EffectivePackageName)
+            .Where(package =>
+                (package.Publisher is null && package.PackageFamilyName is null) ||
+                string.Equals(package.Publisher, identity.Publisher, StringComparison.Ordinal) ||
+                string.Equals(package.PackageFamilyName, identity.PackageFamilyName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
         foreach (var package in named)
         {
             if (prior is not null && string.Equals(package.FullName, prior.Identity.PackageFullName, StringComparison.OrdinalIgnoreCase))

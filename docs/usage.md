@@ -1138,7 +1138,7 @@ publishers still get different aliases. The prefix keeps the name clear of real 
 declare there is used as-is and winapp adds nothing, unless you pass
 [`--unique-identity`](#unique-identity-for-parallel-checkouts), which renames it.
 
-If another folder already has the same package name registered, `run` fails instead of
+If another folder already has the same package name and publisher registered, `run` fails instead of
 replacing that registration.
 
 `winapp run` prints the alias it registered, so you don't have to compute the hash to find it.

@@ -24,7 +24,7 @@ Use this skill when:
 | "Certificate file already exists" | `devcert.pfx` already present | Use `winapp cert generate --if-exists overwrite` or `--if-exists skip` |
 | "Manifest already exists" | `Package.appxmanifest` already present | Use `winapp manifest generate --if-exists overwrite` or edit manifest directly |
 | `run` / `create-debug-identity` registration error `0x800704EC` | Developer Mode is disabled | Enable it in **Settings → Privacy & security → For developers**, or `Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense -Value 1`, then retry |
-| `run` registration conflict | Another folder already registered this package name | Opt into `winapp run . --unique-identity` for supported packaged apps, or explicitly unregister your previous layout. `--force` does not apply |
+| `run` registration conflict | Another folder already registered this package (same name and publisher) | Opt into `winapp run . --unique-identity` for supported packaged apps, or explicitly unregister your previous layout. `--force` does not apply |
 | `create-debug-identity` registration error `0x80073CFB` | An earlier `create-debug-identity` registration is still present | Run `winapp unregister --manifest .\Package.appxmanifest`, then retry. See [registrations without a winapp record](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#registrations-without-a-winapp-record) |
 | App's Start menu entry launches nothing, silently | Package still registered after its files were deleted | Run `winapp unregister --prune` to remove every dev registration whose files are gone |
 

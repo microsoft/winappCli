@@ -295,7 +295,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                     }
                     if (manifest != null && !MatchesManifest(selected.Identity, await ReadManifestIdentityAsync(manifest, cancellationToken)))
                     {
-                        return FailWith("The selected layout's recorded identity does not match --manifest.", isJson);
+                        return FailWith("The selected layout's recorded identity does not match --manifest. Pass that layout's manifest, or omit --manifest and use only --output-appx-directory.", isJson);
                     }
                     return await RemoveManagedRegistrationAsync(stateRoot, selected, isJson, cancellationToken);
                 }

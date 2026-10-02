@@ -360,6 +360,7 @@ public class UnregisterCommandManagedTests : BaseCommandTests
 
         Assert.AreEqual(1, exitCode);
         StringAssert.Contains(JsonError(), "does not match");
+        StringAssert.Contains(JsonError(), "omit --manifest and use only --output-appx-directory");
         Assert.IsEmpty(_packages.UnregisterByFullNameCalls);
     }
 
