@@ -809,6 +809,12 @@ int main()
             commentInput=L"a\rc";crlf.Invoke(nullptr,nullptr);
             check(quickWrites==writesBefore+2 && quickWritten==L"a\r\nc","quick text","an edit keeps the value's \\r\\n line breaks");
             check(XmlEscapeLines(L"a\r\nb")==L"a&#xD;&#xA;b","quick text","markup keeps both line-break characters");
+            DevToolsCardRow multiRow;multiRow.name=L"Text";multiRow.type=L"String";multiRow.editKind=L"text";multiRow.value=multi;
+            const std::wstring rowMarkup=BuildSelRowsMarkup({multiRow},false);
+            const size_t editor=rowMarkup.find(L"<TextBox x:Name=\"DevToolsSelEdit0\"");
+            const size_t accepts=rowMarkup.find(L"AcceptsReturn=\"True\"",editor), seeded=rowMarkup.find(L" Text=\"Make room for&#xA;",editor);
+            check(editor!=std::wstring::npos && accepts!=std::wstring::npos && seeded!=std::wstring::npos && accepts<seeded,
+                "quick text","a multi-line value accepts returns before its text is set, so the editor keeps every line");
             g_cardReadInput=nullptr;g_selRowSinks={&text};quickOutcome=saveOutcome;
         }
         ++g_selGen;

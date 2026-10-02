@@ -243,13 +243,15 @@ static std::wstring BuildSelRowsMarkup(const std::vector<DevToolsCardRow>& rows,
                 for (const auto& mem : members) m += L"<ComboBoxItem Content=\"" + DevToolsXmlEscape(mem) + L"\"/>";
                 m += L"</ComboBox>";
             } else {
-                m += L"<TextBox x:Name=\"" + editName + L"\" Text=\"" + XmlEscapeLines(r.value) + L"\" Width=\"" +
-                     std::to_wstring(kSelEditorW) + L"\" MinHeight=\"30\" Margin=\"0,0,8,0\""
-                     L" VerticalAlignment=\"Center\" HorizontalAlignment=\"Left\" Padding=\"8,4,8,4\""
-                     L" AutomationProperties.AutomationId=\"" + editName + L"\" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"";
+                m += L"<TextBox x:Name=\"" + editName + L"\"";
+                // Before Text: XAML applies attributes in order, and a single-line box keeps only the first line.
                 if (DevToolsEditText::IsMultiline(r.value))
                     m += L" AcceptsReturn=\"True\" TextWrapping=\"Wrap\" MaxHeight=\"120\""
                          L" ToolTipService.ToolTip=\"Ctrl+Enter to apply\"";
+                m += L" Text=\"" + XmlEscapeLines(r.value) + L"\" Width=\"" +
+                     std::to_wstring(kSelEditorW) + L"\" MinHeight=\"30\" Margin=\"0,0,8,0\""
+                     L" VerticalAlignment=\"Center\" HorizontalAlignment=\"Left\" Padding=\"8,4,8,4\""
+                     L" AutomationProperties.AutomationId=\"" + editName + L"\" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"";
                 if (r.editKind == L"color") m += L" Header=\"Color (#AARRGGBB)\" PlaceholderText=\"#AARRGGBB\"";
                 m += L"/>";
             }
