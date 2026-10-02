@@ -11,6 +11,9 @@ Use this skill when:
 
 ## Common errors & solutions
 
+For slow WinUI layout or scrolling, use the [performance skill](../winapp-performance/SKILL.md).
+ETW performance capture is separate from debugger output and crash analysis.
+
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "winapp.yaml not found" | Running `restore` or `update` without config | Run `winapp init` first, or `cd` to the directory containing `winapp.yaml` |

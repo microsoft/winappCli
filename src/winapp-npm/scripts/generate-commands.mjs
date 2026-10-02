@@ -445,8 +445,8 @@ function generate(schema) {
     // Sort by order
     positionalArgs.sort((a, b) => (a.def.order ?? 0) - (b.def.order ?? 0));
 
-    // Determine which positional args are required (arity minimum >= 1)
-    const hasRequiredArgs = positionalArgs.some((a) => a.def.arity?.minimum >= 1);
+    const hasRequiredArgs = positionalArgs.some((a) => a.def.arity?.minimum >= 1)
+      || opts.some((o) => o.def.required);
 
     L();
     L('// ---------------------------------------------------------------------------');
@@ -472,7 +472,7 @@ function generate(schema) {
     for (const opt of opts) {
       const tp = isVariadicOption(opt.def) ? 'string | string[]' : tsType(opt.def.valueType, opt.def.helpName);
       L(`  /** ${cleanDesc(opt.def.description)} */`);
-      L(`  ${opt.propName}?: ${tp};`);
+      L(`  ${opt.propName}${opt.def.required ? '' : '?'}: ${tp};`);
     }
     // passthrough args property
     if (passthrough) {
