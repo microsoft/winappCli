@@ -98,7 +98,7 @@ internal sealed partial class UiAutomationService
         {
             var host = SelectWindowedPopupHost(
                 ownerHwnd,
-                EnumerateTopLevelWindows(),
+                RealOwnedWindowFinder.EnumerateTopLevelWindows().Select(static hwnd => (nint)hwnd),
                 static hwnd => RealOwnedWindowFinder.s_isWindowVisible(new global::Windows.Win32.Foundation.HWND(hwnd)),
                 static hwnd => (nint)RealOwnedWindowFinder.s_getWindowOwner(new global::Windows.Win32.Foundation.HWND(hwnd)),
                 static hwnd => RealOwnedWindowFinder.s_getWindowProcessId(new global::Windows.Win32.Foundation.HWND(hwnd)),
@@ -137,6 +137,10 @@ internal sealed partial class UiAutomationService
     /// Other processes' windows are never candidates, so another app cannot redirect the capture by
     /// owning a window or exposing matching content. When more than one window qualifies the answer
     /// is ambiguous and the caller keeps the owner rather than guessing.
+    /// <para>
+    /// This deliberately differs from <see cref="RealOwnedWindowFinder.FindOwnedWindows"/>, which
+    /// shares the window enumeration but accepts other processes' dialogs owned directly by the app.
+    /// </para>
     /// </remarks>
     internal static nint SelectWindowedPopupHost(
         nint ownerHwnd,
@@ -190,21 +194,6 @@ internal sealed partial class UiAutomationService
         }
 
         return false;
-    }
-
-    private static IEnumerable<nint> EnumerateTopLevelWindows()
-    {
-        var hwnd = global::Windows.Win32.Foundation.HWND.Null;
-        while (true)
-        {
-            hwnd = RealOwnedWindowFinder.s_findNextTopLevelWindow(hwnd);
-            if (hwnd.IsNull)
-            {
-                yield break;
-            }
-
-            yield return hwnd;
-        }
     }
 
     /// <summary>
