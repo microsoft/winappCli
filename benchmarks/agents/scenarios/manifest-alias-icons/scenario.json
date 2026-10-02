@@ -1,7 +1,7 @@
 {
   "id": "manifest-alias-icons",
   "description": "Edit an existing Package.appxmanifest: add an execution alias and regenerate icons.",
-  "prompt": "Two changes to this packaged app: users should be able to launch it by typing contoso in a terminal, and I have a new square logo at Assets\\logo-new.png that should replace all the app icons and tiles. How do I do both?",
+  "prompt": "Add a contoso alias so I can launch the app from the terminal, and replace all the app icons and tiles with Assets\\logo-new.png.",
   "configurations": [
     "winapp",
     "both"

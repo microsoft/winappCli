@@ -1,9 +1,8 @@
 {
   "id": "winui-code-review",
   "description": "Review WinUI page code for issues before committing.",
-  "prompt": "Before I commit, review OrdersPage.xaml and OrdersPage.xaml.cs for problems: bugs, binding mistakes, accessibility, theming, and anything that will hurt performance. List the issues with fixes.",
+  "prompt": "Review OrdersPage for bugs, binding, accessibility, theming, and performance issues before I commit.",
   "configurations": [
-    "winapp",
     "winui",
     "both"
   ],

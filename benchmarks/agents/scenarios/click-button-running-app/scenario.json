@@ -1,7 +1,7 @@
 {
   "id": "click-button-running-app",
   "description": "Inspect and drive the UI of an app that is already running.",
-  "prompt": "The Contoso Notes desktop app is running on my machine right now. Find the Save button in its main window, click it, and then tell me what text the status bar shows. How would you do that from the command line?",
+  "prompt": "Contoso Notes is running on my machine right now. Click Save in its main window and tell me what the status bar shows.",
   "configurations": [
     "winapp",
     "winui",

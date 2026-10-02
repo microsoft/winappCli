@@ -237,6 +237,9 @@ function Invoke-BenchmarkRun {
         skillsLoaded           = @()
         skillsInvoked          = @()
         skillsContextDelivered = @()
+        skillContextChars        = $null
+        skillContextTokensApprox = $null
+        skillContextReason       = $null
         tokens                 = $null
         tokensReason           = $null
         aiCredits              = $null
@@ -325,6 +328,9 @@ function Invoke-BenchmarkRun {
         $record.skillsInvoked = @($parsed.skillsInvoked)
         $record.skillsLoaded = @($parsed.skillsInvoked | ForEach-Object { $_.name } | Select-Object -Unique)
         $record.skillsContextDelivered = @($parsed.skillsContextDelivered)
+        $record.skillContextChars = $parsed.skillContextChars
+        $record.skillContextTokensApprox = $parsed.skillContextTokensApprox
+        $record.skillContextReason = $parsed.skillContextReason
         $record.tokens = $parsed.tokens
         $record.tokensReason = $parsed.tokensReason
         $record.aiCredits = $parsed.aiCredits
@@ -394,6 +400,7 @@ foreach ($run in $runList) {
     $rec | ConvertTo-Json -Depth 8 -Compress | Add-Content -Path $runsPath -Encoding utf8NoBOM
     $skills = if ($rec.skillsLoaded) { $rec.skillsLoaded -join ', ' } else { '(none)' }
     $tok = if ($rec.tokens) { "in $($rec.tokens.input) / out $($rec.tokens.output)" } else { 'tokens n/a' }
+    if ($null -ne $rec.skillContextTokensApprox) { $tok += " / skill ctx ~$($rec.skillContextTokensApprox)" }
     $dur = if ($null -ne $rec.durationMs) { '{0:N0}s' -f ($rec.durationMs / 1000) } else { '' }
     Write-Host " $($rec.status) | skills: $skills | $tok | $dur"
     if ($rec.status -notin 'pass', 'fail' -and $rec.reason) { Write-Host "    $($rec.reason)" }
@@ -401,5 +408,9 @@ foreach ($run in $runList) {
 
 $header['Finished'] = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')
 Write-BenchmarkSummary -RunsPath $runsPath -SummaryPath (Join-Path $OutDir 'summary.md') -Header $header -ScenarioOrder @($scenarios.Id)
-if (-not $KeepArtifacts) { Remove-Item -Recurse -Force -LiteralPath $tempRoot -ErrorAction SilentlyContinue }
+if (-not $KeepArtifacts) {
+    Remove-Item -Recurse -Force -LiteralPath $tempRoot -ErrorAction SilentlyContinue
+    $tempParent = Split-Path $tempRoot
+    if (-not (Get-ChildItem -LiteralPath $tempParent -Force -ErrorAction SilentlyContinue)) { Remove-Item -LiteralPath $tempParent -ErrorAction SilentlyContinue }
+}
 Write-Host "Summary: $(Join-Path $OutDir 'summary.md')"

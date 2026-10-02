@@ -1,7 +1,7 @@
 {
   "id": "maui-windows-msix",
   "description": "Produce a signed MSIX of a .NET MAUI app for sideloading.",
-  "prompt": "How do I produce a signed MSIX of this .NET MAUI app for Windows that I can sideload on our test machines? I'd like a repeatable command I can also use in CI.",
+  "prompt": "Produce a signed MSIX of this .NET MAUI app that I can sideload on our test machines, using commands I can also run in CI.",
   "configurations": [
     "winapp",
     "both"

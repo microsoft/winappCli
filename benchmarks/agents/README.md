@@ -30,11 +30,14 @@ pwsh benchmarks\agents\run.ps1 -Plan
 # Print the expanded run list and session count without calling a model
 pwsh benchmarks\agents\run.ps1 -Plan
 
-# One quick run
-pwsh benchmarks\agents\run.ps1 -Scenario electron-notifications -Configuration winapp -Model claude-sonnet-5.5 -Iterations 1
+# Recommended first step: a quick baseline (one model, one iteration: 33 sessions)
+pwsh benchmarks\agents\run.ps1 -Model claude-sonnet-5.5 -Iterations 1
 
-# The full default matrix (every scenario x configuration x model x 3 iterations)
+# Then the full default matrix (3 models x 3 iterations: 297 sessions)
 pwsh benchmarks\agents\run.ps1
+
+# A single scenario
+pwsh benchmarks\agents\run.ps1 -Scenario electron-notifications -Configuration winapp -Model claude-sonnet-5.5 -Iterations 1
 
 # Compare a candidate WinUI plugin from a local folder
 pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\win-dev-skills\plugins\winui\agent-plugin
@@ -54,7 +57,7 @@ pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\win
 | `-KeepArtifacts` | off | Keeps each run's Copilot home, workspace, and logs under `%TEMP%\winapp-agent-bench` |
 | `-Plan` | | Dry run |
 
-Runs are sequential. A full default matrix is several hundred agent sessions; check `-Plan` first.
+Runs are sequential; parallel runs are a possible future addition.
 
 ## What each run does
 
@@ -68,11 +71,12 @@ Runs are sequential. A full default matrix is several hundred agent sessions; ch
 4. Runs `copilot -p "<prompt>" --model <id> --output-format json` with shell, file writes, and URL
    access denied, built-in MCP servers disabled, and custom instructions off. The agent can read the
    fixture and load skills. Output streams straight to files.
-5. Reads the session's persisted `events.jsonl` and records the skills invoked, tokens, AI credits,
-   turns, tool calls (including denied ones), duration, and exit status. Missing values are `null`
-   with a reason, never 0. If the workspace changed, the run is a `harness_error`.
-6. Evaluates the scenario's expectations, appends a line to `runs.jsonl`, and deletes the temporary
-   folders.
+5. Reads the session's persisted `events.jsonl` and records the skills the agent invoked, the size
+   of the skill content delivered to the model, tokens, AI credits, turns, tool calls (including
+   denied ones), duration, and exit status. Missing values are `null` with a reason, never 0. If the
+   workspace changed, the run is a `harness_error`.
+6. Evaluates the scenario's expectations against the invoked skills, appends a line to
+   `runs.jsonl`, and deletes the temporary folders.
 
 Nothing is installed into your own Copilot home.
 
@@ -81,11 +85,19 @@ Nothing is installed into your own Copilot home.
 Each invocation writes `results\<timestamp>\`:
 
 - `summary.md`: per scenario, one row per configuration and model with pass rate, the most common
-  set of loaded skills, and median tokens and duration. "Input" is the full prompt size including
-  cached tokens; "cache read" is the cached part of it.
+  set of loaded skills, and median tokens, skill context, and duration.
 - `runs.jsonl`: one JSON object per run with all extracted fields.
 - `run-info.json`: Copilot CLI version and path, models, and each plugin's path, version, git SHA,
   and skill list.
+
+How to read the token columns:
+
+- **Input** is the full prompt on every model turn, including cached tokens. Most of it is Copilot's
+  own system prompt, tool definitions, and conversation, so it moves only a little when skills change.
+  **Cache read** is the cached part of input.
+- **Skill context** is the skill content delivered to the model (characters / 4). It is an
+  approximation, not a tokenizer count, but it is the number that changes when a skill grows,
+  shrinks, or stops loading.
 
 Run statuses:
 
@@ -106,7 +118,7 @@ Create `scenarios\<id>\scenario.json` (the id must match the folder name) and, o
 {
   "id": "sign-existing-msix",
   "description": "Only sign an MSIX that a pipeline already built.",
-  "prompt": "Our build pipeline already produces dist\\ContosoApp.msix. I just need to sign it ...",
+  "prompt": "Our build pipeline already produces dist\\ContosoApp.msix. Sign it with our company certificate ...",
   "configurations": ["winapp", "both"],
   "fixture": "fixture",
   "timeoutMinutes": 5,
@@ -119,9 +131,10 @@ Create `scenarios\<id>\scenario.json` (the id must match the folder name) and, o
 }
 ```
 
-- Write the prompt the way a developer would. Never name a skill.
+- Write the prompt the way a developer would ask for the work. Never name a skill.
 - `skillsAny`: at least one must load. `skillsAll`: all must load. `skillsForbid`: none may load.
-  `maxSkills`: upper bound on distinct skills loaded. Names accept `*` wildcards.
+  `maxSkills`: upper bound on distinct skills loaded. Names accept `*` wildcards. "Loaded" means the
+  agent invoked the skill.
 - Expected skills that are not installed in a configuration are ignored for that configuration, so
   one scenario can list skills from both plugins.
 - Run `Invoke-Pester benchmarks\agents\tests` to validate scenario files.
@@ -130,5 +143,5 @@ Create `scenarios\<id>\scenario.json` (the id must match the folder name) and, o
 
 - Shell, file writes, and URLs are denied, so this measures routing and skill loading, not whether
   the agent completes the task. Models still try those tools; the attempts show up as denied calls.
-- Local only, Copilot CLI only, no CI integration.
+- Local only, Copilot CLI only, no CI integration, sequential runs.
 - Results vary between runs; use several iterations before drawing conclusions.

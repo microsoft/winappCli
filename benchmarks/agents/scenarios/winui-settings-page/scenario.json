@@ -1,9 +1,8 @@
 {
   "id": "winui-settings-page",
   "description": "WinUI design change: add a settings page with a theme toggle.",
-  "prompt": "Add a Settings page to this app with a toggle that switches between light and dark theme, and make it reachable from the navigation menu. It should look like a standard Windows 11 settings page. Describe the XAML and code you would add.",
+  "prompt": "Add a Settings page with a light/dark theme toggle to the NavigationView. It should look like a standard Windows 11 settings page.",
   "configurations": [
-    "winapp",
     "winui",
     "both"
   ],

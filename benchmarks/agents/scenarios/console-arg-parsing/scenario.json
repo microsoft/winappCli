@@ -1,7 +1,7 @@
 {
   "id": "console-arg-parsing",
   "description": "Near miss: plain .NET console change that needs no Windows skill.",
-  "prompt": "Add command-line parsing to this .NET console tool so it accepts --input <path> (required) and --verbose (optional), and prints a helpful usage message when --input is missing. Show me the updated Program.cs.",
+  "prompt": "Add command-line parsing to this console tool: --input <path> is required, --verbose is optional, and print a helpful usage message when --input is missing.",
   "configurations": [
     "none",
     "winapp",
