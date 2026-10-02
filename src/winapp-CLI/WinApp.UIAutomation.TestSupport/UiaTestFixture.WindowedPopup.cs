@@ -251,7 +251,7 @@ public sealed partial class UiaTestFixture
         {
         }
 
-        public ITestRawElementProviderFragmentRoot FragmentRoot => (ITestRawElementProviderFragmentRoot?)_root ?? (TestFragmentRoot)this;
+        public virtual ITestRawElementProviderFragmentRoot FragmentRoot => _root!;
     }
 
     /// <summary>The UIA root a window returns for itself; the host HWND supplies its identity.</summary>
@@ -278,6 +278,7 @@ public sealed partial class UiaTestFixture
         }
 
         public override int[]? GetRuntimeId() => null;
+        public override ITestRawElementProviderFragmentRoot FragmentRoot => this;
         public ITestRawElementProviderFragment? ElementProviderFromPoint(double x, double y) => null;
         public ITestRawElementProviderFragment? GetFocus() => null;
     }

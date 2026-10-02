@@ -474,9 +474,10 @@ internal sealed partial class UiAutomationService
         }
 
         var candidate = new global::Windows.Win32.Foundation.HWND(elementHwnd);
-        if (!global::Windows.Win32.PInvoke.GetWindowRect(candidate, out var candidateRect)
-            || candidateRect.right <= candidateRect.left
-            || candidateRect.bottom <= candidateRect.top)
+        global::Windows.Win32.PInvoke.GetWindowRect(candidate, out var candidateRect);
+        var candidateWidth = candidateRect.right - candidateRect.left;
+        var candidateHeight = candidateRect.bottom - candidateRect.top;
+        if (candidateWidth <= 0 || candidateHeight <= 0)
         {
             return sessionHwnd;
         }
