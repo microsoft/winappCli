@@ -528,6 +528,23 @@ public partial class UiCommandTests
         AssertJsonErrorCode(UiCoordinationErrorCodes.Unavailable);
     }
 
+    [TestMethod]
+    public async Task WaitFor_CancelledWhileUncoordinated_ReportsCancelled()
+    {
+        // Without the coordinator, the fallback must still turn Ctrl+C into `cancelled` and exit 130,
+        // or scripts can't tell a cancelled command from a failed one.
+        _fakeDesktopLock.ThrowOnRun = CoordinationFolderDenied();
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var command = GetRequiredService<UiWaitForCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["Button1", "-a", "TestApp", "--timeout", "60000", "--json"], cts.Token);
+
+        Assert.AreEqual(InteractiveDesktopLock.CancelledExitCode, exitCode, $"stderr: {ConsoleStdErr}");
+        AssertJsonErrorCode(UiCoordinationErrorCodes.Cancelled);
+    }
+
     // ------------------------------------------- pre-start recording cancellation must not renew grace
 
     [TestMethod]

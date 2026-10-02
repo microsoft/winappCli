@@ -32,6 +32,49 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
     internal const int CancelledExitCode = 130;
 
     /// <summary>
+    /// Writes the <c>cancelled</c> result for a <c>winapp ui</c> command that threw on Ctrl+C, whether
+    /// or not it ran coordinated.
+    /// </summary>
+    internal static void ReportCancellation(
+        ParseResult parseResult,
+        UiCoordinationOutputMode outputMode,
+        ILogger logger,
+        bool cancelledWhileQueued,
+        long waitedMs,
+        int? queuePosition)
+    {
+        var message = cancelledWhileQueued
+            ? "UI turn wait was cancelled."
+            : "The command was cancelled after it acquired the desktop; any UI changes it had already made remain.";
+
+        UiJsonError.Emit(
+            outputMode.Json,
+            UiCoordinationErrorCodes.Cancelled,
+            message,
+            errorOut: parseResult.InvocationConfiguration.Error,
+            coordination: new UiCoordinationInfo
+            {
+                WaitedMs = waitedMs,
+                QueuePosition = queuePosition,
+            });
+
+        if (!outputMode.Json && !outputMode.Quiet)
+        {
+            if (cancelledWhileQueued)
+            {
+                logger.LogWarning(
+                    "{Symbol} Cancelled while waiting {WaitedMs} ms for the desktop.",
+                    UiSymbols.Warning,
+                    waitedMs);
+            }
+            else
+            {
+                logger.LogWarning("{Symbol} {Message}", UiSymbols.Warning, message);
+            }
+        }
+    }
+
+    /// <summary>
     /// How often the true global head — and a command blocked at the front of its own owner's barrier —
     /// rechecks state even without a wake-up.
     /// </summary>
@@ -840,35 +883,7 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                 coordinator._logger.LogDebug("Queue position could not be read while cancelling: {Message}", ex.Message);
             }
 
-            var message = cancelledWhileQueued
-                ? "UI turn wait was cancelled."
-                : "The command was cancelled after it acquired the desktop; any UI changes it had already made remain.";
-
-            UiJsonError.Emit(
-                outputMode.Json,
-                UiCoordinationErrorCodes.Cancelled,
-                message,
-                errorOut: parseResult.InvocationConfiguration.Error,
-                coordination: new UiCoordinationInfo
-                {
-                    WaitedMs = waitedMs,
-                    QueuePosition = queuePosition,
-                });
-
-            if (!outputMode.Json && !outputMode.Quiet)
-            {
-                if (cancelledWhileQueued)
-                {
-                    coordinator._logger.LogWarning(
-                        "{Symbol} Cancelled while waiting {WaitedMs} ms for the desktop.",
-                        UiSymbols.Warning,
-                        waitedMs);
-                }
-                else
-                {
-                    coordinator._logger.LogWarning("{Symbol} {Message}", UiSymbols.Warning, message);
-                }
-            }
+            ReportCancellation(parseResult, outputMode, coordinator._logger, cancelledWhileQueued, waitedMs, queuePosition);
         }
 
         private void PublishTelemetry(bool completedNormally, UiCoordinationOutcome outcome)

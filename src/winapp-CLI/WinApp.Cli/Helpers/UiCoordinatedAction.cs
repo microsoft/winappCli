@@ -97,7 +97,17 @@ internal abstract class UiCoordinatedAction(IInteractiveDesktopLock coordinator,
                     UiSymbols.Warning);
             }
 
-            return await ExecuteAsync(parseResult, new UncoordinatedTurn(ResolveMode(parseResult)), cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await ExecuteAsync(parseResult, new UncoordinatedTurn(ResolveMode(parseResult)), cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Match the coordinated path: a command that throws on Ctrl+C reports `cancelled` and 130.
+                InteractiveDesktopLock.ReportCancellation(
+                    parseResult, outputMode, logger, cancelledWhileQueued: false, waitedMs: 0, queuePosition: null);
+                return InteractiveDesktopLock.CancelledExitCode;
+            }
         }
         catch (UiCoordinationException ex)
         {
