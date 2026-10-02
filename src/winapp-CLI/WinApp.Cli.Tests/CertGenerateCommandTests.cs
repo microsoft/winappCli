@@ -467,6 +467,27 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
         Assert.IsTrue(root.TryGetProperty("defaultPasswordIsPublic", out var defaultPwProp),
             "JSON should always contain 'defaultPasswordIsPublic' so callers can branch on it unconditionally");
         Assert.IsFalse(defaultPwProp.GetBoolean(), "A caller-supplied password is not the public default");
+
+        Assert.IsFalse(root.GetProperty("skipped").GetBoolean(), "A generated certificate must report skipped: false");
+    }
+
+    [TestMethod]
+    public async Task JsonOutput_ExistingFileSkipMode_EmitsSkippedPayload()
+    {
+        // Issue #917: --json suppresses logging, so the skip path must still write a parseable result.
+        var command = GetRequiredService<CertGenerateCommand>();
+        var pfxPath = Path.Combine(_tempDirectory.FullName, "json-skip.pfx");
+        await File.WriteAllTextAsync(pfxPath, "placeholder", TestContext.CancellationToken);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--publisher", "CN=JsonSkipTest", "--output", pfxPath, "--if-exists", "skip", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        var root = JsonDocument.Parse(TestAnsiConsole.Output.Trim()).RootElement;
+        Assert.IsTrue(root.GetProperty("skipped").GetBoolean());
+        Assert.AreEqual(Path.GetFullPath(pfxPath), root.GetProperty("certificatePath").GetString());
+        Assert.IsFalse(root.TryGetProperty("password", out _), "The existing file is not opened, so no password is reported");
+        Assert.AreEqual("placeholder", await File.ReadAllTextAsync(pfxPath, TestContext.CancellationToken));
     }
 
     [TestMethod]

@@ -26,6 +26,22 @@ internal class CertGenerateJsonOutput
     /// would otherwise drop. Omitted entirely when there is nothing to disclose.
     /// </summary>
     public List<string>? Warnings { get; set; }
+
+    /// <summary>
+    /// Always <see langword="false"/> here; <see cref="CertGenerateSkippedJsonOutput"/> carries
+    /// <see langword="true"/>, so callers can branch on one key for both shapes.
+    /// </summary>
+    public bool Skipped => false;
+}
+
+/// <summary>
+/// Emitted by <c>cert generate --if-exists skip --json</c> when the output file already exists.
+/// The existing file is not opened, so only its path is reported.
+/// </summary>
+internal class CertGenerateSkippedJsonOutput
+{
+    public required string CertificatePath { get; set; }
+    public bool Skipped => true;
 }
 
 internal class CertInfoJsonOutput
@@ -118,6 +134,7 @@ internal sealed class FindUiCodeEntryJson
 /// Add new [JsonSerializable(typeof(...))] attributes here when adding --json output to more commands.
 /// </summary>
 [JsonSerializable(typeof(CertGenerateJsonOutput))]
+[JsonSerializable(typeof(CertGenerateSkippedJsonOutput))]
 [JsonSerializable(typeof(CertInfoJsonOutput))]
 [JsonSerializable(typeof(JsonErrorOutput))]
 [JsonSerializable(typeof(WinApp.Cli.Services.ApiSearch.ApiSearchOutput))]

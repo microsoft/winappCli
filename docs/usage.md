@@ -1379,16 +1379,30 @@ winapp cert generate [options]
   "subjectName": "CN=Contoso",
   "warnings": [
     "Protected with the default password ('password'), which is public. Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship."
-  ]
+  ],
+  "skipped": false
 }
 ```
 
 `publisher` is the display name and `subjectName` the full distinguished name the certificate was
-issued to. `defaultPasswordIsPublic` is always present. When it is `true`, the `.pfx` is protected by
+issued to. `defaultPasswordIsPublic` is always present when a certificate is generated. When it is `true`, the `.pfx` is protected by
 a password anyone can guess, so the certificate must only sign builds that stay on your own machines
 — check it before a script hands the certificate to anything else. `warnings` carries the same
 disclosure as text and is omitted when there is nothing to report. `publicCertificatePath` appears
 only with `--export-cer`.
+
+With `--if-exists skip`, when the certificate file already exists, the command leaves it untouched
+and returns only its path:
+
+```json
+{
+  "certificatePath": "C:\\app\\devcert.pfx",
+  "skipped": true
+}
+```
+
+Check `skipped` before reading the other fields. To inspect the existing certificate, run
+[`winapp cert info`](#cert-info).
 
 #### cert info
 
