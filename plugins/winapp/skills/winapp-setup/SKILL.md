@@ -164,7 +164,7 @@ winapp update
 winapp update --setup-sdks preview
 ```
 
-This updates `winapp.yaml` with the latest versions and reinstalls packages.
+This updates `winapp.yaml` with the latest versions and reinstalls packages. If the newest Windows App SDK release is still being published (some of its packages aren't on the feed yet), `update` uses the previous release instead and prints a note; run `winapp update` again later to pick up the new release.
 
 ### Run and debug with identity
 
