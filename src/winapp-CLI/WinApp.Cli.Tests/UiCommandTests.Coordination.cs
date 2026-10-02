@@ -543,6 +543,8 @@ public partial class UiCommandTests
 
         Assert.AreEqual(InteractiveDesktopLock.CancelledExitCode, exitCode, $"stderr: {ConsoleStdErr}");
         AssertJsonErrorCode(UiCoordinationErrorCodes.Cancelled);
+        Assert.DoesNotContain("acquired the desktop", ConsoleStdErr.ToString(),
+            "an uncoordinated command never acquired the desktop");
     }
 
     // ------------------------------------------- pre-start recording cancellation must not renew grace

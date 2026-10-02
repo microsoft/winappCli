@@ -105,7 +105,12 @@ internal abstract class UiCoordinatedAction(IInteractiveDesktopLock coordinator,
             {
                 // Match the coordinated path: a command that throws on Ctrl+C reports `cancelled` and 130.
                 InteractiveDesktopLock.ReportCancellation(
-                    parseResult, outputMode, logger, cancelledWhileQueued: false, waitedMs: 0, queuePosition: null);
+                    parseResult,
+                    outputMode,
+                    logger,
+                    InteractiveDesktopLock.CancellationPoint.RunningUncoordinated,
+                    waitedMs: 0,
+                    queuePosition: null);
                 return InteractiveDesktopLock.CancelledExitCode;
             }
         }

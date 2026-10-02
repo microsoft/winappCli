@@ -31,6 +31,19 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
     /// <summary>Exit code for a command cancelled before it ever ran (128 + SIGINT).</summary>
     internal const int CancelledExitCode = 130;
 
+    /// <summary>Where a <c>winapp ui</c> command was when Ctrl+C cancelled it.</summary>
+    internal enum CancellationPoint
+    {
+        /// <summary>Waiting for its turn on the desktop.</summary>
+        Queued,
+
+        /// <summary>Running after it acquired the desktop.</summary>
+        Running,
+
+        /// <summary>Running without coordination, so it never acquired the desktop.</summary>
+        RunningUncoordinated,
+    }
+
     /// <summary>
     /// Writes the <c>cancelled</c> result for a <c>winapp ui</c> command that threw on Ctrl+C, whether
     /// or not it ran coordinated.
@@ -39,13 +52,16 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         ParseResult parseResult,
         UiCoordinationOutputMode outputMode,
         ILogger logger,
-        bool cancelledWhileQueued,
+        CancellationPoint point,
         long waitedMs,
         int? queuePosition)
     {
-        var message = cancelledWhileQueued
-            ? "UI turn wait was cancelled."
-            : "The command was cancelled after it acquired the desktop; any UI changes it had already made remain.";
+        var message = point switch
+        {
+            CancellationPoint.Queued => "UI turn wait was cancelled.",
+            CancellationPoint.Running => "The command was cancelled after it acquired the desktop; any UI changes it had already made remain.",
+            _ => "The command was cancelled; any UI changes it had already made remain.",
+        };
 
         UiJsonError.Emit(
             outputMode.Json,
@@ -60,7 +76,7 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
 
         if (!outputMode.Json && !outputMode.Quiet)
         {
-            if (cancelledWhileQueued)
+            if (point == CancellationPoint.Queued)
             {
                 logger.LogWarning(
                     "{Symbol} Cancelled while waiting {WaitedMs} ms for the desktop.",
@@ -883,7 +899,13 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                 coordinator._logger.LogDebug("Queue position could not be read while cancelling: {Message}", ex.Message);
             }
 
-            ReportCancellation(parseResult, outputMode, coordinator._logger, cancelledWhileQueued, waitedMs, queuePosition);
+            ReportCancellation(
+                parseResult,
+                outputMode,
+                coordinator._logger,
+                cancelledWhileQueued ? CancellationPoint.Queued : CancellationPoint.Running,
+                waitedMs,
+                queuePosition);
         }
 
         private void PublishTelemetry(bool completedNormally, UiCoordinationOutcome outcome)
