@@ -1,18 +1,11 @@
 name: Plugin Check
 
-# Fast, build-free check of plugin manifests and skills. The post-build
-# validate-docs job in build-package.yml still runs the same script.
-# Path-filtered: do not make this a required check, or skipped runs stay pending.
+# Fast, build-free check of plugin manifests and skills. It always runs on PRs, so it is
+# safe to mark as a required check, and skips quickly when no relevant file changed.
+# The post-build validate-docs job in build-package.yml still runs the same script.
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'plugins/**'
-      - 'plugin.json'
-      - 'docs/cli-schema.json'
-      - 'src/winapp-npm/src/cli.ts'
-      - 'scripts/validate-plugin-package.ps1'
-      - '.github/workflows/plugin-check.yml'
 
 permissions:
   contents: read
@@ -26,11 +19,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # The default PR checkout is the merge commit; depth 2 brings in its base parent,
+      # so HEAD^1..HEAD is exactly what the PR changes.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Validate plugin packages and skills
         shell: pwsh
-        run: ./scripts/validate-plugin-package.ps1
+        run: |
+          $relevant = '^(plugins/|scripts/validate-plugin-package\.ps1$|docs/cli-schema\.json$|src/winapp-npm/src/cli\.ts$|\.github/workflows/plugin-check\.yml$)'
+          $changed = @(git diff --name-only HEAD^1 HEAD)
+          if ($LASTEXITCODE -ne 0) { throw "Could not list the files this PR changes." }
+          $matched = @($changed | Where-Object { $_ -match $relevant })
+          if ($matched.Count -eq 0) {
+            $message = "No skill-related changes; skipping."
+            Write-Host $message
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $message
+            exit 0
+          }
+          Write-Host "Skill-related changes:"
+          $matched | ForEach-Object { Write-Host "  $_" }
+          ./scripts/validate-plugin-package.ps1
+          exit $LASTEXITCODE
