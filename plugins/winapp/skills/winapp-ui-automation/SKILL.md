@@ -124,11 +124,16 @@ winapp ui invoke itm-samples-3f2c -a myapp; winapp ui wait-for pn-samplespage-b4
 ```powershell
 winapp ui invoke SettingsCategory -a myapp --action select
 winapp ui invoke AgreeCheckbox -a myapp --action toggle-on --json
+winapp ui invoke Open -w <dialog-HWND> --type Button --action invoke
 ```
 
 Use `--action` to avoid automatic pattern and ancestor fallback. Omit it for the
-existing automatic behavior. See the [action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
-for supported actions, idempotent toggles, and failure recovery, and the
+existing automatic behavior. For a filtered explicit action, `--root`, `--type`,
+and `--class-name` follow the same matching rules as read queries: exactly one
+element must match inside the selected app/window, or the command fails without
+acting. Filters without `--action` are invalid. See the
+[action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
+for supported actions, scope, idempotent toggles, and failure recovery, and the
 [JSON envelope](references/ui-json-envelope.md#ui-invoke---json) for action results.
 
 ### Disambiguate duplicate elements

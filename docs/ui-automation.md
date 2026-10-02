@@ -53,9 +53,10 @@ winapp ui search "Welcome to MyApp" -a myapp --root MailRow --type Text --class-
 winapp ui get-value Subject -w 123456 --root MailRow --type TextBox
 winapp ui get-property Subject -a myapp --root MailRow --type Edit --property Value
 winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value "Ready" --timeout 10000
+winapp ui invoke Open -w <dialog-HWND> --type Button --action invoke
 ```
 
-`search`, `get-property`, `get-value`, and `wait-for` accept these optional filters.
+`search`, `get-property`, `get-value`, `wait-for`, and `invoke --action` accept these optional filters.
 The selector and every supplied filter must match the **same element**:
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
@@ -98,7 +99,7 @@ A root slug selects that element even when another window has the same
 AutomationId. If the selected root is replaced, its old slug no longer matches;
 use an AutomationId or name root when you want polling to follow a replacement.
 
-When filters are present, commands that read a single element fail with
+When filters are present, commands that read a single element and `invoke --action` fail with
 `ambiguous_selector` if more than one element remains; narrow the filters or use
 a unique slug. Exact AutomationId matches retain precedence over substring
 matches, within the filtered scope. Omitting all three options preserves the
@@ -595,6 +596,7 @@ recordings and whole-desktop capture.
 winapp ui invoke SettingsCategory -a myapp --action select
 winapp ui invoke AgreeCheckbox -a myapp --action toggle-on --json
 winapp ui invoke SizeComboBox -a myapp --action expand
+winapp ui invoke Open -w <dialog-HWND> --root Actions --type Button --class-name Button --action invoke
 winapp ui invoke SubmitButton -a myapp
 ```
 
@@ -605,6 +607,17 @@ be selected, not invoked, with `--action select`. With `--action`, a slug target
 exactly one element; a plain-text or AutomationId selector that matches more than
 one element fails closed with a nonzero exit code rather than acting on the first
 match, so pass a slug from `inspect`/`search` when a name is ambiguous.
+
+With `--action`, `--root`, `--type`, and `--class-name` narrow the match as
+described in [Scoped and typed queries](#scoped-and-typed-queries). Use
+`-w <dialog-HWND>` to restrict an action to that dialog, or `-a <app>` to
+include the app's windows. The filtered action confirms the unique target inside its
+desktop turn, requires exactly one matching element, and never switches to
+another window or an invokable ancestor. Zero matches fail with `element_not_found`;
+duplicates fail with `ambiguous_selector`. A stale element or recycled window
+fails without acting; re-run `inspect` or `search` and choose a current selector.
+Filters **require `--action`**: supplying any of them without it fails with
+`invalid_arguments` instead of changing automatic invoke behavior.
 
 | Action | Operation |
 |--------|-----------|

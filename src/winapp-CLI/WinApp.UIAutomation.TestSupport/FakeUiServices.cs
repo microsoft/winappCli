@@ -15,6 +15,7 @@ public class FakeUiAutomationService : IUiAutomation
     public Exception? FindUniqueThrow { get; set; }
     public List<bool> FindSingleRequireUniqueCalls { get; } = [];
     public List<UiSelector> Queries { get; } = [];
+    public Action? OnFindSingle { get; set; }
 
     /// <summary>
     /// Optional per-call results for <see cref="FindSingleElementAsync"/>. When non-empty, the first
@@ -164,8 +165,15 @@ public class FakeUiAutomationService : IUiAutomation
         return FindSingleElementAsync(uiTarget, selector, ct);
     }
 
+    public bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return ReferenceEquals(selected, current);
+    }
+
     public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
     {
+        OnFindSingle?.Invoke();
         Queries.Add(selector);
         if (FindSingleElementThrowException is not null) { throw FindSingleElementThrowException; }
         if (FindSingleThrow is not null) { throw FindSingleThrow; }
