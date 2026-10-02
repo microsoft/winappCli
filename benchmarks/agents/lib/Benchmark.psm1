@@ -176,6 +176,10 @@ function Read-SessionEvents {
         reasoningEffort        = $null
         skillsInvoked          = [System.Collections.Generic.List[object]]::new()
         skillsContextDelivered = [System.Collections.Generic.List[string]]::new()
+        # Characters of skill content delivered into the model context, and a chars/4 token estimate.
+        skillContextChars        = $null
+        skillContextTokensApprox = $null
+        skillContextReason       = $null
         tokens                 = $null
         tokensReason           = $null
         aiCredits              = $null
@@ -190,6 +194,7 @@ function Read-SessionEvents {
     }
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) {
         $r.tokensReason = 'no persisted events log'
+        $r.skillContextReason = 'no persisted events log'
         return [pscustomobject]$r
     }
 
@@ -197,6 +202,8 @@ function Read-SessionEvents {
     $tools = 0
     $usage = $null
     $toolNames = @{}
+    $skillContentLength = @{}
+    $deliveries = [System.Collections.Generic.List[hashtable]]::new()
     foreach ($line in [System.IO.File]::ReadLines($Path)) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try { $ev = $line | ConvertFrom-Json -AsHashtable -Depth 64 }
@@ -213,6 +220,7 @@ function Read-SessionEvents {
                 if ($data.ContainsKey('newModel')) { $r.model = $data.newModel }
             }
             'skill.invoked' {
+                if ($data.ContainsKey('content') -and $data.content -is [string]) { $skillContentLength[[string]$data.name] = $data.content.Length }
                 $r.skillsInvoked.Add([ordered]@{
                         name    = $data.name
                         trigger = $data.ContainsKey('trigger') ? $data.trigger : $null
@@ -226,6 +234,10 @@ function Read-SessionEvents {
                 if ($data.ContainsKey('prefix') -and $data.prefix -match '<skill-context name="([^"]+)"') { $n = $Matches[1] }
                 elseif ($data.ContainsKey('source') -and $data.source -like 'skill-*') { $n = $data.source.Substring(6) }
                 if ($n -and -not $r.skillsContextDelivered.Contains($n)) { $r.skillsContextDelivered.Add($n) }
+                # The _ref event carries only a content hash; the body length comes from skill.invoked.
+                $wrapper = ([string]$data.prefix).Length + ([string]$data.suffix).Length
+                $bodyLength = if ($data.ContainsKey('content') -and $data.content -is [string]) { $data.content.Length } else { $null }
+                $deliveries.Add(@{ name = $n; wrapper = $wrapper; body = $bodyLength })
             }
             'assistant.turn_start' { $turns++ }
             'tool.execution_start' {
@@ -265,6 +277,23 @@ function Read-SessionEvents {
     if ($r.eventCount -gt 0) {
         $r.modelTurns = $turns
         $r.toolCalls = $tools
+        $chars = 0L
+        $unknown = @()
+        foreach ($d in $deliveries) {
+            $body = $d.body ?? ($d.name -and $skillContentLength.ContainsKey($d.name) ? $skillContentLength[$d.name] : $null)
+            if ($null -eq $body) { $unknown += $d.name; continue }
+            $chars += $d.wrapper + $body
+        }
+        if ($unknown) {
+            $r.skillContextReason = "body length unknown for: $(($unknown | Select-Object -Unique) -join ', ')"
+        }
+        else {
+            $r.skillContextChars = $chars
+            $r.skillContextTokensApprox = [int64][Math]::Round($chars / 4)
+        }
+    }
+    else {
+        $r.skillContextReason = 'events log is empty'
     }
     if ($usage) { $r.tokens = $usage }
     elseif (-not $r.sessionShutdown) { $r.tokensReason = 'session.shutdown event missing' }
@@ -385,6 +414,13 @@ function Write-BenchmarkSummary {
     $tokOut = ($rows | Where-Object { $_.tokens } | ForEach-Object { $_.tokens.output } | Measure-Object -Sum).Sum
     $credits = ($rows | Where-Object { $null -ne $_.aiCredits } | ForEach-Object { $_.aiCredits } | Measure-Object -Sum).Sum
     [void]$sb.AppendLine("- Tokens: $(Format-Count $tokIn) input, $(Format-Count $tokOut) output; AI credits: $(if ($null -ne $credits) { '{0:N1}' -f $credits } else { 'n/a' })")
+    $ctx = @($rows | Where-Object { $null -ne $_.skillContextTokensApprox })
+    $ctxSum = ($ctx | ForEach-Object { $_.skillContextTokensApprox } | Measure-Object -Sum).Sum
+    [void]$sb.AppendLine("- Skill context delivered: ~$(Format-Count $ctxSum) tokens (approximate, characters / 4; $($ctx.Count) of $($rows.Count) runs measured)")
+    [void]$sb.AppendLine()
+    [void]$sb.AppendLine('Input tokens count the full prompt on every model turn, including cached tokens, so they are dominated by')
+    [void]$sb.AppendLine("Copilot's own system prompt, tool definitions, and conversation. The skill context column shows what the")
+    [void]$sb.AppendLine('loaded skills added once; it is an estimate, not a tokenizer count.')
     [void]$sb.AppendLine()
 
     $order = @($ScenarioOrder) + @($rows.scenario | Select-Object -Unique | Where-Object { $_ -notin $ScenarioOrder })
@@ -393,8 +429,8 @@ function Write-BenchmarkSummary {
         if (-not $sr) { continue }
         [void]$sb.AppendLine("## $scenario")
         [void]$sb.AppendLine()
-        [void]$sb.AppendLine('| Configuration | Model | Pass | Skills loaded (most common, freq) | Median input (incl. cached) | Median output | Median cache read | Median duration |')
-        [void]$sb.AppendLine('|---|---|---|---|---|---|---|---|')
+        [void]$sb.AppendLine('| Configuration | Model | Pass | Skills loaded (most common, freq) | Median input (incl. cached) | Median skill context (~tokens, approx.) | Median output | Median cache read | Median duration |')
+        [void]$sb.AppendLine('|---|---|---|---|---|---|---|---|---|')
         foreach ($g in ($sr | Group-Object configuration, model)) {
             $runs = @($g.Group)
             $first = $runs[0]
@@ -412,9 +448,11 @@ function Write-BenchmarkSummary {
             $medIn = Get-Median @($withTokens | ForEach-Object { [double]$_.tokens.input })
             $medOut = Get-Median @($withTokens | ForEach-Object { [double]$_.tokens.output })
             $medCache = Get-Median @($withTokens | ForEach-Object { [double]$_.tokens.cacheRead })
+            $medCtx = Get-Median @($runs | Where-Object { $null -ne $_.skillContextTokensApprox } | ForEach-Object { [double]$_.skillContextTokensApprox })
+            $ctxText = if ($null -ne $medCtx) { "~$(Format-Count $medCtx)" } else { 'n/a' }
             $medDur = Get-Median @($runs | Where-Object { $null -ne $_.durationMs } | ForEach-Object { [double]$_.durationMs })
             $durText = if ($null -ne $medDur) { '{0:N0}s' -f ($medDur / 1000) } else { 'n/a' }
-            [void]$sb.AppendLine("| $($first.configuration) | $($first.model) | $passText | $skillText | $(Format-Count $medIn) | $(Format-Count $medOut) | $(Format-Count $medCache) | $durText |")
+            [void]$sb.AppendLine("| $($first.configuration) | $($first.model) | $passText | $skillText | $(Format-Count $medIn) | $ctxText | $(Format-Count $medOut) | $(Format-Count $medCache) | $durText |")
         }
         $failed = @($sr | Where-Object { $_.status -ne 'pass' -and $_.reason })
         if ($failed) {

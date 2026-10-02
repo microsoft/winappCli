@@ -16,6 +16,10 @@ Describe 'Read-SessionEvents' {
         $r.skillsInvoked[0].trigger | Should -Be 'agent-invoked'
         $r.skillsInvoked[0].plugin | Should -Be 'winappcli'
         @($r.skillsContextDelivered) | Should -Be @('winapp-frameworks')
+        # prefix (149) + skill body from skill.invoked (20, trimmed in this fixture) + suffix (17)
+        $r.skillContextChars | Should -Be 186
+        $r.skillContextTokensApprox | Should -Be 46
+        $r.skillContextReason | Should -BeNullOrEmpty
         $r.tokens.input | Should -Be 115032
         $r.tokens.output | Should -Be 1712
         $r.tokens.cacheRead | Should -Be 89095
@@ -47,6 +51,16 @@ Describe 'Read-SessionEvents' {
         $r.modelTurns | Should -BeNullOrEmpty
         $r.toolCalls | Should -BeNullOrEmpty
         $r.tokensReason | Should -Be 'no persisted events log'
+        $r.skillContextChars | Should -BeNullOrEmpty
+    }
+
+    It 'reports zero skill context, not null, when a session loaded no skills' {
+        $path = Join-Path $TestDrive 'no-skills.jsonl'
+        Get-Content (Join-Path $PSScriptRoot 'events-complete.jsonl') |
+            Where-Object { $_ -notmatch '"type":"skill\.' } | Set-Content $path
+        $r = Read-SessionEvents -Path $path
+        $r.skillContextChars | Should -Be 0
+        @($r.skillsInvoked).Count | Should -Be 0
     }
 }
 
@@ -101,6 +115,24 @@ Describe 'Directory snapshots' {
         Set-Content (Join-Path $dir 'c.txt') 'c'
         $changes = Compare-DirectorySnapshot -Before $before -After (Get-DirectorySnapshot -Path $dir)
         $changes | Should -Be @('modified a.txt', 'deleted b.txt', 'added c.txt')
+    }
+}
+
+Describe 'Write-BenchmarkSummary' {
+    It 'writes a table row with skill context and redacts the home path' {
+        $runs = Join-Path $TestDrive 'runs.jsonl'
+        $userHome = [Environment]::GetFolderPath('UserProfile')
+        @(
+            [ordered]@{ scenario = 's1'; configuration = 'winapp'; model = 'm'; iteration = 1; status = 'pass'; reason = ''; skillsLoaded = @('winapp-setup'); tokens = @{ input = 100000; output = 2000; cacheRead = 80000 }; skillContextTokensApprox = 6000; aiCredits = 10; durationMs = 20000 }
+            [ordered]@{ scenario = 's1'; configuration = 'winapp'; model = 'm'; iteration = 2; status = 'timeout'; reason = "killed in $userHome\x"; skillsLoaded = @(); tokens = $null; skillContextTokensApprox = $null; aiCredits = $null; durationMs = 300000 }
+        ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 5 } | Set-Content $runs
+        $out = Join-Path $TestDrive 'summary.md'
+        Write-BenchmarkSummary -RunsPath $runs -SummaryPath $out -Header ([ordered]@{ Models = 'm' }) -ScenarioOrder 's1'
+        $text = Get-Content -Raw $out
+
+        $text | Should -Match '\| winapp \| m \| 1/2 \(1 timeout\) \| winapp-setup \(1/1\) \| 100\.0k \| ~6\.0k \| 2\.0k \| 80\.0k \|'
+        $text | Should -Match 'Skill context delivered: ~6\.0k tokens'
+        $text | Should -Not -Match ([regex]::Escape($userHome))
     }
 }
 

@@ -1,7 +1,7 @@
 {
   "id": "xaml-unknown-member",
   "description": "WinUI build error for a property that does not exist on TextBox.",
-  "prompt": "My WinUI app stopped building after I edited the search box. The error is: MainWindow.xaml(9,18): XamlCompiler error WMC0011: Unknown member 'Watermark' on element 'TextBox'. What is the correct property and how do I fix MainWindow.xaml?",
+  "prompt": "My WinUI app stopped building after I edited the search box: MainWindow.xaml(9,18): XamlCompiler error WMC0011: Unknown member 'Watermark' on element 'TextBox'. Fix it.",
   "configurations": [
     "winapp",
     "winui",

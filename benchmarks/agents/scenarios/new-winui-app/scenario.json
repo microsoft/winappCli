@@ -1,9 +1,8 @@
 {
   "id": "new-winui-app",
   "description": "Create a brand-new WinUI 3 app in an empty folder.",
-  "prompt": "Create a new WinUI 3 desktop app called PhotoTagger in this empty folder using C#, and tell me how to build and run it. List the exact commands you would run.",
+  "prompt": "Create a new C# WinUI 3 desktop app called PhotoTagger in this folder and run it.",
   "configurations": [
-    "winapp",
     "winui",
     "both"
   ],
