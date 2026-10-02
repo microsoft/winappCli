@@ -334,7 +334,7 @@ function devtoolsCommentsList(options?: DevtoolsCommentsListOptions): Promise<Wi
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `project` | `string \| undefined` | No | Filter by the captured project root. |
 | `sourceRoot` | `string \| undefined` | No | Project directory (default: current directory); comments are stored at the repository root. |
-| `status` | `string \| undefined` | No | Filter by status: open \| resolved \| stale \| dismissed (default: open for human output; all statuses with --json). |
+| `status` | `string \| undefined` | No | Filter by status: open \| resolved \| stale \| dismissed \| all (default: open for human output; all statuses with --json). |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -2318,7 +2318,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `project` | `string \| undefined` | No | Filter by the captured project root. |
 | `sourceRoot` | `string \| undefined` | No | Project directory (default: current directory); comments are stored at the repository root. |
-| `status` | `string \| undefined` | No | Filter by status: open \| resolved \| stale \| dismissed (default: open for human output; all statuses with --json). |
+| `status` | `string \| undefined` | No | Filter by status: open \| resolved \| stale \| dismissed \| all (default: open for human output; all statuses with --json). |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |

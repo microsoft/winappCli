@@ -24,7 +24,7 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
         "winapp devtools comments list --status open --json",
     ];
 
-    public static Option<string?> StatusOption { get; } = new("--status") { Description = "Filter by status: open | resolved | stale | dismissed (default: open for human output; all statuses with --json)." };
+    public static Option<string?> StatusOption { get; } = new("--status") { Description = "Filter by status: open | resolved | stale | dismissed | all (default: open for human output; all statuses with --json)." };
 
     public static Option<bool> AllOption { get; } = new("--all") { Description = "Include all statuses (the default for --json)." };
 
@@ -59,13 +59,17 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
             var all = parseResult.GetValue(AllOption);
             var project = DevToolsCommentsAddCommand.Nullify(parseResult.GetValue(ProjectOption));
 
-            if (status is not null && !CommentStatus.IsValid(status))
+            if (status == "all")
+            {
+                status = null;
+                all = true;
+            }
+            else if (status is not null && !CommentStatus.IsValid(status))
             {
                 return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json,
-                    $"Invalid --status '{status}'. Allowed: {string.Join(", ", CommentStatus.All)}."));
+                    $"Invalid --status '{status}'. Allowed: {string.Join(", ", CommentStatus.All)}, all."));
             }
-
-            if (status is not null && all)
+            else if (status is not null && all)
             {
                 return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json,
                     "--status and --all are alternatives; pass one."));

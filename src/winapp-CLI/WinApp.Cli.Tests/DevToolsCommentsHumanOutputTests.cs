@@ -235,6 +235,22 @@ public class DevToolsCommentsHumanOutputTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void StatusAll_ListsEveryStatusLikeAll(bool json)
+    {
+        Success("add", "--id", "open-one", "--text", "Still open.");
+        Success("add", "--id", "done-one", "--text", "Already fixed.");
+        Success("update", "done-one", "--status", "resolved");
+
+        var output = Success("list", json ? ["--status", "all", "--json"] : ["--status", "all"]);
+
+        StringAssert.Contains(output, "Still open.");
+        StringAssert.Contains(output, "Already fixed.");
+        Assert.AreEqual(Success("list", json ? ["--all", "--json"] : ["--all"]), output);
+    }
+
+    [TestMethod]
     [DataRow("review[1]", false)]
     [DataRow("review[1]", true)]
     [DataRow("review[red]1[/]", false)]

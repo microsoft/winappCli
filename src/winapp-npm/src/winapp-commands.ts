@@ -2,7 +2,7 @@
  * AUTO-GENERATED — DO NOT EDIT
  *
  * Regenerate with:  npm run generate-commands
- * Source schema version: 0.7.1
+ * Source schema version: 1.0.0
  *
  * Programmatic wrappers for all winapp CLI commands.
  * Each function builds the CLI arguments, invokes the native CLI,
@@ -505,7 +505,7 @@ export interface DevtoolsCommentsListOptions extends CommonOptions {
   project?: string;
   /** Project directory (default: current directory); comments are stored at the repository root. */
   sourceRoot?: string;
-  /** Filter by status: open | resolved | stale | dismissed (default: open for human output; all statuses with --json). */
+  /** Filter by status: open | resolved | stale | dismissed | all (default: open for human output; all statuses with --json). */
   status?: string;
 }
 

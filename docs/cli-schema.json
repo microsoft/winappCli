@@ -1,6 +1,6 @@
 {
   "name": "winapp",
-  "version": "0.7.2",
+  "version": "1.0.0",
   "schemaVersion": "1.0",
   "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
   "hidden": false,
@@ -1465,7 +1465,7 @@
                   "recursive": false
                 },
                 "--status": {
-                  "description": "Filter by status: open | resolved | stale | dismissed (default: open for human output; all statuses with --json).",
+                  "description": "Filter by status: open | resolved | stale | dismissed | all (default: open for human output; all statuses with --json).",
                   "hidden": false,
                   "valueType": "System.String",
                   "hasDefaultValue": false,
