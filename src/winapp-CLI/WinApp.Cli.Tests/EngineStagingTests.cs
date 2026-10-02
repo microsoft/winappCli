@@ -26,25 +26,20 @@ public class EngineStagingTests
         security.SetAccessRuleProtection(true, false);
         security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null),
             rights, AccessControlType.Allow));
-        Assert.AreEqual(trusted, EngineStaging.IsTrustedSecurity(security, identity.User!, directory: true));
+        Assert.AreEqual(trusted, EngineStaging.IsTrustedSecurity(security, identity.User!));
     }
 
     [TestMethod]
-    public void Correction_StagingAcl_HandlesSystemAncestorsAndInheritanceOnly()
+    public void StagingAcl_IgnoresInheritOnlyGrants()
     {
         using var identity = WindowsIdentity.GetCurrent();
         var security = new DirectorySecurity();
-        security.SetOwner(new SecurityIdentifier("S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"));
-        security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null),
-            FileSystemRights.AppendData, AccessControlType.Allow));
+        security.SetOwner(identity.User!);
         security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.CreatorOwnerSid, null),
             FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
             PropagationFlags.InheritOnly, AccessControlType.Allow));
-        Assert.IsTrue(EngineStaging.IsTrustedSecurity(security, identity.User!, true, true, true));
-        Assert.IsFalse(EngineStaging.IsTrustedSecurity(security, identity.User!, true, false, true));
-        Assert.IsFalse(EngineStaging.IsTrustedSecurity(security, identity.User!, true, true, false));
+        Assert.IsTrue(EngineStaging.IsTrustedSecurity(security, identity.User!));
     }
-
     [TestMethod]
     public void Correction_StagingAcl_ForeignOwnerAndNullDaclAreRefused()
     {
@@ -53,10 +48,10 @@ public class EngineStagingTests
         security.SetOwner(new SecurityIdentifier("S-1-5-21-1-2-3-1001"));
         security.SetAccessRuleProtection(true, false);
         security.AddAccessRule(new FileSystemAccessRule(identity.User!, FileSystemRights.FullControl, AccessControlType.Allow));
-        Assert.IsFalse(EngineStaging.IsTrustedSecurity(security, identity.User!, true));
+        Assert.IsFalse(EngineStaging.IsTrustedSecurity(security, identity.User!));
         var nullDacl = new DirectorySecurity();
         nullDacl.SetSecurityDescriptorSddlForm($"O:{identity.User!.Value}D:NO_ACCESS_CONTROL");
-        Assert.IsFalse(EngineStaging.IsTrustedSecurity(nullDacl, identity.User!, true));
+        Assert.IsFalse(EngineStaging.IsTrustedSecurity(nullDacl, identity.User!));
     }
 
     private string _root = null!;
@@ -201,55 +196,56 @@ public class EngineStagingTests
         finally { File.Delete(staged); }
     }
 
-    // A managed machine can grant another principal Modify over the whole profile; that principal can already change
-    // everything the user runs, so staging must not fail on it. The same grant made only below the profile still fails.
+    // Another principal with Modify on the profile can already change what the user runs, so it must not block
+    // staging. What staging creates is still private to the user.
     [TestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public void Staging_AcceptsWholeProfileWritersButNotWritersBelowIt(bool grantedOnProfile)
+    [DataRow("profile")]
+    [DataRow(".winapp")]
+    public void Stage_SucceedsUnderAncestorsAnotherPrincipalCanWrite(string granted)
     {
-        var other = new SecurityIdentifier("S-1-5-21-1-2-3-1001");
         var profile = Path.Combine(_root, "profile");
-        var winapp = Path.Combine(profile, ".winapp");
-        Directory.CreateDirectory(winapp);
-        var grantee = new DirectoryInfo(grantedOnProfile ? profile : winapp);
-        var security = grantee.GetAccessControl();
-        security.AddAccessRule(new FileSystemAccessRule(other, FileSystemRights.Modify,
+        var winapp = Directory.CreateDirectory(Path.Combine(profile, ".winapp"));
+        var ancestor = granted == "profile" ? winapp.Parent! : winapp;
+        var security = ancestor.GetAccessControl();
+        security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier("S-1-5-21-1-2-3-1001"), FileSystemRights.Modify,
             InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
-        grantee.SetAccessControl(security);
-        var source = Source("WinApp.DevTools.Native.dll", [1, 2, 3]);
+        ancestor.SetAccessControl(security);
+        var engine = Path.Combine(winapp.FullName, "engine");
 
-        if (grantedOnProfile)
+        var staged = EngineStaging.StageTo(Source("WinApp.DevTools.Native.dll", [1, 2, 3]), engine);
+
+        using var identity = WindowsIdentity.GetCurrent();
+        foreach (var acl in new FileSystemSecurity[] { new DirectoryInfo(engine).GetAccessControl(),
+            new DirectoryInfo(Path.GetDirectoryName(staged)!).GetAccessControl(), new FileInfo(staged).GetAccessControl() })
         {
-            Assert.IsTrue(File.Exists(EngineStaging.StageTo(source, Path.Combine(winapp, "engine"), profile)));
-        }
-        else
-        {
-            var error = Assert.Throws<IOException>(() => EngineStaging.StageTo(source, Path.Combine(winapp, "engine"), profile));
-            StringAssert.Contains(error.Message, winapp);
-            StringAssert.Contains(error.Message, other.Value);
+            Assert.AreEqual(identity.User, acl.GetOwner(typeof(SecurityIdentifier)));
+            foreach (FileSystemAccessRule rule in acl.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+            {
+                Assert.AreEqual(identity.User, rule.IdentityReference);
+            }
         }
     }
 
     [TestMethod]
-    public void ProfileWriters_AreOnlyForeignInheritableWriteGrants()
+    public void Stage_RefusesAJunctionOnThePath()
     {
-        using var identity = WindowsIdentity.GetCurrent();
-        var inheritable = new SecurityIdentifier("S-1-5-21-1-2-3-1001");
-        var thisFolderOnly = new SecurityIdentifier("S-1-5-21-1-2-3-1002");
-        var reader = new SecurityIdentifier("S-1-5-21-1-2-3-1003");
-        var profile = new DirectoryInfo(Path.Combine(_root, "profile"));
-        profile.Create();
-        var security = profile.GetAccessControl();
-        var all = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
-        security.AddAccessRule(new FileSystemAccessRule(inheritable, FileSystemRights.Modify, all, PropagationFlags.None, AccessControlType.Allow));
-        security.AddAccessRule(new FileSystemAccessRule(thisFolderOnly, FileSystemRights.Modify, AccessControlType.Allow));
-        security.AddAccessRule(new FileSystemAccessRule(reader, FileSystemRights.ReadAndExecute, all, PropagationFlags.None, AccessControlType.Allow));
-        profile.SetAccessControl(security);
-
-        CollectionAssert.AreEquivalent(new[] { inheritable }, EngineStaging.ProfileWriters(profile.FullName, identity.User!).ToArray());
+        var target = Directory.CreateDirectory(Path.Combine(_root, "target"));
+        var junction = Path.Combine(_root, "junction");
+        using (var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe",
+            $"/c mklink /J \"{junction}\" \"{target.FullName}\"") { UseShellExecute = false, RedirectStandardOutput = true })!)
+        {
+            mklink.WaitForExit();
+            Assert.AreEqual(0, mklink.ExitCode);
+        }
+        try
+        {
+            var source = Source("WinApp.DevTools.Native.dll", [1]);
+            var error = Assert.Throws<IOException>(() => EngineStaging.StageTo(source, Path.Combine(junction, "engine")));
+            StringAssert.Contains(error.Message, "redirected");
+            Assert.AreEqual(0, target.GetFileSystemInfos().Length);
+        }
+        finally { Directory.Delete(junction); }
     }
-
     private string Source(string name, byte[] bytes)
     {
         var source = Path.Combine(_root, name);

@@ -28,7 +28,7 @@ internal static unsafe partial class EngineStaging
         return IsPackaged ? StageTo(source, EngineRoot) : source;
     }
 
-    internal static string StageTo(string sourcePath, string engineRoot, string? profile = null)
+    internal static string StageTo(string sourcePath, string engineRoot)
     {
         var source = Path.GetFullPath(sourcePath);
         var root = Path.GetFullPath(engineRoot);
@@ -42,18 +42,18 @@ internal static unsafe partial class EngineStaging
         }
         if (PathSafety.HasReparsePointOnPath(root, Path.GetPathRoot(root)!))
         {
-            throw new IOException($"DevTools staging path is redirected or inaccessible: {root}");
+            throw Redirected(root);
         }
         lock (StagedLock)
         {
             using var identity = WindowsIdentity.GetCurrent();
             var user = identity.User ?? throw new IOException("DevTools staging could not determine the current user's SID.");
-            EnsureTrustedDirectory(root, user, profile);
+            EnsureDirectory(root, user);
             var key = (root.ToUpperInvariant(), source.ToUpperInvariant());
             if (StagedBySource.TryGetValue(key, out var previous) && File.Exists(previous))
             {
-                EnsureTrustedDirectory(Path.GetDirectoryName(previous)!, user, profile);
-                VerifyFile(previous, user);
+                VerifyPrivate(new DirectoryInfo(Path.GetDirectoryName(previous)!), user);
+                VerifyPrivate(new FileInfo(previous), user);
                 return previous;
             }
             var directory = Path.Combine(root, $"{Environment.ProcessId:x}-{Guid.NewGuid():N}");
@@ -61,15 +61,16 @@ internal static unsafe partial class EngineStaging
             {
                 throw new IOException($"DevTools staging destination already exists: {directory}");
             }
-            EnsureTrustedDirectory(directory, user, profile);
+            EnsureDirectory(directory, user);
+            VerifyPrivate(new DirectoryInfo(directory), user);
             var destination = Path.Combine(directory, Path.GetFileName(source));
             var temporary = destination + ".tmp";
             try
             {
                 File.Copy(source, temporary, overwrite: false);
-                VerifyFile(temporary, user);
+                VerifyPrivate(new FileInfo(temporary), user);
                 File.Move(temporary, destination);
-                VerifyFile(destination, user);
+                VerifyPrivate(new FileInfo(destination), user);
                 StagedBySource[key] = destination;
                 return destination;
             }
@@ -83,69 +84,27 @@ internal static unsafe partial class EngineStaging
         }
     }
 
-    private static void EnsureTrustedDirectory(string path, SecurityIdentifier user, string? profile)
+    // Existing ancestors are not judged by their ACLs: whoever can write the user's profile can already change
+    // what the user runs. Missing directories are created for the user only, and no directory may be a redirect.
+    private static void EnsureDirectory(string path, SecurityIdentifier user)
     {
         var chain = new Stack<DirectoryInfo>();
         for (var directory = new DirectoryInfo(path); directory is not null; directory = directory.Parent)
         {
             chain.Push(directory);
         }
-        var directories = chain.ToArray();
-        profile ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var profileWriters = ProfileWriters(profile, user);
-        for (var index = 0; index < directories.Length; index++)
+        foreach (var directory in chain)
         {
-            var directory = directories[index];
-            directory.Refresh();
             if (!directory.Exists)
             {
-                // The preceding existing parent was checked as a creation namespace.
                 directory.Create(RestrictedSecurity(user));
-                directory.Refresh();
             }
+            directory.Refresh();
             if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
             {
-                throw Untrusted(directory.FullName, null);
-            }
-            var nextExists = index + 1 < directories.Length && Directory.Exists(directories[index + 1].FullName);
-            var systemAncestor = !directory.FullName.Equals(profile, StringComparison.OrdinalIgnoreCase) &&
-                IsUnder(profile, directory.FullName);
-            var inProfile = directory.FullName.Equals(profile, StringComparison.OrdinalIgnoreCase) || IsUnder(directory.FullName, profile);
-            if (!IsTrustedSecurity(directory.GetAccessControl(), user, directory: true,
-                allowCreateChildren: nextExists, allowSystemOwner: systemAncestor,
-                alsoTrusted: inProfile ? profileWriters : null, out var principal))
-            {
-                throw Untrusted(directory.FullName, principal);
+                throw Redirected(directory.FullName);
             }
         }
-    }
-
-    private static bool IsUnder(string path, string ancestor) =>
-        path.StartsWith(Path.EndsInDirectorySeparator(ancestor) ? ancestor : ancestor + Path.DirectorySeparatorChar,
-            StringComparison.OrdinalIgnoreCase);
-
-    // A principal granted inheritable write access to the whole profile can already change everything the user
-    // runs from it, including the app being inspected, so staging under the profile cannot exclude it.
-    internal static IReadOnlySet<SecurityIdentifier> ProfileWriters(string profile, SecurityIdentifier user)
-    {
-        var writers = new HashSet<SecurityIdentifier>();
-        if (!Directory.Exists(profile))
-        {
-            return writers;
-        }
-        foreach (FileSystemAccessRule rule in new DirectoryInfo(profile).GetAccessControl()
-            .GetAccessRules(true, true, typeof(SecurityIdentifier)))
-        {
-            if (rule.AccessControlType == AccessControlType.Allow && rule.IdentityReference is SecurityIdentifier sid &&
-                (rule.InheritanceFlags & InheritanceFlags.ContainerInherit) != 0 &&
-                (rule.PropagationFlags & PropagationFlags.NoPropagateInherit) == 0 &&
-                (rule.FileSystemRights & (FileSystemRights.WriteData | FileSystemRights.Delete)) != 0 &&
-                !IsSelfOrPrivileged(sid, user))
-            {
-                writers.Add(sid);
-            }
-        }
-        return writers;
     }
 
     private static DirectorySecurity RestrictedSecurity(SecurityIdentifier user)
@@ -158,42 +117,33 @@ internal static unsafe partial class EngineStaging
         return security;
     }
 
-    private static void VerifyFile(string path, SecurityIdentifier user)
+    private static void VerifyPrivate(FileSystemInfo item, SecurityIdentifier user)
     {
-        var file = new FileInfo(path);
-        SecurityIdentifier? principal = null;
-        if ((file.Attributes & FileAttributes.ReparsePoint) != 0 ||
-            !IsTrustedSecurity(file.GetAccessControl(), user, false, false, false, null, out principal))
+        if ((item.Attributes & FileAttributes.ReparsePoint) != 0)
         {
-            throw Untrusted(path, principal);
+            throw Redirected(item.FullName);
+        }
+        FileSystemSecurity security = item is DirectoryInfo directory ? directory.GetAccessControl() : ((FileInfo)item).GetAccessControl();
+        if (!IsTrustedSecurity(security, user))
+        {
+            throw new IOException($"DevTools staging could not make this path private to the current user: {item.FullName}. " +
+                "Existing permissions and files were not repaired.");
         }
     }
 
     // Other ordinary OS users are the boundary; same-user, SYSTEM and administrator changes are not.
-    internal static bool IsTrustedSecurity(FileSystemSecurity security, SecurityIdentifier user, bool directory,
-        bool allowCreateChildren = false, bool allowSystemOwner = false) =>
-        IsTrustedSecurity(security, user, directory, allowCreateChildren, allowSystemOwner, null, out _);
-
-    internal static bool IsTrustedSecurity(FileSystemSecurity security, SecurityIdentifier user, bool directory,
-        bool allowCreateChildren, bool allowSystemOwner, IReadOnlySet<SecurityIdentifier>? alsoTrusted,
-        out SecurityIdentifier? principal)
+    internal static bool IsTrustedSecurity(FileSystemSecurity security, SecurityIdentifier user)
     {
-        principal = null;
         var descriptor = new RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(), 0);
         if (descriptor.DiscretionaryAcl is null ||
-            security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner ||
-            !(IsSelfOrPrivileged(owner, user) || (allowSystemOwner && owner.Value == TrustedInstallerSid)))
+            security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner || !IsSelfOrPrivileged(owner, user))
         {
-            principal = security.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
             return false;
         }
-        var unsafeRights = FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership |
+        const FileSystemRights unsafeRights = FileSystemRights.WriteData | FileSystemRights.AppendData |
+            FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership |
             FileSystemRights.Delete | FileSystemRights.DeleteSubdirectoriesAndFiles |
             FileSystemRights.WriteAttributes | FileSystemRights.WriteExtendedAttributes;
-        if (!directory || !allowCreateChildren)
-        {
-            unsafeRights |= FileSystemRights.WriteData | FileSystemRights.AppendData;
-        }
         foreach (FileSystemAccessRule rule in security.GetAccessRules(true, true, typeof(SecurityIdentifier)))
         {
             if (rule.AccessControlType != AccessControlType.Allow ||
@@ -201,42 +151,22 @@ internal static unsafe partial class EngineStaging
             {
                 continue;
             }
-            if (rule.IdentityReference is not SecurityIdentifier sid)
+            if (rule.IdentityReference is not SecurityIdentifier sid ||
+                (!IsSelfOrPrivileged(sid, user) && (rule.FileSystemRights & unsafeRights) != 0))
             {
-                return false;
-            }
-            if (!IsSelfOrPrivileged(sid, user) && !(allowSystemOwner && sid.Value == TrustedInstallerSid) &&
-                alsoTrusted?.Contains(sid) != true && (rule.FileSystemRights & unsafeRights) != 0)
-            {
-                principal = sid;
                 return false;
             }
         }
         return true;
     }
 
-    private const string TrustedInstallerSid = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
-
     private static bool IsSelfOrPrivileged(SecurityIdentifier sid, SecurityIdentifier user) =>
         sid == user || sid.IsWellKnown(WellKnownSidType.LocalSystemSid) ||
         sid.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid);
 
-    private static IOException Untrusted(string path, SecurityIdentifier? principal) =>
-        new($"DevTools staging path is redirected, foreign-owned or writable by another user: {path}" +
-            (principal is null ? "" : $" ({AccountName(principal)})") + ". " +
-            "Use a user-owned profile directory with restricted write permissions. Existing permissions and files were not repaired.");
-
-    private static string AccountName(SecurityIdentifier sid)
-    {
-        try
-        {
-            return sid.Translate(typeof(NTAccount)).Value;
-        }
-        catch (IdentityNotMappedException)
-        {
-            return sid.Value;
-        }
-    }
+    private static IOException Redirected(string path) =>
+        new($"DevTools staging path is redirected by a junction or symbolic link: {path}. " +
+            "Use a profile directory that is not redirected.");
 
     private static bool ComputeHasPackageIdentity()
     {
