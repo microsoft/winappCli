@@ -31,7 +31,7 @@ internal class CertGenerateJsonOutput
     /// Always <see langword="false"/> here; <see cref="CertGenerateSkippedJsonOutput"/> carries
     /// <see langword="true"/>, so callers can branch on one key for both shapes.
     /// </summary>
-    public bool Skipped => false;
+    public bool Skipped { get; }
 }
 
 /// <summary>
@@ -41,7 +41,7 @@ internal class CertGenerateJsonOutput
 internal class CertGenerateSkippedJsonOutput
 {
     public required string CertificatePath { get; set; }
-    public bool Skipped => true;
+    public bool Skipped { get; } = true;
 }
 
 internal class CertInfoJsonOutput
