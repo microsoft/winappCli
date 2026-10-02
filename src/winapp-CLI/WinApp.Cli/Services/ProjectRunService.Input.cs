@@ -170,10 +170,27 @@ internal sealed partial class ProjectRunService
             return new RunInputResolution(WinAppRunMode.Project, dirPick, dir, FindOwningSolution(dirPick), "only runnable project");
         }
 
-        // Zero or several runnable candidates → we cannot safely guess; require explicit selection.
-        var names = string.Join(", ", csprojs.Select(c => c.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase));
+        // Zero or several runnable candidates → we cannot safely guess; require explicit selection. List only
+        // the projects the user can actually run (matching the solution path) so the suggestion is valid.
+        var dirCandidates = dirApps.Count > 0 ? dirApps : (dirTests.Count > 0 ? dirTests : csprojs);
+        var dirCandidateList = FormatProjectNameList(dirCandidates.Select(p => p.Name));
+        var dirExample = dirCandidates.Select(p => p.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).First();
+        string dirReason;
+        if (dirApps.Count > 1)
+        {
+            dirReason = $"Multiple runnable app projects found in '{dir.FullName}' ({dirCandidateList})";
+        }
+        else if (dirTests.Count > 1)
+        {
+            dirReason = $"Only test projects found in '{dir.FullName}' ({dirCandidateList})";
+        }
+        else
+        {
+            dirReason = $"No runnable app project found in '{dir.FullName}' ({dirCandidateList})";
+        }
+
         throw new ProjectRunException(
-            $"Multiple .csproj files found in '{dir.FullName}' ({names}). Specify which project to run, e.g. 'winapp run {csprojs[0].Name}' or --project <name>.");
+            $"{dirReason}. Specify which project to run, e.g. 'winapp run {dirExample}' or --project <name>.");
     }
 
     /// <summary>
