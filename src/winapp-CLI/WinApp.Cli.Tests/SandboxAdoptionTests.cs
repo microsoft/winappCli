@@ -642,40 +642,6 @@ public class SandboxAdoptionTests
             "Exactly one reconnect: --on sandbox fixes what it can, but never stacks clients.");
     }
 
-    /// <summary>
-    /// With no client process on the host, a closed window is reconnected before the agent starts.
-    /// </summary>
-    /// <remarks>
-    /// Windows runs one Sandbox at a time, so no <c>WindowsSandboxRemoteSession</c> process means
-    /// nothing is attached to this guest. Waiting for the agent to start, find no input desktop, and
-    /// refuse first only adds a failed launch before the same reconnect.
-    /// </remarks>
-    [TestMethod]
-    public async Task ClosedClient_WithNoClientProcess_IsReconnectedBeforeTheAgentStarts()
-    {
-        using var harness = new AdoptionHarness();
-        harness.Cli.SetRunning(ManualInstanceId);
-        harness.Cli.Session = GuestSessionAvailability.Ready;
-        harness.Cli.AgentRefusesWithNoInputDesktop = true;
-        harness.Cli.AgentReadyAfterReconnect = true;
-        harness.Windows.AnyClientRunning = false;
-
-        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
-
-        var connect = harness.Cli.Operations.FindIndex(op => op.StartsWith("connect:", StringComparison.Ordinal));
-        var firstLaunch = harness.Cli.Operations.FindIndex(op => op.StartsWith("launch-agent:", StringComparison.Ordinal));
-        Assert.IsGreaterThanOrEqualTo(0, connect, "A guest with no client anywhere on the host needs one.");
-        Assert.IsLessThan(firstLaunch, connect, "The client must be connected before the agent's first launch.");
-        Assert.AreEqual(
-            1,
-            harness.Cli.Operations.Count(op => op.StartsWith("launch-agent:", StringComparison.Ordinal)),
-            "No launch should be spent discovering the missing client.");
-        Assert.AreEqual(
-            1,
-            harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)),
-            "Connecting up front must not be followed by a second, evidence-driven reconnect.");
-    }
-
     [TestMethod]
     public async Task ClosedClient_ThatStaysUnusable_FailsBoundedWithOneReconnect()
     {
@@ -839,7 +805,7 @@ public class SandboxAdoptionTests
                 new WindowsSandboxLifecycle(Cli, stateStore),
                 directories,
                 new StaticBinaryProvider(binary),
-                Windows,
+                new NoOpWindowController(),
                 setup: null,
                 stateStore)
             {
@@ -856,9 +822,6 @@ public class SandboxAdoptionTests
         }
 
         public AdoptionSandboxCli Cli { get; }
-
-        /// <summary>The host's Sandbox client windows, as the backend sees them.</summary>
-        public NoOpWindowController Windows { get; } = new();
 
         public WindowsSandboxBackend Backend { get; }
 
@@ -1123,11 +1086,6 @@ public class SandboxAdoptionTests
 
     private sealed class NoOpWindowController : IWindowsSandboxWindowController
     {
-        /// <summary>Whether a Sandbox client process is running on the host.</summary>
-        public bool AnyClientRunning { get; set; } = true;
-
-        public bool IsAnyClientRunning() => AnyClientRunning;
-
         public WindowsSandboxWindowSnapshot Capture() => new(default);
 
         public Task<SandboxClientWindow?> PlaceConnectedClientAsync(

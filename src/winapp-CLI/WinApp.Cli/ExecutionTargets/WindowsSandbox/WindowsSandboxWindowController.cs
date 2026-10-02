@@ -111,12 +111,6 @@ internal interface IWindowsSandboxWindowController
     SandboxClientStatus InspectClient(SandboxClientWindow? remembered) =>
         new(ResolveClient(remembered), IsMinimized: false);
 
-    /// <summary>Whether any Sandbox client process is running on this host.</summary>
-    /// <remarks>
-    /// Defaults to true, which is the conservative answer: it never causes a connect.
-    /// </remarks>
-    bool IsAnyClientRunning() => true;
-
     /// <summary>
     /// Restores the exact client without activation when necessary, then verifies its identity,
     /// non-minimized state, and foreground preservation.
@@ -151,10 +145,10 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
     private static readonly TimeSpan EarlyPollInterval = TimeSpan.FromMilliseconds(10);
 
     private readonly Func<IReadOnlyList<SandboxClientCandidate>> _listClients;
-    private readonly Func<bool> _anyClientRunning;
     private readonly Action<SandboxClientWindow, HWND> _park;
     private readonly Func<nint, bool> _isIconic;
     private readonly Func<HWND> _getForeground;
+    private readonly Func<nint, bool> _isOnScreen;
 
     /// <summary>Creates a controller that reads the real desktop.</summary>
     public WindowsSandboxWindowController()
@@ -172,7 +166,7 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
                 foregroundService),
             handle => PInvoke.IsIconic(new HWND(handle)),
             PInvoke.GetForegroundWindow,
-            AnyClientProcessRunning)
+            IsOnAnyMonitor)
     {
     }
 
@@ -182,16 +176,16 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         Action<SandboxClientWindow, HWND>? park = null,
         Func<nint, bool>? isIconic = null,
         Func<HWND>? getForeground = null,
-        Func<bool>? anyClientRunning = null)
+        Func<nint, bool>? isOnScreen = null)
     {
         _listClients = listClients;
-        _anyClientRunning = anyClientRunning ?? (() => listClients().Count > 0);
         _park = park ?? ((client, foreground) => PlaceBehindForeground(
             new HWND(client.Handle),
             foreground,
             new DesktopForegroundService()));
         _isIconic = isIconic ?? (handle => PInvoke.IsIconic(new HWND(handle)));
         _getForeground = getForeground ?? PInvoke.GetForegroundWindow;
+        _isOnScreen = isOnScreen ?? (_ => true);
     }
 
     /// <summary>Delay seam, so waiting for the client is exercised without real waiting.</summary>
@@ -379,25 +373,81 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// A minimized client cannot prove what it is showing: its remote-desktop renderer drops out of
+    /// the UI tree until the window is restored, so verifying first would refuse exactly the window
+    /// this method exists to restore. winapp's own client is therefore restored first and verified
+    /// afterwards. Nothing else is moved, and nothing is moved at all while another window that
+    /// cannot be verified is open, because then winapp cannot be sure which window is the target.
+    /// </para>
+    /// <para>
+    /// winapp's own client is also brought back when it is on no monitor at all, which is where
+    /// winapp 0.7.0 parked it. A client the user opened is used wherever it is.
+    /// </para>
+    /// </remarks>
     public SandboxClientStatus EnsureClientReady(
         SandboxClientWindow? remembered,
         TargetDesktopUse use)
     {
         var previousForeground = _getForeground();
-        var client = ResolveClient(remembered);
+        var live = _listClients();
 
-        if (!_isIconic(client.Handle))
+        if (remembered is not null &&
+            _isIconic(remembered.Handle) &&
+            live.Any(candidate =>
+                candidate.Window == remembered &&
+                candidate.Surface != SandboxClientSurface.TerminalError) &&
+            !live.Any(candidate =>
+                candidate.Window != remembered &&
+                candidate.Surface == SandboxClientSurface.Unknown))
+        {
+            _park(remembered, previousForeground);
+            return VerifyRestored(remembered, previousForeground, use);
+        }
+
+        if (remembered is null || !live.Any(candidate => candidate.Window == remembered))
+        {
+            var minimized = live
+                .Where(candidate => candidate.Surface != SandboxClientSurface.TerminalError)
+                .ToArray();
+
+            // The one open client is minimized, so it cannot be verified; say so rather than
+            // report an unverifiable remote desktop.
+            if (minimized.Length == 1 && _isIconic(minimized[0].Window.Handle))
+            {
+                throw NotReady(use, minimized[0].Window, restored: false, foregroundPreserved: true, adopted: true);
+            }
+        }
+
+        var client = ResolveCandidates(remembered, live);
+        var iconic = _isIconic(client.Handle);
+
+        if (!iconic && _isOnScreen(client.Handle))
         {
             return new SandboxClientStatus(client, IsMinimized: false);
         }
 
         if (remembered is null || client != remembered)
         {
+            // A client the user opened works where it is, even off-screen; only minimized blocks it.
+            if (!iconic)
+            {
+                return new SandboxClientStatus(client, IsMinimized: false);
+            }
+
             throw NotReady(use, client, restored: false, foregroundPreserved: true, adopted: true);
         }
 
         _park(client, previousForeground);
+        return VerifyRestored(client, previousForeground, use);
+    }
 
+    private SandboxClientStatus VerifyRestored(
+        SandboxClientWindow client,
+        HWND previousForeground,
+        TargetDesktopUse use)
+    {
         var current = _listClients();
         var stillLive = current
             .Any(candidate => candidate.Window == client && candidate.Surface == SandboxClientSurface.Session);
@@ -413,6 +463,10 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
 
         return new SandboxClientStatus(client, IsMinimized: false);
     }
+
+    /// <summary>Whether any part of the window is on a connected monitor.</summary>
+    private static bool IsOnAnyMonitor(nint handle) =>
+        !PInvoke.MonitorFromWindow(new HWND(handle), MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONULL).IsNull;
 
     private static ExecutionTargetException NotReady(
         TargetDesktopUse use,
@@ -493,26 +547,6 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
                     ',',
                     live.Select(client => client.ProcessId.ToString(CultureInfo.InvariantCulture))),
             });
-    }
-
-    /// <inheritdoc/>
-    public bool IsAnyClientRunning() => _anyClientRunning();
-
-    /// <summary>Whether any remote-session client process exists, with or without a window yet.</summary>
-    /// <remarks>
-    /// Counts processes rather than windows, so a client that is still starting or has no main
-    /// window reads as running. A false answer is what lets winapp connect without first waiting for
-    /// the guest agent to fail, so it must only be given when no client could possibly exist.
-    /// </remarks>
-    private static bool AnyClientProcessRunning()
-    {
-        var processes = Process.GetProcessesByName(RemoteSessionProcessName);
-        foreach (var process in processes)
-        {
-            process.Dispose();
-        }
-
-        return processes.Length > 0;
     }
 
     /// <summary>Every remote-session client window open on this desktop right now.</summary>
