@@ -105,7 +105,11 @@ struct KindKeySink : DevToolsSinkBase
         if (gen != g_route1Gen || !ctx.row || !args) return S_OK;
         int key = 0;
         if (FAILED(DevToolsGetKey(args, &key))) return S_OK;
-        if (key == 13 /*Enter*/) { DevToolsPutHandled(args, true); CommitKind(ctx); }
+        if (key == 13 /*Enter*/) {
+            // In a multi-line editor Enter is a line break; Ctrl+Enter applies.
+            if (needsCtrl && (GetKeyState(VK_CONTROL) & 0x8000) == 0) return S_OK;
+            DevToolsPutHandled(args, true); CommitKind(ctx);
+        }
         else if (key == 27 /*Escape*/ && PendingKindFind(ctx.path)) {
             DevToolsPutHandled(args, true);
             PendingKindErase(ctx.path);
@@ -113,8 +117,9 @@ struct KindKeySink : DevToolsSinkBase
         }
         return S_OK;
     }
-    void Init(const KindCtx& c) { ctx = c; InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
+    void Init(const KindCtx& c, bool ctrl = false) { ctx = c; needsCtrl = ctrl; InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
     KindCtx ctx;
+    bool needsCtrl = false;
 };
 
 struct ExpBackgroundFocusSink : DevToolsSinkBase
@@ -375,11 +380,11 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
         if (IInspectable* el = FindInRow(fe, b)) { ShowEl(el, wcscmp(b, show) == 0); el->Release(); }
     }
 
-    auto wireKeys = [&](const wchar_t* name) {
+    auto wireKeys = [&](const wchar_t* name, bool needsCtrl = false) {
         if (IInspectable* el = FindInRow(fe, name)) {
             void* ui = nullptr;
             if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-                KindKeySink* ks = new KindKeySink(); ks->Init(ctx);
+                KindKeySink* ks = new KindKeySink(); ks->Init(ctx, needsCtrl);
                 __int64 tok = 0;
                 DevToolsAddPreviewKeyDown(ui, ks, &tok);
                 reinterpret_cast<IUnknown*>(ui)->Release();
@@ -805,6 +810,14 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
             if (IInspectable* e = FindInRow(fe, L"PEdit")) {
                 void* tx = nullptr;
                 if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
+                    // A single-line box keeps only the first line, so a multi-line value gets a multi-line editor.
+                    const bool multiline = DevToolsEditText::IsMultiline(seed);
+                    DevToolsPutTextBoxMultiline(tx, multiline);
+                    void* efe = nullptr;
+                    if (SUCCEEDED(e->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &efe)) && efe) {
+                        DevToolsAbi<DevToolsX::IFrameworkElement>(efe)->put_MaxHeight(multiline ? 160.0 : INFINITY);
+                        reinterpret_cast<IUnknown*>(efe)->Release();
+                    }
                     HSTRING h = MakeStr(seed); DevToolsPutTextBoxText(tx, h); WindowsDeleteString(h);
                     reinterpret_cast<IUnknown*>(tx)->Release();
                 }
@@ -831,7 +844,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     ed->Release();
                 }
             }
-            wireKeys(L"PEdit");
+            wireKeys(L"PEdit", DevToolsEditText::IsMultiline(seed));
         }
         break;
     }

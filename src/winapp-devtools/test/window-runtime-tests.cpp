@@ -188,6 +188,26 @@ int main()
     g_ctx.readInputFn=[](IInspectable*,std::wstring& text){text.clear();return true;};
     input.Invoke(nullptr,nullptr);
     check(writes==before+1 && values[88].empty(),"successful empty editor read commits empty string");
+    {
+        // The editor shows the first line only (single-line box) or '\r' breaks (multi-line box): closing it
+        // unchanged writes nothing; an edit keeps the value's '\n' breaks.
+        static std::wstring shown;
+        g_ctx.readInputFn=[](IInspectable*,std::wstring& text){text=shown;return true;};
+        values[88]=L"Make room for\nwhat matters.";
+        for (const auto* s : {L"Make room for",L"Make room for\rwhat matters."}) {
+            shown=s;
+            LostFocusSink multi;multi.Init(88,L"Text",L"String",values[88],&testInput);
+            const auto w=writes;
+            multi.Invoke(nullptr,nullptr);
+            check(writes==w && values[88]==L"Make room for\nwhat matters.","closing an unedited multi-line editor writes nothing");
+        }
+        LostFocusSink multi;multi.Init(88,L"Text",L"String",values[88],&testInput);
+        shown=L"Make room for\ryou.";
+        multi.Invoke(nullptr,nullptr);
+        check(values[88]==L"Make room for\nyou.","a multi-line edit round-trips with the value's line breaks");
+        values[88].clear();
+        g_ctx.readInputFn=[](IInspectable*,std::wstring& text){text.clear();return true;};
+    }
     row.name=L"Text";row.type=L"String";row.value=L"";row.authoredKind=L"literal";row.authored=L"original";
     g_propRows={row};
     check(RowEditSeed(row).empty(),"empty live String is not replaced with authored text");

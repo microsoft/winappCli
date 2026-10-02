@@ -337,7 +337,8 @@ static void OnSelCommentGotFocus(void*, void*)
 // icon so nav is not orphaned). "Commit" is expressed by moving focus to the icon, which fires the field's
 // wired LostFocus - so there is exactly one commit path (blur), keyboard and pointer alike.
 // Panel keyboard handling commits before collapse so accessibility navigation is not orphaned.
-static bool SelectionSourceIsTextEditor(IInspectable* source);
+// Whether Enter (with Ctrl or not) commits the quick-edit text editor that raised it. A multi-line editor needs Ctrl.
+static bool SelectionSourceIsTextEditor(IInspectable* source, bool ctrl);
 
 static void OnSelKeyDown(void* /*sender*/, void* args)
 {
@@ -369,7 +370,7 @@ static void OnSelKeyDown(void* /*sender*/, void* args)
             winrt::com_ptr<IInspectable> source;
             if (SUCCEEDED(a->QueryInterface(DevToolsIid<DevToolsX::IRoutedEventArgs>(), routed.put_void())) &&
                 SUCCEEDED(DevToolsGetOriginalSource(routed.get(), source.put())) && source &&
-                SelectionSourceIsTextEditor(source.get())) {
+                SelectionSourceIsTextEditor(source.get(), ctrl)) {
                 handled = DevToolsSelFocusIcon();
                 DevToolsOverlayLog(L"overlay.sel key Enter -> commit row focused=%d", (int)handled);
             }
@@ -620,7 +621,9 @@ struct SelRowSink : DevToolsSinkBase
             val = members[(size_t)idx];
         } else {
             if (!g_cardReadInput || !box) return readFailed();
-            if (!g_cardReadInput(box, &val)) return readFailed();
+            std::wstring current;
+            if (!g_cardReadInput(box, &current)) return readFailed();
+            if (!DevToolsEditText::ValueToWrite(current, hasShown ? &shown : nullptr, original, &val)) return S_OK;
         }
         if (val == original) return S_OK;
         const unsigned before = g_selGen;
@@ -631,8 +634,12 @@ struct SelRowSink : DevToolsSinkBase
     }
     void InitText(const std::wstring& p, const std::wstring& t, const std::wstring& orig, IInspectable* b) {
         prop = p; type = t; original = orig; box = b;
+        multiline = DevToolsEditText::IsMultiline(orig);
+        RememberShown();
         InitSink(IID_RoutedEventHandler_Del, g_selGen, &IID_SelectionChanged_Del);
     }
+    // What the editor holds now, so closing it unchanged writes nothing even where it cannot hold the value exactly.
+    void RememberShown() { hasShown = box && g_cardReadInput && g_cardReadInput(box, &shown); }
     void InitEnum(const std::wstring& p, const std::wstring& t, const std::wstring& orig,
                   std::vector<std::wstring> mem, IInspectable* sel) {
         prop = p; type = t; original = orig; members = std::move(mem); selector = sel;
@@ -651,12 +658,13 @@ struct SelRowSink : DevToolsSinkBase
     void AcceptValue(const std::wstring& value) {
         original = value;
         if (number || slider) TrySelectionNumber(value, &originalNumber);
+        if (box) RememberShown();
     }
     // Rows are a snapshot; a text editor re-reads its value when it gains focus, unless the user already typed.
     void RefreshTextFromLive() {
         if (!box || gen != g_selGen || !g_cardRead || !g_cardReadInput || !g_selTarget) return;
-        std::wstring shown;
-        if (!g_cardReadInput(box, &shown) || shown != original) return;
+        std::wstring current;
+        if (!g_cardReadInput(box, &current) || (hasShown ? current != shown : current != original)) return;
         std::wstring type, name, state, xaml;
         std::vector<DevToolsCardRow> rows;
         if (!g_cardRead(g_selTarget, &type, &name, &rows, &state, &xaml) || gen != g_selGen) return;
@@ -686,7 +694,8 @@ struct SelRowSink : DevToolsSinkBase
     void*                     number = nullptr;
     void*                     slider = nullptr;
     double                    originalNumber = std::numeric_limits<double>::quiet_NaN();
-    std::wstring              prop, type, original;
+    std::wstring              prop, type, original, shown;
+    bool                      hasShown = false, multiline = false;
     std::vector<std::wstring> members;
 };
 

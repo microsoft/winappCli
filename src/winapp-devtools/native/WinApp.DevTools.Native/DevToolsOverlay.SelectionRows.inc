@@ -6,7 +6,7 @@
 // lifetime exactly as before, this only remembers which ones belong to the panel that is up.
 static std::vector<SelRowSink*> g_selRowSinks;
 
-static bool SelectionSourceIsTextEditor(IInspectable* source)
+static bool SelectionSourceIsTextEditor(IInspectable* source, bool ctrl)
 {
     if (!source) return false;
     winrt::com_ptr<IUnknown> identity;
@@ -15,7 +15,7 @@ static bool SelectionSourceIsTextEditor(IInspectable* source)
         if (!sink || sink->gen != g_selGen || !sink->box) continue;
         winrt::com_ptr<IUnknown> editor;
         if (SUCCEEDED(sink->box->QueryInterface(IID_IUnknown, editor.put_void())) && editor.get() == identity.get())
-            return true;
+            return ctrl || !sink->multiline;
     }
     return false;
 }
@@ -247,6 +247,9 @@ static std::wstring BuildSelRowsMarkup(const std::vector<DevToolsCardRow>& rows,
                      std::to_wstring(kSelEditorW) + L"\" MinHeight=\"30\" Margin=\"0,0,8,0\""
                      L" VerticalAlignment=\"Center\" HorizontalAlignment=\"Left\" Padding=\"8,4,8,4\""
                      L" AutomationProperties.AutomationId=\"" + editName + L"\" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"";
+                if (DevToolsEditText::IsMultiline(r.value))
+                    m += L" AcceptsReturn=\"True\" TextWrapping=\"Wrap\" MaxHeight=\"120\""
+                         L" ToolTipService.ToolTip=\"Ctrl+Enter to apply\"";
                 if (r.editKind == L"color") m += L" Header=\"Color (#AARRGGBB)\" PlaceholderText=\"#AARRGGBB\"";
                 m += L"/>";
             }

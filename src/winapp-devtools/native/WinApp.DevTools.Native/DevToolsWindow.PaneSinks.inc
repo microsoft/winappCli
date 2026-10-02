@@ -142,18 +142,21 @@ struct LostFocusSink : DevToolsSinkBase
             if (selWire == g_selWire) SetStatusText(L"Couldn't read the " + prop + L" editor");
             return S_OK;
         }
-        if (text == original) return S_OK;
-        if (ApplyCommitOutcome(CommitWrite(selWire, prop, type, text, /*confirmBindingReplace*/ false),
-                               selWire, prop, type, original, text)) original = text;
+        std::wstring value;
+        if (!DevToolsEditText::ValueToWrite(text, hasShown ? &shown : nullptr, original, &value)) return S_OK;
+        if (ApplyCommitOutcome(CommitWrite(selWire, prop, type, value, /*confirmBindingReplace*/ false),
+                               selWire, prop, type, original, value)) { original = value; shown = text; hasShown = true; }
         return S_OK;
     }
     void Init(InstanceHandle w, const std::wstring& p, const std::wstring& t, const std::wstring& orig, IInspectable* b)
     {
         selWire = w; prop = p; type = t; original = orig; box = b;
+        hasShown = box && g_ctx.readInputFn && g_ctx.readInputFn(box, shown);
         InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
     }
     InstanceHandle selWire = 0;
-    std::wstring   prop, type, original;
+    std::wstring   prop, type, original, shown;
+    bool           hasShown = false;
     IInspectable*  box = nullptr;
 };
 

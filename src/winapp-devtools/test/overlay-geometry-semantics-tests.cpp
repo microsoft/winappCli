@@ -765,7 +765,7 @@ int main()
         check(quickWrites==3 && g_selPending.size()==1 && numeric.originalNumber==0.5,
             "quick editor","binding replacement is refused before consent");
         g_selRowSinks={&numeric};
-        check(!SelectionSourceIsTextEditor(&target),
+        check(!SelectionSourceIsTextEditor(&target,false),
             "quick editor","numeric Enter remains owned by NumberBox rather than panel text commit");
         SelConfirmSink confirm;confirm.Init(L"Opacity");confirm.Invoke(nullptr,nullptr);
         check(quickWrites==4 && g_selPending.empty() && numeric.originalNumber==0.6 && g_selOperationError.empty(),
@@ -782,10 +782,37 @@ int main()
         text.InitText(L"Text",L"String",L"before",&target);
         g_selRowSinks={&text};
         GeometryObject header;
-        check(SelectionSourceIsTextEditor(&target) && !SelectionSourceIsTextEditor(&header) &&
-            !SelectionSourceIsTextEditor(nullptr),"quick editor","only current text editor intercepts Enter");
+        check(SelectionSourceIsTextEditor(&target,false) && !SelectionSourceIsTextEditor(&header,false) &&
+            !SelectionSourceIsTextEditor(nullptr,false),"quick editor","only current text editor intercepts Enter");
+        {
+            // A TextBox cannot hold every string: a single-line box keeps the first line, a multi-line box stores
+            // line breaks as '\r'. Closing it unchanged must write nothing, and an edit keeps the value's own breaks.
+            const std::wstring multi=L"Make room for\nwhat matters.";
+            const unsigned writesBefore=quickWrites;
+            const auto saveOutcome=quickOutcome;quickOutcome=DevToolsWriteOutcome::Ok;quickReentrant=false;
+            g_cardReadInput=CommentReadInput;
+            for (const auto* shown : {L"Make room for",L"Make room for\rwhat matters."}) {
+                commentInput=shown;
+                SelRowSink row;row.InitText(L"Text",L"String",multi,&target);
+                row.Invoke(nullptr,nullptr);
+                check(quickWrites==writesBefore && row.original==multi,"quick text","closing an unedited multi-line editor writes nothing");
+            }
+            commentInput=L"Make room for\rwhat matters.";
+            SelRowSink row;row.InitText(L"Text",L"String",multi,&target);
+            g_selRowSinks={&row};
+            check(!SelectionSourceIsTextEditor(&target,false) && SelectionSourceIsTextEditor(&target,true),
+                "quick text","Enter is a line break in a multi-line editor and Ctrl+Enter applies");
+            commentInput=L"Make room for\ryou.";
+            row.Invoke(nullptr,nullptr);
+            check(quickWrites==writesBefore+1 && quickWritten==L"Make room for\nyou.","quick text","an edit keeps the value's \\n line breaks");
+            SelRowSink crlf;commentInput=L"a\rb";crlf.InitText(L"Text",L"String",L"a\r\nb",&target);
+            commentInput=L"a\rc";crlf.Invoke(nullptr,nullptr);
+            check(quickWrites==writesBefore+2 && quickWritten==L"a\r\nc","quick text","an edit keeps the value's \\r\\n line breaks");
+            check(XmlEscapeLines(L"a\r\nb")==L"a&#xD;&#xA;b","quick text","markup keeps both line-break characters");
+            g_cardReadInput=nullptr;g_selRowSinks={&text};quickOutcome=saveOutcome;
+        }
         ++g_selGen;
-        check(!SelectionSourceIsTextEditor(&target),"quick editor","retired text editor cannot intercept disclosure Enter");
+        check(!SelectionSourceIsTextEditor(&target,false),"quick editor","retired text editor cannot intercept disclosure Enter");
         quickReentrant=false;g_selPreviewProperties={L"Opacity"};g_cardRead=ReadQuickRows;
         UpdateSelectionPreview(L"Opacity");
         check(quickReads==1 && g_selOperationError.empty(),

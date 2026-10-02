@@ -645,7 +645,7 @@ static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
         // what keeps a four-box Thickness one commit instead of four partial ones.
         value = ReadFieldBoxes(c.path, c.row->fields.size());
     } else {
-        value = ReadBox(c.expFe, L"PEdit");
+        value = DevToolsEditText::WithLineEndingsOf(ReadBox(c.expFe, L"PEdit"), RowEditSeed(*c.row));
     }
     const DevToolsKind was = CurrentKindOf(*c.row, c.path);
     const bool landed = ApplyLiteralValue(c.path, c.row->type, RowEditSeed(*c.row), value, /*confirmed*/ staged);

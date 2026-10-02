@@ -42,7 +42,9 @@ workflow and commands; each command's `--help` shows examples.
 
 The quick-edit panel opens with a **Comment** box, followed by up to five property values.
 Expand a value to edit it, or expand its XAML file-and-line header to read the
-source. **Open in DevTools** opens the full inspector for detailed binding work.
+source. An edit applies when you leave the field or press **Enter**; in a multi-line
+text value, **Enter** adds a line and **Ctrl+Enter** applies. Closing a value you
+didn't change leaves the app untouched. **Open in DevTools** opens the full inspector for detailed binding work.
 Hover picking pauses while the quick-edit panel or comment editor is open, preserving
 your selection and draft.
 

@@ -324,16 +324,7 @@ static int PinTitleBarInsetDip()
 }
 
 
-static std::wstring XmlEscapeLines(const std::wstring& s)
-{
-    std::wstring escaped = DevToolsXmlEscape(s);
-    size_t pos = 0;
-    while ((pos = escaped.find(L'\n', pos)) != std::wstring::npos) {
-        escaped.replace(pos, 1, L"&#xA;");
-        pos += 5;
-    }
-    return escaped;
-}
+static std::wstring XmlEscapeLines(const std::wstring& s) { return DevToolsXmlEscape(s, /*encodeWhitespace*/ true); }
 
 // Substitute $TOKEN$ placeholders in an embedded.xaml fragment (DevToolsXaml::*) with runtime values, so the
 // markup stays a static, reviewable file while geometry, palette colors, glyphs and text are filled in at load

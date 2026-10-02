@@ -39,6 +39,7 @@
 #include "DevToolsPathSyntax.h"
 #include "DevToolsBindingRow.h"
 #include "DevToolsCommentText.h"
+#include "DevToolsEditText.h"
 #include "DevToolsSettings.h"
 #include "DevToolsText.h"
 #include "DevToolsShellOpen.h"

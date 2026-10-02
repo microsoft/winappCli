@@ -415,6 +415,13 @@ inline HRESULT DevToolsGetIsChecked(void* button, IInspectable** value) noexcept
 { return DevToolsAbi<DevToolsXCP::IToggleButton>(button)->get_IsChecked(reinterpret_cast<void**>(value)); }
 inline HRESULT DevToolsPutTextBoxText(void* textBox, HSTRING text) noexcept
 { return DevToolsAbi<DevToolsXC::ITextBox>(textBox)->put_Text(DevToolsAbiStr(text)); }
+// Enter inserts a line break and long lines wrap; otherwise a single-line box.
+inline HRESULT DevToolsPutTextBoxMultiline(void* textBox, bool multiline) noexcept
+{
+    const HRESULT hr = DevToolsAbi<DevToolsXC::ITextBox>(textBox)->put_AcceptsReturn(multiline);
+    return FAILED(hr) ? hr : DevToolsAbi<DevToolsXC::ITextBox>(textBox)->put_TextWrapping(
+        static_cast<int32_t>(multiline ? winrt::Microsoft::UI::Xaml::TextWrapping::Wrap : winrt::Microsoft::UI::Xaml::TextWrapping::NoWrap));
+}
 inline HRESULT DevToolsPutPlaceholderText(void* textBox, HSTRING text) noexcept
 { return DevToolsAbi<DevToolsXC::ITextBox>(textBox)->put_PlaceholderText(DevToolsAbiStr(text)); }
 inline HRESULT DevToolsPutTextFontWeight(void* textBlock, unsigned short weight) noexcept
