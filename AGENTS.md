@@ -369,10 +369,21 @@ resolving the repo as a plugin; adding `$schema` there would make its nested
 `generate-llm-docs.ps1` keeps every manifest's `version` field in sync with the CLI version.
 
 `scripts/validate-plugin-package.ps1` enforces all of the above: the closed manifest
-schema, the plugin name constraints, `SKILL.md` presence and frontmatter for every
-immediate child of `skills/`, the Copilot agent's location, the Claude `agents` pointer
-resolving to a real file, and the repo-root shim staying legacy. It needs no build
-output, so run it directly while editing plugin files:
+schema, the plugin name constraints, the Copilot agent's location, the Claude `agents`
+pointer resolving to a real file, and the repo-root shim staying legacy. For every plugin
+under `plugins/` that has a `skills/` folder it also checks:
+
+- **Errors:** each `skills/<id>/SKILL.md` exists with `name` and `description`; `name`
+  equals the folder name and follows Agent Skills naming rules; description is at most
+  1024 characters; relative links (and inline-code `references/`, `scripts/`, `assets/`
+  paths) resolve to files inside the same plugin — use a full `https://` URL for repo
+  docs; `winapp …` lines in fenced code blocks use command paths from
+  `docs/cli-schema.json` or the npm wrapper's `node` subcommands.
+- **Warnings:** descriptions over 300 characters (`$DescriptionWarnChars`).
+- **Report:** approximate token sizes per skill and agent, also written to the GitHub
+  Actions job summary.
+
+It needs no build output, so run it directly while editing plugin files:
 
 ```powershell
 .\scripts\validate-plugin-package.ps1
