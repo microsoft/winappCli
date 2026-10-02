@@ -319,6 +319,8 @@ internal sealed class GuestMessage
     /// <summary>Exact package full name for <see cref="GuestMessageTypes.UnregisterPackageRequest"/>.</summary>
     public string? PackageFullName { get; init; }
 
+    public bool PreserveAppData { get; init; }
+
     /// <summary>
     /// Present on <see cref="GuestMessageTypes.StopPackageRequest"/>. The guest location the
     /// requesting deployment's own registration is expected to be installed from.

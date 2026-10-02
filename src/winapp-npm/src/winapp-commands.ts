@@ -2,7 +2,7 @@
  * AUTO-GENERATED — DO NOT EDIT
  *
  * Regenerate with:  npm run generate-commands
- * Source schema version: 0.6.3
+ * Source schema version: 0.7.1
  *
  * Programmatic wrappers for all winapp CLI commands.
  * Each function builds the CLI arguments, invokes the native CLI,
@@ -154,7 +154,7 @@ export interface CertGenerateOptions extends CommonOptions {
   output?: string;
   /** Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. */
   password?: string;
-  /** Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. */
+  /** Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. */
   publisher?: string;
   /** Number of days the certificate is valid */
   validDays?: number;
@@ -182,11 +182,11 @@ export async function certGenerate(options: CertGenerateOptions = {}): Promise<W
 // ---------------------------------------------------------------------------
 
 export interface CertInfoOptions extends CommonOptions {
-  /** Path to the certificate file (PFX) */
+  /** Path to the certificate file (PFX or CER) */
   certPath: string;
   /** Format output as JSON */
   json?: boolean;
-  /** Password for the PFX file */
+  /** Password for the PFX file (ignored for a public CER) */
   password?: string;
 }
 
@@ -690,7 +690,7 @@ export interface ManifestGenerateOptions extends CommonOptions {
   logoPath?: string;
   /** Package name (default: folder name) */
   packageName?: string;
-  /** Publisher distinguished name (DN) (default: CN=<current user>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=<name>. */
+  /** Publisher distinguished name (DN) (default: CN=<current user>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued '+' RDNs, ';' separators, and backslashes are not supported); bare names are auto-wrapped as CN=<name>. */
   publisherName?: string;
   /** Manifest template type: 'packaged' (full MSIX app, default) or 'sparse' (desktop app with package identity for Windows APIs) */
   template?: ManifestTemplates;
@@ -935,6 +935,8 @@ export interface RunOptions extends CommonOptions {
   runtime?: string;
   /** Download symbols from Microsoft Symbol Server for richer native crash analysis, including the WinUI stowed-exception dispatch stack. Only used with --debug-output. First run downloads symbols and caches them locally; subsequent runs use the cache. */
   symbols?: boolean;
+  /** Give this checkout its own package identity and execution aliases, derived from its path, so copies of a packaged app in different worktrees can be registered side by side. Your source manifest is not changed. Not supported for unpackaged apps, sparse packages, bundles, manifests with several applications, or apps that register protocols, file types, COM servers, or other system-wide extensions. */
+  uniqueIdentity?: boolean;
   /** Unregister the development package after the application exits. Only removes packages registered in development mode. */
   unregisterOnExit?: boolean;
   /** Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Console apps (OutputType=Exe) already do this by default; pass this to force it for a windowed app. winapp adds a uap5:ExecutionAlias to the manifest it stages for you, so no manifest edit is needed. */
@@ -975,6 +977,7 @@ export async function run(options: RunOptions = {}): Promise<WinappResult> {
   }
   if (options.runtime !== undefined) args.push('--runtime', options.runtime);
   if (options.symbols) args.push('--symbols');
+  if (options.uniqueIdentity) args.push('--unique-identity');
   if (options.unregisterOnExit) args.push('--unregister-on-exit');
   if (options.withAlias) args.push('--with-alias');
   if (options.withoutAlias) args.push('--without-alias');
@@ -2084,27 +2087,27 @@ export async function uiYield(options: UiYieldOptions = {}): Promise<WinappResul
 // ---------------------------------------------------------------------------
 
 export interface UnregisterOptions extends CommonOptions {
-  /** Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest. */
+  /** App folder, .csproj, .sln, .slnx, or .cs file to unregister: the same input you passed to 'winapp run'. Nothing is built. Works whether or not the run used --unique-identity. Omit to use the current directory, --manifest, or --output-appx-directory. Cannot be combined with --manifest. */
   input?: string;
   /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
-  /** Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input. */
+  /** Target architecture (x64, arm64, x86) used when evaluating the app input to find the app (default: the current process architecture). Pass the same architecture the run used. */
   arch?: string;
-  /** Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input. */
+  /** Configuration used when evaluating the app input to find the app (default: Debug). Pass the same configuration the run used. */
   configuration?: string;
-  /** Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt. */
+  /** Skip the install-location check for registrations winapp has no record of (from create-debug-identity or an older winapp version). Has no effect on registrations recorded by 'winapp run'. Unrecorded registrations are matched by package name only, so a same-named package from another publisher can also be removed, with its app data. With --prune, skips the confirmation prompt. */
   force?: boolean;
   /** Format output as JSON */
   json?: boolean;
   /** Path to the Package.appxmanifest (default: auto-detect from current directory) */
   manifest?: string;
-  /** The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped. */
+  /** AppX layout folder the run registered. Use it when the app has several registered layouts or its source was deleted. With --on, pass the folder on this machine, not the Sandbox path. */
   outputAppxDirectory?: string;
-  /** MSBuild property (Name=Value) used when resolving a .cs file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...), since a command-line property overrides the file's own #:property directives. Only applies to a .cs input. */
+  /** MSBuild property (Name=Value) used when evaluating the app input to find the app. Repeatable. Pass the same properties the run used (e.g. -p WinAppPackageName=...). */
   property?: string | string[];
-  /** Remove every development-mode registration whose files are gone. These can never launch — Windows keeps the identity and its Start menu entry, but activation silently does nothing. Lists what it found and asks before removing; pass --force to skip the prompt. Cannot be combined with an input or --manifest. */
+  /** Remove development registrations whose files are gone and that winapp has no record of. Lists them and asks before removing; pass --force to skip the prompt. To remove a registration recorded by 'winapp run', pass its app input or --output-appx-directory instead. Cannot be combined with an input or --manifest. */
   prune?: boolean;
-  /** Target .NET runtime identifier (e.g. win-x64) used when resolving a .cs file-based app's identity. Only its architecture is used, and it overrides --arch. Only applies to a .cs input. */
+  /** Target .NET runtime identifier (e.g. win-x64) used when evaluating the app input to find the app. Only its architecture is used, and it overrides --arch. */
   runtime?: string;
 }
 

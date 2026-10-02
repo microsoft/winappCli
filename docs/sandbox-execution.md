@@ -60,6 +60,10 @@ winapp run .\publish --on sandbox --detach
 winapp run . --on sandbox --clean --detach
 ```
 
+To run copies of a packaged app from different worktrees in the same Sandbox, add
+`--unique-identity`: `winapp run . --unique-identity --on sandbox --detach`. See
+[unique identity for parallel checkouts](usage.md#unique-identity-for-parallel-checkouts).
+
 Build options such as `--configuration`, `--arch`, `--framework`, `--property`,
 `--no-build`, and `--no-restore` apply on the host. Registration, launch, and debugging
 happen in the guest; the app is not registered on your machine.
@@ -80,6 +84,10 @@ Rerunning transfers changed files and removes files deleted from the build outpu
 Application data is preserved unless you request `--clean`. An incomplete deployment
 does not launch; retrying rebuilds its guest copy. If build files change while winapp is
 preparing them, finish the build and retry.
+
+If Sandbox is running an older agent that can't keep app data while re-registering the
+app, winapp stops instead of deleting the data. Save your work in Sandbox, close it, and
+retry so winapp starts an updated agent.
 
 Warm UI commands report only their result, without repeating a Sandbox preparation
 message. Sandbox startup and connection recovery still report progress. Use `--verbose` for
@@ -315,15 +323,16 @@ a link is refused. Copy the real files or directories instead.
 ## Removing an app and ending the Sandbox
 
 ```powershell
-winapp unregister --on sandbox --manifest .\Package.appxmanifest
+winapp unregister . --on sandbox
+winapp unregister .\counter.cs --on sandbox
 ```
 
-With a manifest in the current directory, you can omit `--manifest`. This removes only
-the matching development package registered by winapp in the current Sandbox.
+Pass the same input you passed to `run`, with or without `--unique-identity`. This removes
+only the matching development package registered by winapp in the current Sandbox.
 An externally installed package is left alone, even if its identity matches.
 `--force` is not supported with `--on`; it cannot bypass ownership checks.
-This is manifest-based package cleanup, not an unregister command for unpackaged apps
-or a `.cs` input.
+See [unregister](usage.md#unregister) for all inputs, including cleanup after the source
+is deleted. Unpackaged apps have no package registration to remove.
 
 The Sandbox remains running. Manage its lifetime with Windows Sandbox's own CLI:
 

@@ -93,6 +93,7 @@ internal interface ITargetOperationExecutor
         string packageFamilyName,
         string packageFullName,
         string expectedRegisteredLocation,
+        bool preserveAppData,
         CancellationToken cancellationToken);
 
     /// <summary>Stops one process this host started, identified by ID and start time.</summary>

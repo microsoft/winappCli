@@ -30,6 +30,16 @@ Use `winapp run` for most development workflows. It simulates a real MSIX instal
 winapp run .\build\output
 ```
 
+For parallel worktrees of a packaged app:
+
+```powershell
+winapp run . --unique-identity --no-launch --json
+```
+
+Each worktree gets its own package name and alias names; configure your debugger with
+the AUMID or alias the command returns. See
+[unique identity for parallel checkouts](usage.md#unique-identity-for-parallel-checkouts).
+
 ### Use `create-debug-identity` when:
 
 - **Your exe is separate from your build output** — e.g., Electron apps where `electron.exe` lives in `node_modules/`
@@ -88,7 +98,7 @@ winapp run .\build\Debug --no-launch
 
 **Step 2:** Configure your IDE to launch via the AUMID or the **execution alias** (not the exe directly). 
 * Launching with AUMID: Use the command `start shell:AppsFolder\<AUMID>`. `winapp run` outputs the AUMID when the app is registered.
-* Launching with the alias: The alias must be defined in your manifest (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported).
+* Launching with the alias: Use the alias name `run` prints (`Identity.Aliases` in JSON). With `--unique-identity`, it differs from the one in your manifest.
 
 > **Important:** Simply launching the exe in the build folder will **not** give it identity. The app must be started via AUMID activation or its execution alias. This is how loose layout packages work - identity is tied to the activation path, not the exe file.
 

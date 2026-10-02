@@ -265,17 +265,16 @@ if ($launchStderr) {
     $launchStderr | Select-Object -First 5 | ForEach-Object { Write-Host "  stderr: [$_]" }
 }
 
-# Handle potential multi-line or multi-object output: take only the last JSON object
 $jsonStr = ($launchStdout -join "`n")
-if ($jsonStr -match '(?s).*(\{[^{}]*"ProcessId"[^{}]*\})') {
-    $launchResult = $Matches[1] | ConvertFrom-Json
-} else {
-    throw "Failed to parse launch JSON. Raw output: $jsonStr"
+try {
+    $launchResult = $jsonStr | ConvertFrom-Json -ErrorAction Stop
+} catch {
+    throw "Failed to parse launch JSON: $_. Raw output: $jsonStr"
 }
 $appPid = $launchResult.ProcessId
 
 if (-not $appPid) {
-    throw "Failed to launch app — no PID returned. Output: $launchJson"
+    throw "Failed to launch app — no PID returned. Output: $jsonStr"
 }
 
 Write-TestPass "winapp run --detach" "PID=$appPid, AUMID=$($launchResult.AUMID)"

@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Models;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
@@ -19,7 +20,7 @@ namespace WinApp.Cli.ExecutionTargets.Orchestration;
 /// </remarks>
 internal sealed record PackageOwnership
 {
-    /// <summary>Original package name, preserved rather than rewritten.</summary>
+    /// <summary>Effective package name registered in the guest.</summary>
     public required string PackageName { get; init; }
 
     /// <summary>Original publisher, preserved rather than rewritten.</summary>
@@ -29,12 +30,10 @@ internal sealed record PackageOwnership
     /// Effective package full name as registered in the guest, when the guest reported one.
     /// </summary>
     /// <remarks>
-    /// Null when the host deployed and launched through guest winapp without asking it to report
-    /// back. That is not a weakening of the "never removes an external package" rule: the operative
-    /// key is <see cref="RegisteredLocation"/>, a folder only winapp writes, and the guest's own
-    /// unregister independently refuses any registration that is not a development-mode package
-    /// rooted there. Recording a full name the host had computed rather than observed would be a
-    /// value that merely looked like proof.
+    /// Null in the pending registration journal, until guest inventory observes a registration.
+    /// Reconciliation also requires <see cref="RegisteredLocation"/>, a folder only winapp writes,
+    /// and the guest independently refuses removal of a package that is not a development-mode
+    /// registration rooted there. A computed full name is never recorded as observed proof.
     /// </remarks>
     public string? PackageFullName { get; init; }
 
@@ -46,6 +45,12 @@ internal sealed record PackageOwnership
 
     /// <summary>Application user model ID used to launch it.</summary>
     public string? Aumid { get; init; }
+
+    /// <summary>Host-origin identity context, with the observed guest registration location.</summary>
+    public DevelopmentIdentity? Identity { get; init; }
+
+    /// <summary>Canonical host materialized layout; never interpreted as a guest path.</summary>
+    public string? HostLayoutPath { get; init; }
 
     /// <summary>
     /// Whether <paramref name="candidate"/> is the exact package this record owns.
@@ -280,16 +285,19 @@ internal sealed class DeploymentStateStore(ITargetStateDirectoryProvider directo
             try
             {
                 return new FileStream(stateFile + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite,
-                    FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+                    FileShare.None, bufferSize: 1, FileOptions.None);
             }
-            catch (IOException ex) when ((ex.HResult & 0xffff) is 32 or 33)
+            // A previous delete-on-close holder can briefly leave the file delete-pending.
+            catch (Exception ex) when (
+                ex is IOException && (ex.HResult & 0xffff) is 32 or 33 ||
+                ex is UnauthorizedAccessException && (ex.HResult & 0xffff) == 5)
             {
                 if (Environment.TickCount64 >= deadline)
                 {
                     throw ExecutionTargetException.Create(
                         ExecutionTargetErrorCodes.TargetAmbiguous,
-                        "Another command is updating this deployment's state.",
-                        userAction: "Retry the command.",
+                        "Could not acquire the deployment state lock. Another command may be updating it, or access is denied.",
+                        userAction: "Retry the command; if it persists, check access to the target state directory.",
                         innerException: ex);
                 }
                 Thread.Sleep(10);

@@ -18,6 +18,21 @@ internal sealed class FakePriService : IPriService
     public int ExtractLanguagesCallCount { get; private set; }
     public int CreatePriConfigCallCount { get; private set; }
     public int GeneratePriFileCallCount { get; private set; }
+    public Action<DirectoryInfo>? GeneratePriFileAction { get; set; }
+    public List<(DirectoryInfo Layout, string OriginalPackageName, string EffectivePackageName)> ReindexIdentityCalls { get; } = [];
+    public Exception? ReindexIdentityException { get; set; }
+
+    public Task ReindexIdentityAsync(
+        DirectoryInfo layout,
+        string originalPackageName,
+        string effectivePackageName,
+        TaskContext taskContext,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ReindexIdentityCalls.Add((layout, originalPackageName, effectivePackageName));
+        return ReindexIdentityException is { } exception ? Task.FromException(exception) : Task.CompletedTask;
+    }
 
     public Task<FileInfo> CreatePriConfigAsync(
         DirectoryInfo packageDir,
@@ -39,6 +54,7 @@ internal sealed class FakePriService : IPriService
         CancellationToken cancellationToken = default)
     {
         GeneratePriFileCallCount++;
+        GeneratePriFileAction?.Invoke(packageDir);
         return Task.FromResult(GeneratedPriFiles);
     }
 

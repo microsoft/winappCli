@@ -380,6 +380,28 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         return results;
     }
 
+    public List<DevPackageInfo> FindPackagesAtLocation(string location)
+    {
+        var canonical = Helpers.DevelopmentIdentityHelper.CanonicalizePath(location);
+        return EnumerateUserPackagesImpl().Select(ToDevPackageInfo)
+            .Where(package => package.InstallLocation is { Length: > 0 } installed &&
+                string.Equals(TryCanonicalizePath(installed), canonical, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    // A package on an unavailable volume or share cannot occupy a location that did resolve.
+    private static string? TryCanonicalizePath(string path)
+    {
+        try
+        {
+            return Helpers.DevelopmentIdentityHelper.CanonicalizePath(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or ArgumentException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
     /// <inheritdoc />
     public List<DevPackageInfo> FindOrphanedDevPackages()
     {
@@ -425,7 +447,8 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
             Version: $"{pkg.VersionMajor}.{pkg.VersionMinor}.{pkg.VersionBuild}.{pkg.VersionRevision}",
             InstallLocation: installLocation,
             IsDevelopmentMode: pkg.IsDevelopmentMode,
-            Publisher: pkg.Publisher);
+            Publisher: pkg.Publisher,
+            PackageFamilyName: pkg.PackageFamilyName);
     }
 
     /// <summary>
@@ -607,7 +630,8 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
                 p.IsDevelopmentMode,
                 () => p.InstalledLocation?.Path,
                 p.Id.Architecture,
-                p.Id.Publisher));
+                p.Id.Publisher,
+                p.Id.FamilyName));
         }
 
         return views;
@@ -659,5 +683,6 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         bool IsDevelopmentMode,
         Func<string?> InstalledLocationAccessor,
         Windows.System.ProcessorArchitecture Architecture = Windows.System.ProcessorArchitecture.Unknown,
-        string? Publisher = null);
+        string? Publisher = null,
+        string? PackageFamilyName = null);
 }

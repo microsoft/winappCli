@@ -297,6 +297,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
                     unregisterFamilyName,
                     packageFullName,
                     unregisterLocation,
+                    message.PreserveAppData,
                     cancellationToken).ConfigureAwait(false);
                 break;
 
@@ -385,6 +386,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
                     SupportsScreenCapture = readiness == GuestReadinessFailure.None,
                     CooperativeUiTurnsVersion = GuestOwnerContext.CooperativeUiTurnsVersion,
                     SupportsInternalSystemSetup = true,
+                    DevelopmentIdentityVersion = ExecutionTargetCapabilities.CurrentDevelopmentIdentityVersion,
 
                     // Windows Sandbox discards everything on teardown, so deployments and runtimes
                     // must be reconciled after every new epoch.
@@ -741,6 +743,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         string packageFamilyName,
         string packageFullName,
         string expectedRegisteredLocation,
+        bool preserveAppData,
         CancellationToken cancellationToken)
     {
         try
@@ -766,7 +769,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
             }
 
             await RequirePackageRegistration()
-                .UnregisterByFullNameAsync(packageFullName, preserveAppData: false, cancellationToken)
+                .UnregisterByFullNameAsync(packageFullName, preserveAppData, cancellationToken)
                 .ConfigureAwait(false);
             await SendFileCompletedAsync(operationId, cancellationToken).ConfigureAwait(false);
         }

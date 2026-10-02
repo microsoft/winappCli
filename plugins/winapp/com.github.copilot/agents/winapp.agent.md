@@ -244,16 +244,19 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 - `--debug-output` — capture `OutputDebugString` messages and first-chance exceptions (prevents other debuggers like VS/VS Code from attaching). For WinUI apps it also auto-runs a stowed-exception (`0xC000027B`) triage pass (`!xamlstowed`/`!xamltriage`) that recovers the originating HRESULT and native XAML dispatch stack. The first triage run downloads debugger components (engine bits from NuGet + `JsProvider.dll` from the WinDbg CDN) and caches them under `~\.winapp\dbgtools\`; if downloads are blocked, install Debugging Tools for Windows or point `WINAPP_DBGTOOLS_DIR` at a debugger directory containing `dbgeng.dll` and `JsProvider.dll`.
 - `--symbols` — with `--debug-output`, download Microsoft public symbols for richer native crash stacks (first run downloads and caches them)
 - `--output-appx-directory <path>` — custom output directory for the loose layout
+- `--unique-identity` — give this checkout its own package identity (and execution aliases), derived from its path, so copies of a packaged app in different worktrees or clones register side by side. The source manifest is not changed. Not supported for unpackaged apps, sparse packages, bundles, multi-application manifests, or apps that register protocols, file types, COM servers, or other system-wide extensions. See `winapp-identity`.
 - `--on sandbox` — build on the host and run in the guest. Use `--detach` before follow-up UI commands; `--debug-output` requires a packaged app. See `winapp-sandbox` for runtime and app-lifetime limits.
 **Requires:** Folder mode — built app output directory + `appxmanifest.xml`. Project mode — a `.csproj`/`.sln`/`.slnx` (or directory containing one) + .NET SDK 8.0.100+. Single-file mode — a `.cs` file-based app + .NET SDK 10.0.300+ (no manifest needed).
 
-### `winapp unregister`
-**Purpose:** Remove a development package registration created by `winapp run` / `create-debug-identity`.
+### `winapp unregister [<input>]`
+**Purpose:** Remove a development package registration created by `winapp run` / `create-debug-identity`. Store- or MSIX-installed packages are never removed.
 **When to use:** To clean up a registration, or when a stale one is causing install/launch failures.
 **Key options:**
+- `<input>` — the same `.cs`, `.csproj`, `.sln`/`.slnx`, or folder passed to `run` (nothing is built). Works whether or not the run used `--unique-identity`; winapp removes only the registration it recorded for that app.
 - `--manifest <path>` — manifest identifying the package (default: auto-detect)
-- `--force` — skip the install-location check and unregister even if the package was registered from a different project tree
-- `--on sandbox` — remove a winapp-owned guest development registration; requires a manifest and does not support `--force`. See `winapp-sandbox` for cleanup.
+- `--output-appx-directory <path>` — the layout folder the run registered; use it when the app has several layouts or its source was deleted
+- `--force` — applies only to registrations without a winapp record (for example, from older winapp versions or `create-debug-identity`): skips the install-location check. It has **no effect** on registrations recorded by `winapp run`, which are removed only when their recorded owner and identity match. See `winapp-identity`.
+- `--on sandbox` — remove the app's winapp-owned registration from the guest. Accepts the same app inputs as `run` (input, `--manifest`, `--output-appx-directory`); does not support `--force` or `--prune`. See `winapp-sandbox` for cleanup.
 - `--json` — machine-readable output
 
 ### `winapp target`

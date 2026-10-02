@@ -442,6 +442,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
     }
 
     [TestMethod]
+    [Timeout(30_000, CooperativeCancellation = true)]
     public async Task UnregisterOnExit_OlderRunLeavesTheReplacementRegistrationIntact()
     {
         var ct = TestContext.CancellationToken;
@@ -454,27 +455,27 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         await using var first = CreateHarness("replacement", inventory);
         await using var replacement = CreateHarness("replacement", inventory);
         var firstRun = RunAsync(first, noLaunch: false, clean: false, ct, unregisterOnExit: true);
-        (await first.Processes.WaitForNextAsync(ct)).Exit(0);
-        var firstLaunch = await first.Processes.WaitForNextAsync(ct);
+        (await NextProcessOrFailureAsync(first, firstRun, ct)).Exit(0);
+        var firstLaunch = await NextProcessOrFailureAsync(first, firstRun, ct);
 
         await WaitForPublishedProcessAsync(firstLaunch, ct);
 
         var nextRun = RunAsync(replacement, noLaunch: true, clean: false, ct);
-        var nextRegistration = await replacement.Processes.WaitForNextAsync(ct);
+        var nextRegistration = await NextProcessOrFailureAsync(replacement, nextRun, ct);
         // A redeploy stops the previous app while it owns the mutation lease.
         firstLaunch.Exit(0);
         nextRegistration.Exit(0);
 
         Assert.AreEqual(0, await nextRun);
-        Assert.AreEqual(0, await firstRun);
+        Assert.AreEqual(1, await firstRun, "Superseded exit cleanup must report that it left the newer deployment intact.");
         Assert.IsNotNull(inventory.FakePackageFullName);
         Assert.IsEmpty(first.PackageRegistration.UnregisterByFullNameCalls);
         Assert.IsEmpty(replacement.PackageRegistration.UnregisterByFullNameCalls);
     }
 
     /// <summary>
-    /// H2: the mutation lease is never held across the application's own lifetime -- a second,
-    /// unrelated packaged run's registration must be free to proceed while the first run's app is
+    /// H2: the mutation lease is never held across the application's own lifetime -- a second
+    /// packaged run's registration must be free to proceed while the first run's app is
     /// still "running", even though that first run asked for <c>--unregister-on-exit</c>.
     /// </summary>
     [TestMethod]
@@ -495,7 +496,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         await WaitForPublishedProcessAsync(aLaunch, ct);
 
         // A's application is now "running" (aLaunch deliberately left open). B's registration --
-        // an entirely different run against a different deployment -- must not be blocked behind
+        // another run against this deployment -- must not be blocked behind
         // it: the lease A released after registering must still be released, not silently
         // reacquired for the remainder of A's lifetime.
         var taskB = RunAsync(harnessB, noLaunch: false, clean: false, ct);
@@ -511,7 +512,9 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         // Only now does A's application exit, triggering its own unregister-on-exit phase.
         aLaunch.Exit(0);
 
-        Assert.AreEqual(0, await taskA.WaitAsync(TimeSpan.FromSeconds(10), ct));
+        Assert.AreEqual(1, await taskA.WaitAsync(TimeSpan.FromSeconds(10), ct),
+            "A's cleanup must refuse the newer registration that B published.");
+        Assert.IsEmpty(harnessA.PackageRegistration.UnregisterByFullNameCalls);
     }
 
     /// <summary>
@@ -563,13 +566,10 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
     }
 
     /// <summary>
-    /// H2: unregister-on-exit is best-effort, matching the pre-existing local
-    /// <c>UnregisterDevPackageAsync</c> semantics -- a failure in this phase (including the guest
-    /// declining because the registration no longer matches this deployment's layout) must not
-    /// fail the run itself, and must not leak the fresh lease it acquired.
+    /// Cleanup failure must be observable without leaking the mutation lease.
     /// </summary>
     [TestMethod]
-    public async Task UnregisterOnExit_Failure_DoesNotFailTheRun_AndReleasesTheLease()
+    public async Task UnregisterOnExit_Failure_FailsTheRun_AndReleasesTheLease()
     {
         var ct = TestContext.CancellationToken;
 
@@ -586,9 +586,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
             new InvalidOperationException("simulated removal failure");
         aLaunch.Exit(0);
 
-        // The launch itself succeeded, so the run's own exit code must still reflect that --
-        // exactly like the pre-existing local unregister-on-exit's best-effort semantics.
-        Assert.AreEqual(0, await taskA);
+        Assert.AreEqual(1, await taskA, "Successful launch must not hide failed cleanup.");
 
         // The failed phase must still have released its fresh lease rather than leaking it.
         var taskB = RunAsync(harnessB, noLaunch: false, clean: false, ct);
@@ -604,6 +602,18 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
 
     private static bool IsRegisterOnly(FakeGuestProcessHost host) =>
         host.Request.Arguments.Contains("--no-launch");
+
+    private static async Task<FakeGuestProcessHost> NextProcessOrFailureAsync(
+        RunHarness harness, Task<int> run, CancellationToken cancellationToken)
+    {
+        var next = harness.Processes.WaitForNextAsync(cancellationToken);
+        var completed = await Task.WhenAny(next, run).WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        if (completed == run && !next.IsCompleted)
+        {
+            Assert.Fail($"Run ended with code {await run} before starting the expected guest process: {harness.Output}");
+        }
+        return await next;
+    }
 
     /// <summary>
     /// The registration layout a guest request names with <c>--managed-appx-directory</c>, or null
@@ -845,7 +855,23 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
                 new UnusedRuntimePayloadResolver(),
                 new UnusedRuntimeFrameworkResolver());
 
-            var identity = new MsixIdentityResult("SbxMutationLockTestPackage", "CN=SbxMutationLockTests", "App");
+            var identity = new MsixIdentityResult("SbxMutationLockTestPackage", "CN=SbxMutationLockTests", "App")
+            {
+                Identity = new DevelopmentIdentity
+                {
+                    Mode = "Original",
+                    OriginalPackageName = "SbxMutationLockTestPackage",
+                    EffectivePackageName = "SbxMutationLockTestPackage",
+                    Publisher = "CN=SbxMutationLockTests",
+                    Version = "1.0.0.0",
+                    Architecture = "x64",
+                    ResourceId = "",
+                    PackageFamilyName = "SbxMutationLockTestPackage_fakefamily",
+                    ApplicationId = "App",
+                    OwnerPath = DevelopmentIdentityHelper.CanonicalizePath(hostFolder),
+                    LayoutPath = DevelopmentIdentityHelper.CanonicalizePath(layout.FullName),
+                },
+            };
 
             Msix = new FakeMsixService { FakeIdentityResult = identity };
 
@@ -879,6 +905,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         public FakePackageRegistrationService PackageRegistration { get; }
 
         public RunCommand.Handler Handler { get; }
+        public string Output => _console.Output;
 
         /// <summary>
         /// The layout service this run drove, so a test can read back the ownership the run decided

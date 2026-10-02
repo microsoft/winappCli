@@ -1,17 +1,35 @@
 ---
 name: winapp-identity
-description: Enable Windows package identity for desktop apps to access Windows APIs like push notifications, background tasks, share target, and startup tasks. Use when adding Windows notifications, background tasks, or other identity-requiring Windows features to a desktop app.
+description: Enable Windows package identity for desktop apps, or give parallel packaged worktrees unique development identities. Use when adding identity-requiring Windows features, resolving development registration conflicts, or running copies of a packaged app side by side.
 ---
 ## When to use
 
 Use this skill when:
+- **Running packaged worktrees side by side** — opt into `winapp run --unique-identity`
 - **The exe is separate from your app code** — e.g., Electron apps where `electron.exe` is in `node_modules`, not your build output
 - **Testing sparse package behavior** specifically — `AllowExternalContent`, `TrustedLaunch`, etc.
 - **Registering identity without copying files** — `create-debug-identity` leaves the exe in place
 
 > **Prefer `winapp run` for most frameworks.** If your exe is inside your build output folder (.NET, C++, Rust, Flutter, Tauri), use `winapp run <build-output>` instead — it registers a full loose layout package and launches the app, simulating an MSIX install. Use `create-debug-identity` only when `winapp run` doesn't fit your scenario.
 
+## Parallel packaged worktrees
+
+```powershell
+winapp run . --unique-identity --no-launch --json
+winapp unregister .
+```
+
+Use this only when the user wants copies of an app to stay registered side by side.
+Pass the same input for every run and for cleanup, and read names from the returned
+`Identity` and aliases instead of guessing them. Never resolve a registration conflict
+by removing another checkout's package.
+
+Check the [unique identity reference](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts) for
+supported packages and limits. For guest execution, also use `winapp-sandbox`.
+
 ## Prerequisites
+
+For the sparse `create-debug-identity` workflow below:
 
 1. **`Package.appxmanifest`** in your project — from `winapp init` or `winapp manifest generate`
 2. **Built executable** — the `.exe` your app runs from
@@ -78,7 +96,7 @@ After running, launch your exe normally — Windows will recognize it as having 
 
 - You must re-run `create-debug-identity` after any changes to `Package.appxmanifest` or image assets
 - The debug identity persists across reboots until explicitly removed
-- To remove: `Get-AppxPackage *yourapp.debug* | Remove-AppxPackage`
+- To remove this sparse registration: `winapp unregister --manifest .\Package.appxmanifest`
 - If you have both a debug identity and an installed MSIX, they may conflict — use `--keep-identity` carefully
 - For Electron apps, use `npx winapp node add-electron-debug-identity` instead (handles Electron-specific paths)
 
@@ -96,7 +114,7 @@ After running, launch your exe normally — Windows will recognize it as having 
 
 ### When to use which
 
-**Default to `winapp run`** for most development — it simulates a real MSIX install with full identity, capabilities, and file associations:
+**Default to `winapp run`** for most development — normal identity mode simulates a real MSIX install with full identity, capabilities, and file associations:
 
 ```powershell
 winapp run .\build\output          # GUI and console apps alike; a console app
@@ -124,7 +142,7 @@ winapp create-debug-identity .\bin\Debug\myapp.exe
 | **Capture debug output** | `winapp run .\build\Debug --debug-output` | Captures `OutputDebugString`; on crash, writes minidump and analyzes managed exceptions automatically. **Blocks other debuggers** (one debugger per process) |
 | **Run and auto-clean** | `winapp run .\build\Debug --unregister-on-exit` | Unregisters the dev package after the app exits |
 | **Launch and detach (CI)** | `winapp run .\build\Debug --detach` | Returns immediately after launch; use `--json` to get PID for scripting |
-| **Clean up stale registration** | `winapp unregister` | Removes dev packages for the current project (auto-detects from manifest; pass a `.cs` for a file-based app) |
+| **Clean up this app's registration** | `winapp unregister .` | Pass the same input as `run`; works with or without `--unique-identity` |
 
 > **Using Visual Studio with a packaging project?** VS already handles identity, AUMID activation, and debugger attachment from F5. These workflows are most useful for VS Code, terminal-based development, and frameworks VS doesn't natively package (Rust, Flutter, Tauri, Electron, C++).
 

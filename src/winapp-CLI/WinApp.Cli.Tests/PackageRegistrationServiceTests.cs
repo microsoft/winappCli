@@ -683,6 +683,40 @@ public class PackageRegistrationServiceTests
         return (new PackageRegistrationService(logger), logger);
     }
 
+    #region FindPackagesAtLocation
+
+    [TestMethod]
+    public void FindPackagesAtLocation_IgnoresPackagesOnUnavailableVolumes()
+    {
+        var used = DriveInfo.GetDrives().Select(drive => char.ToUpperInvariant(drive.Name[0])).ToHashSet();
+        var missingDrive = Enumerable.Range('D', 23).Select(letter => (char)letter).FirstOrDefault(letter => !used.Contains(letter));
+        if (missingDrive == default)
+        {
+            Assert.Inconclusive("Every drive letter is in use.");
+        }
+
+        var layout = Directory.CreateTempSubdirectory("winapp_layout_");
+        try
+        {
+            var (svc, _) = NewService();
+            svc.EnumerateUserPackagesImpl = () =>
+            [
+                View("Stale.App", fullName: "Stale.App_1.0.0.0_x64__abc", loc: () => $@"{missingDrive}:\removed\AppX"),
+                View("Live.App", fullName: "Live.App_1.0.0.0_x64__abc", loc: () => layout.FullName),
+            ];
+
+            var found = svc.FindPackagesAtLocation(layout.FullName);
+
+            Assert.AreEqual("Live.App_1.0.0.0_x64__abc", found.Single().FullName);
+        }
+        finally
+        {
+            layout.Delete(true);
+        }
+    }
+
+    #endregion
+
     #region FindOrphanedDevPackages
 
     [TestMethod]
