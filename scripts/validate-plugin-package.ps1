@@ -187,7 +187,7 @@ if (-not (Test-Path (Join-Path $PluginRoot $CopilotAgent) -PathType Leaf)) {
 # Claude is not an Agent Plugins client. It keeps its own manifest, and its 'agents' field
 # points at the Copilot-namespaced file so the agent is not duplicated. A rename that
 # breaks that pointer would otherwise fail silently for Claude users only.
-$ClaudeManifestPath = Join-Path $PluginRoot ".claude-plugin\plugin.json"
+$ClaudeManifestPath = Join-Path $PluginRoot ".claude-plugin/plugin.json"
 if (-not (Test-Path $ClaudeManifestPath -PathType Leaf)) {
     Add-Failure "Claude Code manifest not found at $ClaudeManifestPath"
 }
@@ -199,7 +199,7 @@ else {
             Add-Failure "plugins/winapp/.claude-plugin/plugin.json must declare 'agents' pointing at the Copilot-namespaced agent (Claude does not read com.github.copilot/ by default)"
         }
         foreach ($agentRef in $claudeAgents) {
-            $resolved = Join-Path $PluginRoot ($agentRef -replace '^\./', '' -replace '/', '\')
+            $resolved = Join-Path $PluginRoot ($agentRef -replace '^\./', '')
             if (-not (Test-Path $resolved -PathType Leaf)) {
                 Add-Failure "plugins/winapp/.claude-plugin/plugin.json 'agents' entry '$agentRef' does not resolve to a file"
             }
@@ -224,7 +224,7 @@ else {
         foreach ($field in @('agents', 'skills')) {
             foreach ($pathRef in @($root.$field)) {
                 if (-not $pathRef) { continue }
-                $resolved = Join-Path $ProjectRoot ($pathRef -replace '/', '\')
+                $resolved = Join-Path $ProjectRoot $pathRef
                 if (-not (Test-Path $resolved)) {
                     Add-Failure "repo-root plugin.json '$field' path '$pathRef' does not exist"
                 }
@@ -239,7 +239,7 @@ $Invariant = [System.Globalization.CultureInfo]::InvariantCulture
 
 function Get-DisplayPath([string]$Path) {
     $full = [System.IO.Path]::GetFullPath($Path)
-    if ($full.StartsWith($ProjectRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    if ($full.StartsWith($ProjectRoot + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
         return $full.Substring($ProjectRoot.Length + 1).Replace('\', '/')
     }
     return $full
@@ -315,8 +315,8 @@ function New-CommandNode($Schema) {
 }
 
 $CommandTree = $null
-$CliSchemaPath = Join-Path $ProjectRoot "docs\cli-schema.json"
-$NpmCliPath = Join-Path $ProjectRoot "src\winapp-npm\src\cli.ts"
+$CliSchemaPath = Join-Path $ProjectRoot "docs/cli-schema.json"
+$NpmCliPath = Join-Path $ProjectRoot "src/winapp-npm/src/cli.ts"
 if (-not (Test-Path $CliSchemaPath -PathType Leaf)) {
     Add-Failure "docs/cli-schema.json not found; it is needed to check winapp command examples in skills. Run scripts/build-cli.ps1 to regenerate it."
 }
@@ -383,7 +383,7 @@ function Test-RelativeReference([string]$Target, [string[]]$BaseDirs, [string]$P
     if (-not $pathPart) { return }
     $pathPart = [Uri]::UnescapeDataString($pathPart)
 
-    $root = $PluginDir.TrimEnd('\') + '\'
+    $root = $PluginDir.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
     $insidePlugin = $false
     foreach ($base in $BaseDirs) {
         $full = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($base, $pathPart))
