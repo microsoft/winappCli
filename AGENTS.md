@@ -99,6 +99,8 @@ node cli.js help
 .\scripts\build-cli.ps1 -OnlyTests -UseExistingArtifacts
 ```
 
+To measure which plugin skills Copilot CLI loads (and the tokens it uses) for realistic prompts, run the local agent benchmark: `pwsh benchmarks\agents\run.ps1 -Plan`. See [`benchmarks/agents/README.md`](benchmarks/agents/README.md).
+
 ### Running tests on a Microsoft corporate machine
 
 `api.nuget.org` is **not reachable** from corp machines. Any test that downloads a package

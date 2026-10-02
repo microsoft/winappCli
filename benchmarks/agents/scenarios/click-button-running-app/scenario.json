@@ -1,0 +1,21 @@
+{
+  "id": "click-button-running-app",
+  "description": "Inspect and drive the UI of an app that is already running.",
+  "prompt": "The Contoso Notes desktop app is running on my machine right now. Find the Save button in its main window, click it, and then tell me what text the status bar shows. How would you do that from the command line?",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "expect": {
+    "skillsAny": [
+      "winapp-ui-automation",
+      "winui-ui-testing"
+    ],
+    "skillsForbid": [
+      "winui-wpf-migration",
+      "winui-session-report",
+      "winapp-signing"
+    ]
+  }
+}
