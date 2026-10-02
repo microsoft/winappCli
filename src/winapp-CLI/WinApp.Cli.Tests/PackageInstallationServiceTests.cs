@@ -55,44 +55,20 @@ public class PackageInstallationServiceTests
     /// <summary>Marks a package as a complete, already-extracted cache entry (directory + ".nupkg.metadata" completion marker) so the product's <c>IsPackageInstalled</c> gate treats it as present.</summary>
     private void MarkPresent(string name, string version) => _nuget.MarkInstalled(name, version);
 
-    #region InitializeWorkspace
-
-    [TestMethod]
-    public void InitializeWorkspace_CreatesMissingDirectory()
-    {
-        Assert.IsFalse(_rootDir.Exists);
-
-        _service.InitializeWorkspace(_rootDir);
-
-        _rootDir.Refresh();
-        Assert.IsTrue(_rootDir.Exists);
-    }
-
-    [TestMethod]
-    public void InitializeWorkspace_ExistingDirectory_NoThrow()
-    {
-        _rootDir.Create();
-
-        _service.InitializeWorkspace(_rootDir);
-
-        _rootDir.Refresh();
-        Assert.IsTrue(_rootDir.Exists);
-    }
-
-    #endregion
-
     #region EnsurePackageAsync
 
     [TestMethod]
-    public async Task EnsurePackageAsync_Success_ReturnsTrue_AndCreatesWorkspace()
+    public async Task EnsurePackageAsync_Success_ReturnsTrue_WithoutCreatingRootDirectory()
     {
         _nuget.DefaultVersion = "1.6.0";
 
         var ok = await _service.EnsurePackageAsync(_rootDir, "Pkg.X", _taskContext);
 
         Assert.IsTrue(ok);
+        // Packages live in the NuGet global packages folder; the global winapp directory
+        // must not be created as a side effect (it may be read-only in a sandbox).
         _rootDir.Refresh();
-        Assert.IsTrue(_rootDir.Exists);
+        Assert.IsFalse(_rootDir.Exists);
         CollectionAssert.Contains(_nuget.InstalledPackages, ("Pkg.X", "1.6.0"));
     }
 

@@ -221,10 +221,6 @@ internal class WorkspaceSetupService(
                     logger.LogDebug("{UISymbol} Global packages → {GlobalWinappDir}", UiSymbols.Folder, globalWinappDir);
                     logger.LogDebug("{UISymbol} Local workspace → {LocalWinappDir}", UiSymbols.Folder, localWinappDir);
                 }
-
-                // First ensure basic workspace (for global packages)
-                logger.LogDebug("{UISymbol} Initializing workspace at {LocalWinappDir}", UiSymbols.Sync, localWinappDir);
-                packageInstallationService.InitializeWorkspace(globalWinappDir);
             }
         }
         else if (options.SdkInstallMode == SdkInstallMode.None)
