@@ -1301,8 +1301,21 @@ public class ProjectRunServiceTests
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
         StringAssert.Contains(ex.Message, "Multiple runnable app projects");
         StringAssert.Contains(ex.Message, "(Alpha.csproj, Beta.csproj)");
-        StringAssert.Contains(ex.Message, "'winapp run Alpha.csproj'");
+        StringAssert.Contains(ex.Message, "--project Alpha'");
         Assert.IsFalse(ex.Message.Contains("ACoreLib", StringComparison.Ordinal), ex.Message);
+    }
+
+    [TestMethod]
+    public async Task ResolveInput_MultipleExecutableCsproj_ExampleKeepsDirectoryRelativeToCwd()
+    {
+        // A bare 'winapp run Alpha.csproj' resolves against the cwd, so the example must carry the directory.
+        WriteFile("Alpha.csproj", ExecutableCsproj);
+        WriteFile("Beta.csproj", ExecutableCsproj);
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
+        var relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), _tempDir.FullName);
+        StringAssert.Contains(ex.Message, $"--project Alpha'");
+        StringAssert.Contains(ex.Message, relative);
     }
 
     [TestMethod]
@@ -1342,6 +1355,8 @@ public class ProjectRunServiceTests
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
         StringAssert.Contains(ex.Message, "No runnable app project found");
+        StringAssert.Contains(ex.Message, "requires an executable project");
+        Assert.IsFalse(ex.Message.Contains("winapp run ", StringComparison.Ordinal), ex.Message);
     }
 
     [TestMethod]

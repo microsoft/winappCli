@@ -172,25 +172,34 @@ internal sealed partial class ProjectRunService
 
         // Zero or several runnable candidates → we cannot safely guess; require explicit selection. List only
         // the projects the user can actually run (matching the solution path) so the suggestion is valid.
-        var dirCandidates = dirApps.Count > 0 ? dirApps : (dirTests.Count > 0 ? dirTests : csprojs);
-        var dirCandidateList = FormatProjectNameList(dirCandidates.Select(p => p.Name));
-        var dirExample = dirCandidates.Select(p => p.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).First();
-        string dirReason;
-        if (dirApps.Count > 1)
+        if (dirApps.Count == 0 && dirTests.Count == 0)
         {
-            dirReason = $"Multiple runnable app projects found in '{dir.FullName}' ({dirCandidateList})";
-        }
-        else if (dirTests.Count > 1)
-        {
-            dirReason = $"Only test projects found in '{dir.FullName}' ({dirCandidateList})";
-        }
-        else
-        {
-            dirReason = $"No runnable app project found in '{dir.FullName}' ({dirCandidateList})";
+            throw new ProjectRunException(
+                $"No runnable app project found in '{dir.FullName}' ({FormatProjectNameList(csprojs.Select(p => p.Name))}). 'winapp run' requires an executable project (OutputType Exe or WinExe).");
         }
 
+        var dirCandidates = dirApps.Count > 0 ? dirApps : dirTests;
+        var dirCandidateList = FormatProjectNameList(dirCandidates.Select(p => p.Name));
+        var dirReason = dirApps.Count > 1
+            ? $"Multiple runnable app projects found in '{dir.FullName}' ({dirCandidateList})"
+            : $"Only test projects found in '{dir.FullName}' ({dirCandidateList})";
+        var dirExample = Path.GetFileNameWithoutExtension(
+            dirCandidates.Select(p => p.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).First());
+
         throw new ProjectRunException(
-            $"{dirReason}. Specify which project to run, e.g. 'winapp run {dirExample}' or --project <name>.");
+            $"{dirReason}. Specify which project to run, e.g. '{FormatDirectoryRunExample(dir, dirExample)}'.");
+    }
+
+    /// <summary>
+    /// Builds a copy-pasteable <c>winapp run [dir] --project &lt;name&gt;</c> example. The directory is made
+    /// relative to the current working directory (and omitted when it IS the cwd) because a bare project
+    /// file name would be resolved against the cwd, not the directory the user passed.
+    /// </summary>
+    private static string FormatDirectoryRunExample(DirectoryInfo dir, string projectName)
+    {
+        var relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), dir.FullName);
+        var dirArg = relative == "." ? string.Empty : (relative.Contains(' ') ? $"\"{relative}\" " : $"{relative} ");
+        return $"winapp run {dirArg}--project {projectName}";
     }
 
     /// <summary>
