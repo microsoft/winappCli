@@ -803,6 +803,29 @@ public sealed class ProjectRunServiceAotTests
     }
 
     [TestMethod]
+    [DataRow("""{"Page":[{"Identity":"Main.xaml"}],"ApplicationDefinition":[]}""", "Main.xaml")]
+    [DataRow("""{"Page":[],"ApplicationDefinition":[]}""", "")]
+    public async Task PublishAot_DevToolsReadsXamlItemsFromResultFileNotPublishOutput(string items, string expected)
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        var result = System.Text.Json.Nodes.JsonNode.Parse(PropertyJson(project, assets, publishAot: true, packaging: "None"))!;
+        result["Items"] = System.Text.Json.Nodes.JsonNode.Parse(items);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetArgumentListHandler = _ => (0, "Generating native code", string.Empty),
+            ResultOutputFileHandler = _ => result.ToJsonString(),
+        };
+
+        var outcome = await NewService(dotnet).PublishAotAndResolveAsync(
+            project, Options() with { CaptureDevToolsSources = true }, CancellationToken.None);
+
+        CollectionAssert.AreEqual(expected.Length == 0 ? Array.Empty<string>() : [expected],
+            outcome.Resolution!.DevToolsXamlSources!.ToArray());
+    }
+
+    [TestMethod]
     public async Task PublishAot_FailureDeletesResultFile()
     {
         var project = WriteProject();

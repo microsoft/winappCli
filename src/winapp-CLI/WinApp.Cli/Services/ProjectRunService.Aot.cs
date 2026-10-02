@@ -68,7 +68,7 @@ internal sealed partial class ProjectRunService
 
         var resolution = CreateAotResolution(csproj, options, properties) with
         {
-            DevToolsXamlSources = options.CaptureDevToolsSources ? ReadDevToolsSources(publish.Output) : null,
+            DevToolsXamlSources = options.CaptureDevToolsSources ? ReadDevToolsSources(publish.Properties) : null,
             DevToolsCompilerArtifacts = options.CaptureDevToolsSources
                 ? DevTools.XamlSourceCoordinates.FromProperties(csproj, properties) : null,
         };
