@@ -85,6 +85,13 @@ Describe 'Get-WinappCommands' {
     }
 }
 
+Describe 'Get-BareSkillName' {
+    It 'strips the plugin prefix Copilot adds when two plugins ship the same skill name' {
+        Get-BareSkillName 'winui:winapp-find-api' | Should -Be 'winapp-find-api'
+        Get-BareSkillName 'winapp-find-api' | Should -Be 'winapp-find-api'
+    }
+}
+
 Describe 'Test-Expectations' {
     BeforeAll {
         $installed = @('winapp-setup', 'winapp-package', 'winapp-signing')

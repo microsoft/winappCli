@@ -323,8 +323,9 @@ function Invoke-BenchmarkRun {
         }
         $skillList = @(Get-Content -Raw (Join-Path $logs 'skill-list.out') | ConvertFrom-Json)
         $nonBuiltin = @($skillList | Where-Object { $_.source -ne 'builtin' })
-        $unexpected = @($nonBuiltin | Where-Object { $_.name -notin $installed -or $_.source -ne 'plugin' -or -not $_.path.StartsWith($copilotHome, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { "$($_.name) ($($_.source))" })
-        $missing = @($installed | Where-Object { $_ -notin @($nonBuiltin | Where-Object enabled | ForEach-Object name) })
+        # A skill name shipped by two plugins is listed once per plugin as <plugin>:<name>.
+        $unexpected = @($nonBuiltin | Where-Object { (Get-BareSkillName $_.name) -notin $installed -or $_.source -ne 'plugin' -or -not $_.path.StartsWith($copilotHome, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { "$($_.name) ($($_.source))" })
+        $missing = @($installed | Where-Object { $_ -notin @($nonBuiltin | Where-Object enabled | ForEach-Object { Get-BareSkillName $_.name }) })
         $record.preflight = [ordered]@{ expectedSkills = @($installed); builtinSkills = @($skillList | Where-Object source -eq 'builtin' | ForEach-Object name); unexpected = $unexpected; missing = $missing }
         if ($unexpected -or $missing) {
             $record.status = 'preflight_failed'
@@ -360,7 +361,7 @@ function Invoke-BenchmarkRun {
         $parsed = Read-SessionEvents -Path ($eventLog ? $eventLog.FullName : '')
         $record.copilotVersion = $parsed.copilotVersion
         $record.skillsInvoked = @($parsed.skillsInvoked)
-        $record.skillsLoaded = @($parsed.skillsInvoked | ForEach-Object { $_.name } | Select-Object -Unique)
+        $record.skillsLoaded = @($parsed.skillsInvoked | ForEach-Object { Get-BareSkillName $_.name } | Select-Object -Unique)
         $record.skillsContextDelivered = @($parsed.skillsContextDelivered)
         $record.skillContextChars = $parsed.skillContextChars
         $record.skillContextTokensApprox = $parsed.skillContextTokensApprox
