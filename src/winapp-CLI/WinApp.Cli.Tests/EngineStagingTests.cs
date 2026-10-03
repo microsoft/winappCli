@@ -218,7 +218,9 @@ public class EngineStagingTests
         foreach (var acl in new FileSystemSecurity[] { new DirectoryInfo(engine).GetAccessControl(),
             new DirectoryInfo(Path.GetDirectoryName(staged)!).GetAccessControl(), new FileInfo(staged).GetAccessControl() })
         {
-            Assert.AreEqual(identity.User, acl.GetOwner(typeof(SecurityIdentifier)));
+            // An elevated process owns what it creates through Administrators.
+            var owner = (SecurityIdentifier)acl.GetOwner(typeof(SecurityIdentifier))!;
+            Assert.IsTrue(owner == identity.User || owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid), owner.Value);
             foreach (FileSystemAccessRule rule in acl.GetAccessRules(true, true, typeof(SecurityIdentifier)))
             {
                 Assert.AreEqual(identity.User, rule.IdentityReference);
