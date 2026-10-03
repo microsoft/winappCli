@@ -21,6 +21,7 @@ namespace WinApp.Cli.Services.DevTools;
 /// </param>
 /// <param name="AuthoredKey">The resource key, for the resource kinds.</param>
 /// <param name="WriteType">The XAML type a write must create. Absent means the tap reports it as not settable.</param>
+/// <param name="Redacted">The property holds a secret (a password): DevTools neither shows nor writes it.</param>
 internal sealed record DevToolsPropertyRow(
     string Name,
     string Value,
@@ -30,7 +31,8 @@ internal sealed record DevToolsPropertyRow(
     string? Authored,
     string? AuthoredKind,
     string? AuthoredKey,
-    string? WriteType)
+    string? WriteType,
+    bool Redacted = false)
 {
     /// <summary>
     /// How this row's provenance reads in one bracketed token.
@@ -133,7 +135,8 @@ internal sealed record DevToolsPropertyRow(
                 NullIfEmpty(ReadString(row, "authored")),
                 NullIfEmpty(ReadString(row, "authoredKind")),
                 NullIfEmpty(ReadString(row, "authoredKey")),
-                NullIfEmpty(ReadString(row, "writeType")));
+                NullIfEmpty(ReadString(row, "writeType")),
+                row.TryGetProperty("redacted", out var redacted) && redacted.ValueKind == JsonValueKind.True);
     }
 
     public bool IsSet =>

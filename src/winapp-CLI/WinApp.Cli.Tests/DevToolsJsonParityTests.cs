@@ -64,6 +64,21 @@ public class DevToolsJsonParityTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SecretProperty_IsRefusedWithoutSuggestingAWorkaround(bool withType)
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Answer("Property.get",
+            """{"handle":"42","authoredState":"available","props":[{"name":"Password","value":"","valueType":"String","redacted":true}]}""");
+        var args = withType ? new[] { "42", "Password", "x", "--type", "String", "--json" } : ["42", "Password", "x", "--json"];
+        var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args);
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(output, "holds a secret");
+        Assert.IsFalse(output.Contains("--type", StringComparison.Ordinal), output);
+        Assert.IsFalse(agent.Received.Contains("HotReload.setProperty"), "A secret is never sent to the app.");
+    }
+
+    [TestMethod]
     [DataRow("null")]
     [DataRow("""{"name":"Text","value":123,"valueType":"String"}""")]
     [DataRow("""{"name":"Text","value":"hello"}""")]

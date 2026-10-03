@@ -167,6 +167,11 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
             // override rather than something a caller has to supply. A property the tap reports no writeType
             // for is one it will not write; saying so now beats a refused write with a vaguer reason.
             var writeType = !string.IsNullOrWhiteSpace(type) ? type! : beforeRow.WriteType;
+            if (beforeRow.Redacted)
+            {
+                return Task.FromResult(Fail(json, target.Pid,
+                    $"'{beforeRow.Name}' holds a secret; DevTools does not read or write it."));
+            }
             if (string.IsNullOrWhiteSpace(writeType))
             {
                 return Task.FromResult(Fail(
