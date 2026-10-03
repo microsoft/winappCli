@@ -172,6 +172,27 @@ function Get-FileTail {
     finally { $fs.Dispose() }
 }
 
+function Get-WinappCommands {
+    # Unique 'winapp <command> [<subcommand>]' invocations named in shell commands or answer text.
+    param([AllowEmptyCollection()][AllowNull()][string[]]$Text)
+    $groups = 'cert', 'manifest', 'ui', 'find-api', 'target', 'store'
+    # Top-level commands only, so prose like "winapp is" or "winapp CLI" is not counted.
+    $known = 'az-sign', 'cert', 'create-debug-identity', 'create-external-catalog', 'embed-identity', 'find-api', 'find-ui',
+    'get-winapp-path', 'init', 'manifest', 'new', 'package', 'pack', 'restore', 'run', 'sign', 'store', 'target', 'tool',
+    'ui', 'unregister', 'update'
+    $found = [System.Collections.Generic.List[string]]::new()
+    foreach ($t in $Text) {
+        if (-not $t) { continue }
+        foreach ($m in [regex]::Matches($t, '(?<![\w./\\-])winapp(?:\.exe)?\s+([a-z][a-z-]*)(?:\s+([a-z][a-z-]*))?')) {
+            $cmd = $m.Groups[1].Value
+            if ($cmd -notin $known) { continue }
+            if ($cmd -in $groups -and $m.Groups[2].Success) { $cmd += " $($m.Groups[2].Value)" }
+            if (-not $found.Contains($cmd)) { $found.Add($cmd) }
+        }
+    }
+    return $found.ToArray()
+}
+
 function Read-SessionEvents {
     # Streams a persisted Copilot CLI events.jsonl and returns a small summary.
     # Values that the log does not contain are $null with a reason, never 0.
@@ -195,6 +216,9 @@ function Read-SessionEvents {
         toolCalls              = $null
         toolCallsByName        = [ordered]@{}
         deniedToolCalls        = [ordered]@{}
+        # winapp CLI commands the agent tried to run (shell is denied) or named in its final answer.
+        winappCommands         = [System.Collections.Generic.List[string]]::new()
+        selectedAgent          = $null
         sessionShutdown        = $false
         eventCount             = 0
         unparsedLines          = 0
@@ -211,6 +235,8 @@ function Read-SessionEvents {
     $toolNames = @{}
     $skillContentLength = @{}
     $deliveries = [System.Collections.Generic.List[hashtable]]::new()
+    $commandText = [System.Collections.Generic.List[string]]::new()
+    $lastMessage = $null
     foreach ($line in [System.IO.File]::ReadLines($Path)) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try { $ev = $line | ConvertFrom-Json -AsHashtable -Depth 64 }
@@ -247,11 +273,18 @@ function Read-SessionEvents {
                 $deliveries.Add(@{ name = $n; wrapper = $wrapper; body = $bodyLength })
             }
             'assistant.turn_start' { $turns++ }
+            'subagent.selected' {
+                if (-not $r.selectedAgent -and $data.ContainsKey('agentName')) { $r.selectedAgent = $data.agentName }
+            }
+            'assistant.message' {
+                if ($data.ContainsKey('content') -and $data.content -is [string] -and $data.content.Trim()) { $lastMessage = $data.content }
+            }
             'tool.execution_start' {
                 $tools++
                 $tn = if ($data.ContainsKey('toolName')) { [string]$data.toolName } else { '(unknown)' }
                 $r.toolCallsByName[$tn] = 1 + ($r.toolCallsByName.Contains($tn) ? $r.toolCallsByName[$tn] : 0)
                 if ($data.ContainsKey('toolCallId')) { $toolNames[[string]$data.toolCallId] = $tn }
+                if ($data.arguments -is [System.Collections.IDictionary] -and $data.arguments.ContainsKey('command') -and $data.arguments.command -is [string]) { $commandText.Add($data.arguments.command) }
             }
             'tool.execution_complete' {
                 if ($data.ContainsKey('success') -and $data.success -eq $false -and $data.error -is [System.Collections.IDictionary] -and $data.error.code -eq 'denied') {
@@ -284,6 +317,7 @@ function Read-SessionEvents {
     if ($r.eventCount -gt 0) {
         $r.modelTurns = $turns
         $r.toolCalls = $tools
+        foreach ($c in Get-WinappCommands -Text (@($commandText) + @($lastMessage))) { $r.winappCommands.Add($c) }
         $chars = 0L
         $unknown = @()
         foreach ($d in $deliveries) {
@@ -540,4 +574,4 @@ function Invoke-Rescore {
 
 Export-ModuleMember -Function Get-ScenarioDefinitions, Get-PluginSkillNames, Get-ConfigurationPlugins, New-ChildEnvironment,
 Invoke-LoggedProcess, Get-FileTail, Read-SessionEvents, Get-DirectorySnapshot, Compare-DirectorySnapshot, Test-Expectations,
-Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument
+Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands
