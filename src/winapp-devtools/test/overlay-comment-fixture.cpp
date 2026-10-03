@@ -55,7 +55,16 @@ bool OverlayFixtureLateShortcut()
     IsToolbarShortcut(VK_F12);
     g_bareF12At -= 1000;
     const bool expired = !IsLateToolbarShortcut(VK_CONTROL) && !IsLateToolbarShortcut(VK_SHIFT);
-    return bare && late && once && interrupted && expired;
+    // Ctrl reached the app before the F12 and Shift after it.
+    BYTE keys[256]{};
+    GetKeyboardState(keys);
+    keys[VK_CONTROL] = 0x80;
+    SetKeyboardState(keys);
+    const bool ctrlFirst = !IsToolbarShortcut(VK_F12);
+    keys[VK_CONTROL] = 0;
+    SetKeyboardState(keys);
+    const bool split = ctrlFirst && IsLateToolbarShortcut(VK_SHIFT);
+    return bare && late && once && interrupted && expired && split;
 }
 
 std::vector<InstanceHandle> OverlayFixtureSurfaceCandidates()

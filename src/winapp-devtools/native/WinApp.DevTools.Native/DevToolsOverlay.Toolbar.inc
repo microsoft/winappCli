@@ -166,10 +166,12 @@ static unsigned g_lateModifiers = 0;
 static bool IsToolbarShortcut(int key)
 {
     if (key != VK_F12) return false;
-    const bool chord = (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000) &&
-        !(GetKeyState(VK_MENU) & 0x8000) && !(GetKeyState(VK_LWIN) & 0x8000) && !(GetKeyState(VK_RWIN) & 0x8000);
-    g_bareF12At = chord ? 0 : GetTickCount64();
-    g_lateModifiers = 0;
+    const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool other = (GetKeyState(VK_MENU) & 0x8000) || (GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000);
+    const bool chord = ctrl && shift && !other;
+    g_bareF12At = chord || other ? 0 : GetTickCount64();
+    // A modifier already down counts: one can arrive before the F12 and the other after it.
+    g_lateModifiers = (ctrl ? 1u : 0u) | (shift ? 2u : 0u);
     return chord;
 }
 
