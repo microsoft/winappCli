@@ -197,6 +197,7 @@ static void SetPickButtonOn(bool on);
 static bool CommentModeOn();
 static void CommentModeOpenComposer(InstanceHandle picked);
 static InstanceHandle PeekTopHandleAt(IXamlDiagnostics*, InstanceHandle, int, int, DevToolsIsOverlayFn, HRESULT* = nullptr);
+static bool IsInOpenPopup(IXamlDiagnostics* diag, InstanceHandle handle);
 static void ScreenToContentDip(int screenX, int screenY, long* dipX, long* dipY);
 static void LogHandleClass(IXamlDiagnostics* diag, const wchar_t* tag, InstanceHandle h);
 static void NoteScrollActivity();
@@ -471,7 +472,8 @@ static void OnCatcherClick(void* sender, void*)
         if (picked && CommentModeOn()) {
             CommentModeOpenComposer(picked);
         } else if (picked && g_cardRead && !claimedByWindow) {
-            g_selFocusCommentOnOpen = true;
+            // Focus leaving an open drop-down or flyout closes it, and the picked element with it.
+            g_selFocusCommentOnOpen = !IsInOpenPopup(g_pickDiag, picked);
             DevToolsOverlay_ShowBadgeForHandle(g_pickDiag, picked, /*fromUserPick*/ true);
             g_selFocusCommentOnOpen = false;
         }

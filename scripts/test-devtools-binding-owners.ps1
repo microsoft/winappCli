@@ -501,6 +501,24 @@ try {
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelClose', '-a', $app)
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
         $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+
+        # A pick inside an open light-dismiss popup must not close it: the popup and the selection both stay.
+        foreach ($case in @(@{ Opener = 'PickCombo'; Target = 'PickComboBeta'; Title = 'ComboBoxItem*' },
+                            @{ Opener = 'FlyoutOpener'; Target = 'FlyoutText'; Title = 'TextBlock*' })) {
+            $null = Invoke-Cli @('ui', 'invoke', $case.Opener, '-a', $app)
+            $null = Invoke-Cli @('ui', 'wait-for', $case.Target, '-a', $app, '-t', '5000')
+            $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
+            $null = Invoke-Cli @('ui', 'click', $case.Target, '-a', $app)
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
+            Start-Sleep -Milliseconds 800
+            $title = Invoke-Cli @('ui', 'get-property', 'DevToolsSelTitle', '-a', $app, '-p', 'Name')
+            $still = Invoke-Cli @('ui', 'search', $case.Target, '-a', $app)
+            Check ($title.properties.Name -like $case.Title -and @($still.matches | Where-Object automationId -eq $case.Target).Count -eq 1) `
+                "a pick inside an open $($case.Opener) popup keeps the popup and its selection"
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelClose', '-a', $app)
+            $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
+            $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
+        }
         [ordered]@{
             processId = $owned.Id; startTicksUtc = $started.Ticks; executable = $executable
             sourceHandle = [string]$heading[0].handle

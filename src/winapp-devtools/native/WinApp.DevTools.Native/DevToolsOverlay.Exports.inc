@@ -276,6 +276,25 @@ static bool IsInPopupLayer(IXamlDiagnostics* diag, InstanceHandle handle)
     return false;
 }
 
+// Whether the element is part of an app popup that is open now (a drop-down, a flyout, a menu).
+static bool IsInOpenPopup(IXamlDiagnostics* diag, InstanceHandle handle)
+{
+    try {
+        auto xamlRoot = HostedXamlRoot();
+        winrt::com_ptr<IInspectable> object;
+        if (!xamlRoot || !diag || FAILED(diag->GetIInspectableFromHandle(handle, object.put())) || !object) return false;
+        winrt::Windows::Foundation::IInspectable element{ nullptr };
+        winrt::copy_from_abi(element, object.get());
+        std::vector<DevToolsX::UIElement> children;
+        for (auto const& popup : DevToolsXM::VisualTreeHelper::GetOpenPopupsForXamlRoot(xamlRoot))
+            if (auto child = popup.Child()) children.push_back(child);
+        for (auto node = element.try_as<DevToolsX::DependencyObject>(); node; node = DevToolsXM::VisualTreeHelper::GetParent(node))
+            for (auto const& child : children)
+                if (node == child) return true;
+    } catch (const winrt::hresult_error&) {}
+    return false;
+}
+
 // Pick what is visible: an open app popup (a menu, a drop-down, a flyout) is drawn above the window content, but the
 // window's hit test does not reach into it. Returns the front-most app element under the content-DIP point inside
 // an open popup; *overPopup reports whether the point is on one at all, so a miss is not taken for what lies
