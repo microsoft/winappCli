@@ -95,6 +95,10 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription, IHelpExa
                     {
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]Captured runtime text (context):[/] {Markup.Escape(content)}");
                     }
+                    foreach (var line in CommentElementContext.Lines(view.Context))
+                    {
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]{Markup.Escape(line)}[/]");
+                    }
                     foreach (var h in view.Hits)
                     {
                         var label = view.AnchorConfirmed ? "Current match" : "Candidate";

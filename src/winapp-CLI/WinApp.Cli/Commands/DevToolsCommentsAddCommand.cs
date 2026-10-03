@@ -218,9 +218,12 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             };
 
             var property = Nullify(parseResult.GetValue(PropertyOption));
-            if (property is not null || bounds is not null)
+            if (property is not null || bounds is not null || captured?.Style is not null || captured?.Brushes is not null)
             {
-                comment.Context = new CommentContext { Property = property, Bounds = bounds };
+                comment.Context = new CommentContext
+                {
+                    Property = property, Bounds = bounds, Style = captured?.Style, Brushes = captured?.Brushes,
+                };
             }
 
             // Without a source file the anchor is weak: an agent has to search the project and must not guess.

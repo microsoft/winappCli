@@ -48,6 +48,10 @@ internal sealed class CapturedElement
     /// Empty when source/parent context cannot be established; null when the tap didn't answer.
     /// </summary>
     public string? ElementPath { get; init; }
+
+    public CommentStyleContext? Style { get; init; }
+
+    public List<CommentBrushContext>? Brushes { get; init; }
 }
 
 internal sealed class CaptureResult
@@ -108,7 +112,8 @@ internal static class CommentSelectionCapture
             {
                 return Failed(new(-32000, "not-found", "The selected element is no longer in the visual tree."));
             }
-            var content = ExtractContent(tap.RequestProperties(handle, cancellationToken).RequireResult());
+            var propsJson = tap.RequestProperties(handle, cancellationToken).RequireResult();
+            var content = ExtractContent(propsJson);
             var sourceJson = tap.RequestSource(handle, cancellationToken).RequireResult();
             var (uri, file, line, column) = ParseSource(sourceJson);
             var source = JsonSerializer.Deserialize(sourceJson, TapWireJson.Context.TapElementSource);
@@ -153,6 +158,7 @@ internal static class CommentSelectionCapture
                 var declaredId = Nullify(CommentAuthoredIdentity.AutomationId(declarations[0].Element));
                 if (declaredId is not null && !declaredId.StartsWith('{')) { automationId = declaredId; }
             }
+            var (style, brushes) = CommentElementContext.Read(propsJson, Nullify(sourceRoot));
             return new CaptureResult
             {
                 Status = CaptureStatus.Ok,
@@ -175,6 +181,8 @@ internal static class CommentSelectionCapture
                     Authored = authored,
                     ElementPath = Nullify(elementPath),
                     SourceRoot = Nullify(sourceRoot),
+                    Style = style,
+                    Brushes = brushes,
                 },
             };
         }

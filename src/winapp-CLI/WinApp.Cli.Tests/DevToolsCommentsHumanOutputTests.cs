@@ -235,6 +235,14 @@ public class DevToolsCommentsHumanOutputTests
     }
 
     [TestMethod]
+    public void OfflineAdd_HasNoElementContext()
+    {
+        Success("add", "--id", "offline", "--text", "Check spacing.");
+        var payload = JsonSerializer.Deserialize(Success("get", "offline", "--json"), CommentsJsonContext.Default.CommentResultPayload)!;
+        Assert.IsNull(payload.Comment!.Context, "Without a live element there is no style or brush context to capture.");
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void StatusAll_ListsEveryStatusLikeAll(bool json)

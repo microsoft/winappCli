@@ -134,6 +134,49 @@ internal sealed class CommentContext
     public string? Property { get; set; }
 
     public CommentBounds? Bounds { get; set; }
+
+    /// <summary>The element's style when it comes from a resource. Captured from a live element only.</summary>
+    public CommentStyleContext? Style { get; set; }
+
+    /// <summary>The element's set brush properties and the resources they come from. Captured from a live element only.</summary>
+    public List<CommentBrushContext>? Brushes { get; set; }
+}
+
+internal sealed class CommentStyleContext
+{
+    /// <summary>The style's resource key; absent for an implicit style, which applies by <see cref="TargetType"/>.</summary>
+    public string? Key { get; set; }
+
+    /// <summary><c>staticResource</c>, <c>themeResource</c> or <c>implicit</c>.</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    public string? TargetType { get; set; }
+
+    /// <summary>Where the style is declared, when that is in the project.</summary>
+    public string? File { get; set; }
+
+    public int? Line { get; set; }
+}
+
+internal sealed class CommentBrushContext
+{
+    public string Property { get; set; } = string.Empty;
+
+    /// <summary>The resolved value, such as <c>#FF0067C0</c>.</summary>
+    public string? Value { get; set; }
+
+    /// <summary>Where the value comes from: <c>Local</c>, <c>Style</c>, <c>Built-in style</c>, <c>Template</c>…</summary>
+    public string? Source { get; set; }
+
+    public string? ResourceKey { get; set; }
+
+    /// <summary><c>themeResource</c> or <c>staticResource</c>, with <see cref="ResourceKey"/>.</summary>
+    public string? ResourceKind { get; set; }
+
+    /// <summary>The project file that sets it (the element or its style), when known.</summary>
+    public string? File { get; set; }
+
+    public int? Line { get; set; }
 }
 
 internal sealed class CommentBounds

@@ -107,6 +107,14 @@ XAML. When `requiresConfirmation` is true, show the ranked candidates and obtain
 the user's confirmation before editing; never promote a weak hit by proximity.
 See [comment identity](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#review-comments-with-an-agent).
 
+For visual requests ("warmer", "less contrast"), read `context` first:
+`context.style` is the element's style resource and `context.brushes` lists each
+brush's resolved value with its `resourceKey`, `resourceKind` and, for project
+styles, the `file` and `line` of the setter. Change that resource or setter instead
+of searching for the color. Without a `resourceKey`, the value comes from the
+platform's default style; override it locally or with the control's lightweight
+styling resource.
+
 Flag unconfirmed anchors instead of guessing. Keep durable comment success
 distinct from a marker-refresh warning. Source candidates and line numbers are
 hints to verify, not proof of identity. Use `comments add` only when programmatic

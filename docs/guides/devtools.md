@@ -126,6 +126,23 @@ before editing. A comment on an element without source is not linked to source:
 it reports `weak` and `requiresConfirmation`, and any candidates come from a
 source-wide search.
 
+A comment left on a live element (in the overlay, or with `--from-element`) also
+records the element's style and brushes, so a request such as "make this warmer" leads
+straight to the resource to change. In `--json`, `context.style` names the style's
+resource key (or `implicit`), and each `context.brushes` entry gives the property, its
+resolved value, where the value comes from, and, when known, the `{ThemeResource}` or
+`{StaticResource}` key and the project file and line that set it. `get` prints the
+same in a few lines:
+
+```text
+Style: FocusButtonStyle, App.xaml:11
+Background: #FF0067C0 from ThemeResource AccentFillColorDefaultBrush (Style, App.xaml:12)
+```
+
+A key is shown only when it was written on the element or on a setter of a style in
+your project; values from the platform's default styles show the value only. Comments
+added with `--file`/`--line` and no running element have no context.
+
 The agent should verify each source location, make the requested change, and
 resolve the comment only after checking the result:
 
