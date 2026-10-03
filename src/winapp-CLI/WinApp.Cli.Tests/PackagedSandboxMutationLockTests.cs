@@ -658,6 +658,12 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         while (!_deploymentStateStore.List(WindowsSandboxTarget.Default)
             .Any(state => state.TrackedOperationProcessId == process.ProcessId))
         {
+            if (run.IsCompleted)
+            {
+                // Surface why the run ended instead of timing out on a state it can no longer publish.
+                Assert.Fail($"The run ended with {await run} before publishing process {process.ProcessId}.");
+            }
+
             await Task.Delay(10, timeout.Token);
         }
     }
