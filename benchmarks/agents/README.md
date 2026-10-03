@@ -7,7 +7,7 @@ tokens it uses, under different plugin configurations:
 |---|---|
 | `none` | no plugins |
 | `winapp` | this repo's `plugins/winapp` |
-| `winui` | the WinUI plugin (published `microsoft/win-dev-skills` v0.7.1 by default) |
+| `winui` | this repo's `plugins/winui/agent-plugin` |
 | `both` | both plugins |
 
 Use it to baseline the current plugins, check that a moved or restructured plugin still routes the
@@ -39,8 +39,11 @@ pwsh benchmarks\agents\run.ps1
 # A single scenario
 pwsh benchmarks\agents\run.ps1 -Scenario electron-notifications -Configuration winapp -Model claude-sonnet-5.5 -Iterations 1
 
+# Compare against the published WinUI plugin (microsoft/win-dev-skills v0.7.1)
+pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin published
+
 # Compare a candidate WinUI plugin from a local folder
-pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\win-dev-skills\plugins\winui\agent-plugin
+pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\my-winui-candidate\agent-plugin
 ```
 
 | Parameter | Default (`config.json`) | Notes |
@@ -51,7 +54,7 @@ pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\win
 | `-Iterations <n>` | 3 | |
 | `-TimeoutMinutes <n>` | scenario `timeoutMinutes`, else 5 | Per agent session |
 | `-WinAppPlugin <path>` | `plugins\winapp` | Any local plugin folder |
-| `-WinUIPlugin <path>` | `win-dev-skills@v0.7.1:plugins/winui/agent-plugin` | Fetched once into `results\.cache` |
+| `-WinUIPlugin <path\|published>` | `plugins\winui\agent-plugin` | Any local plugin folder, or `published` for `win-dev-skills@v0.7.1:plugins/winui/agent-plugin` (fetched once into `results\.cache`) |
 | `-CopilotVersion <v>` | newest Copilot CLI build already on the machine | Pinned with `--prefer-version` for every call |
 | `-OutDir <path>` | `results\<timestamp>` | |
 | `-KeepArtifacts` | off | Keeps each run's Copilot home, workspace, and logs under `%TEMP%\winapp-agent-bench` |

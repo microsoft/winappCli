@@ -17,3 +17,7 @@ src/winapp-npm/src/winapp-commands.ts text eol=lf
 *.ps1 text eol=crlf
 *.cmd text eol=crlf
 *.bat text eol=crlf
+
+# Imported unchanged from microsoft/win-dev-skills; keep its LF line endings and binary assets byte-exact
+plugins/winui/** text eol=lf
+plugins/winui/**/*.png binary

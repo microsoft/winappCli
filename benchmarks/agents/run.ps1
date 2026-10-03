@@ -82,7 +82,8 @@ if ($Plan) {
     Write-Host "Models:      $($models -join ', ')"
     Write-Host "Iterations:  $iterationCount"
     Write-Host "WinApp:      $(if ($WinAppPlugin) { $WinAppPlugin } else { $config.plugins.winapp.path })"
-    Write-Host "WinUI:       $(if ($WinUIPlugin) { $WinUIPlugin } else { "$($config.plugins.winui.repository)@$($config.plugins.winui.ref):$($config.plugins.winui.path)" })"
+    $pub = $config.plugins.winui.published
+    Write-Host "WinUI:       $(if ($WinUIPlugin -eq 'published') { "$($pub.repository)@$($pub.ref):$($pub.path)" } elseif ($WinUIPlugin) { $WinUIPlugin } else { $config.plugins.winui.path })"
     Write-Host ''
     $runList | Group-Object { $_.Scenario.Id } | ForEach-Object {
         $configs = ($_.Group.Configuration | Select-Object -Unique) -join ', '
@@ -124,8 +125,8 @@ function Get-PluginInfo {
     }
 }
 
-function Resolve-WinUIPlugin {
-    $w = $config.plugins.winui
+function Resolve-PublishedWinUIPlugin {
+    $w = $config.plugins.winui.published
     $safeRef = $w.ref -replace '[^\w.-]', '_'
     $cache = Join-Path $PSScriptRoot "results\.cache\win-dev-skills-$safeRef"
     if (-not (Test-Path -LiteralPath (Join-Path $cache '.git'))) {
@@ -149,11 +150,15 @@ if ('winapp' -in $neededPlugins) {
     $plugins.winapp = Get-PluginInfo -Name 'winapp' -Path $path -Source $(if ($WinAppPlugin) { 'local override' } else { 'this repo' })
 }
 if ('winui' -in $neededPlugins) {
-    if ($WinUIPlugin) {
+    if ($WinUIPlugin -eq 'published') {
+        $pub = $config.plugins.winui.published
+        $plugins.winui = Get-PluginInfo -Name 'winui' -Path (Resolve-PublishedWinUIPlugin) -Source "$($pub.repository)@$($pub.ref)"
+    }
+    elseif ($WinUIPlugin) {
         $plugins.winui = Get-PluginInfo -Name 'winui' -Path (Resolve-Path $WinUIPlugin).Path -Source 'local override'
     }
     else {
-        $plugins.winui = Get-PluginInfo -Name 'winui' -Path (Resolve-WinUIPlugin) -Source "$($config.plugins.winui.repository)@$($config.plugins.winui.ref)"
+        $plugins.winui = Get-PluginInfo -Name 'winui' -Path (Resolve-Path (Join-Path $PSScriptRoot $config.plugins.winui.path)).Path -Source 'this repo'
     }
 }
 foreach ($p in $plugins.Values) {
