@@ -58,7 +58,8 @@ pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\win
 | `-Plan` | | Dry run |
 | `-Rescore <resultsDir>` | | Re-evaluate recorded runs against the current scenario expectations; no model calls |
 
-Runs are sequential; parallel runs are a possible future addition.
+Runs are sequential; parallel runs are a possible future addition. List parameters accept
+comma-separated values (`-Scenario a,b`), including through `pwsh -File`.
 
 ## What each run does
 

@@ -16,7 +16,6 @@
 [CmdletBinding()]
 param(
     [string[]]$Scenario,
-    [ValidateSet('none', 'winapp', 'winui', 'both')]
     [string[]]$Configuration,
     [string[]]$Model,
     [ValidateRange(1, 100)]
@@ -35,6 +34,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'lib\Benchmark.psm1') -Force
+
+# `pwsh -File run.ps1 -Scenario a,b` passes the single string "a,b"; accept both forms.
+$Scenario = Split-ListArgument $Scenario
+$Configuration = Split-ListArgument $Configuration
+$Model = Split-ListArgument $Model
+$badConfigs = @($Configuration | Where-Object { $_ -notin 'none', 'winapp', 'winui', 'both' })
+if ($badConfigs) { throw "Unknown configuration(s): $($badConfigs -join ', '). Use none, winapp, winui, or both." }
 
 $config = Get-Content -Raw (Join-Path $PSScriptRoot 'config.json') | ConvertFrom-Json -AsHashtable
 $models = if ($Model) { $Model } else { @($config.models) }
