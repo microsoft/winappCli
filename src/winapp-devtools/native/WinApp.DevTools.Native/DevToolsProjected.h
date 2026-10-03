@@ -415,6 +415,17 @@ inline HRESULT DevToolsGetIsChecked(void* button, IInspectable** value) noexcept
 { return DevToolsAbi<DevToolsXCP::IToggleButton>(button)->get_IsChecked(reinterpret_cast<void**>(value)); }
 inline HRESULT DevToolsPutTextBoxText(void* textBox, HSTRING text) noexcept
 { return DevToolsAbi<DevToolsXC::ITextBox>(textBox)->put_Text(DevToolsAbiStr(text)); }
+// Puts the caret after the last character of a TextBox.
+inline HRESULT DevToolsTextBoxCaretToEnd(void* textBox) noexcept
+{
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, textBox);
+        const auto box = object.as<DevToolsXC::TextBox>();
+        box.Select(static_cast<int32_t>(box.Text().size()), 0);
+        return S_OK;
+    } catch (...) { return winrt::to_hresult(); }
+}
 // The element with focus in `element`'s XamlRoot (caller releases), and whether it is `element` or inside it.
 inline HRESULT DevToolsFocusedWithin(void* element, IInspectable** focused, bool* inside) noexcept
 {

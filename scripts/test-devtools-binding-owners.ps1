@@ -342,6 +342,9 @@ try {
         $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
         $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
+        $null = Invoke-Cli @('ui', 'send-keys', '!', '-a', $app, '--via', 'send-input')
+        $typed = Invoke-Cli @('ui', 'get-property', 'DevToolsSelComment', '-a', $app, '-p', 'Value')
+        Check ($typed.properties.Value -ceq 'Owned comment failure probe!') 'typing after a pick continues the existing comment'
 
         $mutexHash = [Security.Cryptography.SHA256]::HashData(
             [Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($blockedStore).ToLowerInvariant()))

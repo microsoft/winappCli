@@ -783,6 +783,8 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
                 DevToolsFocus(box, 3 /*FocusState.Programmatic*/, &focused);
                 reinterpret_cast<IUnknown*>(box)->Release();
             }
+            // Typing continues an existing comment rather than prepending to it.
+            if (focused) DevToolsTextBoxCaretToEnd(g_selComment);
             DevToolsOverlayLog(L"overlay.sel comment box focused on open=%d", (int)focused);
         }
     }
