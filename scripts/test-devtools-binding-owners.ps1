@@ -332,10 +332,14 @@ try {
             Remove-Item -LiteralPath $blockedStore
         }
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelCommentSave', '-a', $app)
-        $null = Wait-CommentStatus $app 'Saved.'
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--gone', '-t', '10000')
+        Check $true 'a saved comment closes the quick peek'
         $stored = Get-Content -LiteralPath $blockedStore -Raw | ConvertFrom-Json
         $savedComment = @($stored.comments | Where-Object text -CEQ 'Owned comment failure probe')
         Check ($savedComment.Count -eq 1) 'retry through Save actually persists the retained draft to the owned store'
+        $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
+        $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
 
         $mutexHash = [Security.Cryptography.SHA256]::HashData(
             [Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($blockedStore).ToLowerInvariant()))
@@ -362,10 +366,9 @@ try {
         Check ($draft.properties.Value -ceq 'Owned newer draft' -and
             @($stored.comments | Where-Object text -CEQ 'Owned submitted text').Count -eq 1) 'actual store push and completion preserve newer editor text'
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelCommentSave', '-a', $app)
-        $null = Wait-CommentStatus $app 'Saved.'
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--gone', '-t', '10000')
         $stored = Get-Content -LiteralPath $blockedStore -Raw | ConvertFrom-Json
         Check (@($stored.comments | Where-Object text -CEQ 'Owned newer draft').Count -eq 1) 'second explicit Save persists the newer draft'
-        $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelClose', '-a', $app)
 
         # Comment status must also show for an element whose quick peek has no binding rows.
         $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
