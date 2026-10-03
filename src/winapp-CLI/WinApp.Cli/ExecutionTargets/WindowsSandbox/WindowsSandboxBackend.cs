@@ -1300,6 +1300,7 @@ internal sealed class WindowsSandboxBackend(
                     {
                         _client = placed;
                         RememberClientWindow(placed);
+                        WatchForWindowClose(instanceId, placed);
                     }
                 }
                 catch (OperationCanceledException) when (!connectCompleted)
@@ -1314,6 +1315,33 @@ internal sealed class WindowsSandboxBackend(
             }
         }
     }
+
+    /// <summary>
+    /// Starts a watcher that ends the Sandbox when the user closes the window winapp just opened,
+    /// for a Sandbox winapp started.
+    /// </summary>
+    /// <remarks>
+    /// Best effort and never fatal: without it, closing the window leaves the Sandbox running.
+    /// </remarks>
+    private void WatchForWindowClose(string instanceId, SandboxClientWindow client)
+    {
+        try
+        {
+            if (stateStore is not null &&
+                SandboxClientWatcher.OwnsWindow(stateStore.Read(Target), instanceId, client))
+            {
+                LaunchWindowWatcher(instanceId, client);
+            }
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException or ExecutionTargetException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Could not start the Windows Sandbox window watcher: {0}", ex.Message);
+        }
+    }
+
+    /// <summary>Starts the window watcher process; seamed so tests never launch one.</summary>
+    internal Action<string, SandboxClientWindow> LaunchWindowWatcher { get; set; } = SandboxClientWatcher.Launch;
 
     /// <summary>
     /// Starts the agent, connecting a client once if the guest turns out not to have a usable one.
