@@ -172,6 +172,13 @@ function Get-FileTail {
     finally { $fs.Dispose() }
 }
 
+function Get-BareSkillName {
+    # Copilot lists a skill name shipped by more than one plugin as '<plugin>:<name>'.
+    param([string]$Name)
+    if ($Name -match '^[^:]+:(.+)$') { return $Matches[1] }
+    return $Name
+}
+
 function Get-WinappCommands {
     # Unique 'winapp <command> [<subcommand>]' invocations named in shell commands or answer text.
     param([AllowEmptyCollection()][AllowNull()][string[]]$Text)
@@ -574,4 +581,4 @@ function Invoke-Rescore {
 
 Export-ModuleMember -Function Get-ScenarioDefinitions, Get-PluginSkillNames, Get-ConfigurationPlugins, New-ChildEnvironment,
 Invoke-LoggedProcess, Get-FileTail, Read-SessionEvents, Get-DirectorySnapshot, Compare-DirectorySnapshot, Test-Expectations,
-Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands
+Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands, Get-BareSkillName
