@@ -976,8 +976,8 @@ internal sealed class WindowsSandboxBackend(
                 ExecutionTargetErrorCodes.AgentIncompatible,
                 "A different version of winapp started the Windows Sandbox agent, and the Sandbox " +
                 "is still using its files, so this version could not replace them.",
-                // Stopped, not closed: closing the window leaves a Sandbox winapp started running, so
-                // its files stay in use.
+                // Stopped, not closed: another winapp version or tool started this Sandbox, and closing
+                // a window this winapp is not watching leaves it running with its files in use.
                 userAction: "Save anything you need from the Sandbox, stop it with `wsb stop`, then run the command again to start a fresh agent.",
                 context: new Dictionary<string, string> { ["sandboxId"] = instanceId },
                 nextCommand: new ExecutionTargetNextCommand
@@ -1304,6 +1304,7 @@ internal sealed class WindowsSandboxBackend(
                     {
                         _client = placed;
                         RememberClientWindow(placed);
+                        WatchForWindowClose(instanceId, placed);
                     }
                 }
                 catch (OperationCanceledException) when (!connectCompleted)
@@ -1318,6 +1319,33 @@ internal sealed class WindowsSandboxBackend(
             }
         }
     }
+
+    /// <summary>
+    /// Starts a watcher that ends the Sandbox when the user closes the window winapp just opened,
+    /// for a Sandbox winapp started.
+    /// </summary>
+    /// <remarks>
+    /// Best effort and never fatal: without it, closing the window leaves the Sandbox running.
+    /// </remarks>
+    private void WatchForWindowClose(string instanceId, SandboxClientWindow client)
+    {
+        try
+        {
+            if (stateStore is not null &&
+                SandboxClientWatcher.OwnsWindow(stateStore.Read(Target), instanceId, client))
+            {
+                LaunchWindowWatcher(instanceId, client);
+            }
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException or ExecutionTargetException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Could not start the Windows Sandbox window watcher: {0}", ex.Message);
+        }
+    }
+
+    /// <summary>Starts the window watcher process; seamed so tests never launch one.</summary>
+    internal Action<string, SandboxClientWindow> LaunchWindowWatcher { get; set; } = SandboxClientWatcher.Launch;
 
     /// <summary>
     /// Starts the agent, connecting a client once if the guest turns out not to have a usable one.

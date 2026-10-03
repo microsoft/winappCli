@@ -56,6 +56,7 @@ BringWindowToTop
 IsWindow
 GetWindowLong
 WINDOW_EX_STYLE
+IsWindowVisible
 ShowWindow
 IsIconic
 GetSystemMetrics

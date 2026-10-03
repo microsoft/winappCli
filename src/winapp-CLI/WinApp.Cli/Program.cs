@@ -74,7 +74,7 @@ internal static class Program
 
             // Infrastructure processes are not separate user invocations. Set this before any
             // telemetry instance is created; descendants inherit the winapp-only opt-out.
-            if (parseResult.CommandResult.Command is GuestAgentCommand)
+            if (parseResult.CommandResult.Command is GuestAgentCommand or SandboxWindowWatchCommand)
             {
                 Environment.SetEnvironmentVariable(Telemetry.Telemetry.OptOutEnvironmentVariable, "1");
             }
@@ -126,9 +126,11 @@ internal static class Program
             }
         }
 
-        // Skip first-run notice for machine-readable output modes and completions
+        // Skip first-run notice for machine-readable output modes, completions, and the hidden
+        // Sandbox window watcher, which no user sees and must not use up the one-time notice.
         var didShowFirstRunNotice = false;
-        if (!isCliSchemaMode && !isCompleteMode && !json)
+        if (!isCliSchemaMode && !isCompleteMode && !json &&
+            parseResult?.CommandResult.Command is not SandboxWindowWatchCommand)
         {
             var firstRunService = serviceProvider.GetRequiredService<IFirstRunService>();
             didShowFirstRunNotice = firstRunService.CheckAndDisplayFirstRunNotice();

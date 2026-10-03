@@ -24,8 +24,8 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
   and finish its client setup/update. Do not repeatedly retry an unchanged prerequisite.
 - Connection or reconnect may briefly take focus; do not promise zero desktop interruption.
 - Existing Sandbox instances are reused and changed, not discarded. Never close one
-  or run `wsb stop` without user consent. Closing the Sandbox window does not end the
-  Sandbox; `wsb connect --id <id>` shows it again.
+  or run `wsb stop` without user consent. Closing the Sandbox window ends a Sandbox
+  winapp started and discards its guest state; the next command starts a fresh one.
 
 ## Launch, inspect, act, verify
 
@@ -155,7 +155,8 @@ suppressed with `--quiet`/`--json`.
   window, `wsb list` then `wsb connect --id <id>`. Never stop it without consent.
 - Incompatible CLI: follow the error; upgrade the installed CLI through its install method,
   **not `winapp update`**. Obtain consent before stopping a Sandbox (`wsb stop --id <id>`)
-  for a version change; closing its window does not stop it.
+  for a version change; closing its window does not stop a Sandbox another winapp version
+  or tool started.
 - Missing/unsupported runtime: use the named requirement and configuration in the error.
   Do not assume any newer same-major runtime is compatible or substitute architectures.
 - Incomplete deployment/transfer: retry. Busy: wait. Partial recording: keep reported evidence.
