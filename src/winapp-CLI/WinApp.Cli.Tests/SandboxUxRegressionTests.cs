@@ -233,24 +233,6 @@ public class SandboxUxRegressionTests
             "A brand-new instance has no interactive session until a client connects.");
     }
 
-    /// <summary>
-    /// The window winapp opens for a Sandbox it started is watched, so closing it ends the Sandbox.
-    /// </summary>
-    [TestMethod]
-    public async Task WindowOpenedForASandboxWinappStarted_IsWatchedForClose()
-    {
-        var client = new SandboxClientWindow((nint)0x2468, 1357, 638_900_000_200_000_000);
-        using var harness = new BackendHarness(new PlacedWindowController(client));
-        var watched = new List<(string InstanceId, SandboxClientWindow Client)>();
-        harness.Backend.LaunchWindowWatcher = (instanceId, window) => watched.Add((instanceId, window));
-
-        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
-
-        Assert.HasCount(1, watched);
-        Assert.AreEqual(client, watched[0].Client);
-        Assert.AreEqual(harness.Epoch.Value.Split(':')[0], watched[0].InstanceId);
-    }
-
     [TestMethod]
     public async Task ConnectCancellationAfterPlacement_PersistsTheParkedClient()
     {
