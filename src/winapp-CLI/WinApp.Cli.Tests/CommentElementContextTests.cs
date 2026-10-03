@@ -75,6 +75,31 @@ public class CommentElementContextTests
     }
 
     [TestMethod]
+    public void PageLevelStyle_ReportsItsFileAndLine()
+    {
+        Directory.CreateDirectory(Path.Combine(_root.FullName, "Pages"));
+        File.WriteAllText(Path.Combine(_root.FullName, "Pages", "SettingsPage.xaml"), """
+            <Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <Page.Resources>
+                    <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+                        <Setter Property="FontSize" Value="20" />
+                    </Style>
+                </Page.Resources>
+            </Page>
+            """);
+
+        var (style, _) = CommentElementContext.Read(Props(
+            Row("Style", "{Style}", "Local", authored: "{StaticResource SectionHeaderStyle}", kind: "staticResource", key: "SectionHeaderStyle")),
+            _root.FullName);
+
+        Assert.AreEqual("SectionHeaderStyle", style!.Key);
+        Assert.AreEqual(Path.Combine("Pages", "SettingsPage.xaml"), style.File);
+        Assert.AreEqual(4, style.Line);
+        Assert.AreEqual("TextBlock", style.TargetType);
+    }
+
+    [TestMethod]
     public void LocalResourceReference_ReportsTheAuthoredKey()
     {
         var (style, brushes) = CommentElementContext.Read(Props(

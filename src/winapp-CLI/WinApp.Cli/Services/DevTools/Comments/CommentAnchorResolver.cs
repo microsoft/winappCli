@@ -276,7 +276,7 @@ internal sealed class CommentAnchorResolver(ILogger<CommentAnchorResolver>? logg
         }
     }
 
-    private static bool IsBuildOutput(string path)
+    internal static bool IsBuildOutput(string path)
     {
         var normalized = path.Replace('/', '\\');
         return normalized.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase)

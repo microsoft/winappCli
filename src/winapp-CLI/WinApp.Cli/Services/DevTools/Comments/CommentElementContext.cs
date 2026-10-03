@@ -81,7 +81,43 @@ internal static partial class CommentElementContext
         {
             (styleContext.TargetType, styleContext.File, styleContext.Line) = (appStyle.TargetType, appStyle.File, appStyle.Line);
         }
+        else if (styleContext is { Key: { } key, File: null } && !string.IsNullOrEmpty(sourceRoot) &&
+            FindKeyedStyle(sourceRoot, key) is var (file, line, targetType))
+        {
+            (styleContext.TargetType, styleContext.File, styleContext.Line) = (targetType, file, line);
+        }
         return (styleContext, brushes.Count == 0 ? null : brushes);
+    }
+
+    // The one style in the project declared with this key, in any XAML file (a page's resources included).
+    private static (string File, int Line, string? TargetType)? FindKeyedStyle(string sourceRoot, string key)
+    {
+        (string, int, string?)? found = null;
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(sourceRoot, "*.xaml",
+                new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true }))
+            {
+                if (CommentAnchorResolver.IsBuildOutput(path) || !File.ReadAllText(path).Contains($"\"{key}\"", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                foreach (var style in XDocument.Load(path, LoadOptions.SetLineInfo).Descendants()
+                    .Where(e => e.Name.LocalName == "Style" && (string?)e.Attribute(Xaml + "Key") == key))
+                {
+                    if (found is not null)
+                    {
+                        return null;
+                    }
+                    found = (Path.GetRelativePath(sourceRoot, path), ((System.Xml.IXmlLineInfo)style).LineNumber, (string?)style.Attribute("TargetType"));
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return null;
+        }
+        return found;
     }
 
     /// <summary>The captured style and brushes in a few short lines, for human output.</summary>
