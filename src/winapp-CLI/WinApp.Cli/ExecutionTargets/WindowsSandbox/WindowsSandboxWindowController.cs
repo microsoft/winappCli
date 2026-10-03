@@ -374,17 +374,11 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
 
     /// <inheritdoc/>
     /// <remarks>
-    /// <para>
     /// A minimized client cannot prove what it is showing: its remote-desktop renderer drops out of
     /// the UI tree until the window is restored, so verifying first would refuse exactly the window
-    /// this method exists to restore. winapp's own client is therefore restored first and verified
-    /// afterwards. Nothing else is moved, and nothing is moved at all while another window that
-    /// cannot be verified is open, because then winapp cannot be sure which window is the target.
-    /// </para>
-    /// <para>
-    /// winapp's own client is also brought back when it is on no monitor at all, which is where
-    /// winapp 0.7.0 parked it. A client the user opened is used wherever it is.
-    /// </para>
+    /// this method exists to restore. The client is therefore restored first and verified
+    /// afterwards. The same applies to a client on no monitor at all, which is where winapp 0.7.0
+    /// parked it. Nothing is moved while it is unclear which window is the target.
     /// </remarks>
     public SandboxClientStatus EnsureClientReady(
         SandboxClientWindow? remembered,
@@ -393,54 +387,37 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         var previousForeground = _getForeground();
         var live = _listClients();
 
+        if (SelectClientToRestore(remembered, live) is { } hidden &&
+            (_isIconic(hidden.Handle) || !_isOnScreen(hidden.Handle)))
+        {
+            _park(hidden, previousForeground);
+            return VerifyRestored(hidden, previousForeground, use);
+        }
+
+        return new SandboxClientStatus(ResolveCandidates(remembered, live), IsMinimized: false);
+    }
+
+    /// <summary>
+    /// The one client that may be restored before it is verified: the remembered client, or the only
+    /// one open. Null when another client that cannot be verified makes the choice unclear.
+    /// </summary>
+    private static SandboxClientWindow? SelectClientToRestore(
+        SandboxClientWindow? remembered,
+        IReadOnlyList<SandboxClientCandidate> live)
+    {
+        var usable = live
+            .Where(candidate => candidate.Surface != SandboxClientSurface.TerminalError)
+            .ToArray();
+
         if (remembered is not null &&
-            _isIconic(remembered.Handle) &&
-            live.Any(candidate =>
-                candidate.Window == remembered &&
-                candidate.Surface != SandboxClientSurface.TerminalError) &&
-            !live.Any(candidate =>
-                candidate.Window != remembered &&
-                candidate.Surface == SandboxClientSurface.Unknown))
+            usable.Any(candidate => candidate.Window == remembered) &&
+            !usable.Any(candidate =>
+                candidate.Window != remembered && candidate.Surface == SandboxClientSurface.Unknown))
         {
-            _park(remembered, previousForeground);
-            return VerifyRestored(remembered, previousForeground, use);
+            return remembered;
         }
 
-        if (remembered is null || !live.Any(candidate => candidate.Window == remembered))
-        {
-            var minimized = live
-                .Where(candidate => candidate.Surface != SandboxClientSurface.TerminalError)
-                .ToArray();
-
-            // The one open client is minimized, so it cannot be verified; say so rather than
-            // report an unverifiable remote desktop.
-            if (minimized.Length == 1 && _isIconic(minimized[0].Window.Handle))
-            {
-                throw NotReady(use, minimized[0].Window, restored: false, foregroundPreserved: true, adopted: true);
-            }
-        }
-
-        var client = ResolveCandidates(remembered, live);
-        var iconic = _isIconic(client.Handle);
-
-        if (!iconic && _isOnScreen(client.Handle))
-        {
-            return new SandboxClientStatus(client, IsMinimized: false);
-        }
-
-        if (remembered is null || client != remembered)
-        {
-            // A client the user opened works where it is, even off-screen; only minimized blocks it.
-            if (!iconic)
-            {
-                return new SandboxClientStatus(client, IsMinimized: false);
-            }
-
-            throw NotReady(use, client, restored: false, foregroundPreserved: true, adopted: true);
-        }
-
-        _park(client, previousForeground);
-        return VerifyRestored(client, previousForeground, use);
+        return usable.Length == 1 ? usable[0].Window : null;
     }
 
     private SandboxClientStatus VerifyRestored(
@@ -458,7 +435,7 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
 
         if (!restored || !foregroundPreserved)
         {
-            throw NotReady(use, client, restored, foregroundPreserved, adopted: false);
+            throw NotReady(use, client, restored, foregroundPreserved);
         }
 
         return new SandboxClientStatus(client, IsMinimized: false);
@@ -472,8 +449,7 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         TargetDesktopUse use,
         SandboxClientWindow client,
         bool restored,
-        bool foregroundPreserved,
-        bool adopted) =>
+        bool foregroundPreserved) =>
         ExecutionTargetException.Create(
             use == TargetDesktopUse.RealInput
                 ? ExecutionTargetErrorCodes.InputNotReady
@@ -481,16 +457,13 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             use == TargetDesktopUse.RealInput
                 ? "The Windows Sandbox client is minimized and could not be restored without taking focus."
                 : "The Windows Sandbox client is minimized and could not be restored for capture without taking focus.",
-            userAction: adopted
-                ? "Restore or reconnect the existing Windows Sandbox window, then retry."
-                : "Restore the Windows Sandbox window, then retry.",
+            userAction: "Restore the Windows Sandbox window, then retry.",
             context: new Dictionary<string, string>
             {
                 ["clientProcessId"] = client.ProcessId.ToString(CultureInfo.InvariantCulture),
                 ["clientWindowHandle"] = client.Handle.ToString(CultureInfo.InvariantCulture),
                 ["restored"] = restored.ToString(),
                 ["foregroundPreserved"] = foregroundPreserved.ToString(),
-                ["adopted"] = adopted.ToString(),
             });
 
     /// <summary>
