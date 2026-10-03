@@ -236,17 +236,15 @@ internal sealed class SandboxClientWatcher(
     /// <summary>Whether another Sandbox window is shown. A closed window's lingering process is not.</summary>
     private static bool AnyOtherClientWindow(int closedProcessId)
     {
-        var processes = Process.GetProcessesByName(WindowsSandboxWindowController.RemoteSessionProcessName);
-        try
+        var shown = false;
+        foreach (var process in Process.GetProcessesByName(WindowsSandboxWindowController.RemoteSessionProcessName))
         {
-            return processes.Any(process => process.Id != closedProcessId && process.MainWindowHandle != 0);
-        }
-        finally
-        {
-            foreach (var process in processes)
+            using (process)
             {
-                process.Dispose();
+                shown |= process.Id != closedProcessId && process.MainWindowHandle != 0;
             }
         }
+
+        return shown;
     }
 }
