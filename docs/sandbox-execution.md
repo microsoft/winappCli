@@ -13,7 +13,8 @@ winapp ui invoke --on sandbox SubmitButton -a MyApp
 
 Replace `MyApp` with your app name or the guest PID printed by `run`. `--detach` returns
 after launch so the next command can inspect the app; without it, `run` waits for the
-app to exit. The Sandbox stays running between commands and rebuilds.
+app to exit. The Sandbox stays running between commands and rebuilds until you close its
+window.
 
 ## Before you start
 
@@ -35,9 +36,10 @@ install the client, request elevation, or restart Windows. If prerequisites are 
 it stops with setup instructions; an observed pending Windows restart is reported separately.
 
 A cold connection or reconnect can briefly take focus. Once connected, winapp puts
-its own Sandbox window behind the window you were using, without activating it;
-switch to **Windows Sandbox** in the taskbar to watch the guest. A Sandbox window you
-opened yourself is left in place.
+the Sandbox window behind the window you were using, without activating it; switch to
+**Windows Sandbox** in the taskbar to watch the guest. Closing that window ends a
+Sandbox winapp started and discards everything in it, just like closing a Sandbox
+opened from Start. The next `--on sandbox` command starts a fresh one.
 
 > [!IMPORTANT]
 > **Builds still run on your machine.** Project evaluation, restore, and compilation are
@@ -145,8 +147,8 @@ winapp does not guess the last app launched. Omitting `--on sandbox` selects you
 desktop instead.
 
 Real input and recording require a **connected, nonminimized Sandbox client**. Read-only
-inspection can still work when input cannot. winapp can restore its own minimized
-client without activation; a minimized manually opened client must be restored by you.
+inspection can still work when input cannot. winapp restores a minimized Sandbox window
+behind your current window, without activating it.
 If input is unavailable after reconnecting, the command fails rather than claiming
 it delivered input. Use the reconnect command in the error and retry.
 
@@ -326,7 +328,8 @@ An externally installed package is left alone, even if its identity matches.
 This is manifest-based package cleanup, not an unregister command for unpackaged apps
 or a `.cs` input.
 
-The Sandbox remains running. Manage its lifetime with Windows Sandbox's own CLI:
+The Sandbox remains running. To end a Sandbox winapp started, close its window. To manage
+any Sandbox, use Windows Sandbox's own CLI:
 
 ```powershell
 wsb list
@@ -360,7 +363,7 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_agent_busy` | Wait for another command to finish, then retry |
 | `sandbox_terminated`, `sandbox_target_stale`, `sandbox_stale_handle` | Rerun the app and rediscover guest PIDs/windows |
 | `sandbox_state_unavailable` | Ensure `%USERPROFILE%\.winapp\state` is writable, or correct `WINAPP_TARGET_STATE_ROOT` if set |
-| "Only one running instance of Windows Sandbox is allowed" when opening Windows Sandbox from Start | The Sandbox winapp uses is still running, and Start cannot attach to it. Switch to **Windows Sandbox** in the taskbar; if it has no window, run `wsb list`, then `wsb connect --id <id>` |
+| "Only one running instance of Windows Sandbox is allowed" when opening Windows Sandbox from Start | A Sandbox is already running, and Start cannot attach to it. Switch to **Windows Sandbox** in the taskbar. If it has no window, run `wsb list`, then `wsb connect --id <id>` |
 | `sandbox_deployment_dirty`, `sandbox_transfer_interrupted` | Retry the deployment or transfer |
 | `sandbox_runtime_provision_failed` | Resolve the named dependency or unsupported runtime configuration; see [Shared runtimes](#shared-runtimes) |
 | `sandbox_package_conflict`, `sandbox_provisioned_package_conflict` | Follow the package-specific action; do not remove unrelated or inbox packages |

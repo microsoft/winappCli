@@ -24,7 +24,8 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
   and finish its client setup/update. Do not repeatedly retry an unchanged prerequisite.
 - Connection or reconnect may briefly take focus; do not promise zero desktop interruption.
 - Existing Sandbox instances are reused and changed, not discarded. Never close one
-  or run `wsb stop` without user consent.
+  or run `wsb stop` without user consent. Closing the Sandbox window ends a Sandbox
+  winapp started and discards its guest state; the next command starts a fresh one.
 
 ## Launch, inspect, act, verify
 
@@ -149,9 +150,9 @@ suppressed with `--quiet`/`--json`.
 
 - Prerequisite errors: follow the setup guidance above; keep elevation and restart under user control.
 - Input unavailable: restore the existing client or use the error's reconnect command.
-- "Only one running instance of Windows Sandbox is allowed" from the Start menu: the Sandbox
-  winapp uses is still running. Point the user to **Windows Sandbox** in the taskbar; if it
-  has no window, `wsb list` then `wsb connect --id <id>`. Never stop it without consent.
+- "Only one running instance of Windows Sandbox is allowed" from the Start menu: a Sandbox
+  is already running. Point the user to **Windows Sandbox** in the taskbar; if it has no
+  window, `wsb list` then `wsb connect --id <id>`. Never stop it without consent.
 - Incompatible CLI: follow the error; upgrade the installed CLI through its install method,
   **not `winapp update`**. Obtain consent before closing a Sandbox for a version change.
 - Missing/unsupported runtime: use the named requirement and configuration in the error.
