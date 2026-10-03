@@ -56,32 +56,114 @@ internal static unsafe partial class EngineStaging
                 VerifyPrivate(new FileInfo(previous), user);
                 return previous;
             }
-            var directory = Path.Combine(root, $"{Environment.ProcessId:x}-{Guid.NewGuid():N}");
-            if (Directory.Exists(directory))
-            {
-                throw new IOException($"DevTools staging destination already exists: {directory}");
-            }
-            EnsureDirectory(directory, user);
-            VerifyPrivate(new DirectoryInfo(directory), user);
+            // One folder per engine build: launches of the same build share it, and a new build gets its own.
+            var hash = Sha256(source);
+            var directory = Path.Combine(root, hash);
             var destination = Path.Combine(directory, Path.GetFileName(source));
-            var temporary = destination + ".tmp";
-            try
+            if (!TryReuse(directory, destination, hash, user))
             {
-                File.Copy(source, temporary, overwrite: false);
-                VerifyPrivate(new FileInfo(temporary), user);
-                File.Move(temporary, destination);
-                VerifyPrivate(new FileInfo(destination), user);
-                StagedBySource[key] = destination;
-                return destination;
-            }
-            finally
-            {
-                if (File.Exists(temporary))
+                var temporary = Path.Combine(root, $"{hash}.{Guid.NewGuid():N}.tmp");
+                try
                 {
-                    File.Delete(temporary);
+                    EnsureDirectory(temporary, user);
+                    VerifyPrivate(new DirectoryInfo(temporary), user);
+                    var staged = Path.Combine(temporary, Path.GetFileName(source));
+                    File.Copy(source, staged, overwrite: false);
+                    VerifyPrivate(new FileInfo(staged), user);
+                    if (Sha256(staged) != hash)
+                    {
+                        throw new IOException($"DevTools staging copied a different engine than {source}.");
+                    }
+                    try
+                    {
+                        Directory.Move(temporary, directory);
+                    }
+                    catch (IOException) when (Directory.Exists(directory))
+                    {
+                        // Another launch staged the same engine first; its copy is verified below.
+                    }
+                }
+                finally
+                {
+                    TryDelete(temporary);
+                }
+                if (!TryReuse(directory, destination, hash, user))
+                {
+                    throw new IOException($"DevTools staging could not verify the engine copy at {destination}.");
                 }
             }
+            StagedBySource[key] = destination;
+            RemoveUnused(root, StagedBySource.Values.Select(Path.GetDirectoryName).OfType<string>());
+            return destination;
         }
+    }
+
+    // A staged engine is reused only while it is exactly the engine being staged. A changed or incomplete one is
+    // removed so it can be staged again; if it cannot be removed because an app has it loaded, staging stops.
+    private static bool TryReuse(string directory, string destination, string hash, SecurityIdentifier user)
+    {
+        var info = new DirectoryInfo(directory);
+        if (!info.Exists)
+        {
+            return false;
+        }
+        VerifyPrivate(info, user);
+        if (File.Exists(destination))
+        {
+            VerifyPrivate(new FileInfo(destination), user);
+            if (Sha256(destination) == hash)
+            {
+                // Marks it in use, so another winapp cleaning up does not remove it before the app loads it.
+                Directory.SetLastWriteTimeUtc(directory, DateTime.UtcNow);
+                return true;
+            }
+        }
+        if (!TryDelete(directory))
+        {
+            throw new IOException($"The staged DevTools engine at {directory} was changed and is in use. Close the apps using it, then retry.");
+        }
+        return false;
+    }
+
+    internal static readonly TimeSpan UnusedAge = TimeSpan.FromMinutes(10);
+
+    // Older engine copies, and per-launch copies from earlier versions, are removed once no app has them loaded.
+    // A loaded engine cannot be deleted, so it is skipped and removed by a later launch. Recent folders are left
+    // alone: another winapp may have just staged one for an app that has not loaded it yet.
+    private static void RemoveUnused(string root, IEnumerable<string> keep)
+    {
+        var kept = new HashSet<string>(keep, StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in new DirectoryInfo(root).EnumerateDirectories())
+        {
+            if (kept.Contains(directory.FullName) || (directory.Attributes & FileAttributes.ReparsePoint) != 0 ||
+                DateTime.UtcNow - directory.LastWriteTimeUtc < UnusedAge)
+            {
+                continue;
+            }
+            TryDelete(directory.FullName);
+        }
+    }
+
+    private static bool TryDelete(string directory)
+    {
+        try
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static string Sha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream))[..32];
     }
 
     // Existing ancestors are not judged by their ACLs: whoever can write the user's profile can already change

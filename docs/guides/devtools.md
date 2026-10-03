@@ -388,9 +388,10 @@ do. Resource-less hosts can run without an overlay (`--no-overlay`), but the
 overlay and inspector require those resources.
 
 A packaged CLI stages foreign-load engines in `%USERPROFILE%\.winapp\engine`,
-outside AppData. This location intentionally does not follow
-`WINAPP_CLI_CACHE_DIRECTORY`. If staging is refused, check the named path's
-ownership and write permissions before retrying.
+outside AppData. It keeps one copy per engine version and removes older copies
+once no app has them loaded. This location intentionally does not follow
+`WINAPP_CLI_CACHE_DIRECTORY`. If staging is refused, check whether the named path
+is redirected by a junction or symbolic link, or still loaded by an app, before retrying.
 
 For access-denied errors, run the CLI as the app's owner at the same or higher
 integrity level. Do not disable pipe security to make attachment work.

@@ -248,9 +248,68 @@ public class EngineStagingTests
         }
         finally { Directory.Delete(junction); }
     }
+    // A second launch of the same engine build reuses its copy instead of adding another folder.
+    [TestMethod]
+    public void Stage_SameEngineReusesOneFolderAndANewBuildGetsItsOwn()
+    {
+        var root = Path.Combine(_root, "engine");
+        var first = EngineStaging.StageTo(Source("a\\WinApp.DevTools.Native.dll", [1, 2, 3]), root);
+        var again = EngineStaging.StageTo(Source("b\\WinApp.DevTools.Native.dll", [1, 2, 3]), root);
+        var newer = EngineStaging.StageTo(Source("c\\WinApp.DevTools.Native.dll", [4, 5, 6]), root);
+
+        Assert.AreEqual(first, again);
+        Assert.AreNotEqual(Path.GetDirectoryName(first), Path.GetDirectoryName(newer));
+        Assert.HasCount(2, Directory.GetDirectories(root));
+        CollectionAssert.AreEqual(new byte[] { 4, 5, 6 }, File.ReadAllBytes(newer));
+    }
+
+    [TestMethod]
+    public void Stage_AChangedCopyIsReplaced()
+    {
+        var root = Path.Combine(_root, "engine");
+        var staged = EngineStaging.StageTo(Source("a\\WinApp.DevTools.Native.dll", [1, 2, 3]), root);
+        File.WriteAllBytes(staged, [9, 9, 9]);
+
+        var restaged = EngineStaging.StageTo(Source("b\\WinApp.DevTools.Native.dll", [1, 2, 3]), root);
+
+        Assert.AreEqual(staged, restaged);
+        CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(restaged));
+    }
+
+    [TestMethod]
+    public void Stage_RemovesOldUnusedCopiesButKeepsLoadedAndRecentOnes()
+    {
+        var root = Path.Combine(_root, "engine");
+        Directory.CreateDirectory(root);
+        string Old(string name, bool aged = true)
+        {
+            var directory = Directory.CreateDirectory(Path.Combine(root, name)).FullName;
+            File.WriteAllBytes(Path.Combine(directory, "WinApp.DevTools.Native.dll"), [7]);
+            if (aged)
+            {
+                Directory.SetLastWriteTimeUtc(directory, DateTime.UtcNow - EngineStaging.UnusedAge - TimeSpan.FromMinutes(1));
+            }
+            return directory;
+        }
+        var legacy = Old("1a2b-0123456789abcdef0123456789abcdef");
+        var olderBuild = Old("00112233445566778899aabbccddeeff");
+        var loaded = Old("ffeeddccbbaa99887766554433221100");
+        var recent = Old("0123456789abcdef0123456789abcdef", aged: false);
+        using (File.Open(Path.Combine(loaded, "WinApp.DevTools.Native.dll"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            EngineStaging.StageTo(Source("WinApp.DevTools.Native.dll", [1, 2, 3]), root);
+        }
+
+        Assert.IsFalse(Directory.Exists(legacy), "Per-launch copies from earlier versions are removed.");
+        Assert.IsFalse(Directory.Exists(olderBuild), "An unused copy of another build is removed.");
+        Assert.IsTrue(Directory.Exists(loaded), "A copy an app still has open is kept for a later launch to remove.");
+        Assert.IsTrue(Directory.Exists(recent), "A copy another launch just staged is kept.");
+    }
+
     private string Source(string name, byte[] bytes)
     {
         var source = Path.Combine(_root, name);
+        Directory.CreateDirectory(Path.GetDirectoryName(source)!);
         File.WriteAllBytes(source, bytes);
         return source;
     }
