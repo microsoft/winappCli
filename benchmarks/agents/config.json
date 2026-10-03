@@ -8,9 +8,12 @@
       "path": "../../plugins/winapp"
     },
     "winui": {
-      "repository": "https://github.com/microsoft/win-dev-skills.git",
-      "ref": "v0.7.1",
-      "path": "plugins/winui/agent-plugin"
+      "path": "../../plugins/winui/agent-plugin",
+      "published": {
+        "repository": "https://github.com/microsoft/win-dev-skills.git",
+        "ref": "v0.7.1",
+        "path": "plugins/winui/agent-plugin"
+      }
     }
   }
 }
