@@ -476,7 +476,7 @@ public class CertGenerateCommandJsonTests() : BaseCommandTests(logLevel: LogLeve
     {
         // Issue #917: --json suppresses logging, so the skip path must still write a parseable result.
         var command = GetRequiredService<CertGenerateCommand>();
-        var pfxPath = Path.Combine(_tempDirectory.FullName, "json-skip.pfx");
+        var pfxPath = Path.Join(_tempDirectory.FullName, "json-skip.pfx");
         await File.WriteAllTextAsync(pfxPath, "placeholder", TestContext.CancellationToken);
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
