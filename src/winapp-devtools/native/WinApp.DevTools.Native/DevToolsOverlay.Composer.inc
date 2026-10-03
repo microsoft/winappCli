@@ -669,6 +669,9 @@ static void DevToolsSelCommitComment(bool explicitSave)
                     text.empty() ? L"" : DevToolsCommentText::SavedStatus(false, HasAuthoredSource(g_selHandle)));
             }
         }
+        // Save on text that is already saved (leaving the box saved it) finishes the comment like any save.
+        if (explicitSave && !text.empty() && !g_guestCommentWrite.process && HasAuthoredSource(g_selHandle))
+            DismissSelectionPanel();
         return;
     }
     DevToolsOverlayLog(L"overlay.sel comment commit: %zu chars (saved %zu) id=%s",

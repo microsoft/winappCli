@@ -471,7 +471,9 @@ static void OnCatcherClick(void* sender, void*)
         if (picked && CommentModeOn()) {
             CommentModeOpenComposer(picked);
         } else if (picked && g_cardRead && !claimedByWindow) {
+            g_selFocusCommentOnOpen = true;
             DevToolsOverlay_ShowBadgeForHandle(g_pickDiag, picked, /*fromUserPick*/ true);
+            g_selFocusCommentOnOpen = false;
         }
         TrackingSync();
     }

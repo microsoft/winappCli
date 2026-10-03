@@ -331,6 +331,8 @@ static void ClearSelectionAnchor()
 {
     ResetPickPointer();
     GuestCommentRememberDraft(false);
+    // Whatever replaces or removes the peek, focus inside it goes back to the app without keyboard visuals.
+    SelReturnFocus();
     if (g_selDismissTimer) {
         KillTimer(nullptr, g_selDismissTimer);
         g_selDismissTimer = 0;
@@ -537,6 +539,7 @@ static std::wstring BuildSelectionMarkup(int w, int h, int tagX, int tagY,
 // the app.
 static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
 {
+    const bool focusComment = std::exchange(g_selFocusCommentOnOpen, false) && fromUserPick;
     if (!el || !g_canvasChildren || !g_cardRead) return;
     std::wstring type, name, authoredState, authoredXaml; std::vector<DevToolsCardRow> rows;
     if (!g_cardRead(el, &type, &name, &rows, &authoredState, &authoredXaml)) {
@@ -771,6 +774,17 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
         }
         UpdateCatcherHole();
         if (g_selPanel) { SelRememberFocus(); KeepChordsInPanel(g_selPanel); }
+        // A pick in the app is a request to comment: the box takes focus so typing starts at once. Pointer input
+        // was last, so programmatic focus shows a caret without keyboard visuals.
+        if (focusComment && g_selComment) {
+            void* box = nullptr;
+            bool focused = false;
+            if (SUCCEEDED(g_selComment->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &box)) && box) {
+                DevToolsFocus(box, 3 /*FocusState.Programmatic*/, &focused);
+                reinterpret_cast<IUnknown*>(box)->Release();
+            }
+            DevToolsOverlayLog(L"overlay.sel comment box focused on open=%d", (int)focused);
+        }
     }
     if (!g_selOperationError.empty())
         SetSelectionOperationError(g_selOperationProperty, g_selOperationError);

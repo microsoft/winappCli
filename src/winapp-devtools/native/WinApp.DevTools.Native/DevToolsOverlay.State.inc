@@ -585,6 +585,8 @@ bool DevToolsOverlay_IsToolbarRequested() { return g_toolbarVisible; }
 InstanceHandle DevToolsOverlay_GetHighlightHandle() { return g_lastHighlightHandle; }
 
 static DevToolsCardReadFn       g_cardRead = nullptr;
+// Set by an in-app pick just before its panel opens: only that path moves focus into the comment box.
+static bool g_selFocusCommentOnOpen = false;
 static DevToolsCardReadInputFn  g_cardReadInput = nullptr;
 static DevToolsCardWriteFn      g_cardWrite = nullptr;
 static DevToolsCardScopeFn      g_cardScope = nullptr;

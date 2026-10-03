@@ -230,6 +230,8 @@ try {
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $selection = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
         Check ($selection.result.handle -eq [string]$heading[0].handle) 'pick settled on the exact owned authored heading'
+        $openFocus = Invoke-Cli @('ui', 'get-focused', '-a', $app)
+        Check ($openFocus.element.automationId -eq 'DevToolsSelComment') 'an in-app pick puts keyboard focus in the comment box'
         $peek = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
         $peek | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $evidence 'overlay-peek-uia.json')
         $all = @($peek.windows | ForEach-Object { Nodes $_.elements })

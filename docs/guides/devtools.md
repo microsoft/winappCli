@@ -19,11 +19,11 @@ workflow and commands; each command's `--help` shows examples.
    app; cancelling it stops the process it launched.
 
 2. Select **Select element** on the toolbar, then click an element in your app.
-   The quick-edit panel opens next to it.
+   The quick-edit panel opens next to it, ready for a comment.
 
    ![The DevTools toolbar and the quick-edit panel on a selected button](../images/devtools-quick-edit.png)
 
-3. Type a note in the **Comment** box and select **Save** (or press **Ctrl+Enter**).
+3. Type a note and press **Ctrl+Enter** (or select **Save**).
    When it is saved, the panel closes and the comments count on the toolbar goes up,
    so you can pick the next element. If the comment can't be linked to source, the
    panel stays open and says so.

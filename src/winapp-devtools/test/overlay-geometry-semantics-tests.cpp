@@ -912,6 +912,10 @@ int main()
         focusInPanel=false;pointerFocusCalls=0;
         check(DismissSelectionPanel() && pointerFocusCalls==0,"panel focus","focus already in the app is left alone");
         teardown();
+        open();
+        focusInPanel=true;pointerFocusCalls=0;
+        ClearSelectionAnchor();
+        check(pointerFocusCalls==1,"panel focus","replacing the peek (a new selection) also returns focus with pointer state");
         focusedOutsidePanel=nullptr;focusInPanel=false;
 
         // Esc closes one layer at a time: the open panel, not pick mode.
@@ -959,7 +963,8 @@ int main()
         wchar_t fakeCli[]=L"never-executed.exe";
         g_cliExe.store(fakeCli);guestWriterTest=true;
         g_wireOf=[](InstanceHandle raw) { return raw + 1000ull; };
-        for (const bool explicitSave : {false, true}) {
+        for (const int mode : {0, 1, 2}) {
+            const bool explicitSave = mode != 0;
             g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
             g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
             g_selComment=&input;input.AddRef();
@@ -967,11 +972,20 @@ int main()
             SetCommentTarget(11,false);
             g_selCommentId=L"save-closes";g_selCommentSaved.clear();g_guestCommentWrite={};
             commentInput=L"Warmer color.";
-            if (explicitSave) OnSelCommentSaveClick(nullptr,nullptr); else DevToolsSelCommitComment();
-            commentExitCode=0;SetEvent(commentProcess);
-            GuestCommentTimerProc(nullptr,0,0,0);
+            if (mode == 2) {
+                DevToolsSelCommitComment();
+                commentExitCode=0;SetEvent(commentProcess);
+                GuestCommentTimerProc(nullptr,0,0,0);
+                OnSelCommentSaveClick(nullptr,nullptr);
+            } else {
+                if (explicitSave) OnSelCommentSaveClick(nullptr,nullptr); else DevToolsSelCommitComment();
+                commentExitCode=0;SetEvent(commentProcess);
+                GuestCommentTimerProc(nullptr,0,0,0);
+            }
             check(g_selCommentSaved==L"Warmer color." && popup.popupOpen!=explicitSave,"comment save",
-                explicitSave ? "an explicit save linked to source closes the panel" : "saving on blur keeps the panel open");
+                mode == 0 ? "saving on blur keeps the panel open" :
+                mode == 1 ? "an explicit save linked to source closes the panel" :
+                            "Save after the text was already saved on blur closes the panel");
             if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0);
             ClearSelectionAnchor();
         }
