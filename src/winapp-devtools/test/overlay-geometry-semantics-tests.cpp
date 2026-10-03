@@ -963,8 +963,12 @@ int main()
         wchar_t fakeCli[]=L"never-executed.exe";
         g_cliExe.store(fakeCli);guestWriterTest=true;
         g_wireOf=[](InstanceHandle raw) { return raw + 1000ull; };
-        for (const int mode : {0, 1, 2}) {
+        for (const int mode : {0, 1, 2, 3}) {
             const bool explicitSave = mode != 0;
+            // Mode 3: a framework template part. It has a source file, but no declaration in the project.
+            static bool declared = true;
+            declared = mode != 3;
+            g_isDeclared = [](InstanceHandle) { return declared; };
             g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
             g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
             g_selComment=&input;input.AddRef();
@@ -982,16 +986,21 @@ int main()
                 commentExitCode=0;SetEvent(commentProcess);
                 GuestCommentTimerProc(nullptr,0,0,0);
             }
-            check(g_selCommentSaved==L"Warmer color." && popup.popupOpen!=explicitSave,"comment save",
+            check(g_selCommentSaved==L"Warmer color." && popup.popupOpen!=(explicitSave && declared),"comment save",
                 mode == 0 ? "saving on blur keeps the panel open" :
                 mode == 1 ? "an explicit save linked to source closes the panel" :
-                            "Save after the text was already saved on blur closes the panel");
+                mode == 2 ? "Save after the text was already saved on blur closes the panel" :
+                            "a save on a framework template part keeps the panel open as not linked");
+            if (mode == 3)
+                check(g_guestCommentWrite.status==L"Saved. Not linked to source.","comment save",
+                    "a template part with only a framework source file reports Not linked to source");
             if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0);
             ClearSelectionAnchor();
         }
         g_cliExe.store(nullptr);guestWriterTest=false;g_wireOf=nullptr;g_guestCommentWrite={};
         g_selComment=nullptr;g_cardReadInput=nullptr;g_selCommentSaved.clear();g_selCommentId.clear();
         g_pickDiag=nullptr;g_srcRead=nullptr;g_cardRead=nullptr;g_selHandle=g_selCommentWire=0;g_pins.clear();
+        g_isDeclared=nullptr;
     }
     {
         SwitchDiagnostics diag;

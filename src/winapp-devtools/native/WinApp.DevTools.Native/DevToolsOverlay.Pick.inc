@@ -712,6 +712,7 @@ void DevToolsOverlay_SetCardScope(DevToolsCardScopeFn scope) { g_cardScope = sco
 
 void DevToolsOverlay_SetCardFreeze(DevToolsCardFreezeFn freeze) { g_cardFreeze = freeze; }
 void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read) { g_srcRead = read; }
+void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read) { g_isDeclared = read; }
 
 // Open the single in-process inspector on the UI thread, or focus its existing window.
 static void OnInspectClick(void*, void*)

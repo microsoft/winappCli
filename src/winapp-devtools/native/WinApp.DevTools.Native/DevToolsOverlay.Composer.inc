@@ -261,6 +261,13 @@ static bool HasAuthoredSource(InstanceHandle handle)
     return g_srcRead && g_srcRead(handle, &file, &line, &column) && !file.empty();
 }
 
+// A comment is linked when it lands on a declaration in the project. Framework and template parts carry a source
+// file too, but their comment can only offer unrelated candidates found by type.
+static bool IsLinkedElement(InstanceHandle handle)
+{
+    return g_isDeclared ? g_isDeclared(handle) : HasAuthoredSource(handle);
+}
+
 static bool LaunchCommentAdd(const std::wstring& text, const std::wstring& id, bool composer = false)
 {
     const auto handle = composer ? g_composerHandle : g_selHandle;
@@ -293,7 +300,7 @@ static bool LaunchCommentAdd(const std::wstring& text, const std::wstring& id, b
     guest.handle = handle; guest.root = g_pickRoot; guest.wire = wire;
     guest.generation = composer ? g_composerGeneration : g_selGen;
     guest.id = id; guest.submitted = outgoing; guest.draft = text;
-    guest.linked = hasSource;
+    guest.linked = IsLinkedElement(handle);
     guest.revision = composer ? g_composerRevision : g_selCommentRevision;
     if (g_anchorOf && handle) g_anchorOf(handle, &guest.anchor);
     guest.bounds = composer ? g_composerBounds : g_selBounds;
@@ -666,11 +673,11 @@ static void DevToolsSelCommitComment(bool explicitSave)
             } else {
                 DiscardSelectionCommentDraft();
                 GuestCommentSetStatus(g_selUi, L"DevToolsGuestCommentStatus",
-                    text.empty() ? L"" : DevToolsCommentText::SavedStatus(false, HasAuthoredSource(g_selHandle)));
+                    text.empty() ? L"" : DevToolsCommentText::SavedStatus(false, IsLinkedElement(g_selHandle)));
             }
         }
         // Save on text that is already saved (leaving the box saved it) finishes the comment like any save.
-        if (explicitSave && !text.empty() && !g_guestCommentWrite.process && HasAuthoredSource(g_selHandle))
+        if (explicitSave && !text.empty() && !g_guestCommentWrite.process && IsLinkedElement(g_selHandle))
             DismissSelectionPanel();
         return;
     }

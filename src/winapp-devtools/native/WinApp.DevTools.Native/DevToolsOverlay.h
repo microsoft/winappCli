@@ -271,6 +271,10 @@ void DevToolsOverlay_SetCardFreeze(DevToolsCardFreezeFn freeze);
 // Reads the selected raw handle’s source URI/position when instrumentation exists.
 typedef bool (*DevToolsSourceReadFn)(InstanceHandle raw, std::wstring* outFile, unsigned int* outLine, unsigned int* outCol);
 void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read);
+// Whether the element is one the developer declared in the project (not framework or template XAML), so a comment
+// on it is linked to its declaration.
+typedef bool (*DevToolsDeclaredFn)(InstanceHandle raw);
+void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read);
 
 // Invoke from a worker: the managed relay needs the UI thread and would deadlock if called there.
 typedef bool (*DevToolsBindingAskFn)(unsigned long long rawHandle, const wchar_t* op, const wchar_t* prop,
