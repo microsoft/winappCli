@@ -1,0 +1,16 @@
+<Window x:Class="ContosoInventory.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Inventory" Height="450" Width="800">
+    <DockPanel>
+        <ToolBar DockPanel.Dock="Top">
+            <Button Content="Add" Click="Add_Click" />
+        </ToolBar>
+        <DataGrid x:Name="ItemsGrid" AutoGenerateColumns="False" Background="{DynamicResource WindowBrush}">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Name" Binding="{Binding Name}" />
+                <DataGridTextColumn Header="Qty" Binding="{Binding Quantity}" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

@@ -1,0 +1,20 @@
+{
+  "id": "new-winui-app",
+  "description": "Create a brand-new WinUI 3 app in an empty folder.",
+  "prompt": "Create a new C# WinUI 3 desktop app called PhotoTagger in this folder and run it.",
+  "configurations": [
+    "winui",
+    "both"
+  ],
+  "expect": {
+    "skillsAny": [
+      "winapp-setup",
+      "winui-dev-workflow",
+      "winui-setup"
+    ],
+    "skillsForbid": [
+      "winui-wpf-migration",
+      "winui-session-report"
+    ]
+  }
+}

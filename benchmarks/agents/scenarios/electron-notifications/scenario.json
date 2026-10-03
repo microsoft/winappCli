@@ -1,0 +1,20 @@
+{
+  "id": "electron-notifications",
+  "description": "Electron app wants native Windows toast notifications (needs package identity).",
+  "prompt": "When the background export job in main.js finishes, show a native Windows toast notification instead of the Electron one, with a button that opens the exported file. Set up whatever this Electron app needs on Windows for that to work.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winapp-identity",
+      "winapp-frameworks",
+      "winapp-setup"
+    ],
+    "skillsForbid": [
+      "winui-*"
+    ]
+  }
+}

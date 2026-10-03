@@ -1,0 +1,18 @@
+{
+  "id": "sign-existing-msix",
+  "description": "Only sign an MSIX that a pipeline already built.",
+  "prompt": "Our build pipeline already produces dist\\ContosoApp_1.4.0.0_x64.msix. Sign it with our company code-signing certificate (contoso-signing.pfx; the password is in the SIGN_PFX_PASSWORD environment variable) so it installs on customer machines, then verify the signature.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "expect": {
+    "skillsAny": [
+      "winapp-signing"
+    ],
+    "skillsForbid": [
+      "winui-*",
+      "winapp-setup"
+    ]
+  }
+}
