@@ -457,7 +457,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
         (await first.Processes.WaitForNextAsync(ct)).Exit(0);
         var firstLaunch = await first.Processes.WaitForNextAsync(ct);
 
-        await WaitForPublishedProcessAsync(firstLaunch, ct);
+        await WaitForPublishedProcessAsync(firstLaunch, firstRun, ct);
 
         var nextRun = RunAsync(replacement, noLaunch: true, clean: false, ct);
         var nextRegistration = await replacement.Processes.WaitForNextAsync(ct);
@@ -492,7 +492,7 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
 
         var aLaunch = await harnessA.Processes.WaitForNextAsync(ct).WaitAsync(TimeSpan.FromSeconds(10), ct);
         Assert.IsTrue(IsGuestLaunchVerb(aLaunch));
-        await WaitForPublishedProcessAsync(aLaunch, ct);
+        await WaitForPublishedProcessAsync(aLaunch, taskA, ct);
 
         // A's application is now "running" (aLaunch deliberately left open). B's registration --
         // an entirely different run against a different deployment -- must not be blocked behind
@@ -646,12 +646,15 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
     /// kind of accidental synchronous blocking a real winapp process never exhibits, because each
     /// invocation is its own OS process. <see cref="Task.Run(Func{Task})"/> restores that here.
     /// </remarks>
-    private async Task WaitForPublishedProcessAsync(FakeGuestProcessHost process, CancellationToken cancellationToken)
+    private async Task WaitForPublishedProcessAsync(
+        FakeGuestProcessHost process, Task<int> run, CancellationToken cancellationToken)
     {
         // The fake announces process creation before the host has handled ExecStarted. This test
         // begins with a running app, not a race against publication of that app's state revision.
+        // Polling reads the state file concurrently with that publication, which is exactly the
+        // reader the store's atomic replace must tolerate. The deadline only bounds a failure.
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
         while (!_deploymentStateStore.List(WindowsSandboxTarget.Default)
             .Any(state => state.TrackedOperationProcessId == process.ProcessId))
         {
@@ -734,7 +737,11 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
     /// </summary>
     private sealed class RunHarness : IAsyncDisposable
     {
-        private readonly CancellationTokenSource _cancellation = new(TimeSpan.FromSeconds(60));
+        // Lives exactly as long as the test that owns the harness. A wall-clock lifetime here would
+        // close the guest under every run still in flight once a loaded machine made the test slow,
+        // failing it with "the guest closed the connection" and leaving the test waiting forever for
+        // a guest process that can no longer start.
+        private readonly CancellationTokenSource _cancellation = new();
         private readonly Task _serverTask;
         private readonly Spectre.Console.Testing.TestConsole _console = new();
 

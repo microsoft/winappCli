@@ -290,6 +290,102 @@ function Remove-TempTestDirectory {
 }
 
 # ============================================================================
+# Bounded Process Waits
+# ============================================================================
+
+function Get-ProcessTreeReport {
+    <#
+    .SYNOPSIS
+    Describes a process and every live descendant: PID, parent, age, command line, and what each
+    thread is waiting on. Used to show what a timed-out step was stuck on.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [int]$RootProcessId
+    )
+
+    $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $byParent = $all | Group-Object ParentProcessId -AsHashTable -AsString
+    $lines = [System.Collections.Generic.List[string]]::new()
+
+    $visit = {
+        param($cim, [int]$depth)
+        $indent = '  ' * $depth
+        $age = if ($cim.CreationDate) { '{0:N0}s' -f ((Get-Date) - $cim.CreationDate).TotalSeconds } else { '?' }
+        $lines.Add("$indent[$($cim.ProcessId)] $($cim.Name) (parent $($cim.ParentProcessId), age $age)")
+        $lines.Add("$indent    cmd: $($cim.CommandLine)")
+        $live = Get-Process -Id $cim.ProcessId -ErrorAction SilentlyContinue
+        if ($live) {
+            try {
+                $states = $live.Threads | Group-Object { if ("$($_.ThreadState)" -eq 'Wait') { "Wait:$($_.WaitReason)" } else { "$($_.ThreadState)" } } |
+                    ForEach-Object { "$($_.Name) x$($_.Count)" }
+                $lines.Add("$indent    threads: $($states -join ', ')")
+            } catch {
+                $lines.Add("$indent    threads: unavailable ($($_.Exception.Message))")
+            }
+        }
+        foreach ($child in @($byParent["$($cim.ProcessId)"])) {
+            if ($child -and $child.ProcessId -ne $cim.ProcessId) { & $visit $child ($depth + 1) }
+        }
+    }
+
+    $root = $all | Where-Object ProcessId -eq $RootProcessId
+    if ($root) {
+        & $visit $root 0
+    } else {
+        $lines.Add("[$RootProcessId] has exited; orphaned descendants are listed under their own parents below if any remain.")
+        foreach ($orphan in @($byParent["$RootProcessId"])) { if ($orphan) { & $visit $orphan 1 } }
+    }
+
+    return $lines -join [Environment]::NewLine
+}
+
+function Wait-ProcessExitOrFail {
+    <#
+    .SYNOPSIS
+    Waits for a started process to exit, failing with a process-tree report instead of hanging.
+
+    .DESCRIPTION
+    Waits only on the process itself, not its descendants, so an app it launched and left running
+    does not count. If the process has not exited within the timeout, writes what the process and
+    each live descendant were doing, stops them, and throws.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Process]$Process,
+
+        [Parameter(Mandatory)]
+        [TimeSpan]$Timeout,
+
+        [string]$Description = "process $($Process.Id)"
+    )
+
+    if ($Process.WaitForExit([int]$Timeout.TotalMilliseconds)) {
+        # The timed overload can return before asynchronous output handling finishes; this one cannot.
+        $Process.WaitForExit()
+        return
+    }
+
+    $report = Get-ProcessTreeReport -RootProcessId $Process.Id
+    Write-Host "::group::$Description did not exit within $($Timeout.TotalSeconds)s; live process tree"
+    Write-Host $report
+    Write-Host "::endgroup::"
+
+    $ids = [System.Collections.Generic.List[int]]::new()
+    $collect = {
+        param([int]$id)
+        foreach ($child in @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$id" -ErrorAction SilentlyContinue)) {
+            if ($child.ProcessId -ne $id) { & $collect $child.ProcessId }
+        }
+        $ids.Add($id)
+    }
+    & $collect $Process.Id
+    foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+
+    throw "$Description did not exit within $($Timeout.TotalSeconds)s. The live process tree is printed above."
+}
+
+# ============================================================================
 # Exports
 # ============================================================================
 
@@ -302,4 +398,6 @@ Export-ModuleMember -Function @(
     'Invoke-WithRetry'
     'New-TempTestDirectory'
     'Remove-TempTestDirectory'
+    'Get-ProcessTreeReport'
+    'Wait-ProcessExitOrFail'
 )
