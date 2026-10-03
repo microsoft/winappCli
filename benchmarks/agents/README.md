@@ -55,6 +55,8 @@ pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\my-
 | `-TimeoutMinutes <n>` | scenario `timeoutMinutes`, else 5 | Per agent session |
 | `-WinAppPlugin <path>` | `plugins\winapp` | Any local plugin folder |
 | `-WinUIPlugin <path\|published>` | `plugins\winui\agent-plugin` | Any local plugin folder, or `published` for `win-dev-skills@v0.7.1:plugins/winui/agent-plugin` (fetched once into `results\.cache`) |
+| `-Agent <name>` | none | Runs every session with `--agent <name>`, e.g. `winappcli:winapp` or `winui:winui-dev` (plugin agents are namespaced) |
+| `-MaxCredits <n>` | none | Stops launching sessions once this invocation has spent `n` AI credits |
 | `-CopilotVersion <v>` | newest Copilot CLI build already on the machine | Pinned with `--prefer-version` for every call |
 | `-OutDir <path>` | `results\<timestamp>` | |
 | `-KeepArtifacts` | off | Keeps each run's Copilot home, workspace, and logs under `%TEMP%\winapp-agent-bench` |
@@ -78,7 +80,8 @@ comma-separated values (`-Scenario a,b`), including through `pwsh -File`.
    fixture and load skills. Output streams straight to files.
 5. Reads the session's persisted `events.jsonl` and records the skills the agent invoked, the size
    of the skill content delivered to the model, tokens, AI credits, turns, tool calls (including
-   denied ones), duration, and exit status. Missing values are `null` with a reason, never 0. If the
+   denied ones), `winapp` commands the agent tried to run or named in its final answer, the selected
+   agent, duration, and exit status. Missing values are `null` with a reason, never 0. If the
    workspace changed, the run is a `harness_error`.
 6. Evaluates the scenario's expectations against the invoked skills, appends a line to
    `runs.jsonl`, and deletes the temporary folders.

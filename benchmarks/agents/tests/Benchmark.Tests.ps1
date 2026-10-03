@@ -62,6 +62,27 @@ Describe 'Read-SessionEvents' {
         $r.skillContextChars | Should -Be 0
         @($r.skillsInvoked).Count | Should -Be 0
     }
+
+    It 'records the selected agent and winapp commands from shell calls and the final answer' {
+        $path = Join-Path $TestDrive 'agent.jsonl'
+        @(
+            '{"type":"session.start","data":{"copilotVersion":"1.0.87-0"}}'
+            '{"type":"subagent.selected","data":{"agentName":"winappcli:winapp"}}'
+            '{"type":"tool.execution_start","data":{"toolCallId":"a","toolName":"powershell","arguments":{"command":"winapp --version; winapp cert generate --manifest .\\Package.appxmanifest"}}}'
+            '{"type":"assistant.message","data":{"content":"Run winapp sign dist\\app.msix cert.pfx, then winapp sign again."}}'
+            '{"type":"assistant.message","data":{"content":"Use the winapp CLI: winapp package .\\out, and see C:\\tools\\winapp run.md"}}'
+        ) | Set-Content $path
+        $r = Read-SessionEvents -Path $path
+        $r.selectedAgent | Should -Be 'winappcli:winapp'
+        # Only the last assistant message counts as the answer; prose and paths are ignored.
+        @($r.winappCommands) | Should -Be @('cert generate', 'package')
+    }
+}
+
+Describe 'Get-WinappCommands' {
+    It 'returns an empty array when nothing matches' {
+        @(Get-WinappCommands -Text @('no commands here', $null)).Count | Should -Be 0
+    }
 }
 
 Describe 'Test-Expectations' {

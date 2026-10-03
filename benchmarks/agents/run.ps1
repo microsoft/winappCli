@@ -25,6 +25,9 @@ param(
     [string]$WinAppPlugin,
     [string]$WinUIPlugin,
     [string]$CopilotVersion,
+    [string]$Agent,
+    [ValidateRange(0.01, 1000000)]
+    [double]$MaxCredits,
     [string]$OutDir,
     [switch]$Plan,
     [switch]$KeepArtifacts,
@@ -84,6 +87,7 @@ if ($Plan) {
     Write-Host "WinApp:      $(if ($WinAppPlugin) { $WinAppPlugin } else { $config.plugins.winapp.path })"
     $pub = $config.plugins.winui.published
     Write-Host "WinUI:       $(if ($WinUIPlugin -eq 'published') { "$($pub.repository)@$($pub.ref):$($pub.path)" } elseif ($WinUIPlugin) { $WinUIPlugin } else { $config.plugins.winui.path })"
+    if ($Agent) { Write-Host "Agent:       $Agent" }
     Write-Host ''
     $runList | Group-Object { $_.Scenario.Id } | ForEach-Object {
         $configs = ($_.Group.Configuration | Select-Object -Unique) -join ', '
@@ -225,12 +229,14 @@ $header = [ordered]@{
     'Configurations' = ($runList.Configuration | Select-Object -Unique) -join ', '
     'Plugins'        = $pluginText
 }
+if ($Agent) { $header['Agent'] = $Agent }
 [ordered]@{
     copilotVersion = $pinnedVersion
     copilotPath    = $copilotExe
     models         = $models
     iterations     = $iterationCount
-    plugins        = @($plugins.Values | Sort-Object Name | ForEach-Object { [ordered]@{ name = $_.Name; path = $_.Path; source = $_.Source; version = $_.Version; sha = $_.Sha; dirty = $_.Dirty; skills = $_.Skills } })
+    agent          = $Agent ? $Agent : $null
+    plugins         = @($plugins.Values | Sort-Object Name | ForEach-Object { [ordered]@{ name = $_.Name; path = $_.Path; source = $_.Source; version = $_.Version; sha = $_.Sha; dirty = $_.Dirty; skills = $_.Skills } })
     scenarios      = @($scenarios.Id)
 } | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $OutDir 'run-info.json') -Encoding utf8NoBOM
 
@@ -254,6 +260,7 @@ function Invoke-BenchmarkRun {
         scenario               = $s.Id
         configuration          = $Run.Configuration
         model                  = $Run.Model
+        agent                  = $Agent ? $Agent : $null
         iteration              = $Run.Iteration
         status                 = $null
         reason                 = $null
@@ -272,6 +279,8 @@ function Invoke-BenchmarkRun {
         toolCalls              = $null
         toolCallsByName        = $null
         deniedToolCalls        = $null
+        winappCommands         = $null
+        selectedAgent          = $null
         workspaceChanges       = $null
         durationMs             = $null
         exitCode               = $null
@@ -338,6 +347,7 @@ function Invoke-BenchmarkRun {
             '--no-custom-instructions',
             '--no-ask-user'
         )
+        if ($Agent) { $agentArgs += @('--agent', $Agent) }
         $wsBefore = Get-DirectorySnapshot -Path $ws
         $r = & $invoke 'agent' $agentArgs ($Run.TimeoutMinutes * 60)
         $record.durationMs = $r.DurationMs
@@ -364,6 +374,8 @@ function Invoke-BenchmarkRun {
         $record.toolCalls = $parsed.toolCalls
         $record.toolCallsByName = $parsed.toolCallsByName
         $record.deniedToolCalls = $parsed.deniedToolCalls
+        $record.winappCommands = @($parsed.winappCommands)
+        $record.selectedAgent = $parsed.selectedAgent
 
         if ($record.workspaceChanges) {
             # The run was supposed to be read-only; its result is not comparable.
@@ -416,12 +428,19 @@ function Invoke-BenchmarkRun {
 
 Write-Host "Copilot CLI $pinnedVersion | $($runList.Count) agent sessions | results: $OutDir"
 $index = 0
+$creditsSpent = 0.0
 foreach ($run in $runList) {
+    if ($MaxCredits -and $creditsSpent -ge $MaxCredits) {
+        Write-Warning "Stopping: spent $([Math]::Round($creditsSpent, 1)) AI credits (-MaxCredits $MaxCredits); $($runList.Count - $index) sessions not run."
+        $header['Stopped early'] = "credit limit $MaxCredits reached after $index of $($runList.Count) sessions"
+        break
+    }
     $index++
     $label = "[$index/$($runList.Count)] $($run.Scenario.Id) | $($run.Configuration) | $($run.Model) | #$($run.Iteration)"
     Write-Host "$label ..." -NoNewline
     $rec = Invoke-BenchmarkRun -Run $run -Index $index
     $rec | ConvertTo-Json -Depth 8 -Compress | Add-Content -Path $runsPath -Encoding utf8NoBOM
+    if ($null -ne $rec.aiCredits) { $creditsSpent += [double]$rec.aiCredits }
     $skills = if ($rec.skillsLoaded) { $rec.skillsLoaded -join ', ' } else { '(none)' }
     $tok = if ($rec.tokens) { "in $($rec.tokens.input) / out $($rec.tokens.output)" } else { 'tokens n/a' }
     if ($null -ne $rec.skillContextTokensApprox) { $tok += " / skill ctx ~$($rec.skillContextTokensApprox)" }
