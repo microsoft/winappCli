@@ -87,7 +87,6 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         GuestDesktopCaptureCommand guestDesktopCaptureCommand,
         GuestRuntimeCommand guestRuntimeCommand,
         GuestLaunchCommand guestLaunchCommand,
-        SandboxWindowWatchCommand sandboxWindowWatchCommand,
         TargetCommand targetCommand,
         FindApiCommand findApiCommand) : base("CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows")
     {
@@ -116,7 +115,6 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(guestDesktopCaptureCommand);
         Subcommands.Add(guestRuntimeCommand);
         Subcommands.Add(guestLaunchCommand);
-        Subcommands.Add(sandboxWindowWatchCommand);
         Subcommands.Add(targetCommand);
 
         Options.Add(CliSchemaOption);
