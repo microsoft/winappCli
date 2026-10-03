@@ -7,6 +7,13 @@ $script:ValidConfigurations = @('none', 'winapp', 'winui', 'both')
 $script:StrippedEnvPattern = '^(COPILOT_|GITHUB_COPILOT_|CLAUDE|AI_AGENT$|RUBBER_DUCK)'
 $script:KeptEnvNames = @('COPILOT_GITHUB_TOKEN')
 
+function Split-ListArgument {
+    # Splits comma-separated items so list parameters work from PowerShell and from `pwsh -File`.
+    param([AllowNull()][AllowEmptyCollection()][string[]]$Value)
+    if (-not $Value) { return @() }
+    return @($Value | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
 function Get-ScenarioDefinitions {
     param([Parameter(Mandatory)][string]$ScenariosRoot)
 
@@ -533,4 +540,4 @@ function Invoke-Rescore {
 
 Export-ModuleMember -Function Get-ScenarioDefinitions, Get-PluginSkillNames, Get-ConfigurationPlugins, New-ChildEnvironment,
 Invoke-LoggedProcess, Get-FileTail, Read-SessionEvents, Get-DirectorySnapshot, Compare-DirectorySnapshot, Test-Expectations,
-Get-Median, Write-BenchmarkSummary, Invoke-Rescore
+Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument

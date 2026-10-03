@@ -168,6 +168,28 @@ Describe 'Invoke-Rescore' {
     }
 }
 
+Describe 'Split-ListArgument' {
+    It 'splits comma-separated strings and flattens arrays' {
+        Split-ListArgument @('a,b , c') | Should -Be @('a', 'b', 'c')
+        Split-ListArgument @('a', 'b,c') | Should -Be @('a', 'b', 'c')
+        @(Split-ListArgument $null).Count | Should -Be 0
+    }
+
+    It 'accepts comma-separated lists through pwsh -File' {
+        $run = Join-Path $PSScriptRoot '..\run.ps1'
+        $out = & pwsh -NoProfile -File $run -Plan -Scenario 'wpf-to-winui,console-arg-parsing' -Configuration 'winui,both' -Model 'm1,m2' -Iterations 1 2>&1
+        $LASTEXITCODE | Should -Be 0
+        ($out -join "`n") | Should -Match 'Total agent sessions: 8'
+    }
+
+    It 'rejects an unknown configuration' {
+        $run = Join-Path $PSScriptRoot '..\run.ps1'
+        $out = & pwsh -NoProfile -File $run -Plan -Configuration 'winapp,bogus' 2>&1
+        $LASTEXITCODE | Should -Not -Be 0
+        ($out -join "`n") | Should -Match 'Unknown configuration\(s\): bogus'
+    }
+}
+
 Describe 'Scenario definitions' {
     It 'all scenarios load and validate' {
         $s = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot '..\scenarios')
