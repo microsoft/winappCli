@@ -260,7 +260,8 @@ static void Test_NoAgentReasonDoesNotConflateTheTwoCases()
     const std::wstring aot = DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime::NativeAot);
     Check(aot.find(L"Native AOT") != std::wstring::npos, "the AOT case names Native AOT");
     Check(aot.find(L"no .NET runtime") == std::wstring::npos, "and does not claim the app has no .NET runtime");
-    Check(aot.find(L"Native binding path walking remains available") != std::wstring::npos, "and keeps the fallback");
+    Check(aot.find(L"get-property") != std::wstring::npos && aot.find(L"path walking") == std::wstring::npos,
+          "and points only at a command the user can run");
 
     // Both are real sentences, not tokens: the row renders this as its subtitle and half an explanation
     // explains nothing.
