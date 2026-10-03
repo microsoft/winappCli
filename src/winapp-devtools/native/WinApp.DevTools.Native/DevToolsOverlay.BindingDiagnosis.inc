@@ -770,6 +770,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
             } catch (const winrt::hresult_error&) {}
         }
         UpdateCatcherHole();
+        if (g_selPanel) { SelRememberFocus(); KeepChordsInPanel(g_selPanel); }
     }
     if (!g_selOperationError.empty())
         SetSelectionOperationError(g_selOperationProperty, g_selOperationError);

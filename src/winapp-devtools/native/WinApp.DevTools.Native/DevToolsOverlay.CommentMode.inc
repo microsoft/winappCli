@@ -115,13 +115,14 @@ static void OnAppEscape(void* /*sender*/, void* args)
     }
     reinterpret_cast<IUnknown*>(kr)->Release();
     if (!acting) return;
-    const bool panelOpen = DevToolsSelPanelIsOpen();
-    DevToolsOverlayLog(L"overlay.esc pick=%d selection=%llu panel=%d -> exit pick mode + %s",
+    // Esc closes one layer at a time: an open panel first, then pick mode and the selection.
+    const bool panelOpen = DevToolsSelPanelIsOpen() || g_composerUi != nullptr;
+    DevToolsOverlayLog(L"overlay.esc pick=%d selection=%llu panel=%d -> %s",
         (int)(g_pickCatcher != nullptr), (unsigned long long)g_selectedHandle, (int)panelOpen,
-        panelOpen ? L"commit-safe dismiss" : L"deselect");
-    ExitPickMode();
-    if (panelOpen) DismissSelectionPanel(true);
-    else DeselectAll();
+        panelOpen ? L"close the panel" : L"exit pick mode + deselect");
+    if (DevToolsSelPanelIsOpen()) DismissSelectionPanel(true);
+    else if (panelOpen) DeselectAll();
+    else { ExitPickMode(); DeselectAll(); }
 }
 
 // Each marker owns one sink carrying its element handle. Leaked for the process lifetime, bounded by the number

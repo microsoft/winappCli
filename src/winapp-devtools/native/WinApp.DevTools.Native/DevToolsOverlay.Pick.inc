@@ -399,8 +399,19 @@ static void OnCatcherPointerPressed(void* sender, void*)
 static void OnCatcherClick(void* sender, void*)
 {
     if (!IsCurrentCatcher(sender)) return;
-    // With the panel open, a catcher click is outside the modal panel and commits/dismisses before picking.
+    // With the panel open, a catcher click is outside the modal panel and commits/dismisses before picking. A click on
+    // the element that is already selected keeps it.
     if (DevToolsSelPanelIsOpen()) {
+        POINT at{ 0, 0 };
+        if (g_selectedHandle && g_pickDiag && g_pickRoot && GetCursorPos(&at)) {
+            InstanceHandle hit = PeekTopHandleAt(g_pickDiag, g_pickRoot, at.x, at.y, g_pickIsOverlay);
+            if (hit && g_pickTarget) hit = g_pickTarget(hit);
+            if (hit == g_selectedHandle) {
+                g_pressValid = false;
+                DevToolsOverlayLog(L"overlay.pick click on the selected element -> keep it and its panel");
+                return;
+            }
+        }
         DevToolsOverlayLog(L"overlay.pick click outside the open panel -> dismiss (modal), pick mode stays armed");
         g_pressValid = false;
         DismissSelectionPanel();

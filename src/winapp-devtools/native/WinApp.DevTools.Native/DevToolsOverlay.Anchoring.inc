@@ -326,6 +326,8 @@ static void DeselectAll(bool clearHighlight)
     ClearComposer();
     ClearSelectionAnchor();
     if (clearHighlight) ClearAdorner();
+    // The hover highlight is gone too, so the element under the pointer must draw again on the next move.
+    ResetPickPointer();
     g_selectedHandle = 0;
     g_selectedBounds = RECT{};
     g_chromeHidden = false;

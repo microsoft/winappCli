@@ -24,7 +24,9 @@ workflow and commands; each command's `--help` shows examples.
    ![The DevTools toolbar and the quick-edit panel on a selected button](../images/devtools-quick-edit.png)
 
 3. Type a note in the **Comment** box and select **Save** (or press **Ctrl+Enter**).
-   Wait for **Saved**.
+   When it is saved, the panel closes and the comments count on the toolbar goes up,
+   so you can pick the next element. If the comment can't be linked to source, the
+   panel stays open and says so.
 
 4. For the full element tree, properties and bindings, select **Open in DevTools**.
 
@@ -46,7 +48,8 @@ source. An edit applies when you leave the field or press **Enter**; in a multi-
 text value, **Enter** adds a line and **Ctrl+Enter** applies. Closing a value you
 didn't change leaves the app untouched. **Open in DevTools** opens the full inspector for detailed binding work.
 Hover picking pauses while the quick-edit panel or comment editor is open, preserving
-your selection and draft.
+your selection and draft. Clicking the selected element keeps it selected. Esc closes
+the panel; the next Esc turns pick mode off.
 
 Picking selects the element you declared: clicking a control's template part or its
 generated text, such as a TextBox's placeholder or a Button's string content, selects

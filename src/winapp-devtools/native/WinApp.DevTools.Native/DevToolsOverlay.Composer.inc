@@ -71,7 +71,7 @@ struct GuestCommentWrite {
     RECT bounds{};
     ULONGLONG began = 0;
     bool failed = false, persisted = false, superseded = false;
-    bool deleteRequested = false, discarded = false, linked = true;
+    bool deleteRequested = false, discarded = false, linked = true, closeOnSave = false;
     std::function<void(int)> completed;
 };
 static GuestCommentWrite g_guestCommentWrite;
@@ -598,6 +598,12 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
         g_selCommentSaved = write.submitted;
         g_selCommentRevision = revision;
         SetSelCommentDeleteVisible(true);
+        // Save is done with this element, so the panel closes and pick mode moves on. A comment that is not linked
+        // to source keeps the panel, which is where that is said.
+        std::wstring current;
+        if (write.closeOnSave && exitCode == 0 && write.linked && !write.failed && !write.deleteRequested &&
+            SelReadCommentText(&current) && DevToolsCommentText::Unchanged(current, write.submitted))
+            DismissSelectionPanel();
     }
     if (write.deleteRequested) {
         const auto requestedText = write.deleteText;
@@ -673,6 +679,8 @@ static void DevToolsSelCommitComment(bool explicitSave)
     }
     if (g_selCommentId.empty()) g_selCommentId = GenCommentId();
     LaunchCommentAdd(text, g_selCommentId);
+    if (explicitSave && g_guestCommentWrite.process && GuestCommentMatchesEditor(false, false))
+        g_guestCommentWrite.closeOnSave = true;
     if (!g_commentSourceError.empty()) {
         SetSelectionOperationError(L"Comment", g_commentSourceError);
     } else if (!g_guestCommentAuthority.load() && GuestCommentMatchesEditor(false, false) &&

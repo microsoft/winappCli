@@ -415,6 +415,42 @@ inline HRESULT DevToolsGetIsChecked(void* button, IInspectable** value) noexcept
 { return DevToolsAbi<DevToolsXCP::IToggleButton>(button)->get_IsChecked(reinterpret_cast<void**>(value)); }
 inline HRESULT DevToolsPutTextBoxText(void* textBox, HSTRING text) noexcept
 { return DevToolsAbi<DevToolsXC::ITextBox>(textBox)->put_Text(DevToolsAbiStr(text)); }
+// The element with focus in `element`'s XamlRoot (caller releases), and whether it is `element` or inside it.
+inline HRESULT DevToolsFocusedWithin(void* element, IInspectable** focused, bool* inside) noexcept
+{
+    *focused = nullptr; *inside = false;
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, element);
+        const auto root = object.as<DevToolsX::UIElement>();
+        const auto xamlRoot = root.XamlRoot();
+        if (!xamlRoot) return S_FALSE;
+        auto node = DevToolsXI::FocusManager::GetFocusedElement(xamlRoot).try_as<DevToolsX::DependencyObject>();
+        for (auto current = node; current; current = DevToolsXM::VisualTreeHelper::GetParent(current))
+            if (current == root) { *inside = true; break; }
+        if (node) *focused = static_cast<IInspectable*>(winrt::detach_abi(node));
+        return S_OK;
+    } catch (...) { return winrt::to_hresult(); }
+}
+// Focus `target` with pointer state, so the app shows no focus rectangle or accelerator tips. With no usable target,
+// the first focusable element of `anyElement`'s window content takes it.
+inline HRESULT DevToolsFocusWithPointer(void* target, void* anyElement, bool* moved) noexcept
+{
+    *moved = false;
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        DevToolsX::UIElement element{ nullptr };
+        if (target) { winrt::copy_from_abi(object, target); element = object.try_as<DevToolsX::UIElement>(); }
+        if (!element || !element.XamlRoot()) {
+            winrt::copy_from_abi(object, anyElement);
+            const auto xamlRoot = object.as<DevToolsX::UIElement>().XamlRoot();
+            const auto content = xamlRoot ? xamlRoot.Content() : nullptr;
+            element = content ? DevToolsXI::FocusManager::FindFirstFocusableElement(content).try_as<DevToolsX::UIElement>() : nullptr;
+        }
+        *moved = element && element.Focus(DevToolsX::FocusState::Pointer);
+        return S_OK;
+    } catch (...) { return winrt::to_hresult(); }
+}
 // Enter inserts a line break and long lines wrap; otherwise a single-line box.
 inline HRESULT DevToolsPutTextBoxMultiline(void* textBox, bool multiline) noexcept
 {

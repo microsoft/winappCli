@@ -73,7 +73,17 @@ static LONGLONG dismissWriteCost = 0;
 static LONGLONG dismissClosedAt = -1;
 static BOOL WINAPI DismissCounter(LARGE_INTEGER* value) { value->QuadPart=dismissClock;return TRUE; }
 static BOOL WINAPI DismissFrequency(LARGE_INTEGER* value) { value->QuadPart=1'000'000;return TRUE; }
-static HRESULT DismissFocus(void*, int, bool* value) { *value=true;return S_OK; }
+static int dismissFocusState = -1;
+static HRESULT DismissFocus(void*, int state, bool* value) { dismissFocusState=state;*value=true;return S_OK; }
+static IInspectable* focusedOutsidePanel = nullptr;
+static bool focusInPanel = false;
+static unsigned pointerFocusCalls = 0;
+static HRESULT TestFocusedWithin(void*, IInspectable** focused, bool* inside)
+{
+    *focused = focusedOutsidePanel; if (*focused) (*focused)->AddRef();
+    *inside = focusInPanel; return S_OK;
+}
+static HRESULT TestFocusWithPointer(void*, void*, bool* moved) { ++pointerFocusCalls; *moved = true; return S_OK; }
 static bool escapeHandled = false;
 static int commentKey = 27;
 static bool commentControl = false;
@@ -101,6 +111,8 @@ template <typename I> static HRESULT GeometryPadding(void*, double*, double*, do
 #define DevToolsNumberBoxGetValue ReadQuickNumber
 #define DevToolsRangeGetValue ReadQuickNumber
 #define DevToolsFocus DismissFocus
+#define DevToolsFocusedWithin TestFocusedWithin
+#define DevToolsFocusWithPointer TestFocusWithPointer
 #define DevToolsGetKey EscapeKey
 #define DevToolsPutHandled EscapeHandled
 #define GetKeyState NoModifierKey
@@ -878,6 +890,94 @@ int main()
             "dismiss phases","late failure restores the same panel without replaying a write");
         ClearSelectionAnchor();
         g_cardWrite=nullptr;dismissWriteCost=0;
+    }
+    {
+        // Closing the quick peek hands focus back to the app with pointer state, and only when focus is in the peek.
+        SwitchObject popup;
+        GeometryObject panel, icon, appElement, keyArgs, catcher;
+        keyArgs.keyArgs = true;
+        auto open = [&] {
+            g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
+            g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;g_selRowSinks.clear();
+        };
+        auto teardown = [&] { if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0); ClearSelectionAnchor(); };
+        open();
+        focusInPanel=true;focusedOutsidePanel=&appElement;pointerFocusCalls=0;dismissFocusState=-1;
+        check(DismissSelectionPanel() && pointerFocusCalls==1,
+            "panel focus","closing the peek with focus in it returns focus to the app with pointer state");
+        check(dismissFocusState==3,"panel focus","the commit step focuses Close programmatically, not with keyboard state");
+        teardown();
+        open();
+        focusInPanel=false;pointerFocusCalls=0;
+        check(DismissSelectionPanel() && pointerFocusCalls==0,"panel focus","focus already in the app is left alone");
+        teardown();
+        focusedOutsidePanel=nullptr;focusInPanel=false;
+
+        // Esc closes one layer at a time: the open panel, not pick mode.
+        SwitchObject canvas;
+        open();
+        g_canvasChildren=&canvas;g_pickCatcher=&catcher;catcher.AddRef();g_selectedHandle=11;
+        commentKey=VK_ESCAPE;escapeHandled=false;
+        OnAppEscape(nullptr,&keyArgs);
+        check(escapeHandled && g_pickCatcher==&catcher && !popup.popupOpen,
+            "esc layers","Esc with a panel open closes only the panel and keeps pick mode on");
+        teardown();
+        if (g_pickCatcher) { g_pickCatcher->Release(); g_pickCatcher=nullptr; }
+        g_canvasChildren=nullptr;g_selectedHandle=0;
+    }
+    {
+        // A click on the element that is already selected keeps it; a click elsewhere dismisses the panel.
+        SwitchDiagnostics diag;
+        PickerHosts hosts(diag);
+        SwitchObject popup;
+        GeometryObject panel, icon, catcher;
+        g_pickDiag=&diag;g_pickRoot=10;g_pickCatcher=&catcher;
+        for (const InstanceHandle under : {InstanceHandle(11), InstanceHandle(12)}) {
+            g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
+            g_selectedHandle=11;diag.hitHandle=under;dismissFocusState=-1;
+            OnCatcherClick(&catcher,nullptr);
+            check(under==11 ? (dismissFocusState==-1 && popup.popupOpen && g_selectedHandle==11) : dismissFocusState==3,
+                "selected click", under==11 ? "clicking the selected element keeps it and its panel"
+                                            : "clicking another element still dismisses the panel");
+            if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0);
+            ClearSelectionAnchor();
+        }
+        g_pickDiag=nullptr;g_pickRoot=g_selectedHandle=0;g_pickCatcher=nullptr;diag.hitHandle=0;
+    }
+    {
+        // An explicit Save that is saved and linked to source closes the panel; saving on blur keeps it open.
+        SwitchDiagnostics diagnostics;
+        g_pickDiag=&diagnostics;
+        g_srcRead=[](InstanceHandle, std::wstring* file, unsigned* line, unsigned*) { *file=L"MainPage.xaml"; *line=48; return true; };
+        g_cardRead=[](IInspectable*, std::wstring*, std::wstring*, std::vector<DevToolsCardRow>*,
+            std::wstring* state, std::wstring*) { *state=L"available"; return true; };
+        SwitchObject popup;
+        GeometryObject input, panel, icon;
+        g_selComment=&input;g_cardReadInput=CommentReadInput;
+        wchar_t fakeCli[]=L"never-executed.exe";
+        g_cliExe.store(fakeCli);guestWriterTest=true;
+        g_wireOf=[](InstanceHandle raw) { return raw + 1000ull; };
+        for (const bool explicitSave : {false, true}) {
+            g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
+            g_selComment=&input;input.AddRef();
+            g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
+            SetCommentTarget(11,false);
+            g_selCommentId=L"save-closes";g_selCommentSaved.clear();g_guestCommentWrite={};
+            commentInput=L"Warmer color.";
+            if (explicitSave) OnSelCommentSaveClick(nullptr,nullptr); else DevToolsSelCommitComment();
+            commentExitCode=0;SetEvent(commentProcess);
+            GuestCommentTimerProc(nullptr,0,0,0);
+            check(g_selCommentSaved==L"Warmer color." && popup.popupOpen!=explicitSave,"comment save",
+                explicitSave ? "an explicit save linked to source closes the panel" : "saving on blur keeps the panel open");
+            if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0);
+            ClearSelectionAnchor();
+        }
+        g_cliExe.store(nullptr);guestWriterTest=false;g_wireOf=nullptr;g_guestCommentWrite={};
+        g_selComment=nullptr;g_cardReadInput=nullptr;g_selCommentSaved.clear();g_selCommentId.clear();
+        g_pickDiag=nullptr;g_srcRead=nullptr;g_cardRead=nullptr;g_selHandle=g_selCommentWire=0;g_pins.clear();
     }
     {
         SwitchDiagnostics diag;

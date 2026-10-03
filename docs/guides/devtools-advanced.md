@@ -171,7 +171,9 @@ running app. If `--from-element` reports an incomplete name search, pass an exac
 handle or identity selector from `inspect` instead.
 
 In the inline comment editor, choose **Save**, press **Ctrl+Enter**, or leave the
-field to save. **Saving...** is not confirmation: wait for **Saved**. If saving
+field to save. **Saving...** is not confirmation. After **Save** or **Ctrl+Enter**, the
+panel closes once the comment is saved and linked to source; otherwise it stays open
+with the status. If saving
 fails, the draft stays available and the status shows the failing stage and code.
 Copy the text before closing an unconfirmed draft.
 

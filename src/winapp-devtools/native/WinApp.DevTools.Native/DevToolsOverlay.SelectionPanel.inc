@@ -174,6 +174,46 @@ static bool DevToolsSelPanelIsOpen() { return g_selPanel != nullptr; }
 static bool g_selDismissVisualClosed = false;
 static double g_selDismissBegan = 0;
 
+// What had focus when the quick peek opened. Closing the peek hands focus back with pointer state: left alone,
+// WinUI moves focus out of the removed peek with keyboard state, which draws a focus rectangle and opens
+// accelerator tips in the app.
+static winrt::com_ptr<IInspectable> g_selReturnFocus;
+
+static void SelRememberFocus()
+{
+    g_selReturnFocus = nullptr;
+    winrt::com_ptr<IInspectable> focused;
+    bool inPanel = false;
+    if (g_selPanel && SUCCEEDED(DevToolsFocusedWithin(g_selPanel, focused.put(), &inPanel)) && !inPanel)
+        g_selReturnFocus = std::move(focused);
+}
+
+static void SelReturnFocus()
+{
+    winrt::com_ptr<IInspectable> focused, target = std::move(g_selReturnFocus);
+    bool inPanel = false;
+    if (!g_selPanel || FAILED(DevToolsFocusedWithin(g_selPanel, focused.put(), &inPanel)) || (focused && !inPanel)) return;
+    bool moved = false;
+    const HRESULT hr = DevToolsFocusWithPointer(target.get(), g_selPanel, &moved);
+    DevToolsOverlayLog(L"overlay.sel focus returned to the app hr=0x%08X moved=%d", hr, (int)moved);
+}
+
+// A Ctrl or Alt chord typed in a DevTools panel belongs to the panel. Its editors handle their own (Ctrl+C, Ctrl+A)
+// before the key bubbles here; the rest would otherwise reach the app's keyboard accelerators and access keys.
+static void KeepChordsInPanel(IInspectable* panelRoot)
+{
+    if (!panelRoot) return;
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, panelRoot);
+        object.as<DevToolsX::UIElement>().KeyDown([](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
+            if ((GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000)) args.Handled(true);
+        });
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.sel chord guard failed hr=0x%08X", e.code().value);
+    }
+}
+
 // On the UI layer a windowed Popup's input is hit-tested against the layer as well, so the full-size pick catcher
 // would take clicks meant for the open quick peek. While the peek is open there, the catcher keeps only a
 // transparent border around the peek's rectangle: clicks outside still dismiss, clicks on the peek reach it.
@@ -241,6 +281,8 @@ static void CALLBACK DevToolsSelDismissTimerProc(HWND, UINT, UINT_PTR, DWORD)
     }
     DevToolsOverlayLog(L"overlay.sel dismiss teardown elapsedMs=%.1f", (QpcNow() - g_selDismissBegan) / 1000.0);
     DeselectAll();
+    // Pick mode resumes where the pointer is now, not where it was when the panel opened.
+    if (g_pickCatcher) OnCatcherPointerMoved(g_pickCatcher, nullptr);
 }
 static bool DismissSelectionPanel(bool discardDetached)
 {
@@ -284,6 +326,7 @@ static bool DismissSelectionPanel(bool discardDetached)
         return false;
     }
     if (generation != g_selGen) return true;
+    SelReturnFocus();
     if (!g_selDismissCommitFailed) {
         g_selDismissVisualClosed = true;
         const HRESULT hr = SetSelectionPopupOpen(false);
@@ -305,7 +348,7 @@ static void OnSelCloseClick(void*, void*)
     DismissSelectionPanel(true);
 }
 
-// Move keyboard focus to the panel's Close button (projected UIElement.Focus, FocusState.Programmatic=2). Used
+// Move keyboard focus to the panel's Close button (projected UIElement.Focus, FocusState.Programmatic). Used
 // as the COMMIT mechanism for keyboard gestures: a focused editor loses focus as focus lands on the icon,
 // firing its already-wired LostFocus -> the property/comment commit runs exactly as a Tab-away would.
 static bool DevToolsSelFocusIcon()
@@ -318,7 +361,7 @@ static bool DevToolsSelFocusIcon()
         return false;
     }
     bool ok = false;
-    hr = DevToolsFocus(ui, 2 /*FocusState.Programmatic*/, &ok);
+    hr = DevToolsFocus(ui, 3 /*FocusState.Programmatic*/, &ok);
     reinterpret_cast<IUnknown*>(ui)->Release();
     DevToolsOverlayLog(L"overlay.sel focus Close hr=0x%08X succeeded=%d", hr, (int)ok);
     return SUCCEEDED(hr) && ok;
