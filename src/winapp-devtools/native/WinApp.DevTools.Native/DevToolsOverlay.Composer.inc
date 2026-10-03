@@ -669,7 +669,8 @@ static void DevToolsSelCommitComment(bool explicitSave)
     if (DevToolsCommentText::Unchanged(text, g_selCommentSaved) && !retryUnconfirmed) {
         if (!g_guestCommentAuthority.load() && GuestCommentMatchesEditor(false, false)) {
             if (g_guestCommentWrite.process) {
-                g_selDismissCommitFailed = true;
+                // The running save is of different text, so closing now would keep what the box no longer says.
+                if (!DevToolsCommentText::Unchanged(text, g_guestCommentWrite.submitted)) g_selDismissCommitFailed = true;
             } else {
                 DiscardSelectionCommentDraft();
                 GuestCommentSetStatus(g_selUi, L"DevToolsGuestCommentStatus",
@@ -696,7 +697,9 @@ static void DevToolsSelCommitComment(bool explicitSave)
     } else if (!g_guestCommentAuthority.load() && GuestCommentMatchesEditor(false, false) &&
         (g_guestCommentWrite.process || g_guestCommentWrite.failed) && !g_guestCommentWrite.status.empty()) {
         SetSelectionOperationError(L"Comment", L"");
-        g_selDismissCommitFailed = true;
+        // A save still running does not hold the panel open: it completes after the panel closes, and a failure keeps
+        // the draft for the next time this element's panel opens. A save that already failed keeps it open.
+        if (!g_guestCommentWrite.process) g_selDismissCommitFailed = true;
     } else if (!g_guestCommentAuthority.load()) {
         SetSelectionOperationError(L"Comment", g_commentSourceError.empty()
             ? L"Couldn't start saving your comment. Keep this panel open and try again." : g_commentSourceError);

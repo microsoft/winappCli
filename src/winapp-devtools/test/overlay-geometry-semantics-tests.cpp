@@ -1017,6 +1017,25 @@ int main()
             if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0);
             ClearSelectionAnchor();
         }
+        // Esc on an edited comment: the save starts and the panel closes with one press; the save completes after.
+        {
+            SwitchObject popup;
+            GeometryObject panel, icon;
+            g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
+            g_selComment=&input;input.AddRef();
+            g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
+            SetCommentTarget(11,false);
+            g_selCommentId=L"esc-once";g_selCommentSaved=L"hello";g_guestCommentWrite={};
+            commentInput=L"hello edited";
+            check(DismissSelectionPanel(true) && !popup.popupOpen && g_guestCommentWrite.process,
+                "comment save","one Esc on an edited comment starts the save and closes the panel");
+            commentExitCode=0;SetEvent(commentProcess);
+            GuestCommentTimerProc(nullptr,0,0,0);
+            if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0);
+            ClearSelectionAnchor();
+            g_guestCommentWrite={};
+        }
         g_cliExe.store(nullptr);guestWriterTest=false;g_wireOf=nullptr;g_guestCommentWrite={};
         g_selComment=nullptr;g_cardReadInput=nullptr;g_selCommentSaved.clear();g_selCommentId.clear();
         g_pickDiag=nullptr;g_srcRead=nullptr;g_cardRead=nullptr;g_selHandle=g_selCommentWire=0;g_pins.clear();
