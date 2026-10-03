@@ -371,14 +371,18 @@ resolving the repo as a plugin; adding `$schema` there would make its nested
 `scripts/validate-plugin-package.ps1` enforces all of the above: the closed manifest
 schema, the plugin name constraints, the Copilot agent's location, the Claude `agents`
 pointer resolving to a real file, and the repo-root shim staying legacy. For every plugin
-under `plugins/` that has a `skills/` folder it also checks:
+root under `plugins/` (any folder holding `plugin.json` and a `skills/` folder, such as
+`plugins/winapp` or `plugins/winui/agent-plugin`) it also checks:
 
 - **Errors:** each `skills/<id>/SKILL.md` exists with `name` and `description`; `name`
   equals the folder name and follows Agent Skills naming rules; description is at most
-  1024 characters; relative links (and inline-code `references/`, `scripts/`, `assets/`
-  paths) resolve to files inside the same plugin — use a full `https://` URL for repo
-  docs; `winapp …` lines in fenced code blocks use command paths from
-  `docs/cli-schema.json` or the npm wrapper's `node` subcommands.
+  1024 characters; every `SKILL.md` under `plugins/` sits at `<plugin root>/skills/<id>/`;
+  relative links (and inline-code `references/`, `scripts/`, `assets/` paths) resolve to
+  files inside the same plugin — use a full `https://` URL for repo docs, and name the
+  owning skill for cross-skill paths (`` `winui-packaging`'s `references/x.md` ``);
+  `winapp …` lines in fenced code blocks of skills and agents (including host wrappers in
+  outer `agents/` folders) use command paths from `docs/cli-schema.json` or the npm
+  wrapper's `node` subcommands.
 - **Warnings:** descriptions over 300 characters (`$DescriptionWarnChars`).
 - **Report:** approximate token sizes per skill and agent, also written to the GitHub
   Actions job summary.

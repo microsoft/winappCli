@@ -11,14 +11,15 @@
     schema, so this script encodes the schema rules rather than fetching them. That also
     keeps CI deterministic and offline-safe.
 
-    It also checks the skills of every plugin under -PluginsRoot: SKILL.md frontmatter,
-    description length, relative links staying inside the plugin, and `winapp` command
-    examples matching docs/cli-schema.json. It then prints an approximate size report.
+    It also checks the skills of every plugin root under -PluginsRoot (any folder holding
+    plugin.json and a skills/ folder): SKILL.md frontmatter and placement, description
+    length, relative links staying inside the plugin, and `winapp` command examples in
+    skills and agents matching docs/cli-schema.json. It then prints an approximate size report.
 
     Requires no build output and can be run standalone:
         .\scripts\validate-plugin-package.ps1
 .PARAMETER PluginsRoot
-    Folder holding one subfolder per plugin; skill checks run on each (default: plugins)
+    Folder searched for plugin roots; skill checks run on each (default: plugins)
 .PARAMETER PluginRoot
     Path to the winapp plugin package root (default: <PluginsRoot>/winapp)
 .PARAMETER FailOnError
@@ -150,14 +151,7 @@ else {
     if ($skillDirs.Count -eq 0) {
         Add-Failure "no skill directories found under $SkillsRoot"
     }
-
-    # Clients do not recurse past immediate children, so a deeper SKILL.md never loads.
-    foreach ($stray in Get-ChildItem $SkillsRoot -Recurse -File -Filter "SKILL.md") {
-        if ($stray.Directory.Parent.FullName -ne (Resolve-Path $SkillsRoot).Path) {
-            $relative = $stray.FullName.Substring($PluginRoot.Length).TrimStart('\', '/')
-            Add-Failure "SKILL.md at $relative is nested too deep to be discovered; skills must be immediate children of skills/"
-        }
-    }
+    # SKILL.md files outside <plugin root>/skills/<id>/ are reported by the generic coverage check below.
 }
 
 # --- MCP configuration, only validated when present (spec section 7.2) ------------------
@@ -400,8 +394,9 @@ function Test-RelativeReference([string]$Target, [string[]]$BaseDirs, [string]$P
     }
 }
 
-# Checks relative links and `winapp` command examples in one Markdown file.
-function Test-MarkdownFile([System.IO.FileInfo]$File, [string[]]$CodeRefBaseDirs, [string]$PluginDir) {
+# Checks relative links and `winapp` command examples in one Markdown file. $SkillsDir enables
+# inline resource paths that name a sibling skill, e.g. "see `winui-packaging`'s `references/x.md`".
+function Test-MarkdownFile([System.IO.FileInfo]$File, [string[]]$CodeRefBaseDirs, [string]$PluginDir, [string]$SkillsDir = "") {
     $lines = [System.IO.File]::ReadAllLines($File.FullName, $Utf8)
     $display = Get-DisplayPath $File.FullName
     $fence = $null
@@ -432,7 +427,13 @@ function Test-MarkdownFile([System.IO.FileInfo]$File, [string[]]$CodeRefBaseDirs
         # inline paths (./dist, ./<name>) usually describe the user's project, not the plugin.
         if ($CodeRefBaseDirs.Count -gt 0) {
             foreach ($m in [regex]::Matches($line, '`((?:references|scripts|assets)/[^`\s<>{}*$]+)`')) {
-                Test-RelativeReference $m.Groups[1].Value $CodeRefBaseDirs $PluginDir $where
+                $baseDirs = $CodeRefBaseDirs
+                $before = $line.Substring(0, $m.Index)
+                if ($SkillsDir -and $before -match '(?:`([a-z0-9-]+)`|\b([a-z0-9]+(?:-[a-z0-9]+)+))(?:''s|\s+skill''s|\s+skill)\s*$') {
+                    $sibling = Join-Path $SkillsDir ($Matches[1] + $Matches[2])
+                    if (Test-Path $sibling -PathType Container) { $baseDirs = @($CodeRefBaseDirs) + $sibling }
+                }
+                Test-RelativeReference $m.Groups[1].Value $baseDirs $PluginDir $where
             }
         }
     }
@@ -441,14 +442,34 @@ function Test-MarkdownFile([System.IO.FileInfo]$File, [string[]]$CodeRefBaseDirs
 $SizeReport = [System.Text.StringBuilder]::new()
 function Format-Count([long]$Value) { $Value.ToString('N0', $Invariant) }
 
-$pluginDirs = @(Get-ChildItem $PluginsRoot -Directory -ErrorAction SilentlyContinue |
-    Where-Object { Test-Path (Join-Path $_.FullName "skills") -PathType Container })
-foreach ($pluginDir in $pluginDirs) {
+# A plugin root is any folder under $PluginsRoot that holds plugin.json and an immediate skills/
+# folder, e.g. plugins/winapp or plugins/winui/agent-plugin.
+$pluginRoots = @(Get-ChildItem $PluginsRoot -Recurse -File -Filter "plugin.json" -ErrorAction SilentlyContinue |
+    Where-Object { Test-Path (Join-Path $_.DirectoryName "skills") -PathType Container } |
+    ForEach-Object { $_.Directory } | Sort-Object FullName)
+
+# Every SKILL.md must sit at <plugin root>/skills/<id>/SKILL.md, or no client will load it and
+# none of the checks below will see it.
+$coveredSkills = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($root in $pluginRoots) {
+    foreach ($skillDir in Get-ChildItem (Join-Path $root.FullName "skills") -Directory) {
+        [void]$coveredSkills.Add((Join-Path $skillDir.FullName "SKILL.md"))
+    }
+}
+foreach ($skillFile in Get-ChildItem $PluginsRoot -Recurse -File -Filter "SKILL.md" -ErrorAction SilentlyContinue) {
+    if (-not $coveredSkills.Contains($skillFile.FullName)) {
+        Add-Failure "$(Get-DisplayPath $skillFile.FullName) is not discovered. Skills must be at <plugin root>/skills/<id>/SKILL.md, where the plugin root folder holds plugin.json; deeper or unrooted SKILL.md files are never loaded."
+    }
+}
+
+$checkedAgents = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($pluginDir in $pluginRoots) {
     $pluginPath = $pluginDir.FullName
+    $skillsPath = Join-Path $pluginPath "skills"
     $rows = [System.Collections.Generic.List[string]]::new()
     $totals = @{ Desc = 0L; Meta = 0L; Body = 0L; Refs = 0L }
 
-    foreach ($skillDir in Get-ChildItem (Join-Path $pluginPath "skills") -Directory) {
+    foreach ($skillDir in Get-ChildItem $skillsPath -Directory) {
         $skillFile = Join-Path $skillDir.FullName "SKILL.md"
         $skillDisplay = Get-DisplayPath $skillFile
         if (-not (Test-Path $skillFile -PathType Leaf)) {
@@ -487,7 +508,7 @@ foreach ($pluginDir in $pluginDirs) {
 
         $skillMarkdown = @(Get-ChildItem $skillDir.FullName -Recurse -File -Filter "*.md")
         foreach ($md in $skillMarkdown) {
-            Test-MarkdownFile $md @($md.DirectoryName, $skillDir.FullName) $pluginPath
+            Test-MarkdownFile $md @($md.DirectoryName, $skillDir.FullName) $pluginPath $skillsPath
         }
 
         $metaTokens = Get-ApproxTokens $Utf8.GetByteCount("${name}: $description")
@@ -499,26 +520,52 @@ foreach ($pluginDir in $pluginDirs) {
         $totals.Desc += $description.Length; $totals.Meta += $metaTokens; $totals.Body += $bodyTokens; $totals.Refs += $refTokens
     }
 
-    $agentFiles = @(Get-ChildItem $pluginPath -Recurse -File -Filter "*.md" | Where-Object { $_.Directory.Name -eq 'agents' })
-    foreach ($agentFile in $agentFiles) {
-        Test-MarkdownFile $agentFile @() $pluginPath
+    # Agents inside the root, plus host wrappers in agents/ folders between the root and
+    # $PluginsRoot (e.g. plugins/winui/agents/ around plugins/winui/agent-plugin).
+    $agents = [System.Collections.Generic.List[object]]::new()
+    foreach ($dir in @((Join-Path $pluginPath "com.github.copilot/agents"), (Join-Path $pluginPath "agents"))) {
+        foreach ($f in Get-ChildItem $dir -File -Filter "*.agent.md" -ErrorAction SilentlyContinue) {
+            $agents.Add(@{ File = $f; Boundary = $pluginPath; Wrapper = $false })
+        }
+    }
+    $ancestor = $pluginDir.Parent
+    while ($ancestor -and $ancestor.FullName.Length -gt $PluginsRoot.TrimEnd('\', '/').Length) {
+        foreach ($f in Get-ChildItem (Join-Path $ancestor.FullName "agents") -File -Filter "*.agent.md" -ErrorAction SilentlyContinue) {
+            $agents.Add(@{ File = $f; Boundary = $ancestor.FullName; Wrapper = $true })
+        }
+        $ancestor = $ancestor.Parent
+    }
+    $innerAgentNames = @($agents | Where-Object { -not $_.Wrapper } | ForEach-Object { $_.File.Name })
+
+    foreach ($agent in $agents) {
+        $agentFile = $agent.File
+        if (-not $checkedAgents.Add($agentFile.FullName)) { continue }
+        Test-MarkdownFile $agentFile @() $agent.Boundary
         $front = Read-Frontmatter ([System.IO.File]::ReadAllLines($agentFile.FullName, $Utf8))
         $agentName = if ($front.Values -and $front.Values.ContainsKey('name')) { $front.Values['name'] } else { $agentFile.BaseName }
         $agentDescription = if ($front.Values -and $front.Values.ContainsKey('description')) { $front.Values['description'] } else { "" }
         $metaTokens = Get-ApproxTokens $Utf8.GetByteCount("${agentName}: $agentDescription")
         $bodyTokens = Get-ApproxTokens $agentFile.Length
-        $rows.Add("| agent: $($agentFile.Name) | $(Format-Count $agentDescription.Length) | $(Format-Count $metaTokens) | $(Format-Count $bodyTokens) | |")
-        $totals.Desc += $agentDescription.Length; $totals.Meta += $metaTokens; $totals.Body += $bodyTokens
+        # A host wrapper with the same file name as an inner agent is one agent per host, so
+        # counting both would double the always-loaded cost.
+        $duplicate = $agent.Wrapper -and $innerAgentNames -contains $agentFile.Name
+        $label = if ($agent.Wrapper) { "agent (host wrapper): $([System.IO.Path]::GetRelativePath($PluginsRoot, $agentFile.FullName).Replace('\', '/'))" } else { "agent: $($agentFile.Name)" }
+        if ($duplicate) { $label += " (not in totals)" }
+        $rows.Add("| $label | $(Format-Count $agentDescription.Length) | $(Format-Count $metaTokens) | $(Format-Count $bodyTokens) | |")
+        if (-not $duplicate) {
+            $totals.Desc += $agentDescription.Length; $totals.Meta += $metaTokens; $totals.Body += $bodyTokens
+        }
     }
 
-    [void]$SizeReport.AppendLine("### Plugin size: $($pluginDir.Name)")
+    $pluginLabel = [System.IO.Path]::GetRelativePath($PluginsRoot, $pluginPath).Replace('\', '/')
+    [void]$SizeReport.AppendLine("### Plugin size: $pluginLabel")
     [void]$SizeReport.AppendLine("")
-    [void]$SizeReport.AppendLine("| Component | Description chars | Metadata ~tokens | Body ~tokens | References ~tokens |")
+    [void]$SizeReport.AppendLine("| Component | Description chars | Metadata ~tokens | Body ~tokens | Other skill files ~tokens |")
     [void]$SizeReport.AppendLine("|---|--:|--:|--:|--:|")
     foreach ($row in $rows) { [void]$SizeReport.AppendLine($row) }
     [void]$SizeReport.AppendLine("| **Total** | $(Format-Count $totals.Desc) | **$(Format-Count $totals.Meta)** | $(Format-Count $totals.Body) | $(Format-Count $totals.Refs) |")
     [void]$SizeReport.AppendLine("")
-    [void]$SizeReport.AppendLine("Approximate: ~tokens = UTF-8 bytes / 4. Metadata (``name: description``) is loaded in every session; the metadata total is the plugin's always-loaded cost. Body loads when a skill or agent activates; references load on demand.")
+    [void]$SizeReport.AppendLine("Approximate: ~tokens = UTF-8 bytes / 4. Metadata (``name: description``) is loaded in every session; the metadata total is the plugin's always-loaded cost. Body loads when a skill or agent activates; other skill files (references, scripts, assets) load only when read.")
     [void]$SizeReport.AppendLine("")
 }
 
