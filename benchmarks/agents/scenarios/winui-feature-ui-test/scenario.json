@@ -3,13 +3,15 @@
   "description": "Write and run UI tests for a WinUI page.",
   "prompt": "Write and run UI tests that verify adding an item to the list on MainPage updates the counter.",
   "configurations": [
+    "winapp",
     "winui",
     "both"
   ],
   "fixture": "fixture",
   "expect": {
     "skillsAny": [
-      "winui-ui-testing"
+      "winui-ui-testing",
+      "winapp-ui-automation"
     ],
     "skillsForbid": [
       "winui-session-report",

@@ -10,8 +10,7 @@
   "expect": {
     "skillsAny": [
       "winapp-identity",
-      "winapp-frameworks",
-      "winapp-setup"
+      "winapp-frameworks"
     ],
     "skillsForbid": [
       "winui-*"

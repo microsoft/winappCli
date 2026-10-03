@@ -1,0 +1,5 @@
+{
+  "name": "contoso-exporter",
+  "main": "main.js",
+  "devDependencies": { "electron": "^33.0.0" }
+}

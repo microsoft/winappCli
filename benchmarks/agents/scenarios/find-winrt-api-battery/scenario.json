@@ -10,7 +10,8 @@
   "fixture": "fixture",
   "expect": {
     "skillsAny": [
-      "winapp-find-api"
+      "winapp-find-api",
+      "winui-design"
     ],
     "skillsForbid": [
       "winui-wpf-migration",

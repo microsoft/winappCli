@@ -1,0 +1,3 @@
+<Window x:Class="ContosoOnboard.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Welcome to Contoso">
+  <Button Content="Get started" HorizontalAlignment="Center" />
+</Window>

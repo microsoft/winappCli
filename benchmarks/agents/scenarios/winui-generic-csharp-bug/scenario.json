@@ -1,0 +1,18 @@
+{
+  "id": "winui-generic-csharp-bug",
+  "description": "Near-miss: pure C# parser bug inside a WinUI repo; no skill needed.",
+  "prompt": "Fix CsvReader.ParseLine so quoted commas and doubled quotes are handled correctly; the cases in CsvReaderTests.cs show the bug. This helper doesn't touch the UI. Keep the change to the parser.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsForbid": [
+      "winapp-*",
+      "winui-*"
+    ],
+    "maxSkills": 0
+  }
+}
