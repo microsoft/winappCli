@@ -103,21 +103,16 @@ public class AtomicFileTests
     [TestMethod]
     public async Task WriteAllText_WhileAReaderHoldsTheDestinationOpen_PublishesOnceTheReaderCloses()
     {
-        var dest = Path.Combine(_tempDir, "state.json");
+        var dest = TestPaths.Under(_tempDir, "state.json");
         File.WriteAllText(dest, "old");
 
         // The way every state reader opens the file. Windows still refuses a rename over it while
         // it is open, so the writer must wait the reader out rather than fail with access denied.
-        var reader = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
         Task write;
-        try
+        await using (new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
         {
             write = Task.Run(() => AtomicFile.WriteAllText(dest, "new"));
             await Task.Delay(200, TestContext.CancellationToken);
-        }
-        finally
-        {
-            await reader.DisposeAsync();
         }
 
         await write.WaitAsync(TimeSpan.FromSeconds(30), TestContext.CancellationToken);
@@ -129,7 +124,7 @@ public class AtomicFileTests
     [TestMethod]
     public async Task WriteAllText_ConcurrentWithAPollingReader_NeverFails()
     {
-        var dest = Path.Combine(_tempDir, "state.json");
+        var dest = TestPaths.Under(_tempDir, "state.json");
         File.WriteAllText(dest, "0");
         using var stop = new CancellationTokenSource();
 
@@ -161,7 +156,7 @@ public class AtomicFileTests
     [TestMethod]
     public void WriteAllText_WhenTheDestinationStaysLocked_FailsAfterTheRetryWindow()
     {
-        var dest = Path.Combine(_tempDir, "held.json");
+        var dest = TestPaths.Under(_tempDir, "held.json");
         File.WriteAllText(dest, "old");
 
         using var holder = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);

@@ -396,9 +396,13 @@ function Wait-ProcessExitOrFail {
     Write-Host (Format-ProcessTree -Tree $tree)
     Write-Host "::endgroup::"
 
-    # Stops exactly the processes reported above, deepest first.
+    # Stops exactly the processes reported above, deepest first. A PID that exited while the report
+    # was gathered can already belong to another process, so each is re-identified by creation time.
     foreach ($node in ($tree | Sort-Object Depth -Descending)) {
-        Stop-Process -Id $node.Process.ProcessId -Force -ErrorAction SilentlyContinue
+        $current = Get-CimInstance Win32_Process -Filter "ProcessId=$($node.Process.ProcessId)" -ErrorAction SilentlyContinue
+        if ($current -and $current.CreationDate -eq $node.Process.CreationDate) {
+            Stop-Process -Id $node.Process.ProcessId -Force -ErrorAction SilentlyContinue
+        }
     }
 
     throw "$Description did not exit within $($Timeout.TotalSeconds)s. The live process tree is printed above."
