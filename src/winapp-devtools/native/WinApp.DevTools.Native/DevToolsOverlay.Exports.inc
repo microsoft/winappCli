@@ -239,8 +239,8 @@ void DevToolsOverlay_ClassifyPickPoint(IXamlDiagnostics* diag, InstanceHandle ro
                              (out->contentDipX < 0 || out->contentDipY < 0 ||
                               out->contentDipX >= out->contentW || out->contentDipY >= out->contentH);
     const DevToolsSurface* at = SurfaceAtScreenPoint(screenX, screenY);
-    const bool wrongOrigin = !DevToolsSurface_ContainsScreenPoint(s, screenX, screenY) &&
-        at && at->xamlRootKey != s.xamlRootKey;
+    // Another app window in front of this one at the point: what is under it here is covered, never picked.
+    const bool wrongOrigin = at && at->xamlRootKey != s.xamlRootKey;
 
     if (outOfBounds || wrongOrigin) {
         out->outside = true;

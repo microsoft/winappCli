@@ -225,25 +225,8 @@ static std::wstring HandleCommand(const std::wstring& line,
                 st->active = target->displayName;
                 return S_OK;
             }
-            InstanceHandle censusRoot = 0;
-            {
-                AcquireSRWLockShared(&g_censusLock);
-                censusRoot = CensusRootOf_nolock(target->rootHandle);
-                ReleaseSRWLockShared(&g_censusLock);
-            }
-            const InstanceHandle panel = FindOutermostPanel(censusRoot, target->xamlRootKey);
-            if (!panel) { st->hr = E_FAIL; return S_OK; }
-            {
-                OverlayBuildScope scope;
-                st->hr = DevToolsOverlay_MoveSelectionToPanel(g_diag, panel);
-            }
-            if (SUCCEEDED(st->hr)) {
-                // RootVisual() is what every hit-test and every ~8 RootVisual() call site reads, so the pick
-                // follows the overlay by construction rather than by a second, separately updated global --
-                // which is the shape of the defect this whole issue is about.
-                Log(L"overlay.switch active surface -> '%s' anchor=%llu (censusRoot=%llu)",
-                    want.c_str(), (unsigned long long)panel, (unsigned long long)censusRoot);
-            }
+            st->hr = SwitchActiveSurface_ui(target->xamlRootKey);
+            if (SUCCEEDED(st->hr)) Log(L"overlay.switch active surface -> '%s'", want.c_str());
             st->active = DevToolsOverlay_ActiveSurface().displayName;
             return S_OK;
         });
@@ -305,12 +288,16 @@ static std::wstring HandleCommand(const std::wstring& line,
         auto st = std::make_shared<PickState>();
         auto sp = std::make_shared<DevToolsSurfacePoint>();
         HRESULT hr = RunOnUiThread([sx, sy, st, sp]() {
-            const InstanceHandle root = RootVisual();
+            InstanceHandle root = RootVisual();
             if (!root) return E_INVALIDARG;
             // Re-derive the surface set on the gesture, not on a timer: a window or island can have opened or closed
             // since the last pick, and a stale set would name a surface that is gone (or miss the one the point is
             // in, turning an actionable refusal back into an unnamed one).
             DevToolsOverlay_RefreshSurfaces(g_diag, 0);
+            // A point over another app window in front picks in that window.
+            if (const DevToolsSurface* at = DevToolsOverlay_SurfaceAtScreenPoint(sx, sy); at && !g_windowScope &&
+                at->xamlRootKey != DevToolsOverlay_ActiveSurface().xamlRootKey &&
+                SUCCEEDED(SwitchActiveSurface_ui(at->xamlRootKey))) root = RootVisual();
             DevToolsOverlay_ClassifyPickPoint(g_diag, root, sx, sy, sp.get());
             if (sp->outside) return S_OK;
             HRESULT h = DevToolsOverlay_Pick(g_diag, root, sx, sy, OverlaySeed, OverlayContains, &st->picked, &st->b);

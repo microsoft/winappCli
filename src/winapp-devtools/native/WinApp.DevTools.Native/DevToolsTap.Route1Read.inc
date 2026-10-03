@@ -219,6 +219,16 @@ static HRESULT EnsureSelectionHost(InstanceHandle anchor, bool selection = true)
     return selection ? DevToolsOverlay_MoveSelectionToPanel(g_diag, panel) :
         DevToolsOverlay_MoveHighlightToPanel(g_diag, panel);
 }
+// Make another window the inspected surface: picks, hover and the selection then happen there. RootVisual() reads the
+// active surface, so every hit-test follows.
+static HRESULT SwitchActiveSurface_ui(unsigned long long xamlRootKey)
+{
+    if (!g_diag) return E_INVALIDARG;
+    const InstanceHandle panel = FindOutermostPanel(0, xamlRootKey);
+    if (!panel) return E_FAIL;
+    OverlayBuildScope scope;
+    return DevToolsOverlay_MoveSelectionToPanel(g_diag, panel);
+}
 static void Route1Highlight(InstanceHandle wire, bool select)
 {
     InstanceHandle ih = 0;

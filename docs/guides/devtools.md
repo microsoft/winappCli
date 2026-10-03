@@ -49,7 +49,8 @@ text value, **Enter** adds a line and **Ctrl+Enter** applies. Closing a value yo
 didn't change leaves the app untouched. **Open in DevTools** opens the full inspector for detailed binding work.
 Hover picking pauses while the quick-edit panel or comment editor is open, preserving
 your selection and draft. Clicking the selected element keeps it selected. Esc closes
-the panel; the next Esc turns pick mode off.
+the panel; the next Esc turns pick mode off. When your app has several windows, pick
+mode works in the one in front; bring another window forward to pick in it.
 
 Picking selects the element you declared: clicking a control's template part or its
 generated text, such as a TextBox's placeholder or a Button's string content, selects

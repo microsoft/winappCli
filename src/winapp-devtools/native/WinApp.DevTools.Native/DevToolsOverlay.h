@@ -95,6 +95,11 @@ bool DevToolsOverlay_RefreshSurfaces(IXamlDiagnostics* diag, InstanceHandle anch
 const DevToolsSurface& DevToolsOverlay_ActiveSurface();
 const DevToolsSurface& DevToolsOverlay_ToolbarSurface();
 const std::vector<DevToolsSurface>& DevToolsOverlay_AllSurfaces();
+// The surface whose window is in front at a screen point, or null.
+const DevToolsSurface* DevToolsOverlay_SurfaceAtScreenPoint(int screenX, int screenY);
+// Moves the inspected surface (selection, pick and hover) to the surface with this XamlRoot.
+typedef HRESULT (*DevToolsSurfaceSwitchFn)(unsigned long long xamlRootKey);
+void DevToolsOverlay_SetSurfaceSwitch(DevToolsSurfaceSwitchFn fn);
 
 // Reparent across XamlRoots on the UI thread; selection bounds are root-local and must be dropped.
 HRESULT DevToolsOverlay_MoveToPanel(IXamlDiagnostics* diag, InstanceHandle newPanel);

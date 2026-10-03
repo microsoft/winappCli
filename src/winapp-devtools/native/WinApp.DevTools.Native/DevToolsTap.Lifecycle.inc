@@ -227,6 +227,7 @@ static const wchar_t* TryBuildOverlayOnUiThread(std::wstring* errorMessage)
     DevToolsOverlay_SetCardFreeze(&CardFreezeBridge);
     DevToolsOverlay_SetSourceReader(&OverlaySourceBridge);
     DevToolsOverlay_SetDeclaredReader(&IsDeclaredElement);
+    DevToolsOverlay_SetSurfaceSwitch(&SwitchActiveSurface_ui);
     // let the in-app panel ask the injected managed agent why a binding is broken. It goes through the
     // SAME CmdBindingOp the `Binding.*` DevTools verbs use, so the panel and an external protocol client cannot
     // disagree -- which is exactly the defect shipped by having two implementations of one capability.

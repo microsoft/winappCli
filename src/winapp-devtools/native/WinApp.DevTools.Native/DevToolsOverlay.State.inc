@@ -176,17 +176,30 @@ bool DevToolsOverlay_RefreshSurfaces(IXamlDiagnostics* diag, InstanceHandle anch
     return true;
 }
 
-// Which resolved surface a SCREEN point is in, by containment against each surface's own screen rect.
-// WindowFromPoint answers "what is on top of the desktop there", so a terminal covering the app names another
-// process's window; enumerating this process's top-level windows cannot separate two islands that SHARE one
-// window.
-// WindowFromPoint can name another process; enumerate this process HWNDs instead.
+// Which resolved surface a SCREEN point is in. Where app windows overlap, the one in front wins: this process's
+// top-level windows are walked in z-order (skipping windows that are not a surface's host, such as popup hosts),
+// so a point over a second window never resolves to the window it covers. Islands sharing one window fall back to
+// containment.
 static const DevToolsSurface* SurfaceAtScreenPoint(int screenX, int screenY)
 {
+    const POINT point{ screenX, screenY };
+    const DWORD self = GetCurrentProcessId();
+    for (HWND window = GetTopWindow(nullptr); window; window = GetWindow(window, GW_HWNDNEXT)) {
+        DWORD owner = 0;
+        RECT bounds{};
+        if (!GetWindowThreadProcessId(window, &owner) || owner != self || !IsWindowVisible(window) || IsIconic(window) ||
+            !GetWindowRect(window, &bounds) || !PtInRect(&bounds, point)) continue;
+        for (const auto& s : g_allSurfaces)
+            if (s.hostHwnd == window && DevToolsSurface_ContainsScreenPoint(s, screenX, screenY)) return &s;
+    }
     for (const auto& s : g_allSurfaces)
         if (DevToolsSurface_ContainsScreenPoint(s, screenX, screenY)) return &s;
     return nullptr;
 }
+
+const DevToolsSurface* DevToolsOverlay_SurfaceAtScreenPoint(int screenX, int screenY) { return SurfaceAtScreenPoint(screenX, screenY); }
+static DevToolsSurfaceSwitchFn g_surfaceSwitch = nullptr;
+void DevToolsOverlay_SetSurfaceSwitch(DevToolsSurfaceSwitchFn fn) { g_surfaceSwitch = fn; }
 
 // Canvas extent comes from the active XamlRoot, the same coordinate space used for picking.
 static bool GetClientSizeDips(int* wDip, int* hDip)

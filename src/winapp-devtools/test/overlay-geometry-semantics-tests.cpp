@@ -951,6 +951,26 @@ int main()
         g_pickDiag=nullptr;g_pickRoot=g_selectedHandle=0;g_pickCatcher=nullptr;diag.hitHandle=0;
     }
     {
+        // A point where two app windows overlap belongs to the one in front, never to the window it covers.
+        auto make = [](int x) {
+            return CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"", WS_POPUP | WS_VISIBLE,
+                x, 100, 300, 300, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        };
+        HWND back = make(100), front = make(200);
+        DevToolsSurface first, second;
+        first.hostHwnd = back; first.xamlRootKey = 1; first.rootHandle = 10; first.contentRect = RECT{ 100, 100, 400, 400 };
+        second.hostHwnd = front; second.xamlRootKey = 2; second.rootHandle = 20; second.contentRect = RECT{ 200, 100, 500, 400 };
+        g_allSurfaces = { first, second };
+        SetWindowPos(front, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        const DevToolsSurface* overlap = SurfaceAtScreenPoint(300, 200);
+        check(overlap && overlap->xamlRootKey == 2, "window order", "an overlapping point belongs to the window in front");
+        SetWindowPos(back, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        overlap = SurfaceAtScreenPoint(300, 200);
+        check(overlap && overlap->xamlRootKey == 1, "window order", "bringing the other window forward moves the point to it");
+        g_allSurfaces.clear();
+        DestroyWindow(back); DestroyWindow(front);
+    }
+    {
         // An explicit Save that is saved and linked to source closes the panel; saving on blur keeps it open.
         SwitchDiagnostics diagnostics;
         g_pickDiag=&diagnostics;

@@ -483,6 +483,37 @@ static void OnCatcherClick(void* sender, void*)
 
 // Otherwise insert a transparent, full-canvas catcher on top of the overlay so pointer input anywhere is
 // caught.
+static void OnPickClick(void* sender, void*);
+
+// Pick mode follows the app window the user is working in: the catcher lives in one window, so when another of the
+// app's windows comes to the front, the inspected surface moves there and pick mode is armed in it.
+static UINT_PTR g_pickFollowTimer = 0;
+static HWND g_pickFollowLast = nullptr;
+static void CALLBACK PickFollowTimerProc(HWND, UINT, UINT_PTR, DWORD)
+{
+    if (!g_pickCatcher) {
+        if (g_pickFollowTimer) { KillTimer(nullptr, g_pickFollowTimer); g_pickFollowTimer = 0; }
+        g_pickFollowLast = nullptr;
+        return;
+    }
+    const HWND front = GetForegroundWindow();
+    if (!front || front == g_pickFollowLast || !g_surfaceSwitch || !g_pickDiag) return;
+    g_pickFollowLast = front;
+    DWORD owner = 0;
+    if (front == g_activeSurface.hostHwnd || !GetWindowThreadProcessId(front, &owner) || owner != GetCurrentProcessId()) return;
+    auto find = [front]() -> const DevToolsSurface* {
+        for (const auto& s : g_allSurfaces) if (s.hostHwnd == front) return &s;
+        return nullptr;
+    };
+    const DevToolsSurface* target = find();
+    if (!target) { DevToolsOverlay_RefreshSurfaces(g_pickDiag, 0); target = find(); }
+    if (!target || target->xamlRootKey == g_activeSurface.xamlRootKey) return;
+    const HRESULT hr = g_surfaceSwitch(target->xamlRootKey);
+    if (SUCCEEDED(hr) && !g_pickCatcher) OnPickClick(nullptr, nullptr);
+    DevToolsOverlayLog(L"overlay.pickmode followed the front window '%s' hr=0x%08X armed=%d",
+        g_activeSurface.displayName.c_str(), hr, (int)(g_pickCatcher != nullptr));
+}
+
 static void OnPickClick(void* sender, void*)
 {
     if (!DevToolsTrust_MutationEnabled()) {
@@ -559,6 +590,7 @@ static void OnPickClick(void* sender, void*)
     UpdateCatcherHole();
     SetPickButtonOn(true);
     WireAppEscapeOnce();
+    if (!g_pickFollowTimer) g_pickFollowTimer = SetTimer(nullptr, 0, 250, &PickFollowTimerProc);
     DevToolsOverlayLog(L"overlay.pickmode armed (%dx%d catcher, sticky)", w, h);
     NotifyStateChanged();
 }
