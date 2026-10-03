@@ -1,0 +1,22 @@
+{
+  "id": "explicit-session-diagnostic",
+  "description": "Opt-in session report: user explicitly asks to analyze a previous agent session.",
+  "prompt": "Analyze my previous Copilot session for this WinUI app. Summarize where it spent tokens, which guidance it loaded repeatedly, and why it kept retrying the same failed build. Give me a diagnostic report I can share with the plugin team.",
+  "configurations": [
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winui-session-report"
+    ],
+    "skillsForbid": [
+      "winapp-package",
+      "winapp-signing",
+      "winui-packaging",
+      "winui-wpf-migration"
+    ],
+    "maxSkills": 1
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "explicit-find-api-numberbox",
+  "description": "Explicit command request: check NumberBox members with winapp find-api, then edit XAML.",
+  "prompt": "Check with winapp find-api which NumberBox properties control the spin buttons and the min/max range, then make the Quantity box in OrderForm.xaml show inline spin buttons and accept 1-99.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winapp-find-api",
+      "winui-design"
+    ],
+    "skillsForbid": [
+      "winui-wpf-migration",
+      "winui-session-report",
+      "winapp-package"
+    ]
+  }
+}
