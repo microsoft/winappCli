@@ -11,8 +11,8 @@ namespace WinApp.Cli.Tests;
 /// </summary>
 /// <remarks>
 /// The rules matter because Windows routinely leaves earlier <c>WindowsSandboxRemoteSession</c>
-/// processes behind, and the user may have opened a Sandbox of their own. Choosing wrongly parks a
-/// stranger's window off-screen, or captures someone else's desktop and reports it as this
+/// processes behind, and the user may have opened a Sandbox of their own. Choosing wrongly moves a
+/// stranger's window, or captures someone else's desktop and reports it as this
 /// target's — both of which look exactly like success.
 /// </remarks>
 [TestClass]
@@ -26,6 +26,22 @@ public class WindowsSandboxWindowControllerTests
 
     /// <summary>When a client winapp's launcher created started: after it, as a child must.</summary>
     private const long ClientStartTicks = LauncherStartTicks + 10_000;
+
+    /// <summary>
+    /// A client stranded on no monitor (for example, parked off-screen by winapp 0.7.0) is brought
+    /// back to the middle of the nearest work area, or to its top-left corner when it is larger.
+    /// </summary>
+    [TestMethod]
+    [DataRow(0, 0, 1920, 1040, 1474, 982, 223, 29, DisplayName = "fits: centred")]
+    [DataRow(-1920, 0, 0, 1040, 800, 600, -1360, 220, DisplayName = "monitor left of primary")]
+    [DataRow(0, 40, 1280, 760, 1474, 982, 0, 40, DisplayName = "larger than the work area: top-left")]
+    public void CenterInWorkArea_PlacesTheClientInsideTheWorkArea(
+        int left, int top, int right, int bottom, int width, int height, int expectedX, int expectedY)
+    {
+        Assert.AreEqual(
+            (expectedX, expectedY),
+            WindowsSandboxWindowController.CenterInWorkArea(left, top, right, bottom, width, height));
+    }
 
     [TestMethod]
     public void SelectOwnedClient_TakesTheClientTheLauncherCreated()
@@ -465,6 +481,107 @@ public class WindowsSandboxWindowControllerTests
         Assert.AreEqual(Snapshot(900).ForegroundWindow, foreground);
     }
 
+    /// <summary>
+    /// The minimized client is restored even though it cannot be verified while minimized.
+    /// </summary>
+    /// <remarks>
+    /// Reproduced live: a real minimized client's remote-desktop renderer is not in the UI tree, so
+    /// it reads as unverifiable. Verifying before restoring made <c>winapp ui hover --on sandbox</c>
+    /// fail with "its remote desktop could not be verified" and leave the window minimized.
+    /// </remarks>
+    [TestMethod]
+    public void EnsureClientReady_MinimizedClient_IsRestoredBeforeItIsVerified()
+    {
+        var minimized = true;
+        var parked = 0;
+        var foreground = Snapshot(900).ForegroundWindow;
+        var controller = new WindowsSandboxWindowController(
+            () => [Candidate(12, 200, OurLauncher) with
+            {
+                Surface = minimized ? SandboxClientSurface.Unknown : SandboxClientSurface.Session,
+            }],
+            (_, _) =>
+            {
+                parked++;
+                minimized = false;
+            },
+            _ => minimized,
+            () => foreground);
+
+        var status = controller.EnsureClientReady(
+            Client(12, 200, ClientStartTicks),
+            TargetDesktopUse.RealInput);
+
+        Assert.IsFalse(status.IsMinimized);
+        Assert.AreEqual(1, parked);
+    }
+
+    /// <summary>
+    /// The only open client is restored even when winapp did not record opening it, so a window
+    /// opened by an earlier winapp, or by the user, works the same way.
+    /// </summary>
+    [TestMethod]
+    public void EnsureClientReady_MinimizedClientWinappDidNotRecord_IsRestored()
+    {
+        var minimized = true;
+        var parked = 0;
+        var controller = new WindowsSandboxWindowController(
+            () => [Candidate(12, 200, OtherLauncher) with
+            {
+                Surface = minimized ? SandboxClientSurface.Unknown : SandboxClientSurface.Session,
+            }],
+            (_, _) =>
+            {
+                parked++;
+                minimized = false;
+            },
+            _ => minimized,
+            () => Snapshot(900).ForegroundWindow);
+
+        var status = controller.EnsureClientReady(remembered: null, TargetDesktopUse.PixelCapture);
+
+        Assert.IsFalse(status.IsMinimized);
+        Assert.AreEqual(1, parked);
+    }
+
+    /// <summary>
+    /// Nothing is moved while another window that cannot be verified makes the target unclear.
+    /// </summary>
+    [TestMethod]
+    public void EnsureClientReady_MinimizedClientBesideAnUnverifiedWindow_IsNotMoved()
+    {
+        var parked = 0;
+        var controller = new WindowsSandboxWindowController(
+            () =>
+            [
+                Candidate(12, 200, OurLauncher),
+                Candidate(13, 300, OtherLauncher) with { Surface = SandboxClientSurface.Unknown },
+            ],
+            (_, _) => parked++,
+            _ => true,
+            () => Snapshot(900).ForegroundWindow);
+
+        Assert.ThrowsExactly<ExecutionTargetException>(() =>
+            controller.EnsureClientReady(remembered: null, TargetDesktopUse.RealInput));
+        Assert.AreEqual(0, parked);
+    }
+
+    /// <summary>A client on no monitor, as winapp 0.7.0 left it, is brought back on screen.</summary>
+    [TestMethod]
+    public void EnsureClientReady_ClientOnNoMonitor_IsBroughtBack()    {
+        var onScreen = false;
+        var controller = new WindowsSandboxWindowController(
+            () => [Candidate(12, 200, OurLauncher)],
+            (_, _) => onScreen = true,
+            _ => false,
+            () => Snapshot(900).ForegroundWindow,
+            _ => onScreen);
+
+        controller.EnsureClientReady(Client(12, 200, ClientStartTicks), TargetDesktopUse.RealInput);
+
+        Assert.IsTrue(onScreen);
+    }
+
     [TestMethod]
     public void EnsureClientReady_RestoreRefused_FailsInsteadOfClaimingInputReadiness()
     {
@@ -480,26 +597,6 @@ public class WindowsSandboxWindowControllerTests
                 TargetDesktopUse.RealInput));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.InputNotReady, failure.Error.Code);
-    }
-
-    [TestMethod]
-    public void EnsureClientReady_MinimizedAdoptedClientFailsWithoutMovingIt()
-    {
-        var parked = new List<nint>();
-        var controller = new WindowsSandboxWindowController(
-            () => [Candidate(12, 200, OurLauncher)],
-            (client, _) => parked.Add(client.Handle),
-            _ => true,
-            () => Snapshot(900).ForegroundWindow);
-
-        var failure = Assert.ThrowsExactly<ExecutionTargetException>(() =>
-            controller.EnsureClientReady(
-                remembered: null,
-                TargetDesktopUse.PixelCapture));
-
-        Assert.AreEqual(ExecutionTargetErrorCodes.ArtifactFailed, failure.Error.Code);
-        Assert.AreEqual("True", failure.Error.Context!["adopted"]);
-        Assert.AreEqual(0, parked.Count, "A manual client must never be moved off-screen.");
     }
 
     [TestMethod]
@@ -603,7 +700,7 @@ public class WindowsSandboxWindowControllerTests
         CollectionAssert.AreEqual(
             new nint[] { 300 },
             scripted.Parked,
-            "Another caller's window must never be moved off-screen.");
+            "Another caller's window must never be moved.");
     }
 
     /// <summary>
