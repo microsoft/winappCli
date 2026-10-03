@@ -24,8 +24,8 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
   and finish its client setup/update. Do not repeatedly retry an unchanged prerequisite.
 - Connection or reconnect may briefly take focus; do not promise zero desktop interruption.
 - Existing Sandbox instances are reused and changed, not discarded. Never close one
-  or run `wsb stop` without user consent. Closing the Sandbox window ends a Sandbox
-  winapp started and discards its guest state; the next command starts a fresh one.
+  or run `wsb stop` without user consent. Closing the Sandbox window does not end the
+  Sandbox; `wsb connect --id <id>` shows it again.
 
 ## Launch, inspect, act, verify
 
