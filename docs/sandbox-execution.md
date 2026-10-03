@@ -13,7 +13,8 @@ winapp ui invoke --on sandbox SubmitButton -a MyApp
 
 Replace `MyApp` with your app name or the guest PID printed by `run`. `--detach` returns
 after launch so the next command can inspect the app; without it, `run` waits for the
-app to exit. The Sandbox stays running between commands and rebuilds.
+app to exit. The Sandbox stays running between commands and rebuilds until you close its
+window.
 
 ## Before you start
 
@@ -36,10 +37,9 @@ it stops with setup instructions; an observed pending Windows restart is reporte
 
 A cold connection or reconnect can briefly take focus. Once connected, winapp puts
 the Sandbox window behind the window you were using, without activating it; switch to
-**Windows Sandbox** in the taskbar to watch the guest. Unlike a Sandbox opened from
-Start, closing this window does not end the Sandbox; it keeps running. To see it again,
-run `wsb list`, then `wsb connect --id <id>`. To end it, see
-[Removing an app and ending the Sandbox](#removing-an-app-and-ending-the-sandbox).
+**Windows Sandbox** in the taskbar to watch the guest. Closing that window ends a
+Sandbox winapp started and discards everything in it, just like closing a Sandbox
+opened from Start. The next `--on sandbox` command starts a fresh one.
 
 > [!IMPORTANT]
 > **Builds still run on your machine.** Project evaluation, restore, and compilation are
@@ -328,8 +328,8 @@ An externally installed package is left alone, even if its identity matches.
 This is manifest-based package cleanup, not an unregister command for unpackaged apps
 or a `.cs` input.
 
-The Sandbox remains running, even after you close its window. Manage its lifetime with
-Windows Sandbox's own CLI:
+The Sandbox remains running. To end a Sandbox winapp started, close its window. To manage
+any Sandbox, use Windows Sandbox's own CLI:
 
 ```powershell
 wsb list

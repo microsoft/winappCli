@@ -99,6 +99,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<IWindowsSandboxHostProbe, WindowsSandboxHostProbe>()
             .AddSingleton<IWindowsSandboxSetup, WindowsSandboxSetup>()
             .AddSingleton<WindowsSandboxLifecycle>()
+            .AddSingleton<SandboxClientWatcher>()
             .AddSingleton<IGuestSessionProbe, GuestSessionProbe>()
             .AddSingleton<IGuestProcessHostFactory, GuestProcessHostFactory>()
             .AddSingleton<IHostWinappBinaryProvider, HostWinappBinaryProvider>()
@@ -197,6 +198,8 @@ internal static class StoreHostBuilderExtensions
                 .ConfigureCommand<GuestDesktopCaptureCommand>()
                 // Execution-target runtime provisioning: hidden, driven by the host over the channel
                 .UseCommandHandler<GuestRuntimeCommand, GuestRuntimeCommand.Handler>()
+                // Ends a Sandbox winapp started when its window closes: hidden, started by winapp
+                .UseCommandHandler<SandboxWindowWatchCommand, SandboxWindowWatchCommand.Handler>(false)
                 // Generic execution-target escape hatches
                 .ConfigureCommand<TargetCommand>()
                 .UseCommandHandler<TargetExecCommand, TargetExecCommand.Handler>()
