@@ -414,8 +414,8 @@ static void CaptureInspectorXamlRoot(IInspectable* content);
 // Release the comments view's cached refs (defined with the comments block below).
 static void ResetCommentsViewState();
 
-// F5 re-reads the tree and the selected element in full. The pane is live, so this is a fallback and has no UI of
-// its own; it does nothing while an edit is in progress.
+// F5 rereads the tree, every visible row's caption included, and the selected element. The pane is live, so this is a
+// fallback with no UI of its own; the pane is left alone while an edit is in progress.
 static void RefreshInspectorSnapshot()
 {
     if (!g_inspectorContent) return;
@@ -423,44 +423,21 @@ static void RefreshInspectorSnapshot()
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, g_inspectorContent);
         auto root = object.as<DevToolsX::FrameworkElement>();
-        auto focused = DevToolsXI::FocusManager::GetFocusedElement(root.XamlRoot());
-        bool input = false, inProperties = false, inTree = false;
+        // A tree row with focus keeps it across the rebuild.
         InstanceHandle focusWire = 0;
-        auto ancestor = focused.try_as<DevToolsX::DependencyObject>();
-        while (ancestor) {
-            input = input || bool(ancestor.try_as<DevToolsXC::TextBox>()) ||
-                bool(ancestor.try_as<DevToolsXC::ComboBox>()) || bool(ancestor.try_as<DevToolsXC::ToggleSwitch>());
-            if (auto fe = ancestor.try_as<DevToolsX::FrameworkElement>()) {
-                inProperties = inProperties || fe.Name() == L"PropsHost" || fe.Name() == L"PropsScroll";
-                inTree = inTree || fe.Name() == L"TreeRowsHost";
+        for (auto node = DevToolsXI::FocusManager::GetFocusedElement(root.XamlRoot()).try_as<DevToolsX::DependencyObject>();
+             node && !focusWire; node = DevToolsXM::VisualTreeHelper::GetParent(node)) {
+            for (const auto& entry : g_nodeIdxByWire) {
+                if (entry.second >= g_treeControls.size() || !g_treeControls[entry.second]) continue;
+                winrt::Windows::Foundation::IInspectable row{ nullptr };
+                winrt::copy_from_abi(row, g_treeControls[entry.second]);
+                if (row.as<DevToolsX::DependencyObject>() == node) { focusWire = entry.first; break; }
             }
-            if (!focusWire) {
-                for (const auto& entry : g_nodeIdxByWire) {
-                    if (entry.second >= g_treeControls.size() || !g_treeControls[entry.second]) continue;
-                    winrt::Windows::Foundation::IInspectable row{ nullptr };
-                    winrt::copy_from_abi(row, g_treeControls[entry.second]);
-                    if (row.as<DevToolsX::DependencyObject>() == ancestor) { focusWire = entry.first; break; }
-                }
-            }
-            ancestor = DevToolsXM::VisualTreeHelper::GetParent(ancestor);
         }
-        bool openEditor = false;
-        for (const auto& path : g_propExpanded) {
-            const auto* row = FindPropertyRow(g_propRows, path);
-            if (row && !row->type.empty()) { openEditor = true; break; }
-        }
-        if (!DevToolsInspector::CanRefreshSnapshot(input, inProperties || (inTree && !focusWire),
-                openEditor || !g_pendingWrites.empty() || !g_pendingKind.empty())) {
-            DevToolsOverlayLog(L"route1.snapshot F5 skipped: an edit is in progress");
-            return;
-        }
-        auto scroller = root.FindName(L"PropsScroll").as<DevToolsXC::ScrollViewer>();
-        const double scroll = scroller.VerticalOffset();
-        const auto wire = g_selWire;
-        const auto label = g_selLabel, breadcrumb = g_selBreadcrumb;
+        const bool pane = DevToolsInspector::RefreshPaneOnSnapshot(!CanRereadSelection(nullptr), false);
         if (!RefreshTreeFromApp(true)) return;
-        if (wire) ShowPropsForNode(wire, label, breadcrumb, true);
-        scroller.ChangeView(nullptr, winrt::box_value(scroll).as<winrt::Windows::Foundation::IReference<double>>(), nullptr, true);
+        if (pane && g_selWire) DevToolsWindow_RereadSelection(g_selWire);
+        else DevToolsOverlayLog(L"route1.snapshot F5 kept the properties pane: an edit is in progress");
         if (focusWire) {
             auto row = g_nodeIdxByWire.find(focusWire);
             if (row != g_nodeIdxByWire.end() && row->second < g_treeControls.size() && g_treeControls[row->second]) {

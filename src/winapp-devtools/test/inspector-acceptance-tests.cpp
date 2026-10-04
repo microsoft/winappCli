@@ -26,12 +26,11 @@ static int RunInspectorAcceptanceSuite(bool legacyOracle)
         return failures ? 1 : 0;
     }
 
-    // F5: three notified app changes do not imply three inspector snapshots.
+    // F5: the tree is always reread; the pane too, unless an edit is in progress.
     for (int update = 1; update <= 3; ++update) {
-        check(CanRefreshSnapshot(false, false, false), "M1 explicit refresh permits each notified update");
-        check(!CanRefreshSnapshot(true, false, false), "M1 refresh does not destroy a focused editor");
-        check(!CanRefreshSnapshot(false, true, false), "M1 property-pane focus is preserved");
-        check(!CanRefreshSnapshot(false, false, true), "M1 pending binding confirmation is preserved");
+        check(RefreshPaneOnSnapshot(false, false), "M1 explicit refresh permits each notified update");
+        check(!RefreshPaneOnSnapshot(true, false), "M1 refresh does not destroy a focused editor");
+        check(!RefreshPaneOnSnapshot(false, true), "M1 pending binding confirmation is preserved");
     }
     check(!NegativeDimension(L"Width", L"banana"), "M9 conversion owns nonnumeric input");
     check(NegativeDimension(L"Width", L"-1"), "M9 negative Width rejected before setter");

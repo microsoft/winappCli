@@ -170,7 +170,8 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
             }
         }
     }
-    if (plan.action != DevToolsLiveRows::Action::None) UpdateSelectedTreePreview();
+    // The caption can change even when no shown row did (it may come from a property the pane does not list).
+    UpdateSelectedTreePreview();
     QueryPerformanceCounter(&t1);
     DevToolsOverlayLog(L"route1.live update action=%d read=%zu changed=%zu uiMs=%.2f", (int)plan.action,
         names.size(), plan.changed.size(), (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart);
@@ -215,27 +216,40 @@ static void LiveWatchSelection()
     }
 }
 
+// Reads a tree node's caption again; it is read once when its row is built. True when it changed.
+static bool RereadTreeCaption(size_t original, std::wstring* before)
+{
+    if (!g_ctx.previewFn || original >= g_allTreeNodes.size()) return false;
+    *before = g_allTreeNodes[original].preview;
+    g_allTreeNodes[original].previewRead = false;
+    g_ctx.previewFn(g_allTreeNodes, { original });
+    return g_allTreeNodes[original].preview != *before;
+}
+
 // The selected element's caption in the tree ("Count: 3"), which follows its properties too.
 static void UpdateSelectedTreePreview()
 {
     const auto row = g_nodeIdxByWire.find(g_selWire);
-    if (!g_ctx.previewFn || row == g_nodeIdxByWire.end() || row->second >= g_renderedOriginalIndices.size() ||
+    if (row == g_nodeIdxByWire.end() || row->second >= g_renderedOriginalIndices.size() ||
         row->second >= g_treeControls.size() || !g_treeControls[row->second]) return;
     const size_t original = g_renderedOriginalIndices[row->second];
-    if (original >= g_allTreeNodes.size()) return;
-    const std::wstring before = g_allTreeNodes[original].preview;
-    g_ctx.previewFn(g_allTreeNodes, { original });
+    std::wstring before;
+    if (!RereadTreeCaption(original, &before)) return;
     const std::wstring after = g_allTreeNodes[original].preview;
-    if (after == before) return;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, static_cast<IInspectable*>(g_treeControls[row->second]));
-        const auto inlines = object.as<DevToolsXC::ContentControl>().Content().as<DevToolsXC::TextBlock>().Inlines();
+        const auto button = object.as<DevToolsXC::ContentControl>();
+        const auto inlines = button.Content().as<DevToolsXC::TextBlock>().Inlines();
         // The caption ends with the preview between quotes: "\u201C", preview, "\u201D".
         const uint32_t n = inlines.Size();
-        if (before.empty() || after.empty() || n < 3) { ArmTreeRefresh(); return; }
+        if (before.empty() || after.empty() || n < 3) { RefreshTreeFromApp(true); return; }
         inlines.GetAt(n - 2).as<DevToolsXDoc::Run>().Text(after);
+        // The row's accessible name ends with the same preview.
+        std::wstring name = DevToolsXA::AutomationProperties::GetName(button).c_str();
+        if (name.size() >= before.size() && name.compare(name.size() - before.size(), before.size(), before) == 0)
+            DevToolsXA::AutomationProperties::SetName(button, name.substr(0, name.size() - before.size()) + after);
     } catch (...) {
-        ArmTreeRefresh();
+        RefreshTreeFromApp(true);
     }
 }

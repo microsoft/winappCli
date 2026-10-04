@@ -994,7 +994,7 @@ int main()
         g_canvasChildren=nullptr;g_selectedHandle=0;
     }
     {
-        // A click on the element that is already selected keeps it; a click elsewhere dismisses the panel.
+        // A click on the element that is already selected keeps it; a click on another element picks that one.
         SwitchDiagnostics diag;
         PickerHosts hosts(diag);
         SwitchObject popup;
@@ -1005,9 +1005,9 @@ int main()
             g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
             g_selectedHandle=11;diag.hitHandle=under;dismissFocusState=-1;
             OnCatcherClick(&catcher,nullptr);
-            check(under==11 ? (dismissFocusState==-1 && popup.popupOpen && g_selectedHandle==11) : dismissFocusState==3,
+            check(under==11 ? (dismissFocusState==-1 && popup.popupOpen && g_selectedHandle==11) : g_selectedHandle==12,
                 "selected click", under==11 ? "clicking the selected element keeps it and its panel"
-                                            : "clicking another element still dismisses the panel");
+                                            : "with an empty panel, one click on another element picks it");
             if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0);
             ClearSelectionAnchor();
         }

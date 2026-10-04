@@ -22,9 +22,11 @@ namespace DevToolsInspector
         return currentOffset - measuredOrigin;
     }
 
-    inline bool CanRefreshSnapshot(bool focusedInput, bool focusedPropertyPane, bool pendingEdit)
+    // F5 always rereads the tree; the properties pane is reread too unless that would discard an edit in progress.
+    // Focus on a pane row or an expanded editor is not an edit.
+    inline bool RefreshPaneOnSnapshot(bool typingInEditor, bool pendingEdit)
     {
-        return !focusedInput && !focusedPropertyPane && !pendingEdit;
+        return !typingInEditor && !pendingEdit;
     }
 
     inline bool NegativeDimension(const std::wstring& property, const std::wstring& value)

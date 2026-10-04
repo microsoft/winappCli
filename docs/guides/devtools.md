@@ -60,7 +60,8 @@ open the inspector on that property, with its binding details, color picker, or
 per-side editor. **Open in DevTools** opens the full inspector.
 
 Hover picking pauses while the quick-edit panel or comment editor is open, preserving
-your selection and draft. Clicking the selected element keeps it selected. Esc saves
+your selection and draft. Clicking the selected element keeps it selected; clicking
+another element saves what the panel holds and moves it there. Esc saves
 a comment you typed and closes the panel; the next Esc turns pick mode off. When your app has several windows, pick
 mode works in the one in front; bring another window forward to pick in it.
 
@@ -353,7 +354,8 @@ content, colors, opacity, visibility, `IsEnabled`, size, margin and other common
 properties from code, the properties pane and the element's tree caption update
 within a moment. A row you are editing is updated once you commit or cancel the
 edit. Other properties update when you select the element again; **F5** rereads
-everything.
+the tree, every caption included, and the selected element's properties (unless you
+are in the middle of an edit).
 
 ## Continue from a terminal
 

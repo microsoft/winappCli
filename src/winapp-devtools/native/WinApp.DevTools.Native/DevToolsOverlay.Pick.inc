@@ -416,15 +416,9 @@ static void OnCatcherClick(void* sender, void*)
                 return;
             }
         }
-        // Commenting on one element after another is click, type, click: with a comment typed, the click saves it
-        // and moves the panel to what was clicked. Without one, the click only closes the panel.
-        if (!SelHasCommentDraft()) {
-            DevToolsOverlayLog(L"overlay.pick click outside the open panel -> dismiss (modal), pick mode stays armed");
-            g_pressValid = false;
-            DismissSelectionPanel();
-            return;
-        }
-        DevToolsOverlayLog(L"overlay.pick click outside the open panel with a comment draft -> save it and move");
+        // A click on another element picks it: the panel saves what it holds (an empty draft is just dropped) and
+        // moves there, so commenting on one element after another is click, type, click.
+        DevToolsOverlayLog(L"overlay.pick click outside the open panel -> save and move");
         // The press was not tracked while the panel was open, so the click itself is where the pick lands.
         moving = GetCursorPos(&g_pressPt) != FALSE;
         g_pressValid = moving;

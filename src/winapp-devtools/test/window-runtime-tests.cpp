@@ -429,6 +429,20 @@ int main()
         check(Decide(shown,std::vector<DevToolsCardRow>{tag},false,none).action==Action::Rebuild,
             "a property the pane does not list yet rebuilds it");
         check(g_live.tokens.empty() && g_live.wire==0, "no property callbacks are held when nothing is followed");
+        // The tree caption is read once per row; a live change reads it again (it stayed "Start focusing").
+        static std::wstring appContent;
+        g_ctx.previewFn = [](std::vector<DevToolsWindowNode>& nodes, const std::vector<size_t>& indices) {
+            for (size_t i : indices) { if (nodes[i].previewRead) continue; nodes[i].previewRead = true; nodes[i].preview = appContent; }
+        };
+        g_allTreeNodes.assign(1, DevToolsWindowNode{});
+        appContent = L"Start focusing";
+        g_ctx.previewFn(g_allTreeNodes, {0});
+        appContent = L"Pause focus";
+        std::wstring before;
+        check(RereadTreeCaption(0, &before) && before == L"Start focusing" && g_allTreeNodes[0].preview == L"Pause focus",
+            "a live change rereads the selected row's tree caption");
+        check(!RereadTreeCaption(0, &before), "an unchanged caption is left alone");
+        g_ctx.previewFn = nullptr; g_allTreeNodes.clear();
     }
     std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
