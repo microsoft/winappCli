@@ -692,6 +692,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                 }
                 sw->Release();
             }
+            LostFocusSink* hexCommit = nullptr;
+            IInspectable* hexBox = nullptr;
             if (IInspectable* hx = FindInRow(fe, L"PHex")) {
                 void* tx = nullptr;
                 if (SUCCEEDED(hx->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
@@ -708,10 +710,59 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         commit->Init(g_selWire, path, r.type, seed, reinterpret_cast<IInspectable*>(box));
                         __int64 tok = 0;
                         DevToolsAddLostFocus(ui, commit, &tok);
+                        hexCommit = commit;
+                        hexBox = hx; hexBox->AddRef();
                     }
                 }
                 hx->Release();
             }
+            // The swatch opens a full color picker. Closing it writes the chosen color through the hex box's own
+            // commit, so the picker and typing share one write path and one change check.
+            if (IInspectable* sb = FindInRow(fe, L"PSwatchBtn")) {
+                try {
+                    winrt::Windows::Foundation::IInspectable object{ nullptr };
+                    winrt::copy_from_abi(object, sb);
+                    const auto button = object.as<DevToolsXC::Button>();
+                    button.IsEnabled(hexCommit != nullptr);
+                    DevToolsXA::AutomationProperties::SetName(button, L"Pick a color for " + path);
+                    if (hexCommit && hexBox) {
+                        winrt::Windows::Foundation::IInspectable boxObject{ nullptr };
+                        winrt::copy_from_abi(boxObject, hexBox);
+                        const auto hex = boxObject.as<DevToolsXC::TextBox>();
+                        const unsigned gen = g_route1Gen;
+                        button.Click([button, hex, hexCommit, gen](auto&&, auto&&) {
+                            if (gen != g_route1Gen) return;
+                            DevToolsXC::ColorPicker picker;
+                            picker.IsAlphaEnabled(true);
+                            picker.IsColorChannelTextInputVisible(false);
+                            picker.IsHexInputVisible(true);
+                            const std::wstring seedHex = hex.Text().c_str();
+                            if (IsHexColor(seedHex)) {
+                                const auto channel = [&](size_t at) {
+                                    return static_cast<uint8_t>(wcstoul(seedHex.substr(at, 2).c_str(), nullptr, 16));
+                                };
+                                picker.Color(winrt::Windows::UI::Color{ channel(1), channel(3), channel(5), channel(7) });
+                            }
+                            DevToolsXC::Flyout flyout;
+                            flyout.Content(picker);
+                            flyout.Closed([picker, hex, hexCommit, gen](auto&&, auto&&) {
+                                if (gen != g_route1Gen) return;
+                                const auto c = picker.Color();
+                                wchar_t chosen[10];
+                                swprintf_s(chosen, L"#%02X%02X%02X%02X", c.A, c.R, c.G, c.B);
+                                if (_wcsicmp(chosen, hex.Text().c_str()) == 0) return;
+                                hex.Text(chosen);
+                                hexCommit->Invoke(nullptr, nullptr);
+                            });
+                            flyout.ShowAt(button);
+                        });
+                    }
+                } catch (...) {
+                    DevToolsOverlayLog(L"route1.props color picker for '%s' could not be wired", path.c_str());
+                }
+                sb->Release();
+            }
+            if (hexBox) hexBox->Release();
             if (IInspectable* pb = FindInRow(fe, L"PPreset")) {
                 if (edit >= 0 && g_ctx.writeFn) {
                     std::vector<std::wstring> presets;

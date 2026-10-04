@@ -49,6 +49,8 @@ static void TrackingSync();
 static void ExitPickMode();
 static bool DismissSelectionPanel(bool discardDetached = false);
 static bool DevToolsSelPanelIsOpen();
+static bool SelFinishBeforeMoving();
+static bool SelHasCommentDraft();
 static bool PickerEditorIsOpen();
 static void UpdateCatcherHole();
 static void ResetPickPointer()
@@ -400,6 +402,7 @@ static void OnCatcherPointerPressed(void* sender, void*)
 static void OnCatcherClick(void* sender, void*)
 {
     if (!IsCurrentCatcher(sender)) return;
+    bool moving = false;
     // With the panel open, a catcher click is outside the modal panel and commits/dismisses before picking. A click on
     // the element that is already selected keeps it.
     if (DevToolsSelPanelIsOpen()) {
@@ -413,12 +416,21 @@ static void OnCatcherClick(void* sender, void*)
                 return;
             }
         }
-        DevToolsOverlayLog(L"overlay.pick click outside the open panel -> dismiss (modal), pick mode stays armed");
-        g_pressValid = false;
-        DismissSelectionPanel();
-        return;
+        // Commenting on one element after another is click, type, click: with a comment typed, the click saves it
+        // and moves the panel to what was clicked. Without one, the click only closes the panel.
+        if (!SelHasCommentDraft()) {
+            DevToolsOverlayLog(L"overlay.pick click outside the open panel -> dismiss (modal), pick mode stays armed");
+            g_pressValid = false;
+            DismissSelectionPanel();
+            return;
+        }
+        DevToolsOverlayLog(L"overlay.pick click outside the open panel with a comment draft -> save it and move");
+        // The press was not tracked while the panel was open, so the click itself is where the pick lands.
+        moving = GetCursorPos(&g_pressPt) != FALSE;
+        g_pressValid = moving;
+        if (!moving) return;
     }
-    if (PickerEditorIsOpen() || !g_pressValid) return;
+    if ((!moving && PickerEditorIsOpen()) || !g_pressValid) return;
     if (!g_catcherReleaseSeen) {
         g_catcherReleaseSeen = true;
         DevToolsOverlayLog(L"overlay.pickmode PointerReleased sink FIRED (commit path is live)");
@@ -458,6 +470,13 @@ static void OnCatcherClick(void* sender, void*)
             return;
         }
 
+        // Picking on from an open panel finishes its work first, so commenting on one element after another is
+        // click, type, click: the draft and any row edit are saved, then the panel moves.
+        if (DevToolsSelPanelIsOpen() && !SelFinishBeforeMoving()) {
+            DevToolsOverlayLog(L"overlay.pick kept the panel: its comment draft could not be saved");
+            return;
+        }
+
         if (!picked) {
             DevToolsOverlayLog(L"overlay.pick empty hit -> deselect (sticky pick stays armed)");
             DeselectAll();
@@ -476,9 +495,6 @@ static void OnCatcherClick(void* sender, void*)
             g_selFocusCommentOnOpen = !IsInOpenPopup(g_pickDiag, picked);
             DevToolsOverlay_ShowBadgeForHandle(g_pickDiag, picked, /*fromUserPick*/ true);
             g_selFocusCommentOnOpen = false;
-            // The pick is done once its panel is up: leave pick mode so the toolbar stops showing it armed and the
-            // next click on the app reaches the app. Pick again to choose another element.
-            if (DevToolsSelPanelIsOpen()) ExitPickMode();
         }
         TrackingSync();
     }

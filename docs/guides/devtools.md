@@ -23,10 +23,14 @@ workflow and commands; each command's `--help` shows examples.
 
    ![The DevTools toolbar and the quick-edit panel on a selected button](../images/devtools-quick-edit.png)
 
-3. Type a note and press **Ctrl+Enter** (or select **Save**).
-   When it is saved, the panel closes and the comments count on the toolbar goes up,
-   so you can pick the next element. If the comment can't be linked to source, the
-   panel stays open and says so.
+3. Type a note and press **Enter** (or select **Save**). **Shift+Enter** starts a new
+   line. A **Comment saved** notice appears by the toolbar, the panel closes and the
+   comments count goes up. If the comment can't be linked to source, the notice and the
+   panel say **Not linked**, and the panel stays open.
+
+   To comment on several elements, just click the next one: the comment you typed is
+   saved and the panel moves to the element you clicked. Esc also saves what you typed
+   before it closes the panel.
 
 4. For the full element tree, properties and bindings, select **Open in DevTools**.
 
@@ -42,14 +46,22 @@ workflow and commands; each command's `--help` shows examples.
 
 ### The overlay
 
-The quick-edit panel opens with a **Comment** box, followed by up to five property values.
-Expand a value to edit it, or expand its XAML file-and-line header to read the
-source. An edit applies when you leave the field or press **Enter**; in a multi-line
-text value, **Enter** adds a line and **Ctrl+Enter** applies. Closing a value you
-didn't change leaves the app untouched. **Open in DevTools** opens the full inspector for detailed binding work.
+The quick-edit panel opens with a **Comment** box, followed by up to six values chosen
+for the kind of element you picked, each with its editor in place: text, numbers
+(Width and Height accept **Auto**), switches, choices, a single box for margins and
+corners (`8`, `8,4` or `8,4,8,4`), and colors as `#AARRGGBB`. A value that comes from a
+binding or resource shows where it comes from; a binding also shows whether it works.
+An edit applies when you leave the field or press **Enter**; in a multi-line text
+value, **Enter** adds a line and **Ctrl+Enter** applies. Esc puts back a value you are
+still typing. Closing a value you didn't change leaves the app untouched.
+
+Select the ↗ button beside a binding, color, or margin (or a **Broken at** status) to
+open the inspector on that property, with its binding details, color picker, or
+per-side editor. **Open in DevTools** opens the full inspector.
+
 Hover picking pauses while the quick-edit panel or comment editor is open, preserving
-your selection and draft. Clicking the selected element keeps it selected. Esc closes
-the panel; the next Esc turns pick mode off. When your app has several windows, pick
+your selection and draft. Clicking the selected element keeps it selected. Esc saves
+a comment you typed and closes the panel; the next Esc turns pick mode off. When your app has several windows, pick
 mode works in the one in front; bring another window forward to pick in it.
 
 Picking selects the element you declared: clicking a control's template part or its

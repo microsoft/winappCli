@@ -76,8 +76,19 @@ static void SelDiagApply(const DevToolsSelDiagRow& r)
     const bool bad = s.tone == DevToolsBindingTone::Broken;
     SelDiagSetText(L"DevToolsSelStatus" + i, bad ? std::wstring() : s.status);
     SelDiagShow(L"DevToolsSelStatus" + i, !bad);
-    SelDiagSetText(L"DevToolsSelStatusBad" + i, bad ? s.status : std::wstring());
+    SelDiagSetText(L"DevToolsSelStatusBadText" + i, bad ? s.status : std::wstring());
     SelDiagShow(L"DevToolsSelStatusBad" + i, bad);
+    if (bad) {
+        if (IInspectable* link = DevToolsSelFindName(g_selDiagRoot, (L"DevToolsSelStatusBad" + i).c_str())) {
+            try {
+                winrt::Windows::Foundation::IInspectable object{ nullptr };
+                winrt::copy_from_abi(object, link);
+                DevToolsXA::AutomationProperties::SetName(object.as<DevToolsX::DependencyObject>(),
+                    r.prop + L" binding " + s.status + L". Open binding details in DevTools");
+            } catch (...) {}
+            link->Release();
+        }
+    }
     if (r.writesThrough && !r.writesThroughTo.empty())
         SelDiagSetText(L"DevToolsSelCaution" + i, L"Editing also writes to " + r.writesThroughTo + L".");
 }

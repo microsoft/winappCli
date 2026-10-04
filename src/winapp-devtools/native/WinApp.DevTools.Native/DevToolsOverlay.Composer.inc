@@ -75,6 +75,10 @@ struct GuestCommentWrite {
     std::function<void(int)> completed;
 };
 static GuestCommentWrite g_guestCommentWrite;
+// Local saves started while another is still being written wait here, in order, so commenting on several
+// elements in a row never refuses a save. Host-backed comments keep their one-at-a-time contract.
+struct QueuedCommentWrite { std::wstring args, what; GuestCommentWrite write; };
+static std::deque<QueuedCommentWrite> g_guestCommentQueue;
 static bool g_commentSnapshotAuthoritative = false;
 static UINT_PTR g_guestCommentTimer = 0;
 static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_t* stage = nullptr);
@@ -158,6 +162,19 @@ static bool LaunchWinapp(const std::wstring& args, const wchar_t* what, GuestCom
 {
     if (!DevToolsTrust_MutationEnabled()) return false;
     const auto authority = g_guestCommentAuthority.load();
+    if (guest && g_guestCommentWrite.process && !authority && guest->editor == GuestCommentEditor::Selection &&
+        guest->id != g_guestCommentWrite.id) {
+        for (auto it = g_guestCommentQueue.begin(); it != g_guestCommentQueue.end(); ++it)
+            if (it->write.id == guest->id) {
+                guest->closeOnSave = guest->closeOnSave || it->write.closeOnSave;
+                g_guestCommentQueue.erase(it);
+                break;
+            }
+        guest->status = L"Saving...";
+        g_guestCommentQueue.push_back({ args, what, std::move(*guest) });
+        DevToolsOverlayLog(L"overlay.comment queued %s behind the running save (%zu waiting)", what, g_guestCommentQueue.size());
+        return true;
+    }
     if (!guest || g_guestCommentWrite.process) return false;
     if (g_guestCommentWrite.failed && g_guestCommentWrite.editor != GuestCommentEditor::WindowResolve &&
         g_guestCommentWrite.id != guest->id) {
@@ -430,6 +447,8 @@ static bool GuestCommentCanEdit(InstanceHandle handle)
     const auto& write = g_guestCommentWrite;
     const auto authority = g_guestCommentAuthority.load();
     if (authority && !authority->Bound()) return false;
+    // A local save still running for another element does not lock this one: its save waits in the queue.
+    if (!authority && write.process && !write.failed) return true;
     return (!write.process && (!write.failed || write.editor == GuestCommentEditor::WindowResolve)) ||
         (write.root == g_pickRoot && write.handle == handle);
 }
@@ -511,6 +530,79 @@ static void GuestCommentRestoreDraft(bool composer)
         composer ? L"GuestCommentStatus" : L"DevToolsGuestCommentStatus", write.status);
 }
 
+// A short confirmation near the toolbar. The panel may already have moved to the next element or closed when a
+// save completes, so the confirmation cannot live in it.
+static IInspectable* g_commentToast = nullptr;
+static UINT_PTR g_commentToastTimer = 0;
+
+static void HideCommentToast()
+{
+    if (g_commentToastTimer) { KillTimer(nullptr, g_commentToastTimer); g_commentToastTimer = 0; }
+    if (!g_commentToast) return;
+    if (g_canvasChildren) {
+        unsigned int idx = 0; unsigned char found = 0;
+        if (SUCCEEDED(DevToolsVecIndexOf(g_canvasChildren, g_commentToast, &idx, &found)) && found)
+            DevToolsVecRemoveAt(g_canvasChildren, idx);
+    }
+    g_commentToast->Release();
+    g_commentToast = nullptr;
+}
+
+static void CALLBACK CommentToastTimerProc(HWND, UINT, UINT_PTR, DWORD) { HideCommentToast(); }
+
+static std::wstring CommentToastText(bool deleted, bool linked)
+{
+    return deleted ? std::wstring(L"Comment deleted")
+                   : std::wstring(L"Comment saved") + (linked ? L"" : L" \u00b7 Not linked");
+}
+
+static void ShowCommentToast(const std::wstring& text, bool problem)
+{
+    HideCommentToast();
+    if (!g_canvasChildren) return;
+    const DevToolsPalette& pal = DevToolsInverseAcrylicPalette();
+    int w = 0, h = 0;
+    if (!GetClientSizeDips(&w, &h)) { w = 800; h = 600; }
+    const int toastW = 240;
+    RECT bar{};
+    const bool haveBar = g_toolbarSurface.xamlRootKey == g_activeSurface.xamlRootKey && ToolbarRectDip(&bar);
+    int x = haveBar ? (int)bar.right - toastW : (w - toastW) / 2;
+    int y = haveBar ? (int)bar.top - 44 : h - 64;
+    if (haveBar && y < 8) y = (int)bar.bottom + 8;
+    x = (std::max)(8, (std::min)(x, w - toastW - 8));
+    y = (std::max)(8, y);
+    const std::wstring markup =
+        L"<Border xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
+        L" Canvas.Left=\"" + std::to_wstring(x) + L"\" Canvas.Top=\"" + std::to_wstring(y) + L"\" Canvas.ZIndex=\"3000\""
+        L" Width=\"" + std::to_wstring(toastW) + L"\" IsHitTestVisible=\"False\" RequestedTheme=\"" +
+        DevToolsInverseAppRequestedTheme() + L"\" Background=\"" + pal.surface + L"\" BorderBrush=\"" + pal.rim +
+        L"\" BorderThickness=\"1\" CornerRadius=\"8\" Padding=\"12,8\" BackgroundSizing=\"InnerBorderEdge\""
+        L" AutomationProperties.AutomationId=\"DevToolsCommentToast\" AutomationProperties.LiveSetting=\"Polite\""
+        L" AutomationProperties.Name=\"" + DevToolsXmlEscape(text) + L"\">"
+        L"<StackPanel Orientation=\"Horizontal\" Spacing=\"8\">"
+        L"<FontIcon FlowDirection=\"LeftToRight\" Glyph=\"" + std::wstring(problem ? L"&#xE7BA;" : L"&#xE73E;") +
+        L"\" FontSize=\"14\" VerticalAlignment=\"Center\" Foreground=\"" + (problem ? pal.caution : pal.accent) + L"\"/>"
+        L"<TextBlock x:Name=\"DevToolsCommentToastText\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\""
+        L" Text=\"" + DevToolsXmlEscape(text) + L"\" TextWrapping=\"Wrap\" VerticalAlignment=\"Center\""
+        L" Foreground=\"" + pal.textPrimary + L"\"/></StackPanel></Border>";
+    IInspectable* toast = nullptr;
+    if (FAILED(LoadMarkup(markup, &toast)) || !toast) {
+        DevToolsOverlayLog(L"overlay.comment toast markup failed");
+        return;
+    }
+    IInspectable* ui = nullptr;
+    if (SUCCEEDED(toast->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), reinterpret_cast<void**>(&ui))) && ui) {
+        unsigned int n = 0; DevToolsVecGetSize(g_canvasChildren, &n);
+        if (g_cardScope) g_cardScope(1);
+        DevToolsVecInsertAt(g_canvasChildren, n, ui);
+        if (g_cardScope) g_cardScope(0);
+        g_commentToast = ui;
+    }
+    toast->Release();
+    g_commentToastTimer = SetTimer(nullptr, 0, problem ? 4000 : 1800, &CommentToastTimerProc);
+    DevToolsOverlayLog(L"overlay.comment toast '%s'", text.c_str());
+}
+
 static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_t* stage)
 {
     auto& write = g_guestCommentWrite;
@@ -545,6 +637,12 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
         newerDraft ? (write.authority ? L"Submitted text was saved on the host. Your newer draft is not saved yet." :
             L"Submitted text was saved. Your newer draft is not saved yet.") :
         DevToolsCommentText::SavedStatus(write.authority != nullptr, write.linked);
+    if (write.editor == GuestCommentEditor::Selection || write.editor == GuestCommentEditor::Delete) {
+        if (saved && !write.failed)
+            ShowCommentToast(CommentToastText(write.editor == GuestCommentEditor::Delete, write.linked), false);
+        else if (!GuestCommentMatchesEditor(false, false))
+            ShowCommentToast(L"Comment not saved. Pick the element again to retry.", true);
+    }
     if (write.editor == GuestCommentEditor::WindowResolve) {
         auto completed = std::move(write.completed);
         if (write.authority == g_guestCommentAuthority.load() && write.root == g_pickRoot &&
@@ -553,6 +651,11 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
         return;
     }
     if (!GuestCommentMatchesEditor(composer)) {
+        // The panel has moved on (the next element was picked, or it closed), but this save still earns its marker.
+        if (!write.authority && !composer && saved && !write.failed && !g_commentSnapshotAuthoritative) {
+            if (write.editor == GuestCommentEditor::Delete) RemovePinById(write.id);
+            else if (write.handle) UpsertPin(write.handle, write.id, write.submitted, write.bounds);
+        }
         if (write.deleteRequested) {
             write.deleteRequested = false;
             write.failed = true;
@@ -619,6 +722,17 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
     }
 }
 
+// Start the next waiting save once the writer is free. A save that cannot start says so, since its panel is gone.
+static void GuestCommentStartQueued()
+{
+    while (!g_guestCommentWrite.process && !g_guestCommentQueue.empty()) {
+        QueuedCommentWrite next = std::move(g_guestCommentQueue.front());
+        g_guestCommentQueue.pop_front();
+        if (!LaunchWinapp(next.args, next.what.c_str(), &next.write))
+            ShowCommentToast(L"Comment not saved. Pick the element again to retry.", true);
+    }
+}
+
 static void CALLBACK GuestCommentTimerProc(HWND, UINT, UINT_PTR, DWORD)
 {
     auto& write = g_guestCommentWrite;
@@ -635,6 +749,16 @@ static void CALLBACK GuestCommentTimerProc(HWND, UINT, UINT_PTR, DWORD)
     if (g_guestCommentTimer) { KillTimer(nullptr, g_guestCommentTimer); g_guestCommentTimer = 0; }
     GuestCommentComplete(error, acknowledged, acknowledged ? nullptr :
         state == WAIT_TIMEOUT ? L"writer-timeout" : L"writer-wait");
+    GuestCommentStartQueued();
+}
+
+// This panel's comment save that is waiting for an earlier one to finish, if any.
+static QueuedCommentWrite* SelQueuedCommentWrite()
+{
+    for (auto& queued : g_guestCommentQueue)
+        if (queued.write.handle == g_selHandle && queued.write.wire == g_selCommentWire && queued.write.id == g_selCommentId)
+            return &queued;
+    return nullptr;
 }
 
 // "Cleared" and "was always empty" are different states and are distinguished by g_selCommentSaved, which holds
@@ -652,6 +776,18 @@ static void DevToolsSelCommitComment(bool explicitSave)
     std::wstring text;
     if (!SelReadCommentText(&text)) {
         SetSelectionOperationError(L"Comment", L"Couldn't read your comment. Copy it before closing and try again.");
+        return;
+    }
+    // Text already on its way to the writer needs no second save; an explicit save only asks it to finish the
+    // comment when it lands.
+    if (GuestCommentMatchesEditor(false, false) && g_guestCommentWrite.process &&
+        DevToolsCommentText::Unchanged(text, g_guestCommentWrite.submitted)) {
+        if (explicitSave) g_guestCommentWrite.closeOnSave = true;
+        return;
+    }
+    if (QueuedCommentWrite* queued = SelQueuedCommentWrite(); queued &&
+        DevToolsCommentText::Unchanged(text, queued->write.submitted)) {
+        if (explicitSave) queued->write.closeOnSave = true;
         return;
     }
     if (!explicitSave && GuestCommentMatchesEditor(false, false) && g_guestCommentWrite.superseded) {
@@ -692,6 +828,12 @@ static void DevToolsSelCommitComment(bool explicitSave)
     LaunchCommentAdd(text, g_selCommentId);
     if (explicitSave && g_guestCommentWrite.process && GuestCommentMatchesEditor(false, false))
         g_guestCommentWrite.closeOnSave = true;
+    if (QueuedCommentWrite* queued = SelQueuedCommentWrite(); queued && g_commentSourceError.empty()) {
+        if (explicitSave) queued->write.closeOnSave = true;
+        SetSelectionOperationError(L"Comment", L"");
+        GuestCommentSetStatus(g_selUi, L"DevToolsGuestCommentStatus", L"Saving...");
+        return;
+    }
     if (!g_commentSourceError.empty()) {
         SetSelectionOperationError(L"Comment", g_commentSourceError);
     } else if (!g_guestCommentAuthority.load() && GuestCommentMatchesEditor(false, false) &&
@@ -704,6 +846,31 @@ static void DevToolsSelCommitComment(bool explicitSave)
         SetSelectionOperationError(L"Comment", g_commentSourceError.empty()
             ? L"Couldn't start saving your comment. Keep this panel open and try again." : g_commentSourceError);
     }
+}
+
+// The comment box holds text that is not saved yet.
+static bool SelHasCommentDraft()
+{
+    std::wstring draft;
+    return g_selComment && !g_selRootLost && SelReadCommentText(&draft) && !DevToolsCommentText::IsBlank(draft) &&
+        !DevToolsCommentText::Unchanged(draft, g_selCommentSaved);
+}
+
+// Before the panel moves to another element: save what it holds. False keeps the panel where it is, because its
+// comment draft could not be handed to the writer and moving would drop it.
+static bool SelFinishBeforeMoving()
+{
+    if (g_selRootLost) return false;
+    g_selDismissCommitFailed = false;
+    const unsigned generation = g_selGen;
+    DevToolsSelFlushCommits();
+    if (generation != g_selGen) return true;
+    if (g_selDismissCommitFailed) return false;
+    std::wstring draft;
+    if (!g_selComment || !SelReadCommentText(&draft)) return true;
+    if (DevToolsCommentText::IsBlank(draft) || DevToolsCommentText::Unchanged(draft, g_selCommentSaved)) return true;
+    if (GuestCommentMatchesEditor(false, false) && g_guestCommentWrite.process) return true;
+    return SelQueuedCommentWrite() != nullptr;
 }
 
 // Delete this anchor's comment and put the panel back into the "no comment here" state: the box empties, the

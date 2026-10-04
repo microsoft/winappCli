@@ -382,8 +382,11 @@
                   <StackPanel x:Name="PEdColor" Visibility="Collapsed" Spacing="3">
                     <TextBlock Text="COLOR" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
-                      <Border x:Name="PSwatch" Grid.Column="0" Width="30" Height="30" CornerRadius="4"
-                              BorderThickness="1" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"/>
+                      <Button x:Name="PSwatchBtn" Grid.Column="0" Width="30" Height="30" MinWidth="0" MinHeight="0" Padding="0"
+                              BorderThickness="0" Background="Transparent" ToolTipService.ToolTip="Pick a color">
+                        <Border x:Name="PSwatch" Width="30" Height="30" CornerRadius="4"
+                                BorderThickness="1" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"/>
+                      </Button>
                       <TextBox x:Name="PHex" Grid.Column="1" MinHeight="30" FontSize="12" FontFamily="Consolas"/>
                     </Grid>
                     <ComboBox x:Name="PPreset" MinWidth="132" FontSize="12" PlaceholderText="preset colour" Visibility="Collapsed" Margin="0,3,0,0"/>

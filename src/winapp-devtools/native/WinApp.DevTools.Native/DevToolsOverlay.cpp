@@ -30,6 +30,7 @@
 #include <string>
 #include <cstdio>
 #include <vector>
+#include <deque>
 #include <atomic>
 #include <functional>
 #include <algorithm>

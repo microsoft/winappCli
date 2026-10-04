@@ -500,10 +500,14 @@ static std::wstring BuildSelRowsMarkup(const std::vector<DevToolsCardRow>& rows,
                      L" FontSize=\"12\" MaxWidth=\"132\" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\""
                      L" Foreground=\"" + pal.textSecondary + L"\" AutomationProperties.LiveSetting=\"Polite\""
                      L" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L" binding status\"/>";
-                m += L"<TextBlock x:Name=\"DevToolsSelStatusBad" + n + L"\" Grid.Column=\"2\" Visibility=\"Collapsed\""
-                     L" FontSize=\"12\" MaxWidth=\"132\" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\""
-                     L" Foreground=\"{ThemeResource SystemFillColorCriticalBrush}\" AutomationProperties.LiveSetting=\"Polite\""
-                     L" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L" binding status\"/>";
+                // A broken binding's status is itself a way into the details, like the button beside it.
+                m += L"<HyperlinkButton x:Name=\"DevToolsSelStatusBad" + n + L"\" Grid.Column=\"2\" Visibility=\"Collapsed\""
+                     L" Padding=\"2,0\" MinHeight=\"0\" MaxWidth=\"140\" VerticalAlignment=\"Center\""
+                     L" Foreground=\"{ThemeResource SystemFillColorCriticalBrush}\""
+                     L" ToolTipService.ToolTip=\"Binding details in DevTools\""
+                     L" AutomationProperties.AutomationId=\"DevToolsSelStatusBad" + n + L"\">"
+                     L"<TextBlock x:Name=\"DevToolsSelStatusBadText" + n + L"\" FontSize=\"12\" TextTrimming=\"CharacterEllipsis\""
+                     L" AutomationProperties.LiveSetting=\"Polite\"/></HyperlinkButton>";
                 m += SelRevealButton(i, r.name, L"Binding details", pal, 3);
             }
             m += L"</Grid>";
@@ -570,9 +574,9 @@ static void DevToolsSelWireRows(IInspectable* root, const std::vector<DevToolsCa
 {
     for (size_t i = 0; i < rows.size(); ++i) {
         const std::wstring n = std::to_wstring(i);
-        {
+        for (const wchar_t* opener : { L"DevToolsSelReveal", L"DevToolsSelStatusBad" }) {
             auto* reveal = new SelRevealSink(); reveal->Init(rows[i].name);
-            DevToolsSelWireClick(root, L"DevToolsSelReveal" + n, reveal);
+            DevToolsSelWireClick(root, opener + n, reveal);
         }
         if (!SelRowCanEdit(rows[i])) continue;
         const std::wstring editName = L"DevToolsSelEdit" + n;

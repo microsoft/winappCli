@@ -91,8 +91,39 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         }
         hint->Release();
     }
+    // An existing {Binding} row is not being changed until its path or mode is: the replacement warning and its
+    // Apply wait for that edit, and go away again if the edit is undone.
+    const bool bindingIdle = bindingReplacement && current == DevToolsKind::Binding && !staged;
     if (IInspectable* sb = FindInRow(fe, L"PStaged")) {
-        ShowEl(sb, irreversible);
+        ShowEl(sb, irreversible && !bindingIdle);
+        if (bindingIdle && edit >= 0) {
+            try {
+                winrt::Windows::Foundation::IInspectable stagedObject{ nullptr };
+                winrt::copy_from_abi(stagedObject, sb);
+                const auto stagedBox = stagedObject.as<DevToolsX::UIElement>();
+                IInspectable* pathEl = FindInRow(fe, L"PPath");
+                IInspectable* modeEl = FindInRow(fe, L"PMode");
+                if (pathEl && modeEl) {
+                    winrt::Windows::Foundation::IInspectable pathObject{ nullptr }, modeObject{ nullptr };
+                    winrt::copy_from_abi(pathObject, pathEl);
+                    winrt::copy_from_abi(modeObject, modeEl);
+                    const auto pathBox = pathObject.as<DevToolsXC::TextBox>();
+                    const auto modeBox = modeObject.as<DevToolsXCP::Selector>();
+                    const winrt::hstring pathAtOpen = pathBox.Text();
+                    const int32_t modeAtOpen = modeBox.SelectedIndex();
+                    auto sync = [stagedBox, pathBox, modeBox, pathAtOpen, modeAtOpen]() {
+                        const bool editing = pathBox.Text() != pathAtOpen || modeBox.SelectedIndex() != modeAtOpen;
+                        stagedBox.Visibility(editing ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
+                    };
+                    pathBox.TextChanged([sync](auto&&, auto&&) { sync(); });
+                    modeBox.SelectionChanged([sync](auto&&, auto&&) { sync(); });
+                }
+                if (pathEl) pathEl->Release();
+                if (modeEl) modeEl->Release();
+            } catch (...) {
+                ShowEl(sb, true);
+            }
+        }
         if (irreversible) {
             std::wstring head, body;
             if (bindingReplacement) {

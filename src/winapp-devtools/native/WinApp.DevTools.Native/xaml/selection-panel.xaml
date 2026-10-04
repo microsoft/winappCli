@@ -166,7 +166,7 @@
         <Button x:Name="DevToolsSelCommentSave" Content="Save" MinWidth="64" Padding="12,4"
                 AutomationProperties.AutomationId="DevToolsSelCommentSave"
                 AutomationProperties.Name="Save comment" />
-        <TextBlock Grid.Column="1" Text="Ctrl+Enter or leave this field to save."
+        <TextBlock Grid.Column="1" Text="Enter to save &#x00B7; Shift+Enter for a new line"
                    Style="{StaticResource CaptionTextBlockStyle}" Foreground="$TEXTDIM$"
                    VerticalAlignment="Center" TextWrapping="Wrap" />
       </Grid>

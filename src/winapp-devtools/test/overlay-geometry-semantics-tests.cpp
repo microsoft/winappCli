@@ -87,9 +87,11 @@ static HRESULT TestFocusWithPointer(void*, void*, bool* moved) { ++pointerFocusC
 static bool escapeHandled = false;
 static int commentKey = 27;
 static bool commentControl = false;
+static bool commentShift = false;
 static HRESULT EscapeKey(void*, int* value) { *value = commentKey; return S_OK; }
 static HRESULT EscapeHandled(void*, bool value) { escapeHandled = value; return S_OK; }
-static SHORT WINAPI NoModifierKey(int key) { return key == VK_CONTROL && commentControl ? SHORT(0x8000) : 0; }
+static SHORT WINAPI NoModifierKey(int key)
+{ return (key == VK_CONTROL && commentControl) || (key == VK_SHIFT && commentShift) ? SHORT(0x8000) : 0; }
 static HRESULT quickNumberResult = S_OK;
 static HRESULT ReadQuickNumber(void*, double* value) { *value=quickNumber; return quickNumberResult; }
 template <typename I> static HRESULT GeometryPadding(void*, double*, double*, double*, double*);
@@ -692,7 +694,7 @@ int main()
             "quick peek", "visible comment label and editor precede the property rows in keyboard order");
         check(panel.find(L"AutomationProperties.Name=\"Save comment\"") != std::wstring::npos &&
             panel.find(L"<Grid ColumnSpacing=\"8\" Visibility=\"Visible\">") != std::wstring::npos &&
-            panel.find(L"Ctrl+Enter or leave this field to save.") != std::wstring::npos &&
+            panel.find(L"Enter to save &#x00B7; Shift+Enter for a new line") != std::wstring::npos &&
             panel.find(L"$CMTSAVEVIS$") == std::wstring::npos,
             "comment save", "inline Save and keyboard/blur hint are resolved in production markup");
         const auto readOnlyPanel = BuildSelectionPanelMarkup(L"TextBlock", L"TextBlock", 0, 0, 500, 0, 0, L"", L"",
@@ -1048,6 +1050,52 @@ int main()
             ClearSelectionAnchor();
             g_guestCommentWrite={};
         }
+        // Enter saves the comment; Shift+Enter is left to the box so it inserts a new line.
+        for (const bool shift : {false, true}) {
+            SwitchObject popup;
+            GeometryObject panel, icon, keyArgs;
+            keyArgs.keyArgs = true;
+            g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
+            g_selComment=&input;input.AddRef();
+            SetCommentTarget(11,false);
+            g_selCommentId=L"enter-saves";g_selCommentSaved.clear();g_guestCommentWrite={};commentLaunches=0;
+            commentInput=L"Enter note";
+            commentKey=VK_RETURN;commentShift=shift;commentControl=false;g_selFocusedIsComment=true;escapeHandled=false;
+            OnSelKeyDown(nullptr,&keyArgs);
+            check(shift ? (!escapeHandled && commentLaunches==0) : (escapeHandled && commentLaunches==1),
+                "comment keys", shift ? "Shift+Enter is left to the box for a new line" : "Enter saves the comment");
+            commentKey=VK_ESCAPE;commentShift=false;g_selFocusedIsComment=false;
+            if (g_guestCommentWrite.process) { commentExitCode=0;SetEvent(commentProcess);GuestCommentTimerProc(nullptr,0,0,0); }
+            if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0);
+            ClearSelectionAnchor();
+            g_guestCommentWrite={};
+        }
+        // Commenting on one element after another: a save still running does not refuse the next one; it waits
+        // and starts when the first completes, and each completion confirms itself.
+        {
+            g_selComment=&input;input.AddRef();
+            g_guestCommentWrite={};g_guestCommentQueue.clear();commentLaunches=0;
+            SetCommentTarget(11,false);g_selCommentId=L"first";g_selCommentSaved.clear();commentInput=L"first note";
+            DevToolsSelCommitComment();
+            const HANDLE firstProcess = commentProcess;
+            g_selGen++;g_selCommentId=L"second";g_selCommentSaved.clear();commentInput=L"second note";
+            check(SelHasCommentDraft(), "comment flow", "typed text on the next element is a draft");
+            DevToolsSelCommitComment();
+            check(commentLaunches==1 && g_guestCommentQueue.size()==1 && SelFinishBeforeMoving(),
+                "comment flow", "a second save waits behind the running one and lets the panel move on");
+            commentExitCode=0;SetEvent(firstProcess);GuestCommentTimerProc(nullptr,0,0,0);
+            check(commentLaunches==2 && g_guestCommentQueue.empty() && g_guestCommentWrite.id==L"second",
+                "comment flow", "the waiting save starts when the first completes");
+            check(g_commentToast!=nullptr || g_canvasChildren==nullptr, "comment flow", "each completed save is confirmed");
+            commentExitCode=0;SetEvent(commentProcess);GuestCommentTimerProc(nullptr,0,0,0);
+            check(g_guestCommentWrite.persisted && g_selCommentSaved==L"second note",
+                "comment flow", "the queued save completes into its own editor");
+            HideCommentToast();
+            g_guestCommentWrite={};g_selComment=nullptr;
+        }
+        check(CommentToastText(false,true)==L"Comment saved" && CommentToastText(false,false)==L"Comment saved \u00b7 Not linked" &&
+            CommentToastText(true,true)==L"Comment deleted", "comment flow", "the confirmation names the outcome and Not linked");
         g_cliExe.store(nullptr);guestWriterTest=false;g_wireOf=nullptr;g_guestCommentWrite={};
         g_selComment=nullptr;g_cardReadInput=nullptr;g_selCommentSaved.clear();g_selCommentId.clear();
         g_pickDiag=nullptr;g_srcRead=nullptr;g_cardRead=nullptr;g_selHandle=g_selCommentWire=0;g_pins.clear();
@@ -1432,7 +1480,7 @@ int main()
                 GeometryObject keyArgs; keyArgs.keyArgs = true;
                 commentKey = 13; commentControl = g_selFocusedIsComment = true;
                 OnSelKeyDown(nullptr, &keyArgs);
-                check(escapeHandled && keyArgs.refs == 1, "local snapshot", "Ctrl+Enter explicitly retries without adding a newline");
+                check(escapeHandled && keyArgs.refs == 1, "local snapshot", "Ctrl+Enter still saves without adding a newline");
                 commentKey = 27; commentControl = g_selFocusedIsComment = false;
             } else {
                 OnSelCommentSaveClick(nullptr, nullptr);

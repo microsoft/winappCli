@@ -366,8 +366,8 @@ static bool DevToolsSelFocusIcon()
     return SUCCEEDED(hr) && ok;
 }
 
-// Comment box GotFocus: bump the focus-within counter (collapse gate) AND flag that the MULTILINE comment holds
-// focus, so a plain Enter is left to insert a newline (AcceptsReturn) and only Ctrl+Enter commits it.
+// Comment box GotFocus: bump the focus-within counter (collapse gate) AND flag that the comment holds focus, so
+// Enter saves it while Shift+Enter is left to the box to insert a newline.
 static void OnSelCommentGotFocus(void*, void*)
 {
     ++g_selFocusWithin;
@@ -415,11 +415,14 @@ static void OnSelKeyDown(void* /*sender*/, void* args)
         DevToolsOverlayLog(L"overlay.sel key Esc -> commit+deselect queued=%d", (int)queued);
     } else if (key == kVkEnter) {
         if (g_selFocusedIsComment) {
-            if (ctrl) {
+            // Enter saves the comment and Shift+Enter is left to the box, which starts a new line. Ctrl+Enter, the
+            // earlier save gesture, still saves.
+            const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            if (!shift) {
                 DevToolsSelCommitComment(true);
                 const bool focused = DevToolsSelFocusIcon();
                 handled = true;
-                DevToolsOverlayLog(L"overlay.sel key Ctrl+Enter -> commit comment focused=%d", (int)focused);
+                DevToolsOverlayLog(L"overlay.sel key Enter -> save comment focused=%d", (int)focused);
             }
         } else {
             winrt::com_ptr<IUnknown> routed;

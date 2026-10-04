@@ -170,10 +170,12 @@ Live markers include only comments from the app's reported project or explicit
 running app. If `--from-element` reports an incomplete name search, pass an exact
 handle or identity selector from `inspect` instead.
 
-In the inline comment editor, choose **Save**, press **Ctrl+Enter**, or leave the
-field to save. **Saving...** is not confirmation. After **Save** or **Ctrl+Enter**, the
-panel closes once the comment is saved and linked to source; otherwise it stays open
-with the status. If saving
+In the inline comment editor, press **Enter**, choose **Save**, or leave the field to
+save; **Shift+Enter** adds a line. Clicking another element or pressing Esc also saves
+what you typed. **Saving...** is not confirmation: a **Comment saved** notice by the
+toolbar confirms each save, including saves that finish after the panel moved on.
+After **Enter** or **Save**, the panel closes once the comment is saved and linked to
+source; otherwise it stays open with the status. If saving
 fails, the draft stays available and the status shows the failing stage and code.
 Copy the text before closing an unconfirmed draft.
 
