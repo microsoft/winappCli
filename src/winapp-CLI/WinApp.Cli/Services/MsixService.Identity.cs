@@ -255,11 +255,12 @@ internal partial class MsixService
                 await EnsureWindowsAppRuntimeInstalledAsync(msbuildPackageList, runtimeArch, taskContext, cancellationToken);
             }
 
-            // Install any other framework package the build resolved (e.g. the Debug VCLibs a C++ app depends
-            // on), as Visual Studio's deploy does. Without it, registration fails with 0x80073CF3.
+            // Install any other framework package the build resolved and the manifest depends on (e.g. the
+            // Debug VCLibs a C++ app needs), as Visual Studio's deploy does. Without it, registration fails
+            // with 0x80073CF3.
             if (recipeFile is not null)
             {
-                await InstallRecipeFrameworkPackagesAsync(recipeFile, doc.IdentityProcessorArchitecture ?? runtimeArch, taskContext, cancellationToken);
+                await InstallRecipeFrameworkPackagesAsync(recipeFile, doc, runtimeArch, taskContext, cancellationToken);
             }
 
             var skipResult = TrySkipRegistration(
@@ -680,14 +681,18 @@ internal partial class MsixService
             var a => a ?? string.Empty,
         };
 
-    private async Task InstallRecipeFrameworkPackagesAsync(FileInfo recipeFile, string? architecture, TaskContext taskContext, CancellationToken cancellationToken)
+    private async Task InstallRecipeFrameworkPackagesAsync(FileInfo recipeFile, AppxManifestDocument manifest, string? runtimeArch, TaskContext taskContext, CancellationToken cancellationToken)
     {
+        var architecture = manifest.IdentityProcessorArchitecture ?? runtimeArch;
         if (string.IsNullOrWhiteSpace(architecture))
         {
             return;
         }
 
-        foreach (var (name, version, packagePath) in ReadRecipeFrameworkPackages(recipeFile, architecture))
+        // Only frameworks the app actually depends on: a self-contained app's recipe still lists the
+        // Windows App Runtime, but its manifest doesn't reference it.
+        foreach (var (name, version, packagePath) in ReadRecipeFrameworkPackages(recipeFile, architecture)
+                     .Where(f => manifest.HasPackageDependency(f.Name)))
         {
             if (Version.TryParse(packageRegistrationService.GetInstalledVersion(name, NormalizeRecipeArchitecture(architecture)), out var installed)
                 && installed >= version)
@@ -702,7 +707,15 @@ internal partial class MsixService
             }
 
             taskContext.AddStatusMessage($"{UiSymbols.Package} Installing framework package {name} {version}...");
-            await packageRegistrationService.InstallPackageAsync(packagePath, forceApplicationShutdown: false, cancellationToken);
+            try
+            {
+                await packageRegistrationService.InstallPackageAsync(packagePath, forceApplicationShutdown: false, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Registration reports the missing dependency itself; keep the install failure visible.
+                taskContext.AddStatusMessage($"{UiSymbols.Warning} Could not install framework package {name}: {ex.Message}");
+            }
         }
     }
 
