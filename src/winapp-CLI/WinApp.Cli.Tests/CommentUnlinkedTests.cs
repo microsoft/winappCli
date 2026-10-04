@@ -98,7 +98,7 @@ public class CommentUnlinkedTests
         var comment = store.Load(store.GetStorePath(_root)).Comments.Single();
         Assert.AreEqual("ShippedPill", comment.Anchor.Identity.Name);
         Assert.AreEqual("ShippedStatus", comment.Anchor.Identity.AutomationId);
-        Assert.AreEqual("Orders", comment.Context?.Window, "the window whose content holds the element, not another one");
+        Assert.AreEqual("Orders", comment.Context?.WindowTitle, "the window whose content holds the element, not another one");
     }
 
     [TestMethod]

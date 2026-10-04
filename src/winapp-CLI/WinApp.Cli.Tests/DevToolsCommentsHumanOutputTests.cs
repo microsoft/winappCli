@@ -113,6 +113,24 @@ public class DevToolsCommentsHumanOutputTests
     }
 
     [TestMethod]
+    public void GetShowsTheLiveAutomationIdAndWindowTitle_AndJsonNamesThem()
+    {
+        _store.Add(StorePath, new Comment
+        {
+            Id = "cmt_identity0001", Text = "this looks off", ProjectRoot = _root,
+            Anchor = new() { Weak = true, Identity = new() { Type = "Border", Name = "ShippedPill", AutomationId = "ShippedStatus" } },
+            Context = new() { WindowTitle = "Orders" },
+        });
+        var human = Success("get", "cmt_identity0001");
+        StringAssert.Contains(human, "Border ShippedPill AutomationId=ShippedStatus");
+        StringAssert.Contains(human, "Window: Orders");
+        using var json = JsonDocument.Parse(Success("get", "cmt_identity0001", "--json"));
+        var comment = json.RootElement.GetProperty("comment");
+        Assert.AreEqual("ShippedStatus", comment.GetProperty("anchor").GetProperty("identity").GetProperty("automationId").GetString());
+        Assert.AreEqual("Orders", comment.GetProperty("context").GetProperty("windowTitle").GetString());
+    }
+
+    [TestMethod]
     public void ListAndGetAcceptTheRunningAppLikeOtherCommentCommands()
     {
         var appA = Directory.CreateDirectory(Path.Combine(_root, "AppA")).FullName;

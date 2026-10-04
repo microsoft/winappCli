@@ -123,7 +123,7 @@ internal static partial class CommentElementContext
     /// <summary>The captured style and brushes in a few short lines, for human output.</summary>
     public static IEnumerable<string> Lines(CommentContext? context)
     {
-        if (context?.Window is { } window)
+        if (context?.WindowTitle is { } window)
         {
             yield return $"Window: {window}";
         }

@@ -113,10 +113,10 @@ See [comment identity](https://github.com/microsoft/WinAppCli/blob/main/docs/gui
 
 A comment that is not linked to source (no `anchor.sourceFile`, often an app with
 no project) has no candidates to confirm. Search the whole project, including code
-that builds or loads XAML at runtime, for `anchor.identity.name` (x:Name), then
-`anchor.identity.automationId`, then `anchor.identity.content` (runtime text);
-`context.window` names the window it was in. Show the match to the user before
-editing when more than one place fits.
+that builds or loads XAML at runtime, for its x:Name, AutomationId, or text
+(`anchor.identity.name`, `automationId`, `content`); `context.windowTitle` names the
+window it was in. Show the match to the user before editing when more than one place
+fits.
 
 For visual requests ("warmer", "less contrast"), read `context` first:
 `context.style` is the element's style resource and `context.brushes` lists each
