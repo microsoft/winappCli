@@ -18,7 +18,7 @@ renames or merges skills can still be scored. They come in two sets:
 
 | Set | Scenarios | Use |
 |---|---|---|
-| `dev` (default) | 67 | Iterate on descriptions and structure freely. Never cite it as proof. |
+| `dev` (default) | 68 | Iterate on descriptions and structure freely. Never cite it as proof. |
 | `heldout` | 40, each with 2 paraphrases (120 prompts) | Release and decision checks only. See [Held-out set](#held-out-set). |
 
 ```powershell
@@ -38,10 +38,10 @@ pwsh benchmarks\agents\run.ps1 -Plan
 # Print the expanded run list and session count without calling a model
 pwsh benchmarks\agents\run.ps1 -Plan
 
-# Recommended first step: a quick dev baseline (one model, one iteration: 172 sessions)
+# Recommended first step: a quick dev baseline (one model, one iteration: 178 sessions)
 pwsh benchmarks\agents\run.ps1 -Model claude-sonnet-5.5 -Iterations 1
 
-# Then the full dev matrix (3 models x 3 iterations: 1548 sessions)
+# Then the full dev matrix (3 models x 3 iterations: 1602 sessions)
 pwsh benchmarks\agents\run.ps1
 
 # Check scenario prompts for leaked skill vocabulary and unrealistic fixtures (no model calls)
