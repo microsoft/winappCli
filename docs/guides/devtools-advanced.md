@@ -165,6 +165,9 @@ Without a repository, the supplied source directory is used. Live capture uses t
 app's reported source root; `--source-root <dir>` overrides it and also locates the
 store for later commands. An app that `winapp run` launched without a project reports
 the folder `winapp run` was invoked from instead, so its comments are kept there.
+Screenshots of live comments are saved next to the store as
+`.winapp/ui-comment-shots/<id>.png`; re-saving a comment from a live element replaces
+its image. Comments saved from Windows Sandbox have no screenshot.
 
 Live markers include only comments from the app's reported project or explicit
 `--source-root`. Unassigned comments remain in the store but are not sent to a

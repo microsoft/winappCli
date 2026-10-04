@@ -124,7 +124,7 @@ internal class DevToolsCommentsUpdateCommand : Command, IShortDescription, IHelp
                 var warning = CommentsSharedOptions.RefreshViews(pusher, app is null ? null : pid, sourceRoot, location.StorePath,
                     parseResult.GetValue(CommentsSharedOptions.SourceRootOption), cancellationToken);
 
-                Emit(ansiConsole, json, resolver, sourceRoot, updated, "Updated", warning);
+                Emit(ansiConsole, json, resolver, sourceRoot, updated, "Updated", warning, location.StorePath);
                 return Task.FromResult(guestComments?.WriterExitCode(warning is not null,
                     updated.Status != status) ?? 0);
             }
@@ -134,11 +134,11 @@ internal class DevToolsCommentsUpdateCommand : Command, IShortDescription, IHelp
             }
         }
 
-        internal static int Emit(IAnsiConsole ansiConsole, bool json, ICommentAnchorResolver resolver, string sourceRoot, Comment updated, string verb, string? warning = null)
+        internal static int Emit(IAnsiConsole ansiConsole, bool json, ICommentAnchorResolver resolver, string sourceRoot, Comment updated, string verb, string? warning = null, string? storePath = null)
         {
             if (json)
             {
-                var view = CommentViewBuilder.ToView(updated, resolver, sourceRoot);
+                var view = CommentViewBuilder.ToView(updated, resolver, sourceRoot, storePath);
                 var payload = new CommentResultPayload { Ok = true, Comment = view, Warning = warning };
                 ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentResultPayload));
             }

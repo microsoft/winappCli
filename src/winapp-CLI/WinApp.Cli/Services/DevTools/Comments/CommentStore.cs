@@ -265,6 +265,7 @@ internal sealed class CommentStore : ICommentStore
             }
             var doc = Load(storePath);
             var before = System.Text.Json.JsonSerializer.Serialize(doc, CommentsJsonContext.Default.CommentStoreDocument);
+            var screenshots = CommentScreenshots.Referenced(storePath, doc.Comments);
             mutate(doc);
             if (System.Text.Json.JsonSerializer.Serialize(doc, CommentsJsonContext.Default.CommentStoreDocument) == before)
             {
@@ -272,6 +273,7 @@ internal sealed class CommentStore : ICommentStore
             }
             doc.Generation = checked(doc.Generation + 1);
             Save(storePath, doc);
+            CommentScreenshots.DeleteReleased(storePath, screenshots, doc.Comments);
         }
         catch (CommentStoreCorruptException ex)
         {

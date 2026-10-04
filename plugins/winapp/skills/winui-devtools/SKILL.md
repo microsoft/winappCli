@@ -127,6 +127,13 @@ of searching for the color. Without a `resourceKey`, the value comes from the
 platform's default style; override it locally or with the control's lightweight
 styling resource.
 
+When a comment has `screenshot.path`, open that image before editing, especially for
+vague comments ("this looks off", "fix this"). The commented element is outlined in
+magenta; password boxes are painted grey. `screenshot.visibility: "partial"` means the
+element was partly scrolled or clipped out of view, and `notCaptured` lists content
+(such as `WebView2`) that shows blank. The image shows the app as the reviewer saw it,
+including theme and data, which source alone may not.
+
 Flag unconfirmed anchors instead of guessing. Keep durable comment success
 distinct from a marker-refresh warning. Source candidates and line numbers are
 hints to verify, not proof of identity. Use `comments add` only when programmatic

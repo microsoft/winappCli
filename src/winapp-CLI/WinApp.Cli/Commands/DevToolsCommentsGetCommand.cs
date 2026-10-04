@@ -67,7 +67,7 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription, IHelpExa
                     return Task.FromResult(DevToolsCommentsAddCommand.Fail(ansiConsole, json, CommentsSharedOptions.NotFoundMessage(id, location)));
                 }
 
-                var view = CommentViewBuilder.ToView(comment, resolver, sourceRoot);
+                var view = CommentViewBuilder.ToView(comment, resolver, sourceRoot, location.StorePath);
                 if (json)
                 {
                     var payload = new CommentResultPayload { Ok = true, Comment = view };
@@ -99,6 +99,10 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription, IHelpExa
                     foreach (var line in CommentElementContext.Lines(view.Context))
                     {
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]{Markup.Escape(line)}[/]");
+                    }
+                    if (view.Screenshot is { } shot)
+                    {
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]Screenshot: {Markup.Escape(shot.Path)}{Markup.Escape(CommentScreenshots.Describe(shot))}[/]");
                     }
                     foreach (var h in view.Hits)
                     {

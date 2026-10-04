@@ -667,6 +667,30 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             L"\",\"unique\":" + (unique ? L"true" : L"false") +
             L",\"uniquenessReason\":\"" + DevToolsJsonEscape(reason ? reason : L"unverified") + L"\"}");
     }
+    if (m == L"Internal.elementSnapshot") {
+        // A comment's screenshot. Rendering starts on the UI thread and finishes on later frames, so this
+        // connection thread waits for it without holding the UI thread.
+        unsigned long long wire = (unsigned long long)p.GetInt(L"handle", 0);
+        if (!wire) return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"handle is required", L"bad-args");
+        auto job = std::make_shared<std::shared_ptr<DevToolsSnapshotJob>>();
+        auto failure = std::make_shared<const wchar_t*>(nullptr);
+        HRESULT hr = RunOnUiThread([wire, job, failure]() -> HRESULT {
+            InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
+            AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih, &e); ReleaseSRWLockShared(&g_censusLock);
+            if (!ok || !ih) { *failure = e ? e : L"stale-handle"; return S_OK; }
+            winrt::com_ptr<IInspectable> insp;
+            if (!g_diag || FAILED(g_diag->GetIInspectableFromHandle(ih, insp.put())) || !insp) { *failure = L"stale-handle"; return S_OK; }
+            *job = DevToolsSnapshot_Begin(insp.get(), failure.get());
+            return S_OK;
+        });
+        if (FAILED(hr)) return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher, L"The app's UI thread did not answer.", L"ui-thread");
+        std::wstring result;
+        const wchar_t* error = *failure;
+        if (!error && !DevToolsSnapshot_Finish(*job, 5000, &result, &error) && !error) error = L"internal";
+        if (error) return DevToolsRpcError(id, DevToolsErr::NotFound, L"The element could not be captured.", error);
+        Log(L"Internal.elementSnapshot %llu bytes=%zu", wire, result.size());
+        return DevToolsRpcResult(id, result);
+    }
     if (m == L"Internal.setComments") {
         // A comment set larger than one request line arrives as parts of its JSON text; the last part applies it.
         DevToolsJson joined;

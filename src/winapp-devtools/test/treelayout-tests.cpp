@@ -600,6 +600,8 @@ int RunReadTests();
 int RunAuthoredTests();
 // Defined in pickroute-tests.cpp: release-time routing for a pick armed from the DevTools window.
 int RunPickRouteTests();
+// Defined in snapshot-tests.cpp: how a comment screenshot is framed, clipped, masked and outlined.
+int RunSnapshotTests();
 // Defined in perf-tests.cpp: the UI-thread attribution and self-time invariants behind the budget.
 int RunPerfTests();
 // Defined in uidispatch-tests.cpp: independent operation ownership under the exact three-way detail-read
@@ -819,6 +821,7 @@ int main()
 
     std::printf("\n");
     const int pickRouteFailures = RunPickRouteTests();
+    const int snapshotFailures = RunSnapshotTests();
 
     std::printf("\n");
     const int perfFailures = RunPerfTests();
@@ -860,7 +863,7 @@ int main()
     const int total = g_failures + protocolFailures + trustFailures + crashFailures + sourcePathFailures + sinkFailures +
                       cornerFailures + toolbarFailures + authoredFailures +
                       selectionPlacementFailures + inspectorAcceptanceFailures + selectionTrackingFailures + relayFailures +
-                      bindingRowFailures + pathWalkFailures + pathProbeFailures + pathSyntaxFailures + readFailures + pickRouteFailures + perfFailures + uiDispatchFailures +
+                      bindingRowFailures + pathWalkFailures + pathProbeFailures + pathSyntaxFailures + readFailures + pickRouteFailures + snapshotFailures + perfFailures + uiDispatchFailures +
                       focusSubscriptionFailures + overlayStateFailures + resourceInlineFailures +
                       shellOpenFailures + ownedStateFailures + batchFailures + queryFailures + bindingAnswerFailures +
                       pipeAcceptFailures + framingFailures + eventsFailures;

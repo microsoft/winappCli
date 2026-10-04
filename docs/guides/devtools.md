@@ -177,6 +177,15 @@ A key is shown only when it was written on the element or on a setter of a style
 your project; values from the platform's default styles show the value only. Comments
 added with `--file`/`--line` and no running element have no context.
 
+A comment left on a live element also gets a screenshot: the element outlined in
+magenta, with the row or group around it. `get` prints its path, and `--json` gives
+it as `screenshot.path`; open the image to see what the reviewer saw. Password boxes
+are painted over, but other text on screen, such as an email address, is in the
+image. Images stay in `.winapp/ui-comment-shots/` beside the comments, are not
+committed, and are deleted with their comment. There is no image when the element was
+scrolled out of view or hidden, and `get` notes when the element was only partly
+visible or when web or video content in the frame shows blank.
+
 The agent should verify each source location, make the requested change, and
 resolve the comment only after checking the result:
 

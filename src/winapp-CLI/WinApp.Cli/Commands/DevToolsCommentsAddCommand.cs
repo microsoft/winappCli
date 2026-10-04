@@ -238,10 +238,17 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                 CaptureNamedDeclaration(comment, sourceRoot);
             }
 
+            CommentScreenshots.Pending? screenshot = null;
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var storePath = store.GetStorePath(new DirectoryInfo(sourceRoot));
+                // A live element also gets its picture. Host-backed (sandbox) comments carry none.
+                if (captured?.Handle is { } capturedHandle && appPid is uint snapshotPid && guestComments?.Session is null)
+                {
+                    screenshot = CommentScreenshots.Capture(snapshotPid, capturedHandle, storePath, comment.Id, logger, cancellationToken);
+                    comment.Screenshot = screenshot?.Reference;
+                }
                 // Upsert when the caller supplied an id (the in-app editor re-saving an element edits in place);
                 // otherwise append a fresh comment.
                 var replaced = false;
@@ -253,6 +260,17 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                 {
                     comment = store.Add(storePath, comment);
                 }
+                if (screenshot is not null)
+                {
+                    try
+                    {
+                        screenshot.Commit();
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        logger.LogDebug("Screenshot for comment {Id} was not saved: {Message}", comment.Id, ex.Message);
+                    }
+                }
 
                 var verb = replaced ? "Updated" : "Added";
                 logger.LogDebug("{Verb} comment {Id} in {Store}", verb, comment.Id, storePath);
@@ -262,13 +280,17 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
 
                 if (json)
                 {
-                    var view = CommentViewBuilder.ToView(comment, resolver, sourceRoot);
+                    var view = CommentViewBuilder.ToView(comment, resolver, sourceRoot, storePath);
                     var payload = new CommentResultPayload { Ok = true, Comment = view, Warning = warning };
                     ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentResultPayload));
                 }
                 else
                 {
                     DevToolsRender.WriteMarkupLine(ansiConsole, $"[green]{verb}[/] comment [cyan]{Markup.Escape(comment.Id)}[/] → {Markup.Escape(storePath)}");
+                    if (CommentScreenshots.ForOutput(storePath, comment) is { } shot)
+                    {
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]Screenshot: {Markup.Escape(shot.Path)}[/]");
+                    }
                     if (warning is not null)
                     {
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"[yellow]{Markup.Escape(warning)}[/]");
@@ -280,6 +302,10 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             catch (Exception ex)
             {
                 return Task.FromResult(Fail(ansiConsole, json, ex.Message));
+            }
+            finally
+            {
+                screenshot?.Dispose();
             }
         }
     }

@@ -59,6 +59,7 @@
 #include "DevToolsPipeAcceptLoop.h"
 #include "DevToolsPipeFraming.h"
 #include "DevToolsBatch.h"
+#include "DevToolsSnapshot.h"
 
 // DevToolsOverlay_ArmPick / DevToolsOverlay_DisarmPick (used by the selection.arm / selection.disarm verbs below) are
 // declared in DevToolsOverlay.h (included above) and defined in DevToolsOverlay.cpp, which owns the pick catcher. Both

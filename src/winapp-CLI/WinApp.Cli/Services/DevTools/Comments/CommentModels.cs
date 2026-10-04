@@ -51,7 +51,35 @@ internal sealed class Comment
 
     public CommentContext? Context { get; set; }
 
+    public CommentScreenshot? Screenshot { get; set; }
+
     public CommentResolution? Resolution { get; set; }
+}
+
+/// <summary>
+/// A picture of the element as the reviewer saw it: the element outlined in magenta inside its nearby context,
+/// with password boxes painted over. Stored next to the comments store; never inlined.
+/// </summary>
+internal sealed class CommentScreenshot
+{
+    /// <summary>Relative to the store's <c>.winapp</c> folder in the store; absolute in command output.</summary>
+    [JsonRequired]
+    public string Path { get; set; } = string.Empty;
+
+    public int Width { get; set; }
+
+    public int Height { get; set; }
+
+    public string? CapturedAt { get; set; }
+
+    /// <summary><c>partial</c> when the element was scrolled or clipped, so only part of it is outlined.</summary>
+    public string? Visibility { get; set; }
+
+    /// <summary>The app theme when it was captured: <c>dark</c> or <c>light</c>.</summary>
+    public string? Theme { get; set; }
+
+    /// <summary>Content types in the frame that render blank, such as <c>WebView2</c>.</summary>
+    public List<string>? NotCaptured { get; set; }
 }
 
 internal sealed class CommentAnchor
@@ -261,6 +289,8 @@ internal sealed class CommentView
     public string? ProjectRoot { get; set; }
 
     public CommentContext? Context { get; set; }
+
+    public CommentScreenshot? Screenshot { get; set; }
 
     public CommentResolution? Resolution { get; set; }
 

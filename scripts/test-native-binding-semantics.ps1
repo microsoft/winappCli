@@ -50,7 +50,7 @@ if ($CompileShipping -or $EditorTests -or $OverlayTests) {
         $shipping += @('DevToolsSurface.cpp', 'DevToolsTrust.cpp', 'DevToolsSourcePath.cpp', 'DevToolsEvents.cpp',
             'DevToolsOverlay.cpp', 'DevToolsAppXaml.cpp', 'DevToolsPathSyntax.cpp', 'DevToolsBindingRelay.cpp',
             'DevToolsBindingRow.cpp', 'DevToolsAuthored.cpp', 'DevToolsTreeLayout.cpp', 'DevToolsCrash.cpp',
-            'DevToolsPerf.cpp', 'DevToolsUiDispatch.cpp')
+            'DevToolsPerf.cpp', 'DevToolsUiDispatch.cpp', 'DevToolsSnapshot.cpp')
     }
     foreach ($unit in $shipping) {
         $compile = "cl /nologo /c /std:c++20 /EHsc /W3 /WX /DUNICODE /I`"$projection`" `"$src\$unit`" /Fo:`"$OutDir\\`""
@@ -68,7 +68,7 @@ if ($CompileShipping -or $EditorTests -or $OverlayTests) {
                       'DevToolsPathProbeRead', 'DevToolsProtocol') | ForEach-Object { Join-Path $OutDir "$_.obj" }
         $quoted = ($objects | ForEach-Object { "`"$_`"" }) -join ' '
         $harnessExe = Join-Path $OutDir "$($harness.Name).exe"
-        $compile = "cl /nologo /std:c++20 /EHsc /W3 /WX /DUNICODE /I`"$projection`" `"$test\$($harness.Name).cpp`" $quoted /Fo:`"$OutDir\\`" /Fe:`"$harnessExe`" /link ole32.lib oleaut32.lib uuid.lib runtimeobject.lib advapi32.lib user32.lib gdi32.lib shell32.lib dbghelp.lib dwmapi.lib winmm.lib WindowsApp.lib"
+        $compile = "cl /nologo /std:c++20 /EHsc /W3 /WX /DUNICODE /I`"$projection`" `"$test\$($harness.Name).cpp`" $quoted /Fo:`"$OutDir\\`" /Fe:`"$harnessExe`" /link ole32.lib oleaut32.lib uuid.lib runtimeobject.lib advapi32.lib user32.lib gdi32.lib shell32.lib dbghelp.lib dwmapi.lib winmm.lib windowscodecs.lib WindowsApp.lib"
         & $env:ComSpec /c "call `"$VcVars`" >nul && $compile"
         if ($LASTEXITCODE -ne 0) { throw "$($harness.Name) compilation failed: $LASTEXITCODE" }
         & $harnessExe

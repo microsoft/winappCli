@@ -58,6 +58,7 @@ $testCpps = @(
     (Join-Path $testDir "read-tests.cpp"),
     (Join-Path $testDir "authored-tests.cpp"),
     (Join-Path $testDir "pickroute-tests.cpp"),
+    (Join-Path $testDir "snapshot-tests.cpp"),
     (Join-Path $testDir "perf-tests.cpp")
     (Join-Path $testDir "uidispatch-tests.cpp")
     (Join-Path $testDir "focus-subscription-tests.cpp"),

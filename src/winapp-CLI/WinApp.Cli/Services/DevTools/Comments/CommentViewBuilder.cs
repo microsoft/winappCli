@@ -43,7 +43,7 @@ internal static class CommentViewBuilder
         }
     }
 
-    public static CommentView ToView(Comment c, ICommentAnchorResolver resolver, string? sourceRoot)
+    public static CommentView ToView(Comment c, ICommentAnchorResolver resolver, string? sourceRoot, string? storePath = null)
     {
         // Re-anchor under the project the comment was captured against, not under wherever the user happens to
         // be standing. The store moved to the repo root, so listing from there would otherwise scan
@@ -65,6 +65,7 @@ internal static class CommentViewBuilder
             Anchor = c.Anchor,
             ProjectRoot = c.ProjectRoot,
             Context = c.Context,
+            Screenshot = CommentScreenshots.ForOutput(storePath, c),
             Resolution = c.Resolution,
             Hits = [.. resolver.ReAnchor(c.Anchor, searchRoot)],
         };
@@ -144,7 +145,7 @@ internal static class CommentViewBuilder
 
         foreach (var c in comments)
         {
-            payload.Comments.Add(ToView(c, resolver, sourceRoot));
+            payload.Comments.Add(ToView(c, resolver, sourceRoot, storePath));
         }
 
         return payload;

@@ -240,6 +240,8 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
     public DevToolsProtocolResponse GetSourceRoot(CancellationToken cancellationToken = default) => Request("Internal.sourceRoot", timeoutMs: 4000, cancellationToken: cancellationToken);
     public DevToolsProtocolResponse GetElementAnchor(string handle, CancellationToken cancellationToken = default) =>
         Request("Internal.elementAnchor", w => w.WriteString("handle", handle), 4000, cancellationToken);
+    public DevToolsProtocolResponse GetElementSnapshot(string handle, int timeoutMs, CancellationToken cancellationToken = default) =>
+        Request("Internal.elementSnapshot", w => w.WriteString("handle", handle), timeoutMs, cancellationToken);
 
     /// <summary>The bytes one comment-push part may carry, leaving room for the request envelope under <see cref="MaxRequestBytes"/>.</summary>
     internal const int CommentPartBudget = 56 * 1024;
