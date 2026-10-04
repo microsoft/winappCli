@@ -2,6 +2,9 @@
 name: winapp-signing
 description: "Sign an existing .msix or .exe and manage code-signing certificates: winapp sign, cert generate/install/info, Azure Trusted Signing. Use when signing with a .pfx, creating or trusting a dev certificate, verifying a signature, or fixing a publisher mismatch. Not for building the MSIX."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:

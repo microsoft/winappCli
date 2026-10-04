@@ -2,6 +2,9 @@
 name: winapp-setup
 description: Add Windows SDK and Windows App SDK support to an existing project (winapp init), restore pinned SDKs after cloning (winapp restore), update SDKs, or create a new WinUI app (winapp new). Use for Electron, .NET, C++, Rust, Flutter, or Tauri projects that need Windows setup.
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:

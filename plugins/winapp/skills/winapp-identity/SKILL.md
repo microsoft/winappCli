@@ -2,6 +2,9 @@
 name: winapp-identity
 description: "Give a desktop app (WPF, WinForms, Electron, C++, Rust) package identity so identity-only Windows APIs work: toast and push notifications, background tasks, share target, startup tasks. Use when adding such a feature, or running and debugging with identity (winapp run, create-debug-identity)."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:

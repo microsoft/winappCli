@@ -2,6 +2,9 @@
 name: winapp-manifest
 description: "Edit Package.appxmanifest or appxmanifest.xml: execution aliases (launch from a terminal), file associations, protocols, capabilities, identity, and app icons/tiles (regenerate all from one image). Use when changing what the manifest declares or replacing icons. Not for packaging or signing."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:

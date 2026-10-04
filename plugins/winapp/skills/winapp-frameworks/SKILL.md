@@ -2,6 +2,9 @@
 name: winapp-frameworks
 description: "Framework-specific Windows steps for Electron, WPF, WinForms, C++, Rust, Flutter, and Tauri: build output, npm scripts, Cargo, CMake, and how winapp fits each. Use with setup, packaging, or identity work on one of these frameworks."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:

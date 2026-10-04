@@ -3,6 +3,8 @@ name: winapp-find-api
 description: Look up the real Windows, WinRT, and Windows App SDK APIs a project can call (types, members, enums) with winapp find-api instead of guessing. Use before writing code against an unverified Windows API, or to fix unknown-member, CS0117, CS1061, or WMC0011 errors. Not for Win32 or registry code.
 ---
 
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## This is an agent-first command
 
 `find-api` was designed for **you, the agent** — not primarily for a human reading a

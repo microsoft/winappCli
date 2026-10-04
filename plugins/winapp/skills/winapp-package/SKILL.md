@@ -2,6 +2,9 @@
 name: winapp-package
 description: Build an MSIX installer for a desktop app (Electron, .NET, C++, Rust, Flutter, Tauri) from a built folder or .csproj with winapp package, optionally signing it too. Use for an installer testers can sideload, distributing an app, or MSIX packaging in a script or CI. Not for signing an existing MSIX.
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:

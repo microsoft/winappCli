@@ -2,6 +2,9 @@
 name: winapp-troubleshoot
 description: "Diagnose Windows app packaging, signing, install, identity, and SDK errors: untrusted or mismatched certificates, Add-AppxPackage and 0x80073CFx install failures, no package identity, C++/WinRT headers not generated. Use when an MSIX won't install or build, or an error code appears."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:

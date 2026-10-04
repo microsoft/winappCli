@@ -3,6 +3,8 @@ name: winapp-find-ui
 description: Find the right WinUI 3 control and a real, compiling sample from the WinUI Gallery or Community Toolkit with winapp find-ui. Use when building WinUI UI and unsure which control fits (cards, tabs, swipe lists, inline messages) or when asked for a sample. Not for WPF, WinForms, or a running app.
 ---
 
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## This is an agent-first command
 
 `find-ui` was designed for **you, the agent** — not primarily for a human browsing a
