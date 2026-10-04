@@ -340,6 +340,19 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
+    public async Task BuildAndResolve_Vcxproj_PlatformConflictingWithArch_IsRejected()
+    {
+        var project = WriteFile("App.vcxproj", CppApp);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: ["Platform=ARM64"]);
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => _service.BuildAndResolveAsync(project, options, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "--arch arm64");
+        Assert.AreEqual(0, _msbuild.Calls.Count);
+    }
+
+    [TestMethod]
     public void BuildCppPropertyTokens_MapsArchitectureAndHonorsUserPlatformAndSolution()
     {
         var solution = WriteFile("App.slnx", Slnx("App.vcxproj"));

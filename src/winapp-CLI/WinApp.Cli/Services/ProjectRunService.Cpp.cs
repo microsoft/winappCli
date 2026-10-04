@@ -63,11 +63,30 @@ internal sealed partial class ProjectRunService
         _ => "x64",
     };
 
+    /// <summary>The winapp architecture for a standard C++ <c>Platform</c>, or null for a custom one.</summary>
+    internal static string? ArchitectureOfCppPlatform(string platform) => platform.Trim().ToLowerInvariant() switch
+    {
+        "x64" => "x64",
+        "arm64" => "arm64",
+        "win32" or "x86" => "x86",
+        _ => null,
+    };
+
     private async Task<ProjectBuildOutcome> BuildAndResolveCppAsync(
         FileInfo project,
         ProjectRunOptions options,
         CancellationToken cancellationToken)
     {
+        // The architecture drives toolchain lookup and runtime provisioning, so a -p Platform naming another
+        // one would build one architecture and provision another.
+        if (TryGetUserProperty(options.Properties, "Platform", out var userPlatform)
+            && ArchitectureOfCppPlatform(userPlatform) is { } platformArch
+            && !string.Equals(platformArch, options.Architecture, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ProjectRunException(
+                $"-p Platform={userPlatform} conflicts with the target architecture ({options.Architecture}). Use --arch {platformArch} instead.");
+        }
+
         var msbuild = await msBuildService.LocateCppMSBuildAsync(options.Architecture, cancellationToken);
         var properties = BuildCppPropertyTokens(options);
 

@@ -260,7 +260,7 @@ internal partial class MsixService
             // with 0x80073CF3.
             if (recipeFile is not null)
             {
-                await InstallRecipeFrameworkPackagesAsync(recipeFile, doc, runtimeArch, taskContext, cancellationToken);
+                await InstallRecipeFrameworkPackagesAsync(recipeFile, registrationManifest, runtimeArch, taskContext, cancellationToken);
             }
 
             var skipResult = TrySkipRegistration(
@@ -681,8 +681,19 @@ internal partial class MsixService
             var a => a ?? string.Empty,
         };
 
-    private async Task InstallRecipeFrameworkPackagesAsync(FileInfo recipeFile, AppxManifestDocument manifest, string? runtimeArch, TaskContext taskContext, CancellationToken cancellationToken)
+    private async Task InstallRecipeFrameworkPackagesAsync(FileInfo recipeFile, FileInfo registrationManifest, string? runtimeArch, TaskContext taskContext, CancellationToken cancellationToken)
     {
+        // Read the staged manifest that will be registered: the recipe can replace the input manifest.
+        AppxManifestDocument manifest;
+        try
+        {
+            manifest = AppxManifestDocument.Parse(await File.ReadAllTextAsync(registrationManifest.FullName, Encoding.UTF8, cancellationToken));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return;
+        }
+
         var architecture = manifest.IdentityProcessorArchitecture ?? runtimeArch;
         if (string.IsNullOrWhiteSpace(architecture))
         {
