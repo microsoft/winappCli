@@ -571,7 +571,12 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         wchar_t root[1024]{};
         DWORD n = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", root, (DWORD)_countof(root));
         std::wstring value = (n > 0 && n < _countof(root)) ? std::wstring(root, n) : std::wstring();
-        return DevToolsRpcResult(id, L"{\"sourceRoot\":\"" + DevToolsJsonEscape(value) + L"\"}");
+        // Without a project, comments still need one home: the folder the developer launched the app from.
+        wchar_t comments[1024]{};
+        n = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_COMMENT_ROOT", comments, (DWORD)_countof(comments));
+        std::wstring commentRoot = (n > 0 && n < _countof(comments)) ? std::wstring(comments, n) : std::wstring();
+        return DevToolsRpcResult(id, L"{\"sourceRoot\":\"" + DevToolsJsonEscape(value) + L"\"" +
+            (commentRoot.empty() ? L"" : L",\"commentRoot\":\"" + DevToolsJsonEscape(commentRoot) + L"\"") + L"}");
     }
     if (m == L"Internal.elementAnchor") {
         // hand the CLI the SAME rebuild-stable anchor the pin re-anchoring uses, so a comment it is about

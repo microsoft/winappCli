@@ -157,7 +157,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             }
 
             var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ??
-                captured?.SourceRoot ?? currentDirectory.GetCurrentDirectory();
+                captured?.CommentRoot ?? currentDirectory.GetCurrentDirectory();
             if (captured?.SourceProvenance == "likely-source-line" && !parseResult.GetValue(ConfirmLikelySourceOption))
             {
                 return Task.FromResult(Fail(ansiConsole, json,
@@ -218,11 +218,12 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             };
 
             var property = Nullify(parseResult.GetValue(PropertyOption));
-            if (property is not null || bounds is not null || captured?.Style is not null || captured?.Brushes is not null)
+            if (property is not null || bounds is not null || captured?.Style is not null || captured?.Brushes is not null ||
+                captured?.Window is not null)
             {
                 comment.Context = new CommentContext
                 {
-                    Property = property, Bounds = bounds, Style = captured?.Style, Brushes = captured?.Brushes,
+                    Property = property, Window = captured?.Window, Bounds = bounds, Style = captured?.Style, Brushes = captured?.Brushes,
                 };
             }
 

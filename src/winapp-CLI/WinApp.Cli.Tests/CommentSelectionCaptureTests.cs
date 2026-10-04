@@ -589,7 +589,8 @@ public class CommentSelectionCaptureTests
         Assert.AreEqual(35, result.Element.Line);
         Assert.AreEqual("Root/0", result.Element.ElementPath);
         Assert.AreEqual(@"C:\owned\project", result.Element.SourceRoot);
-        Assert.AreEqual(6, agent.Received.Count);
+        CollectionAssert.AreEqual(new[] { "Selection.poll", "VisualTree.enumerate", "Property.get", "Source.get",
+            "Internal.elementAnchor", "Internal.sourceRoot", "VisualTree.getPreviews", "Surface.list" }, agent.Received);
     }
 
     [TestMethod]

@@ -31,11 +31,11 @@ internal static class DevToolsArtifacts
         var hook = managed ? EngineStaging.StageForForeignLoad(BindingHostPath) : null;
         return ComposeLaunchEnvironment(
             sourceRoot, hook, BindingHostPath,
-            Environment.GetEnvironmentVariable(DevToolsStartupHooks.EnvVarName));
+            Environment.GetEnvironmentVariable(DevToolsStartupHooks.EnvVarName), Environment.CurrentDirectory);
     }
 
     internal static IReadOnlyDictionary<string, string?> ComposeLaunchEnvironment(
-        string? sourceRoot, string? hook, string ownedSourceHook, string? inheritedHooks)
+        string? sourceRoot, string? hook, string ownedSourceHook, string? inheritedHooks, string? launchDirectory = null)
     {
         var environment = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
         {
@@ -44,10 +44,16 @@ internal static class DevToolsArtifacts
             ["WINAPP_DEVTOOLS_SOURCE_INVENTORY"] = null,
             ["WINAPP_DEVTOOLS_SOURCE_INVENTORY_HASH"] = null,
             ["WINAPP_DEVTOOLS_SOURCE_PAYLOAD_HELD"] = null,
+            ["WINAPP_DEVTOOLS_COMMENT_ROOT"] = null,
         };
         if (!string.IsNullOrEmpty(sourceRoot))
         {
             environment["WINAPP_DEVTOOLS_SOURCE_ROOT"] = Path.GetFullPath(sourceRoot);
+        }
+        else if (!string.IsNullOrEmpty(launchDirectory))
+        {
+            // No project to link comments to: keep them where the developer ran winapp, not in the build output.
+            environment["WINAPP_DEVTOOLS_COMMENT_ROOT"] = Path.GetFullPath(launchDirectory);
         }
         if (hook is not null)
         {

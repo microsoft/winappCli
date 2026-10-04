@@ -163,7 +163,8 @@ records an uncertain anchor; `delete <id>` permanently removes the comment.
 Comments persist in `.winapp/ui-comments.json` at the enclosing repository root.
 Without a repository, the supplied source directory is used. Live capture uses the
 app's reported source root; `--source-root <dir>` overrides it and also locates the
-store for later commands.
+store for later commands. An app that `winapp run` launched without a project reports
+the folder `winapp run` was invoked from instead, so its comments are kept there.
 
 Live markers include only comments from the app's reported project or explicit
 `--source-root`. Unassigned comments remain in the store but are not sent to a

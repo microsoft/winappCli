@@ -20,6 +20,9 @@ internal enum CaptureStatus
 internal sealed class CapturedElement
 {
     public string? SourceRoot { get; init; }
+
+    /// <summary>Where the app's comments are stored: <see cref="SourceRoot"/>, or the folder an app without one was launched from.</summary>
+    public string? CommentRoot { get; init; }
     public string? Handle { get; init; }
 
     public string? Type { get; init; }
@@ -50,6 +53,9 @@ internal sealed class CapturedElement
     public string? ElementPath { get; init; }
 
     public CommentStyleContext? Style { get; init; }
+
+    /// <summary>Title of the window that showed the element.</summary>
+    public string? Window { get; init; }
 
     public List<CommentBrushContext>? Brushes { get; init; }
 }
@@ -107,7 +113,8 @@ internal static class CommentSelectionCapture
     {
         try
         {
-            var node = FindNode(tap.RequestEnumerate(null, null, cancellationToken: cancellationToken).RequireResult(), handle);
+            var tree = tap.RequestEnumerate(null, null, cancellationToken: cancellationToken).RequireResult();
+            var node = FindNode(tree, handle);
             if (node is null)
             {
                 return Failed(new(-32000, "not-found", "The selected element is no longer in the visual tree."));
@@ -122,7 +129,8 @@ internal static class CommentSelectionCapture
             using var anchorJson = anchorResponse.TryParseResult();
             var unique = anchorJson is not null && anchorJson.RootElement.TryGetProperty("unique", out var uniqueness) &&
                 uniqueness.ValueKind == JsonValueKind.True;
-            var sourceRoot = ReadStringResult(tap.GetSourceRoot(cancellationToken), "sourceRoot");
+            var rootResponse = tap.GetSourceRoot(cancellationToken);
+            var sourceRoot = ReadStringResult(rootResponse, "sourceRoot");
             file = uri is null ? file : Comments.CommentAnchorResolver.RelativeSourcePath(uri, sourceRoot);
             CommentAuthoredAnchor? authored = null;
             string? automationId = null;
@@ -159,6 +167,12 @@ internal static class CommentSelectionCapture
                 if (declaredId is not null && !declaredId.StartsWith('{')) { automationId = declaredId; }
             }
             var (style, brushes) = CommentElementContext.Read(propsJson, Nullify(sourceRoot));
+            // Without a declaration, the live AutomationId is the element's most stable searchable identity.
+            if (authored is null && !selfGivenName)
+            {
+                automationId = ReadLiveAutomationId(tap, handle, cancellationToken);
+            }
+            var window = ReadWindowTitle(tap, tree, handle, cancellationToken);
             return new CaptureResult
             {
                 Status = CaptureStatus.Ok,
@@ -181,8 +195,10 @@ internal static class CommentSelectionCapture
                     Authored = authored,
                     ElementPath = Nullify(elementPath),
                     SourceRoot = Nullify(sourceRoot),
+                    CommentRoot = Nullify(ReadCommentRoot(rootResponse)),
                     Style = style,
                     Brushes = brushes,
+                    Window = window,
                 },
             };
         }
@@ -211,6 +227,85 @@ internal static class CommentSelectionCapture
             throw new DevToolsProtocolException(new(-32603, "internal", $"The DevTools response has no '{field}' string."));
         }
         return value.GetString()!;
+    }
+
+    /// <summary>
+    /// Where the app's comments live: its project folder, or, for an app launched without one, the folder it was
+    /// launched from. Empty when the app knows neither.
+    /// </summary>
+    internal static string ReadCommentRoot(DevToolsProtocolResponse response)
+    {
+        var sourceRoot = ReadStringResult(response, "sourceRoot");
+        if (sourceRoot.Length > 0)
+        {
+            return sourceRoot;
+        }
+        using var doc = JsonDocument.Parse(response.ResultJson!, TapWireJson.DocumentOptions);
+        return doc.RootElement.TryGetProperty("commentRoot", out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()! : "";
+    }
+
+    // Best effort: identity extras never block a comment.
+    private static string? ReadLiveAutomationId(VisualTreeTap tap, string handle, CancellationToken cancellationToken)
+    {
+        var (_, facts, _) = DevToolsPreviews.Fetch(tap, [handle], cancellationToken);
+        var id = Nullify(facts.GetValueOrDefault(handle)?.AutomationId);
+        return id is null || id.StartsWith('{') ? null : id;
+    }
+
+    /// <summary>The title of the window (or popup) whose content holds the element, as the reviewer saw it.</summary>
+    internal static string? ReadWindowTitle(VisualTreeTap tap, string? enumerateJson, string handle, CancellationToken cancellationToken)
+    {
+        using var surfaces = tap.Request("Surface.list", cancellationToken: cancellationToken).TryParseResult();
+        if (surfaces?.RootElement is not { ValueKind: JsonValueKind.Object } root ||
+            !root.TryGetProperty("surfaces", out var list) || list.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+        var titles = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var surface in list.EnumerateArray())
+        {
+            if (surface.ValueKind == JsonValueKind.Object &&
+                surface.TryGetProperty("rootHandle", out var rootHandle) && rootHandle.ValueKind == JsonValueKind.String &&
+                surface.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String &&
+                Nullify(name.GetString()) is { } title)
+            {
+                titles.TryAdd(rootHandle.GetString()!, title);
+            }
+        }
+        foreach (var ancestor in AncestorsOf(enumerateJson, handle))
+        {
+            if (titles.TryGetValue(ancestor, out var title))
+            {
+                return title;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>The element's handle followed by its ancestors', nearest first; empty when it is not in the tree.</summary>
+    internal static IReadOnlyList<string> AncestorsOf(string? enumerateJson, string handle)
+    {
+        var path = new List<string>();
+        bool Walk(VisualTreeNode node)
+        {
+            path.Add(node.Handle);
+            if (node.Handle == handle || node.Children.Any(Walk))
+            {
+                return true;
+            }
+            path.RemoveAt(path.Count - 1);
+            return false;
+        }
+        foreach (var root in VisualTreeNode.ParseForest(enumerateJson) ?? [])
+        {
+            if (Walk(root))
+            {
+                path.Reverse();
+                return path;
+            }
+        }
+        return [];
     }
 
     internal static string? FindHandleByName(string? enumerateJson, string name)
