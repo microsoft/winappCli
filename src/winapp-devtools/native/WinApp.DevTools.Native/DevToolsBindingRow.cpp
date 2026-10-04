@@ -3,6 +3,9 @@
 
 #include "DevToolsBindingRow.h"
 #include "DevToolsProtocol.h"   // the tap's JSON reader; the agent's answer arrives as one compact JSON object
+#include <algorithm>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -179,4 +182,30 @@ DevToolsBindingSummary DevToolsBindingRow_Summary(const std::wstring& json)
     s.status = L"Status unknown";
     s.reason = j.GetString(L"reason");
     return s;
+}
+
+static std::vector<std::pair<unsigned long long, std::wstring>> g_liveWrites;
+
+void DevToolsBindingRow_NoteLiveWrite(unsigned long long wire, const std::wstring& prop)
+{
+    if (wire && !DevToolsBindingRow_WasWrittenLive(wire, prop)) g_liveWrites.emplace_back(wire, prop);
+}
+
+void DevToolsBindingRow_ForgetLiveWrite(unsigned long long wire, const std::wstring& prop)
+{
+    g_liveWrites.erase(std::remove(g_liveWrites.begin(), g_liveWrites.end(), std::make_pair(wire, prop)), g_liveWrites.end());
+}
+
+bool DevToolsBindingRow_WasWrittenLive(unsigned long long wire, const std::wstring& prop)
+{
+    return std::find(g_liveWrites.begin(), g_liveWrites.end(), std::make_pair(wire, prop)) != g_liveWrites.end();
+}
+
+bool DevToolsBindingRow_ApplyLiveOverride(DevToolsBindingSummary& summary, bool writtenLive, const std::wstring& shown)
+{
+    if (!writtenLive || summary.tone != DevToolsBindingTone::Works || summary.value == shown) return false;
+    summary.tone = DevToolsBindingTone::Warning;
+    summary.status = L"Overridden by a live edit";
+    summary.reason = L"until you restore the binding or restart the app";
+    return true;
 }

@@ -472,14 +472,33 @@ static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
         if (InterlockedCompareExchange(&g_diagOutstanding, 0, 0) == 0) { KillTimer(nullptr, id); g_diagTimer = 0; }
         return;
     }
-    bool any = false;
+    bool any = false, restored = false;
     for (const DiagAnswer& a : done) {
         if (a.gen != g_route1Gen || a.wire != g_selWire) continue;
         if (DiagAnswer* existing = DiagFind(a.prop)) *existing = a;
         else g_diagAnswers.push_back(a);
         any = true;
+        restored = restored || !a.action.empty();
     }
-    if (any) ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+    if (!any) return;
+    // A restore changed a value the tree's caption may show.
+    if (restored) RefreshTreeFromApp(true);
+    // Rebuild the pane where the reader is looking, not back at the top.
+    double offset = -1;
+    DevToolsXC::ScrollViewer scroller{ nullptr };
+    try {
+        if (g_inspectorContent) {
+            winrt::Windows::Foundation::IInspectable object{ nullptr };
+            winrt::copy_from_abi(object, g_inspectorContent);
+            scroller = object.as<DevToolsX::FrameworkElement>().FindName(L"PropsScroll").try_as<DevToolsXC::ScrollViewer>();
+            if (scroller) offset = scroller.VerticalOffset();
+        }
+    } catch (const winrt::hresult_error&) { scroller = nullptr; }
+    ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+    try {
+        if (scroller && offset >= 0)
+            scroller.ChangeView(nullptr, winrt::box_value(offset).as<winrt::Windows::Foundation::IReference<double>>(), nullptr, true);
+    } catch (const winrt::hresult_error&) {}
 }
 
 static bool StartDiag(const std::wstring& prop, const std::wstring& op)
@@ -517,6 +536,7 @@ struct BindRestoreSink : DevToolsSinkBase
             return S_OK;
         }
         for (size_t i = g_bindingLost.size(); i-- > 0;) if (g_bindingLost[i] == prop) g_bindingLost.erase(g_bindingLost.begin() + i);
+        DevToolsBindingRow_ForgetLiveWrite(wire, prop);
         return S_OK;
     }
     void Init(const std::wstring& p, bool x) { prop = p; xbind = x; wire = g_selWire; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }

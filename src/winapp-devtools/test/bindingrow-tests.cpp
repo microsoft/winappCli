@@ -191,6 +191,27 @@ static void Test_SummaryIsAFewLabelledLines()
     Check(DevToolsBindingRow_Summary(L"not json").tone == DevToolsBindingTone::Unknown, "garbage is unknown");
 }
 
+static void Test_LiveEditOverridesAnXBind()
+{
+    std::printf("a live edit over an x:Bind is reported as an override, not as working\n");
+    const std::wstring json =
+        LR"({"state":"evaluated","resolvedValue":"Start focusing","path":"FocusLabel","source":"MainWindow","kind":"{x:Bind}"})";
+    auto shown = DevToolsBindingRow_Summary(json);
+    Check(!DevToolsBindingRow_ApplyLiveOverride(shown, false, L"go") && shown.tone == DevToolsBindingTone::Works,
+          "without a live edit the binding's own answer stands");
+    Check(DevToolsBindingRow_ApplyLiveOverride(shown, true, L"go") && shown.tone == DevToolsBindingTone::Warning,
+          "a live edit that shows a different value overrides the binding");
+    CheckEqW(shown.status, L"Overridden by a live edit", "the status says so");
+    auto same = DevToolsBindingRow_Summary(json);
+    Check(!DevToolsBindingRow_ApplyLiveOverride(same, true, L"Start focusing"),
+          "once the binding shows its own value again, it works");
+    DevToolsBindingRow_NoteLiveWrite(42, L"Content");
+    Check(DevToolsBindingRow_WasWrittenLive(42, L"Content") && !DevToolsBindingRow_WasWrittenLive(43, L"Content"),
+          "live edits are remembered per element and property");
+    DevToolsBindingRow_ForgetLiveWrite(42, L"Content");
+    Check(!DevToolsBindingRow_WasWrittenLive(42, L"Content"), "a restore forgets the edit");
+}
+
 int RunBindingRowTests()
 {
     std::printf("DevToolsBindingRow tests -- captured answers and scoped evaluation contracts\n");
@@ -202,5 +223,6 @@ int RunBindingRowTests()
     Test_EvaluationDoesNotClaimFreshness();
     Test_ScopeWarningsCannotBeHiddenByNativeFallback();
     Test_SummaryIsAFewLabelledLines();
+    Test_LiveEditOverridesAnXBind();
     return g_failures;
 }

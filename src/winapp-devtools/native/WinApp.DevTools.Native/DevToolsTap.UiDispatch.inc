@@ -244,6 +244,13 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
         return SUCCEEDED(converted) && !valH ? E_INVALIDARG : converted;
     }, [&]() { return WindowElementCurrent_ui(h) ? g_vts3->SetProperty(h, valH, idx) : E_ACCESSDENIED; }, error);
     SysFreeString(tn); SysFreeString(vv);
+    // Every live write (quick panel, inspector, set-property) is remembered so a binding's status can say it is
+    // overridden. Skipped rather than waited for when the census is being rewritten.
+    if (SUCCEEDED(hr) && TryAcquireSRWLockShared(&g_censusLock)) {
+        const unsigned long long wire = PackWire_nolock(h);
+        ReleaseSRWLockShared(&g_censusLock);
+        DevToolsBindingRow_NoteLiveWrite(wire, prop);
+    }
     return hr;
 }
 

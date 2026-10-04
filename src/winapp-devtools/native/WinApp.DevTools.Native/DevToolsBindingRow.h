@@ -38,3 +38,13 @@ struct DevToolsBindingSummary {
 };
 
 DevToolsBindingSummary DevToolsBindingRow_Summary(const std::wstring& json);
+
+// Properties changed with a live edit, per element wire. An {x:Bind} keeps reporting its source value after one,
+// so the edit is the evidence that what the app shows is no longer the binding's value. UI thread only.
+void DevToolsBindingRow_NoteLiveWrite(unsigned long long wire, const std::wstring& prop);
+void DevToolsBindingRow_ForgetLiveWrite(unsigned long long wire, const std::wstring& prop);
+bool DevToolsBindingRow_WasWrittenLive(unsigned long long wire, const std::wstring& prop);
+
+// Turns a working summary into "Overridden by a live edit" when a live edit put a different value on screen than
+// the binding resolves to. Returns whether it did.
+bool DevToolsBindingRow_ApplyLiveOverride(DevToolsBindingSummary& summary, bool writtenLive, const std::wstring& shown);

@@ -239,8 +239,10 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
     }
     if (IInspectable* cl = FindInRow(fe, L"PClear")) {
         // Offered only where it can do something: on a row that already IS its inherited value ClearProperty
-        // is a no-op, and an affordance that cannot do what it implies is worse than none.
+        // is a no-op, and an affordance that cannot do what it implies is worse than none. A bound row's remedy
+        // is Restore binding: clearing it blanks the property and deletes the binding.
         const bool canClear = edit >= 0 && g_ctx.clearFn &&
+                              shown != DevToolsKind::XBind && shown != DevToolsKind::Binding &&
                               (SourceIsSetHere(r.source) || !r.authoredKind.empty() || edited ||
                                SessionAssignFind(path) != nullptr);
         ShowEl(cl, canClear);
@@ -422,6 +424,11 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         sum.tone = DevToolsBindingTone::Warning;
         sum.status = L"Replaced by a local value";
         sum.reason = L"until you restore it or restart the app";
+    }
+    // An {x:Bind} still resolves after a live edit, so its own answer cannot tell that the edit hides it.
+    const bool overridden = !replaced && diag && diag->done &&
+        DevToolsBindingRow_ApplyLiveOverride(sum, DevToolsBindingRow_WasWrittenLive(g_selWire, path), r.value);
+    if (replaced || overridden) {
         DevToolsJson act;
         if (DevToolsJsonParse(diag->action, act) && act.IsObject() && act.GetString(L"state") != L"restored")
             sum.reason = L"Restore failed: " + act.GetString(L"reason");
@@ -451,8 +458,9 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         put(L"PBindValue", replaced ? std::wstring() : (sum.value.empty() ? std::wstring(broken ? L"(none)" : L"(empty)") : sum.value));
     }
     {
-        // Restore is offered once the binding has been replaced; on a working binding it would do nothing.
-        const bool offer = bound && g_ctx.bindFn && replaced;
+        // Restore is offered once a live edit replaced or overrode the binding; on a working binding it would do
+        // nothing.
+        const bool offer = bound && g_ctx.bindFn && (replaced || overridden);
         if (IInspectable* row = FindInRow(fe, L"PBindRestoreRow")) { ShowEl(row, offer); row->Release(); }
         if (IInspectable* note = FindInRow(fe, L"PBindRestoreNote")) { ShowEl(note, offer && shown == DevToolsKind::XBind); note->Release(); }
         if (IInspectable* b = FindInRow(fe, L"PBindRestore")) {

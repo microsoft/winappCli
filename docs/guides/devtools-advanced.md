@@ -249,6 +249,11 @@ PropertyChanged trigger can update the view model immediately. **Restore binding
 not model undo**: it re-reads the current source, including any edits already
 written there.
 
+In the inspector, a bound property you edited live shows **Replaced by a local
+value** (`{Binding}`) or **Overridden by a live edit** (`{x:Bind}`) with a
+**Restore binding** button. For `{x:Bind}`, restore re-applies every x:Bind on the
+page.
+
 To clear a local property override, use `Binding.clearValue` for a managed target
 or `HotReload.clearProperty` for a native dependency property, with the same
 `handle` and `prop` parameters. Captures are process-local, not durable backups.

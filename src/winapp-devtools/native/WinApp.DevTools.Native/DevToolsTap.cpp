@@ -49,6 +49,7 @@
 #include "DevToolsTreeWatch.h"
 #include "DevToolsWriteGate.h"
 #include "DevToolsBindingRelay.h"
+#include "DevToolsBindingRow.h"
 #include "DevToolsTreeLayout.h"
 #include "DevToolsPerf.h"
 #include "DevToolsUiDispatch.h"
