@@ -37,7 +37,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
             new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, dotnet),
             new FakeCsWinRTMetadataShimService(),
             _testConsole,
-            NullLogger<ProjectRunService>.Instance);
+            NullLogger<ProjectRunService>.Instance, new FakeMSBuildService());
     }
 
     [TestCleanup]
@@ -137,7 +137,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
             new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, dotnet),
             new FakeCsWinRTMetadataShimService(),
             _testConsole,
-            NullLogger<ProjectRunService>.Instance);
+            NullLogger<ProjectRunService>.Instance, new FakeMSBuildService());
 
         var resolution = await service.ResolveSingleFileIdentityAsync(
             singleFile, SingleFileIdentityInputs.Default, TestContext.CancellationToken);
@@ -208,7 +208,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
             new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, dotnet),
             new FakeCsWinRTMetadataShimService(),
             _testConsole,
-            NullLogger<ProjectRunService>.Instance);
+            NullLogger<ProjectRunService>.Instance, new FakeMSBuildService());
 
         var options = new SingleFileRunOptions("Debug", "x64", architectureIsExplicit, NoBuild: true, NoRestore: false, []);
 
@@ -251,7 +251,7 @@ public class ProjectRunServiceSingleFileTests : IDisposable
             new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, dotnet),
             new FakeCsWinRTMetadataShimService(),
             _testConsole,
-            NullLogger<ProjectRunService>.Instance);
+            NullLogger<ProjectRunService>.Instance, new FakeMSBuildService());
         var options = new SingleFileRunOptions("Debug", "x64", ArchitectureIsExplicit: false, NoBuild: false, NoRestore: false, [property]);
 
         await service.BuildAndResolveSingleFileAsync(singleFile, options, TestContext.CancellationToken);

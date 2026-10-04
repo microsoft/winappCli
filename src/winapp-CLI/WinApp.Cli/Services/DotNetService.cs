@@ -702,6 +702,12 @@ internal partial class DotNetService : IDotNetService
             return null;
         }
 
+        // A C++ project has no `dotnet` package graph; its NuGet packages are pinned in packages.config.
+        if (string.Equals(projectOrFile.Extension, ".vcxproj", StringComparison.OrdinalIgnoreCase))
+        {
+            return PackagesConfigReader.Read(projectOrFile);
+        }
+
         if (packageGraph is not null && ProjectAssetsFileReader.TryRead(packageGraph.AssetsFile, packageGraph.RuntimeIdentifier) is { } resolvedFromAssets)
         {
             return resolvedFromAssets;

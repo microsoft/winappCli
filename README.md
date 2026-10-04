@@ -275,6 +275,7 @@ This repository includes samples demonstrating how to use the CLI with various f
 | Sample | Description |
 |--------|-------------|
 | [C++ App](/samples/cpp-app/README.md) | Native C++ Win32 application with CMake |
+| [C++ WinUI App](/samples/cpp-winui-app/README.md) | Packaged C++/WinRT WinUI 3 app (Visual Studio `.vcxproj`, XAML) launched via `winapp run <vcxproj>` |
 | [.NET Console](/samples/dotnet-app/README.md) | .NET console application |
 | [WPF App](/samples/wpf-app/README.md) | WPF desktop application |
 | [WinUI App](/samples/winui-app/README.md) | Packaged WinUI 3 app registered and launched via `winapp run <csproj>` |

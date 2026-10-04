@@ -1,0 +1,9 @@
+# Build output and restored NuGet packages
+packages/
+x64/
+ARM64/
+Win32/
+CppWinUIApp/
+Generated Files/
+*.user
+.vs/

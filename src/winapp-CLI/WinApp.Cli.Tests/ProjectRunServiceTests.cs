@@ -117,7 +117,7 @@ public class ProjectRunServiceTests
         _tempDir.Create();
         var fakeDotnet = new FakeDotNetService();
         _shim = new FakeCsWinRTMetadataShimService();
-        _service = new ProjectRunService(fakeDotnet, NewDetection(fakeDotnet), _shim, new TestConsole(), NullLogger<ProjectRunService>.Instance);
+        _service = new ProjectRunService(fakeDotnet, NewDetection(fakeDotnet), _shim, new TestConsole(), NullLogger<ProjectRunService>.Instance, new FakeMSBuildService());
     }
 
     // Project classification is owned by ProjectDetectionService; build a real one over the same fake
@@ -1753,14 +1753,14 @@ public class ProjectRunServiceTests
         var solution = WriteFile("Native.sln", "");
         var dotnet = new FakeDotNetService
         {
-            // Only a C++ project → filtered out because `winapp run` builds managed app projects.
+            // dotnet sln list never reports a .vcxproj, and the solution text lists none → nothing runnable.
             RunDotnetCommandHandler = args =>
                 IsSlnListCall(args) ? (0, SlnListOutput("Native.vcxproj"), string.Empty) : (0, string.Empty, string.Empty),
         };
         var service = NewServiceWith(dotnet, out _);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.ResolveInputAsync(solution, CancellationToken.None));
-        StringAssert.Contains(ex.Message, "No .csproj projects");
+        StringAssert.Contains(ex.Message, "No .csproj or .vcxproj projects");
     }
 
     [TestMethod]
@@ -1993,13 +1993,13 @@ public class ProjectRunServiceTests
     private static ProjectRunService NewServiceWith(FakeDotNetService dotnet, FakeCsWinRTMetadataShimService shim, out TestConsole console)
     {
         console = new TestConsole();
-        return new ProjectRunService(dotnet, NewDetection(dotnet), shim, console, NullLogger<ProjectRunService>.Instance);
+        return new ProjectRunService(dotnet, NewDetection(dotnet), shim, console, NullLogger<ProjectRunService>.Instance, new FakeMSBuildService());
     }
 
     private static ProjectRunService NewServiceWith(FakeDotNetService dotnet, LogLevel minLevel, out TestConsole console)
     {
         console = new TestConsole();
-        return new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(minLevel));
+        return new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(minLevel), new FakeMSBuildService());
     }
 
     private string PackagedPropertiesJson() =>
@@ -2425,7 +2425,7 @@ public class ProjectRunServiceTests
         var shim = new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = true, FolderToReturn = null };
         using var console = new TestConsole();
         var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
-        var service = new ProjectRunService(dotnet, NewDetection(dotnet), shim, console, logger);
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), shim, console, logger, new FakeMSBuildService());
         var options = new ProjectRunOptions(
             "Debug", "x64", "net10.0-windows10.0.26100.0",
             NoBuild: false, NoRestore: false, Properties: []);
@@ -3769,7 +3769,7 @@ public class ProjectRunServiceTests
         using var console = new TestConsole();
         var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
         var service = new ProjectRunService(
-            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger);
+            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger, new FakeMSBuildService());
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
@@ -3801,7 +3801,7 @@ public class ProjectRunServiceTests
         using var console = new TestConsole();
         var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
         var service = new ProjectRunService(
-            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger);
+            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger, new FakeMSBuildService());
         var options = new ProjectRunOptions(
             "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
 
@@ -3832,7 +3832,7 @@ public class ProjectRunServiceTests
         using var console = new TestConsole();
         var logger = new LevelLogger<ProjectRunService>(LogLevel.Warning);
         var service = new ProjectRunService(
-            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger);
+            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger, new FakeMSBuildService());
         var options = new ProjectRunOptions(
             "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
 
@@ -4256,7 +4256,7 @@ public class ProjectRunServiceTests
             RunDotnetStreamingHandler = (_, onOut, _) => { onOut?.Invoke("warning CS1998: this async method lacks await"); return 0; },
         };
         var console = new TestConsole();
-        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information))
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information), new FakeMSBuildService())
         {
             NativeTerminalGateOverrideForTests = () => false, // pin the non-TTY streaming path deterministically
         };
@@ -4291,7 +4291,7 @@ public class ProjectRunServiceTests
             RunDotnetStreamingHandler = (_, onOut, _) => { onOut?.Invoke("STREAMING-LAUNCHER-WRONGLY-USED"); return 0; },
         };
         var console = new TestConsole();
-        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information))
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information), new FakeMSBuildService())
         {
             NativeTerminalGateOverrideForTests = () => true, // force the real-TTY / native-terminal branch
         };
@@ -4322,7 +4322,7 @@ public class ProjectRunServiceTests
             },
         };
         using var console = new TestConsole();
-        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information))
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information), new FakeMSBuildService())
         {
             NativeTerminalGateOverrideForTests = () => true,
         };
@@ -4357,7 +4357,7 @@ public class ProjectRunServiceTests
             },
         };
         var console = new TestConsole();
-        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information));
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information), new FakeMSBuildService());
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: true);
 
         var stderr = new StringWriter();
@@ -4399,7 +4399,7 @@ public class ProjectRunServiceTests
             },
         };
         var console = new TestConsole();
-        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Warning));
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Warning), new FakeMSBuildService());
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: false);
 
         var stderr = new StringWriter();
@@ -4435,7 +4435,7 @@ public class ProjectRunServiceTests
             RunDotnetStreamingHandler = (_, _, onErr) => { onErr?.Invoke("error CS9999: the real failure"); return 1; },
         };
         var console = new TestConsole();
-        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information))
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information), new FakeMSBuildService())
         {
             NativeTerminalGateOverrideForTests = () => false, // pin the non-TTY streaming path (dotnet doesn't own output)
         };

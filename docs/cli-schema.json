@@ -2620,11 +2620,11 @@
       }
     },
     "run": {
-      "description": "Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.",
+      "description": "Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.vcxproj/.sln, or a build-output folder. In project mode, invokes dotnet build (MSBuild for C++ .vcxproj) — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.",
       "hidden": false,
       "arguments": {
         "input": {
-          "description": "Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory).",
+          "description": "Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj or C++ .vcxproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory).",
           "order": 0,
           "hidden": false,
           "valueType": "System.IO.FileSystemInfo",

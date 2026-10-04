@@ -103,7 +103,7 @@ function certGenerate(options?: CertGenerateOptions): Promise<WinappResult>
 | `manifest` | `string \| undefined` | No | Path to Package.appxmanifest or appxmanifest.xml file to extract publisher information from |
 | `output` | `string \| undefined` | No | Output path for the generated PFX file |
 | `password` | `string \| undefined` | No | Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. |
-| `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
+| `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
 | `validDays` | `number \| undefined` | No | Number of days the certificate is valid |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
@@ -122,9 +122,9 @@ function certInfo(options: CertInfoOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `certPath` | `string` | Yes | Path to the certificate file (PFX) |
+| `certPath` | `string` | Yes | Path to the certificate file (PFX or CER) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `password` | `string \| undefined` | No | Password for the PFX file |
+| `password` | `string \| undefined` | No | Password for the PFX file (ignored for a public CER) |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
 
@@ -473,7 +473,7 @@ function manifestGenerate(options?: ManifestGenerateOptions): Promise<WinappResu
 | `ifExists` | `IfExists \| undefined` | No | Behavior when output file exists: 'error' (fail, default), 'skip' (keep existing), or 'overwrite' (replace) |
 | `logoPath` | `string \| undefined` | No | Path to logo image file |
 | `packageName` | `string \| undefined` | No | Package name (default: folder name) |
-| `publisherName` | `string \| undefined` | No | Publisher distinguished name (DN) (default: CN=<current user>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=<name>. |
+| `publisherName` | `string \| undefined` | No | Publisher distinguished name (DN) (default: CN=<current user>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued '+' RDNs, ';' separators, and backslashes are not supported); bare names are auto-wrapped as CN=<name>. |
 | `template` | `ManifestTemplates \| undefined` | No | Manifest template type: 'packaged' (full MSIX app, default) or 'sparse' (desktop app with package identity for Windows APIs) |
 | `version` | `string \| undefined` | No | App version in Major.Minor.Build.Revision format (e.g., 1.0.0.0). |
 
@@ -583,7 +583,7 @@ function restore(options?: RestoreOptions): Promise<WinappResult>
 
 ### `run()`
 
-Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.
+Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.vcxproj/.sln, or a build-output folder. In project mode, invokes dotnet build (MSBuild for C++ .vcxproj) — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.
 
 ```typescript
 function run(options?: RunOptions): Promise<WinappResult>
@@ -593,7 +593,7 @@ function run(options?: RunOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
+| `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj or C++ .vcxproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
 | `inputFolder` | `string \| undefined` | No |  |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `aot` | `boolean \| undefined` | No | Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. |
@@ -1740,7 +1740,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `manifest` | `string \| undefined` | No | Path to Package.appxmanifest or appxmanifest.xml file to extract publisher information from |
 | `output` | `string \| undefined` | No | Output path for the generated PFX file |
 | `password` | `string \| undefined` | No | Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. |
-| `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
+| `publisher` | `string \| undefined` | No | Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. |
 | `validDays` | `number \| undefined` | No | Number of days the certificate is valid |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
@@ -1752,9 +1752,9 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `certPath` | `string` | Yes | Path to the certificate file (PFX) |
+| `certPath` | `string` | Yes | Path to the certificate file (PFX or CER) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
-| `password` | `string \| undefined` | No | Password for the PFX file |
+| `password` | `string \| undefined` | No | Password for the PFX file (ignored for a public CER) |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
@@ -1991,7 +1991,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `ifExists` | `IfExists \| undefined` | No | Behavior when output file exists: 'error' (fail, default), 'skip' (keep existing), or 'overwrite' (replace) |
 | `logoPath` | `string \| undefined` | No | Path to logo image file |
 | `packageName` | `string \| undefined` | No | Package name (default: folder name) |
-| `publisherName` | `string \| undefined` | No | Publisher distinguished name (DN) (default: CN=<current user>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=<name>. |
+| `publisherName` | `string \| undefined` | No | Publisher distinguished name (DN) (default: CN=<current user>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued '+' RDNs, ';' separators, and backslashes are not supported); bare names are auto-wrapped as CN=<name>. |
 | `template` | `ManifestTemplates \| undefined` | No | Manifest template type: 'packaged' (full MSIX app, default) or 'sparse' (desktop app with package identity for Windows APIs) |
 | `version` | `string \| undefined` | No | App version in Major.Minor.Build.Revision format (e.g., 1.0.0.0). |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
@@ -2076,7 +2076,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
+| `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj or C++ .vcxproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
 | `inputFolder` | `string \| undefined` | No |  |
 | `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `aot` | `boolean \| undefined` | No | Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. |

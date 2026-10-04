@@ -185,6 +185,13 @@ internal partial class RunCommand
                 return Fail("--manifest cannot be combined with --aot. Configure the project manifest before publishing.", isJson);
             }
 
+            // C++ projects build with Visual Studio's MSBuild, not the .NET SDK, so .NET-only options don't apply.
+            var isCpp = ProjectRunService.IsCppProject(csproj);
+            if (isCpp && (aot || !string.IsNullOrWhiteSpace(parseResult.GetValue(FrameworkOption))))
+            {
+                return Fail($"{(aot ? "--aot" : "--framework")} applies to .NET projects and can't be used with a C++ project ({csproj.Name}).", isJson);
+            }
+
             // Immediate, persistent context line (UX): the pre-build steps below each spawn dotnet and can
             // take several silent seconds. Print WHAT we're about to run — and, when the input was
             // ambiguous, WHY this project was chosen — so the run never looks hung. Suppressed for --json
@@ -209,9 +216,10 @@ internal partial class RunCommand
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Search} {context}");
             }
 
-            // A capable SDK (≥ 8.0.100) is required for MSBuild --getProperty.
+            // A capable SDK (≥ 8.0.100) is required for MSBuild --getProperty. C++ projects don't use dotnet;
+            // their toolchain is located (with install guidance when missing) by the build itself.
             var workingDir = csproj.Directory ?? new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
-            var sdkError = await projectRunService.CheckSdkAsync(workingDir, cancellationToken);
+            var sdkError = isCpp ? null : await projectRunService.CheckSdkAsync(workingDir, cancellationToken);
             if (sdkError != null)
             {
                 return Fail(sdkError, isJson);
@@ -226,8 +234,9 @@ internal partial class RunCommand
             // unpackaged app but are only rejected authoritatively AFTER packaging is known (post-build).
             // Cheaply evaluate WindowsPackageType first and reject now when the project is DEFINITIVELY
             // unpackaged, so the user doesn't pay the full build cost only to be rejected. Skipped under
-            // --no-build (no build cost to save) and --aot (publishing can change the package type).
-            if (!noBuild && !aot)
+            // --no-build (no build cost to save), --aot (publishing can change the package type), and C++
+            // projects (this probe evaluates with dotnet).
+            if (!noBuild && !aot && !isCpp)
             {
                 var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
                 if (incompatible.Count > 0

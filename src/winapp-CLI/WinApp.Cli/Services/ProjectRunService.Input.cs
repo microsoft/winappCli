@@ -42,10 +42,10 @@ internal sealed partial class ProjectRunService
                 return await ResolveSolutionAsync(file, projectSelector, classificationInputs, cancellationToken);
             }
 
-            if (!string.Equals(file.Extension, ".csproj", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(file.Extension, ".csproj", StringComparison.OrdinalIgnoreCase) && !IsCppProject(file))
             {
                 throw new ProjectRunException(
-                    $"'{file.FullName}' is not a runnable input. Pass a .cs file-based app, a .csproj, a .sln/.slnx solution, a directory containing one, or a build-output folder.");
+                    $"'{file.FullName}' is not a runnable input. Pass a .cs file-based app, a .csproj or C++ .vcxproj project, a .sln/.slnx solution, a directory containing one, or a build-output folder.");
             }
 
             var projectDir = file.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
@@ -55,7 +55,7 @@ internal sealed partial class ProjectRunService
             if (!string.IsNullOrWhiteSpace(projectSelector) && MatchProjectSelector([file], projectSelector, projectDir) is null)
             {
                 throw new ProjectRunException(
-                    $"--project '{projectSelector}' does not match the specified project '{file.Name}'. Omit --project when passing a .csproj directly.");
+                    $"--project '{projectSelector}' does not match the specified project '{file.Name}'. Omit --project when passing a project file directly.");
             }
 
             // A bare .csproj has no solution context, so $(SolutionDir) and sibling Solution* properties
@@ -87,11 +87,11 @@ internal sealed partial class ProjectRunService
 
         var csprojs = SafeEnumerateFiles(dir, "*.csproj");
 
-        // No top-level .csproj → folder mode (unchanged). Build-output folders (bin/…) fall here; this
-        // path performs NO MSBuild evaluation.
+        // No top-level .csproj → a lone C++ application project, else folder mode (unchanged).
+        // Build-output folders (bin/…) fall here; this path performs NO MSBuild evaluation.
         if (csprojs.Count == 0)
         {
-            return new RunInputResolution(WinAppRunMode.Folder, null, dir);
+            return ResolveCppDirectory(dir, projectSelector);
         }
 
         if (csprojs.Count == 1)
@@ -174,6 +174,37 @@ internal sealed partial class ProjectRunService
         var names = string.Join(", ", csprojs.Select(c => c.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase));
         throw new ProjectRunException(
             $"Multiple .csproj files found in '{dir.FullName}' ({names}). Specify which project to run, e.g. 'winapp run {csprojs[0].Name}' or --project <name>.");
+    }
+
+    /// <summary>
+    /// Resolves a directory with no top-level <c>.csproj</c>: a lone C++ application project (or the one
+    /// <c>--project</c> names) runs in project mode; otherwise the directory stays a build-output folder.
+    /// Read statically, so a build-output folder still needs no MSBuild.
+    /// </summary>
+    private static RunInputResolution ResolveCppDirectory(DirectoryInfo dir, string? projectSelector)
+    {
+        var vcxprojs = SafeEnumerateFiles(dir, "*.vcxproj");
+        if (vcxprojs.Count == 0)
+        {
+            return new RunInputResolution(WinAppRunMode.Folder, null, dir);
+        }
+
+        if (!string.IsNullOrWhiteSpace(projectSelector))
+        {
+            var selected = MatchProjectSelector(vcxprojs, projectSelector, dir)
+                ?? throw new ProjectRunException(
+                    $"--project '{projectSelector}' did not match a single .vcxproj in '{dir.FullName}'. Available: {FormatProjectNameList(vcxprojs.Select(p => p.Name))}.");
+            return new RunInputResolution(WinAppRunMode.Project, selected, dir, FindOwningSolution(selected), "matched --project");
+        }
+
+        var apps = vcxprojs.Where(IsCppApplicationProject).ToList();
+        return apps.Count switch
+        {
+            0 => new RunInputResolution(WinAppRunMode.Folder, null, dir),
+            1 => new RunInputResolution(WinAppRunMode.Project, apps[0], dir, FindOwningSolution(apps[0])),
+            _ => throw new ProjectRunException(
+                $"Multiple C++ application projects found in '{dir.FullName}' ({FormatProjectNameList(apps.Select(p => p.Name))}). Specify which project to run, e.g. 'winapp run {apps[0].Name}' or --project <name>."),
+        };
     }
 
     /// <summary>
@@ -463,16 +494,37 @@ internal sealed partial class ProjectRunService
     /// build defines <c>$(SolutionDir)</c>. A classic <c>.sln</c>'s project list comes from <c>dotnet sln
     /// list</c>; an XML <c>.slnx</c> is parsed locally. Each candidate is classified with the same MSBuild
     /// evaluation used for a multi-<c>.csproj</c> directory. Exactly one launchable (non-test executable)
-    /// project is required unless a matching <c>--project</c> selector is supplied.
+    /// project is required unless a matching <c>--project</c> selector is supplied. C++ application
+    /// projects (<c>.vcxproj</c>) are read from the solution text and are candidates only when no C#
+    /// project is runnable.
     /// </summary>
     private async Task<RunInputResolution> ResolveSolutionAsync(FileInfo solution, string? projectSelector, ProjectClassificationInputs? classificationInputs, CancellationToken cancellationToken, bool allowFolderFallback = false)
     {
         var solutionDir = solution.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
-        var projects = await GetSolutionProjectsAsync(solution, solutionDir, cancellationToken);
 
-        if (projects.Count == 0)
+        // C++ projects are read from the solution text. A C++-only solution never needs the .NET SDK.
+        List<FileInfo> listed;
+        try
         {
-            // A solution that lists no .csproj (e.g. native-only) has nothing runnable. A directory input
+            listed = ReadSolutionProjectsFromText(
+                solution,
+                solutionDir,
+                string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase) ? ExtractSlnxAllProjectPaths : ExtractSlnAllProjectPaths);
+        }
+        catch (ProjectRunException)
+        {
+            // Unreadable here: the .csproj path below reports it as before.
+            listed = [];
+        }
+
+        var cppProjects = listed.Where(IsCppProject).ToList();
+        var projects = cppProjects.Count == 0 || listed.Any(p => string.Equals(p.Extension, ".csproj", StringComparison.OrdinalIgnoreCase))
+            ? await GetSolutionProjectsAsync(solution, solutionDir, cancellationToken)
+            : [];
+
+        if (projects.Count == 0 && cppProjects.Count == 0)
+        {
+            // A solution that lists no .csproj or .vcxproj has nothing runnable. A directory input
             // degrades to folder mode; an explicit .sln keeps the error.
             if (allowFolderFallback)
             {
@@ -480,20 +532,22 @@ internal sealed partial class ProjectRunService
             }
 
             throw new ProjectRunException(
-                $"No .csproj projects were found in '{solution.Name}'. 'winapp run' needs a runnable C# project in the solution.");
+                $"No .csproj or .vcxproj projects were found in '{solution.Name}'. 'winapp run' needs a runnable C# or C++ app project in the solution.");
         }
 
         // An explicit --project selector short-circuits classification.
         if (!string.IsNullOrWhiteSpace(projectSelector))
         {
-            var selected = MatchProjectSelector(projects, projectSelector, solutionDir);
+            var selected = MatchProjectSelector([.. projects, .. cppProjects], projectSelector, solutionDir);
             if (selected is null)
             {
                 // List only the runnable projects (not every project in the solution) so a large solution
                 // doesn't dump 100+ names, most of which the user can't run.
-                var available = await BuildRunnableAvailableHintAsync(
-                    projects, solutionDir, BuildClassificationPropertyTokens(classificationInputs, solution),
-                    classificationInputs, solution, cancellationToken);
+                var available = projects.Count > 0
+                    ? await BuildRunnableAvailableHintAsync(
+                        projects, solutionDir, BuildClassificationPropertyTokens(classificationInputs, solution),
+                        classificationInputs, solution, cancellationToken)
+                    : FormatProjectNameList(cppProjects.Select(p => p.Name));
                 throw new ProjectRunException(
                     $"--project '{projectSelector}' did not match a single project in '{solution.Name}'. Available: {available}.");
             }
@@ -502,7 +556,16 @@ internal sealed partial class ProjectRunService
         }
 
         var solutionProps = BuildClassificationPropertyTokens(classificationInputs, solution);
-        var (apps, tests) = await ClassifyRunnablesAsync(projects, solutionDir, solutionProps, classificationInputs, solution, cancellationToken);
+        var (apps, tests) = projects.Count > 0
+            ? await ClassifyRunnablesAsync(projects, solutionDir, solutionProps, classificationInputs, solution, cancellationToken)
+            : (new List<FileInfo>(), new List<FileInfo>());
+
+        // C++ application projects are candidates only when no C# project is runnable, so a C# app with a
+        // native helper .exe in the same solution keeps resolving to the C# app.
+        if (apps.Count == 0 && tests.Count == 0)
+        {
+            apps = cppProjects.Where(IsCppApplicationProject).ToList();
+        }
 
         var pick = PickRunnableProject(apps, tests, out var pickedTest);
         if (pick is not null)
@@ -524,7 +587,7 @@ internal sealed partial class ProjectRunService
             return new RunInputResolution(WinAppRunMode.Folder, null, solutionDir);
         }
 
-        var candidatePool = apps.Count > 0 ? apps : (tests.Count > 0 ? tests : projects);
+        var candidatePool = apps.Count > 0 ? apps : (tests.Count > 0 ? tests : [.. projects, .. cppProjects]);
         var candidateList = FormatProjectNameList(candidatePool.Select(p => p.Name));
         string reason;
         if (apps.Count > 1)

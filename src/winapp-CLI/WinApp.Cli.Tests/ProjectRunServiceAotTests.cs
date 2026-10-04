@@ -735,7 +735,8 @@ public sealed class ProjectRunServiceAotTests
                 dotnet),
             shim ?? new FakeCsWinRTMetadataShimService(),
             console,
-            logger ?? NullLogger<ProjectRunService>.Instance);
+            logger ?? NullLogger<ProjectRunService>.Instance,
+            new FakeMSBuildService());
     }
 
     private static ProjectRunOptions Options(bool noRestore = false) =>

@@ -2,7 +2,7 @@
  * AUTO-GENERATED — DO NOT EDIT
  *
  * Regenerate with:  npm run generate-commands
- * Source schema version: 0.6.3
+ * Source schema version: 0.7.2
  *
  * Programmatic wrappers for all winapp CLI commands.
  * Each function builds the CLI arguments, invokes the native CLI,
@@ -154,7 +154,7 @@ export interface CertGenerateOptions extends CommonOptions {
   output?: string;
   /** Password for the generated PFX file. Defaults to 'password', which is publicly known — a certificate left with that password is development-only, because anyone who obtains the .pfx can sign as you. */
   password?: string;
-  /** Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. */
+  /** Publisher distinguished name (DN) for the generated certificate (e.g., CN=MyCompany or OU=Team, O=Corp, C=US). Components must be single-valued and comma-separated; multi-valued '+' RDNs, ';' separators, and backslashes are not supported. If not specified, will be inferred from manifest. Bare names are auto-wrapped as CN=<name>. */
   publisher?: string;
   /** Number of days the certificate is valid */
   validDays?: number;
@@ -182,11 +182,11 @@ export async function certGenerate(options: CertGenerateOptions = {}): Promise<W
 // ---------------------------------------------------------------------------
 
 export interface CertInfoOptions extends CommonOptions {
-  /** Path to the certificate file (PFX) */
+  /** Path to the certificate file (PFX or CER) */
   certPath: string;
   /** Format output as JSON */
   json?: boolean;
-  /** Password for the PFX file */
+  /** Password for the PFX file (ignored for a public CER) */
   password?: string;
 }
 
@@ -690,7 +690,7 @@ export interface ManifestGenerateOptions extends CommonOptions {
   logoPath?: string;
   /** Package name (default: folder name) */
   packageName?: string;
-  /** Publisher distinguished name (DN) (default: CN=<current user>). Accepts any valid X.500 DN; bare names are auto-wrapped as CN=<name>. */
+  /** Publisher distinguished name (DN) (default: CN=<current user>). Accepts an X.500 DN with single-valued, comma-separated components (multi-valued '+' RDNs, ';' separators, and backslashes are not supported); bare names are auto-wrapped as CN=<name>. */
   publisherName?: string;
   /** Manifest template type: 'packaged' (full MSIX app, default) or 'sparse' (desktop app with package identity for Windows APIs) */
   template?: ManifestTemplates;
@@ -891,7 +891,7 @@ export async function restore(options: RestoreOptions = {}): Promise<WinappResul
 // ---------------------------------------------------------------------------
 
 export interface RunOptions extends CommonOptions {
-  /** Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). */
+  /** Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj or C++ .vcxproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). */
   input?: string;
   /** @deprecated Use `input` instead. Retained for backward compatibility. */
   inputFolder?: string;
@@ -946,7 +946,7 @@ export interface RunOptions extends CommonOptions {
 }
 
 /**
- * Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.
+ * Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.vcxproj/.sln, or a build-output folder. In project mode, invokes dotnet build (MSBuild for C++ .vcxproj) — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.
  */
 export async function run(options: RunOptions = {}): Promise<WinappResult> {
   const args: string[] = ['run'];

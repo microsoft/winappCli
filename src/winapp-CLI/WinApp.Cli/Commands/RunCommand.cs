@@ -60,7 +60,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
     {
         InputArgument = new Argument<FileSystemInfo>("input")
         {
-            Description = "Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory).",
+            Description = "Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj or C++ .vcxproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory).",
             Arity = ArgumentArity.ZeroOrOne
         };
 
@@ -234,7 +234,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         return true;
     }
 
-    public RunCommand() : base("run", "Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
+    public RunCommand() : base("run", "Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.vcxproj/.sln, or a build-output folder. In project mode, invokes dotnet build (MSBuild for C++ .vcxproj) — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
     {
         Arguments.Add(InputArgument);
         Arguments.Add(PassthroughArgument);
@@ -622,7 +622,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             if (!isJson && inputFsi is DirectoryInfo && logger.IsEnabled(LogLevel.Debug))
             {
                 ansiConsole.MarkupLineInterpolated(
-                    $"{UiSymbols.Search} No .csproj/.sln/.slnx with a runnable app found in '{inputFolder.FullName}' — running it as a build-output folder.");
+                    $"{UiSymbols.Search} No .csproj/.vcxproj/.sln/.slnx with a runnable app found in '{inputFolder.FullName}' — running it as a build-output folder.");
             }
 
             // Folder mode has no project to evaluate, so console-ness is read from the built binary's PE
