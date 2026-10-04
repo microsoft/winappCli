@@ -54,6 +54,7 @@ public class ProjectRunServiceCppTests
     private DirectoryInfo _tempDir = null!;
     private FakeDotNetService _dotnet = null!;
     private FakeMSBuildService _msbuild = null!;
+    private TestConsole _console = null!;
     private ProjectRunService _service = null!;
 
     [TestInitialize]
@@ -62,11 +63,12 @@ public class ProjectRunServiceCppTests
         _tempDir = Directory.CreateDirectory(Path.Join(Path.GetTempPath(), $"ProjectRunServiceCppTests_{Guid.NewGuid():N}"));
         _dotnet = new FakeDotNetService { RunDotnetCommandHandler = _ => (0, string.Empty, string.Empty) };
         _msbuild = new FakeMSBuildService();
+        _console = new TestConsole();
         _service = new ProjectRunService(
             _dotnet,
             new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, _dotnet),
             new FakeCsWinRTMetadataShimService(),
-            new TestConsole(),
+            _console,
             NullLogger<ProjectRunService>.Instance,
             _msbuild);
     }
@@ -74,7 +76,15 @@ public class ProjectRunServiceCppTests
     [TestCleanup]
     public void Cleanup()
     {
-        try { _tempDir.Delete(true); } catch { /* ignore */ }
+        _console.Dispose();
+        try
+        {
+            _tempDir.Delete(true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best effort: a locked temp file must not fail the test.
+        }
     }
 
     private FileInfo WriteFile(string relativePath, string content)
