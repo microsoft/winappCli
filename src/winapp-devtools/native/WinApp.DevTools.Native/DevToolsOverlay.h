@@ -228,6 +228,8 @@ void DevToolsOverlay_SetInprocInspect(DevToolsInprocInspectFn fn);
 // One-shot hand-off from the quick-edit panel: the property the inspector should reveal (expanded and scrolled
 // into view) for the element it opens on. False when the panel asked for nothing. UI thread only.
 bool DevToolsOverlay_TakeInspectorReveal(std::wstring* prop);
+// The element that pending hand-off is for (0 when none), so the window opens on it whatever opened the panel.
+InstanceHandle DevToolsOverlay_InspectorRevealElement();
 
 
 // Precedence entries mirror DevToolsReadChainEntry without pulling wire-only fields into overlay ABI.

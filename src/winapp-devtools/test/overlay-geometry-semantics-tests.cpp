@@ -1108,6 +1108,27 @@ int main()
             HideCommentToast();
             g_guestCommentWrite={};g_selComment=nullptr;
         }
+        // A hand-off to the inspector names the panel's element, however the panel was opened (a marker opens it
+        // without a pick), so the window can select it.
+        {
+            static InstanceHandle seenElement = 0;
+            static std::wstring seenProp;
+            DevToolsOverlay_SetInprocInspect([]() {
+                seenElement = DevToolsOverlay_InspectorRevealElement();
+                std::wstring prop;
+                if (DevToolsOverlay_TakeInspectorReveal(&prop)) seenProp = prop;
+                return false;
+            });
+            const InstanceHandle savedHandle = g_selHandle;
+            g_selHandle = 77;
+            SelRevealSink reveal;
+            reveal.Init(L"Text");
+            reveal.Invoke(nullptr, nullptr);
+            check(seenElement == 77 && seenProp == L"Text" && DevToolsOverlay_InspectorRevealElement() == 0,
+                "hand-off", "the inspector is told which element to select, and the request is not left behind");
+            g_selHandle = savedHandle;
+            DevToolsOverlay_SetInprocInspect(nullptr);
+        }
         check(CommentToastText(false,true)==L"Comment saved" && CommentToastText(false,false)==L"Comment saved \u00b7 Not linked" &&
             CommentToastText(true,true)==L"Comment deleted", "comment flow", "the confirmation names the outcome and Not linked");
         g_cliExe.store(nullptr);guestWriterTest=false;g_wireOf=nullptr;g_guestCommentWrite={};

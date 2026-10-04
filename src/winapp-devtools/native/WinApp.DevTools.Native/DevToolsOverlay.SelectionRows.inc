@@ -130,8 +130,10 @@ struct SelConfirmSink : DevToolsSinkBase
 };
 
 // Richer editing (color picker, per-side thickness, binding details) lives in the inspector window. A row's
-// open-in-DevTools button records which property the window should reveal, then opens it on this element.
+// open-in-DevTools button records which element and property the window should reveal, then opens it. The element
+// travels with the request because the panel may not come from a pick (a comment marker opens it too).
 static std::wstring g_selRevealProp;
+static InstanceHandle g_selRevealElement = 0;
 
 bool DevToolsOverlay_TakeInspectorReveal(std::wstring* prop)
 {
@@ -141,6 +143,8 @@ bool DevToolsOverlay_TakeInspectorReveal(std::wstring* prop)
     return true;
 }
 
+InstanceHandle DevToolsOverlay_InspectorRevealElement() { return g_selRevealProp.empty() ? 0 : g_selRevealElement; }
+
 static void OnInspectClick(void*, void*);
 
 struct SelRevealSink : DevToolsSinkBase
@@ -149,9 +153,11 @@ struct SelRevealSink : DevToolsSinkBase
         if (gen != g_selGen) return S_OK;
         DevToolsOverlayLog(L"overlay.sel reveal %s in the inspector", prop.c_str());
         g_selRevealProp = prop;
+        g_selRevealElement = g_selHandle;
         OnInspectClick(nullptr, nullptr);
         // A window that did not open leaves nothing to consume the request.
         g_selRevealProp.clear();
+        g_selRevealElement = 0;
         return S_OK;
     }
     void Init(const std::wstring& p) { prop = p; InitSink(IID_RoutedEventHandler_Del, g_selGen); }
