@@ -98,6 +98,12 @@ struct XBindInfoRevealSink : DevToolsSinkBase
     bool show = false;
 };
 
+// Whether closing the color picker writes its color: not when Esc closed it, and not when nothing changed.
+static bool ColorPickerApplies(bool escaped, const std::wstring& chosen, const std::wstring& shown)
+{
+    return !escaped && _wcsicmp(chosen.c_str(), shown.c_str()) != 0;
+}
+
 struct KindKeySink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
@@ -747,12 +753,21 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                             }
                             DevToolsXC::Flyout flyout;
                             flyout.Content(picker);
-                            flyout.Closed([picker, hex, commit, gen](auto&&, auto&&) {
+                            // Esc cancels, as it does in every other editor; any other way of closing applies.
+                            const auto escaped = std::make_shared<bool>(false);
+                            picker.PreviewKeyDown([escaped](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
+                                if (args.Key() == winrt::Windows::System::VirtualKey::Escape) *escaped = true;
+                            });
+                            // The flyout closes during Esc's key-down, wherever focus is inside it.
+                            flyout.Closing([escaped](auto&&, auto&&) {
+                                if (GetKeyState(VK_ESCAPE) & 0x8000) *escaped = true;
+                            });
+                            flyout.Closed([picker, hex, commit, gen, escaped](auto&&, auto&&) {
                                 if (gen != g_route1Gen) return;
                                 const auto c = picker.Color();
                                 wchar_t chosen[10];
                                 swprintf_s(chosen, L"#%02X%02X%02X%02X", c.A, c.R, c.G, c.B);
-                                if (_wcsicmp(chosen, hex.Text().c_str()) == 0) return;
+                                if (!ColorPickerApplies(*escaped, chosen, hex.Text().c_str())) return;
                                 hex.Text(chosen);
                                 commit->Invoke(nullptr, nullptr);
                             });

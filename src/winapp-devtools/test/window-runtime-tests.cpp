@@ -400,6 +400,9 @@ int main()
             "source verification is one line; the reason is on hover");
         g_layoutSectionOpen=-1;
     }
+    check(!ColorPickerApplies(true,L"#FF102030",L"#FF000000") && ColorPickerApplies(false,L"#FF102030",L"#FF000000") &&
+        !ColorPickerApplies(false,L"#ff000000",L"#FF000000"),
+        "Esc on the color picker cancels; closing it any other way applies a changed color");
     std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }
