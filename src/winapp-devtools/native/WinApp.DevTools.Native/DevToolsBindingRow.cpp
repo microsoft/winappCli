@@ -217,3 +217,9 @@ std::wstring DevToolsBindingRow_SpokenStatus(const std::wstring& status)
         if (status.rfind(glyph, 0) == 0) return status.substr(wcslen(glyph));
     return status;
 }
+
+bool DevToolsBindingRow_ShowsReplaced(const DevToolsBindingSummary& summary, bool replacedHere, bool writtenLive)
+{
+    if (replacedHere || summary.tone == DevToolsBindingTone::NotBound) return true;
+    return summary.tone == DevToolsBindingTone::Unknown && writtenLive;
+}

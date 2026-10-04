@@ -422,7 +422,7 @@ static void PostWalk(const std::wstring& prop)
 // and property. Capture runs only while a binding is live: capturing after a local write has replaced it would
 // overwrite the capture the quick panel took at pick time, and with it the only way back.
 struct DiagAnswer { unsigned gen; InstanceHandle wire; std::wstring prop; std::wstring json; std::wstring action;
-                    bool done; };
+                    bool done; bool afterLiveWrite = false; };
 static std::vector<DiagAnswer> g_diagAnswers;
 static SRWLOCK                 g_diagLock = SRWLOCK_INIT;
 static std::vector<DiagAnswer> g_diagDone;
@@ -438,12 +438,12 @@ static DiagAnswer* DiagFind(const std::wstring& prop)
 }
 static void DiagForgetAll() { g_diagAnswers.clear(); }
 
-struct DiagAsk { InstanceHandle wire; std::wstring prop; std::wstring op; unsigned gen; };
+struct DiagAsk { InstanceHandle wire; std::wstring prop; std::wstring op; unsigned gen; bool afterLiveWrite; };
 
 static DWORD WINAPI DiagWorker(LPVOID param)
 {
     std::unique_ptr<DiagAsk> ask(reinterpret_cast<DiagAsk*>(param));
-    DiagAnswer r{ ask->gen, ask->wire, ask->prop, std::wstring(), std::wstring(), true };
+    DiagAnswer r{ ask->gen, ask->wire, ask->prop, std::wstring(), std::wstring(), true, ask->afterLiveWrite };
     if (g_ctx.bindFn) {
         if (!ask->op.empty()) g_ctx.bindFn(ask->wire, ask->op, ask->prop, std::wstring(), std::wstring(), &r.action);
         g_ctx.bindFn(ask->wire, L"diagnose", ask->prop, std::wstring(), std::wstring(), &r.json);
@@ -503,7 +503,7 @@ static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
 
 static bool StartDiag(const std::wstring& prop, const std::wstring& op)
 {
-    DiagAsk* ask = new DiagAsk{ g_selWire, prop, op, g_route1Gen };
+    DiagAsk* ask = new DiagAsk{ g_selWire, prop, op, g_route1Gen, DevToolsBindingRow_WasWrittenLive(g_selWire, prop) };
     InterlockedIncrement(&g_diagOutstanding);
     if (HANDLE th = CreateThread(nullptr, 0, DevToolsThreadEntry<DiagWorker>, ask, 0, nullptr)) {
         CloseHandle(th);
@@ -517,7 +517,12 @@ static bool StartDiag(const std::wstring& prop, const std::wstring& op)
 
 static void PostDiagnose(const std::wstring& prop)
 {
-    if (!g_ctx.bindFn || !g_selWire || prop.empty() || DiagFind(prop)) return;
+    if (!g_ctx.bindFn || !g_selWire || prop.empty()) return;
+    if (DiagAnswer* cached = DiagFind(prop)) {
+        // An answer from before a live edit to this property says nothing about the binding now.
+        if (!cached->done || cached->afterLiveWrite || !DevToolsBindingRow_WasWrittenLive(g_selWire, prop)) return;
+        g_diagAnswers.erase(g_diagAnswers.begin() + (cached - g_diagAnswers.data()));
+    }
     g_diagAnswers.push_back({ g_route1Gen, g_selWire, prop, std::wstring(), std::wstring(), false });
     if (!StartDiag(prop, std::wstring())) g_diagAnswers.pop_back();
 }

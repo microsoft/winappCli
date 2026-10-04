@@ -419,7 +419,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
     DevToolsBindingSummary sum = (diag && diag->done) ? DevToolsBindingRow_Summary(diag->json) : DevToolsBindingSummary{};
     // The XAML declares a binding but the element no longer has one: an edit replaced it with a local value.
     const bool replaced = diag && diag->done &&
-        (BindingLost(path) || sum.tone == DevToolsBindingTone::Unknown || sum.tone == DevToolsBindingTone::NotBound);
+        DevToolsBindingRow_ShowsReplaced(sum, BindingLost(path), DevToolsBindingRow_WasWrittenLive(g_selWire, path));
     if (replaced) {
         sum.tone = DevToolsBindingTone::Warning;
         sum.status = L"Replaced by a local value";
@@ -433,8 +433,20 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         if (DevToolsJsonParse(diag->action, act) && act.IsObject() && act.GetString(L"state") != L"restored")
             sum.reason = L"Restore failed: " + act.GetString(L"reason");
     }
-    // With the managed answer in hand the labelled lines say it all; the native walk's prose is the fallback.
-    const bool knows = diag && diag->done && sum.tone != DevToolsBindingTone::Unknown;
+    // Without the managed answer the native walk still names a segment where a path stops, as in the quick panel;
+    // otherwise the status is unknown rather than guessed.
+    if (diag && diag->done && !replaced && sum.tone == DevToolsBindingTone::Unknown && answer && answer->done) {
+        for (const auto& step : wv.steps) {
+            if (!step.stop || step.outcome == DevToolsWalkOutcome::Resolved || step.outcome == DevToolsWalkOutcome::NotReached)
+                continue;
+            sum.tone = DevToolsBindingTone::Broken;
+            sum.status = L"\u2715 Broken at " + step.path;
+            break;
+        }
+    }
+    const bool unknown = sum.tone == DevToolsBindingTone::Unknown;
+    // With an answer in hand the labelled lines say it all; the native walk's prose is the fallback.
+    const bool knows = diag && diag->done;
     const bool pending = (answer && !answer->done) || (diag && !diag->done);
     const bool broken = sum.tone == DevToolsBindingTone::Broken;
     if (knows || pending) wv.steps.clear();
@@ -452,10 +464,11 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         put(L"PBindStatus", broken ? std::wstring() : sum.status);
         put(L"PBindStatusBad", broken ? sum.status : std::wstring());
         put(L"PBindReason", sum.reason);
-        // A replaced binding has no live source or path; the lines that would be blank are hidden instead.
-        put(L"PBindSource", replaced ? std::wstring() : (sum.source.empty() ? std::wstring(L"(unknown)") : sum.source));
-        put(L"PBindPath", replaced ? std::wstring() : sum.pathMode);
-        put(L"PBindValue", replaced ? std::wstring() : (sum.value.empty() ? std::wstring(broken ? L"(none)" : L"(empty)") : sum.value));
+        // A replaced or undiagnosed binding has no known source or path; those lines are hidden instead of blank.
+        const bool noDetails = replaced || unknown;
+        put(L"PBindSource", noDetails ? std::wstring() : (sum.source.empty() ? std::wstring(L"(unknown)") : sum.source));
+        put(L"PBindPath", noDetails ? std::wstring() : sum.pathMode);
+        put(L"PBindValue", noDetails ? std::wstring() : (sum.value.empty() ? std::wstring(broken ? L"(none)" : L"(empty)") : sum.value));
     }
     {
         // Restore is offered once a live edit replaced or overrode the binding; on a working binding it would do

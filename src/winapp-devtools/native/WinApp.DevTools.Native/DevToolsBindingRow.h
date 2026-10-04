@@ -49,5 +49,9 @@ bool DevToolsBindingRow_WasWrittenLive(unsigned long long wire, const std::wstri
 // the binding resolves to. Returns whether it did.
 bool DevToolsBindingRow_ApplyLiveOverride(DevToolsBindingSummary& summary, bool writtenLive, const std::wstring& shown);
 
+// Whether a binding the XAML declares has been replaced by a local value. Only evidence counts: an edit that replaced
+// it, or the runtime reporting no binding. An unanswered diagnosis (no managed agent) is not evidence.
+bool DevToolsBindingRow_ShowsReplaced(const DevToolsBindingSummary& summary, bool replacedHere, bool writtenLive);
+
 // The status as a screen reader should say it: "\u2713 Works" -> "Works".
 std::wstring DevToolsBindingRow_SpokenStatus(const std::wstring& status);

@@ -212,6 +212,15 @@ static void Test_LiveEditOverridesAnXBind()
     Check(!DevToolsBindingRow_WasWrittenLive(42, L"Content"), "a restore forgets the edit");
     CheckEqW(DevToolsBindingRow_SpokenStatus(L"\u2713 Works"), L"Works", "a screen reader hears the status, not the glyph");
     CheckEqW(DevToolsBindingRow_SpokenStatus(L"\u2715 Broken at Nope"), L"Broken at Nope", "including a broken one");
+    const auto unanswered = DevToolsBindingRow_Summary(kUnavailable);
+    Check(!DevToolsBindingRow_ShowsReplaced(unanswered, false, false),
+          "an unanswered diagnosis (no managed agent) is not evidence that a binding was replaced");
+    Check(DevToolsBindingRow_ShowsReplaced(unanswered, false, true) && DevToolsBindingRow_ShowsReplaced(unanswered, true, false),
+          "our own edit of a bound property is");
+    Check(DevToolsBindingRow_ShowsReplaced(DevToolsBindingRow_Summary(kNotBound), false, false),
+          "so is the runtime reporting no binding where the XAML declares one");
+    Check(!DevToolsBindingRow_ShowsReplaced(DevToolsBindingRow_Summary(kHealthyXBind), false, true),
+          "a binding that still works is not replaced (an overridden x:Bind is reported separately)");
 }
 
 int RunBindingRowTests()
