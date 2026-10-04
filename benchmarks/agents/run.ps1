@@ -12,6 +12,9 @@
 
 .EXAMPLE
     ./run.ps1 -Rescore results\20261002-160446
+
+.EXAMPLE
+    ./run.ps1 -Compare results\baseline -Candidate results\candidate -OutDir results\compare
 #>
 [CmdletBinding()]
 param(
@@ -31,7 +34,9 @@ param(
     [string]$OutDir,
     [switch]$Plan,
     [switch]$KeepArtifacts,
-    [string]$Rescore
+    [string]$Rescore,
+    [string[]]$Compare,
+    [string[]]$Candidate
 )
 
 Set-StrictMode -Version Latest
@@ -54,8 +59,28 @@ $allScenarios = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot 
 if ($Rescore) {
     $r = Invoke-Rescore -ResultsDir (Resolve-Path $Rescore).Path -Scenarios $allScenarios
     Write-Host "Rescored $($r.Runs) runs against the current scenarios; $($r.Changed) changed status."
+    foreach ($k in $r.Transitions.Keys) { Write-Host "  $k`: $($r.Transitions[$k])" }
     Write-Host "Runs:    $($r.RunsPath)"
     Write-Host "Summary: $($r.SummaryPath)"
+    return
+}
+
+$Compare = Split-ListArgument $Compare
+$Candidate = Split-ListArgument $Candidate
+if ($Compare -or $Candidate) {
+    if (-not $Compare -or -not $Candidate) { throw 'Use -Compare <baselineDir[,...]> together with -Candidate <candidateDir[,...]>.' }
+    $report = Get-ComparisonReport -Baseline @($Compare | ForEach-Object { (Resolve-Path $_).Path }) `
+        -Candidate @($Candidate | ForEach-Object { (Resolve-Path $_).Path }) -Scenarios $allScenarios `
+        -ScenarioFilter $Scenario -ConfigurationFilter $Configuration -ModelFilter $Model
+    $userHome = [Environment]::GetFolderPath('UserProfile')
+    if ($userHome) { $report = $report.Replace($userHome, '~') }
+    if ($OutDir) {
+        New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+        $path = Join-Path $OutDir 'comparison.md'
+        Set-Content -LiteralPath $path -Value $report -Encoding utf8NoBOM
+        Write-Host "Comparison: $path"
+    }
+    else { $report }
     return
 }
 
@@ -271,6 +296,8 @@ function Invoke-BenchmarkRun {
         skillContextChars        = $null
         skillContextTokensApprox = $null
         skillContextReason       = $null
+        skillRepeatDeliveries          = $null
+        skillRepeatContextTokensApprox = $null
         tokens                 = $null
         tokensReason           = $null
         aiCredits              = $null
@@ -366,6 +393,8 @@ function Invoke-BenchmarkRun {
         $record.skillContextChars = $parsed.skillContextChars
         $record.skillContextTokensApprox = $parsed.skillContextTokensApprox
         $record.skillContextReason = $parsed.skillContextReason
+        $record.skillRepeatDeliveries = $parsed.skillRepeatDeliveries
+        $record.skillRepeatContextTokensApprox = $parsed.skillRepeatContextTokensApprox
         $record.tokens = $parsed.tokens
         $record.tokensReason = $parsed.tokensReason
         $record.aiCredits = $parsed.aiCredits
@@ -397,7 +426,7 @@ function Invoke-BenchmarkRun {
         }
         else {
             $eval = Test-Expectations -Expect $s.Expect -LoadedSkills $record.skillsLoaded -InstalledSkills @($installed)
-            $record.status = $eval.Passed ? 'pass' : 'fail'
+            $record.status = $eval.Status
             $record.reason = $eval.Failures -join '; '
             $record.expectationNotes = $eval.Notes
         }

@@ -65,11 +65,15 @@ Fixtures are 1-3 tiny files each. No prompt names a skill.
 - `-MaxCredits <n>` stops launching sessions once a run has spent `n` AI credits.
 - Each run records `winappCommands`: the `winapp` commands the agent tried to run or named in its final answer. This separates "skipped the skill but still used the right command" from "knew nothing". Shell is denied in the benchmark, so attempted commands still show up.
 - Each run records `selectedAgent`.
+- `n/a` status: a run where nothing in the expectation applies to the installed skills is no longer a pass; it is left out of pass rates.
+- Each run records repeated skill deliveries and the context they add, and `summary.md` reports them.
+- `-Compare` reports per-model and per-cell differences between two sets of result folders.
+- Every scenario must include the `both` configuration.
 
 ## Where reviewers disagreed
 
 - **Fix weak prompts or keep them?** Opus and Gemini wanted to rewrite prompts that echo skill descriptions (`winui-code-review`, `restore-cloned-cpp`) and to replace `xaml-unknown-member`. `TextBox.Watermark` → `PlaceholderText` is trivia that models already know, so skipping the skill is reasonable. GPT argued to keep originals as regression sentinels and add companion scenarios. **Decision:** keep the originals unchanged, and add companions (`winui-infobar-enum-lookup`, `explicit-find-api-numberbox`). Both rewritten scenarios already pass 100%, so they do not discriminate either way.
-- **Missing fixtures** (`sign-existing-msix`, `msix-install-fails`, `manifest-alias-icons`). All three flagged them: an agent that finds an empty folder may give up early. They are kept as is for comparability. The new scenarios ship with fixtures. Re-fixturing the originals is a follow-up, and it needs a fresh baseline.
+- **Missing fixtures** (`sign-existing-msix`, `msix-install-fails`, `manifest-alias-icons`). All three flagged them: an agent that finds an empty folder may give up early. They are kept as is for comparability. The new scenarios ship with fixtures. Re-fixturing the originals is a follow-up, and it needs a fresh baseline. A one-off control (the `sign-existing-msix` prompt with the MSIX and PFX present; Sonnet, 6 runs with the current plugins and 6 with a candidate description) still skipped `winapp-signing` 12/12 while naming `winapp sign` 12/12, so the empty folder does not explain the skip. The control was not kept as a scenario: it duplicates `sign-existing-msix`.
 - **`winforms-package-sign` expectations.** Opus would accept package or signing. GPT would accept package or frameworks. Both accept `winapp-package`, so that is what the scenario now expects.
 - **Iterations.** Opus and GPT both said that three iterations is a screen, not proof: only 0/3 versus 3/3 swings are signal. GPT suggested 10-20 iterations for final structural decisions. Gemini suggested 5.
 - **Electron UI test.** Opus said Playwright with no skill is legitimate. GPT wanted a positive expectation. The prompt now says to drive the desktop window, so UI automation is the expected route.
@@ -77,6 +81,5 @@ Fixtures are 1-3 tiny files each. No prompt names a skill.
 ## Not done yet (recommended follow-ups)
 
 1. **Capability-based expectations.** Opus and GPT both called this blocking for comparing restructured plugins. Today expectations name skills, so a candidate that renames or merges skills gets vacuous passes. Each variant should map its skills to capabilities (`sign`, `package`, `api-lookup`, and so on), and scenarios should expect capabilities.
-2. **An explicit `n/a` status** when no expected skill is installed. The note `skillsAny not applicable: none installed` exists, but these runs still count as passes in summaries.
-3. **Repeat-invocation and delivery-count metrics in `summary.md`.** Also report mean and p90 skill context alongside the median, and the first-turn input tokens.
-4. **Content hashes** for prompts, fixtures, and installed skills in `run-info.json`.
+2. **More skill-context statistics in `summary.md`:** mean and p90 alongside the median, and first-turn input tokens.
+3. **Content hashes** for prompts, fixtures, and installed skills in `run-info.json`.
