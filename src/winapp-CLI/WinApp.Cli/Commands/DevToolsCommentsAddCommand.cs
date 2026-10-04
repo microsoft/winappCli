@@ -219,11 +219,11 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
 
             var property = Nullify(parseResult.GetValue(PropertyOption));
             if (property is not null || bounds is not null || captured?.Style is not null || captured?.Brushes is not null ||
-                captured?.Window is not null)
+                captured?.WindowTitle is not null)
             {
                 comment.Context = new CommentContext
                 {
-                    Property = property, Window = captured?.Window, Bounds = bounds, Style = captured?.Style, Brushes = captured?.Brushes,
+                    Property = property, WindowTitle = captured?.WindowTitle, Bounds = bounds, Style = captured?.Style, Brushes = captured?.Brushes,
                 };
             }
 

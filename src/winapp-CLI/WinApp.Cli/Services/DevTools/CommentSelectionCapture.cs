@@ -55,7 +55,7 @@ internal sealed class CapturedElement
     public CommentStyleContext? Style { get; init; }
 
     /// <summary>Title of the window that showed the element.</summary>
-    public string? Window { get; init; }
+    public string? WindowTitle { get; init; }
 
     public List<CommentBrushContext>? Brushes { get; init; }
 }
@@ -167,10 +167,11 @@ internal static class CommentSelectionCapture
                 if (declaredId is not null && !declaredId.StartsWith('{')) { automationId = declaredId; }
             }
             var (style, brushes) = CommentElementContext.Read(propsJson, Nullify(sourceRoot));
-            // Without a declaration, the live AutomationId is the element's most stable searchable identity.
-            if (authored is null && !selfGivenName)
+            // The live value is what `winapp ui` selects by, including one set from code or a binding. A value the
+            // type gives its own root (like a self-given x:Name) is shared by every usage, so it is not identity.
+            if (!selfGivenName)
             {
-                automationId = ReadLiveAutomationId(tap, handle, cancellationToken);
+                automationId = ReadLiveAutomationId(tap, handle, cancellationToken) ?? automationId;
             }
             var window = ReadWindowTitle(tap, tree, handle, cancellationToken);
             return new CaptureResult
@@ -198,7 +199,7 @@ internal static class CommentSelectionCapture
                     CommentRoot = Nullify(ReadCommentRoot(rootResponse)),
                     Style = style,
                     Brushes = brushes,
-                    Window = window,
+                    WindowTitle = window,
                 },
             };
         }

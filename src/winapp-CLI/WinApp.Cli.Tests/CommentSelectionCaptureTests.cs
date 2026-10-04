@@ -190,6 +190,40 @@ public class CommentSelectionCaptureTests
         """;
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void LinkedCapture_StoresTheLiveAutomationId_WhenTheDeclarationBindsIt(bool live)
+    {
+        var directory = Directory.CreateTempSubdirectory("winapp-live-automation-id-");
+        try
+        {
+            const string declaration = "<TextBlock AutomationProperties.AutomationId=\"{x:Bind Order.Id}\" />";
+            File.WriteAllText(Path.Combine(directory.FullName, "MainPage.xaml"), "<Page>\n" + declaration + "\n</Page>");
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", """[{"handle":"2","name":"","type":"TextBlock","children":[]}]""")
+                .Answer("Property.get", """{"props":[]}""")
+                .Answer("Source.get", System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    fileName = "ms-appx:///MainPage.xaml", lineNumber = 2, columnNumber = 1, authoredState = "available",
+                    authoredFileName = "MainPage.xaml", authoredLineNumber = 2, authoredColumnNumber = 1,
+                    coordinateProvenance = "disk-matched-unique-declaration", xaml = declaration,
+                }))
+                .Answer("Internal.elementAnchor", """{"anchor":"a","unique":true}""")
+                .Answer("Internal.sourceRoot", System.Text.Json.JsonSerializer.Serialize(new { sourceRoot = directory.FullName }))
+                .Answer(live ? "VisualTree.getPreviews" : "Unused.method",
+                    """{"previews":[{"handle":"2","preview":"","automationId":"Order1042"}],"requested":1,"returned":1,"truncated":false}""");
+
+            var result = CommentSelectionCapture.CaptureElement((uint)agent.Pid, "2");
+
+            Assert.AreEqual(CaptureStatus.Ok, result.Status, result.Error?.Message);
+            Assert.IsNotNull(result.Element!.Authored, "the comment is linked to its declaration");
+            Assert.AreEqual(live ? "Order1042" : null, result.Element.AutomationId,
+                "the value the app had at capture, never the binding text");
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    [TestMethod]
     [DataRow("")]
     [DataRow("A live heading longer than forty-two characters that is not a source literal")]
     public void DiskMatchedCapture_RetainsAuthoredIdentityIndependentOfRuntimeText(string liveText)
