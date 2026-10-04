@@ -141,7 +141,9 @@ function Invoke-ScenarioLint {
         [Parameter(Mandatory)][object[]]$Scenarios,
         [Parameter(Mandatory)]$Corpus,
         [double]$MaxJaccard = 0.10,
-        [int]$MaxDocFrequency = 3
+        [int]$MaxDocFrequency = 3,
+        # capabilities.json as read by Read-CapabilityMap; enables the answer-signal check.
+        $CapabilityMap = $null
     )
     $pathPattern = '(?<![\w])[\w.\\/-]*[\w-]\.(?:msix|msixbundle|appx|appinstaller|pfx|cer|png|ico|json|xml|xaml|cs|cpp|h|hpp|yaml|yml|toml|ps1|wxs|csproj|vcxproj|appxmanifest|txt|log|js|ts|html|rs|dart|exe|dll|sln|config|cmake|gradle)\b'
     foreach ($s in $Scenarios) {
@@ -162,6 +164,20 @@ function Invoke-ScenarioLint {
         }
         if ($leak.MaxJaccard -gt $MaxJaccard) {
             [pscustomobject]@{ Scenario = $s.Id; Set = $s.Set; Level = $level; Rule = 'leak-jaccard'; Message = ('content-word overlap {0:N3} with {1} (max {2})' -f $leak.MaxJaccard, $leak.MaxJaccardDocument, $MaxJaccard) }
+        }
+        if ($CapabilityMap -and $s.PSObject.Properties['Expect'] -and $s.Expect.PSObject.Properties['Capabilities'] -and $s.Expect.Capabilities) {
+            # A prompt that already contains an answer signal of its own expected capabilities gets an
+            # answer pass by repeating the question.
+            $c = $s.Expect.Capabilities
+            foreach ($cap in @(@($c.Primary | ForEach-Object { $_ }) + @($c.Acceptable) | Select-Object -Unique)) {
+                $a = if ($CapabilityMap.Capabilities.Contains($cap)) { $CapabilityMap.Capabilities[$cap].Answer } else { $null }
+                if (-not $a) { continue }
+                foreach ($rx in @($a.Require | ForEach-Object { $_ })) {
+                    if ([regex]::IsMatch($s.Prompt, $rx, 'IgnoreCase')) {
+                        [pscustomobject]@{ Scenario = $s.Id; Set = $s.Set; Level = $level; Rule = 'leak-answer'; Message = "prompt contains answer signal /$rx/ of $cap" }
+                    }
+                }
+            }
         }
         if ($s.Set -eq 'heldout') {
             if ($text -match '(?i)\bcontoso\b') { [pscustomobject]@{ Scenario = $s.Id; Set = $s.Set; Level = 'error'; Rule = 'fixed-name'; Message = 'uses the name Contoso; held-out scenarios use randomized names' } }

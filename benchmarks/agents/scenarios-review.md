@@ -121,3 +121,20 @@ Routing leaves out the `none` control and explicit-command scenarios; pass = pas
 - In 46 of 137 held-out misses the agent still named the right `winapp` command.
 - Loading the three most-loaded skills on every prompt passes 15 of 65 dev and 15 of 120 held-out prompts (it passed 35% of the old scenarios).
 - Near-miss traps that should load nothing pass 100%. The failing traps expect `framework.guidance` for "WPF, but Fluent-looking" asks (`holloway` 1/18, `alderfield` 9/18); no current skill documents WPF styling, so read these as a coverage gap as much as a routing miss.
+### Answer quality next to routing
+
+Each run now also gets an answer status from deterministic signals in `capabilities.json` (no LLM judge). The v2 baseline runs did not keep the final response, so they were rescored offline from their recorded `winapp` commands; no sessions were re-run. 324 older dev runs (prior copies recorded before commands were captured) have no answer score.
+
+| Set | Model | Routing | Answer | Routed + answered | Routed only | Answered only | Neither |
+|---|---|---|---|---|---|---|---|
+| held-out | claude-sonnet-5.5 | 32% | 68% (80/118) | 52 | 9 | 28 | 29 |
+| held-out | claude-opus-5.5 | 78% | 79% (95/121) | 94 | 14 | 1 | 12 |
+| held-out | gpt-6.1-sol | 84% | 70% (85/122) | 84 | 24 | 1 | 13 |
+| dev | claude-sonnet-5.5 | 57% | 79% (172/218) | 142 | 10 | 27 | 36 |
+| dev | claude-opus-5.5 | 92% | 85% (191/226) | 183 | 28 | 5 | 7 |
+| dev | gpt-6.1-sol | 94% | 77% (163/213) | 154 | 37 | 7 | 12 |
+
+- Sonnet often names the right `winapp` command without loading a skill (it reads the commands from skill descriptions in its prompt), so its answer rate is far above its routing rate.
+- GPT loads the right skill but then often doesn't name the command (24 held-out runs routed but not answered).
+- Without plugins, models named the right command on 1 of 13 scorable held-out base prompts; with both plugins, 67-73%.
+- On held-out, 277 of 638 routing runs have no answer score: their primary capability has no objective signal (`winui.design`, `winui.review`, `troubleshoot`, `framework.guidance`, …) or its signal needs the response text (manifest XML, Sandbox flags).

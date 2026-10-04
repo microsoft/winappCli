@@ -97,7 +97,7 @@ Describe 'Repository scenarios' {
     It 'pass the leakage and fixture lint (errors only; dev scenarios may warn)' {
         $scenarios = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot '..\scenarios')
         $corpus = Get-LintCorpus -PluginPaths @((Join-Path $repoRoot 'plugins\winapp'), (Join-Path $repoRoot 'plugins\winui\agent-plugin'))
-        $errors = @(Invoke-ScenarioLint -Scenarios $scenarios -Corpus $corpus | Where-Object Level -eq 'error')
+        $errors = @(Invoke-ScenarioLint -Scenarios $scenarios -Corpus $corpus -CapabilityMap (Read-CapabilityMap -Path (Join-Path $PSScriptRoot '..\capabilities.json')) | Where-Object Level -eq 'error')
         $errors | ForEach-Object { "$($_.Scenario): $($_.Rule) $($_.Message)" } | Should -BeNullOrEmpty
     }
 

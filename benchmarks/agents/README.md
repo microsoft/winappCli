@@ -99,7 +99,9 @@ comma-separated values (`-Scenario a,b`), including through `pwsh -File`.
    agent, duration, and exit status. Missing values are `null` with a reason, never 0. If the
    workspace changed, the run is a `harness_error`.
 6. Maps the invoked skills to capabilities with `capabilities.json`, evaluates the scenario's
-   expectations, appends a line to `runs.jsonl`, and deletes the temporary folders.
+   expectations, scores the final response against the answer signals (see
+   [Routing and answer](#routing-and-answer)), appends a line to `runs.jsonl`, and deletes the
+   temporary folders.
 
 Nothing is installed into your own Copilot home.
 
@@ -154,6 +156,47 @@ scenarios).
 `winapp` command (from the scenario's `commands`, or the primary capabilities' command patterns in
 `capabilities.json`). It separates "skipped the skill but knew the command" from "knew nothing".
 Runs recorded before commands were captured show `n/a` for it.
+
+### Routing and answer
+
+Every run gets two independent statuses:
+
+- **Routing** (`status`): did the expected skill load? See the status table above.
+- **Answer** (`answer`): does the final response name what a correct answer must name? It does not
+  depend on which skills loaded, so it is also scored for the `none` control.
+
+Answer signals live in `capabilities.json`, next to each capability:
+
+```json
+"msix.sign": { "answer": { "require": [["winapp (sign|az-sign|cert)\\b"]], "forbid": [] } }
+```
+
+`require` is a list of groups; each group needs one matching regex (case-insensitive) in the final
+response. `forbid` regexes fail the answer. For a scenario:
+
+| Answer | Meaning |
+|---|---|
+| `pass` | Every capability of a primary alternative met its signals |
+| `partial` | Some signals of a primary or acceptable capability were met, but no full alternative |
+| `fail` | No signals were met (and every alternative could be checked), or a `forbid` pattern matched |
+| `n/a` | No primary capability has signals, a miss can't be judged because another alternative has no signals, or the run recorded nothing to score |
+
+Scenarios that need no plugin (`"primary": []`) pass when the response names no `winapp` command.
+
+Signals are deliberately small and objective: the `winapp` command for capabilities that have one,
+and a key term for a few that do not (`Microsoft.UI.Xaml` for a WinUI port, a `--version` check for
+prerequisites, manifest extension elements). Capabilities whose correct answer depends on the
+scenario (`winui.design`, `winui.review`, `winui.build`, `troubleshoot`, `framework.guidance`,
+`session.report`) have no signals and score `n/a`.
+
+Runs recorded before the final response was kept are scored from their recorded `winapp` commands
+instead (`answerBasis: commands`). Those commands include ones the agent tried to run, have no
+arguments, and contain no prose, so only signal groups made entirely of `winapp <command>` patterns
+are checked; the rest are `n/a`. Runs recorded before commands were captured stay `n/a`.
+
+`summary.md` shows routing and answer side by side per set, model, cohort, and primary capability,
+plus a 2 x 2 table (routed and answered, routed only, answered only, neither). `-Compare` adds
+answer columns and the same 2 x 2 for each side.
 
 ### Rescoring after changing expectations
 
@@ -282,6 +325,7 @@ the plugins being run:
 | `fixed-name`, `names-tooling`: uses "Contoso", or names winapp, a skill, or a plugin | error | - |
 | `fixture-empty`: the prompt names an empty fixture file (unless `routingSnapshot`) | error | error |
 | `fixture-missing`: the prompt names a file the fixture lacks (unless `routingSnapshot`) | warning | warning |
+| `leak-answer`: the prompt already contains an answer signal of its own primary or acceptable capabilities | error | warning |
 
 Framework, product, and generic project words ("WinUI app", "Windows desktop", "Microsoft Store",
 "MSIX") are not counted as leakage: a developer naming their own stack is not echoing a description.

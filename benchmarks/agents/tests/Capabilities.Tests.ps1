@@ -278,9 +278,9 @@ Describe 'Rescore and summaries with capabilities' {
         $text | Should -Match 'Pass rate: 1/2 \(50%\), 1 partial'
         $text | Should -Match 'Explicit-command pass rate: 0/1'
         $text | Should -Match 'Right winapp command named without loading a primary skill: 1 of 2'
-        $text | Should -Match '\| dev \| implicit \| m \| 2 \| 1 \| 1 \| 0 \| 0 \| 50% \| 1 \|'
+        $text | Should -Match '\| dev \| implicit \| m \| 2 \| 1 \| 1 \| 0 \| 0 \| 50% \| n/a \| 1 \|'
         $text | Should -Match '## No-plugin control'
-        $text | Should -Match '\| heldout \| explicit-command \| m \| 1 \| 1 \| 1/1 \| 2\.0 \|'
+        $text | Should -Match '\| heldout \| explicit-command \| m \| 1 \| 1 \| 1/1 \| n/a \| 2\.0 \|'
     }
 
     It 'compares by set and cohort and counts partial runs as scored' {

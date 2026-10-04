@@ -73,7 +73,7 @@ if ($Lint) {
     )
     # Lints every set unless -Set is given.
     $lintScenarios = @($allScenarios | Where-Object { $Set -eq 'all' -or -not $PSBoundParameters.ContainsKey('Set') -or $_.Set -eq $Set })
-    $findings = @(Invoke-ScenarioLint -Scenarios $lintScenarios -Corpus (Get-LintCorpus -PluginPaths $lintPlugins))
+    $findings = @(Invoke-ScenarioLint -Scenarios $lintScenarios -Corpus (Get-LintCorpus -PluginPaths $lintPlugins) -CapabilityMap (Get-CapabilityMap))
     if ($findings) { $findings | Sort-Object Level, Set, Scenario | Format-Table Level, Set, Scenario, Rule, Message -AutoSize -Wrap | Out-String -Width 220 | Write-Host }
     $errors = @($findings | Where-Object Level -eq 'error').Count
     Write-Host "Linted $($lintScenarios.Count) prompts: $errors errors, $(@($findings | Where-Object Level -eq 'warning').Count) warnings."
@@ -355,6 +355,10 @@ function Invoke-BenchmarkRun {
         commandHit             = $null
         commandWithoutSkill    = $null
         overBudget             = $null
+        answer                 = $null
+        answerBasis            = $null
+        answerNotes            = @()
+        finalResponse          = $null
         selectedAgent          = $null
         workspaceChanges       = $null
         durationMs             = $null
@@ -454,6 +458,7 @@ function Invoke-BenchmarkRun {
         $record.deniedToolCalls = $parsed.deniedToolCalls
         $record.winappCommands = @($parsed.winappCommands)
         $record.selectedAgent = $parsed.selectedAgent
+        $record.finalResponse = $parsed.finalResponse
 
         if ($record.workspaceChanges) {
             # The run was supposed to be read-only; its result is not comparable.
@@ -474,7 +479,7 @@ function Invoke-BenchmarkRun {
         }
         else {
             $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills $record.skillsLoaded -InstalledSkills @($installed) `
-                -WinappCommands $record.winappCommands -SkillContextTokens $record.skillContextTokensApprox
+                -WinappCommands $record.winappCommands -SkillContextTokens $record.skillContextTokensApprox -Response $record.finalResponse
             $record.status = $eval.Status
             $record.reason = $eval.Failures -join '; '
             $record.expectationNotes = $eval.Notes
@@ -525,7 +530,7 @@ foreach ($run in $runList) {
     $tok = if ($rec.tokens) { "in $($rec.tokens.input) / out $($rec.tokens.output)" } else { 'tokens n/a' }
     if ($null -ne $rec.skillContextTokensApprox) { $tok += " / skill ctx ~$($rec.skillContextTokensApprox)" }
     $dur = if ($null -ne $rec.durationMs) { '{0:N0}s' -f ($rec.durationMs / 1000) } else { '' }
-    Write-Host " $($rec.status) | skills: $skills | $tok | $dur"
+    Write-Host " $($rec.status) | answer: $(if ($rec.answer) { $rec.answer } else { '-' }) | skills: $skills | $tok | $dur"
     if ($rec.status -notin 'pass', 'fail', 'partial' -and $rec.reason) { Write-Host "    $($rec.reason)" }
 }
 
