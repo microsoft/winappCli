@@ -338,12 +338,14 @@ retry; for example, Width must be nonnegative, not `banana` or `-1`.
 
 For capture and restore through the protocol, see [Advanced DevTools](devtools-advanced.md#capture-and-restore-a-binding).
 
-## Refresh inspector values
+## Inspector values are live
 
-In the inspector window, select **Refresh snapshot** or press **F5** to reread
-property values and tree previews after your app changes them. Values are
-snapshots, not live subscriptions. Selecting the same element again does not refresh
-them. Finish or cancel pending edits before refreshing.
+The inspector follows the selected element: when your app changes its text,
+content, colors, opacity, visibility, `IsEnabled`, size, margin and other common
+properties from code, the properties pane and the element's tree caption update
+within a moment. A row you are editing is updated once you commit or cancel the
+edit. Other properties update when you select the element again; **F5** rereads
+everything.
 
 ## Continue from a terminal
 

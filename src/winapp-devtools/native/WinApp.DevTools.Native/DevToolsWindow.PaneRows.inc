@@ -471,6 +471,7 @@ static void OnAppTreeChanged()
                   (unsigned long long)g_selWire);
     g_selWire = 0;
     g_selectedWire = 0;
+    LiveUnwatch();
     SelectRowVisual(nullptr);
     ShowPropsForNode(0, L"(no selection)", L"", true);
     ShowPaneNotice(L"The selected element is gone. The app navigated or removed it.");

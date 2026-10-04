@@ -97,6 +97,7 @@ if (g_route1WindowHidden) {
                 ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
             }
             ApplyPendingReveal();
+            LiveWatchSelection();
             return S_OK;
         }
         DevToolsOverlayLog(L"route1.open existing window was closed; rebuilding");
@@ -343,11 +344,9 @@ if (g_route1WindowHidden) {
         wireToggle(L"PickBtn", nullptr, reinterpret_cast<IUnknown*>(pickSink), nullptr, &g_pickBtnCtrl);
         if (g_pickBtnCtrl) DevToolsPutIsEnabled(g_pickBtnCtrl, g_ctx.writeFn != nullptr);
         wireToggle(L"FocusBtn", nullptr, reinterpret_cast<IUnknown*>(focusSink), nullptr);
-        auto* refreshSink = new SnapshotRefreshSink(); refreshSink->Init(false);
-        wireToggle(L"RefreshSnapshotBtn", nullptr, reinterpret_cast<IUnknown*>(refreshSink), nullptr);
         void* rootUi = nullptr;
         if (SUCCEEDED(static_cast<IUnknown*>(feRoot)->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &rootUi)) && rootUi) {
-            auto* keys = new SnapshotRefreshSink(); keys->Init(true);
+            auto* keys = new SnapshotRefreshSink(); keys->Init();
             __int64 keyToken = 0;
             const HRESULT keyHr = DevToolsAddPreviewKeyDown(rootUi, keys, &keyToken);
             if (FAILED(keyHr)) DevToolsOverlayLog(L"route1.snapshot F5 subscription FAILED hr=0x%08X", keyHr);
@@ -574,6 +573,7 @@ HRESULT DevToolsWindow_Close()
         return E_FAIL;
     }
     ResetAppVisibleModes();
+    LiveUnwatch();
     g_route1WindowHidden = true;
     DevToolsOverlayLog(L"route1.close hidden (instance reused; gen=%u)", g_route1Gen);
     return S_OK;

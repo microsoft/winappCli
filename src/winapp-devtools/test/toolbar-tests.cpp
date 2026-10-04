@@ -184,10 +184,9 @@ static void TestToolbarContract()
                      window.find("DevToolsAddActualThemeChanged(g_captionThemeRoot, sink, &g_captionThemeToken)") != std::string::npos &&
                      windowShell.find("<TitleBar ") == std::string::npos,
                  "inspector themes the native caption without custom frame or duplicate titlebar");
-    CheckToolbar(windowShell.find("Snapshot values. F5 to refresh.") != std::string::npos &&
-                     windowShell.find("Property values and tree previews are snapshots, not live updates.") != std::string::npos &&
-                     windowShell.find("AutomationProperties.AutomationId=\"RefreshInspectorSnapshot\"") != std::string::npos,
-                 "compact toolbar preserves visible snapshot truth and an accessible refresh action");
+    CheckToolbar(windowShell.find("Snapshot values") == std::string::npos &&
+                     windowShell.find("RefreshInspectorSnapshot") == std::string::npos,
+                 "the inspector has no snapshot banner or refresh button: the selected element is live");
     CheckToolbar(window.find("ApplyMicaBackdrop(winInsp)") != std::string::npos &&
                      window.find("<MicaBackdrop xmlns=") != std::string::npos &&
                      window.find("DesktopAcrylicBackdrop") == std::string::npos,

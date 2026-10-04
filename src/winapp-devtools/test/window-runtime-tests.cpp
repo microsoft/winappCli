@@ -403,6 +403,30 @@ int main()
     check(!ColorPickerApplies(true,L"#FF102030",L"#FF000000") && ColorPickerApplies(false,L"#FF102030",L"#FF000000") &&
         !ColorPickerApplies(false,L"#ff000000",L"#FF000000"),
         "Esc on the color picker cancels; closing it any other way applies a changed color");
+    {
+        // The selected element is live: a change the app makes updates only the rows that differ, an edit in
+        // progress is not replaced, and a change to an open row or a property the pane does not list rebuilds it.
+        using namespace DevToolsLiveRows;
+        DevToolsCardRow opacity; opacity.name=L"Opacity"; opacity.value=L"1"; opacity.authored=L"1";
+        DevToolsCardRow text; text.name=L"Text"; text.value=L"Start";
+        const std::vector<DevToolsCardRow> shown{opacity,text};
+        DevToolsCardRow changedOpacity; changedOpacity.name=L"Opacity"; changedOpacity.value=L"0.5";
+        const std::vector<DevToolsCardRow> fresh{changedOpacity};
+        const auto none=[](const std::wstring&){return false;};
+        const auto update=Decide(shown,fresh,false,none);
+        check(update.action==Action::UpdateRows && update.changed==std::vector<std::pair<size_t,size_t>>{{0,0}},
+            "an app-side change updates only the row that changed, from a read of just that property");
+        DevToolsCardRow sameOpacity=changedOpacity; sameOpacity.value=L"1";
+        check(Decide(shown,std::vector<DevToolsCardRow>{sameOpacity},false,none).action==Action::None,
+            "an unchanged value (our own write echoed back) changes nothing");
+        check(Decide(shown,fresh,true,none).action==Action::Defer, "an edit in progress is not replaced; the update waits");
+        check(Decide(shown,fresh,false,[](const std::wstring& p){return p==L"Opacity";}).action==Action::Rebuild,
+            "a change to an open row rebuilds the pane, which keeps scroll, filter and expansion");
+        DevToolsCardRow tag; tag.name=L"Tag"; tag.value=L"x";
+        check(Decide(shown,std::vector<DevToolsCardRow>{tag},false,none).action==Action::Rebuild,
+            "a property the pane does not list yet rebuilds it");
+        check(g_live.tokens.empty() && g_live.wire==0, "no property callbacks are held when nothing is followed");
+    }
     std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

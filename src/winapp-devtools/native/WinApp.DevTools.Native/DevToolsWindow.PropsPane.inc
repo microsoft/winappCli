@@ -400,6 +400,7 @@ g_propRows = rows;
                   (double)(tParse1.QuadPart - tAuthor1.QuadPart) * ms,
                   (double)(tWire1.QuadPart - tParse1.QuadPart) * ms);
     ApplyPendingReveal();
+    LiveWatchSelection();
 }
 
 // Capture canonical XamlRoot identity for inspector census exclusion. If unavailable, retain
@@ -413,6 +414,8 @@ static void CaptureInspectorXamlRoot(IInspectable* content);
 // Release the comments view's cached refs (defined with the comments block below).
 static void ResetCommentsViewState();
 
+// F5 re-reads the tree and the selected element in full. The pane is live, so this is a fallback and has no UI of
+// its own; it does nothing while an edit is in progress.
 static void RefreshInspectorSnapshot()
 {
     if (!g_inspectorContent) return;
@@ -420,7 +423,6 @@ static void RefreshInspectorSnapshot()
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, g_inspectorContent);
         auto root = object.as<DevToolsX::FrameworkElement>();
-        auto notice = root.FindName(L"SnapshotNotice").as<DevToolsXC::TextBlock>();
         auto focused = DevToolsXI::FocusManager::GetFocusedElement(root.XamlRoot());
         bool input = false, inProperties = false, inTree = false;
         InstanceHandle focusWire = 0;
@@ -449,17 +451,14 @@ static void RefreshInspectorSnapshot()
         }
         if (!DevToolsInspector::CanRefreshSnapshot(input, inProperties || (inTree && !focusWire),
                 openEditor || !g_pendingWrites.empty() || !g_pendingKind.empty())) {
-            notice.Text(L"Snapshot unchanged. Finish or cancel edits, collapse editors, then focus Refresh snapshot and retry.");
+            DevToolsOverlayLog(L"route1.snapshot F5 skipped: an edit is in progress");
             return;
         }
         auto scroller = root.FindName(L"PropsScroll").as<DevToolsXC::ScrollViewer>();
         const double scroll = scroller.VerticalOffset();
         const auto wire = g_selWire;
         const auto label = g_selLabel, breadcrumb = g_selBreadcrumb;
-        if (!RefreshTreeFromApp(true)) {
-            notice.Text(L"Snapshot refresh failed. The previous values are still shown; retry.");
-            return;
-        }
+        if (!RefreshTreeFromApp(true)) return;
         if (wire) ShowPropsForNode(wire, label, breadcrumb, true);
         scroller.ChangeView(nullptr, winrt::box_value(scroll).as<winrt::Windows::Foundation::IReference<double>>(), nullptr, true);
         if (focusWire) {
@@ -474,9 +473,8 @@ static void RefreshInspectorSnapshot()
                 }
             }
         }
-        notice.Text(L"Snapshot refreshed. F5 to update.");
     } catch (...) {
-        SetStatusText(L"Snapshot refresh unavailable. Retry after the app finishes layout.");
+        DevToolsOverlayLog(L"route1.snapshot F5 refresh failed");
     }
 }
 
@@ -485,21 +483,19 @@ struct SnapshotRefreshSink : DevToolsSinkBase
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
     {
         if (gen != g_route1Gen) return S_OK;
-        if (keyEvent) {
-            int key = 0;
-            if (!args || FAILED(DevToolsGetKey(args, &key)) || key != VK_F5) return S_OK;
-            DevToolsPutHandled(args, true);
-        }
+        int key = 0;
+        if (!args || FAILED(DevToolsGetKey(args, &key)) || key != VK_F5) return S_OK;
+        DevToolsPutHandled(args, true);
         RefreshInspectorSnapshot();
         return S_OK;
     }
-    void Init(bool keys) { keyEvent = keys; InitSink(keys ? IID_KeyEventHandler_Del : IID_RoutedEventHandler_Del, g_route1Gen); }
-    bool keyEvent = false;
+    void Init() { InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
 };
 
 // Bump generation before releasing UI refs so in-flight callbacks become inert before teardown.
 static void ResetRoute1State()
 {
+    LiveUnwatch();
     g_route1Gen++;
     ReleaseInspectorCaptionTheme();
     if (HWND h = Route1WindowHwnd()) { KillTimer(h, kRefreshTimerId); KillTimer(h, kDisarmAfterWindowPickTimerId); }

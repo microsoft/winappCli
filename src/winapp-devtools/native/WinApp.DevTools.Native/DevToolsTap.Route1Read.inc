@@ -417,6 +417,8 @@ static bool WindowPathWalkBridge(InstanceHandle wire, const std::wstring& prop, 
     return true;
 }
 
+static DevToolsCardRow ToCardRow(const DevToolsReadProp& p);
+
 // Called on the app UI thread by OnInspectClick, so it snapshots the census and builds the window synchronously (no
 // RunOnUiThread hop). Returns true on success so OnInspectClick can fall back to the external host on failure.
 static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
@@ -433,6 +435,25 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     // the window asks for its OWN binding walk, natively. Registered before the open for the
     // same reason the comment bridge is -- the first expansion the user opens must be able to ask.
     DevToolsWindow_SetPathWalk(&WindowPathWalkBridge);
+    DevToolsWindow_SetElementResolver([](InstanceHandle wire) -> IInspectable* {
+        InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
+        AcquireSRWLockShared(&g_censusLock);
+        ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
+        ReleaseSRWLockShared(&g_censusLock);
+        IInspectable* element = nullptr;
+        if (!ok || !g_diag || FAILED(g_diag->GetIInspectableFromHandle(ih, &element))) return nullptr;
+        return element;
+    }, [](InstanceHandle wire, const std::vector<std::wstring>& names, std::vector<DevToolsCardRow>* rows) {
+        InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
+        AcquireSRWLockShared(&g_censusLock);
+        ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
+        ReleaseSRWLockShared(&g_censusLock);
+        const std::set<std::wstring> projection(names.begin(), names.end());
+        std::vector<DevToolsReadProp> props;
+        if (!ok || FAILED(ReadCuratedProps(ih, &props, nullptr, nullptr, &projection))) return false;
+        for (const auto& p : props) rows->push_back(ToCardRow(p));
+        return true;
+    });
     // Hand the last in-app pick (published by PublishOverlayPick as a wire handle) to the window so it opens with
     // that element selected. 0 when nothing was picked (plain toolbar Inspect) -> window opens with no selection.
     InstanceHandle preselect = g_lastPickHandle.load(std::memory_order_relaxed);

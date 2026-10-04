@@ -127,6 +127,13 @@ using DevToolsWindowWalkFn = std::function<bool(InstanceHandle wire, const std::
                                            const std::wstring& tryPath, std::wstring* outJson)>;
 void DevToolsWindow_SetPathWalk(DevToolsWindowWalkFn walkFn);
 
+// The live element behind a wire handle (null when it is gone; the caller releases it), so the pane can follow its
+// property changes, and a read of just the named properties' values. UI thread only.
+using DevToolsWindowElementFn = IInspectable* (*)(InstanceHandle wire);
+using DevToolsWindowValuesFn = bool (*)(InstanceHandle wire, const std::vector<std::wstring>& names,
+                                        std::vector<DevToolsCardRow>* rows);
+void DevToolsWindow_SetElementResolver(DevToolsWindowElementFn element, DevToolsWindowValuesFn values);
+
 void DevToolsWindow_RefreshComments();
 
 bool DevToolsWindow_OnPicked(InstanceHandle wire, bool releaseCommit);

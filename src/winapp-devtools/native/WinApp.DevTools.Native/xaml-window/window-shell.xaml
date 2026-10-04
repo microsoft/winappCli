@@ -15,33 +15,12 @@
 <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Background="Transparent">
-  <Grid.RowDefinitions>
-    <RowDefinition Height="Auto"/>
-    <RowDefinition Height="*"/>
-  </Grid.RowDefinitions>
-
-  <Grid Padding="12,8" ColumnSpacing="16"
-        BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-    <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="*"/>
-      <ColumnDefinition Width="Auto"/>
-    </Grid.ColumnDefinitions>
-    <TextBlock x:Name="SnapshotNotice" VerticalAlignment="Center" TextWrapping="Wrap"
-               Text="Snapshot values. F5 to refresh."
-               AutomationProperties.HelpText="Property values and tree previews are snapshots, not live updates."
-               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-               Style="{StaticResource CaptionTextBlockStyle}"/>
-    <Button x:Name="RefreshSnapshotBtn" Grid.Column="1" Content="Refresh snapshot" AllowFocusOnInteraction="False"
-            ToolTipService.ToolTip="Refresh property values and tree previews (F5). Finish edits first."
-            AutomationProperties.AutomationId="RefreshInspectorSnapshot"/>
-  </Grid>
-
-  <!-- Row 1: content (tree | splitter | props). The tree pane carries an explicit Width and its column is
+  <!-- Content (tree | splitter | props). The tree pane carries an explicit Width and its column is
        Auto, so a drag can resize it directly via FrameworkElement.Width; the props column takes the rest.
        (A star/star split cannot be resized without writing GridLength through the ABI, and WinUI ships no
        GridSplitter -- that control lives in the Community Toolkit, which this overlay deliberately does not
        take a dependency on. A Thumb is the primitive underneath it and needs nothing new.) -->
-  <Grid Grid.Row="1">
+  <Grid>
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="Auto"/>
       <ColumnDefinition Width="6"/>

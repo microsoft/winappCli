@@ -223,6 +223,10 @@ static void* PaneRowChild(const std::wstring& prop, const wchar_t* childName);
 
 static size_t RebuildPaneItems();
 
+// Following the selected element's property changes (DevToolsWindow.LiveProps.inc).
+static void LiveWatchSelection();
+static void LiveUnwatch();
+
 // Set and Computed views persist across selections, resetting on window teardown.
 // Computed groups effective state by concern; Set groups authored/local values by origin.
 enum class DevToolsPropView { Computed, Set };

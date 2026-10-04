@@ -43,6 +43,8 @@
 #include "DevToolsSettings.h"
 #include "DevToolsText.h"
 #include "DevToolsShellOpen.h"
+#include "DevToolsLiveRows.h"
+#include <winrt/Microsoft.UI.Xaml.Shapes.h>
 static const size_t kMaxRenderNodes = 1000;
 
 // Collapse framework chrome subtrees so template internals do not bury app-authored content.
@@ -309,6 +311,7 @@ static std::wstring ShortType(const std::wstring& t)
 #include "DevToolsWindow.Editors.inc"
 #include "DevToolsWindow.Expansion.inc"
 #include "DevToolsWindow.PropsPane.inc"
+#include "DevToolsWindow.LiveProps.inc"
 #include "DevToolsWindow.Placement.inc"
 #include "DevToolsWindow.Comments.inc"
 #include "DevToolsWindow.Lifecycle.inc"
