@@ -225,7 +225,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
                   L"couldn't deliver ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO. winapp warns when that is the reason.";
         } else if (authoredState == L"noFile") {
             why = L"The app's XAML source file couldn't be opened, so authored values "
-                  L"({x:Bind}, {ThemeResource}) can't be shown.";
+                  L"({x:Bind}, {ThemeResource}) can't be shown. A value an {x:Bind} sets appears as Local.";
         } else if (authoredState == L"stale") {
             why = L"The source on disk changed after the captured build or source snapshot. "
                   L"Authored values are hidden because the running app's source identity is no longer verified.";
@@ -240,12 +240,13 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         } else {
             why = L"Authored values ({x:Bind}, {ThemeResource}) can't be shown for this element.";
         }
-        // One line in the header; the full reason is on hover and for screen readers.
-        m += L"<TextBlock Text=\"Authored values unavailable (why?)\" FontSize=\"11\" TextWrapping=\"NoWrap\""
+        // One line in the header; the full reason is on hover and for screen readers. It names what is missing, so a
+        // Local value set by a compiled binding is not read as a plain literal.
+        m += L"<TextBlock Text=\"x:Bind and resource sources not shown (why?)\" FontSize=\"11\" TextWrapping=\"NoWrap\""
              L" TextTrimming=\"CharacterEllipsis\" Margin=\"0,0,0,2\""
              L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(why) + L"\""
              L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
-             L" AutomationProperties.Name=\"Authored values unavailable\""
+             L" AutomationProperties.Name=\"x:Bind and resource sources not shown\""
              L" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(why) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredUnavailable\"/>";
     }

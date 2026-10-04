@@ -395,9 +395,12 @@ int main()
         check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noSourceInfo",L"",&stretched).find(L"Visibility=\"Visible\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\"")!=std::wstring::npos,
             "an opened Size & spacing section stays open");
-        check(pane.find(L"Authored values unavailable (why?)")!=std::wstring::npos &&
-            pane.find(L"TextWrapping=\"Wrap\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.Name=\"Authored values unavailable\"")==std::wstring::npos,
-            "source verification is one line; the reason is on hover");
+        check(pane.find(L"x:Bind and resource sources not shown (why?)")!=std::wstring::npos &&
+            pane.find(L"TextWrapping=\"Wrap\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.Name=\"x:Bind and resource sources not shown\"")==std::wstring::npos,
+            "without the XAML source, one line says x:Bind and resource sources are not shown; the reason is on hover");
+        check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
+            L"",0,{text},L"noFile",L"",&stretched).find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos,
+            "the reason says an x:Bind value reads as Local");
         g_layoutSectionOpen=-1;
     }
     check(!ColorPickerApplies(true,L"#FF102030",L"#FF000000") && ColorPickerApplies(false,L"#FF102030",L"#FF000000") &&
