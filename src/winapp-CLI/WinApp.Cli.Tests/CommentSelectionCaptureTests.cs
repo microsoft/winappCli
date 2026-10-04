@@ -19,6 +19,9 @@ namespace WinApp.Cli.Tests;
 [DoNotParallelize]
 public class CommentSelectionCaptureTests
 {
+    private static readonly string[] CaptureCalls = ["Selection.poll", "VisualTree.enumerate", "Property.get", "Source.get",
+        "Internal.elementAnchor", "Internal.sourceRoot", "VisualTree.getPreviews", "Surface.list"];
+
     [TestMethod]
     [DataRow(false, null)]
     [DataRow(true, null)]
@@ -589,8 +592,7 @@ public class CommentSelectionCaptureTests
         Assert.AreEqual(35, result.Element.Line);
         Assert.AreEqual("Root/0", result.Element.ElementPath);
         Assert.AreEqual(@"C:\owned\project", result.Element.SourceRoot);
-        CollectionAssert.AreEqual(new[] { "Selection.poll", "VisualTree.enumerate", "Property.get", "Source.get",
-            "Internal.elementAnchor", "Internal.sourceRoot", "VisualTree.getPreviews", "Surface.list" }, agent.Received);
+        CollectionAssert.AreEqual(CaptureCalls, agent.Received);
     }
 
     [TestMethod]

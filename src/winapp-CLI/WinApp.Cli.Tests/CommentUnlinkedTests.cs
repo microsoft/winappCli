@@ -19,6 +19,7 @@ namespace WinApp.Cli.Tests;
 [DoNotParallelize]
 public class CommentUnlinkedTests
 {
+    private static readonly string[] NearestFirst = ["2", "1"];
     private const string Tree = """
         [{"handle":"1","name":"","type":"Microsoft.UI.Xaml.Controls.Grid","children":[
           {"handle":"2","name":"ShippedPill","type":"Microsoft.UI.Xaml.Controls.Border","children":[]}]}]
@@ -55,7 +56,7 @@ public class CommentUnlinkedTests
         return agent;
     }
 
-    private async Task<(int Exit, string Output)> AddAsync(FakeDevToolsProtocolAgent agent, CommentStore store, string cwd)
+    private static async Task<(int Exit, string Output)> AddAsync(FakeDevToolsProtocolAgent agent, CommentStore store, string cwd)
     {
         var console = new TestConsole();
         // The in-app writer runs in the app's working directory, which is its build output.
@@ -124,7 +125,7 @@ public class CommentUnlinkedTests
     [TestMethod]
     public void Ancestors_AreNearestFirst()
     {
-        CollectionAssert.AreEqual(new[] { "2", "1" }, CommentSelectionCapture.AncestorsOf(Tree, "2").ToArray());
+        CollectionAssert.AreEqual(NearestFirst, CommentSelectionCapture.AncestorsOf(Tree, "2").ToArray());
         Assert.AreEqual(0, CommentSelectionCapture.AncestorsOf(Tree, "404").Count);
     }
 
