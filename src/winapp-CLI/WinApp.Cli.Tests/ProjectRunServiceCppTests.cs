@@ -10,7 +10,7 @@ using WinApp.Cli.Services;
 namespace WinApp.Cli.Tests;
 
 [TestClass]
-public class ProjectRunServiceCppTests
+public sealed class ProjectRunServiceCppTests : IDisposable
 {
     private const string CppApp = """
         <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
@@ -76,7 +76,6 @@ public class ProjectRunServiceCppTests
     [TestCleanup]
     public void Cleanup()
     {
-        _console.Dispose();
         try
         {
             _tempDir.Delete(true);
@@ -86,6 +85,8 @@ public class ProjectRunServiceCppTests
             // Best effort: a locked temp file must not fail the test.
         }
     }
+
+    public void Dispose() => _console?.Dispose();
 
     private FileInfo WriteFile(string relativePath, string content)
     {
