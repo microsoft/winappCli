@@ -721,6 +721,13 @@ int main()
         check(BuildSelRowsMarkup({row},false).find(L"<Expander ")==std::wstring::npos &&
             BuildSelRowsMarkup({row},false).find(L"Georgia")!=std::wstring::npos,
             "quick peek", "read-only font has a real value and no empty disclosure");
+        {
+            const auto peer=BuildSelRowsMarkup({row},false);
+            const auto id=peer.find(L"AutomationProperties.AutomationId=\"DevToolsSelRow0\"");
+            check(id!=std::wstring::npos && peer.rfind(L"<TextBlock ",id)!=std::wstring::npos &&
+                peer.rfind(L"<TextBlock ",id)>peer.rfind(L"<Grid ",id),
+                "quick peek", "each row's UIA peer is its label, since a Grid exposes none");
+        }
         row.name=L"Foreground";row.type=L"Brush";row.editKind=L"color";row.value=L"#80123456";
         check(BuildSelRowsMarkup({row},false).find(L"PlaceholderText=\"#AARRGGBB\"")!=std::wstring::npos &&
             BuildSelRowsMarkup({row},false).find(L"Text=\"#80123456\"")!=std::wstring::npos &&

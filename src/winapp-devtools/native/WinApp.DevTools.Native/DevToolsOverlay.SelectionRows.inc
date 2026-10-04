@@ -366,9 +366,11 @@ static std::wstring BuildSelRowsMarkup(const std::vector<DevToolsCardRow>& rows,
         const std::wstring display = SelectionPreviewValue(r);
         const std::wstring editName = L"DevToolsSelEdit" + n;
 
-        m += L"<Grid ColumnSpacing=\"12\" AutomationProperties.AutomationId=\"DevToolsSelRow" + n + L"\">";
+        m += L"<Grid ColumnSpacing=\"12\">";
         m += kSelLabelColumn;
+        // The label is the row's accessible peer: a Grid has none, and every row has a label.
         m += L"<TextBlock x:Name=\"DevToolsSelLabel" + n + L"\" Text=\"" + DevToolsXmlEscape(r.name) + L"\""
+             L" AutomationProperties.AutomationId=\"DevToolsSelRow" + n + L"\""
              L" Style=\"{StaticResource CaptionTextBlockStyle}\" Margin=\"0,8,0,0\" VerticalAlignment=\"Top\""
              L" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" Foreground=\"" + pal.textSecondary + L"\""
              L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(r.name) + L"\"/>";

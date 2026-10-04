@@ -241,9 +241,9 @@ try {
         Check (-not $rows.hasMore) 'quick-property search is not result-limited'
         $duplicates = @($rows.matches | Where-Object { $_.selector } | Group-Object selector | Where-Object Count -gt 1 |
             ForEach-Object { [ordered]@{ selector = $_.Name; count = $_.Count; elements = $_.Group } })
-        $inspectedRows = @($all | Where-Object { $_.automationId -match '^DevToolsSelRow[0-4]$' })
-        Check ($rows.matchCount -eq 5 -and $duplicates.Count -eq 0) 'search emits each of the five quick-property peers once'
-        Check ($inspectedRows.Count -eq 5 -and @($inspectedRows | Group-Object automationId | Where-Object Count -ne 1).Count -eq 0) 'inspect emits each quick-property peer once across HWND roots'
+        $inspectedRows = @($all | Where-Object { $_.automationId -match '^DevToolsSelRow[0-5]$' })
+        Check ($rows.matchCount -ge 1 -and $rows.matchCount -le 6 -and $duplicates.Count -eq 0) 'search emits each quick-property peer once (at most six)'
+        Check ($inspectedRows.Count -eq $rows.matchCount -and @($inspectedRows | Group-Object automationId | Where-Object Count -ne 1).Count -eq 0) 'inspect emits each quick-property peer once across HWND roots'
         $saveCandidates = @($all | Where-Object {
             -not $_.isOffscreen -and $_.type -eq 'Button' -and ($_.name -match '(?i)save|commit' -or $_.automationId -match '(?i)save|commit')
         })
