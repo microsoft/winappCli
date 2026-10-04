@@ -37,6 +37,16 @@ public class ProjectRunServiceCppTests
         </Project>
         """;
 
+    private const string CsharpTests = """
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <OutputType>Exe</OutputType>
+            <IsTestProject>true</IsTestProject>
+            <TargetFramework>net10.0</TargetFramework>
+          </PropertyGroup>
+        </Project>
+        """;
+
     private static readonly string[] ExpectedBuildTokens = ["-restore", "-p:RestorePackagesConfig=true", "-t:Build", "-p:Configuration=Debug", "-p:Platform=x64"];
     private static readonly string[] ExpectedArm64Tokens = ["-p:Foo=Bar", "-p:Configuration=Release", "-p:Platform=ARM64"];
     private static readonly string[] ExpectedPackageIds = ["Microsoft.WindowsAppSDK", "Microsoft.WindowsAppSDK.Runtime"];
@@ -157,6 +167,30 @@ public class ProjectRunServiceCppTests
         var resolution = await _service.ResolveInputAsync(solution, CancellationToken.None);
 
         Assert.AreEqual(app.FullName, resolution.Csproj!.FullName);
+    }
+
+    [TestMethod]
+    public async Task ResolveInput_SolutionWithCppAppAndCsharpTests_PicksCppApp()
+    {
+        var solution = WriteFile("App.slnx", Slnx("App/App.vcxproj", "App.UITests/App.UITests.csproj"));
+        var app = WriteFile(@"App\App.vcxproj", CppApp);
+        WriteFile(@"App.UITests\App.UITests.csproj", CsharpTests);
+
+        var resolution = await _service.ResolveInputAsync(solution, CancellationToken.None);
+
+        Assert.AreEqual(app.FullName, resolution.Csproj!.FullName);
+    }
+
+    [TestMethod]
+    public async Task ResolveInput_VcxprojInMixedSolution_AttachesOwningSolution()
+    {
+        var solution = WriteFile("Root.slnx", Slnx("App/App.vcxproj", "Lib/Lib.csproj"));
+        var project = WriteFile(@"App\App.vcxproj", CppApp);
+        WriteFile(@"Lib\Lib.csproj", CsharpApp);
+
+        var resolution = await _service.ResolveInputAsync(project, CancellationToken.None);
+
+        Assert.AreEqual(solution.FullName, resolution.Solution?.FullName);
     }
 
     [TestMethod]
@@ -403,6 +437,7 @@ public class ProjectRunServiceCppTests
 
         Assert.AreEqual(msbuild.FullName, located);
         CollectionAssert.Contains(runner.Calls[0].ToArray(), component);
+        CollectionAssert.Contains(runner.Calls[0].ToArray(), "[17.8,", "MSBuild must support -getProperty");
     }
 
     [TestMethod]

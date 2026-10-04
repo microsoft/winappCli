@@ -8,6 +8,9 @@ namespace WinApp.Cli.Services;
 /// <inheritdoc cref="IMSBuildService" />
 internal sealed class MSBuildService(IProcessRunner processRunner) : IMSBuildService
 {
+    /// <summary>MSBuild 17.8 (Visual Studio 2022 17.8) is the first with <c>-getProperty</c>, which the evaluate pass needs.</summary>
+    private const string MinimumVersion = "[17.8,";
+
     /// <summary>
     /// The documented vswhere location. Read through the environment so it can be redirected; the
     /// Visual Studio Installer always installs it here, even for Build Tools-only machines.
@@ -29,7 +32,7 @@ internal sealed class MSBuildService(IProcessRunner processRunner) : IMSBuildSer
         }
 
         var msbuild = (await RunVsWhereAsync(
-                ["-latest", "-prerelease", "-products", "*", "-requires", VcToolsComponent(architecture), "-find", @"MSBuild\**\Bin\MSBuild.exe"],
+                ["-latest", "-prerelease", "-products", "*", "-version", MinimumVersion, "-requires", VcToolsComponent(architecture), "-find", @"MSBuild\**\Bin\MSBuild.exe"],
                 cancellationToken))
             .FirstOrDefault(File.Exists);
         if (msbuild is not null)
@@ -87,12 +90,12 @@ internal sealed class MSBuildService(IProcessRunner processRunner) : IMSBuildSer
             "--includeRecommended\"";
         var problem = installedProduct is null
             ? "no Visual Studio or Build Tools for Visual Studio installation was found."
-            : $"{installedProduct} does not have them installed.";
+            : $"{installedProduct} does not have them installed or is older than version 17.8.";
         var addTools = installedProduct is null
             ? "Install Visual Studio with the \"Desktop development with C++\" workload"
             : $"In the Visual Studio Installer, modify {installedProduct} to add the \"Desktop development with C++\" workload";
 
-        return $"Building a C++ project (.vcxproj) needs MSBuild and the MSVC C++ build tools for {architecture}, but {problem}" + Environment.NewLine +
+        return $"Building a C++ project (.vcxproj) needs Visual Studio or Build Tools for Visual Studio 2022 version 17.8 or later with the MSVC C++ build tools for {architecture}, but {problem}" + Environment.NewLine +
             $"  - {addTools}" +
             (arm64 ? " and the \"MSVC ARM64/ARM64EC build tools\" component" : string.Empty) +
             ". WinUI 3 apps also need the \"WinUI application development\" workload with \"C++ WinUI app development tools\"." + Environment.NewLine +

@@ -384,9 +384,11 @@ internal sealed partial class ProjectRunService
         }
 
         var solutionDir = solution.Directory?.FullName ?? Directory.GetCurrentDirectory();
-        var relativePaths = string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
-            ? ExtractSlnxProjectPaths(text)
-            : ExtractSlnProjectPaths(text);
+        // Compare against projects of the target's own type (.csproj or .vcxproj).
+        var relativePaths = (string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
+                ? ExtractSlnxAllProjectPaths(text)
+                : ExtractSlnAllProjectPaths(text))
+            .Where(p => p.EndsWith(project.Extension, StringComparison.OrdinalIgnoreCase));
 
         var sawProject = false;
         foreach (var relative in relativePaths)
@@ -419,12 +421,6 @@ internal sealed partial class ProjectRunService
     /// <summary>Extracts every listed project path (any type) from a classic <c>.sln</c> file.</summary>
     private static List<string> ExtractSlnAllProjectPaths(string text) =>
         SolutionProjectReader.ExtractSlnAllProjectPaths(text);
-
-    /// <summary>Extracts the relative <c>.csproj</c> paths listed in a classic <c>.sln</c> file.</summary>
-    private static List<string> ExtractSlnProjectPaths(string text) =>
-        ExtractSlnAllProjectPaths(text)
-            .Where(p => p.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
-            .ToList();
 
     /// <summary>Extracts every listed project path (any type) from an XML <c>.slnx</c> solution.</summary>
     private static List<string> ExtractSlnxAllProjectPaths(string text) =>
@@ -560,9 +556,9 @@ internal sealed partial class ProjectRunService
             ? await ClassifyRunnablesAsync(projects, solutionDir, solutionProps, classificationInputs, solution, cancellationToken)
             : (new List<FileInfo>(), new List<FileInfo>());
 
-        // C++ application projects are candidates only when no C# project is runnable, so a C# app with a
-        // native helper .exe in the same solution keeps resolving to the C# app.
-        if (apps.Count == 0 && tests.Count == 0)
+        // C++ application projects are candidates only when no C# app is runnable, so a C# app with a
+        // native helper .exe keeps resolving to the C# app, and a C++ app still wins over C# test projects.
+        if (apps.Count == 0)
         {
             apps = cppProjects.Where(IsCppApplicationProject).ToList();
         }
