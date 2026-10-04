@@ -78,10 +78,12 @@ static HRESULT DismissFocus(void*, int state, bool* value) { dismissFocusState=s
 static IInspectable* focusedOutsidePanel = nullptr;
 static bool focusInPanel = false;
 static unsigned pointerFocusCalls = 0;
-static HRESULT TestFocusedWithin(void*, IInspectable** focused, bool* inside)
+static void* toolbarRootForFocus = nullptr;
+static bool focusInToolbar = false;
+static HRESULT TestFocusedWithin(void* element, IInspectable** focused, bool* inside)
 {
     *focused = focusedOutsidePanel; if (*focused) (*focused)->AddRef();
-    *inside = focusInPanel; return S_OK;
+    *inside = element && element == toolbarRootForFocus ? focusInToolbar : focusInPanel; return S_OK;
 }
 static HRESULT TestFocusWithPointer(void*, void*, bool* moved) { ++pointerFocusCalls; *moved = true; return S_OK; }
 static bool escapeHandled = false;
@@ -944,6 +946,21 @@ int main()
         focusInPanel=true;pointerFocusCalls=0;
         ClearSelectionAnchor();
         check(pointerFocusCalls==1,"panel focus","replacing the peek (a new selection) also returns focus with pointer state");
+        {
+            // Focus left on the toolbar is DevTools chrome: the peek must not hand it back there.
+            GeometryObject toolbar, toolbarButton;
+            IInspectable* const savedRoot = g_protoRoot;
+            g_protoRoot=&toolbar;toolbarRootForFocus=&toolbar;focusInToolbar=true;
+            open();
+            focusInPanel=false;focusedOutsidePanel=&toolbarButton;
+            SelRememberFocus();
+            check(g_selReturnFocus.get()!=&toolbarButton,"panel focus","a peek opened from the toolbar does not return focus to it");
+            focusInToolbar=false;
+            SelRememberFocus();
+            check(g_selReturnFocus.get()==&toolbarButton,"panel focus","an app element that had focus is returned to");
+            g_selReturnFocus=nullptr;g_protoRoot=savedRoot;toolbarRootForFocus=nullptr;
+            ClearSelectionAnchor();
+        }
         focusedOutsidePanel=nullptr;focusInPanel=false;
 
         // Esc closes one layer at a time: the open panel, not pick mode.
@@ -1084,6 +1101,19 @@ int main()
             if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0);
             ClearSelectionAnchor();
             g_guestCommentWrite={};
+        }
+        // Ctrl and Alt pressed in the panel stay there, so the app shows no accelerator or access-key tips.
+        for (const int modifier : {VK_CONTROL, VK_MENU, VK_LCONTROL, VK_RMENU}) {
+            SwitchObject popup;
+            GeometryObject panel, icon, keyArgs;
+            keyArgs.keyArgs = true;
+            g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
+            commentKey=modifier;commentShift=false;commentControl=false;g_selFocusedIsComment=true;escapeHandled=false;
+            OnSelKeyDown(nullptr,&keyArgs);
+            check(escapeHandled && popup.popupOpen, "comment keys", "a modifier key-down is kept in the panel and closes nothing");
+            commentKey=VK_ESCAPE;g_selFocusedIsComment=false;
+            ClearSelectionAnchor();
         }
         // Commenting on one element after another: a save still running does not refuse the next one; it waits
         // and starts when the first completes, and each completion confirms itself.

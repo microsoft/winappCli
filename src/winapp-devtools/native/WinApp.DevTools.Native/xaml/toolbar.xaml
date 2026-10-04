@@ -91,7 +91,7 @@
           <Ellipse Width="8" Height="8" Fill="$LIVE$" HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Grid>
       </Border>
-      <Button x:Name="DevToolsProtoPick" Style="{x:Null}" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <Button x:Name="DevToolsProtoPick" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               IsEnabled="$PICKENABLED$"
               ToolTipService.ToolTip="Select an element (Esc to exit)"
@@ -107,7 +107,7 @@
           </Grid>
         </Grid>
       </Button>
-      <Button x:Name="DevToolsProtoComments" Style="{x:Null}" Width="34" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <Button x:Name="DevToolsProtoComments" Style="{x:Null}" AllowFocusOnInteraction="False" Width="34" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               ToolTipService.ToolTip="Show comments"
               AutomationProperties.AutomationId="DevToolsProtoComments"
@@ -124,7 +124,7 @@
         </Grid>
       </Button>
       <!-- Layout adorners are a mode: a ToggleButton exposes the on-state to UI Automation. -->
-      <ToggleButton x:Name="DevToolsProtoLayout" Style="{x:Null}" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <ToggleButton x:Name="DevToolsProtoLayout" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               ToolTipService.ToolTip="Layout adorners (margin, padding, alignment)"
               AutomationProperties.AutomationId="DevToolsProtoLayout"
@@ -149,7 +149,7 @@
       </ToggleButton>
 
       <!-- The overlay itself keeps its fixed opaque palette, so this action cannot make the tooling illegible. -->
-      <Button x:Name="DevToolsProtoTheme" Style="{x:Null}" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <Button x:Name="DevToolsProtoTheme" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               IsEnabled="$THEMEENABLED$"
               ToolTipService.ToolTip="Switch app theme"
@@ -162,7 +162,7 @@
       <!-- Separator uses the internal border brush, not the outer rim. -->
       <Border Width="1" Height="18" Background="$BORDER$" Margin="3,0" VerticalAlignment="Center" />
 
-      <Button x:Name="DevToolsProtoInspect" Style="{x:Null}" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <Button x:Name="DevToolsProtoInspect" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               ToolTipService.ToolTip="Open the DevTools window"
               AutomationProperties.AutomationId="DevToolsProtoInspect"
@@ -170,7 +170,7 @@
         <FontIcon FlowDirection="LeftToRight" Glyph="&#xE8A7;" FontSize="15" Foreground="$TEXT$" />
       </Button>
       <!-- Pinned is a mode: the same accent on-state as Pick and Layout adorners, exposed to UIA as a toggle. -->
-      <ToggleButton x:Name="DevToolsProtoPin" Style="{x:Null}" Width="24" Height="24" Padding="0" BorderThickness="0" CornerRadius="5"
+      <ToggleButton x:Name="DevToolsProtoPin" Style="{x:Null}" AllowFocusOnInteraction="False" Width="24" Height="24" Padding="0" BorderThickness="0" CornerRadius="5"
               Background="#00000000" Foreground="$TEXTDIM$" VerticalAlignment="Center"
               ToolTipService.ToolTip="Keep the toolbar open"
               AutomationProperties.AutomationId="DevToolsProtoPin"

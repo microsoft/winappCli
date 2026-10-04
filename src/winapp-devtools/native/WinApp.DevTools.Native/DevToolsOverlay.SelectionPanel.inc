@@ -182,9 +182,16 @@ static void SelRememberFocus()
 {
     g_selReturnFocus = nullptr;
     winrt::com_ptr<IInspectable> focused;
-    bool inPanel = false;
-    if (g_selPanel && SUCCEEDED(DevToolsFocusedWithin(g_selPanel, focused.put(), &inPanel)) && !inPanel)
-        g_selReturnFocus = std::move(focused);
+    bool inPanel = false, inToolbar = false;
+    if (!g_selPanel || FAILED(DevToolsFocusedWithin(g_selPanel, focused.put(), &inPanel)) || inPanel) return;
+    // Focus left on the toolbar (reached with Ctrl+Shift+F12) is DevTools chrome, not the app's: return to what the
+    // app had before the toolbar took it.
+    winrt::com_ptr<IInspectable> chrome;
+    if (focused && g_protoRoot && SUCCEEDED(DevToolsFocusedWithin(g_protoRoot, chrome.put(), &inToolbar)) && inToolbar) {
+        focused = nullptr;
+        if (auto app = g_toolbarReturnFocus.get()) winrt::copy_to_abi(app, *reinterpret_cast<void**>(focused.put()));
+    }
+    g_selReturnFocus = std::move(focused);
 }
 
 static void SelReturnFocus()
@@ -406,7 +413,11 @@ static void OnSelKeyDown(void* /*sender*/, void* args)
         if (SUCCEEDED(a->QueryInterface(DevToolsIid<DevToolsX::IRoutedEventArgs>(), routedEsc.put_void())))
             DevToolsGetOriginalSource(routedEsc.get(), escSource.put());
     }
-    if (key == kVkEscape && escSource && SelectionRevertEditor(escSource.get())) {
+    if (key == VK_CONTROL || key == VK_MENU || (key >= VK_LCONTROL && key <= VK_RMENU)) {
+        // The modifier itself stays in the panel, so the app never starts showing its accelerator or access-key tips.
+        // The panel's own chords still arrive: each is a separate key-down with the modifier held.
+        handled = true;
+    } else if (key == kVkEscape && escSource && SelectionRevertEditor(escSource.get())) {
         // Esc closes one layer at a time, and an uncommitted edit is the innermost layer.
         handled = true;
         DevToolsOverlayLog(L"overlay.sel key Esc -> reverted the uncommitted edit");
