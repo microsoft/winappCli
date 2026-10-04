@@ -160,8 +160,8 @@ Describe 'Routing and answer side by side' {
         Write-BenchmarkSummary -RunsPath $runs -SummaryPath $out -Header ([ordered]@{ Models = 'm' })
         $text = Get-Content -Raw $out
         $text | Should -Match 'Answer pass rate: 2/3 \(67%\) over the same runs\. Basis: 1 from commands, 2 from response'
-        $text | Should -Match 'Routed and answered 1, routed only 0, answered only 1, neither 1 \(of 3'
-        $text | Should -Match '\| heldout \| m \| 33% \(1/3\) \| 67% \(2/3\) \| 1 \| 0 \| 1 \| 1 \|'
+        $text | Should -Match 'Routed and answered 1, routed and blocked 0, routed only 0, answered only 1, blocked only 0, neither 1 \(of 3'
+        $text | Should -Match '\| heldout \| m \| 33% \(1/3\) \| 67% \(2/3\) \| 0 \| 1 \| 0 \| 0 \| 1 \| 0 \| 1 \|'
         $text | Should -Match '\| heldout \| msix\.sign \| 3 \| 33% \(1/3\) \| 67% \(2/3\) \|'
         $text | Should -Match '\| heldout \| error \| m \| 1 \| 0 \| n/a \| 0% \(0/1\) \| 1\.0 \|'
     }
@@ -177,13 +177,105 @@ Describe 'Routing and answer side by side' {
             @{ scenario = 's1'; configuration = 'both'; model = 'm'; status = 'fail'; skillsLoaded = @(); finalResponse = 'winapp sign'; preflight = $pre } | ConvertTo-Json -Compress -Depth 5 | Set-Content (Join-Path $c 'runs.jsonl')
             $report = Get-ComparisonReport -Baseline $b -Candidate $c -Scenarios @($scenario)
             $report | Should -Match ([regex]::Escape('| 0/1 → 1/1 | +100 pp |'))
-            $report | Should -Match ([regex]::Escape('| m | candidate | 1 | 0 | 0 | 1 | 0 |'))
+            $report | Should -Match ([regex]::Escape('| m | candidate | 1 | 0 | 0 | 0 | 1 | 0 | 0 |'))
             $report | Should -Match ([regex]::Escape('| msix.sign | 1 | 0/1 (0%) → 0/1 (0%) | = |'))
             # An empty recorded command list is 'named nothing', not 'not recorded'.
             $near = [pscustomobject]@{ Id = 'n1'; BaseId = 'n1'; Variant = 'base'; Set = 'dev'; Cohort = 'near-miss'; Prompt = 'p'; Configurations = @('both'); Expect = New-Expect -forbid '*' }
             @{ scenario = 'n1'; configuration = 'both'; model = 'm'; status = 'pass'; skillsLoaded = @(); winappCommands = @(); preflight = $pre } | ConvertTo-Json -Compress -Depth 5 | Set-Content (Join-Path $b 'runs.jsonl')
             Copy-Item (Join-Path $b 'runs.jsonl') (Join-Path $c 'runs.jsonl')
             Get-ComparisonReport -Baseline $b -Candidate $c -Scenarios @($near) | Should -Match ([regex]::Escape('| m | n1 | both | 1/1 (100%) → 1/1 (100%) | = | n/a → n/a | n/a | n/a → n/a | n/a | n/a → n/a | n/a | n/a | 1/1 → 1/1 | = |'))
+        }
+        finally { Set-CapabilityMap -Path (Join-Path $PSScriptRoot '..\capabilities.json') }
+    }
+}
+
+Describe 'Blocked answers' {
+    It 'is blocked when the response misses the signal but a denied shell call tried the right command' {
+        $e = New-Expect -primary 'msix.sign'
+        $r = Test-AnswerExpectations -Expect $e -Response 'The shell was denied, so nothing was signed.' -DeniedCommands @('sign') -Map $map
+        $r.Status | Should -Be 'blocked'
+        $r.Basis | Should -Be 'response'
+        ($r.Notes -join "`n") | Should -Match 'tried winapp sign in a denied shell call'
+    }
+
+    It 'stays pass when the response names the command, and fail when the tried command is not the right one' {
+        $e = New-Expect -primary 'msix.sign'
+        (Test-AnswerExpectations -Expect $e -Response 'Run winapp sign app.msix dev.pfx yourself.' -DeniedCommands @('sign') -Map $map).Status | Should -Be 'pass'
+        (Test-AnswerExpectations -Expect $e -Response 'Blocked.' -DeniedCommands @('package') -Map $map).Status | Should -Be 'fail'
+        (Test-AnswerExpectations -Expect $e -Response 'Blocked.' -DeniedCommands @() -Map $map).Status | Should -Be 'fail'
+    }
+
+    It 'turns a partial answer into blocked only when the tried commands complete it' {
+        $e = New-Expect -primary @(, @('msix.package', 'msix.sign'))
+        (Test-AnswerExpectations -Expect $e -Response 'winapp package . was the plan' -DeniedCommands @('cert generate') -Map $map).Status | Should -Be 'blocked'
+        (Test-AnswerExpectations -Expect $e -Response 'winapp package . was the plan' -DeniedCommands @('package') -Map $map).Status | Should -Be 'partial'
+    }
+
+    It 'never blocks a near-miss, a forbidden answer, or a run scored from commands' {
+        (Test-AnswerExpectations -Expect (New-Expect -forbid '*') -Response 'Use argparse.' -DeniedCommands @('package') -Map $map).Status | Should -Be 'pass'
+        (Test-AnswerExpectations -Expect (New-Expect -primary 'msix.manifest') -Response 'use regedit' -DeniedCommands @('manifest update-assets') -Map $map).Status | Should -Be 'fail'
+        (Test-AnswerExpectations -Expect (New-Expect -primary 'msix.sign') -WinappCommands @('package') -DeniedCommands @('sign') -Map $map).Basis | Should -Be 'commands'
+    }
+
+    It 'records winapp commands from denied shell calls only' {
+        $path = Join-Path $TestDrive 'denied.jsonl'
+        @(
+            '{"type":"tool.execution_start","data":{"toolCallId":"1","toolName":"powershell","arguments":{"command":"winapp cert generate --manifest Package.appxmanifest"}}}'
+            '{"type":"tool.execution_complete","data":{"toolCallId":"1","success":false,"error":{"code":"denied"}}}'
+            '{"type":"tool.execution_start","data":{"toolCallId":"2","toolName":"powershell","arguments":{"command":"winapp package ./dist"}}}'
+            '{"type":"tool.execution_complete","data":{"toolCallId":"2","success":true}}'
+            '{"type":"assistant.message","data":{"content":"Blocked: run winapp sign yourself."}}'
+        ) | Set-Content $path
+        $ev = Read-SessionEvents -Path $path
+        @($ev.winappCommandsDenied) | Should -Be @('cert generate')
+        @($ev.winappCommands) | Should -Be @('cert generate', 'package', 'sign')
+        (Read-SessionEvents -Path (Join-Path $TestDrive 'missing.jsonl')).winappCommandsDenied | Should -BeNullOrEmpty
+    }
+
+    It 'derives denied commands for runs recorded before they were captured' {
+        $denied = @{ powershell = 2 }
+        @(Get-DeniedWinappCommands -WinappCommands @('find-api members', 'sign') -Response 'Run winapp sign later.' -DeniedToolCalls $denied) | Should -Be @('find-api members')
+        @(Get-DeniedWinappCommands -WinappCommands @('sign') -Response 'x' -DeniedToolCalls ([pscustomobject]@{ powershell = 1 })) | Should -Be @('sign')
+        Get-DeniedWinappCommands -WinappCommands @('sign') -Response 'x' -DeniedToolCalls @{ edit = 1 } | Should -BeNullOrEmpty
+        Get-DeniedWinappCommands -WinappCommands @('sign') -Response $null -DeniedToolCalls $denied | Should -BeNullOrEmpty
+        @(Get-DeniedWinappCommands -Recorded @('package') -WinappCommands @('sign') -Response 'x' -DeniedToolCalls $denied) | Should -Be @('package')
+    }
+
+    It 'counts blocked as scored but not passed, and splits it out of the 2x2' {
+        $runs = @(
+            [pscustomobject]@{ status = 'pass'; answer = 'pass' }
+            [pscustomobject]@{ status = 'pass'; answer = 'blocked' }
+            [pscustomobject]@{ status = 'pass'; answer = 'fail' }
+            [pscustomobject]@{ status = 'fail'; answer = 'blocked' }
+            [pscustomobject]@{ status = 'fail'; answer = 'partial' }
+        )
+        $st = Get-StatusStats $runs -Property answer
+        @($st.Pass, $st.Blocked, $st.Scored) | Should -Be @(1, 2, 5)
+        $st.Text | Should -Be '1/5 (20%), 1 partial, 2 blocked'
+        (Get-StatusStats $runs).Text | Should -Be '3/5 (60%)'
+        Format-PassRate @('pass', 'blocked', 'timeout') | Should -Be '1/2 (50%), 1 blocked; excluded: 1 timeout'
+        $m = Get-RoutingAnswerMatrix $runs
+        @($m.Total, $m.RoutedAnswered, $m.RoutedBlocked, $m.RoutedOnly, $m.AnsweredOnly, $m.BlockedOnly, $m.Neither) | Should -Be @(5, 1, 1, 1, 0, 1, 1)
+    }
+
+    It 'rescores and compares older runs with derived blocked answers' {
+        Set-CapabilityMap -Path $mapPath
+        try {
+            $scenario = [pscustomobject]@{ Id = 'b1'; BaseId = 'b1'; Variant = 'base'; Set = 'dev'; Cohort = 'implicit'; Prompt = 'p'; Configurations = @('both'); Expect = New-Expect -primary 'msix.sign' }
+            $b = Join-Path $TestDrive 'bb'; $c = Join-Path $TestDrive 'bc'
+            foreach ($d in $b, $c) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+            $pre = @{ expectedSkills = @('winapp-signing', 'winapp-package') }
+            $common = @{ tokens = $null; aiCredits = 1; durationMs = 1; skillContextTokensApprox = 1; reason = '' }
+            $old = $common + @{ scenario = 'b1'; configuration = 'both'; model = 'm'; status = 'pass'; skillsLoaded = @('winapp-signing'); winappCommands = @('sign'); deniedToolCalls = @{ powershell = 1 }; finalResponse = 'Blocked: shell denied.'; preflight = $pre }
+            $old | ConvertTo-Json -Compress -Depth 5 | Set-Content (Join-Path $b 'runs.jsonl')
+            @{ scenario = 'b1'; configuration = 'both'; model = 'm'; status = 'pass'; skillsLoaded = @('winapp-signing'); winappCommands = @('sign'); winappCommandsDenied = @('sign'); deniedToolCalls = @{ powershell = 1 }; finalResponse = 'Run winapp sign app.msix dev.pfx.'; preflight = $pre } |
+                ConvertTo-Json -Compress -Depth 5 | Set-Content (Join-Path $c 'runs.jsonl')
+            $report = Get-ComparisonReport -Baseline $b -Candidate $c -Scenarios @($scenario)
+            $report | Should -Match ([regex]::Escape('| 0/1 → 1/1 | +100 pp | 1 → 0 |'))
+            $report | Should -Match ([regex]::Escape('| m | baseline | 1 | 0 | 1 | 0 | 0 | 0 | 0 |'))
+            $res = Invoke-Rescore -ResultsDir $b -Scenarios @($scenario)
+            (Get-Content $res.RunsPath | ConvertFrom-Json).answer | Should -Be 'blocked'
+            Get-Content -Raw $res.SummaryPath | Should -Match 'Routed and answered 0, routed and blocked 1'
         }
         finally { Set-CapabilityMap -Path (Join-Path $PSScriptRoot '..\capabilities.json') }
     }
