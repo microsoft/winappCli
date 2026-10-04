@@ -94,6 +94,28 @@ internal static class DevToolsJson
         doc.RootElement.WriteTo(writer);
     }
 
+    /// <summary>
+    /// An element's XAML file (project-relative), its confirmed declaration lines, and its AutomationId: the same names
+    /// get-source uses. Lines are written only for a declaration the build map confirms.
+    /// </summary>
+    public static void WriteLocation(Utf8JsonWriter writer, string? file, DevToolsElementFacts? facts)
+    {
+        if (file is not null)
+        {
+            writer.WriteString("file", file);
+        }
+        if (facts?.Line > 0)
+        {
+            writer.WriteNumber("line", facts.Line);
+            writer.WriteNumber("endLine", facts.EndLine);
+            writer.WriteNumber("column", facts.Column);
+        }
+        if (facts?.AutomationId is { } automationId)
+        {
+            writer.WriteString("automationId", automationId);
+        }
+    }
+
     public static void WriteNode(Utf8JsonWriter writer, VisualTreeNode node)
     {
         writer.WriteStartObject();
@@ -114,10 +136,7 @@ internal static class DevToolsJson
         }
 
         writer.WriteString("type", node.Type);
-        if (node.File is not null)
-        {
-            writer.WriteString("file", node.File);
-        }
+        WriteLocation(writer, node.ShortFile, node.Facts);
 
         writer.WriteNumber("childCount", node.ChildCount);
         if (node.HiddenChildren > 0)

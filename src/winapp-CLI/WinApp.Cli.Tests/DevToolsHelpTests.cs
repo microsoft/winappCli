@@ -87,6 +87,7 @@ public class DevToolsHelpTests : BaseCommandTests
         StringAssert.Contains(output, "  -a <app>");
         StringAssert.Contains(output, "  <selector>");
         StringAssert.Contains(output, "Use 'winapp ui' to click, type, and read values in any app.");
+        StringAssert.Contains(output, "Both take an AutomationId.");
         foreach (var (category, _) in DevToolsCommand.HelpCategories)
         {
             StringAssert.Contains(output, "\n" + category + "\n");

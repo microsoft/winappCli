@@ -31,9 +31,11 @@ internal static class DevToolsSelector
         bool UniqueName,
         int Depth)
     {
+        public DevToolsElementFacts? Facts { get; init; }
+
         public string ShortType => DevToolsFormat.ShortTypeName(Type);
 
-        public string? ShortFile => DevToolsFormat.ShortFileName(File);
+        public string? ShortFile => Facts?.File ?? DevToolsFormat.ShortFileName(File);
 
         public string Selector => Display(Handle, Type, Name, Id, UniqueName);
     }
@@ -92,7 +94,7 @@ internal static class DevToolsSelector
         cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(selector))
         {
-            return Resolution.Fail("Provide a selector: the one printed in brackets, an x:Name, or a handle.");
+            return Resolution.Fail("Provide a selector: the one printed in brackets, an x:Name, an AutomationId, or a handle.");
         }
 
         selector = selector.Trim();
@@ -228,7 +230,7 @@ internal static class DevToolsSelector
         // one in the part we looked at" — and this is the path that decides which single element a later
         // set-property MUTATES. Resolve, but never silently: say the search was incomplete.
         var incomplete = found.Result.Truncated
-            ? "The agent's node limit truncated the search, so another element could share this x:Name. " +
+            ? "The agent's node limit truncated the search, so another element could share this name. " +
               "Use the selector `winapp devtools inspect` printed to be certain."
             : null;
 
@@ -246,6 +248,26 @@ internal static class DevToolsSelector
                 exact);
         }
 
+        // No x:Name: an AutomationId, which `winapp ui` selects by, names the same element here.
+        if (found.Result.Matches.Count > 0)
+        {
+            var facts = DevToolsPreviews.Fetch(tap, found.Result.Matches.Select(m => m.Handle), cancellationToken).Facts;
+            var byAutomationId = found.Result.Matches
+                .Where(m => string.Equals(facts.GetValueOrDefault(m.Handle)?.AutomationId, selector, StringComparison.Ordinal))
+                .Select(m => m with { Facts = facts[m.Handle] })
+                .ToArray();
+            if (byAutomationId.Length == 1)
+            {
+                return Resolution.Found(byAutomationId[0].Handle, incomplete);
+            }
+            if (byAutomationId.Length > 1)
+            {
+                return Resolution.Fail(
+                    $"{byAutomationId.Length} elements have AutomationId '{selector}'. Use one of their selectors instead:",
+                    byAutomationId);
+            }
+        }
+
         var caseInsensitive = found.Result.Matches
             .Where(m => string.Equals(m.Name, selector, StringComparison.OrdinalIgnoreCase))
             .ToArray();
@@ -254,7 +276,7 @@ internal static class DevToolsSelector
             return Resolution.Found(caseInsensitive[0].Handle, incomplete);
         }
 
-        var notFound = $"No element has x:Name '{selector}'. Run `winapp devtools search {selector}` to find it by type or text.";
+        var notFound = $"No element has x:Name or AutomationId '{selector}'. Run `winapp devtools search {selector}` to find it by type or text.";
         return Resolution.Fail(
             found.Result.Truncated
                 ? notFound + " The agent's node limit truncated the search, so it may exist but not have been examined."

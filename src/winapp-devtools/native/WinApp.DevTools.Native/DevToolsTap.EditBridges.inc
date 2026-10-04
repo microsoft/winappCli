@@ -477,6 +477,42 @@ static void Route1ReadPreview(InstanceHandle wire, std::wstring& out, std::wstri
     if (out.size() > 42) { out.resize(41); out += L'\u2026'; }
 }
 
+// UI thread: the element's AutomationId and its confirmed declaration. The declaration comes from the cached runtime
+// position and the build map, so it reads no source text.
+static void ReadPreviewFacts(InstanceHandle wire, DevToolsBatch::PreviewFacts& out)
+{
+    out = {};
+    InstanceHandle ih = 0; const wchar_t* e = nullptr;
+    std::wstring type, name;
+    {
+        CensusSharedLock lock;
+        if (!ResolveWire_nolock((unsigned long long)wire, &ih, &e)) return;
+        if (const auto t = g_type.find(ih); t != g_type.end()) type = t->second;
+        if (const auto n = g_nameOf.find(ih); n != g_nameOf.end()) name = n->second;
+    }
+    std::wstring file; unsigned int line = 0, column = 0;
+    AcquireSRWLockShared(&g_sourceUriLock);
+    if (const auto s = g_sourceInfo.find(ih); s != g_sourceInfo.end()) { file = s->second.file; line = s->second.line; column = s->second.column; }
+    ReleaseSRWLockShared(&g_sourceUriLock);
+    if (!file.empty() && line && column) {
+        DevToolsAuthoredLocation location;
+        if (DevToolsAuthored_Locate(file, line, column, type, name, &location)) {
+            out.file = location.sourceFile; out.line = location.line;
+            out.endLine = (std::max)(location.line, location.endLine); out.column = location.column;
+        }
+    }
+    void* statics = AutomationPropertiesStatics();
+    IInspectable* insp = nullptr;
+    if (!statics || !g_diag || FAILED(g_diag->GetIInspectableFromHandle(ih, &insp)) || !insp) return;
+    void* dependency = nullptr;
+    if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IDependencyObject>(), &dependency)) && dependency) {
+        HSTRING hs = nullptr;
+        if (SUCCEEDED(DevToolsGetAutomationId(statics, dependency, &hs))) out.automationId = HStrTake(hs);
+        reinterpret_cast<IUnknown*>(dependency)->Release();
+    }
+    insp->Release();
+}
+
 // Runs on the UI thread (the window's commit sinks), so it may touch the live tree directly. Stale handle -> Failed.
 static DevToolsWriteOutcome Route1Write(InstanceHandle wire, const std::wstring& prop, const std::wstring& type,
                                    const std::wstring& value, bool confirmBindingReplace)

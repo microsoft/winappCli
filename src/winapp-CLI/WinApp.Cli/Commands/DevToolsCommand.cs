@@ -37,10 +37,10 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         "\n" +
         "  -a <app>     Add to a command to choose the app: process name, window title, or PID.\n" +
         "               Needed only when more than one app has DevTools attached.\n" +
-        "  <selector>   The name in brackets from search or inspect, an x:Name, or a handle.\n" +
+        "  <selector>   The name in brackets, an x:Name or AutomationId, or a handle.\n" +
         "\n" +
         "Use 'winapp ui' to click, type, and read values in any app. Use 'winapp devtools' for a\n" +
-        "WinUI app's XAML tree, properties, bindings, and live edits.";
+        "WinUI app's XAML tree, properties, bindings, and live edits. Both take an AutomationId.";
 
     /// <summary>Command-list categories for <c>winapp devtools --help</c>, in display order.</summary>
     internal static readonly (string Category, Type[] CommandTypes)[] HelpCategories =

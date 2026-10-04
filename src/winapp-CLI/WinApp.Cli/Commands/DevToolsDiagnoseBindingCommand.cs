@@ -21,7 +21,7 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
     {
-        Description = "Element to inspect: the selector printed in brackets, an x:Name, or a handle.",
+        Description = "Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle.",
         Arity = ArgumentArity.ZeroOrOne,
     };
 

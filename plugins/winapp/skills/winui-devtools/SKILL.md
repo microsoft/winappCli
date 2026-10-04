@@ -8,8 +8,11 @@ description: Read and change a running WinUI 3 app live with winapp devtools, wi
 Use `winapp ui` and the `winapp-ui-automation` skill for general Windows UI
 Automation: actions, screenshots, waits and accessibility across app frameworks.
 DevTools is for WinUI 3 XAML trees/source, bindings and dependency-property
-diagnosis or edits. UIA selectors are not DevTools selectors; copy a fresh
-selector from `winapp devtools inspect` or `search`.
+diagnosis or edits. Both tools accept an element's AutomationId as its selector,
+so an AutomationId from `winapp ui` works in `winapp devtools` and the `aid=`
+shown by DevTools works in `winapp ui invoke/click`. Generated selectors (slugs,
+handles) belong to one tool; copy a fresh one from that tool's `inspect` or
+`search`.
 
 ```powershell
 winapp run . --devtools
@@ -124,13 +127,15 @@ the user's existing comments.
 ## Inspect, then act
 
 Prefer `inspect`, `search`, `get-property`, `get-layout`, `get-source`, and
-`diagnose-binding`. Target an exact PID when multiple apps are running. Reuse a
+`diagnose-binding`. `inspect` and `search` show the confirmed declaration as
+`File.xaml:line` (JSON `file`, `line`, `endLine`); an element with only a file
+name has no confirmed line. Target an exact PID when multiple apps are running. Reuse a
 selector or handle from fresh inspection; never guess an ambiguous element.
 For multiple windows, get `--window <HWND>` from
 `winapp devtools call Surface.list -a <pid>`. Get `--root <element-handle>` from
 window-scoped `inspect`; do not assume `Surface.list`'s `rootHandle` contains the
 app's content. The subtree must belong to `--window` when both are supplied.
-Never reuse a closed window or stale root, and do not substitute UIA selectors.
+Never reuse a closed window or stale root, and do not substitute UIA slugs.
 Use `search --of-type TextBlock --with 'FontSize>=20' --fields 'Text,FontSize'`
 for multi-element reads; repeat `--with` for AND. A definite typed mismatch excludes
 an element even if another predicate value is unknown; without a mismatch, unknown

@@ -141,10 +141,7 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
                         }
 
                         writer.WriteString("type", candidate.Type);
-                        if (candidate.File is not null)
-                        {
-                            writer.WriteString("file", candidate.File);
-                        }
+                        DevToolsJson.WriteLocation(writer, candidate.ShortFile, candidate.Facts);
 
                         writer.WriteEndObject();
                     }
@@ -221,7 +218,7 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
         {
             if (string.IsNullOrWhiteSpace(selector))
             {
-                exitCode = Fail(json, target.Pid, $"Provide a selector: the selector printed in brackets, an x:Name, or a handle. {usage}");
+                exitCode = Fail(json, target.Pid, $"Provide a selector: the selector printed in brackets, an x:Name, an AutomationId, or a handle. {usage}");
                 return null;
             }
 

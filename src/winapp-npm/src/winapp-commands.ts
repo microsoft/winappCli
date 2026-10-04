@@ -570,7 +570,7 @@ export async function devtoolsCommentsUpdate(options: DevtoolsCommentsUpdateOpti
 // ---------------------------------------------------------------------------
 
 export interface DevtoolsDiagnoseBindingOptions extends CommonOptions {
-  /** Element to inspect: the selector printed in brackets, an x:Name, or a handle. */
+  /** Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. */
   selector?: string;
   /** The bound dependency property, e.g. IsEnabled or Text. */
   property?: string;
@@ -611,7 +611,7 @@ export async function devtoolsDiagnoseBinding(options: DevtoolsDiagnoseBindingOp
 // ---------------------------------------------------------------------------
 
 export interface DevtoolsGetLayoutOptions extends CommonOptions {
-  /** Element to read: the selector printed in brackets, an x:Name, or a handle. */
+  /** Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. */
   selector?: string;
   /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
@@ -649,7 +649,7 @@ export async function devtoolsGetLayout(options: DevtoolsGetLayoutOptions = {}):
 // ---------------------------------------------------------------------------
 
 export interface DevtoolsGetPropertyOptions extends CommonOptions {
-  /** Element to read: the selector printed in brackets, an x:Name, or a handle. */
+  /** Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. */
   selector?: string;
   /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
@@ -702,7 +702,7 @@ export async function devtoolsGetProperty(options: DevtoolsGetPropertyOptions = 
 // ---------------------------------------------------------------------------
 
 export interface DevtoolsGetSourceOptions extends CommonOptions {
-  /** Element to read: the selector printed in brackets, an x:Name, or a handle. */
+  /** Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. */
   selector?: string;
   /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
@@ -740,7 +740,7 @@ export async function devtoolsGetSource(options: DevtoolsGetSourceOptions = {}):
 // ---------------------------------------------------------------------------
 
 export interface DevtoolsInspectOptions extends CommonOptions {
-  /** Element to inspect: the selector printed in brackets, an x:Name, or a handle. Defaults to the whole tree. */
+  /** Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. Defaults to the whole tree. */
   selector?: string;
   /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
   on?: string;
@@ -882,7 +882,7 @@ export async function devtoolsSearch(options: DevtoolsSearchOptions = {}): Promi
 // ---------------------------------------------------------------------------
 
 export interface DevtoolsSetPropertyOptions extends CommonOptions {
-  /** Element to change: the selector printed in brackets, an x:Name, or a handle. */
+  /** Element to change: the selector printed in brackets, an x:Name, an AutomationId, or a handle. */
   selector?: string;
   /** The new value, e.g. 200, false, #FF0067C0, or "Save changes". */
   value?: string;

@@ -14,7 +14,8 @@ description: Read, click, and type in any running Windows app's UI from the comm
 For WinUI 3 XAML source/tree, bindings or dependency-property diagnosis and edits,
 use the `winui-devtools` skill and `winapp devtools`. It requires an attached
 target or explicit authorization to inject with `--attach`; a PID alone is not
-consent. UIA selectors do not transfer to DevTools. Continue using `winapp ui`
+consent. An AutomationId works as a selector in both tools; generated slugs do
+not transfer to DevTools. Continue using `winapp ui`
 for cross-framework actions, screenshots, waits and accessibility.
 
 - For UIA mode (any app): No setup needed — works with any running Windows app

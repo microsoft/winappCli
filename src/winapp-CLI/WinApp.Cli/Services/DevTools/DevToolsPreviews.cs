@@ -7,22 +7,42 @@ namespace WinApp.Cli.Services.DevTools;
 
 internal sealed record DevToolsPreviewValue(string Name, string Value, string ValueState, string ValueType, bool Truncated);
 
+/// <summary>
+/// An element's AutomationId, which `winapp ui` selects by, and its declaration when the build map confirms one
+/// (File is then the project-relative path and Line the declaration's first line).
+/// </summary>
+internal sealed record DevToolsElementFacts(string? AutomationId, string? File, int Line, int EndLine, int Column);
+
 internal static class DevToolsPreviews
 {
     public static (IReadOnlyList<VisualTreeNode> Roots, string? Error) Read(
         VisualTreeTap tap, IReadOnlyList<VisualTreeNode> roots, CancellationToken cancellationToken)
     {
-        var nodes = Flatten(roots).ToArray();
+        var (values, facts, error) = Fetch(tap, Flatten(roots).Select(node => node.Handle), cancellationToken);
+        VisualTreeNode Enrich(VisualTreeNode node) => node with
+        {
+            Preview = values.GetValueOrDefault(node.Handle) ?? [],
+            Facts = facts.GetValueOrDefault(node.Handle),
+            Children = node.Children.Select(Enrich).ToArray(),
+        };
+        return (roots.Select(Enrich).ToArray(), error);
+    }
+
+    /// <summary>Compact values and identity facts for these elements, read in bounded batches on the app's UI thread.</summary>
+    public static (Dictionary<string, IReadOnlyList<DevToolsPreviewValue>> Values, Dictionary<string, DevToolsElementFacts> Facts, string? Error)
+        Fetch(VisualTreeTap tap, IEnumerable<string> handles, CancellationToken cancellationToken)
+    {
         var values = new Dictionary<string, IReadOnlyList<DevToolsPreviewValue>>(StringComparer.Ordinal);
+        var facts = new Dictionary<string, DevToolsElementFacts>(StringComparer.Ordinal);
         string? error = null;
-        foreach (var batch in nodes.Chunk(256))
+        foreach (var batch in handles.Chunk(256))
         {
             var response = tap.Request("VisualTree.getPreviews", writer =>
             {
                 writer.WriteStartArray("handles");
-                foreach (var node in batch)
+                foreach (var handle in batch)
                 {
-                    writer.WriteStringValue(node.Handle);
+                    writer.WriteStringValue(handle);
                 }
                 writer.WriteEndArray();
             }, cancellationToken: cancellationToken);
@@ -32,7 +52,7 @@ internal static class DevToolsPreviews
                 break;
             }
             using var document = response.TryParseResult();
-            if (document is null || !Parse(document.RootElement, values))
+            if (document is null || !Parse(document.RootElement, values, facts))
             {
                 error = "Compact values are incomplete: the agent returned an invalid preview batch.";
                 break;
@@ -43,12 +63,7 @@ internal static class DevToolsPreviews
                 break;
             }
         }
-        VisualTreeNode Enrich(VisualTreeNode node) => node with
-        {
-            Preview = values.GetValueOrDefault(node.Handle) ?? [],
-            Children = node.Children.Select(Enrich).ToArray(),
-        };
-        return (roots.Select(Enrich).ToArray(), error);
+        return (values, facts, error);
     }
 
     internal static IEnumerable<VisualTreeNode> Flatten(IReadOnlyList<VisualTreeNode> nodes)
@@ -63,7 +78,8 @@ internal static class DevToolsPreviews
         }
     }
 
-    internal static bool Parse(JsonElement root, Dictionary<string, IReadOnlyList<DevToolsPreviewValue>> values)
+    internal static bool Parse(JsonElement root, Dictionary<string, IReadOnlyList<DevToolsPreviewValue>> values,
+        Dictionary<string, DevToolsElementFacts>? facts = null)
     {
         if (root.ValueKind != JsonValueKind.Object ||
             !root.TryGetProperty("previews", out var previews) || previews.ValueKind != JsonValueKind.Array)
@@ -76,6 +92,13 @@ internal static class DevToolsPreviews
                 !preview.TryGetProperty("handle", out var handle) || handle.ValueKind != JsonValueKind.String)
             {
                 return false;
+            }
+            var automationId = TryString(preview, "automationId", out var aid) && aid.Length > 0 ? aid : null;
+            var line = ReadInt(preview, "line");
+            if (facts is not null && (automationId is not null || line > 0))
+            {
+                facts[handle.GetString()!] = new(automationId, line > 0 && TryString(preview, "file", out var file) ? file : null,
+                    line, Math.Max(line, ReadInt(preview, "endLine")), ReadInt(preview, "column"));
             }
             if (!preview.TryGetProperty("values", out var fields))
             {
@@ -102,6 +125,9 @@ internal static class DevToolsPreviews
         }
         return true;
     }
+
+    private static int ReadInt(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) ? number : 0;
 
     private static bool TryString(JsonElement element, string name, out string value)
     {

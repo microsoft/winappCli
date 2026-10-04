@@ -79,6 +79,7 @@ static std::vector<DevToolsWindowNode> SnapshotFlatCensus(size_t* outTotal, Cens
 
 static void Route1ReadPreview(InstanceHandle wire, std::wstring& out, std::wstring* searchText = nullptr,
                              std::vector<DevToolsBatch::PreviewValue>* values = nullptr);
+static void ReadPreviewFacts(InstanceHandle wire, DevToolsBatch::PreviewFacts& out);
 
 static std::wstring CmdFind(const std::wstring& query, bool appAuthoredOnly)
 {
@@ -138,6 +139,13 @@ static std::wstring CmdFind(const std::wstring& query, bool appAuthoredOnly)
                 std::wstring caption, text;
                 Route1ReadPreview(wires[j], caption, &text);
                 (*hits)[j] = !text.empty() && DevToolsTreeLayout::TreeFilterMatches(L"", L"", text, normalized);
+                if (!(*hits)[j]) {
+                    // The AutomationId is what `winapp ui` selects by, so a search for one finds the element here too.
+                    DevToolsBatch::PreviewFacts facts;
+                    ReadPreviewFacts(wires[j], facts);
+                    (*hits)[j] = !facts.automationId.empty() &&
+                        DevToolsTreeLayout::TreeFilterMatches(L"", L"", facts.automationId, normalized);
+                }
             }
             return S_OK;
         });

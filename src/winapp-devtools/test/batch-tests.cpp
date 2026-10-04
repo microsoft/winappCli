@@ -118,6 +118,26 @@ void TestPreviewJsonToleratesAShortCaptionColumn()
         "the pairing stops at the shorter column instead of walking past it");
 }
 
+void TestPreviewJsonCarriesConfirmedLocationAndAutomationId()
+{
+    std::printf("A preview carries a confirmed declaration and an AutomationId, even without a caption\n");
+    const std::vector<unsigned long long> wires{ 1, 2 };
+    const std::vector<std::wstring> captions{ L"", L"" };
+    std::vector<DevToolsBatch::PreviewFacts> facts(2);
+    facts[0].automationId = L"FocusStartButton";
+    facts[0].file = L"Controls/FocusPanel.xaml";
+    facts[0].line = 24;
+    facts[0].endLine = 26;
+    facts[0].column = 13;
+
+    CheckJson(
+        DevToolsBatch::BuildPreviewJson(wires, captions, 2, false, nullptr, &facts),
+        L"{\"previews\":[{\"handle\":\"1\",\"preview\":\"\",\"automationId\":\"FocusStartButton\","
+        L"\"file\":\"Controls/FocusPanel.xaml\",\"line\":24,\"endLine\":26,\"column\":13}],"
+        L"\"requested\":2,\"returned\":1,\"truncated\":false}",
+        "facts keep a captionless node, and a node with no facts stays silent");
+}
+
 void TestReleaseJsonNamesBothLists()
 {
     std::printf("A release reply names what it restored and what it left alone\n");
@@ -165,6 +185,7 @@ int RunBatchTests()
     TestPreviewJsonOmitsSilentNodes();
     TestPreviewJsonEscapesCaptions();
     TestPreviewJsonToleratesAShortCaptionColumn();
+    TestPreviewJsonCarriesConfirmedLocationAndAutomationId();
     TestReleaseJsonNamesBothLists();
     TestReleaseJsonMatchesTheTracker();
     return g_batchFailures;

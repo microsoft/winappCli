@@ -22,9 +22,11 @@ internal sealed record VisualTreeNode(
 {
     public IReadOnlyList<DevToolsPreviewValue> Preview { get; init; } = [];
 
+    public DevToolsElementFacts? Facts { get; init; }
+
     public string ShortType => DevToolsFormat.ShortTypeName(Type);
 
-    public string? ShortFile => DevToolsFormat.ShortFileName(File);
+    public string? ShortFile => Facts?.File ?? DevToolsFormat.ShortFileName(File);
 
     public string Selector => DevToolsSelector.Display(Handle, Type, Name, Id, UniqueName);
 

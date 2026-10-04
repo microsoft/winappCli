@@ -35,7 +35,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
     {
-        Description = "Element to inspect: the selector printed in brackets, an x:Name, or a handle. Defaults to the whole tree.",
+        Description = "Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. Defaults to the whole tree.",
         Arity = ArgumentArity.ZeroOrOne,
     };
 
@@ -311,10 +311,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
                         }
 
                         writer.WriteString("type", node.Type);
-                        if (node.File is not null)
-                        {
-                            writer.WriteString("file", node.File);
-                        }
+                        DevToolsJson.WriteLocation(writer, node.ShortFile, node.Facts);
 
                         writer.WriteNumber("childCount", node.ChildCount);
                         writer.WriteEndObject();

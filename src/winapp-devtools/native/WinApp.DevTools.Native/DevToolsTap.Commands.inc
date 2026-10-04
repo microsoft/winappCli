@@ -525,16 +525,20 @@ static std::wstring HandleCommand(const std::wstring& line,
 
         auto captions = std::make_shared<std::vector<std::wstring>>(wires.size());
         auto values = std::make_shared<std::vector<std::vector<DevToolsBatch::PreviewValue>>>(wires.size());
-        HRESULT hr = RunOnUiThread([wires, captions, values]() -> HRESULT {
+        auto facts = std::make_shared<std::vector<DevToolsBatch::PreviewFacts>>(wires.size());
+        HRESULT hr = RunOnUiThread([wires, captions, values, facts]() -> HRESULT {
             WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::TapPreviewBatch);
             // Route1ReadPreview takes the WIRE handle and re-resolves it under the census lock itself (the
             // window's own rows are filled the same way), so a handle that went stale between enumerate and
             // this request yields an empty caption and is omitted -- never a dereference of a dead slot.
-            for (size_t i = 0; i < wires.size(); ++i) Route1ReadPreview((InstanceHandle)wires[i], (*captions)[i], nullptr, &(*values)[i]);
+            for (size_t i = 0; i < wires.size(); ++i) {
+                Route1ReadPreview((InstanceHandle)wires[i], (*captions)[i], nullptr, &(*values)[i]);
+                ReadPreviewFacts((InstanceHandle)wires[i], (*facts)[i]);
+            }
             return S_OK;
         });
         if (FAILED(hr)) return L"ERR ui-thread";
-        return DevToolsBatch::BuildPreviewJson(wires, *captions, requested, truncated, values.get());
+        return DevToolsBatch::BuildPreviewJson(wires, *captions, requested, truncated, values.get(), facts.get());
     }
     if (line == L"visualtree.appauthored") {
         // visualtree.appauthored -> classify every census node by XAML source (UI-thread read). Returns

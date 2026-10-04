@@ -94,7 +94,12 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             }
 
             var matches = result!.Matches;
-            var shown = matches.Count > max ? matches.Take(max).ToArray() : matches;
+            IReadOnlyList<DevToolsSelector.VisualTreeMatch> shown = matches.Count > max ? matches.Take(max).ToArray() : matches;
+            if (shown.Count > 0)
+            {
+                var facts = DevToolsPreviews.Fetch(target.Tap!, shown.Select(match => match.Handle), cancellationToken).Facts;
+                shown = [.. shown.Select(match => match with { Facts = facts.GetValueOrDefault(match.Handle) })];
+            }
 
             // ONE verdict for both shapes. `--json` used to emit ok:true with matchCount:0 while the human
             // path (and the exit code) called the same run a failure.
@@ -147,10 +152,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
                         }
 
                         writer.WriteString("type", match.Type);
-                        if (match.File is not null)
-                        {
-                            writer.WriteString("file", match.File);
-                        }
+                        DevToolsJson.WriteLocation(writer, match.ShortFile, match.Facts);
 
                         writer.WriteNumber("depth", match.Depth);
                         writer.WriteEndObject();
@@ -222,7 +224,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
                 ? " in your XAML — pass --all to search framework and template elements too"
                 : string.Empty;
             var why = $"No element matches \"{query}\" in {target.Describe()}{scope}. " +
-                      "Matching covers type, x:Name, source file, and displayed text.";
+                      "Matching covers type, x:Name, AutomationId, source file, and displayed text.";
             return classificationTruncated
                 ? why + " The agent has also not finished classifying this app's XAML, so run the command " +
                         "again in a moment."

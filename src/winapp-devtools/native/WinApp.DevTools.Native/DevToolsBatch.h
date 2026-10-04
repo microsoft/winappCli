@@ -16,6 +16,15 @@ struct PreviewValue
     std::wstring name, value, valueState = L"value", valueType = L"String";
 };
 
+// Identity facts read alongside a preview: the AutomationId (what `winapp ui` selects by) and the confirmed
+// declaration, when the build map confirms one.
+struct PreviewFacts
+{
+    std::wstring automationId, file;
+    unsigned int line = 0, endLine = 0, column = 0;
+    bool Empty() const { return automationId.empty() && !line; }
+};
+
 inline bool ParsePreviewHandles(const std::wstring& list, size_t cap,
                                std::vector<unsigned long long>& out, size_t& outCount, bool& truncated)
 {
@@ -44,12 +53,14 @@ inline bool ParsePreviewHandles(const std::wstring& list, size_t cap,
 inline std::wstring BuildPreviewJson(const std::vector<unsigned long long>& wires,
                                      const std::vector<std::wstring>& captions,
                                      size_t requested, bool truncated,
-                                     const std::vector<std::vector<PreviewValue>>* values = nullptr)
+                                     const std::vector<std::vector<PreviewValue>>* values = nullptr,
+                                     const std::vector<PreviewFacts>* facts = nullptr)
 {
     std::wstring out = L"{\"previews\":[";
     size_t returned = 0;
     for (size_t i = 0; i < wires.size() && i < captions.size(); ++i) {
-        if (captions[i].empty() && (!values || i >= values->size() || (*values)[i].empty())) continue;
+        const PreviewFacts* fact = facts && i < facts->size() && !(*facts)[i].Empty() ? &(*facts)[i] : nullptr;
+        if (captions[i].empty() && !fact && (!values || i >= values->size() || (*values)[i].empty())) continue;
         if (returned++) out += L',';
         out += L"{\"handle\":\"" + std::to_wstring(wires[i]) +
                L"\",\"preview\":\"" + DevToolsJsonEscape(captions[i]) + L"\"";
@@ -67,6 +78,12 @@ inline std::wstring BuildPreviewJson(const std::vector<unsigned long long>& wire
                     L"\",\"bindingState\":\"unknown\",\"truncated\":" + (cut ? L"true" : L"false") + L"}";
             }
             out += L"]";
+        }
+        if (fact && !fact->automationId.empty())
+            out += L",\"automationId\":\"" + DevToolsJsonEscape(fact->automationId) + L"\"";
+        if (fact && fact->line) {
+            out += L",\"file\":\"" + DevToolsJsonEscape(fact->file) + L"\",\"line\":" + std::to_wstring(fact->line) +
+                L",\"endLine\":" + std::to_wstring(fact->endLine) + L",\"column\":" + std::to_wstring(fact->column);
         }
         out += L"}";
     }

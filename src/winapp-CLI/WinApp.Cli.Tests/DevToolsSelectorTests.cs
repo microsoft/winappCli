@@ -325,6 +325,60 @@ public class DevToolsSelectorTests
         Assert.AreEqual("42", resolved.Handle);
     }
 
+    private const string UnnamedButtons =
+        """
+        {"matches":[
+          {"handle":"61","name":"","type":"Microsoft.UI.Xaml.Controls.Button","id":"3333333333","depth":4},
+          {"handle":"62","name":"","type":"Microsoft.UI.Xaml.Controls.Button","id":"4444444444","depth":4}],
+         "query":"StartButton","appAuthoredOnly":false,"searchedNodes":2,"censusNodes":2,"truncated":false}
+        """;
+
+    /// <summary>The AutomationId `winapp ui` selects by also selects the element in devtools; a shared one is refused.</summary>
+    [TestMethod]
+    [DataRow("""{"handle":"62","preview":"","automationId":"StartButton"}""", "62")]
+    [DataRow("""{"handle":"61","preview":"","automationId":"StartButton"},{"handle":"62","preview":"","automationId":"StartButton"}""", null)]
+    public void Resolve_AnAutomationIdResolvesWhenUnique(string previews, string? expected)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", UnnamedButtons)
+            .Answer("VisualTree.getPreviews", $$"""{"previews":[{{previews}}],"requested":2,"returned":2,"truncated":false}""");
+        var tap = new VisualTreeTap((uint)agent.Pid);
+
+        var resolved = DevToolsSelector.Resolve(tap, "StartButton");
+
+        Assert.AreEqual(expected, resolved.Handle, resolved.Error);
+        if (expected is null)
+        {
+            StringAssert.Contains(resolved.Error, "2 elements have AutomationId 'StartButton'");
+            Assert.HasCount(2, resolved.Candidates);
+        }
+    }
+
+    /// <summary>Inspect prints a confirmed declaration's line and the AutomationId, and JSON carries both.</summary>
+    [TestMethod]
+    public async Task Inspect_ShowsConfirmedLineAndAutomationId()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredEnvelope(AuthoredTree), IsAuthoredRequest)
+            .Answer("VisualTree.getPreviews", """
+                {"previews":[{"handle":"42","preview":"","automationId":"SubmitAid","file":"Views/MainWindow.xaml","line":24,"endLine":26,"column":13},
+                             {"handle":"10","preview":""}],"requested":2,"returned":2,"truncated":false}
+                """);
+
+        var (_, human) = await RunAsync(new DevToolsInspectCommand(), agent, []);
+        var (_, json) = await RunAsync(new DevToolsInspectCommand(), agent, ["--json"]);
+
+        StringAssert.Contains(human, "[SubmitButton] Button Views/MainWindow.xaml:24 aid=SubmitAid");
+        StringAssert.Contains(human, "[Root] Grid MainWindow.xaml" + Environment.NewLine, "An unconfirmed element shows its file only.");
+        using var document = JsonDocument.Parse(json);
+        var button = document.RootElement.GetProperty("elements")[0].GetProperty("children")[0];
+        Assert.AreEqual("Views/MainWindow.xaml", button.GetProperty("file").GetString());
+        Assert.AreEqual(24, button.GetProperty("line").GetInt32());
+        Assert.AreEqual(26, button.GetProperty("endLine").GetInt32());
+        Assert.AreEqual("SubmitAid", button.GetProperty("automationId").GetString());
+        Assert.IsFalse(document.RootElement.GetProperty("elements")[0].TryGetProperty("line", out _));
+    }
+
     /// <summary>
     /// The staleness gate. A slug whose type and name still match a live element but whose IDENTITY does not
     /// names an element that MOVED — and the similar one still there is not it. Resolving to it would be the

@@ -172,10 +172,25 @@ winapp devtools get-source SaveButton -a 12345
 winapp devtools diagnose-binding SaveButton Content -a 12345
 ```
 
-Use the selector printed in brackets, a unique `x:Name`, or an exact element
-handle. Ambiguous names fail rather than selecting the first match. Handles belong
-to the current live tree: inspect again after replacing an element or restarting
-the app.
+Use the selector printed in brackets, a unique `x:Name`, a unique AutomationId, or
+an exact element handle. An AutomationId is the same one `winapp ui` uses, so
+`winapp ui invoke FocusStartButton` and `winapp devtools get-property FocusStartButton`
+reach the same element. `x:Name` wins when both match. Ambiguous names or
+AutomationIds fail and list the candidates rather than selecting the first match.
+Handles belong to the current live tree: inspect again after replacing an element
+or restarting the app.
+
+`inspect` and `search` show where each element is declared when DevTools can
+confirm it against your source, and its AutomationId when it differs from the
+selector:
+
+```text
+[textblock-13e9bbb811] TextBlock MainWindow.xaml:37 aid=PageSubtitle Text="Used by winapp ui end-to-end tests"
+```
+
+The line is the start of the declaration; an unconfirmed element shows only the
+file. With `--json`, each element has `file` (project-relative) and, when
+confirmed, `line`, `endLine` and `column`, plus `automationId` when set.
 
 Passwords never leave the app: a `PasswordBox.Password` value, or any property
 whose name ends in `Password`, shows as `<redacted>` everywhere (JSON adds
@@ -208,7 +223,7 @@ Inspection and search prefer your app's authored XAML; `--all` includes framewor
 and control-template elements. When nothing in your XAML matches, `search` looks at
 the whole tree and says so; that is how you find items created from data, such as a
 `NavigationViewItem` added from a list. `inspect --depth 8` expands more levels. `search Save`
-matches text content as well as type, `x:Name`, and source file. Text comes from
+matches text content as well as type, `x:Name`, AutomationId, and source file. Text comes from
 realized TextBlock/TextBox elements and primitive Content values, not from executing
 bindings or converters. Uncreated virtualized items are not searched.
 

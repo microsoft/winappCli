@@ -377,7 +377,7 @@ function devtoolsDiagnoseBinding(options?: DevtoolsDiagnoseBindingOptions): Prom
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, or a handle. |
+| `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `property` | `string \| undefined` | No | The bound dependency property, e.g. IsEnabled or Text. |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
@@ -402,7 +402,7 @@ function devtoolsGetLayout(options?: DevtoolsGetLayoutOptions): Promise<WinappRe
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, or a handle. |
+| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
@@ -426,7 +426,7 @@ function devtoolsGetProperty(options?: DevtoolsGetPropertyOptions): Promise<Wina
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, or a handle. |
+| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `all` | `boolean \| undefined` | No | Include default-valued properties, not only explicitly set ones. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
@@ -454,7 +454,7 @@ function devtoolsGetSource(options?: DevtoolsGetSourceOptions): Promise<WinappRe
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, or a handle. |
+| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
@@ -478,7 +478,7 @@ function devtoolsInspect(options?: DevtoolsInspectOptions): Promise<WinappResult
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, or a handle. Defaults to the whole tree. |
+| `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. Defaults to the whole tree. |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `all` | `boolean \| undefined` | No | Include framework and control-template elements, not just the ones your XAML declares. |
 | `ancestors` | `boolean \| undefined` | No | Show the path from the selected element up to the tree root instead of its subtree. |
@@ -558,7 +558,7 @@ function devtoolsSetProperty(options?: DevtoolsSetPropertyOptions): Promise<Wina
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to change: the selector printed in brackets, an x:Name, or a handle. |
+| `selector` | `string \| undefined` | No | Element to change: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `value` | `string \| undefined` | No | The new value, e.g. 200, false, #FF0067C0, or "Save changes". |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
@@ -2347,7 +2347,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, or a handle. |
+| `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `property` | `string \| undefined` | No | The bound dependency property, e.g. IsEnabled or Text. |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
@@ -2365,7 +2365,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, or a handle. |
+| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
@@ -2382,7 +2382,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, or a handle. |
+| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `all` | `boolean \| undefined` | No | Include default-valued properties, not only explicitly set ones. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
@@ -2403,7 +2403,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, or a handle. |
+| `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
@@ -2420,7 +2420,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, or a handle. Defaults to the whole tree. |
+| `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. Defaults to the whole tree. |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `all` | `boolean \| undefined` | No | Include framework and control-template elements, not just the ones your XAML declares. |
 | `ancestors` | `boolean \| undefined` | No | Show the path from the selected element up to the tree root instead of its subtree. |
@@ -2479,7 +2479,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `selector` | `string \| undefined` | No | Element to change: the selector printed in brackets, an x:Name, or a handle. |
+| `selector` | `string \| undefined` | No | Element to change: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `value` | `string \| undefined` | No | The new value, e.g. 200, false, #FF0067C0, or "Save changes". |
 | `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |

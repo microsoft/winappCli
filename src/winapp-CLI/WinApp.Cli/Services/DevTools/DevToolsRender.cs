@@ -27,10 +27,10 @@ internal static class DevToolsRender
     }
 
     public static string Node(VisualTreeNode node) =>
-        Line(node.Selector, node.ShortType, node.Name, node.ShortFile);
+        Line(node.Selector, node.ShortType, node.Name, node.ShortFile, node.Facts);
 
     public static string Match(DevToolsSelector.VisualTreeMatch match) =>
-        Line(match.Selector, match.ShortType, match.Name, match.ShortFile);
+        Line(match.Selector, match.ShortType, match.Name, match.ShortFile, match.Facts);
 
     public static string Handle(string selector) => $"[bold cyan][[{Markup.Escape(selector)}]][/]";
 
@@ -42,18 +42,24 @@ internal static class DevToolsRender
         }
 
         return suffix is null
-            ? Line(element.Selector, element.ShortType, element.Name, element.ShortFile)
+            ? Line(element.Selector, element.ShortType, element.Name, element.ShortFile, element.Facts)
             : Line(element.Selector, element.ShortType, element.Name, null) + $".{Markup.Escape(suffix)}";
     }
 
-    private static string Line(string selector, string shortType, string name, string? shortFile)
+    private static string Line(string selector, string shortType, string name, string? shortFile, DevToolsElementFacts? facts = null)
     {
         // The x:Name is dropped from the label when the selector already IS the name: printing
         // `[SubmitButton] Button x:Name="SubmitButton"` says the same thing twice.
         var named = string.IsNullOrEmpty(name) || string.Equals(name, selector, StringComparison.Ordinal)
             ? string.Empty
             : $" [green]x:Name=\"{Markup.Escape(name)}\"[/]";
-        var file = shortFile is null ? string.Empty : $" [grey]{Markup.Escape(shortFile)}[/]";
-        return $"{Handle(selector)} {Markup.Escape(shortType)}{named}{file}";
+        // A line is shown only for a confirmed declaration, never the runtime's end-of-tag position.
+        var line = facts?.Line > 0 ? $":{facts.Line}" : string.Empty;
+        var file = shortFile is null ? string.Empty : $" [grey]{Markup.Escape(shortFile)}{line}[/]";
+        // The AutomationId is what `winapp ui` selects by; it is printed unless the selector already is it.
+        var automationId = facts?.AutomationId is { } aid && !string.Equals(aid, selector, StringComparison.Ordinal)
+            ? $" [grey]aid={Markup.Escape(aid)}[/]"
+            : string.Empty;
+        return $"{Handle(selector)} {Markup.Escape(shortType)}{named}{file}{automationId}";
     }
 }

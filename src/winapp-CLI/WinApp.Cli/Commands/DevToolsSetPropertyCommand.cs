@@ -33,7 +33,7 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
     {
-        Description = "Element to change: the selector printed in brackets, an x:Name, or a handle.",
+        Description = "Element to change: the selector printed in brackets, an x:Name, an AutomationId, or a handle.",
         Arity = ArgumentArity.ZeroOrOne,
     };
 
