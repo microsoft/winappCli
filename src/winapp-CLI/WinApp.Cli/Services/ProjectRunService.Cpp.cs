@@ -298,8 +298,8 @@ internal sealed partial class ProjectRunService
 
             var includes = doc.Descendants()
                 .Where(e => e.Name.LocalName == "ProjectReference"
-                    && string.IsNullOrWhiteSpace((string?)e.Attribute("Condition"))
-                    && string.IsNullOrWhiteSpace((string?)e.Parent?.Attribute("Condition")))
+                    && !e.AncestorsAndSelf().Any(a => a.Name.LocalName is "When" or "Otherwise"
+                        || !string.IsNullOrWhiteSpace((string?)a.Attribute("Condition"))))
                 .SelectMany(e => (e.Attribute("Include")?.Value ?? string.Empty)
                     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             foreach (var include in includes)

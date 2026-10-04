@@ -517,6 +517,13 @@ public sealed class ProjectRunServiceCppTests : IDisposable
               <ItemGroup Condition="'$(BuildingInsideVisualStudio)' == 'true'">
                 <ProjectReference Include="..\Native\Native.vcxproj" />
               </ItemGroup>
+              <Choose>
+                <When Condition="'$(BuildingInsideVisualStudio)' == 'true'">
+                  <ItemGroup>
+                    <ProjectReference Include="..\Native\Native.vcxproj" />
+                  </ItemGroup>
+                </When>
+              </Choose>
             </Project>
             """);
         WriteFile(@"Native\Native.vcxproj", CppLibrary);
