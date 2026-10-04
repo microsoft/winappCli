@@ -224,7 +224,7 @@ foreach ($p in $plugins.Values) {
     if ($p.Skills.Count -eq 0) { throw "Plugin '$($p.Name)' at $($p.Path) has no skills." }
 }
 
-$knownSkills = @($plugins.Values.Skills)
+$knownSkills = @($plugins.Values | ForEach-Object { $_.Skills })
 $capabilityMap = Get-CapabilityMap
 foreach ($p in $plugins.Values) {
     $hash = Get-SkillSetHash $p.Skills
