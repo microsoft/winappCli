@@ -252,23 +252,32 @@ internal sealed partial class ProjectRunService
 
     /// <summary>
     /// Rejects building a .NET project whose <c>ProjectReference</c> closure contains a C++ project: the
-    /// .NET SDK can't build it (MSB4278), so say what works instead of letting the build fail.
+    /// .NET SDK can't load it (MSB4278), so say what works instead of letting the build fail.
     /// </summary>
-    private static void ThrowIfReferencesCppProject(FileInfo project)
+    /// <param name="packaging">
+    /// <c>winapp package</c> publishes with dotnet even under <c>--no-build</c>, and publish still loads
+    /// project references, so its advice is to package the MSBuild output folder instead.
+    /// </param>
+    private static void ThrowIfReferencesCppProject(FileInfo project, bool packaging = false)
     {
         if (FindCppProjectReference(project) is { } cpp)
         {
+            var next = packaging
+                ? "then package its build output folder: winapp package <output folder>."
+                : "then re-run this command with --no-build.";
             throw new ProjectRunException(
                 $"'{project.Name}' references the C++ project '{cpp.Name}', which dotnet can't build. " +
                 "Build it with Visual Studio or MSBuild.exe (Visual Studio or Build Tools 2022 17.8+ with the \"Desktop development with C++\" workload), " +
-                "then re-run this command with --no-build.");
+                next);
         }
     }
 
     /// <summary>
     /// Finds a <c>.vcxproj</c> in the transitive <c>ProjectReference</c> closure of <paramref name="start"/>,
     /// read statically. Unlike the platform walk, build-only references count: a native DLL is usually
-    /// referenced with <c>ReferenceOutputAssembly=false</c> and must still be built.
+    /// referenced with <c>ReferenceOutputAssembly=false</c> and must still be built. Conditional references
+    /// are skipped — a common way to keep a native reference Visual Studio-only — so this never blocks a
+    /// build dotnet would have completed.
     /// </summary>
     internal static FileInfo? FindCppProjectReference(FileInfo start)
     {
@@ -288,7 +297,9 @@ internal sealed partial class ProjectRunService
             }
 
             var includes = doc.Descendants()
-                .Where(e => e.Name.LocalName == "ProjectReference")
+                .Where(e => e.Name.LocalName == "ProjectReference"
+                    && string.IsNullOrWhiteSpace((string?)e.Attribute("Condition"))
+                    && string.IsNullOrWhiteSpace((string?)e.Parent?.Attribute("Condition")))
                 .SelectMany(e => (e.Attribute("Include")?.Value ?? string.Empty)
                     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             foreach (var include in includes)

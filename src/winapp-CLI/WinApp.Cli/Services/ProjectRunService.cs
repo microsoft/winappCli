@@ -645,10 +645,7 @@ internal sealed partial class ProjectRunService(
         CancellationToken cancellationToken)
     {
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
-        if (!options.NoBuild)
-        {
-            ThrowIfReferencesCppProject(csproj);
-        }
+        ThrowIfReferencesCppProject(csproj, packaging: true);
         (_, options, var metadata) = await PrepareBuildInputsAsync(
             csproj, options, workingDir, cancellationToken, publish: true);
         var props = await EvaluatePreparedPropertiesAsync(csproj, options, workingDir, metadata, cancellationToken);

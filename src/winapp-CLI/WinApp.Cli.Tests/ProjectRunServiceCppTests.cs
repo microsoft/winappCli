@@ -506,6 +506,40 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
+    public void FindCppProjectReference_IgnoresConditionalReferences()
+    {
+        // A common way to keep a native reference Visual Studio-only; dotnet build skips it and succeeds.
+        var app = WriteFile(@"App\App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <ProjectReference Include="..\Native\Native.vcxproj" Condition="'$(MSBuildRuntimeType)' == 'Full'" />
+              </ItemGroup>
+              <ItemGroup Condition="'$(BuildingInsideVisualStudio)' == 'true'">
+                <ProjectReference Include="..\Native\Native.vcxproj" />
+              </ItemGroup>
+            </Project>
+            """);
+        WriteFile(@"Native\Native.vcxproj", CppLibrary);
+
+        Assert.IsNull(ProjectRunService.FindCppProjectReference(app));
+    }
+
+    [TestMethod]
+    public async Task PreparePackage_CsprojReferencingVcxproj_SuggestsPackagingTheMSBuildOutput_EvenWithNoBuild()
+    {
+        var app = WriteFile(@"App\App.csproj", CsharpAppReferencingNative);
+        WriteFile(@"Lib\Lib.csproj", CsharpLibReferencingNative);
+        WriteFile(@"Native\Native.vcxproj", CppLibrary);
+        var options = new ProjectRunOptions("Release", "x64", null, NoBuild: true, NoRestore: false, Properties: []);
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => _service.PreparePackageAsync(app, options, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "winapp package <output folder>");
+        Assert.IsFalse(ex.Message.Contains("--no-build", StringComparison.Ordinal), "dotnet publish --no-build still loads the C++ reference");
+    }
+
+    [TestMethod]
     public async Task BuildAndResolve_CsprojReferencingVcxproj_ExplainsHowToBuildBeforeDotnetRuns()
     {
         var app = WriteFile(@"App\App.csproj", CsharpAppReferencingNative);
