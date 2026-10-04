@@ -310,7 +310,10 @@ overrides its `x:Bind` until the binding updates again; the output warns and JSO
 reports `replacedBinding`. Restart the app to restore the binding.
 
 In JSON, `valueSource` is the runtime precedence slot, `binding` is a remaining
-runtime expression, and `authored` is the original XAML when available.
+runtime expression, and `authored` is the original XAML when available. `chain`
+lists every value that competed for the property, with `winner` marking the one
+that took effect; an entry from a style or the element itself has the same `file`,
+`path` and `line` (the declaration's start, when confirmed) as `get-source`.
 
 In the inspector's Binding editor, path and mode edits are **full replacements**,
 not edits to the existing Binding object. Review the warning and click

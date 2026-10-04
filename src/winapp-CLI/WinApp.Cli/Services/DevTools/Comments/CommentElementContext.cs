@@ -160,6 +160,12 @@ internal static partial class CommentElementContext
         {
             return null;
         }
+        // The confirmed start of the style's tag; the runtime position is its end, which differs for a multi-line tag.
+        if (winner.TryGetProperty("authoredLineNumber", out var start) && start.ValueKind == JsonValueKind.Number &&
+            start.TryGetInt32(out var startLine) && startLine > 0)
+        {
+            line = startLine;
+        }
         string? path;
         try { path = CommentAnchorResolver.ResolveKnownSourcePath(sourceRoot, new CommentAnchor { SourceUri = uri.GetString() }); }
         catch (IOException) { path = null; }

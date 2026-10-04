@@ -182,6 +182,10 @@ static void AppendProp(std::wstring& out, const DevToolsReadProp& source, int de
             if (!c.targetType.empty()) { out += L",\"targetType\":\""; out += DevToolsJsonEscape(c.targetType); out += L"\""; }
             if (!c.file.empty())       { out += L",\"file\":\"";       out += DevToolsJsonEscape(c.file);       out += L"\""; }
             if (c.line)                { out += L",\"line\":";         out += std::to_wstring(c.line); }
+            if (c.authoredLine && !c.authoredFile.empty()) {
+                out += L",\"authoredFileName\":\""; out += DevToolsJsonEscape(c.authoredFile);
+                out += L"\",\"authoredLineNumber\":"; out += std::to_wstring(c.authoredLine);
+            }
             out += L'}';
         }
         out += L']';

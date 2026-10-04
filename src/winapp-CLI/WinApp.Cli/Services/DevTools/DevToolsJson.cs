@@ -116,6 +116,121 @@ internal static class DevToolsJson
         }
     }
 
+    /// <summary>The app's project folder as the agent reports it, or null when it is unknown.</summary>
+    public static string? SourceRoot(VisualTreeTap tap, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var root = CommentSelectionCapture.ReadStringResult(tap.GetSourceRoot(cancellationToken), "sourceRoot");
+            return root.Length == 0 ? null : root;
+        }
+        catch (Exception ex) when (ex is DevToolsProtocolException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The absolute path of a project file, when the project folder is known and the file exists.</summary>
+    public static string? ProjectPath(string? sourceRoot, string file)
+    {
+        try
+        {
+            var path = sourceRoot is null ? null : Path.GetFullPath(Path.Combine(sourceRoot, file));
+            return path is not null && File.Exists(path) ? path : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Whether a property row (or one of its children) names a source file in its chain.</summary>
+    public static bool HasChainFile(JsonElement row) =>
+        (row.TryGetProperty("chain", out var chain) && chain.ValueKind == JsonValueKind.Array &&
+            chain.EnumerateArray().Any(entry => entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty("file", out _))) ||
+        (row.TryGetProperty("children", out var children) && children.ValueKind == JsonValueKind.Array &&
+            children.EnumerateArray().Any(child => child.ValueKind == JsonValueKind.Object && HasChainFile(child)));
+
+    /// <summary>
+    /// Copies a property row's wire fields, rewriting each <c>chain</c> entry's runtime position into the location
+    /// vocabulary the other commands use: project-relative <c>file</c>, <c>path</c>, the declaration's start
+    /// <c>line</c> when confirmed, and the raw position under <c>runtime</c>.
+    /// </summary>
+    public static void WritePropertyFields(Utf8JsonWriter writer, JsonElement row, string? sourceRoot)
+    {
+        foreach (var field in row.EnumerateObject())
+        {
+            if (field.Name == "chain" && field.Value.ValueKind == JsonValueKind.Array)
+            {
+                writer.WriteStartArray("chain");
+                foreach (var entry in field.Value.EnumerateArray())
+                {
+                    WriteChainEntry(writer, entry, sourceRoot);
+                }
+                writer.WriteEndArray();
+            }
+            else if (field.Name == "children" && field.Value.ValueKind == JsonValueKind.Array)
+            {
+                writer.WriteStartArray("children");
+                foreach (var child in field.Value.EnumerateArray())
+                {
+                    writer.WriteStartObject();
+                    WritePropertyFields(writer, child, sourceRoot);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }
+            else
+            {
+                field.WriteTo(writer);
+            }
+        }
+    }
+
+    private static void WriteChainEntry(Utf8JsonWriter writer, JsonElement entry, string? sourceRoot)
+    {
+        if (entry.ValueKind != JsonValueKind.Object)
+        {
+            entry.WriteTo(writer);
+            return;
+        }
+        writer.WriteStartObject();
+        foreach (var field in entry.EnumerateObject())
+        {
+            if (field.Name is not ("file" or "line" or "authoredFileName" or "authoredLineNumber"))
+            {
+                field.WriteTo(writer);
+            }
+        }
+        if (entry.TryGetProperty("file", out var raw) && raw.ValueKind == JsonValueKind.String &&
+            raw.GetString() is { Length: > 0 } runtimeFile)
+        {
+            var authoredLine = entry.TryGetProperty("authoredLineNumber", out var a) && a.ValueKind == JsonValueKind.Number &&
+                a.TryGetInt32(out var n) ? n : 0;
+            var file = authoredLine > 0 && entry.TryGetProperty("authoredFileName", out var f) && f.ValueKind == JsonValueKind.String &&
+                f.GetString() is { Length: > 0 } authored
+                ? authored
+                : DevToolsFormat.ShortFileName(runtimeFile) ?? runtimeFile;
+            writer.WriteString("file", file);
+            if (ProjectPath(sourceRoot, file) is { } path)
+            {
+                writer.WriteString("path", path);
+            }
+            if (authoredLine > 0)
+            {
+                writer.WriteNumber("line", authoredLine);
+            }
+            writer.WriteStartObject("runtime");
+            writer.WriteString("file", runtimeFile);
+            if (entry.TryGetProperty("line", out var line) && line.ValueKind == JsonValueKind.Number && line.TryGetInt32(out var runtimeLine))
+            {
+                writer.WriteNumber("line", runtimeLine);
+            }
+            writer.WriteEndObject();
+        }
+        writer.WriteEndObject();
+    }
+
     public static void WriteNode(Utf8JsonWriter writer, VisualTreeNode node)
     {
         writer.WriteStartObject();

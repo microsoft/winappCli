@@ -28,6 +28,8 @@ struct DevToolsReadChainEntry
     std::wstring targetType;  // PropertyChainSource::TargetType, e.g. "Microsoft.UI.Xaml.Controls.Button"
     std::wstring file;        // PropertyChainSource::SrcInfo.FileName; empty for the type default
     unsigned int line = 0;    // Zero when the runtime supplies no handle.
+    std::wstring authoredFile;     // project-relative file of the confirmed declaration of this source
+    unsigned int authoredLine = 0; // its start line; zero when the build map does not confirm it
     bool winner = false;      // the effective value (exactly one per property)
 };
 

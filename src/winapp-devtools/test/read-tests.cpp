@@ -248,6 +248,22 @@ static void Test_SerializeStaysValidJsonOnOneLine()
     RCheck(Contains(json, L"a\\\\b"), "so are backslashes inside a CHILD's value");
 }
 
+static void Test_SerializeChainCarriesConfirmedDeclaration()
+{
+    std::vector<DevToolsReadProp> props;
+    DevToolsReadProp p = MakeProp(L"Background", L"#FF0067C0", L"Microsoft.UI.Xaml.Media.SolidColorBrush");
+    DevToolsReadChainEntry style{ L"Style", L"#FF0067C0", L"Microsoft.UI.Xaml.Controls.Button",
+        L"ms-appx:///App.xaml", 14, L"App.xaml", 12, true };
+    DevToolsReadChainEntry fallback{ L"Default", L"", L"", L"", 0, L"", 0, false };
+    p.chain = { style, fallback };
+    props.push_back(p);
+    const std::wstring json = DevToolsRead_SerializeProps(1, props, L"available");
+    RCheck(Contains(json, L"\"file\":\"ms-appx:///App.xaml\",\"line\":14,\"authoredFileName\":\"App.xaml\",\"authoredLineNumber\":12"),
+           "a chain source keeps its runtime position and adds its confirmed declaration start");
+    RCheck(Contains(json, L"{\"source\":\"Default\",\"value\":\"\",\"winner\":false}"),
+           "a source without a confirmed declaration adds nothing");
+}
+
 // Core properties are an ordering hint, not a read filter.
 static void Test_CorePropsAreAnOrderingHintNotAReadGate()
 {
@@ -440,6 +456,7 @@ int RunReadTests()
     Test_SerializeUnsetIsAStateNotAValue();
     Test_SerializeChildren();
     Test_SerializeStaysValidJsonOnOneLine();
+    Test_SerializeChainCarriesConfirmedDeclaration();
     Test_CorePropsAreAnOrderingHintNotAReadGate();
     Test_FieldLabelsAreMeasuredNotAssumed();
     Test_PointAndVector3AreWritable_OnAMeasuredRoundTrip();

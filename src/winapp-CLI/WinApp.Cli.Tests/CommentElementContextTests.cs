@@ -115,6 +115,31 @@ public class CommentElementContextTests
     }
 
     [TestMethod]
+    public void MultiLineStyleTag_IsFoundByItsConfirmedStartLine()
+    {
+        File.WriteAllText(Path.Combine(_root.FullName, "App.xaml"), """
+            <Application xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <Application.Resources>
+                    <Style x:Key="WideButtonStyle"
+                           TargetType="Button">
+                        <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                    </Style>
+                </Application.Resources>
+            </Application>
+            """);
+        object[] chain = [new { source = "Style", value = "", winner = true, file = "ms-appx:///App.xaml", line = 5,
+            authoredFileName = "App.xaml", authoredLineNumber = 4 }];
+
+        var (style, brushes) = CommentElementContext.Read(Props(Row("Background", "#FF0067C0", "Style", chain)), _root.FullName);
+
+        Assert.AreEqual("WideButtonStyle", style!.Key);
+        Assert.AreEqual(4, style.Line);
+        Assert.AreEqual("AccentFillColorDefaultBrush", brushes!.Single().ResourceKey);
+        Assert.AreEqual(6, brushes!.Single().Line);
+    }
+
+    [TestMethod]
     public void ImplicitAppStyle_IsReportedAsImplicit()
     {
         var (style, brushes) = CommentElementContext.Read(Props(

@@ -638,6 +638,55 @@ public class DevToolsJsonParityTests
         Assert.IsTrue(row.GetProperty("isSet").GetBoolean());
     }
 
+    [TestMethod]
+    public async Task GetProperty_Json_ChainUsesTheSameLocationFieldsAsGetSource()
+    {
+        var root = Directory.CreateTempSubdirectory("winapp-chain-");
+        try
+        {
+            File.WriteAllText(Path.Combine(root.FullName, "App.xaml"), "<Application />");
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                .Answer("Internal.sourceRoot", JsonSerializer.Serialize(new { sourceRoot = root.FullName }))
+                .Answer("Property.get",
+                    """
+                    {"handle":"42","authoredState":"available","props":[
+                      {"name":"Background","value":"#FF0067C0","valueType":"SolidColorBrush","valueSource":"Style","editKind":"brush",
+                       "chain":[{"source":"Style","value":"#FF0067C0","winner":true,"targetType":"Microsoft.UI.Xaml.Controls.Button",
+                                 "file":"ms-appx:///App.xaml","line":14,"authoredFileName":"App.xaml","authoredLineNumber":12},
+                                {"source":"Local","value":"#FF000000","winner":false,"file":"ms-appx:///Pages/Home.xaml","line":30},
+                                {"source":"Default","value":"","winner":false}]}]}
+                    """);
+
+            var (exit, output) = await RunAsync(new DevToolsGetPropertyCommand(), agent, ["42", "-p", "Background", "--json"]);
+
+            Assert.AreEqual(0, exit, output);
+            using var doc = JsonDocument.Parse(output);
+            var chain = doc.RootElement.GetProperty("properties")[0].GetProperty("chain");
+            var style = chain[0];
+            Assert.AreEqual("App.xaml", style.GetProperty("file").GetString());
+            Assert.AreEqual(Path.Combine(root.FullName, "App.xaml"), style.GetProperty("path").GetString());
+            Assert.AreEqual(12, style.GetProperty("line").GetInt32(), "line is the declaration's start, not the runtime position");
+            Assert.AreEqual("ms-appx:///App.xaml", style.GetProperty("runtime").GetProperty("file").GetString());
+            Assert.AreEqual(14, style.GetProperty("runtime").GetProperty("line").GetInt32());
+            Assert.IsFalse(style.TryGetProperty("authoredFileName", out _));
+            Assert.AreEqual("Microsoft.UI.Xaml.Controls.Button", style.GetProperty("targetType").GetString());
+
+            var unconfirmed = chain[1];
+            Assert.AreEqual("Pages/Home.xaml", unconfirmed.GetProperty("file").GetString());
+            Assert.IsFalse(unconfirmed.TryGetProperty("line", out _), "an unconfirmed source has no line");
+            Assert.IsFalse(unconfirmed.TryGetProperty("path", out _), "a file that is not in the project has no path");
+            Assert.AreEqual(30, unconfirmed.GetProperty("runtime").GetProperty("line").GetInt32());
+
+            Assert.IsFalse(chain[2].TryGetProperty("file", out _));
+            Assert.IsFalse(chain[2].TryGetProperty("runtime", out _));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>
     /// <c>authoredState</c> is a per-element fact the result contract requires. Dropping it turns "we
     /// could not look" into "there is nothing authored here" — the confidently-wrong answer it exists to stop.

@@ -91,7 +91,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                 ? authoredFile
                 : DevToolsFormat.ShortFileName(file) ?? file;
             var endLine = Math.Max(authoredLine, authoredEndLine);
-            var path = hasSource ? ProjectPath(target, projectFile, cancellationToken) : null;
+            var path = hasSource ? DevToolsJson.ProjectPath(DevToolsJson.SourceRoot(target.Tap!, cancellationToken), projectFile) : null;
 
             if (json)
             {
@@ -185,21 +185,6 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             }
 
             return Task.FromResult(0);
-        }
-
-        // The absolute path of a project file, when the app's project is known and the file exists.
-        private static string? ProjectPath(DevToolsTarget target, string file, CancellationToken cancellationToken)
-        {
-            try
-            {
-                var root = CommentSelectionCapture.ReadStringResult(target.Tap!.GetSourceRoot(cancellationToken), "sourceRoot");
-                var path = root.Length == 0 ? null : Path.GetFullPath(Path.Combine(root, file));
-                return path is not null && File.Exists(path) ? path : null;
-            }
-            catch (Exception ex) when (ex is DevToolsProtocolException or JsonException or ArgumentException or IOException)
-            {
-                return null;
-            }
         }
 
         private static int ReadInt(JsonElement element, string name) =>

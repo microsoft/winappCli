@@ -228,13 +228,13 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                     writer.WriteNumber("totalProperties", total);
                     writer.WriteNumber("count", selected.Count);
                     writer.WriteStartArray("properties");
+                    var sourceRoot = selected.Any(p => DevToolsJson.HasChainFile(p.Raw))
+                        ? DevToolsJson.SourceRoot(target.Tap!, cancellationToken)
+                        : null;
                     foreach (var (raw, row) in selected)
                     {
                         writer.WriteStartObject();
-                        foreach (var field in raw.EnumerateObject())
-                        {
-                            field.WriteTo(writer);
-                        }
+                        DevToolsJson.WritePropertyFields(writer, raw, sourceRoot);
 
                         // Derived, appended AFTER the wire fields so the protocol payload is never narrowed:
                         // `source` is the authoredKind-first provenance the human line shows, and `isSet` is

@@ -519,6 +519,15 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
         }
 
         if (!projection) {
+            // Each chain source's confirmed declaration, resolved once per source: the element itself, or a Style.
+            std::vector<DevToolsAuthoredLocation> sourceLocations(s ? sc : 0);
+            for (unsigned int si = 0; si < sourceLocations.size(); ++si) {
+                if (!s[si].SrcInfo.FileName || !*s[si].SrcInfo.FileName) continue;
+                const bool self = s[si].Handle == h;
+                DevToolsAuthored_Locate(DevToolsSourcePath_AppUri(s[si].SrcInfo.FileName), s[si].SrcInfo.LineNumber,
+                    s[si].SrcInfo.ColumnNumber, self ? srcType : std::wstring(L"Microsoft.UI.Xaml.Style"),
+                    self ? srcName : std::wstring(), &sourceLocations[si]);
+            }
             std::map<std::wstring, std::vector<DevToolsReadChainEntry>> chains;
             for (unsigned int i = 0; i < pc; i++) {
                 if (!v[i].PropertyName) continue;
@@ -537,6 +546,10 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                     if (s[si].TargetType) e.targetType = s[si].TargetType;
                     if (s[si].SrcInfo.FileName) e.file = DevToolsSourcePath_AppUri(s[si].SrcInfo.FileName);
                     e.line = s[si].SrcInfo.LineNumber;
+                    if (sourceLocations[si].mapped) {
+                        e.authoredFile = sourceLocations[si].sourceFile;
+                        e.authoredLine = sourceLocations[si].line;
+                    }
                 }
                 chains[name].push_back(std::move(e));
             }
