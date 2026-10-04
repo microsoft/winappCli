@@ -379,8 +379,8 @@ static void OnSelCommentGotFocus(void*, void*)
 // icon so nav is not orphaned). "Commit" is expressed by moving focus to the icon, which fires the field's
 // wired LostFocus - so there is exactly one commit path (blur), keyboard and pointer alike.
 // Panel keyboard handling commits before collapse so accessibility navigation is not orphaned.
-// Whether Enter (with Ctrl or not) commits the quick-edit text editor that raised it. A multi-line editor needs Ctrl.
-static bool SelectionSourceIsTextEditor(IInspectable* source, bool ctrl);
+// Whether this Enter commits the quick-edit text editor that raised it (see DevToolsEditText::StartsNewLine).
+static bool SelectionSourceIsTextEditor(IInspectable* source, bool shift, bool ctrl);
 // Commits that editor in place, leaving focus (and the caret) where the user was typing.
 static void SelectionCommitTextEditor(IInspectable* source);
 // Puts a quick-edit editor holding an uncommitted change back to its committed value. False when it was clean.
@@ -397,6 +397,7 @@ static void OnSelKeyDown(void* /*sender*/, void* args)
 
     const int kVkEnter = 13, kVkEscape = 27;
     const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     bool handled = false;
 
     winrt::com_ptr<IInspectable> escSource;
@@ -417,8 +418,7 @@ static void OnSelKeyDown(void* /*sender*/, void* args)
         if (g_selFocusedIsComment) {
             // Enter saves the comment and Shift+Enter is left to the box, which starts a new line. Ctrl+Enter, the
             // earlier save gesture, still saves.
-            const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-            if (!shift) {
+            if (!shift || ctrl) {
                 DevToolsSelCommitComment(true);
                 const bool focused = DevToolsSelFocusIcon();
                 handled = true;
@@ -429,7 +429,7 @@ static void OnSelKeyDown(void* /*sender*/, void* args)
             winrt::com_ptr<IInspectable> source;
             if (SUCCEEDED(a->QueryInterface(DevToolsIid<DevToolsX::IRoutedEventArgs>(), routed.put_void())) &&
                 SUCCEEDED(DevToolsGetOriginalSource(routed.get(), source.put())) && source &&
-                SelectionSourceIsTextEditor(source.get(), ctrl)) {
+                SelectionSourceIsTextEditor(source.get(), shift, ctrl)) {
                 SelectionCommitTextEditor(source.get());
                 handled = true;
                 DevToolsOverlayLog(L"overlay.sel key Enter -> commit row in place");

@@ -106,8 +106,8 @@ struct KindKeySink : DevToolsSinkBase
         int key = 0;
         if (FAILED(DevToolsGetKey(args, &key))) return S_OK;
         if (key == 13 /*Enter*/) {
-            // In a multi-line editor Enter is a line break; Ctrl+Enter applies.
-            if (needsCtrl && (GetKeyState(VK_CONTROL) & 0x8000) == 0) return S_OK;
+            if (DevToolsEditText::StartsNewLine(multiline, (GetKeyState(VK_SHIFT) & 0x8000) != 0,
+                    (GetKeyState(VK_CONTROL) & 0x8000) != 0)) return S_OK;
             DevToolsPutHandled(args, true); CommitKind(ctx);
         }
         else if (key == 27 /*Escape*/ && PendingKindFind(ctx.path)) {
@@ -117,9 +117,9 @@ struct KindKeySink : DevToolsSinkBase
         }
         return S_OK;
     }
-    void Init(const KindCtx& c, bool ctrl = false) { ctx = c; needsCtrl = ctrl; InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
+    void Init(const KindCtx& c, bool lines = false) { ctx = c; multiline = lines; InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
     KindCtx ctx;
-    bool needsCtrl = false;
+    bool multiline = false;
 };
 
 struct ExpBackgroundFocusSink : DevToolsSinkBase
@@ -380,11 +380,11 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
         if (IInspectable* el = FindInRow(fe, b)) { ShowEl(el, wcscmp(b, show) == 0); el->Release(); }
     }
 
-    auto wireKeys = [&](const wchar_t* name, bool needsCtrl = false) {
+    auto wireKeys = [&](const wchar_t* name, bool multiline = false) {
         if (IInspectable* el = FindInRow(fe, name)) {
             void* ui = nullptr;
             if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-                KindKeySink* ks = new KindKeySink(); ks->Init(ctx, needsCtrl);
+                KindKeySink* ks = new KindKeySink(); ks->Init(ctx, multiline);
                 __int64 tok = 0;
                 DevToolsAddPreviewKeyDown(ui, ks, &tok);
                 reinterpret_cast<IUnknown*>(ui)->Release();

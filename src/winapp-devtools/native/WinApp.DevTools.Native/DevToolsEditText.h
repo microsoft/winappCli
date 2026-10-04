@@ -10,6 +10,9 @@ namespace DevToolsEditText {
 
 inline bool IsMultiline(const std::wstring& value) { return value.find_first_of(L"\r\n") != std::wstring::npos; }
 
+// Enter applies a property editor, as it saves a comment; only Shift+Enter in a multi-line editor starts a new line.
+inline bool StartsNewLine(bool multiline, bool shift, bool ctrl) { return multiline && shift && !ctrl; }
+
 // The editor's line breaks, written in the original value's convention ("\n" when it has none).
 inline std::wstring WithLineEndingsOf(const std::wstring& edited, const std::wstring& original)
 {

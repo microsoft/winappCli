@@ -14,14 +14,14 @@ static bool SelSameObject(void* candidate, IUnknown* identity)
         other.get() == identity;
 }
 
-static bool SelectionSourceIsTextEditor(IInspectable* source, bool ctrl)
+static bool SelectionSourceIsTextEditor(IInspectable* source, bool shift, bool ctrl)
 {
     if (!source) return false;
     winrt::com_ptr<IUnknown> identity;
     if (FAILED(source->QueryInterface(IID_IUnknown, identity.put_void()))) return false;
     for (auto* sink : g_selRowSinks) {
         if (!sink || sink->gen != g_selGen || !sink->box) continue;
-        if (SelSameObject(sink->box, identity.get())) return ctrl || !sink->multiline;
+        if (SelSameObject(sink->box, identity.get())) return !DevToolsEditText::StartsNewLine(sink->multiline, shift, ctrl);
     }
     return false;
 }
@@ -465,7 +465,7 @@ static std::wstring BuildSelRowsMarkup(const std::vector<DevToolsCardRow>& rows,
                  L" AutomationProperties.AutomationId=\"" + editName + L"\" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"";
             if (color) m += L" PlaceholderText=\"#AARRGGBB\" ToolTipService.ToolTip=\"Color as #AARRGGBB\"";
             else if (fields) m += L" ToolTipService.ToolTip=\"One value for all sides, two for left/right and top/bottom, or four\"";
-            else if (DevToolsEditText::IsMultiline(r.value)) m += L" ToolTipService.ToolTip=\"Ctrl+Enter to apply\"";
+            else if (DevToolsEditText::IsMultiline(r.value)) m += L" ToolTipService.ToolTip=\"Enter to apply &#x00B7; Shift+Enter for a new line\"";
             else if (r.value.empty()) m += L" PlaceholderText=\"Empty\"";
             m += L"/>";
             if (reveal) {

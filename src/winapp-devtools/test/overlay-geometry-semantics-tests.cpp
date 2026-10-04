@@ -798,7 +798,7 @@ int main()
         check(quickWrites==3 && g_selPending.size()==1 && numeric.originalNumber==0.5,
             "quick editor","binding replacement is refused before consent");
         g_selRowSinks={&numeric};
-        check(!SelectionSourceIsTextEditor(&target,false),
+        check(!SelectionSourceIsTextEditor(&target,false,false),
             "quick editor","numeric Enter remains owned by NumberBox rather than panel text commit");
         SelConfirmSink confirm;confirm.Init(L"Opacity");confirm.Invoke(nullptr,nullptr);
         check(quickWrites==4 && g_selPending.empty() && numeric.originalNumber==0.6 && g_selOperationError.empty(),
@@ -815,8 +815,9 @@ int main()
         text.InitText(L"Text",L"String",L"before",&target);
         g_selRowSinks={&text};
         GeometryObject header;
-        check(SelectionSourceIsTextEditor(&target,false) && !SelectionSourceIsTextEditor(&header,false) &&
-            !SelectionSourceIsTextEditor(nullptr,false),"quick editor","only current text editor intercepts Enter");
+        check(SelectionSourceIsTextEditor(&target,false,false) && SelectionSourceIsTextEditor(&target,true,false) &&
+            !SelectionSourceIsTextEditor(&header,false,false) &&
+            !SelectionSourceIsTextEditor(nullptr,false,false),"quick editor","only current text editor intercepts Enter");
         {
             // A TextBox cannot hold every string: a single-line box keeps the first line, a multi-line box stores
             // line breaks as '\r'. Closing it unchanged must write nothing, and an edit keeps the value's own breaks.
@@ -833,8 +834,12 @@ int main()
             commentInput=L"Make room for\rwhat matters.";
             SelRowSink row;row.InitText(L"Text",L"String",multi,&target);
             g_selRowSinks={&row};
-            check(!SelectionSourceIsTextEditor(&target,false) && SelectionSourceIsTextEditor(&target,true),
-                "quick text","Enter is a line break in a multi-line editor and Ctrl+Enter applies");
+            check(SelectionSourceIsTextEditor(&target,false,false) && !SelectionSourceIsTextEditor(&target,true,false) &&
+                SelectionSourceIsTextEditor(&target,true,true),
+                "quick text","Enter (or Ctrl+Enter) applies a multi-line editor; Shift+Enter is left to it for a new line");
+            check(!DevToolsEditText::StartsNewLine(true,false,false) && DevToolsEditText::StartsNewLine(true,true,false) &&
+                !DevToolsEditText::StartsNewLine(true,true,true) && !DevToolsEditText::StartsNewLine(false,true,false),
+                "quick text","the inspector shares the rule: only Shift+Enter in a multi-line editor starts a new line");
             commentInput=L"Make room for\ryou.";
             row.Invoke(nullptr,nullptr);
             check(quickWrites==writesBefore+1 && quickWritten==L"Make room for\nyou.","quick text","an edit keeps the value's \\n line breaks");
@@ -848,10 +853,12 @@ int main()
             const size_t accepts=rowMarkup.find(L"AcceptsReturn=\"True\"",editor), seeded=rowMarkup.find(L" Text=\"Make room for&#xA;",editor);
             check(editor!=std::wstring::npos && accepts!=std::wstring::npos && seeded!=std::wstring::npos && accepts<seeded,
                 "quick text","a multi-line value accepts returns before its text is set, so the editor keeps every line");
+            check(rowMarkup.find(L"Enter to apply &#x00B7; Shift+Enter for a new line")!=std::wstring::npos &&
+                rowMarkup.find(L"Ctrl+Enter")==std::wstring::npos,"quick text","the multi-line hint names the comment box's keys");
             g_cardReadInput=nullptr;g_selRowSinks={&text};quickOutcome=saveOutcome;
         }
         ++g_selGen;
-        check(!SelectionSourceIsTextEditor(&target,false),"quick editor","retired text editor cannot intercept disclosure Enter");
+        check(!SelectionSourceIsTextEditor(&target,false,false),"quick editor","retired text editor cannot intercept disclosure Enter");
         quickReentrant=false;g_selPreviewProperties={L"Opacity"};g_cardRead=ReadQuickRows;
         UpdateSelectionPreview(L"Opacity");
         check(quickReads==1 && g_selOperationError.empty(),

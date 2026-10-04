@@ -51,8 +51,8 @@ for the kind of element you picked, each with its editor in place: text, numbers
 (Width and Height accept **Auto**), switches, choices, a single box for margins and
 corners (`8`, `8,4` or `8,4,8,4`), and colors as `#AARRGGBB`. A value that comes from a
 binding or resource shows where it comes from; a binding also shows whether it works.
-An edit applies when you leave the field or press **Enter**; in a multi-line text
-value, **Enter** adds a line and **Ctrl+Enter** applies. Esc puts back a value you are
+An edit applies when you leave the field or press **Enter**, as in the comment box;
+in a multi-line text value, **Shift+Enter** adds a line. Esc puts back a value you are
 still typing. Closing a value you didn't change leaves the app untouched.
 
 Select the ↗ button beside a binding, color, or margin (or a **Broken at** status) to
