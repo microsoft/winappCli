@@ -80,6 +80,11 @@ internal class ManifestAddAliasCommand : Command, IShortDescription
                     return 0;
 
                 case AddExecutionAliasStatus.ConflictingAliasExists:
+                    if (result.ErrorMessage is { } conflictError)
+                    {
+                        logger.LogError("{UISymbol} {Error}", UiSymbols.Error, conflictError);
+                        return 1;
+                    }
                     logger.LogError("{UISymbol} Application already has an execution alias '{ExistingAlias}'. Only one execution alias per application is supported. Remove the existing alias first or use the same name.", UiSymbols.Error, result.ExistingAlias);
                     return 1;
 

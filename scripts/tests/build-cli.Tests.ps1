@@ -16,11 +16,29 @@ BeforeAll {
             'src\winapp-NuGet\tests', 'src\winapp-Analyzer\tests', 'src\winapp-CLI\TestResults',
             'src\winapp-CLI\WinApp.Cli\Services\Controls\Data', 'docs', 'scratch',
             'artifacts\cli\win-x64', 'artifacts\cli\win-arm64', 'artifacts\nuget',
-            'artifacts\TestResults', 'TestResults'
+            'artifacts\TestResults', 'TestResults', 'src\winapp-devtools'
         )) {
             New-Item -ItemType Directory -Path (Join-Path $root $dir) -Force | Out-Null
         }
         Copy-Item $script:BuildScript (Join-Path $root 'scripts\build-cli.ps1')
+        Set-Content (Join-Path $root 'scripts\DevToolsEngine.psm1') '# Fixture module'
+        Set-Content (Join-Path $root 'scripts\test-devtools-engine.ps1') @'
+param($EngineRoot)
+Add-Trace 'engine-verify' @($EngineRoot)
+foreach ($arch in 'x64', 'arm64') {
+    Assert-DevToolsEnginePayload (Join-Path $EngineRoot "win-$arch")
+}
+$global:LASTEXITCODE = 0
+'@
+        Set-Content (Join-Path $root 'src\winapp-devtools\build-devtools.ps1') @'
+param($Configuration, $Arch, $EngineOut, [switch]$SkipNativeUnitTests)
+Add-Trace 'engine-build' @($Arch, $EngineOut, $SkipNativeUnitTests)
+New-Item -ItemType Directory -Path $EngineOut -Force | Out-Null
+foreach ($name in @((Get-DevToolsEnginePayload) + @('WinApp.DevTools.Native.pdb', 'winapp-devtools-schema.json'))) {
+    Set-Content (Join-Path $EngineOut $name) "built $Arch $name"
+}
+$global:LASTEXITCODE = 0
+'@
         Set-Content (Join-Path $root 'version.json') '{"version":"1.2.3"}'
         Set-Content (Join-Path $root 'docs\cli-schema.json') '{"source":"stale-docs"}'
         Set-Content (Join-Path $root 'src\winapp-CLI\coverage.runsettings') '<RunSettings/>'
@@ -31,6 +49,9 @@ BeforeAll {
             $cliPath = Join-Path $root "artifacts\cli\$arch\winapp.exe"
             Set-Content $cliPath "downloaded $arch"
             Set-Content (Join-Path $root "artifacts\cli\$arch\winapp.pdb") 'normal PDB output'
+            foreach ($name in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll') {
+                Set-Content (Join-Path $root "artifacts\cli\$arch\$name") "downloaded $arch $name"
+            }
             Set-Content (Join-Path $root "src\winapp-npm\bin\$arch\winapp.exe") 'stale npm binary'
         }
         foreach ($id in $script:PackageIds) {
@@ -110,6 +131,16 @@ function Add-Trace {
     param([string]$Name, [object[]]$Arguments = @())
     [pscustomobject]@{ Name = $Name; Arguments = @($Arguments) } |
         ConvertTo-Json -Depth 10 -Compress | Add-Content "$PSScriptRoot\trace.jsonl"
+}
+function Get-DevToolsEnginePayload {
+    @('WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll')
+}
+function Assert-DevToolsEnginePayload {
+    param($Directory)
+    foreach ($name in Get-DevToolsEnginePayload) {
+        $path = Join-Path $Directory $name
+        if (-not (Test-Path $path) -or (Get-Item $path).Length -eq 0) { throw "Missing engine: $path" }
+    }
 }
 foreach ($arch in @('win-x64', 'win-arm64')) {
     $path = Join-Path $PSScriptRoot "artifacts\cli\$arch\winapp.exe"
@@ -254,6 +285,8 @@ Describe 'build-cli.ps1 control flow' {
         $result.ExitCode | Should -Be 0 -Because $result.Output
         (Get-ArtifactSnapshot $root) | Should -BeExactly $before
         $result.Trace | Should -Not -Match 'dotnet publish|package-npm|package-nuget|package-msix|build-number|prerelease-label|generate-llm-docs|SnapshotBaker|generate-docs'
+        $result.Calls.Name | Should -Not -Contain 'engine-build'
+        $result.Calls.Name | Should -Contain 'engine-verify'
         # PowerShell function binding strips bare -- and separates a -p: value.
         $result.Trace | Should -Match 'dotnet build src\\winapp-CLI\\winapp.sln -c Debug -p:\s*TreatWarningsAsErrors=true'
         $result.Trace | Should -Match 'WinApp.Cli.csproj -c Debug --no-build --cli-schema'
@@ -283,11 +316,22 @@ Describe 'build-cli.ps1 control flow' {
         }
     }
 
+    It 'refuses a missing downloaded engine instead of rebuilding it' {
+        Remove-Item (Join-Path $root 'artifacts\cli\win-x64\WinApp.DevTools.Native.dll')
+        $before = Get-ArtifactSnapshot $root
+        $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Cli' }
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match 'Missing engine:.*WinApp.DevTools.Native.dll'
+        $result.Calls.Name | Should -Not -Contain 'engine-build'
+        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
+    }
+
     It 'skips Debug and redundant npm preparation but still packages with SkipTests' {
         $result = Invoke-BuildFixture $root -Flags @{ SkipTests = $true; SkipDocs = $true }
 
         $result.ExitCode | Should -Be 0 -Because $result.Output
         @($result.Calls | Where-Object { $_.Name -eq 'dotnet' -and $_.Arguments[0] -eq 'publish' }).Count | Should -Be 2
+        @($result.Calls | Where-Object Name -EQ 'engine-build').Count | Should -Be 2
         $result.Trace | Should -Not -Match 'dotnet build|dotnet run|dotnet test|(?m)^npm |stand-down|nuget-pester|scripts-pester|generate-llm-docs'
         foreach ($name in @('package-npm', 'package-nuget', 'package-msix')) {
             @($result.Calls | Where-Object Name -EQ $name).Count | Should -Be 1

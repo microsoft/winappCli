@@ -11,6 +11,42 @@ namespace WinApp.Cli.Tests;
 public class CustomHelpTests : BaseCommandTests
 {
     [TestMethod]
+    public void Comments_HasListGetAndUpdateWithoutRedundantCommands()
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        var comments = root.Subcommands.Single(c => c.Name == "devtools").Subcommands.Single(c => c.Name == "comments");
+        Assert.IsFalse(comments.Subcommands.Any(c => c.Name is "handoff" or "resolve" or "flag"));
+        Assert.IsEmpty(root.Parse(["devtools", "comments", "list", "--status", "open", "--json"]).Errors);
+        Assert.IsEmpty(root.Parse(["devtools", "comments", "get", "cmt_example", "--json"]).Errors);
+        Assert.IsNotEmpty(root.Parse(["devtools", "comments", "handoff"]).Errors);
+        Assert.IsNotEmpty(root.Parse(["devtools", "comments", "update", "cmt_example"]).Errors);
+        foreach (var status in new[] { "open", "resolved", "stale", "dismissed" })
+        {
+            Assert.IsEmpty(root.Parse(["devtools", "comments", "update", "cmt_example", "--status", status]).Errors);
+        }
+    }
+
+    [TestMethod]
+    public void DevToolsHelp_KeepsEveryCommandDiscoverable()
+    {
+        var devtools = GetRequiredService<WinAppRootCommand>().Subcommands.Single(c => c.Name == "devtools");
+        foreach (var command in new[] { devtools }.Concat(EnumerateCommands(devtools)))
+        {
+            var output = CompactHelpRenderer.Render(command);
+            foreach (var child in command.Subcommands.Where(c => !c.Hidden))
+            {
+                Assert.Contains(child.Name, output);
+            }
+            Assert.Contains("Usage:", output);
+            if (command == devtools)
+            {
+                Assert.IsLessThanOrEqualTo(56, output.Split('\n').Length,
+                    "DevTools overview should fit a concise command list.");
+            }
+        }
+    }
+
+    [TestMethod]
     public void AllTopLevelCommands_ShouldBeInHelpCategories()
     {
         // Arrange

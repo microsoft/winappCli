@@ -1,6 +1,6 @@
 ---
 name: winapp-ui-automation
-description: Inspect and interact with running Windows app UIs from the command line using UI Automation (UIA). Use when an AI agent or developer needs to inspect a UI element tree, find controls, take screenshots, click buttons, read or set text, or verify UI state in a running Windows app. Works with any framework WinUI 3, WPF, WinForms, Win32, Electron.
+description: Read, click, and type in any running Windows app's UI from the command line with UI Automation (winapp ui). Use to inspect the element tree, find controls, take screenshots, invoke buttons, fill in text boxes, read values, or verify UI state. Works with WinUI 3, WPF, WinForms, Win32, and Electron. To change a WinUI 3 app's text or properties live without editing source (for example translate or restyle the running UI), use winui-devtools instead.
 ---
 ## When to use
 - Inspecting a running Windows app's UI from the command line
@@ -8,8 +8,16 @@ description: Inspect and interact with running Windows app UIs from the command 
 - Verifying UI state during development or testing
 - Automating UI workflows without Playwright or Selenium
 - Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs
+- Not for changing a WinUI 3 app's text or properties live: use `winui-devtools`
 
 ## Prerequisites
+For WinUI 3 XAML source/tree, bindings or dependency-property diagnosis and edits,
+use the `winui-devtools` skill and `winapp devtools`. It requires an attached
+target or explicit authorization to inject with `--attach`; a PID alone is not
+consent. An AutomationId works as a selector in both tools; generated slugs do
+not transfer to DevTools. Continue using `winapp ui`
+for cross-framework actions, screenshots, waits and accessibility.
+
 - For UIA mode (any app): No setup needed — works with any running Windows app
 - For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
 - `screenshot` is **not** in that group: it always takes an exclusive turn, so it queues behind other UI workflows, and capture can need a usable interactive desktop — the engine restores the target if it is minimized, and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used.
@@ -83,7 +91,8 @@ winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value Ready --t
 ```
 
 Use `--root`, `--type`, and `--class-name` together or separately on `search`,
-`get-property`, `get-value`, and `wait-for`. The root must be unique; only its
+`get-property`, `get-value`, `wait-for`, and every command that acts on one
+selected element (`invoke`, `set-value`, `click`, `focus`, and so on). The root must be unique; only its
 descendants match. `wait-for` re-resolves it every poll, including when it is
 initially absent. Type names and literal whole ClassName values ignore case.
 The only type aliases are `TextBox` → `Edit` and `TextBlock` → `Text`.
@@ -124,11 +133,16 @@ winapp ui invoke itm-samples-3f2c -a myapp; winapp ui wait-for pn-samplespage-b4
 ```powershell
 winapp ui invoke SettingsCategory -a myapp --action select
 winapp ui invoke AgreeCheckbox -a myapp --action toggle-on --json
+winapp ui invoke Open -w <dialog-HWND> --type Button --action invoke
 ```
 
 Use `--action` to avoid automatic pattern and ancestor fallback. Omit it for the
-existing automatic behavior. See the [action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
-for supported actions, idempotent toggles, and failure recovery, and the
+existing automatic behavior. With `--root`, `--type`, or `--class-name`, the
+filters follow the same matching rules as read queries: exactly one element must
+match inside the selected app/window, or the command fails without acting, and
+the ancestor fallback is skipped. See the
+[action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
+for supported actions, scope, idempotent toggles, and failure recovery, and the
 [JSON envelope](references/ui-json-envelope.md#ui-invoke---json) for action results.
 
 ### Disambiguate duplicate elements

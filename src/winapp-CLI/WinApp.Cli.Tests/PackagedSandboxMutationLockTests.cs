@@ -861,6 +861,8 @@ public class PackagedSandboxMutationLockTests : BaseCommandTests
                 null!,
                 null!,
                 new ProjectContextDetector(),
+                null!,
+                null!,
                 orchestrator,
                 runner,
                 runtimeService,

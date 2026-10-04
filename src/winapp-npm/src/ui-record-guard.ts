@@ -31,6 +31,7 @@ type UiRecordArgSpec = {
 export const UI_RECORD_ARG_SPECS: readonly UiRecordArgSpec[] = [
   { property: 'app', flag: '--app', kind: 'value' },
   { property: 'captureScreen', flag: '--capture-screen', kind: 'boolean' },
+  { property: 'className', flag: '--class-name', kind: 'value' },
   { property: 'durationSec', flag: '--duration-sec', kind: 'value' },
   { property: 'fps', flag: '--fps', kind: 'value' },
   { property: 'frames', flag: '--frames', kind: 'boolean' },
@@ -38,6 +39,8 @@ export const UI_RECORD_ARG_SPECS: readonly UiRecordArgSpec[] = [
   { property: 'maxEdge', flag: '--max-edge', kind: 'value' },
   { property: 'output', flag: '--output', kind: 'value' },
   { property: 'overwrite', flag: '--overwrite', kind: 'boolean' },
+  { property: 'root', flag: '--root', kind: 'value' },
+  { property: 'type', flag: '--type', kind: 'value' },
   { property: 'on', flag: '--on', kind: 'value' },
   { property: 'window', flag: '--window', kind: 'value' },
   { property: 'quiet', flag: '--quiet', kind: 'boolean' },

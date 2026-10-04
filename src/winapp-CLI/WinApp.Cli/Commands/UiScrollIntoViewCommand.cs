@@ -14,9 +14,15 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiScrollIntoViewCommand : Command, IShortDescription
+internal class UiScrollIntoViewCommand : Command, IShortDescription, IHelpExamples
 {
     public string ShortDescription => "Scroll an element into the visible area";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui scroll-into-view \"Settings\" -a <app>",
+        "winapp ui scroll-into-view \"Settings\" --type ListItem -a <app>",
+    ];
 
     public UiScrollIntoViewCommand()
         : base("scroll-into-view", "Scroll the specified element into the visible area using UIA ScrollItemPattern.")
@@ -26,6 +32,7 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription
         Options.Add(SharedUiOptions.WindowOption);
 
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -65,7 +72,7 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -79,7 +86,7 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = selectorParser.Parse(selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
                 var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
 
                 if (element is null)
@@ -100,6 +107,11 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription
                     logger.LogInformation("Scrolled {ElementId} into view", (element.Selector ?? element.Id ?? ""));
                 }
                 return 0;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {

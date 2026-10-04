@@ -1,0 +1,142 @@
+// Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
+// Licensed under the MIT License.
+
+using System.ComponentModel;
+using WinApp.Cli.Commands;
+using WinApp.Cli.Helpers;
+using WinApp.Cli.Services.DevTools;
+
+namespace WinApp.Cli.Tests;
+
+[TestClass]
+[DoNotParallelize]
+public class DevToolsCliConsistencyTests : BaseCommandTests
+{
+    [TestMethod]
+    [DataRow("add")]
+    [DataRow("update")]
+    [DataRow("delete")]
+    public void CommentsCommandsAcceptTheShortAppAlias(string verb)
+    {
+        var parse = GetRequiredService<WinAppRootCommand>().Parse(["devtools", "comments", verb, "-a", "1234"]);
+        Assert.IsFalse(parse.Errors.Any(error => error.Message.Contains("-a", StringComparison.Ordinal)),
+            string.Join("; ", parse.Errors.Select(error => error.Message)));
+        var option = verb switch
+        {
+            "add" => DevToolsCommentsAddCommand.AppOption,
+            "update" => DevToolsCommentsUpdateCommand.AppOption,
+            _ => DevToolsCommentsDeleteCommand.AppOption,
+        };
+        Assert.AreEqual("1234", parse.GetValue(option));
+    }
+
+    [TestMethod]
+    [DataRow(new[] { "SaveButton", "Width", "200" }, "Width", "200", false)]
+    [DataRow(new[] { "SaveButton", "200", "-p", "Width" }, "Width", "200", false)]
+    [DataRow(new[] { "SaveButton", "Width", "200", "-p", "Height" }, "Height", "200", true)]
+    public void SetPropertyTakesThePropertyPositionallyOrWithTheOption(string[] args, string property, string value, bool conflict)
+    {
+        var parse = new DevToolsSetPropertyCommand().Parse(args);
+        Assert.AreEqual((property, value, conflict), DevToolsSetPropertyCommand.ResolvePropertyAndValue(parse));
+    }
+
+    [TestMethod]
+    public void GetPropertyTakesThePropertyPositionally()
+    {
+        var parse = new DevToolsGetPropertyCommand().Parse(["SaveButton", "Text"]);
+        Assert.AreEqual("SaveButton", parse.GetValue(DevToolsGetPropertyCommand.SelectorArgument));
+        Assert.AreEqual("Text", parse.GetValue(DevToolsGetPropertyCommand.PropertyArgument));
+    }
+
+    [TestMethod]
+    public void StagingLockNamesTheRunningProcess()
+    {
+        var denied = new UnauthorizedAccessException("Access to the path is denied.") { HResult = unchecked((int)0x80070005) };
+        StringAssert.Contains(RunFailure.Describe(denied, [8316, 24984]), "still running from this build (PID 8316, 24984)");
+        StringAssert.Contains(RunFailure.Describe(denied, []), "Access was denied");
+        Assert.IsFalse(RunFailure.Describe(new Win32Exception(2), [8316]).Contains("8316", StringComparison.Ordinal),
+            "Only a lock failure is blamed on a running process.");
+        CollectionAssert.Contains(RunFailure.ProcessesRunningFrom(Environment.ProcessPath!).ToArray(), Environment.ProcessId);
+        Assert.AreEqual(0, RunFailure.ProcessesRunningFrom(Path.Combine(Path.GetTempPath(), "winapp-not-running.exe")).Count);
+    }
+
+    [TestMethod]
+    public void RunningInstancesAreFoundFromTheLayoutManifest()
+    {
+        var layout = Directory.CreateTempSubdirectory("winapp-layout-");
+        try
+        {
+            var self = Path.GetRelativePath(layout.FullName, Environment.ProcessPath!);
+            File.WriteAllText(Path.Combine(layout.FullName, "AppxManifest.xml"),
+                $"""<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"><Applications><Application Id="App" Executable="{self}" /></Applications></Package>""");
+            Assert.IsEmpty(RunFailure.ProcessesRunningFromLayout(layout), "An executable outside the layout is not this app.");
+            File.WriteAllText(Path.Combine(layout.FullName, "AppxManifest.xml"),
+                """<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"><Applications><Application Id="App" Executable="App.exe" /></Applications></Package>""");
+            Assert.IsEmpty(RunFailure.ProcessesRunningFromLayout(layout));
+            Assert.IsFalse(RunFailure.HasExited(Environment.ProcessId));
+
+            File.Copy(Path.Combine(Environment.SystemDirectory, "PING.EXE"), Path.Combine(layout.FullName, "App.exe"));
+            using var app = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                Path.Combine(layout.FullName, "App.exe"), "-n 30 127.0.0.1") { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true })!;
+            try
+            {
+                CollectionAssert.AreEqual(new[] { app.Id }, RunFailure.ProcessesRunningFromLayout(layout).ToArray());
+            }
+            finally
+            {
+                app.Kill();
+                app.WaitForExit();
+            }
+            Assert.IsTrue(RunFailure.HasExited(app.Id));
+        }
+        finally
+        {
+            layout.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void DevToolsPayloadsNameTheProcessProcessId()
+    {
+        var list = System.Text.Json.JsonSerializer.Serialize(new DevToolsListPayload { Apps = [new() { Pid = 7 }] },
+            DevToolsProtocolJsonContext.Default.DevToolsListPayload);
+        var attach = System.Text.Json.JsonSerializer.Serialize(new DevToolsAttachPayload { Ok = true, Pid = 7 },
+            DevToolsProtocolJsonContext.Default.DevToolsAttachPayload);
+        foreach (var json in new[] { list, attach, DevToolsJson.Result(7, "{}"), DevToolsJson.Error(7, "failed") })
+        {
+            StringAssert.Contains(json, "\"processId\": 7");
+            Assert.IsFalse(json.Contains("\"pid\"", StringComparison.Ordinal), json);
+        }
+    }
+
+    [TestMethod]
+    public void DevToolsUiTip_MatchesOnlyAppsWithTheAgent()
+    {
+        int[] tapped = [4242];
+        (string, string)? Describe(int pid) => pid == 4242 ? ("Daylight", "Today's Tasks") : null;
+        int? Owner(long hwnd) => hwnd == 99 ? 4242 : 7;
+
+        Assert.IsTrue(DevToolsUiTip.Applies("4242", null, tapped, Owner, Describe));
+        Assert.IsTrue(DevToolsUiTip.Applies("daylight.exe", null, tapped, Owner, Describe));
+        Assert.IsTrue(DevToolsUiTip.Applies("Tasks", null, tapped, Owner, Describe));
+        Assert.IsTrue(DevToolsUiTip.Applies(null, 99, tapped, Owner, Describe));
+        Assert.IsFalse(DevToolsUiTip.Applies("notepad", null, tapped, Owner, Describe), "Only a process with the agent gets the tip.");
+        Assert.IsFalse(DevToolsUiTip.Applies(null, 100, tapped, Owner, Describe));
+        Assert.IsFalse(DevToolsUiTip.Applies("4242", null, [], Owner, _ => throw new AssertFailedException("No pipes, no process lookups.")));
+    }
+
+    [TestMethod]
+    public void IdenticalSourceWarningsCollapseToOneEntry()
+    {
+        var warnings = Enumerable.Range(0, 94)
+            .Select(i => new XamlSourceExclusion($"Pages/P{i}.xaml", $"Pages/P{i}.xaml", XamlCoordinateMap.StaleBuild))
+            .Append(new XamlSourceExclusion("Other.xaml", "Other.xaml", "different"))
+            .ToArray();
+        var collapsed = XamlSourceExclusion.Collapse(warnings)!;
+        Assert.HasCount(2, collapsed);
+        Assert.AreEqual(94, collapsed[0].Count);
+        StringAssert.Contains(collapsed[0].Reason, "Rebuild");
+        Assert.IsNull(collapsed[1].Count);
+        Assert.IsNull(XamlSourceExclusion.Collapse([]));
+    }
+}

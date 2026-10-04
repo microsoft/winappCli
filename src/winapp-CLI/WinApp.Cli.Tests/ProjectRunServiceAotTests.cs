@@ -68,6 +68,7 @@ public sealed class ProjectRunServiceAotTests
             "minimal");
 
         CollectionAssert.Contains(arguments.ToList(), "publish");
+        CollectionAssert.DoesNotContain(arguments.ToList(), "-target:Build");
         CollectionAssert.Contains(arguments.ToList(), "Release");
         CollectionAssert.Contains(arguments.ToList(), "win-arm64");
         CollectionAssert.Contains(arguments.ToList(), "--no-restore");
@@ -145,6 +146,199 @@ public sealed class ProjectRunServiceAotTests
         CollectionAssert.Contains(
             dotnet.ArgumentListInvocations.Single().ToList(),
             "--no-restore");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PublishAot_CapturesPublishEvaluatedXamlOnlyWhenRequested(bool captureSources)
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        using var properties = JsonDocument.Parse(PropertyJson(project, assets, true, "None"));
+        var output = JsonSerializer.Serialize(new
+        {
+            Properties = properties.RootElement.GetProperty("Properties"),
+            Items = new
+            {
+                Page = new[] { new { Identity = "Published.xaml" } },
+                ApplicationDefinition = new[] { new { Identity = "App.xaml" } },
+            },
+        });
+        var dotnet = SuccessfulDotnet(output);
+        var outcome = await NewService(dotnet).PublishAotAndResolveAsync(
+            project, Options() with { CaptureDevToolsSources = captureSources }, CancellationToken.None);
+
+        Assert.AreEqual(captureSources,
+            dotnet.ArgumentListInvocations.Single().Contains("--getItem:Page,ApplicationDefinition"));
+        CollectionAssert.DoesNotContain(dotnet.ArgumentListInvocations.Single().ToList(), "-target:Build");
+        if (captureSources)
+        {
+            CollectionAssert.AreEqual((string[])["Published.xaml", "App.xaml"], outcome.Resolution!.DevToolsXamlSources!.ToArray());
+        }
+        else
+        {
+            Assert.IsNull(outcome.Resolution!.DevToolsXamlSources);
+        }
+    }
+
+    [TestMethod]
+    public async Task DevToolsBuild_CapturesTargetAssignedCompilerPathsFromTheBuild_NotASecondEvaluation()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("bin\\Sample.exe", "controlled executable path");
+        var evaluated = PropertyJson(project, assets, false, "None");
+        using var document = JsonDocument.Parse(evaluated);
+        var properties = document.RootElement.GetProperty("Properties").EnumerateObject()
+            .ToDictionary(property => property.Name, property => property.Value.GetString()!);
+        properties["RunCommand"] = Path.Join(_tempDirectory.FullName, "bin", "Sample.exe");
+        properties["XamlCompilerExeInputJson"] = Path.Join(_tempDirectory.FullName, "obj", "input.json");
+        properties["XamlCompilerExeOutputJson"] = Path.Join(_tempDirectory.FullName, "obj", "output.json");
+        properties["XamlSavedStateFilePath"] = Path.Join(_tempDirectory.FullName, "obj", "state.xml");
+        var built = JsonSerializer.Serialize(new
+        {
+            Properties = properties,
+            Items = new { Page = new[] { new { Identity = "Main.xaml" } }, ApplicationDefinition = Array.Empty<object>() },
+        });
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, evaluated, ""),
+            RunDotnetArgumentListHandler = _ => (0, built, ""),
+        };
+        var outcome = await NewService(dotnet).BuildAndResolveAsync(
+            project, Options(noRestore: true) with { CaptureDevToolsSources = true }, CancellationToken.None);
+        Assert.AreEqual(0, outcome.ExitCode);
+        var command = dotnet.ArgumentListInvocations.Single();
+        Assert.AreEqual("build", command[0]);
+        CollectionAssert.Contains(command.ToList(), "-target:Build");
+        CollectionAssert.DoesNotContain(command.ToList(), "--no-incremental");
+        CollectionAssert.Contains(command.ToList(), "--getProperty:XamlCompilerExeInputJson");
+        Assert.AreEqual(properties["XamlCompilerExeInputJson"], outcome.Resolution!.DevToolsCompilerArtifacts!.Input);
+        CollectionAssert.AreEqual((string[])["Main.xaml"], outcome.Resolution.DevToolsXamlSources!.ToArray());
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(false, 0)]
+    [DataRow(true, 0)]
+    [DataRow(false, 17)]
+    [DataRow(true, 17)]
+    public async Task DevToolsBuild_MetadataIsPrivateButDiagnosticsAppearOnce(bool json, int exitCode)
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("bin\\Sample.exe", "controlled executable path");
+        var propertyDocument = System.Text.Json.Nodes.JsonNode.Parse(PropertyJson(project, assets, false, "None"))!;
+        propertyDocument["Properties"]!["RunCommand"] = Path.Join(_tempDirectory.FullName, "bin", "Sample.exe");
+        foreach (var name in Services.DevTools.XamlSourceCoordinates.Properties)
+        {
+            propertyDocument["Properties"]![name] = "";
+        }
+        propertyDocument["Items"] = System.Text.Json.Nodes.JsonNode.Parse(
+            """{"Page":[{"Identity":"Main.xaml"}],"ApplicationDefinition":[]}""");
+        var properties = propertyDocument.ToJsonString();
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, properties, ""),
+            RunDotnetArgumentListHandler = _ => (exitCode, "Build diagnostic", "Build stderr"),
+            ResultOutputFileHandler = _ => properties,
+        };
+        using var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = NewService(dotnet, logger: logger);
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        try
+        {
+            var outcome = await service.BuildAndResolveAsync(project,
+                Options(noRestore: true) with { CaptureDevToolsSources = true, Json = json }, CancellationToken.None);
+            Assert.AreEqual(exitCode, outcome.ExitCode);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+        var output = _consoles.Last().Output + stderr;
+        Assert.AreEqual(1, output.Split("Build diagnostic", StringSplitOptions.None).Length - 1);
+        Assert.AreEqual(1, output.Split("Build stderr", StringSplitOptions.None).Length - 1);
+        Assert.IsFalse(output.Contains("\"Properties\"", StringComparison.Ordinal));
+        Assert.IsFalse(output.Contains("\"Items\"", StringComparison.Ordinal));
+        if (json) { Assert.AreEqual("", _consoles.Last().Output); }
+    }
+
+    [TestMethod]
+    public async Task DevToolsBuild_ExecutesTargetsAndPreservesIncrementalAndNoBuildEvaluation()
+    {
+        // No SDK, packages, executable, or app targets: only isolated MSBuild marker files.
+        var project = WriteFile("Capture.proj", """
+            <Project DefaultTargets="Build">
+              <PropertyGroup>
+                <Marker>$(MSBuildProjectDirectory)\compiled.marker</Marker>
+              </PropertyGroup>
+              <Target Name="CompileMarker" Inputs="input.txt" Outputs="$(Marker)">
+                <WriteLinesToFile File="$(Marker)" Lines="compiled" Overwrite="true" />
+                <WriteLinesToFile File="compile.calls" Lines="compile" />
+              </Target>
+              <Target Name="Build" DependsOnTargets="CompileMarker">
+                <PropertyGroup>
+                  <XamlCompilerExeInputJson>$(Marker)</XamlCompilerExeInputJson>
+                </PropertyGroup>
+                <ItemGroup>
+                  <Page Include="TargetAssigned.xaml" />
+                </ItemGroup>
+                <WriteLinesToFile File="build.calls" Lines="build" />
+              </Target>
+            </Project>
+            """);
+        var input = WriteFile("input.txt", "input");
+        input.LastWriteTimeUtc = DateTime.UtcNow.AddMinutes(-1);
+        var options = Options(noRestore: true) with { CaptureDevToolsSources = true };
+        var arguments = ProjectRunService.BuildPublishArguments(project, options, "quiet", publish: false);
+        var dotnet = new DotNetService();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        for (var invocation = 1; invocation <= 2; invocation++)
+        {
+            var result = await dotnet.RunDotnetCommandAsync(
+                _tempDirectory, arguments, cancellationToken: timeout.Token);
+            Assert.AreEqual(0, result.ExitCode, $"{result.Output}\n{result.Error}");
+            var marker = Path.Join(_tempDirectory.FullName, "compiled.marker");
+            Assert.IsTrue(File.Exists(marker), "Metadata capture must execute Build on a clean project.");
+            using var output = JsonDocument.Parse(result.Output);
+            Assert.AreEqual(marker, output.RootElement.GetProperty("Properties")
+                .GetProperty("XamlCompilerExeInputJson").GetString());
+            Assert.AreEqual("TargetAssigned.xaml", output.RootElement.GetProperty("Items")
+                .GetProperty("Page")[0].GetProperty("Identity").GetString());
+            Assert.HasCount(invocation, File.ReadAllLines(Path.Join(_tempDirectory.FullName, "build.calls")));
+            Assert.HasCount(1, File.ReadAllLines(Path.Join(_tempDirectory.FullName, "compile.calls")),
+                "An unchanged input must not rerun the incremental compilation target.");
+        }
+
+        var evaluation = await dotnet.RunDotnetCommandAsync(_tempDirectory,
+            ProjectRunService.BuildEvaluateArguments(project, options with { NoBuild = true }),
+            timeout.Token);
+        Assert.AreEqual(0, evaluation.ExitCode, $"{evaluation.Output}\n{evaluation.Error}");
+        using var evaluated = JsonDocument.Parse(evaluation.Output);
+        Assert.AreEqual(string.Empty, evaluated.RootElement.GetProperty("Properties")
+            .GetProperty("XamlCompilerExeInputJson").GetString());
+        Assert.HasCount(2, File.ReadAllLines(Path.Join(_tempDirectory.FullName, "build.calls")),
+            "--no-build must remain evaluation-only.");
+    }
+
+    [TestMethod]
+    public async Task PublishAot_MissingRequestedXamlItemsFailsWithoutInventingSourceOwner()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        var dotnet = SuccessfulDotnet(PropertyJson(project, assets, true, "None"));
+
+        var error = await Assert.ThrowsAsync<ProjectRunException>(() =>
+            NewService(dotnet).PublishAotAndResolveAsync(
+                project, Options() with { CaptureDevToolsSources = true }, CancellationToken.None));
+        StringAssert.Contains(error.Message, "MSBuild did not report the requested XAML source items");
     }
 
     [TestMethod]
@@ -606,6 +800,29 @@ public sealed class ProjectRunServiceAotTests
             dotnet.ArgumentListInvocations.Single().ToList(),
             $"--getResultOutputFile:{resultFile}");
         Assert.IsFalse(File.Exists(resultFile), "the temporary result file must be deleted");
+    }
+
+    [TestMethod]
+    [DataRow("""{"Page":[{"Identity":"Main.xaml"}],"ApplicationDefinition":[]}""", "Main.xaml")]
+    [DataRow("""{"Page":[],"ApplicationDefinition":[]}""", "")]
+    public async Task PublishAot_DevToolsReadsXamlItemsFromResultFileNotPublishOutput(string items, string expected)
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        WriteFile("publish\\Sample.exe", "native");
+        var result = System.Text.Json.Nodes.JsonNode.Parse(PropertyJson(project, assets, publishAot: true, packaging: "None"))!;
+        result["Items"] = System.Text.Json.Nodes.JsonNode.Parse(items);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetArgumentListHandler = _ => (0, "Generating native code", string.Empty),
+            ResultOutputFileHandler = _ => result.ToJsonString(),
+        };
+
+        var outcome = await NewService(dotnet).PublishAotAndResolveAsync(
+            project, Options() with { CaptureDevToolsSources = true }, CancellationToken.None);
+
+        CollectionAssert.AreEqual(expected.Length == 0 ? Array.Empty<string>() : [expected],
+            outcome.Resolution!.DevToolsXamlSources!.ToArray());
     }
 
     [TestMethod]

@@ -51,6 +51,7 @@ public class PublicApiSurfaceTests
         "PointerGesturePlanner",
         "PointerPoint",
         "PointerRect",
+        "SlugGenerator",
         "StableTarget",
         "SystemKeyGuard",
         "TargetStatus",

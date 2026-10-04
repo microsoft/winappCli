@@ -8,20 +8,22 @@ using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Commands;
 
-/// <summary>Composable read-query options shared by search, property, value and wait commands.</summary>
+/// <summary>Composable element filters shared by every command that takes a selector.</summary>
 internal static class UiQueryOptions
 {
     internal static readonly Option<string?> Root = new("--root")
     {
-        Description = "Search only descendants of this uniquely matching selector (excludes the root).",
+        HelpName = "selector",
+        Description = "Only search inside this element (must match exactly one element)",
     };
     internal static readonly Option<string?> Type = new("--type")
     {
-        Description = "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+        Description = "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
     };
     internal static readonly Option<string?> ClassName = new("--class-name")
     {
-        Description = "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+        HelpName = "name",
+        Description = "Only match this exact UIA ClassName (case-insensitive)",
     };
 
     internal static void AddTo(Command command)
@@ -51,4 +53,48 @@ internal static class UiQueryOptions
             ControlType = result.GetValue(Type),
             ClassName = result.GetValue(ClassName),
         };
+
+    internal static bool HasFilters(ParseResult result) =>
+        result.GetValue(Root) is not null || result.GetValue(Type) is not null || result.GetValue(ClassName) is not null;
+
+    /// <summary><see cref="Validate"/> for commands whose selector is optional: filters narrow a
+    /// selector, so they are rejected when no selector was given.</summary>
+    internal static int? ValidateWithOptionalSelector(ParseResult result, string? selector, ILogger logger, bool json)
+    {
+        if (string.IsNullOrWhiteSpace(selector) && HasFilters(result))
+        {
+            const string error = "--type, --root, and --class-name narrow a selector; pass a selector too.";
+            logger.LogError("{Message}", error);
+            UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, error, errorOut: result.InvocationConfiguration.Error);
+            return 1;
+        }
+
+        return Validate(result, logger, json);
+    }
+
+    /// <summary>
+    /// For commands whose engine call takes a selector string (inspect, screenshot, record): when
+    /// filters are present, resolves the filtered selector to one element and returns its slug, which
+    /// identifies that exact element. Without filters the selector is returned unchanged.
+    /// </summary>
+    /// <returns>The selector to pass on, or <see langword="null"/> when no element matched.</returns>
+    /// <exception cref="UiAmbiguousSelectorException">The filtered selector matched several elements.</exception>
+    internal static async Task<string?> ResolveExactSelectorAsync(
+        ParseResult result, IUiSelectorParser parser, IUiAutomation uiAutomation, UiTarget target, string selector, CancellationToken ct)
+    {
+        if (!HasFilters(result))
+        {
+            return selector;
+        }
+
+        var element = await uiAutomation.FindSingleElementAsync(target, Parse(result, parser, selector), ct).ConfigureAwait(false);
+        if (element is null)
+        {
+            return null;
+        }
+
+        return element.Selector
+            ?? throw new InvalidOperationException(
+                $"The element matched by '{selector}' has no stable selector. Run 'winapp ui inspect' and pass its slug instead.");
+    }
 }

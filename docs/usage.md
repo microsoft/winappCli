@@ -618,7 +618,9 @@ winapp manifest add-alias [options]
 - Reads the manifest and infers the alias from the `Executable` attribute (preserving placeholders like `$targetnametoken$.exe`)
 - Adds the `uap5` namespace declaration if not already present
 - Adds an `<Extensions>` block with `<uap5:AppExecutionAlias>` inside the target Application element
-- If the alias already exists, reports it and exits successfully
+- If the alias already exists in the selected application, reports it and exits successfully, even when it is not the first alias
+- If a different alias already exists in the selected application, reports a conflict without replacing it
+- Alias names must be unique across the package. If another application declares the requested name, choose a different name
 
 **Examples:**
 
@@ -729,6 +731,7 @@ winapp run [<input>] [options]
 - `--output-appx-directory <path>` - Output directory for the loose layout (default: `AppX` inside the input folder). The default layout removes files no longer in the build; a custom directory keeps extra files. Use a fresh custom directory when you need a clean layout.
 - `--args <string>` - Command-line arguments to pass to the application. Alternatively, use `--` followed by arguments to avoid escaping (e.g., `winapp run . -- --flag value`).
 - `--no-launch` - Only create the debug identity and register the package without launching the application
+- `--devtools` - Launch with WinUI XAML inspection and startup instrumentation, locally or in Sandbox. See the [DevTools guide](guides/devtools.md) for supported inputs, alias requirements, binding support, and examples, and [Advanced DevTools](guides/devtools-advanced.md) for Sandbox and late-attach limitations.
 - `--with-alias` - Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Rarely needed: an app with `OutputType=Exe` already launches this way by default. winapp adds the required `uap5:ExecutionAlias` to the manifest it stages in the AppX layout, so no change to your checked-in manifest is needed; an alias the app declares itself is used as-is. Cannot be combined with `--no-launch`, `--detach`, `--without-alias`, or `--json`.
 - `--without-alias` - Force AUMID activation for an app that would otherwise launch through an execution alias. A console app then runs without a console and prints nothing to this terminal. Cannot be combined with `--with-alias`.
 - `--debug-output` - Capture `OutputDebugString` messages and first-chance exceptions from the launched application. Framework noise (WinUI, COM, DirectX) is filtered from console output; the full log file captures everything. If the app crashes, automatically captures a minidump and analyzes it to show the exception type, message, and stack trace with source file:line numbers (resolved from PDBs in the build output folder). Managed (.NET) crashes are analyzed instantly with no external tools. Native (C++/WinRT) crashes show module names and offsets. When the crashed app is a WinUI 3 app (`Microsoft.UI.Xaml.dll` is loaded), an extra stowed-exception triage pass runs automatically to surface the originating HRESULT, its ErrorContext chain, and the full native XAML dispatch stack; the required debugger components are downloaded on first use (see [Debugging](debugging.md#winui-stowed-exception-triage), overridable via the `WINAPP_DBGTOOLS_DIR` environment variable). Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use `--no-launch` instead if you need to attach a different debugger. Cannot be combined with `--no-launch`. Cannot be combined with `--json`.
@@ -1264,6 +1267,25 @@ is checked like any other, so `WinAppRunArgs="--detach"` still conflicts with `W
   <WinAppRunDebugOutput>true</WinAppRunDebugOutput>
 </PropertyGroup>
 ```
+
+---
+
+### devtools
+
+```powershell
+winapp run . --devtools --detach
+winapp devtools inspect
+```
+
+Inspect a WinUI 3 app's XAML tree, read or change live properties, diagnose
+bindings, and save source-anchored review comments. See the
+[DevTools guide](guides/devtools.md) for the workflow, [Advanced DevTools](guides/devtools-advanced.md) for Sandbox, late attach and the protocol, and
+`winapp devtools --help` for available commands.
+
+With `winapp run --devtools --json`, the run result also includes `devTools`
+with the inspected `nodeCount` and whether the requested overlay is shown
+(`overlayShown`). When source locations are unavailable, `sourceWarnings` lists
+one entry per reason, with `count` when several XAML files share it.
 
 ---
 
@@ -2153,7 +2175,9 @@ as a credential, and is only ever persisted as a SHA-256 hash. See
 
 ### ui
 
-Inspect and interact with running Windows app UIs using UI Automation (UIA).
+Inspect and interact with running Windows app UIs using UI Automation (UIA). Run `winapp ui --help`
+for the core workflow (`inspect -a <app> --interactive`, then `invoke`/`set-value`, then `get-value`) and each
+command's `--help` for examples. An unknown `ui` command exits with code 1 and suggests the closest commands.
 
 ```bash
 winapp ui [command] [options]
@@ -2161,13 +2185,13 @@ winapp ui [command] [options]
 
 **Commands:**
 - `status` - Connect to app and show info
-- `inspect` - View element tree
-- `search` - Find elements by selector
+- `inspect` (alias `tree`) - View element tree
+- `search` (alias `find`) - Find elements by selector
 - `get-property` - Read element properties
 - `get-text` / `get-value` - Read value/text from element (TextPattern, ValuePattern, or Name)
 - `screenshot` - Capture window/element as PNG (multiple windows form one labeled composite PNG; see [capture scope](ui-automation.md#screenshot))
 - `record` - Record a window/element region to an H.264 MP4 video (Windows Graphics Capture + Media Foundation)
-- `invoke` - Activate element (click, toggle, expand)
+- `invoke` - Activate element (click, toggle, expand); `--action` selects an exact operation (see [invoke](ui-automation.md#invoke))
 - `click` - Click element via mouse simulation (for controls that don't support invoke)
 - `hover` - Move mouse to element to trigger tooltips, flyouts, and hover states (default dwell: 800ms)
 - `drag` - Drag the mouse from one point to another, by element selector or screen `x,y` coordinates (reorder, resize, sliders, drag-and-drop)
@@ -2186,6 +2210,7 @@ winapp ui [command] [options]
 - `-a, --app <app>` - Target app (name, title, or PID)
 - `-w, --window <hwnd>` - Target window by HWND (stable)
 - `--on <target>` - Run any `ui` verb in `sandbox`; names, PIDs, and window handles refer to the guest. Outputs are delivered to the host. See [Sandbox UI automation](sandbox-execution.md#automating-the-ui) for setup, workflow coordination, and client requirements.
+- `--type`, `--root`, `--class-name` - Narrow a selector on any command that takes one element (see [scoped queries](ui-automation.md#scoped-and-typed-queries))
 
 #### ui record
 

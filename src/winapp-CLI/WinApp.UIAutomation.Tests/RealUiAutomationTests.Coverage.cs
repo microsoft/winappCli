@@ -165,6 +165,37 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task SearchAsync_DuplicatedBulkPeers_DoNotConsumeLimitOrMergeSameNamedControls()
+    {
+        using var fx = new UiaTestFixture();
+        fx.OnUiThread(() =>
+        {
+            fx.InvokeButton.AccessibleName = "Repeated";
+            fx.TextLabel.AccessibleName = "Repeated";
+        });
+        var svc = NewService();
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var first = FindByAutomationId(automation, root, "btnInvoke");
+        var second = FindByAutomationId(automation, root, "lblText");
+        var findAllCalls = 0;
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
+        UiAutomationService.s_findAllDescendants = (_, _) =>
+            ++findAllCalls == 1 ? ElementArray() : ElementArray(first, first, second, second);
+        UiAutomationService.s_manualTreeSearch = (_, _, _, _, _) => [first, second];
+        UiAutomationService.s_compareElements = (_, _, _) =>
+            throw new AssertFailedException("Full runtime identities should suffice.");
+
+        var results = await svc.SearchAsync(
+            SessionFor(fx), new UiSelector { Query = "Repeated" }, 2, CancellationToken.None);
+
+        Assert.AreEqual(2, results.Length);
+        Assert.IsTrue(results.All(result => result.Name == "Repeated"));
+        string[] expectedIds = ["btnInvoke", "lblText"];
+        CollectionAssert.AreEquivalent(expectedIds, results.Select(result => result.AutomationId).ToArray());
+    }
+
+    [TestMethod]
     public async Task SearchAsync_ExactBulkMiss_UsesOneCompletedSubstringWalkAndPreservesExactPrecedence()
     {
         using var fx = new UiaTestFixture();
@@ -646,6 +677,24 @@ public partial class RealUiAutomationTests
         Assert.IsNotNull(resolved);
         Assert.AreEqual(ownedHwnd, resolved.WindowHandle,
             "a selector emitted for an owned window must resolve back to that HWND");
+    }
+
+    [TestMethod]
+    public async Task InspectAsync_RepeatedProviderRoot_IsEmittedOnce()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var root = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(fx.Hwnd, fx.ProcessId, fx.Title), (123, fx.ProcessId, "Repeated provider root")];
+        UiAutomationService.s_getRootElementForHwnd = (_, _, _) => root;
+
+        var elements = await svc.InspectAsync(NonExplicitSession(fx), null, 4, CancellationToken.None);
+
+        Assert.AreEqual(1, elements.Count(element => element.AutomationId == "btnInvoke"));
+        Assert.IsFalse(elements.Any(element => element.WindowHandle == 123));
     }
 
     [TestMethod]

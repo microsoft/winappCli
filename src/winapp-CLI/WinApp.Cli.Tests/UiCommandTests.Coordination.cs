@@ -77,6 +77,20 @@ public partial class UiCommandTests
     // ------------------------------------------------------------------- mode classification (§6.1)
 
     [TestMethod]
+    public async Task WaitFor_IsAnObservation()
+    {
+        _fakeUia.FindSingleResult = null;
+        var command = GetRequiredService<UiWaitForCommand>();
+        var exit = await ParseAndInvokeWithCaptureAsync(command,
+            ["#missing", "-a", "TestApp", "--gone", "--json", "--timeout", "1000"]);
+
+        Assert.AreEqual(0, exit);
+        Assert.AreEqual(1, _fakeDesktopLock.Runs.Count);
+        Assert.AreEqual(UiTurnMode.Observe, _fakeDesktopLock.Runs[0].Mode);
+        Assert.AreEqual("ui wait-for", _fakeDesktopLock.Runs[0].Operation);
+    }
+
+    [TestMethod]
     public async Task Inspect_IsAnObservation()
     {
         var command = GetRequiredService<UiInspectCommand>();

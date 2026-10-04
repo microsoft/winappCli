@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
+using Spectre.Console.Testing;
 using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Tests;
@@ -20,7 +21,8 @@ namespace WinApp.Cli.Tests;
 /// <c>winapp.exe</c> process carrying its own <c>WINAPP_UI_WORKFLOW_ID</c>. The properties under test —
 /// a transient menu surviving another agent's attempt to act, a reasoning gap handing the turn away,
 /// and a recording pinning its owner — are only meaningful end to end, so they are asserted against
-/// observable desktop state rather than scheduler internals.
+/// observable desktop state rather than scheduler internals. The active-observation case bootstraps
+/// ownership through the real coordinator, then hands the pin to a real <c>ui wait-for</c> process.
 /// </para>
 /// <para>
 /// Gated on <c>WINAPP_UI_MULTIPROCESS_TESTS=1</c> plus a published <c>winapp.exe</c>: these need an
@@ -31,6 +33,7 @@ namespace WinApp.Cli.Tests;
 [DoNotParallelize] // Drives the real foreground window and a process-wide lock-directory override.
 [TestCategory("Interactive")]
 [TestCategory("UiCoordination")]
+[TestCategory("E2E")]
 public class InteractiveDesktopRealAppTests : IDisposable
 {
     private const string GateVariable = "WINAPP_UI_MULTIPROCESS_TESTS";
@@ -44,6 +47,7 @@ public class InteractiveDesktopRealAppTests : IDisposable
     private string _scratchDirectory = null!;
     private UiaTestFixture _fixture = null!;
     private InteractiveDesktopStateStore _store = null!;
+    private InteractiveDesktopLock _coordinator = null!;
     private Stopwatch? _graceWatch;
     private readonly List<Process> _children = [];
 
@@ -73,6 +77,11 @@ public class InteractiveDesktopRealAppTests : IDisposable
         var participants = new ParticipantRegistry(paths, inspector, NullLogger<ParticipantRegistry>.Instance);
         _store = new InteractiveDesktopStateStore(
             paths, participants, new TickCountClock(), NullLogger<InteractiveDesktopStateStore>.Instance);
+        _coordinator = new InteractiveDesktopLock(
+            _store, paths, participants, new UiOwnerResolver(), inspector,
+            new TickCountClock(), new RealPollDelay(),
+            new ParticipantSignals(inspector, NullLogger<ParticipantSignals>.Instance),
+            new TestConsole(), NullLogger<InteractiveDesktopLock>.Instance);
 
         _fixture = new UiaTestFixture();
     }
@@ -293,22 +302,57 @@ public class InteractiveDesktopRealAppTests : IDisposable
     // ------------------------------------------------------------------------------ §18.3 (a)
 
     /// <summary>
-    /// §18.3(a): a tight burst by one owner keeps its transient UI intact while a different owner's
-    /// mutation is held back.
+    /// Active-lease companion to §18.3(a): an owner's observation keeps its transient UI intact while
+    /// a different owner's mutation is held back. Exact idle-burst deadlines live in the clock tests.
     /// </summary>
     /// <remarks>
-    /// The menu is opened by agent A's own coordinated command rather than directly on the fixture, so
-    /// the turn and the transient UI are established by the same action and there is no window in
-    /// which the premise could lapse. Agent B is a genuine separate process, so the foreground steal it
-    /// would perform is real.
+    /// Cold process startup is not bounded by the production idle grace. Establish a live observation
+    /// before opening the menu or starting B; release it explicitly after A's actions. This does not
+    /// claim that real cold starts finish within four seconds.
     /// </remarks>
     [TestMethod]
-    public async Task ATightBurstKeepsTransientMenuOpenWhileAnotherOwnerWaits()
+    public async Task AnActiveObservationKeepsTransientMenuOpenWhileAnotherOwnerWaits()
     {
+        Environment.SetEnvironmentVariable(UiOwnerResolver.WorkflowIdVariable, OwnerA);
+        var bootstrapReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseBootstrap = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bootstrap = _coordinator.RunCoordinatedAsync(
+            UiTurnMode.TurnShared, "test observation bootstrap", UiCoordinationTestParse.Quiet(),
+            async (_, _) =>
+            {
+                bootstrapReady.SetResult();
+                await releaseBootstrap.Task;
+                return 0;
+            }, CancellationToken.None);
+        AgentRun observer;
+        try
+        {
+            await bootstrapReady.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            observer = StartAgent(OwnerA, WithTarget("ui", "wait-for", "txtResult",
+                "--value", "observation-released", "--timeout", "120000"));
+            await WaitForAgentStateAsync(
+                observer,
+                s => !observer.Process.HasExited && s.Owner?.Key == KeyOf(OwnerA) && s.OwnerCommands.Any(
+                    c => c.Pid == observer.Process.Id && c.Mode == UiTurnMode.Observe
+                        && c.Status == UiCommandStatus.Running),
+                "A's real observation must join the owned turn before bootstrap releases it");
+        }
+        finally
+        {
+            releaseBootstrap.TrySetResult();
+            Assert.AreEqual(0, await bootstrap, "the real bootstrap lease must release normally");
+        }
+
         await OpenMenuAsOwnerAsync(OwnerA);
+        await WaitForAgentStateAsync(
+            observer,
+            s => !observer.Process.HasExited && s.Owner?.Key == KeyOf(OwnerA) && s.OwnerCommands.Any(
+                c => c.Pid == observer.Process.Id && c.Mode == UiTurnMode.Observe
+                    && c.Status == UiCommandStatus.Running),
+            "A's observation must still hold an active lease before B starts");
 
         // A different agent tries to act on the same desktop. Its click would take the foreground and
-        // dismiss the drop-down, so coordination must hold it until A's burst is finished.
+        // dismiss the drop-down, so coordination must hold it until A releases the observation.
         var agentB = StartAgent(OwnerB, WithTarget("ui", "click", "btnInvoke"));
 
         await WaitForAgentStateAsync(
@@ -316,7 +360,7 @@ public class InteractiveDesktopRealAppTests : IDisposable
             s => s.Waiters.Count == 1 && s.Waiters[0].Pid == agentB.Process.Id,
             "agent B must queue behind agent A's turn instead of acting immediately");
 
-        // A's burst: observations never yield the turn, and each one refreshes nothing that would let B in.
+        // Same-owner reads may run while the observation pins the turn.
         for (var i = 0; i < 3; i++)
         {
             var (exitCode, output) = await RunAgentAsync(OwnerA, WithTarget("ui", "inspect"));
@@ -325,13 +369,18 @@ public class InteractiveDesktopRealAppTests : IDisposable
                 _fixture.IsFileMenuOpen,
                 $"the transient menu must still be open after burst step {i}: another owner was allowed to interfere");
             Assert.IsFalse(agentB.Process.HasExited, "agent B must still be waiting during the burst");
+            Assert.IsFalse(observer.Process.HasExited, "A's observation must remain active throughout its actions");
         }
 
         Assert.IsTrue(_fixture.IsFileMenuOpen, "the burst must complete with the transient UI intact");
 
-        // Releasing the turn lets B through, and its foreground steal dismisses the menu. Observing that
-        // proves the earlier assertions were real protection rather than B simply being slow.
-        Assert.AreEqual(0, await agentB.Completion, $"agent B should succeed once it gets the turn. Output: {await agentB.Output}");
+        _fixture.OnUiThread(() => _fixture.ResultBox.Text = "observation-released");
+        Assert.AreEqual(0, await observer.Completion.WaitAsync(TimeSpan.FromSeconds(20)),
+            $"the observation must finish only after its condition is released. Output: {await observer.Output}");
+
+        // Normal grace follows completion; B's eventual click proves it was blocked, not merely slow.
+        Assert.AreEqual(0, await agentB.Completion.WaitAsync(TimeSpan.FromSeconds(20)),
+            $"agent B should succeed once it gets the turn. Output: {await agentB.Output}");
 
         var deadline = Stopwatch.StartNew();
         while (deadline.ElapsedMilliseconds < 5_000 && _fixture.IsFileMenuOpen)

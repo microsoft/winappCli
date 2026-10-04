@@ -48,6 +48,11 @@ winapp ui screenshot --on sandbox -a MyApp -o .\result.png
 5. Rediscover targets after the Sandbox is recreated. A detached unpackaged app can
    also end during guest-agent repair; rerun it if it disappears.
 
+For WinUI XAML inspection and persistent review comments, use
+[`run --devtools --on sandbox`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#inspect-inside-windows-sandbox)
+and the `winui-devtools` skill. DevTools selectors and startup instrumentation
+are separate from the UI Automation commands above.
+
 ## Coordinate a recording with actions
 
 Choose one explicit workflow ID and inject the **same value into every cooperating

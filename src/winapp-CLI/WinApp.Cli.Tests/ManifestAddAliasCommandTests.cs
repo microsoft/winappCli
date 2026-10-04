@@ -47,6 +47,35 @@ public class ManifestAddAliasCommandTests : BaseCommandTests
     #region Fresh alias addition tests
 
     [TestMethod]
+    public async Task AddAlias_SiblingClaimReportsConflictAndPreservesSource()
+    {
+        var manifestPath = CreateManifest("""
+            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                     xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+                     xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10">
+              <Identity Name="test-app" Publisher="CN=test" Version="1.0.0.0" />
+              <Applications>
+                <Application Id="First" Executable="first.exe" EntryPoint="Windows.FullTrustApplication">
+                  <Extensions>
+                    <uap3:Extension Category="windows.appExecutionAlias">
+                      <uap3:AppExecutionAlias><desktop:ExecutionAlias Alias="shared.exe" /></uap3:AppExecutionAlias>
+                    </uap3:Extension>
+                  </Extensions>
+                </Application>
+                <Application Id="Second" Executable="second.exe" EntryPoint="Windows.FullTrustApplication" />
+              </Applications>
+            </Package>
+            """);
+        var before = await File.ReadAllBytesAsync(manifestPath, TestContext.CancellationToken);
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<ManifestAddAliasCommand>(),
+            ["--manifest", manifestPath, "--app-id", "Second", "--name", "SHARED.exe"]);
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "another application");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "Choose a different alias name");
+        CollectionAssert.AreEqual(before, await File.ReadAllBytesAsync(manifestPath, TestContext.CancellationToken));
+    }
+
+    [TestMethod]
     public async Task AddAlias_FreshManifestNoExtensions_AddsAliasSuccessfully()
     {
         // Arrange - manifest with no Extensions block

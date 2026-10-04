@@ -352,4 +352,188 @@ public partial class UiCommandTests
         Assert.AreEqual(1, _fakeUia.ExplicitInvokeCalls, "A slug selector must invoke without an ambiguity check.");
         Assert.AreEqual("elm-save-9a9a", _fakeUia.LastInvokedElement!.Selector);
     }
+
+    [TestMethod]
+    [DataRow("--root")]
+    [DataRow("--type")]
+    [DataRow("--class-name")]
+    public void Invoke_FiltersWithoutAction_ParseAndDoNotReportActionErrors(string option)
+    {
+        string[] args = ["ui", "invoke", "Open", "-w", "1234", "--on", "sandbox",
+            option, "Button", "--json"];
+        var parsed = GetRequiredService<WinAppRootCommand>().Parse(args);
+        Assert.IsEmpty(parsed.Errors, "The golden path teaches 'invoke \"Save\" --type Button' without --action.");
+    }
+
+    [TestMethod]
+    public async Task Invoke_FilteredAutomaticAction_RequiresUniqueMatchAndSkipsAncestor()
+    {
+        var ancestor = new UiElement { Id = "parent-id", Selector = "parent", Type = "Button" };
+        var selected = new UiElement { Id = "label", Selector = "txt-open-1", WindowHandle = 4242, InvokableAncestor = ancestor };
+        _fakeUia.FindSingleResult = selected;
+        _fakeUia.InvokeResult = "InvokePattern";
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Open", "-w", "4242", "--type", "Button", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.All(unique => unique),
+            "A filtered selector must match exactly one element.");
+        Assert.AreEqual("Button", _fakeUia.Queries[0].ControlType);
+        Assert.AreSame(selected, _fakeUia.LastInvokedElement);
+        Assert.AreEqual(1, _fakeUia.AutomaticInvokeCalls);
+        using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual("auto", document.RootElement.GetProperty("requestedAction").GetString());
+    }
+
+    [TestMethod]
+    public async Task Invoke_FilteredAutomaticAction_AmbiguousMatch_FailsClosed()
+    {
+        _fakeUia.FindUniqueThrow = new UiAmbiguousSelectorException("Selector matched 2 elements.");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Save", "-a", "TestApp", "--type", "Button", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode(UiJsonError.CodeAmbiguousSelector);
+        Assert.AreEqual(0, _fakeUia.AutomaticInvokeCalls);
+        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters);
+    }
+
+    [TestMethod]
+    [DataRow("--type", "Buton")]
+    [DataRow("--type", "")]
+    [DataRow("--root", " ")]
+    public async Task Invoke_InvalidFilters_FailBeforeDesktopTurn(string option, string value)
+    {
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Open", "-a", "TestApp", "--action", "invoke", option, value, "--json"]);
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode(UiJsonError.CodeInvalidArguments);
+        Assert.IsEmpty(_fakeUia.Queries);
+        Assert.IsEmpty(_fakeDesktopLock.Runs);
+    }
+
+    [TestMethod]
+    public async Task Invoke_FilteredExplicitAction_ResolvesWithinDesktopSectionAndUsesSelectedIdentity()
+    {
+        var selected = new UiElement { Id = "selected", Selector = "btn-open-a123", WindowHandle = 4242 };
+        _fakeUia.FindSingleResult = selected;
+        _fakeUia.ExplicitInvokeResult = new UiInvokeActionResult("InvokePattern", "invoke");
+        var lookupSections = new List<int>();
+        _fakeUia.OnFindSingle = () => lookupSections.Add(_fakeDesktopLock.OpenDesktopSections);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Open", "-w", "4242", "--root", "Dialog", "--type", "bUtToN",
+             "--class-name", "Literal.*", "--action", "invoke", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.HasCount(2, _fakeUia.Queries);
+        var query = _fakeUia.Queries[0];
+        Assert.AreEqual(query, _fakeUia.Queries[1]);
+        Assert.AreEqual("Open", query.Query);
+        Assert.AreEqual("Dialog", query.Root?.Query);
+        Assert.AreEqual("bUtToN", query.ControlType);
+        Assert.AreEqual("Literal.*", query.ClassName);
+        Assert.HasCount(2, _fakeUia.FindSingleRequireUniqueCalls);
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.All(unique => unique));
+        Assert.HasCount(2, lookupSections);
+        Assert.AreEqual(0, lookupSections[0]);
+        Assert.AreEqual(1, lookupSections[1]);
+        Assert.AreSame(selected, _fakeUia.LastInvokedElement);
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
+        Assert.AreEqual(0, _fakeDesktopLock.OpenDesktopSections);
+        using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.AreEqual(4242, document.RootElement.GetProperty("hwnd").GetInt64());
+        Assert.AreEqual("invoke", document.RootElement.GetProperty("requestedAction").GetString());
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Invoke_FilteredExplicitAction_NoMatchOrAmbiguityNeverActs(bool ambiguous)
+    {
+        if (ambiguous)
+        {
+            _fakeUia.FindUniqueThrow = new UiAmbiguousSelectorException("Selector matched 2 elements.");
+        }
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Open", "-a", "TestApp", "--type", "Button", "--action", "invoke", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode(ambiguous ? UiJsonError.CodeAmbiguousSelector : UiJsonError.CodeElementNotFound);
+        Assert.AreEqual(0, _fakeUia.ExplicitInvokeCalls);
+        Assert.AreEqual(0, _fakeUia.AutomaticInvokeCalls);
+        Assert.AreEqual(0, _fakeDesktopLock.DesktopSectionEnters);
+    }
+
+    [TestMethod]
+    public async Task Invoke_FilteredExplicitAction_StaleSelectedWindowNeverActs()
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "open", Selector = "btn-open-a123", WindowHandle = 4242 };
+        _fakeSystemQuery.ProcessIdForWindowResult = 9999;
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Open", "-w", "4242", "--type", "Button", "--action", "invoke", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode(UiJsonError.CodeStaleElement);
+        Assert.AreEqual(0, _fakeUia.ExplicitInvokeCalls);
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
+    }
+
+    [TestMethod]
+    public async Task Invoke_FilteredExplicitAction_QueuedWindowReplacementNeverActs()
+    {
+        var selected = new UiElement { Id = "old", Selector = "btn-open-a123", WindowHandle = 4242 };
+        var replacement = new UiElement { Id = "new", Selector = "btn-open-b456", WindowHandle = 4242 };
+        _fakeUia.MovingResults["Open"] = new Queue<UiElement?>([selected, replacement]);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Open", "-w", "4242", "--type", "Button", "--action", "invoke", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode(UiJsonError.CodeStaleElement);
+        Assert.AreEqual(0, _fakeUia.ExplicitInvokeCalls);
+        Assert.AreEqual(0, _fakeUia.AutomaticInvokeCalls);
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
+        Assert.HasCount(2, _fakeUia.FindSingleRequireUniqueCalls);
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.All(unique => unique));
+    }
+
+    [TestMethod]
+    public async Task Invoke_FilteredExplicitAction_EqualSlugFromDifferentProviderNeverActs()
+    {
+        var selected = new UiElement { Id = "old", Selector = "btn-open-44e8", WindowHandle = 4242 };
+        var replacement = new UiElement { Id = "new", Selector = "btn-open-44e8", WindowHandle = 4242 };
+        _fakeUia.MovingResults["Open"] = new Queue<UiElement?>([selected, replacement]);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Open", "-w", "4242", "--type", "Button", "--action", "invoke", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode(UiJsonError.CodeStaleElement);
+        Assert.AreEqual(0, _fakeUia.ExplicitInvokeCalls);
+        Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters);
+    }
+
+    [TestMethod]
+    public async Task Invoke_FilteredExplicitAction_NonInvokableLabelDoesNotInvokeAncestor()
+    {
+        _fakeUia.FindSingleResult = new UiElement
+        {
+            Id = "label", Selector = "lbl-open-a123", Type = "Text",
+            InvokableAncestor = new UiElement { Id = "parent", Selector = "btn-open-b123" }
+        };
+        _fakeUia.ExplicitInvokeThrow = new InvalidOperationException("No InvokePattern on the selected label.");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInvokeCommand>(),
+            ["Open", "-a", "TestApp", "--type", "Text", "--action", "invoke", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        AssertJsonErrorCode(UiJsonError.CodeInternalError);
+        Assert.AreEqual(1, _fakeUia.ExplicitInvokeCalls);
+        Assert.AreEqual(0, _fakeUia.AutomaticInvokeCalls);
+        Assert.AreEqual("label", _fakeUia.LastInvokedElement?.Id);
+    }
 }

@@ -6,9 +6,12 @@ using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using System.Text;
 using WinApp.Cli.Commands;
+using WinApp.Cli.ExecutionTargets.GuestAgent;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.DevTools;
+using WinApp.Cli.Services.DevTools.Comments;
 using WinApp.Cli.Telemetry;
 using WinApp.Cli.Telemetry.Events;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -17,8 +20,46 @@ namespace WinApp.Cli;
 
 internal static class Program
 {
-    internal static async Task<int> Main(string[] args)
+    internal static Task<int> Main(string[] args) => RunAsync(args);
+
+    internal static async Task<int> RunAsync(string[] args, Action<IServiceCollection>? configureServices = null)
     {
+        var framedStdout = args is [GuestDevToolsLaunchCommand.InternalVerb or GuestCommentRelayCommand.InternalVerb, ..];
+        var originalOutput = Console.Out;
+        var originalAnsi = framedStdout ? AnsiConsole.Console : null;
+        var originalTelemetry = Environment.GetEnvironmentVariable(Telemetry.Telemetry.OptOutEnvironmentVariable);
+        try
+        {
+            if (framedStdout)
+            {
+                // The helpers write frames through OpenStandardOutput; ordinary text must never share that handle.
+                Console.SetOut(Console.Error);
+                AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+                {
+                    Out = new AnsiConsoleOutput(Console.Error), Ansi = AnsiSupport.No, Interactive = InteractionSupport.No,
+                });
+                Environment.SetEnvironmentVariable(Telemetry.Telemetry.OptOutEnvironmentVariable, "1");
+            }
+            return await RunCoreAsync(args, framedStdout, configureServices).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (framedStdout)
+            {
+                Console.SetOut(originalOutput);
+                AnsiConsole.Console = originalAnsi!;
+                Environment.SetEnvironmentVariable(Telemetry.Telemetry.OptOutEnvironmentVariable, originalTelemetry);
+            }
+        }
+    }
+
+    private static async Task<int> RunCoreAsync(string[] args, bool framedStdout, Action<IServiceCollection>? configureServices)
+    {
+        if (args.Length > 0 && args[0] == XamlDiagnosticsInjector.InternalVerb)
+        {
+            return XamlDiagnosticsInjector.RunWorker(args);
+        }
+
         // Hidden internal verb: the WinUI DbgEng triage pass runs in this isolated child process so
         // its modern dbgeng.dll is not poisoned by the system32 dbghelp.dll the parent already loaded.
         // Intercept before any host/service setup to keep the loader state clean and output noise-free.
@@ -63,6 +104,7 @@ internal static class Program
                 b.SetMinimumLevel(minimumLogLevel);
             });
 
+        configureServices?.Invoke(services);
         using var serviceProvider = services.BuildServiceProvider();
 
         var rootCommand = serviceProvider.GetRequiredService<WinAppRootCommand>();
@@ -71,6 +113,12 @@ internal static class Program
         if (args.Length > 0)
         {
             parseResult = rootCommand.Parse(args, WinAppParserConfiguration.Default);
+
+            if (!framedStdout && parseResult.CommandResult.Command is GuestDevToolsLaunchCommand or GuestCommentRelayCommand)
+            {
+                Console.Error.WriteLine("A framed guest helper must be the first argument; place its options after the helper name.");
+                return 1;
+            }
 
             // Infrastructure processes are not separate user invocations. Set this before any
             // telemetry instance is created; descendants inherit the winapp-only opt-out.
@@ -109,6 +157,7 @@ internal static class Program
                 {
                     UiJsonError.Emit(true, UiJsonError.CodeInvalidArguments, message);
                 }
+                else if (ResolveEffectiveJson(parseResult) && TryEmitCommandJsonError(parseResult, message)) { }
                 else if (ResolveEffectiveJson(parseResult) && IsFlatJsonErrorCommand(parseResult))
                 {
                     EmitFlatJsonError(message);
@@ -124,11 +173,37 @@ internal static class Program
 
                 return 1;
             }
+
+            // `winapp ui <unknown>` (and `devtools`) fails before anything else, even with --help or --on:
+            // help is a terminating action, so the command line parses cleanly and would otherwise print the
+            // group help with exit 0, or route a command that does not exist to another target.
+            if (UnknownGroupCommand.Find(parseResult) is { } unknownCommand)
+            {
+                var group = parseResult.CommandResult.Command;
+                var suggestions = UnknownGroupCommand.Suggest(unknownCommand, group);
+                if (ResolveEffectiveJson(parseResult) && IsUiDescendant(parseResult))
+                {
+                    UiJsonError.Emit(true, UiJsonError.CodeInvalidArguments, UnknownGroupCommand.Message(unknownCommand),
+                        recoveryHint: UnknownGroupCommand.RecoveryHint(group), suggestions: suggestions);
+                }
+                else if (ResolveEffectiveJson(parseResult))
+                {
+                    EmitDevToolsJsonError(parseResult,
+                        UnknownGroupCommand.Message(unknownCommand) + UnknownGroupCommand.DidYouMean(suggestions) + " " +
+                        UnknownGroupCommand.RecoveryHint(group), "unknown-command");
+                }
+                else
+                {
+                    UnknownGroupCommand.WriteText(Console.Error, unknownCommand, suggestions, group);
+                }
+
+                return 1;
+            }
         }
 
         // Skip first-run notice for machine-readable output modes and completions
         var didShowFirstRunNotice = false;
-        if (!isCliSchemaMode && !isCompleteMode && !json)
+        if (!framedStdout && !isCliSchemaMode && !isCompleteMode && !json)
         {
             var firstRunService = serviceProvider.GetRequiredService<IFirstRunService>();
             didShowFirstRunNotice = firstRunService.CheckAndDisplayFirstRunNotice();
@@ -189,7 +264,15 @@ internal static class Program
                     }
                     return NewCommand.ExitInvalidArgs;
                 }
-                if (effectiveJson && IsUiDescendant(parsedArgs))
+                if (effectiveJson && TryEmitCommandJsonError(parsedArgs, typoMessage))
+                {
+                    if (!isCompleteMode)
+                    {
+                        CommandInvokedEvent.Log(parsedArgs.CommandResult);
+                    }
+                    if (!isCompleteMode) { CommandCompletedEvent.Log(parsedArgs.CommandResult, 1); }
+                }
+                else if (effectiveJson && IsUiDescendant(parsedArgs))
                 {
                     // Gate on IsUiDescendant so that non-ui commands (e.g. cert info) fall through
                     // to default error handling instead of receiving the nested UI schema (M2).
@@ -239,7 +322,7 @@ internal static class Program
             }
         }
 
-        return await RunWithTelemetryAsync(parsedArgs, isCompleteMode, () =>
+        return await RunWithTelemetryAsync(parsedArgs, isCompleteMode || framedStdout, () =>
         {
             // Target selection is settled before anything else, and settled for every command.
             // A command that cannot honour --on says so, and a selector that names nothing usable
@@ -247,6 +330,10 @@ internal static class Program
             // exists to prevent.
             if (ExecutionTargetSelection.Validate(parsedArgs) is { } selectionError)
             {
+                if (effectiveJson && TryEmitCommandJsonError(parsedArgs, selectionError.Message))
+                {
+                    return Task.FromResult(TargetOutput.InvalidCommandLineExitCode);
+                }
                 return Task.FromResult(TargetOutput.RejectSelection(
                     serviceProvider.GetRequiredService<IAnsiConsole>(), effectiveJson, selectionError));
             }
@@ -272,6 +359,17 @@ internal static class Program
             // preparing it, and then reports a transport failure that never mentions `--depth` —
             // and leaves the Sandbox running. The ordinary parse-error path is both faster and
             // truthful, and it runs on this machine only because it runs nothing at all.
+            if (GuestCommentContext.TryActivateGuestContext(parsedArgs, serviceProvider, effectiveJson) is { } guestContextExitCode)
+            {
+                return Task.FromResult(guestContextExitCode);
+            }
+
+            if (ExecutionTargetDevToolsRouter.ShouldRoute(parsedArgs))
+            {
+                return serviceProvider.GetRequiredService<ExecutionTargetDevToolsRouter>()
+                    .RouteAsync(parsedArgs, CancellationToken.None, Console.Out);
+            }
+
             if (parsedArgs.Errors.Count == 0 && ExecutionTargetUiRouter.ShouldRoute(parsedArgs))
             {
                 var router = serviceProvider.GetRequiredService<ExecutionTargetUiRouter>();
@@ -282,8 +380,49 @@ internal static class Program
                     CancellationToken.None);
             }
 
-            return parsedArgs.InvokeAsync();
+            if (parsedArgs.Action is System.CommandLine.Invocation.ParseErrorAction parseError
+                && IsUiDescendant(parsedArgs)
+                && parsedArgs.CommandResult.Command is not UiCommand)
+            {
+                // The error names the mistake; the full ui command help after it would bury that
+                // error, so point at --help instead. A bare "winapp ui" keeps its help: that is
+                // how people discover the commands.
+                parseError.ShowHelp = false;
+                return InvokeWithHelpPointerAsync(parsedArgs);
+            }
+
+            return InvokeCommandAsync();
+
+            async Task<int> InvokeCommandAsync()
+            {
+                var result = effectiveJson && IsDescendantOf(parsedArgs, "devtools")
+                    ? await parsedArgs.InvokeAsync(new System.CommandLine.InvocationConfiguration
+                    {
+                        EnableDefaultExceptionHandler = false,
+                    })
+                    : await parsedArgs.InvokeAsync();
+                if (!effectiveJson && IsUiDescendant(parsedArgs) && ExecutionTargetSelection.IsCommandInvocation(parsedArgs) &&
+                    !parsedArgs.GetValue(WinAppRootCommand.QuietOption))
+                {
+                    DevToolsUiTip.WriteIfApplies(parsedArgs, Console.Error);
+                }
+                return serviceProvider.GetRequiredService<ExecutionTargets.GuestAgent.GuestCommentContext>()
+                    .ClassifyWriterResult(result);
+            }
         });
+    }
+
+    private static async Task<int> InvokeWithHelpPointerAsync(System.CommandLine.ParseResult parsedArgs)
+    {
+        var exitCode = await parsedArgs.InvokeAsync();
+        var path = string.Join(" ", parsedArgs.CommandResult.Command.Parents
+            .OfType<System.CommandLine.Command>()
+            .Where(c => c is not System.CommandLine.RootCommand)
+            .Select(c => c.Name)
+            .Prepend(parsedArgs.CommandResult.Command.Name)
+            .Reverse());
+        parsedArgs.InvocationConfiguration.Error.WriteLine($"Run 'winapp {path} --help' for usage.");
+        return exitCode;
     }
 
     /// <summary>
@@ -304,7 +443,10 @@ internal static class Program
 
         var advice = "Check the spelling, or put the value after '--' if it really is an argument.";
 
-        if (effectiveJson && IsUiDescendant(parsedArgs))
+        if (effectiveJson && TryEmitCommandJsonError(parsedArgs, $"{message} {advice}"))
+        {
+        }
+        else if (effectiveJson && IsUiDescendant(parsedArgs))
         {
             UiJsonError.Emit(true, UiJsonError.CodeInvalidArguments, $"{message} {advice}");
         }
@@ -387,6 +529,17 @@ internal static class Program
 
             bool effectiveJson = ResolveEffectiveJson(parsedArgs);
 
+            if (effectiveJson && parsedArgs.Errors.Count > 0 && IsDescendantOf(parsedArgs, "devtools"))
+            {
+                EmitDevToolsJsonError(parsedArgs, string.Join("; ", parsedArgs.Errors.Select(e => e.Message)));
+                var exitCode = parsedArgs.GetValue(WinAppRootCommand.GuestCommentsOption) is not null ? 2 : 1;
+                if (!isCompleteMode)
+                {
+                    logCommandCompleted(parsedArgs.CommandResult, exitCode);
+                }
+                return exitCode;
+            }
+
             // Parse-error → JSON bridge: activated only when the SELECTED command exposes --json,
             // its parsed value is true (effectiveJson), AND the command is a ui descendant (M3).
             // Non-ui commands (e.g. cert info) use a flat {"error":"..."} schema — do not impose
@@ -463,7 +616,13 @@ internal static class Program
         catch (Exception ex)
         {
             TelemetryFactory.Get<ITelemetry>().LogException(parsedArgs.CommandResult.Command.Name, ex);
-            Console.Error.WriteLine($"An unexpected error occurred: {ex.Message}");
+            if (!ResolveEffectiveJson(parsedArgs) || !TryEmitCommandJsonError(
+                parsedArgs,
+                ex.Message,
+                devToolsToken: ex is OperationCanceledException ? "cancelled" : "internal"))
+            {
+                Console.Error.WriteLine($"An unexpected error occurred: {ex.Message}");
+            }
             return 1;
         }
     }
@@ -508,12 +667,14 @@ internal static class Program
     /// or any of its descendants. Used to scope the parse-error JSON bridge to ui commands
     /// only, leaving non-ui commands (e.g. <c>cert info</c>) with their own flat error schema (M3).
     /// </summary>
-    private static bool IsUiDescendant(System.CommandLine.ParseResult parseResult)
+    private static bool IsUiDescendant(System.CommandLine.ParseResult parseResult) => IsDescendantOf(parseResult, "ui");
+
+    internal static bool IsDescendantOf(System.CommandLine.ParseResult parseResult, string name)
     {
         var cmd = parseResult.CommandResult.Command;
         while (cmd is not null)
         {
-            if (cmd.Name == "ui")
+            if (cmd.Name == name)
             {
                 return true;
             }
@@ -528,6 +689,36 @@ internal static class Program
     /// and any of its verbs. Used to route parser-level failures to that contract (#719) instead of
     /// System.CommandLine's human help text, mirroring the ui bridge above.
     /// </summary>
+    internal static void EmitDevToolsJsonError(System.CommandLine.ParseResult parseResult, string message,
+        string token = "invalid-arguments", TextWriter? output = null)
+    {
+        var payload = IsDescendantOf(parseResult, "comments")
+            ? System.Text.Json.JsonSerializer.Serialize(new CommentResultPayload { Ok = false, Error = message },
+                CommentsJsonContext.Output.CommentResultPayload)
+            : IsDescendantOf(parseResult, "attach")
+                ? System.Text.Json.JsonSerializer.Serialize(new DevToolsAttachPayload
+                {
+                    Ok = false,
+                    Error = message,
+                    Pid = parseResult.Errors.Count == 0 ? parseResult.GetValue(DevToolsAttachCommand.PidOption) : 0,
+                }, DevToolsProtocolJsonContext.Default.DevToolsAttachPayload)
+            : DevToolsJson.Error(0, message, token);
+        (output ?? Console.Out).WriteLine(payload);
+    }
+
+    private static bool TryEmitCommandJsonError(
+        System.CommandLine.ParseResult parseResult,
+        string message,
+        string? devToolsToken = null)
+    {
+        if (IsDescendantOf(parseResult, "devtools"))
+        {
+            EmitDevToolsJsonError(parseResult, message, devToolsToken ?? "invalid-arguments");
+            return true;
+        }
+        return false;
+    }
+
     private static bool IsFlatJsonErrorCommand(System.CommandLine.ParseResult parseResult)
     {
         var cmd = parseResult.CommandResult.Command;

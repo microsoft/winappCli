@@ -43,6 +43,18 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Hidden = true
     };
 
+    internal static readonly Option<string?> GuestCommentsOption = new("--guest-comments")
+    {
+        Recursive = true,
+        Hidden = true,
+    };
+
+    internal static readonly Option<string?> GuestInspectionOption = new("--guest-inspection")
+    {
+        Recursive = true,
+        Hidden = true,
+    };
+
     internal static readonly Option<string?> ProjectFrameworkOption = new("--project-framework")
     {
         Description = "Allow-listed project framework supplied by an integrated caller. Used for telemetry.",
@@ -71,6 +83,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         CreateDebugIdentityCommand createDebugIdentityCommand,
         EmbedIdentityCommand embedIdentityCommand,
         RunCommand runCommand,
+        DevToolsCommand devToolsCommand,
         UnregisterCommand unregisterCommand,
         GetWinappPathCommand getWinappPathCommand,
         CertCommand certCommand,
@@ -87,6 +100,9 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         GuestDesktopCaptureCommand guestDesktopCaptureCommand,
         GuestRuntimeCommand guestRuntimeCommand,
         GuestLaunchCommand guestLaunchCommand,
+        GuestCommentRelayCommand guestCommentRelayCommand,
+        GuestDevToolsLaunchCommand guestDevToolsLaunchCommand,
+        GuestDevToolsHostCommand guestDevToolsHostCommand,
         TargetCommand targetCommand,
         FindApiCommand findApiCommand) : base("CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows")
     {
@@ -99,6 +115,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(createDebugIdentityCommand);
         Subcommands.Add(embedIdentityCommand);
         Subcommands.Add(runCommand);
+        Subcommands.Add(devToolsCommand);
         Subcommands.Add(unregisterCommand);
         Subcommands.Add(getWinappPathCommand);
         Subcommands.Add(certCommand);
@@ -115,10 +132,15 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(guestDesktopCaptureCommand);
         Subcommands.Add(guestRuntimeCommand);
         Subcommands.Add(guestLaunchCommand);
+        Subcommands.Add(guestCommentRelayCommand);
+        Subcommands.Add(guestDevToolsLaunchCommand);
+        Subcommands.Add(guestDevToolsHostCommand);
         Subcommands.Add(targetCommand);
 
         Options.Add(CliSchemaOption);
         Options.Add(CallerOption);
+        Options.Add(GuestCommentsOption);
+        Options.Add(GuestInspectionOption);
         Options.Add(ProjectFrameworkOption);
         Options.Add(ExecutionTargetSelection.OnOption);
 
@@ -130,7 +152,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         helpOption.Action = new CustomHelpAction(this, ansiConsole,
             ("Setup", [typeof(InitCommand), typeof(NewCommand), typeof(RestoreCommand), typeof(UpdateCommand)]),
             ("Packaging & Signing", [typeof(PackageCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(CertCommand), typeof(ManifestCommand), typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand)]),
-            ("Development Tools", [typeof(CreateDebugIdentityCommand), typeof(MSStoreCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(RunCommand), typeof(UnregisterCommand), typeof(TargetCommand)]),
+            ("Development Tools", [typeof(CreateDebugIdentityCommand), typeof(MSStoreCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(RunCommand), typeof(UnregisterCommand), typeof(TargetCommand), typeof(DevToolsCommand)]),
             ("Discovery", [typeof(FindApiCommand), typeof(FindUiCommand)]),
             ("UI Automation", [typeof(UiCommand)])
         );

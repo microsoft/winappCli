@@ -66,7 +66,12 @@ internal sealed partial class ProjectRunService
             throw new ProjectRunException(BuildPublishAotRequiredMessage(csproj));
         }
 
-        var resolution = CreateAotResolution(csproj, options, properties);
+        var resolution = CreateAotResolution(csproj, options, properties) with
+        {
+            DevToolsXamlSources = options.CaptureDevToolsSources ? ReadDevToolsSources(publish.Properties) : null,
+            DevToolsCompilerArtifacts = options.CaptureDevToolsSources
+                ? DevTools.XamlSourceCoordinates.FromProperties(csproj, properties) : null,
+        };
         logger.LogDebug(
             "{UISymbol} Native AOT output: PublishDir={PublishDir}; executable={Executable}; manifest={Manifest}; recipe={Recipe}",
             UiSymbols.Note,
@@ -89,13 +94,14 @@ internal sealed partial class ProjectRunService
         DirectoryInfo workingDirectory,
         string? csWinRTMetadata,
         CancellationToken cancellationToken,
-        bool aot = false)
+        bool aot = false,
+        bool publish = true)
     {
         var arguments = BuildPublishArguments(
             csproj,
             options,
             ResolveBuildVerbosity(logger, options.Json),
-            csWinRTMetadata);
+            csWinRTMetadata, publish);
         var display = RedactSecretsForDisplay(
             WindowsCommandLine.JoinArguments(arguments) ?? string.Empty);
         logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, display);
@@ -107,7 +113,7 @@ internal sealed partial class ProjectRunService
         }
         else
         {
-            ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} Publishing {(aot ? "Native AOT" : csproj.Name)}...");
+            ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} {(publish ? "Publishing" : "Building")} {(aot ? "Native AOT" : csproj.Name)}...");
             writeLine = CreateSynchronizedRedactedLineWriter();
         }
 
@@ -118,7 +124,7 @@ internal sealed partial class ProjectRunService
             var (exitCode, output, error) = await dotNetService.RunDotnetCommandAsync(
                 workingDirectory,
                 [.. arguments, $"--getResultOutputFile:{resultFile}"],
-                BuildAotPublishEnvironment(),
+                publish ? BuildAotPublishEnvironment() : null,
                 writeLine,
                 writeLine,
                 cancellationToken);

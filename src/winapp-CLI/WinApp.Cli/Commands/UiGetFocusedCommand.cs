@@ -13,9 +13,14 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiGetFocusedCommand : Command, IShortDescription
+internal class UiGetFocusedCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Show the element that currently has keyboard focus";
+    public string ShortDescription => "Show the element that has keyboard focus";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui get-focused -a <app>",
+    ];
 
     public UiGetFocusedCommand()
         : base("get-focused", "Show the element that currently has keyboard focus in the target app. With -w, focus must belong to that exact top-level window; owned popups are excluded.")

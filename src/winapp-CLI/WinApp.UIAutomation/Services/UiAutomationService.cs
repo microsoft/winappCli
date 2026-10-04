@@ -281,6 +281,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             promotableWindowHandles.Add(window.Hwnd);
         }
         var elements = new List<UiElement>();
+        var inspectedIdentities = new Dictionary<UiElement, string>();
         WalkTree(
             startElement,
             depth,
@@ -288,6 +289,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             "",
             elements,
             ref nextElementId,
+            inspectedIdentities,
             topLevelWindowHandles: topLevelWindowHandles,
             currentWindowHandle: mainHwnd);
 
@@ -330,6 +332,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                         "",
                         popupElements,
                         ref nextElementId,
+                        inspectedIdentities,
                         topLevelWindowHandles: topLevelWindowHandles,
                         currentWindowHandle: hwnd);
                 }
@@ -338,6 +341,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     _logger.LogDebug(ex, "Skipping unavailable popup/owned window HWND {Hwnd}", hwnd);
                     continue;
                 }
+
+                if (popupElements.Count == 0) { continue; }
 
                 // Add a separator element to visually distinguish windows
                 var info = UiTargetResolver.GetWindowInfo(hwnd);
@@ -358,6 +363,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 elements.AddRange(popupElements);
             }
         }
+
+        DeduplicateInspectedElements(elements, inspectedIdentities);
 
         // Promote unique AutomationIds to selectors (more stable than slugs)
         PromoteUniqueAutomationIds(root, elements, mainHwnd, promotableWindowHandles);
@@ -613,6 +620,21 @@ internal sealed partial class UiAutomationService : IUiAutomation
         var result = ToUiElement(matches[0].Element, "", ref id);
         SetResolvedWindowHandle(result, matches[0].Element, matches[0].Hwnd);
         return Task.FromResult<UiElement?>(result);
+    }
+
+    public bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (selected.Context is not { } original || current.Context is not { } fresh)
+        {
+            throw new InvalidOperationException("Explicit query identity comparison requires retained UIA elements.");
+        }
+
+        // These reads fail if either provider went stale while the command waited its turn.
+        _ = s_getElementProcessId(original.AutomationElement);
+        _ = s_getElementProcessId(fresh.AutomationElement);
+        ct.ThrowIfCancellationRequested();
+        return s_compareElements(this, original.AutomationElement, fresh.AutomationElement);
     }
 
     private List<(IUIAutomationElement Element, long Hwnd)> CollectExplicitMatches(
@@ -2221,6 +2243,32 @@ internal sealed partial class UiAutomationService : IUiAutomation
             return results;
         }
 
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+        var unidentifiedResults = new List<IUIAutomationElement>();
+        void AddUnique(IUIAutomationElement candidate)
+        {
+            var identity = TryGetElementIdentity(candidate, requireCurrentIdentity);
+            if (identity is not null && identities.Contains(identity))
+            {
+                return;
+            }
+
+            if (ContainsElement(identity is null ? results : unidentifiedResults, candidate, requireCurrentIdentity))
+            {
+                return;
+            }
+
+            if (identity is not null)
+            {
+                identities.Add(identity);
+            }
+            else
+            {
+                unidentifiedResults.Add(candidate);
+            }
+            results.Add(candidate);
+        }
+
         var bulkMatches = s_findAllDescendants(root, condition);
         if (bulkMatches is not null)
         {
@@ -2229,7 +2277,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             {
                 ct.ThrowIfCancellationRequested();
                 var element = bulkMatches.GetElement(i);
-                if (matches is null || matches(element)) { results.Add(element); }
+                if (matches is null || matches(element)) { AddUnique(element); }
             }
         }
 
@@ -2244,21 +2292,6 @@ internal sealed partial class UiAutomationService : IUiAutomation
         }
 
         var bulkResultCount = results.Count;
-        var identities = new HashSet<string>();
-        var unidentifiedResults = new List<IUIAutomationElement>();
-        foreach (var result in results)
-        {
-            var identity = TryGetElementIdentity(result, requireCurrentIdentity);
-            if (identity is not null)
-            {
-                identities.Add(identity);
-            }
-            else
-            {
-                unidentifiedResults.Add(result);
-            }
-        }
-
         foreach (var candidate in manualSearch())
         {
             if (results.Count >= maxResults)
@@ -2266,27 +2299,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 break;
             }
 
-            var identity = TryGetElementIdentity(candidate, requireCurrentIdentity);
-            if (identity is not null)
-            {
-                if (!identities.Add(identity))
-                {
-                    continue;
-                }
-
-                if (ContainsElement(unidentifiedResults, candidate, requireCurrentIdentity))
-                {
-                    identities.Remove(identity);
-                    continue;
-                }
-
-                results.Add(candidate);
-            }
-            else if (!ContainsElement(results, candidate, requireCurrentIdentity))
-            {
-                results.Add(candidate);
-                unidentifiedResults.Add(candidate);
-            }
+            AddUnique(candidate);
         }
 
         if (results.Count > bulkResultCount)
@@ -2536,7 +2549,45 @@ internal sealed partial class UiAutomationService : IUiAutomation
         return null;
     }
 
+    internal static void DeduplicateInspectedElements(List<UiElement> elements, IReadOnlyDictionary<UiElement, string> identities)
+    {
+        var children = new Dictionary<UiElement, List<UiElement>>();
+        var roots = new List<UiElement>();
+        var ancestors = new Stack<UiElement>();
+        foreach (var element in elements)
+        {
+            if (element.Type == "---")
+            {
+                ancestors.Clear();
+                continue;
+            }
+            while (ancestors.Count > 0 && ancestors.Peek().Depth >= element.Depth) { ancestors.Pop(); }
+            if (ancestors.Count == 0) { roots.Add(element); }
+            else { children[ancestors.Peek()].Add(element); }
+            children.Add(element, []);
+            ancestors.Push(element);
+        }
+
+        // Choose the shallowest captured route first: a depth-limited visit in the main
+        // tree must not hide children available through a shallower popup route.
+        var pending = new Queue<UiElement>(roots);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var retained = new HashSet<UiElement>();
+        while (pending.TryDequeue(out var element))
+        {
+            if (identities.TryGetValue(element, out var identity) && !seen.Add(identity)) { continue; }
+            retained.Add(element);
+            foreach (var child in children[element]) { pending.Enqueue(child); }
+        }
+
+        var retainedWindows = retained.Select(element => element.WindowHandle).ToHashSet();
+        elements.RemoveAll(element => element.Type == "---"
+            ? !retainedWindows.Contains(element.WindowHandle)
+            : !retained.Contains(element));
+    }
+
     private void WalkTree(IUIAutomationElement element, int maxDepth, int currentDepth, string path, List<UiElement> results, ref int nextElementId,
+                          Dictionary<UiElement, string> inspectedIdentities,
                           string? parentSelector = null, List<string>? ancestorTypes = null,
                           HashSet<nint>? topLevelWindowHandles = null, nint currentWindowHandle = 0)
     {
@@ -2558,6 +2609,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
         }
 
         var uiElement = ToUiElement(element, path, ref nextElementId);
+        var identity = TryGetElementIdentity(element);
+        if (identity is not null) { inspectedIdentities.Add(uiElement, identity); }
         uiElement.Depth = currentDepth;
         uiElement.ParentSelector = parentSelector;
         if (ancestorTypes is { Count: > 0 })
@@ -2600,6 +2653,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 childPath,
                 results,
                 ref nextElementId,
+                inspectedIdentities,
                 childParentSelector,
                 childAncestors,
                 topLevelWindowHandles,
@@ -2630,6 +2684,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         // Try to get current value for editable elements (TextBox, ComboBox, etc.)
         string? value = null;
+        bool? isEditable = null;
         try
         {
             var valuePattern = (IUIAutomationValuePattern)element.GetCurrentPattern(UIA_PATTERN_ID.UIA_ValuePatternId);
@@ -2638,6 +2693,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
             if (!string.IsNullOrEmpty(v))
             {
                 value = v;
+            }
+            if (!(bool)valuePattern.get_CurrentIsReadOnly())
+            {
+                isEditable = true;
             }
         }
         catch { }
@@ -2729,6 +2788,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             ScrollDir = scrollDir,
             Selector = selector,
             IsInvokable = isInvokable,
+            IsEditable = isEditable,
         };
     }
 

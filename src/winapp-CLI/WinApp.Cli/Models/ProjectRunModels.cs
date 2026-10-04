@@ -98,9 +98,11 @@ internal sealed record ProjectRunResolution(
     bool? PreferExecutionAlias = null,
     string? ProjectAssetsFile = null,
     string? ProjectAssetsRuntimeIdentifier = null,
+    IReadOnlyList<string>? DevToolsXamlSources = null,
     bool IsAot = false,
     string? AppxManifestPath = null,
-    string? AppxRecipePath = null);
+    string? AppxRecipePath = null,
+    Services.DevTools.XamlCompilerArtifacts? DevToolsCompilerArtifacts = null);
 
 /// <summary>
 /// User-provided build inputs for project mode, forwarded to <c>dotnet build</c> / <c>dotnet msbuild</c>.
@@ -129,6 +131,7 @@ internal sealed record ProjectRunOptions(
     string? Platform = null,
     bool OmitRuntimeIdentifier = false,
     string? PublishProfile = null,
+    bool CaptureDevToolsSources = false,
     string? ExactRuntimeIdentifier = null)
 {
     /// <summary>

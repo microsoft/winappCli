@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
+using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
 
@@ -14,6 +15,36 @@ namespace WinApp.Cli.Commands;
 /// </remarks>
 internal class GuestLaunchCommand : Command, IShortDescription
 {
+    internal static string? RegistrationError(
+        IPackageRegistrationService registrations, string packageName, string expectedLayout)
+    {
+        var candidates = registrations.FindDevPackages(packageName).Where(candidate => candidate.IsDevelopmentMode).ToList();
+        if (candidates.Count != 1)
+        {
+            return candidates.Count == 0
+                ? $"No development-mode package named '{packageName}' is registered. Expected it registered from '{expectedLayout}'."
+                : $"{candidates.Count} development-mode packages named '{packageName}' are registered; expected exactly one, from '{expectedLayout}'.";
+        }
+        var installed = candidates[0].InstallLocation;
+        var matches = false;
+        if (!string.IsNullOrEmpty(installed))
+        {
+            try
+            {
+                matches = string.Equals(Path.GetFullPath(installed).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    Path.GetFullPath(expectedLayout).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                // An invalid location cannot prove ownership of the current registration.
+            }
+        }
+        return matches ? null :
+            $"The package named '{packageName}' is registered from '{installed}', not the expected '{expectedLayout}'. " +
+            "Another deployment may have re-registered it since this run's own registration phase completed.";
+    }
+
     /// <summary>The hidden guest verb name, forwarded through <c>UseGuestWinapp</c> exec requests.</summary>
     public const string Verb = "guest-launch";
 

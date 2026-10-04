@@ -26,6 +26,7 @@ Use this skill when:
 | `run` / `create-debug-identity` registration error `0x800704EC` | Developer Mode is disabled | Enable it in **Settings → Privacy & security → For developers**, or `Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense -Value 1`, then retry |
 | `run` / `create-debug-identity` registration error `0x80073CFB` | Package already registered with a conflicting identity | Run `winapp unregister` (or `winapp unregister --force` if the package was registered from a different project tree), then retry |
 | App's Start menu entry launches nothing, silently | Package still registered after its files were deleted | Run `winapp unregister --prune` to remove every dev registration whose files are gone |
+| `run` reports access denied or a file in use during a rebuild | Permissions or a file held open; access denied alone does not identify a lock owner | Check the reported paths and permissions. Close the running app and retry. Nothing is stopped automatically. |
 
 ## Command selection guide
 

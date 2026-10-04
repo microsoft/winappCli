@@ -13,7 +13,8 @@ namespace WinApp.Cli.Helpers;
 /// <summary>
 /// Custom help action that renders the root command help screen with
 /// categorized command tables and short descriptions, styled with Spectre.Console.
-/// For non-root commands, delegates to the default System.CommandLine help rendering.
+/// The <c>ui</c> and <c>devtools</c> groups and their commands get plain-text help from <see cref="CompactHelpRenderer"/>.
+/// Other commands use the default System.CommandLine help rendering.
 /// </summary>
 internal sealed class CustomHelpAction : SynchronousCommandLineAction
 {
@@ -46,6 +47,12 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
     {
         var command = parseResult.CommandResult.Command;
 
+        if (CompactHelpRenderer.AppliesTo(command))
+        {
+            parseResult.InvocationConfiguration.Output.Write(CompactHelpRenderer.Render(command));
+            return 0;
+        }
+
         // Only use custom rendering for the target command; fall back to default for others
         if (command != _targetCommand)
         {
@@ -69,6 +76,14 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
         _ansiConsole.MarkupLine($"        [white]{commandPath} --help[/]");
         _ansiConsole.WriteLine();
         _ansiConsole.MarkupLine($" Use '[white]{commandPath} <command> --help[/]' to get detailed help for any command.");
+        if (command is RootCommand)
+        {
+            _ansiConsole.WriteLine();
+            _ansiConsole.MarkupLine(" Start here:");
+            _ansiConsole.MarkupLine("   Drive any app's UI (click, type, read)              [white]winapp ui --help[/]");
+            _ansiConsole.MarkupLine("   Inspect or change a running WinUI app's XAML live   [white]winapp devtools --help[/]");
+            _ansiConsole.MarkupLine("   (tree, properties, bindings; no source edits)");
+        }
 
         // Build a lookup from command type -> Command object
         var subcommandByType = new Dictionary<Type, Command>();

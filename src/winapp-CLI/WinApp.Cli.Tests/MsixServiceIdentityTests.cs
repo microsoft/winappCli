@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using WinApp.Cli.ConsoleTasks;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 using WinApp.Cli.Tools;
@@ -1896,6 +1897,251 @@ public class MsixServiceIdentityTests : BaseCommandTests
     }
 
     // ---- AddLooseLayoutIdentityAsync MSBuild workflow -----------------------------
+
+    [TestMethod]
+    [DataRow(false, true, false, null)]
+    [DataRow(true, true, false, null)]
+    [DataRow(false, false, true, null)]
+    [DataRow(true, false, true, null)]
+    [DataRow(false, true, false, "uap3")]
+    [DataRow(true, true, false, "uap3")]
+    [DataRow(false, true, false, "uap5")]
+    [DataRow(true, true, false, "uap5")]
+    public async Task InspectorAlias_SiblingClaimSelectsAlternativeOnFirstPreparation(bool recipe, bool authored, bool ensurePublicAlias, string? uap8Container)
+    {
+        var (manifest, source, output) = await CreateInspectorMultiAppLayoutAsync(recipe, authored);
+        if (uap8Container is not null)
+        {
+            var sourceDoc = AppxManifestDocument.Load(manifest.FullName);
+            var ns = uap8Container == "uap3" ? AppxManifestDocument.Uap3Ns : AppxManifestDocument.Uap5Ns;
+            foreach (var element in sourceDoc.Document.Descendants()
+                .Where(e => e.Name.LocalName is "Extension" or "AppExecutionAlias").ToArray())
+            {
+                element.Name = ns + element.Name.LocalName;
+            }
+            sourceDoc.Document.Descendants().Single(e => e.Name.LocalName == "ExecutionAlias").Name =
+                System.Xml.Linq.XName.Get("ExecutionAlias", "http://schemas.microsoft.com/appx/manifest/uap/windows10/8");
+            sourceDoc.Save(manifest.FullName);
+        }
+        var sourceBytes = await File.ReadAllBytesAsync(manifest.FullName, TestContext.CancellationToken);
+        _msixService.AliasProxyExists = _ => false;
+        var result = await _msixService.AddLooseLayoutIdentityAsync(
+            manifest, source, output, TestTaskContext, selfContained: true, ensureExecutionAlias: ensurePublicAlias,
+            inspectorAlias: new InspectorAliasRequest("Second"), cancellationToken: TestContext.CancellationToken);
+        var alias = result.InspectorAlias;
+        Assert.IsNotNull(alias);
+        Assert.IsNull(alias.Error, "An available alternative must be selected, not merely refused.");
+        Assert.AreEqual(ExecutionAliasResolver.BuildInspectorAliasName(alias.Target!.PackageFamilyName, 1), alias.AliasName);
+        var staged = AppxManifestDocument.Load(Path.Join(output.FullName, "appxmanifest.xml"));
+        Assert.AreEqual(ExecutionAliasResolver.BuildDefaultAliasName(alias.Target.PackageFamilyName),
+            staged.GetExecutionAliases("First").Single(), true);
+        Assert.AreEqual(alias.AliasName, staged.GetExecutionAliases("Second").Single());
+        var allAliases = staged.Document.Descendants().Where(e => e.Name.LocalName == "ExecutionAlias")
+            .Select(e => e.Attribute("Alias")!.Value).ToArray();
+        Assert.AreEqual(2, allAliases.Length);
+        Assert.AreEqual(2, allAliases.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        CollectionAssert.AreEqual(sourceBytes, await File.ReadAllBytesAsync(manifest.FullName, TestContext.CancellationToken));
+        Assert.HasCount(1, _fakeRegistration.RegisterLooseLayoutCalls);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InspectorAlias_SwitchApplicationThenRepeatRetainsHealthyAlternative(bool recipe)
+    {
+        var (manifest, source, output) = await CreateInspectorMultiAppLayoutAsync(recipe, authored: false);
+        var sourceBytes = await File.ReadAllBytesAsync(manifest.FullName, TestContext.CancellationToken);
+        var proxies = new Dictionary<string, ExecutionAliasResolver.AliasTarget>(StringComparer.OrdinalIgnoreCase);
+        _msixService.AliasProxyExists = path => proxies.ContainsKey(Path.GetFileName(path));
+        _msixService.ReadAliasTarget = path => proxies.GetValueOrDefault(Path.GetFileName(path));
+        var first = await Stage("First");
+        SimulateRegistration(first);
+        var second = await Stage("Second");
+        Assert.AreEqual(ExecutionAliasResolver.BuildInspectorAliasName(second.InspectorAlias!.Target!.PackageFamilyName, 1),
+            second.InspectorAlias.AliasName);
+        Assert.HasCount(2, _fakeRegistration.RegisterLooseLayoutCalls);
+        SimulateRegistration(second);
+        var stagedPath = Path.Join(output.FullName, "appxmanifest.xml");
+        var secondBytes = await File.ReadAllBytesAsync(stagedPath, TestContext.CancellationToken);
+
+        var repeated = await Stage("Second");
+        Assert.AreEqual(second.InspectorAlias.AliasName, repeated.InspectorAlias!.AliasName);
+        Assert.IsFalse(repeated.InspectorAlias.RequiresRegistration);
+        Assert.HasCount(2, _fakeRegistration.RegisterLooseLayoutCalls, "Unchanged Second must not register after First's old proxy disappears.");
+        CollectionAssert.AreEqual(secondBytes, await File.ReadAllBytesAsync(stagedPath, TestContext.CancellationToken));
+        CollectionAssert.AreEqual(sourceBytes, await File.ReadAllBytesAsync(manifest.FullName, TestContext.CancellationToken));
+
+        Task<MsixIdentityResult> Stage(string id) => _msixService.AddLooseLayoutIdentityAsync(
+            manifest, source, output, TestTaskContext, selfContained: true,
+            inspectorAlias: new InspectorAliasRequest(id), cancellationToken: TestContext.CancellationToken);
+
+        void SimulateRegistration(MsixIdentityResult result)
+        {
+            Assert.IsNull(result.InspectorAlias!.Error);
+            proxies.Clear();
+            proxies.Add(result.InspectorAlias.AliasName!, result.InspectorAlias.Target!);
+            _fakeRegistration.FakeDevPackages =
+                [new DevPackageInfo("TestApp_1.0.0.0_x64__test", "TestApp", "1.0.0.0", output.FullName, IsDevelopmentMode: true)];
+        }
+    }
+
+    private async Task<(FileInfo Manifest, DirectoryInfo Source, DirectoryInfo Output)> CreateInspectorMultiAppLayoutAsync(bool recipe, bool authored)
+    {
+        var source = _tempDirectory.CreateSubdirectory("inspector-multi-source");
+        var output = _tempDirectory.CreateSubdirectory("inspector-multi-layout");
+        var manifest = new FileInfo(Path.Join(source.FullName, "AppxManifest.xml"));
+        var doc = AppxManifestDocument.Parse(recipe ? BuildMSBuildManifest() : BuildRawManifest());
+        var first = doc.Document.Descendants(AppxManifestDocument.DefaultNs + "Application").Single();
+        first.SetAttributeValue("Id", "First");
+        var second = new System.Xml.Linq.XElement(first);
+        second.SetAttributeValue("Id", "Second");
+        second.SetAttributeValue("Executable", "Second.exe");
+        first.AddAfterSelf(second);
+        if (authored)
+        {
+            var family = AppLauncherService.ComputeFamilyName(doc.IdentityName!, doc.IdentityPublisher!);
+            Assert.AreEqual(AddExecutionAliasStatus.Added,
+                doc.AddExecutionAlias(ExecutionAliasResolver.BuildDefaultAliasName(family)!.ToUpperInvariant(), "First").Status);
+        }
+        doc.Save(manifest.FullName);
+        var files = new[] { "TestApp.exe", "Second.exe", "resources.pri" };
+        foreach (var file in files)
+        {
+            await File.WriteAllTextAsync(Path.Join(source.FullName, file), "fixture", TestContext.CancellationToken);
+        }
+        if (recipe)
+        {
+            File.Move(WriteRecipe(manifest, files.Select(file => (Path.Join(source.FullName, file), file)).ToArray()),
+                Path.Join(source.FullName, "TestApp.build.appxrecipe"));
+        }
+        return (manifest, source, output);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InspectorAlias_StagedOnly_RepeatSkips_MissingProxyRepairs(bool recipe)
+    {
+        var source = _tempDirectory.CreateSubdirectory("inspector-source");
+        var output = _tempDirectory.CreateSubdirectory("inspector-layout");
+        var manifest = new FileInfo(Path.Join(source.FullName, "AppxManifest.xml"));
+        var sourceXml = recipe ? BuildMSBuildManifest() : BuildRawManifest();
+        await File.WriteAllTextAsync(manifest.FullName, sourceXml, TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(source.FullName, "TestApp.exe"), "exe", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(source.FullName, "resources.pri"), "pri", TestContext.CancellationToken);
+        if (recipe)
+        {
+            await File.WriteAllTextAsync(Path.Join(source.FullName, "TestApp.build.appxrecipe"), $"""
+                <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><ItemGroup>
+                  <AppXManifest Include="{manifest.FullName}"><PackagePath>appxmanifest.xml</PackagePath></AppXManifest>
+                  <AppxPackagedFile Include="{Path.Join(source.FullName, "TestApp.exe")}"><PackagePath>TestApp.exe</PackagePath></AppxPackagedFile>
+                </ItemGroup></Project>
+                """, TestContext.CancellationToken);
+        }
+
+        _msixService.AliasProxyExists = _ => false;
+        var first = await Stage();
+        Assert.IsNotNull(first.InspectorAlias);
+        Assert.IsNull(first.InspectorAlias.Error);
+        Assert.IsTrue(first.InspectorAlias.RequiresRegistration);
+        Assert.HasCount(1, _fakeRegistration.RegisterLooseLayoutCalls);
+        var stagedFile = Path.Join(output.FullName, "appxmanifest.xml");
+        var firstBytes = await File.ReadAllBytesAsync(stagedFile, TestContext.CancellationToken);
+        Assert.AreEqual(sourceXml, await File.ReadAllTextAsync(manifest.FullName, TestContext.CancellationToken));
+
+        _fakeRegistration.FakeDevPackages =
+            [new DevPackageInfo("TestApp_1.0.0.0_x64__test", "TestApp", "1.0.0.0", output.FullName, IsDevelopmentMode: true)];
+        _msixService.AliasProxyExists = _ => true;
+        _msixService.ReadAliasTarget = _ => first.InspectorAlias.Target;
+        var second = await Stage();
+        Assert.AreEqual(first.InspectorAlias.AliasName, second.InspectorAlias!.AliasName);
+        Assert.IsFalse(second.InspectorAlias.RequiresRegistration);
+        Assert.HasCount(1, _fakeRegistration.RegisterLooseLayoutCalls, "Healthy repeat must skip registration.");
+        CollectionAssert.AreEqual(firstBytes, await File.ReadAllBytesAsync(stagedFile, TestContext.CancellationToken));
+
+        _msixService.AliasProxyExists = _ => false;
+        var repaired = await Stage();
+        Assert.IsTrue(repaired.InspectorAlias!.RequiresRegistration);
+        Assert.HasCount(2, _fakeRegistration.RegisterLooseLayoutCalls, "A missing proxy vetoes the byte-identical skip.");
+        CollectionAssert.AreEqual(firstBytes, await File.ReadAllBytesAsync(stagedFile, TestContext.CancellationToken));
+        Assert.AreEqual(sourceXml, await File.ReadAllTextAsync(manifest.FullName, TestContext.CancellationToken));
+
+        Task<MsixIdentityResult> Stage() => _msixService.AddLooseLayoutIdentityAsync(
+            manifest, source, output, TestTaskContext, selfContained: true,
+            inspectorAlias: new InspectorAliasRequest(), cancellationToken: TestContext.CancellationToken);
+    }
+
+    [TestMethod]
+    public async Task InspectorAlias_ExhaustedCandidatesReportsFailureWithoutInventingAlias()
+    {
+        var source = _tempDirectory.CreateSubdirectory("inspector-collision-source");
+        var output = _tempDirectory.CreateSubdirectory("inspector-collision-layout");
+        var manifest = new FileInfo(Path.Join(source.FullName, "AppxManifest.xml"));
+        await File.WriteAllTextAsync(manifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(source.FullName, "TestApp.exe"), "exe", TestContext.CancellationToken);
+        _msixService.AliasProxyExists = _ => true;
+        _msixService.ReadAliasTarget = _ => null;
+        var result = await _msixService.AddLooseLayoutIdentityAsync(
+            manifest, source, output, TestTaskContext, selfContained: true,
+            inspectorAlias: new InspectorAliasRequest(), cancellationToken: TestContext.CancellationToken);
+        Assert.IsNotNull(result.InspectorAlias!.Error);
+        Assert.IsNull(result.InspectorAlias.AliasName);
+        Assert.IsNull(result.InspectorAlias.Target);
+        Assert.IsEmpty(AppxManifestDocument.Load(Path.Join(output.FullName, "appxmanifest.xml")).GetExecutionAliases());
+    }
+
+    [TestMethod]
+    public async Task InspectorAlias_SelectedApplicationIsReturnedAndAuthoredAliasIsPreserved()
+    {
+        var source = _tempDirectory.CreateSubdirectory("inspector-multi-source");
+        var output = _tempDirectory.CreateSubdirectory("inspector-multi-layout");
+        var manifest = new FileInfo(Path.Join(source.FullName, "AppxManifest.xml"));
+        var document = AppxManifestDocument.Parse(BuildMSBuildManifest());
+        var firstApp = document.Document.Descendants(AppxManifestDocument.DefaultNs + "Application").Single();
+        var secondApp = new System.Xml.Linq.XElement(firstApp);
+        secondApp.SetAttributeValue("Id", "Second");
+        secondApp.SetAttributeValue("Executable", "Second.exe");
+        firstApp.AddAfterSelf(secondApp);
+        Assert.AreEqual(AddExecutionAliasStatus.Added, document.AddExecutionAlias("authored.exe", "Second").Status);
+        document.Save(manifest.FullName);
+        var sourceXml = await File.ReadAllTextAsync(manifest.FullName, TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(source.FullName, "TestApp.exe"), "exe", TestContext.CancellationToken);
+        await File.WriteAllTextAsync(Path.Join(source.FullName, "Second.exe"), "exe", TestContext.CancellationToken);
+        _msixService.AliasProxyExists = _ => false;
+        var result = await _msixService.AddLooseLayoutIdentityAsync(
+            manifest, source, output, TestTaskContext, selfContained: true,
+            inspectorAlias: new InspectorAliasRequest("Second"), cancellationToken: TestContext.CancellationToken);
+        Assert.AreEqual("Second", result.ApplicationId);
+        Assert.IsNull(result.InspectorAlias!.Error);
+        StringAssert.EndsWith(result.InspectorAlias.Target!.ApplicationUserModelId, "!Second");
+        Assert.AreEqual(Path.Join(output.FullName, "Second.exe"), result.InspectorAlias.Target.TargetExecutable);
+        var staged = AppxManifestDocument.Load(Path.Join(output.FullName, "appxmanifest.xml"));
+        Assert.IsEmpty(staged.GetExecutionAliases("App"));
+        Assert.AreEqual("authored.exe", staged.GetExecutionAliases("Second")[0]);
+        Assert.AreEqual(2, staged.GetExecutionAliases("Second").Count);
+        Assert.AreEqual(sourceXml, await File.ReadAllTextAsync(manifest.FullName, TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("\\")]
+    [DataRow("/")]
+    [DataRow("\\.\\")]
+    [DataRow("\\child\\..\\")]
+    [DataRow("\\\\")]
+    public async Task InspectorAlias_RejectsSourceAsOutputBeforeChangingFiles(string suffix)
+    {
+        var manifest = new FileInfo(Path.Join(_tempDirectory.FullName, "AppxManifest.xml"));
+        var xml = BuildMSBuildManifest();
+        await File.WriteAllTextAsync(manifest.FullName, xml, TestContext.CancellationToken);
+        var equivalentOutput = new DirectoryInfo(_tempDirectory.FullName + suffix);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => _msixService.AddLooseLayoutIdentityAsync(
+            manifest, _tempDirectory, equivalentOutput, TestTaskContext,
+            inspectorAlias: new InspectorAliasRequest(), cancellationToken: TestContext.CancellationToken));
+        StringAssert.Contains(error.Message, "output directory separate from the source manifest");
+        Assert.AreEqual(xml, await File.ReadAllTextAsync(manifest.FullName, TestContext.CancellationToken));
+        Assert.IsEmpty(_fakeRegistration.RegisterLooseLayoutCalls);
+    }
 
     [TestMethod]
     [DataRow(false)]

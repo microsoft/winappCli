@@ -31,7 +31,7 @@ public partial class UiCommandTests
     {
         var command = new UiScreenshotCommand();
         var handler = new UiScreenshotCommand.Handler(
-            _fakeTargetResolver, _fakeUia, _fakeWindowFinder, _fakeSystemQuery,
+            _fakeTargetResolver, _fakeUia, GetRequiredService<IUiSelectorParser>(), _fakeWindowFinder, _fakeSystemQuery,
             TestAnsiConsole, _fakeDesktopLock, logger);
         command.SetAction((result, ct) => handler.InvokeAsync(result, ct));
         return command;
