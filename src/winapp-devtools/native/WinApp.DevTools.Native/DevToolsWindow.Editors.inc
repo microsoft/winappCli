@@ -730,7 +730,9 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         winrt::copy_from_abi(boxObject, hexBox);
                         const auto hex = boxObject.as<DevToolsXC::TextBox>();
                         const unsigned gen = g_route1Gen;
-                        button.Click([button, hex, hexCommit, gen](auto&&, auto&&) {
+                        hexCommit->AddRef();
+                        const std::shared_ptr<LostFocusSink> commit(hexCommit, [](LostFocusSink* s) { s->Release(); });
+                        button.Click([hex, commit, gen](auto&& sender, auto&&) {
                             if (gen != g_route1Gen) return;
                             DevToolsXC::ColorPicker picker;
                             picker.IsAlphaEnabled(true);
@@ -745,16 +747,16 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                             }
                             DevToolsXC::Flyout flyout;
                             flyout.Content(picker);
-                            flyout.Closed([picker, hex, hexCommit, gen](auto&&, auto&&) {
+                            flyout.Closed([picker, hex, commit, gen](auto&&, auto&&) {
                                 if (gen != g_route1Gen) return;
                                 const auto c = picker.Color();
                                 wchar_t chosen[10];
                                 swprintf_s(chosen, L"#%02X%02X%02X%02X", c.A, c.R, c.G, c.B);
                                 if (_wcsicmp(chosen, hex.Text().c_str()) == 0) return;
                                 hex.Text(chosen);
-                                hexCommit->Invoke(nullptr, nullptr);
+                                commit->Invoke(nullptr, nullptr);
                             });
-                            flyout.ShowAt(button);
+                            flyout.ShowAt(sender.template as<DevToolsX::FrameworkElement>());
                         });
                     }
                 } catch (...) {

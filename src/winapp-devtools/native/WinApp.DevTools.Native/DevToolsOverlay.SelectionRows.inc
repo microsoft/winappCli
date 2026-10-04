@@ -651,18 +651,18 @@ static void DevToolsSelWireRows(IInspectable* root, const std::vector<DevToolsCa
                 s->InitSegments(rows[i].name, rows[i].type, orig, members, buttons);
                 HRESULT hr = S_OK;
                 for (IInspectable* b : buttons) {
+                    g_selRowBoxes.push_back(b);
+                    if (FAILED(hr)) continue;
                     void* tb = nullptr;
                     __int64 tok = 0;
                     if (SUCCEEDED(hr = b->QueryInterface(DevToolsIid<DevToolsXCP::IToggleButton>(), &tb)) && tb) {
                         hr = DevToolsAbi<DevToolsXCP::IToggleButton>(tb)->add_Checked(s, DevToolsAbiTok(&tok));
                         reinterpret_cast<IUnknown*>(tb)->Release();
                     }
-                    if (FAILED(hr)) break;
-                    g_selRowBoxes.push_back(b);
                 }
                 DevToolsOverlayLog(L"overlay.sel row %s segment wire hr=0x%08X", rows[i].name.c_str(), hr);
                 if (SUCCEEDED(hr)) g_selRowSinks.push_back(s);
-                else SetSelectionOperationError(rows[i].name, L"Couldn't connect the editor. Reopen this panel.");
+                else { s->Release(); SetSelectionOperationError(rows[i].name, L"Couldn't connect the editor. Reopen this panel."); }
             } else {
                 for (IInspectable* b : buttons) b->Release();
                 SetSelectionOperationError(rows[i].name, L"Couldn't connect the editor. Reopen this panel.");
