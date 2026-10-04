@@ -461,6 +461,47 @@ public class ProjectRunServiceCppTests
     #region packages.config
 
     [TestMethod]
+    public void ReadRecipeFrameworkPackages_ReturnsTargetArchitectureFrameworks()
+    {
+        var recipe = WriteFile("App.build.appxrecipe", $$"""
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <ItemGroup>
+                <ResolvedSDKReference Include="x">
+                  <Name>Microsoft.VCLibs.140.00.Debug.UWPDesktop</Name>
+                  <Version>14.0.33728.0</Version>
+                  <Architecture>x64</Architecture>
+                  <FrameworkIdentity>Name = Microsoft.VCLibs.140.00.Debug.UWPDesktop</FrameworkIdentity>
+                  <AppxLocation>{{_tempDir.FullName}}\Program Files %28x86%29\.\AppX\Debug\x64\VCLibs.appx</AppxLocation>
+                </ResolvedSDKReference>
+                <ResolvedSDKReference Include="y">
+                  <Name>Microsoft.VCLibs.140.00.Debug.UWPDesktop</Name>
+                  <Version>14.0.33728.0</Version>
+                  <Architecture>ARM64</Architecture>
+                  <FrameworkIdentity>Name = Microsoft.VCLibs.140.00.Debug.UWPDesktop</FrameworkIdentity>
+                  <AppxLocation>{{_tempDir.FullName}}\arm64.appx</AppxLocation>
+                </ResolvedSDKReference>
+                <ResolvedSDKReference Include="z">
+                  <Name>Microsoft.WindowsAppRuntime.2</Name>
+                  <Version>2.3.1.0</Version>
+                  <Architecture>win32</Architecture>
+                  <FrameworkIdentity>Name = Microsoft.WindowsAppRuntime.2</FrameworkIdentity>
+                  <AppxLocation>{{_tempDir.FullName}}\x86.msix</AppxLocation>
+                </ResolvedSDKReference>
+              </ItemGroup>
+            </Project>
+            """);
+
+        var x64 = MsixService.ReadRecipeFrameworkPackages(recipe, "x64");
+        var x86 = MsixService.ReadRecipeFrameworkPackages(recipe, "x86");
+
+        Assert.AreEqual(1, x64.Count);
+        Assert.AreEqual("Microsoft.VCLibs.140.00.Debug.UWPDesktop", x64[0].Name);
+        Assert.AreEqual(new Version(14, 0, 33728, 0), x64[0].Version);
+        Assert.AreEqual(Path.Join(_tempDir.FullName, @"Program Files (x86)\AppX\Debug\x64\VCLibs.appx"), x64[0].PackagePath);
+        Assert.AreEqual("Microsoft.WindowsAppRuntime.2", x86.Single().Name, "Win32 maps to x86");
+    }
+
+    [TestMethod]
     public void PackagesConfigReader_ReadsPinnedPackages()
     {
         var project = WriteFile("App.vcxproj", CppApp);

@@ -900,7 +900,7 @@ winapp run . --no-build --detach --json
 
 - A WinUI 3 C++/WinRT app from the Visual Studio **WinUI Blank App (Packaged)** template runs packaged. Other application projects, such as a console app or a WinUI app built with `-p WindowsPackageType=None`, run unpackaged from their built `.exe`.
 - Builds `Debug` for the current architecture by default. `--arch x64|arm64|x86` selects the `x64`, `ARM64`, or `Win32` platform; a `-p Platform=...` you pass wins.
-- Restores the `packages.config` NuGet packages first (skip with `--no-restore`) and installs the Windows App Runtime version they pin.
+- Restores the `packages.config` NuGet packages first (skip with `--no-restore`) and installs the Windows App Runtime version they pin. Packaged apps also get the framework packages the build references, such as the Debug VC++ runtime, installed when missing.
 - `--framework` and `--aot` apply only to .NET projects.
 - In a solution that also has a runnable C# app, the C# app is selected; use `--project <name>` to run the C++ app.
 

@@ -255,6 +255,13 @@ internal partial class MsixService
                 await EnsureWindowsAppRuntimeInstalledAsync(msbuildPackageList, runtimeArch, taskContext, cancellationToken);
             }
 
+            // Install any other framework package the build resolved (e.g. the Debug VCLibs a C++ app depends
+            // on), as Visual Studio's deploy does. Without it, registration fails with 0x80073CF3.
+            if (recipeFile is not null)
+            {
+                await InstallRecipeFrameworkPackagesAsync(recipeFile, doc.IdentityProcessorArchitecture ?? runtimeArch, taskContext, cancellationToken);
+            }
+
             var skipResult = TrySkipRegistration(
                 identity.PackageName, identity.Publisher, identity.ApplicationId,
                 previousManifestBytes, registrationManifest, outputAppXDirectory,
@@ -635,6 +642,70 @@ internal partial class MsixService
     /// winapp never put there and cannot recognize, so it is only ever copied into.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Framework packages (<c>ResolvedSDKReference</c> items with a <c>FrameworkIdentity</c>) the build
+    /// recipe lists for <paramref name="architecture"/>, with the package file MSBuild resolved for each.
+    /// </summary>
+    internal static List<(string Name, Version Version, string PackagePath)> ReadRecipeFrameworkPackages(FileInfo recipeFile, string architecture)
+    {
+        System.Xml.Linq.XDocument recipe;
+        try
+        {
+            recipe = System.Xml.Linq.XDocument.Load(recipeFile.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return [];
+        }
+
+        System.Xml.Linq.XNamespace msbuildNs = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var arch = NormalizeRecipeArchitecture(architecture);
+        return recipe.Descendants(msbuildNs + "ResolvedSDKReference")
+            .Where(e => e.Element(msbuildNs + "FrameworkIdentity") is not null
+                && NormalizeRecipeArchitecture(e.Element(msbuildNs + "Architecture")?.Value) == arch)
+            .Select(e => (
+                Name: e.Element(msbuildNs + "Name")?.Value.Trim() ?? string.Empty,
+                Version: Version.TryParse(e.Element(msbuildNs + "Version")?.Value, out var v) ? v : null,
+                Location: Uri.UnescapeDataString(e.Element(msbuildNs + "AppxLocation")?.Value ?? string.Empty)))
+            .Where(f => f.Name.Length > 0 && f.Version is not null && Path.IsPathFullyQualified(f.Location))
+            .Select(f => (f.Name, f.Version!, Path.GetFullPath(f.Location)))
+            .DistinctBy(f => f.Item3, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string NormalizeRecipeArchitecture(string? architecture) =>
+        architecture?.Trim().ToLowerInvariant() switch
+        {
+            "win32" => "x86",
+            var a => a ?? string.Empty,
+        };
+
+    private async Task InstallRecipeFrameworkPackagesAsync(FileInfo recipeFile, string? architecture, TaskContext taskContext, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(architecture))
+        {
+            return;
+        }
+
+        foreach (var (name, version, packagePath) in ReadRecipeFrameworkPackages(recipeFile, architecture))
+        {
+            if (Version.TryParse(packageRegistrationService.GetInstalledVersion(name, NormalizeRecipeArchitecture(architecture)), out var installed)
+                && installed >= version)
+            {
+                continue;
+            }
+
+            if (!File.Exists(packagePath))
+            {
+                taskContext.AddDebugMessage($"{UiSymbols.Warning} Framework package {name} {version} was not found at '{packagePath}'.");
+                continue;
+            }
+
+            taskContext.AddStatusMessage($"{UiSymbols.Package} Installing framework package {name} {version}...");
+            await packageRegistrationService.InstallPackageAsync(packagePath, forceApplicationShutdown: false, cancellationToken);
+        }
+    }
+
     private static async Task CopyFilesFromRecipeAsync(
         FileInfo recipeFile,
         DirectoryInfo outputDir,
