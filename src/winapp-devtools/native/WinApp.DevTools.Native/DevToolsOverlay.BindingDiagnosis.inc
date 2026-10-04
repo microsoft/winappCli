@@ -78,16 +78,16 @@ static void SelDiagApply(const DevToolsSelDiagRow& r)
     SelDiagShow(L"DevToolsSelStatus" + i, !bad);
     SelDiagSetText(L"DevToolsSelStatusBadText" + i, bad ? s.status : std::wstring());
     SelDiagShow(L"DevToolsSelStatusBad" + i, bad);
-    if (bad) {
-        if (IInspectable* link = DevToolsSelFindName(g_selDiagRoot, (L"DevToolsSelStatusBad" + i).c_str())) {
-            try {
-                winrt::Windows::Foundation::IInspectable object{ nullptr };
-                winrt::copy_from_abi(object, link);
-                DevToolsXA::AutomationProperties::SetName(object.as<DevToolsX::DependencyObject>(),
-                    r.prop + L" binding " + s.status + L". Open binding details in DevTools");
-            } catch (...) {}
-            link->Release();
-        }
+    // A screen reader hears what the chip says, not just that there is one.
+    const std::wstring spoken = r.prop + L" binding: " + DevToolsBindingRow_SpokenStatus(s.status) +
+        (bad ? L". Open binding details in DevTools" : L"");
+    if (IInspectable* chip = DevToolsSelFindName(g_selDiagRoot, ((bad ? L"DevToolsSelStatusBad" : L"DevToolsSelStatus") + i).c_str())) {
+        try {
+            winrt::Windows::Foundation::IInspectable object{ nullptr };
+            winrt::copy_from_abi(object, chip);
+            DevToolsXA::AutomationProperties::SetName(object.as<DevToolsX::DependencyObject>(), spoken);
+        } catch (...) {}
+        chip->Release();
     }
     if (r.writesThrough && !r.writesThroughTo.empty())
         SelDiagSetText(L"DevToolsSelCaution" + i, L"Editing also writes to " + r.writesThroughTo + L".");

@@ -210,6 +210,8 @@ static void Test_LiveEditOverridesAnXBind()
           "live edits are remembered per element and property");
     DevToolsBindingRow_ForgetLiveWrite(42, L"Content");
     Check(!DevToolsBindingRow_WasWrittenLive(42, L"Content"), "a restore forgets the edit");
+    CheckEqW(DevToolsBindingRow_SpokenStatus(L"\u2713 Works"), L"Works", "a screen reader hears the status, not the glyph");
+    CheckEqW(DevToolsBindingRow_SpokenStatus(L"\u2715 Broken at Nope"), L"Broken at Nope", "including a broken one");
 }
 
 int RunBindingRowTests()

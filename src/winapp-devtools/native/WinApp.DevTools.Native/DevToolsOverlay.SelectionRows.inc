@@ -285,16 +285,39 @@ static bool SelRowUsesSegments(const DevToolsCardRow& row)
         SelRowMembers(row).size() <= 4;
 }
 
-// "{x:Bind Greeting, Mode=OneWay}" -> "{x:Bind Greeting}": the part that names what an edit replaces.
+// "{x:Bind Greeting, Mode=OneWay}" -> "{x:Bind Greeting}" and "{Binding ElementName=Box, Path=Text}" ->
+// "{Binding Text}": the markup and its path, which name what an edit replaces.
 static std::wstring SelShortExpression(const DevToolsCardRow& row)
 {
     const std::wstring expr = !row.authored.empty() ? row.authored : row.binding;
     if (expr.empty()) return L"its binding";
-    const size_t comma = expr.find(L',');
-    if (comma == std::wstring::npos) return expr;
-    std::wstring head = expr.substr(0, comma);
-    while (!head.empty() && head.back() == L' ') head.pop_back();
-    return head + L"}";
+    const size_t open = expr.find(L'{'), close = expr.rfind(L'}');
+    if (open == std::wstring::npos || close == std::wstring::npos || close <= open) return expr;
+    auto trim = [](std::wstring s) {
+        while (!s.empty() && s.front() == L' ') s.erase(s.begin());
+        while (!s.empty() && s.back() == L' ') s.pop_back();
+        return s;
+    };
+    std::vector<std::wstring> parts;
+    const std::wstring inner = expr.substr(open + 1, close - open - 1);
+    for (size_t start = 0;;) {
+        const size_t comma = inner.find(L',', start);
+        parts.push_back(trim(inner.substr(start, comma == std::wstring::npos ? std::wstring::npos : comma - start)));
+        if (comma == std::wstring::npos) break;
+        start = comma + 1;
+    }
+    const size_t space = parts[0].find(L' ');
+    const std::wstring markup = parts[0].substr(0, space);
+    std::wstring path;
+    if (space != std::wstring::npos) {
+        const std::wstring first = trim(parts[0].substr(space + 1));
+        if (first.rfind(L"Path=", 0) == 0) path = trim(first.substr(5));
+        else if (first.find(L'=') == std::wstring::npos) path = first;
+    }
+    for (size_t k = 1; k < parts.size() && path.empty(); ++k)
+        if (parts[k].rfind(L"Path=", 0) == 0) path = trim(parts[k].substr(5));
+    if (path.empty()) return L"{" + parts[0] + L"}";
+    return L"{" + markup + L" " + path + L"}";
 }
 
 // "8,8,8,8" -> "8" and "8,4,8,4" -> "8,4": the shortest spelling that writes the same value back.
@@ -318,9 +341,17 @@ static std::wstring SelCompactFields(const DevToolsCardRow& row)
 
 // Flat label/value rows with the editor inline: one click or Tab reaches a value, and the row never re-states
 // it. Editors stretch to the value column; the label column is shared with the Source row so every value starts
-// on the same x.
-static const wchar_t* const kSelLabelColumn = L"<Grid.ColumnDefinitions><ColumnDefinition Width=\"88\"/>"
+// on the same x, and is wide enough for the longest curated label once the two alignments are shortened.
+static const wchar_t* const kSelLabelColumn = L"<Grid.ColumnDefinitions><ColumnDefinition Width=\"104\"/>"
     L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
+
+// The label shown for a property; the full name stays the tooltip and accessible name.
+static std::wstring SelShortLabel(const std::wstring& name)
+{
+    if (name == L"HorizontalAlignment") return L"H. alignment";
+    if (name == L"VerticalAlignment") return L"V. alignment";
+    return name;
+}
 
 // A flat Expander whose header text lines up with the column it sits in: the template pads its header 16 px,
 // which the negative margin returns, and the content padding re-applies it so disclosed content aligns too.
@@ -375,8 +406,9 @@ static std::wstring BuildSelRowsMarkup(const std::vector<DevToolsCardRow>& rows,
         m += L"<Grid ColumnSpacing=\"12\">";
         m += kSelLabelColumn;
         // The label is the row's accessible peer: a Grid has none, and every row has a label.
-        m += L"<TextBlock x:Name=\"DevToolsSelLabel" + n + L"\" Text=\"" + DevToolsXmlEscape(r.name) + L"\""
-             L" AutomationProperties.AutomationId=\"DevToolsSelRow" + n + L"\""
+        m += L"<TextBlock x:Name=\"DevToolsSelLabel" + n + L"\" Text=\"" + DevToolsXmlEscape(SelShortLabel(r.name)) + L"\""
+             L" AutomationProperties.AutomationId=\"DevToolsSelRow" + n + L"\" AutomationProperties.Name=\"" +
+             DevToolsXmlEscape(r.name) + L"\""
              L" Style=\"{StaticResource CaptionTextBlockStyle}\" Margin=\"0,8,0,0\" VerticalAlignment=\"Top\""
              L" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" Foreground=\"" + pal.textSecondary + L"\""
              L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(r.name) + L"\"/>";

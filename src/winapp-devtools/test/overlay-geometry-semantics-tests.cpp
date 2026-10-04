@@ -730,6 +730,24 @@ int main()
                 peer.rfind(L"<TextBlock ",id)>peer.rfind(L"<Grid ",id),
                 "quick peek", "each row's UIA peer is its label, since a Grid exposes none");
         }
+        {
+            DevToolsCardRow align;align.name=L"HorizontalAlignment";align.type=L"HorizontalAlignment";align.editKind=L"enum";
+            align.value=L"Stretch";align.enumValues={L"Left",L"Center",L"Right",L"Stretch"};
+            const auto m=BuildSelRowsMarkup({align},false);
+            check(m.find(L"Text=\"H. alignment\"")!=std::wstring::npos &&
+                m.find(L"AutomationProperties.Name=\"HorizontalAlignment\"")!=std::wstring::npos &&
+                m.find(L"ColumnDefinition Width=\"104\"")!=std::wstring::npos,
+                "quick peek", "a long label is shortened to fit, keeping its full name for tooltips and screen readers");
+            DevToolsCardRow bound;bound.name=L"Text";
+            const std::pair<const wchar_t*,const wchar_t*> expressions[]={
+                {L"{Binding ElementName=CounterButton, Path=Nope}",L"{Binding Nope}"},
+                {L"{Binding Content, ElementName=CounterButton}",L"{Binding Content}"},
+                {L"{x:Bind Greeting, Mode=OneWay}",L"{x:Bind Greeting}"},
+                {L"{Binding}",L"{Binding}"}};
+            bool keepsPath=true;
+            for (const auto& [authored, shown] : expressions) { bound.authored=authored; keepsPath=keepsPath && SelShortExpression(bound)==shown; }
+            check(keepsPath, "quick peek", "a bound row's expression keeps its path");
+        }
         row.name=L"Foreground";row.type=L"Brush";row.editKind=L"color";row.value=L"#80123456";
         check(BuildSelRowsMarkup({row},false).find(L"PlaceholderText=\"#AARRGGBB\"")!=std::wstring::npos &&
             BuildSelRowsMarkup({row},false).find(L"Text=\"#80123456\"")!=std::wstring::npos &&

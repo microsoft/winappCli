@@ -4,6 +4,7 @@
 #include "DevToolsBindingRow.h"
 #include "DevToolsProtocol.h"   // the tap's JSON reader; the agent's answer arrives as one compact JSON object
 #include <algorithm>
+#include <cwchar>
 #include <utility>
 #include <vector>
 
@@ -208,4 +209,11 @@ bool DevToolsBindingRow_ApplyLiveOverride(DevToolsBindingSummary& summary, bool 
     summary.status = L"Overridden by a live edit";
     summary.reason = L"until you restore the binding or restart the app";
     return true;
+}
+
+std::wstring DevToolsBindingRow_SpokenStatus(const std::wstring& status)
+{
+    for (const wchar_t* glyph : { L"\u2713 ", L"\u2715 ", L"\u26A0 " })
+        if (status.rfind(glyph, 0) == 0) return status.substr(wcslen(glyph));
+    return status;
 }
