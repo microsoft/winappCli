@@ -12,6 +12,9 @@
 
 .EXAMPLE
     ./run.ps1 -Rescore results\20261002-160446
+
+.EXAMPLE
+    ./run.ps1 -Compare results\baseline -Candidate results\candidate -OutDir results\compare
 #>
 [CmdletBinding()]
 param(
@@ -25,10 +28,15 @@ param(
     [string]$WinAppPlugin,
     [string]$WinUIPlugin,
     [string]$CopilotVersion,
+    [string]$Agent,
+    [ValidateRange(0.01, 1000000)]
+    [double]$MaxCredits,
     [string]$OutDir,
     [switch]$Plan,
     [switch]$KeepArtifacts,
-    [string]$Rescore
+    [string]$Rescore,
+    [string[]]$Compare,
+    [string[]]$Candidate
 )
 
 Set-StrictMode -Version Latest
@@ -51,8 +59,28 @@ $allScenarios = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot 
 if ($Rescore) {
     $r = Invoke-Rescore -ResultsDir (Resolve-Path $Rescore).Path -Scenarios $allScenarios
     Write-Host "Rescored $($r.Runs) runs against the current scenarios; $($r.Changed) changed status."
+    foreach ($k in $r.Transitions.Keys) { Write-Host "  $k`: $($r.Transitions[$k])" }
     Write-Host "Runs:    $($r.RunsPath)"
     Write-Host "Summary: $($r.SummaryPath)"
+    return
+}
+
+$Compare = Split-ListArgument $Compare
+$Candidate = Split-ListArgument $Candidate
+if ($Compare -or $Candidate) {
+    if (-not $Compare -or -not $Candidate) { throw 'Use -Compare <baselineDir[,...]> together with -Candidate <candidateDir[,...]>.' }
+    $report = Get-ComparisonReport -Baseline @($Compare | ForEach-Object { (Resolve-Path $_).Path }) `
+        -Candidate @($Candidate | ForEach-Object { (Resolve-Path $_).Path }) -Scenarios $allScenarios `
+        -ScenarioFilter $Scenario -ConfigurationFilter $Configuration -ModelFilter $Model
+    $userHome = [Environment]::GetFolderPath('UserProfile')
+    if ($userHome) { $report = $report.Replace($userHome, '~') }
+    if ($OutDir) {
+        New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+        $path = Join-Path $OutDir 'comparison.md'
+        Set-Content -LiteralPath $path -Value $report -Encoding utf8NoBOM
+        Write-Host "Comparison: $path"
+    }
+    else { $report }
     return
 }
 
@@ -84,6 +112,7 @@ if ($Plan) {
     Write-Host "WinApp:      $(if ($WinAppPlugin) { $WinAppPlugin } else { $config.plugins.winapp.path })"
     $pub = $config.plugins.winui.published
     Write-Host "WinUI:       $(if ($WinUIPlugin -eq 'published') { "$($pub.repository)@$($pub.ref):$($pub.path)" } elseif ($WinUIPlugin) { $WinUIPlugin } else { $config.plugins.winui.path })"
+    if ($Agent) { Write-Host "Agent:       $Agent" }
     Write-Host ''
     $runList | Group-Object { $_.Scenario.Id } | ForEach-Object {
         $configs = ($_.Group.Configuration | Select-Object -Unique) -join ', '
@@ -225,12 +254,14 @@ $header = [ordered]@{
     'Configurations' = ($runList.Configuration | Select-Object -Unique) -join ', '
     'Plugins'        = $pluginText
 }
+if ($Agent) { $header['Agent'] = $Agent }
 [ordered]@{
     copilotVersion = $pinnedVersion
     copilotPath    = $copilotExe
     models         = $models
     iterations     = $iterationCount
-    plugins        = @($plugins.Values | Sort-Object Name | ForEach-Object { [ordered]@{ name = $_.Name; path = $_.Path; source = $_.Source; version = $_.Version; sha = $_.Sha; dirty = $_.Dirty; skills = $_.Skills } })
+    agent          = $Agent ? $Agent : $null
+    plugins         = @($plugins.Values | Sort-Object Name | ForEach-Object { [ordered]@{ name = $_.Name; path = $_.Path; source = $_.Source; version = $_.Version; sha = $_.Sha; dirty = $_.Dirty; skills = $_.Skills } })
     scenarios      = @($scenarios.Id)
 } | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $OutDir 'run-info.json') -Encoding utf8NoBOM
 
@@ -254,6 +285,7 @@ function Invoke-BenchmarkRun {
         scenario               = $s.Id
         configuration          = $Run.Configuration
         model                  = $Run.Model
+        agent                  = $Agent ? $Agent : $null
         iteration              = $Run.Iteration
         status                 = $null
         reason                 = $null
@@ -264,6 +296,8 @@ function Invoke-BenchmarkRun {
         skillContextChars        = $null
         skillContextTokensApprox = $null
         skillContextReason       = $null
+        skillRepeatDeliveries          = $null
+        skillRepeatContextTokensApprox = $null
         tokens                 = $null
         tokensReason           = $null
         aiCredits              = $null
@@ -272,6 +306,8 @@ function Invoke-BenchmarkRun {
         toolCalls              = $null
         toolCallsByName        = $null
         deniedToolCalls        = $null
+        winappCommands         = $null
+        selectedAgent          = $null
         workspaceChanges       = $null
         durationMs             = $null
         exitCode               = $null
@@ -314,8 +350,9 @@ function Invoke-BenchmarkRun {
         }
         $skillList = @(Get-Content -Raw (Join-Path $logs 'skill-list.out') | ConvertFrom-Json)
         $nonBuiltin = @($skillList | Where-Object { $_.source -ne 'builtin' })
-        $unexpected = @($nonBuiltin | Where-Object { $_.name -notin $installed -or $_.source -ne 'plugin' -or -not $_.path.StartsWith($copilotHome, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { "$($_.name) ($($_.source))" })
-        $missing = @($installed | Where-Object { $_ -notin @($nonBuiltin | Where-Object enabled | ForEach-Object name) })
+        # A skill name shipped by two plugins is listed once per plugin as <plugin>:<name>.
+        $unexpected = @($nonBuiltin | Where-Object { (Get-BareSkillName $_.name) -notin $installed -or $_.source -ne 'plugin' -or -not $_.path.StartsWith($copilotHome, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { "$($_.name) ($($_.source))" })
+        $missing = @($installed | Where-Object { $_ -notin @($nonBuiltin | Where-Object enabled | ForEach-Object { Get-BareSkillName $_.name }) })
         $record.preflight = [ordered]@{ expectedSkills = @($installed); builtinSkills = @($skillList | Where-Object source -eq 'builtin' | ForEach-Object name); unexpected = $unexpected; missing = $missing }
         if ($unexpected -or $missing) {
             $record.status = 'preflight_failed'
@@ -338,6 +375,7 @@ function Invoke-BenchmarkRun {
             '--no-custom-instructions',
             '--no-ask-user'
         )
+        if ($Agent) { $agentArgs += @('--agent', $Agent) }
         $wsBefore = Get-DirectorySnapshot -Path $ws
         $r = & $invoke 'agent' $agentArgs ($Run.TimeoutMinutes * 60)
         $record.durationMs = $r.DurationMs
@@ -350,11 +388,13 @@ function Invoke-BenchmarkRun {
         $parsed = Read-SessionEvents -Path ($eventLog ? $eventLog.FullName : '')
         $record.copilotVersion = $parsed.copilotVersion
         $record.skillsInvoked = @($parsed.skillsInvoked)
-        $record.skillsLoaded = @($parsed.skillsInvoked | ForEach-Object { $_.name } | Select-Object -Unique)
+        $record.skillsLoaded = @($parsed.skillsInvoked | ForEach-Object { Get-BareSkillName $_.name } | Select-Object -Unique)
         $record.skillsContextDelivered = @($parsed.skillsContextDelivered)
         $record.skillContextChars = $parsed.skillContextChars
         $record.skillContextTokensApprox = $parsed.skillContextTokensApprox
         $record.skillContextReason = $parsed.skillContextReason
+        $record.skillRepeatDeliveries = $parsed.skillRepeatDeliveries
+        $record.skillRepeatContextTokensApprox = $parsed.skillRepeatContextTokensApprox
         $record.tokens = $parsed.tokens
         $record.tokensReason = $parsed.tokensReason
         $record.aiCredits = $parsed.aiCredits
@@ -364,6 +404,8 @@ function Invoke-BenchmarkRun {
         $record.toolCalls = $parsed.toolCalls
         $record.toolCallsByName = $parsed.toolCallsByName
         $record.deniedToolCalls = $parsed.deniedToolCalls
+        $record.winappCommands = @($parsed.winappCommands)
+        $record.selectedAgent = $parsed.selectedAgent
 
         if ($record.workspaceChanges) {
             # The run was supposed to be read-only; its result is not comparable.
@@ -384,7 +426,7 @@ function Invoke-BenchmarkRun {
         }
         else {
             $eval = Test-Expectations -Expect $s.Expect -LoadedSkills $record.skillsLoaded -InstalledSkills @($installed)
-            $record.status = $eval.Passed ? 'pass' : 'fail'
+            $record.status = $eval.Status
             $record.reason = $eval.Failures -join '; '
             $record.expectationNotes = $eval.Notes
         }
@@ -416,12 +458,19 @@ function Invoke-BenchmarkRun {
 
 Write-Host "Copilot CLI $pinnedVersion | $($runList.Count) agent sessions | results: $OutDir"
 $index = 0
+$creditsSpent = 0.0
 foreach ($run in $runList) {
+    if ($MaxCredits -and $creditsSpent -ge $MaxCredits) {
+        Write-Warning "Stopping: spent $([Math]::Round($creditsSpent, 1)) AI credits (-MaxCredits $MaxCredits); $($runList.Count - $index) sessions not run."
+        $header['Stopped early'] = "credit limit $MaxCredits reached after $index of $($runList.Count) sessions"
+        break
+    }
     $index++
     $label = "[$index/$($runList.Count)] $($run.Scenario.Id) | $($run.Configuration) | $($run.Model) | #$($run.Iteration)"
     Write-Host "$label ..." -NoNewline
     $rec = Invoke-BenchmarkRun -Run $run -Index $index
     $rec | ConvertTo-Json -Depth 8 -Compress | Add-Content -Path $runsPath -Encoding utf8NoBOM
+    if ($null -ne $rec.aiCredits) { $creditsSpent += [double]$rec.aiCredits }
     $skills = if ($rec.skillsLoaded) { $rec.skillsLoaded -join ', ' } else { '(none)' }
     $tok = if ($rec.tokens) { "in $($rec.tokens.input) / out $($rec.tokens.output)" } else { 'tokens n/a' }
     if ($null -ne $rec.skillContextTokensApprox) { $tok += " / skill ctx ~$($rec.skillContextTokensApprox)" }

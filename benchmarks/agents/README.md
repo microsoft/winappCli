@@ -30,10 +30,10 @@ pwsh benchmarks\agents\run.ps1 -Plan
 # Print the expanded run list and session count without calling a model
 pwsh benchmarks\agents\run.ps1 -Plan
 
-# Recommended first step: a quick baseline (one model, one iteration: 42 sessions)
+# Recommended first step: a quick baseline (one model, one iteration: 106 sessions)
 pwsh benchmarks\agents\run.ps1 -Model claude-sonnet-5.5 -Iterations 1
 
-# Then the full default matrix (3 models x 3 iterations: 378 sessions)
+# Then the full default matrix (3 models x 3 iterations: 954 sessions)
 pwsh benchmarks\agents\run.ps1
 
 # A single scenario
@@ -55,11 +55,14 @@ pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\my-
 | `-TimeoutMinutes <n>` | scenario `timeoutMinutes`, else 5 | Per agent session |
 | `-WinAppPlugin <path>` | `plugins\winapp` | Any local plugin folder |
 | `-WinUIPlugin <path\|published>` | `plugins\winui\agent-plugin` | Any local plugin folder, or `published` for `win-dev-skills@v0.7.1:plugins/winui/agent-plugin` (fetched once into `results\.cache`) |
+| `-Agent <name>` | none | Runs every session with `--agent <name>`, e.g. `winappcli:winapp` or `winui:winui-dev` (plugin agents are namespaced) |
+| `-MaxCredits <n>` | none | Stops launching sessions once this invocation has spent `n` AI credits |
 | `-CopilotVersion <v>` | newest Copilot CLI build already on the machine | Pinned with `--prefer-version` for every call |
 | `-OutDir <path>` | `results\<timestamp>` | |
 | `-KeepArtifacts` | off | Keeps each run's Copilot home, workspace, and logs under `%TEMP%\winapp-agent-bench` |
 | `-Plan` | | Dry run |
 | `-Rescore <resultsDir>` | | Re-evaluate recorded runs against the current scenario expectations; no model calls |
+| `-Compare <dir[]> -Candidate <dir[]>` | | Markdown comparison of two sets of result folders; no model calls. `-Scenario`, `-Configuration`, and `-Model` filter it, and `-OutDir` writes `comparison.md` there instead of printing it |
 
 Runs are sequential; parallel runs are a possible future addition. List parameters accept
 comma-separated values (`-Scenario a,b`), including through `pwsh -File`.
@@ -78,7 +81,8 @@ comma-separated values (`-Scenario a,b`), including through `pwsh -File`.
    fixture and load skills. Output streams straight to files.
 5. Reads the session's persisted `events.jsonl` and records the skills the agent invoked, the size
    of the skill content delivered to the model, tokens, AI credits, turns, tool calls (including
-   denied ones), duration, and exit status. Missing values are `null` with a reason, never 0. If the
+   denied ones), `winapp` commands the agent tried to run or named in its final answer, the selected
+   agent, duration, and exit status. Missing values are `null` with a reason, never 0. If the
    workspace changed, the run is a `harness_error`.
 6. Evaluates the scenario's expectations against the invoked skills, appends a line to
    `runs.jsonl`, and deletes the temporary folders.
@@ -89,8 +93,9 @@ Nothing is installed into your own Copilot home.
 
 Each invocation writes `results\<timestamp>\`:
 
-- `summary.md`: per scenario, one row per configuration and model with pass rate, the most common
-  set of loaded skills, and median tokens, skill context, and duration.
+- `summary.md`: totals (overall pass rate, tokens, credits, repeated deliveries), the `n/a` cells,
+  and per scenario one row per configuration and model with pass rate, the most common set of
+  loaded skills, median tokens, skill context, and duration, and repeated deliveries.
 - `runs.jsonl`: one JSON object per run with all extracted fields.
 - `run-info.json`: Copilot CLI version and path, models, and each plugin's path, version, git SHA,
   and skill list.
@@ -103,12 +108,15 @@ How to read the token columns:
 - **Skill context** is the skill content delivered to the model (characters / 4). It is an
   approximation, not a tokenizer count, but it is the number that changes when a skill grows,
   shrinks, or stops loading.
+- **Repeated deliveries** count the times a skill already delivered in a session was delivered
+  again, and the skill context those repeats added. They show in the totals and in each row.
 
 Run statuses:
 
 | Status | Meaning |
 |---|---|
 | `pass` / `fail` | The run completed and its expectations were / were not met |
+| `n/a` | The run completed, but nothing in the scenario's expectations applies to this configuration: no installed skill is expected or forbidden, and there is no `maxSkills`. Left out of pass rates and listed under **Not applicable** in `summary.md` |
 | `timeout` | The session exceeded its timeout and was killed |
 | `preflight_failed` | Plugin install failed or the installed skill set did not match the configuration |
 | `harness_error` | Copilot exited with an error, no session log was found, or the workspace was modified |
@@ -124,8 +132,38 @@ pwsh benchmarks\agents\run.ps1 -Rescore benchmarks\agents\results\<timestamp>
 ```
 
 This writes `runs.rescored.jsonl` and `summary.rescored.md` next to the originals, which are left
-unchanged. Only `pass` and `fail` runs are re-evaluated. Each rescored run keeps its
-`originalStatus`. A changed prompt or fixture still needs a new run.
+unchanged. Only `pass`, `fail`, and `n/a` runs are re-evaluated. Each rescored run keeps its
+`originalStatus`, and the command prints how many runs moved between statuses. A changed prompt or
+fixture still needs a new run.
+
+### Comparing runs
+
+```powershell
+pwsh benchmarks\agents\run.ps1 -Compare results\baseline-a,results\baseline-b -Candidate results\candidate -OutDir results\compare
+```
+
+`comparison.md` has one row per model and one per (model, scenario, configuration) cell with the
+pass rate, mean skill context, mean input tokens, and mean AI credits per run on each side, the
+change, and repeated deliveries. Only cells present on both sides are compared. Both sides are
+re-evaluated in memory against the current scenario expectations; the folders are not modified.
+
+- `n/a` runs are left out of pass rates.
+- A cell shows `check differs` when an expected skill is installed on one side only, for example
+  when a candidate adds a skill to a plugin. It then tests something different on each side, so
+  it is left out of the per-model pass rate.
+- Runs recorded before repeated deliveries were measured show `-` for them.
+
+## Recommended workflow for a plugin change
+
+1. Screen with one model: `-Model claude-sonnet-5.5 -Iterations 1` against the candidate plugin
+   (`-WinAppPlugin` or `-WinUIPlugin`), then `-Compare` it with a baseline of the same scope.
+2. Confirm with all three models x 3 iterations on the scenarios the change affects plus the
+   near-misses (`console-arg-parsing`, `powershell-log-retention`, `win32-registry-read`,
+   `winui-generic-csharp-bug`), and compare again.
+3. Set `-MaxCredits` on long runs. To measure a plugin agent, pass `-Agent` on both sides.
+
+With 3 iterations per cell, only a 0/3 versus 3/3 swing in a single cell is a signal; the per-model
+rows are more reliable.
 
 ## Adding a scenario
 
@@ -150,11 +188,14 @@ Create `scenarios\<id>\scenario.json` (the id must match the folder name) and, o
 ```
 
 - Write the prompt the way a developer would ask for the work. Never name a skill.
+- `configurations` must include `both`, because most users install both plugins. Scenario
+  validation fails otherwise.
 - `skillsAny`: at least one must load. `skillsAll`: all must load. `skillsForbid`: none may load.
   `maxSkills`: upper bound on distinct skills loaded. Names accept `*` wildcards. "Loaded" means the
   agent invoked the skill.
 - Expected skills that are not installed in a configuration are ignored for that configuration, so
-  one scenario can list skills from both plugins.
+  one scenario can list skills from both plugins. A configuration where nothing in `expect` applies
+  scores `n/a`.
 - Run `Invoke-Pester benchmarks\agents\tests` to validate scenario files.
 
 ## Limits

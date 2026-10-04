@@ -1,0 +1,12 @@
+name: release
+on: { push: { tags: ['v*'] } }
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci && npm run package
+      - name: Decode PFX
+        run: '[IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String("${{ secrets.PFX_BASE64 }}"))'
+      - name: Sign
+        run: signtool sign /fd SHA256 /f cert.pfx /p ${{ secrets.PFX_PASSWORD }} dist\ContosoApp.msix
