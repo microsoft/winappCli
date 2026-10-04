@@ -33,7 +33,6 @@
       ],
       "forbid": [
         "winui.*",
-        "project.scaffold",
         "session.report"
       ]
     }

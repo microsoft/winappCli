@@ -33,7 +33,6 @@
         "troubleshoot"
       ],
       "forbid": [
-        "project.scaffold",
         "winui.migrate",
         "session.report"
       ]

@@ -31,7 +31,6 @@
         "winui.build"
       ],
       "forbid": [
-        "project.setup",
         "winui.migrate",
         "session.report"
       ]

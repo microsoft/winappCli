@@ -561,6 +561,10 @@ function Test-CapabilityExpectations {
     $skillCaps = $resolved.SkillCapabilities
     $loaded = @($LoadedSkills | Select-Object -Unique)
     $installedCaps = @($InstalledSkills | Where-Object { $skillCaps.ContainsKey($_) } | ForEach-Object { $skillCaps[$_] } | Select-Object -Unique)
+    # A capability only reachable through a skill that also carries a forbidden capability cannot be
+    # met without failing, so it does not count as installed for the primary check.
+    $usableCaps = @($InstalledSkills | Where-Object { $skillCaps.ContainsKey($_) -and -not @($skillCaps[$_] | Where-Object { Test-SkillMatch $_ $c.Forbid }) } |
+            ForEach-Object { $skillCaps[$_] } | Select-Object -Unique)
     $loadedCaps = @($loaded | Where-Object { $skillCaps.ContainsKey($_) } | ForEach-Object { $skillCaps[$_] } | Select-Object -Unique)
     $failures = [System.Collections.Generic.List[string]]::new()
     $notes = [System.Collections.Generic.List[string]]::new()
@@ -575,9 +579,12 @@ function Test-CapabilityExpectations {
         $failures.Add("loaded $($loaded.Count) skills, max $($Expect.MaxSkills)")
     }
 
-    $primaryInstalled = @($c.Primary | Where-Object { $alt = @($_); -not @($alt | Where-Object { $_ -notin $installedCaps }) })
+    $primaryInstalled = @($c.Primary | Where-Object { $alt = @($_); -not @($alt | Where-Object { $_ -notin $usableCaps }) })
     $partial = $false
-    if ($c.Primary.Count -gt 0 -and $primaryInstalled.Count -eq 0) { $notes.Add('primary capability not installed') }
+    if ($c.Primary.Count -gt 0 -and $primaryInstalled.Count -eq 0) {
+        $reachable = @($c.Primary | Where-Object { $alt = @($_); -not @($alt | Where-Object { $_ -notin $installedCaps }) })
+        $notes.Add($(if ($reachable) { 'primary capability only installed in a skill that also carries a forbidden capability' } else { 'primary capability not installed' }))
+    }
     if ($primaryInstalled.Count -gt 0) {
         $met = @($primaryInstalled | Where-Object { $alt = @($_); -not @($alt | Where-Object { $_ -notin $loadedCaps }) })
         if (-not $met) {

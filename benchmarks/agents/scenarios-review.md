@@ -100,3 +100,24 @@ A second review (GPT: real developer phrasing from GitHub and Stack Overflow; Ge
 - **WinUI-scoped capabilities.** `winui-packaging` maps to `winui.package`, not `msix.package`, so non-WinUI scenarios that forbid `winui.*` now fail it. This turned 9 `winui`-configuration passes of `wpf-winappsdk-msix-trap` into failures on rescore.
 - **`winui-design` provides `api.lookup`** because it documents project-aware API checks. In WPF scenarios it still fails through the `winui.*` forbid.
 - **Neutral vocabulary.** The lint ignores framework and product names ("WinUI app", "MSIX", "Microsoft Store") so the held-out prompts do not need euphemisms. The first held-out draft avoided vocabulary by inventing words ("envelope" for manifest); it was rewritten.
+- **Held-out expectation fixes after the baseline.** Five held-out scenarios forbade a capability that the only skill providing their primary capability also carries (for example, `project.setup` primary with `project.scaffold` forbidden, when `winapp-setup` provides both), so they could not pass. Their forbids were narrowed (`cairnwatch`, `larkspur`, `fenwick`, `orris`, and `bluefern`, which forbade `winui.*` while only `winui-packaging` covers the Store). Scoring now also treats a primary capability that is only reachable through a skill carrying a forbidden capability as not installed, and a test keeps held-out scenarios free of such contradictions. Prompts were not changed.
+
+### v2 baseline (current plugins, October 2026)
+
+Held-out: 3 models x 1 run per prompt (base + 2 paraphrases) in `winapp`/`winui` (whichever provides the primary capability) and `both`, plus the `none` control on base prompts. Dev: new and reworded scenarios 3 models x 2 iterations; unchanged scenarios are the prior 3 x 3 runs rescored. 1,335 new sessions, 13,193 AI credits.
+
+| Model | Dev routing | Held-out routing | Held-out base / novice / terse |
+|---|---|---|---|
+| claude-sonnet-5.5 | 57% | 32% | 35% / 28% / 34% |
+| claude-opus-5.5 | 92% | 78% | 76% / 81% / 76% |
+| gpt-6.1-sol | 94% | 84% | 86% / 80% / 85% |
+
+Routing leaves out the `none` control and explicit-command scenarios; pass = pass / (pass + partial + fail).
+
+- The dev set overstates routing: every model drops 10-25 points on held-out prompts. Rewording the 12 leaky dev prompts alone dropped several from 100% (for example `restore-cloned-cpp` 18/18 to 9/12, `winui-code-review` 18/18 to 9/12, `electron-notifications` 18/18 to 8/12).
+- Sonnet mostly loads no skill on realistic prompts (held-out 32%).
+- Weakest capabilities on held-out (`both`): `winui.migrate` 17%, `framework.guidance` 22%, `winui.review` 28%, `project.setup` 33%, `store.publish` 33% (8 partial: packaging loaded, no Store guidance).
+- Without plugins, models named the right `winapp` command on 4 of 71 base prompts; with no plugins, sessions cost 66-82% of the `both` cost for the same prompts.
+- In 46 of 137 held-out misses the agent still named the right `winapp` command.
+- Loading the three most-loaded skills on every prompt passes 15 of 65 dev and 15 of 120 held-out prompts (it passed 35% of the old scenarios).
+- Near-miss traps that should load nothing pass 100%. The failing traps expect `framework.guidance` for "WPF, but Fluent-looking" asks (`holloway` 1/18, `alderfield` 9/18); no current skill documents WPF styling, so read these as a coverage gap as much as a routing miss.

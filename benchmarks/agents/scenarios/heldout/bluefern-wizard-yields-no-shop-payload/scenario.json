@@ -36,7 +36,10 @@
         "msix.manifest"
       ],
       "forbid": [
-        "winui.*",
+        "winui.design",
+        "winui.migrate",
+        "winui.review",
+        "winui.build",
         "ui.samples",
         "project.scaffold",
         "session.report"

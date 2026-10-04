@@ -106,6 +106,12 @@ Describe 'Test-CapabilityExpectations' {
         (Test-CapabilityExpectations -Expect $e -LoadedSkills @() -InstalledSkills @() -Map $map).Status | Should -Be 'pass'
     }
 
+    It 'treats a primary capability only reachable through a forbidden skill as not installed' {
+        $r = Test-CapabilityExpectations -Expect (New-CapExpect -primary 'api.lookup' -forbid 'winui.*') -LoadedSkills @() -InstalledSkills @('winui-design') -Map $map
+        $r.Status | Should -Be 'pass'
+        $r.ExpectedInstalled | Should -BeFalse
+        $r.Notes | Should -Contain 'primary capability only installed in a skill that also carries a forbidden capability'
+    }
     It 'scores renamed skills through the candidate map' {
         (Test-CapabilityExpectations -Expect (New-CapExpect -primary 'msix.sign') -LoadedSkills 'winapp-ship' -InstalledSkills @('winapp-ship') -Map $map).Status | Should -Be 'pass'
     }
@@ -205,6 +211,17 @@ Describe 'Scenario set composition' {
         }
     }
 
+    It 'never makes a held-out primary reachable only through a forbidden capability' {
+        $real = Read-CapabilityMap -Path (Join-Path $PSScriptRoot '..\capabilities.json')
+        $plugin = @{ winapp = @('winapp'); winui = @('winui'); both = @('winapp', 'winui') }
+        foreach ($s in @($bases | Where-Object { $_.Set -eq 'heldout' -and $_.Expect.Capabilities.Primary.Count })) {
+            foreach ($cfg in @($s.Configurations | Where-Object { $_ -ne 'none' })) {
+                $skills = @($real.Maps | Where-Object { $_.Plugin -in $plugin[$cfg] } | ForEach-Object { $_.Skills.Keys })
+                $r = Test-CapabilityExpectations -Expect $s.Expect -LoadedSkills @() -InstalledSkills $skills -Map $real
+                $r.Notes | Should -Not -Contain 'primary capability only installed in a skill that also carries a forbidden capability' -Because "$($s.Id) [$cfg]"
+            }
+        }
+    }
     It 'covers every capability as primary at least twice in the held-out set' {
         $real = Read-CapabilityMap -Path (Join-Path $PSScriptRoot '..\capabilities.json')
         $primary = @($bases | Where-Object Set -eq 'heldout' | ForEach-Object { @($_.Expect.Capabilities.Primary | ForEach-Object { $_ }) | Select-Object -Unique })
