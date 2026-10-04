@@ -1156,6 +1156,28 @@ int main()
             HideCommentToast();
             g_guestCommentWrite={};g_selComment=nullptr;
         }
+        // A save that reached the store is never reported as "not saved", and before the refreshed comments arrive,
+        // picking its element again edits that comment instead of adding a second one.
+        {
+            g_selComment=&input;input.AddRef();
+            g_guestCommentWrite={};g_guestCommentQueue.clear();commentLaunches=0;g_pins.clear();
+            g_commentSnapshotAuthoritative=false;
+            SetCommentTarget(11,false);g_selCommentId=L"saved-once";g_selCommentSaved.clear();commentInput=L"first";
+            DevToolsSelCommitComment();
+            g_selGen++;g_commentToastText.clear();commentInput=L"first, then more";
+            commentExitCode=0;SetEvent(commentProcess);GuestCommentTimerProc(nullptr,0,0,0);
+            check(g_guestCommentWrite.persisted && g_commentToastText.rfind(L"Comment saved",0)==0,
+                "comment ack", "a save followed by more typing is reported as saved");
+            g_pins.clear();
+            std::wstring id, text;
+            SelLookupComment(11,&id,&text);
+            check(id==L"saved-once" && text==L"first", "comment ack", "picking its element again edits that comment, not a new one");
+            g_guestCommentWrite.superseded=true;
+            SelLookupComment(11,&id,&text);
+            check(id!=L"saved-once", "comment ack", "a save the store has since replaced is not reused");
+            HideCommentToast();
+            g_guestCommentWrite={};g_selComment=nullptr;
+        }
         // A hand-off to the inspector names the panel's element, however the panel was opened (a marker opens it
         // without a pick), so the window can select it.
         {

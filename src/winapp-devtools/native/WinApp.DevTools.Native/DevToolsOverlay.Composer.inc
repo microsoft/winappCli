@@ -389,7 +389,8 @@ static void OnComposerSaveClick(void*, void*)
     LaunchCommentAdd(text, g_composerId, true);
 }
 
-// Keyed by the raw pick handle, like the composer's edit lookup.
+// Keyed by the raw pick handle, like the composer's edit lookup. A comment this panel just saved counts even before
+// (or without) a refreshed marker for it, so picking the element again edits it rather than adding a second one.
 static void SelLookupComment(InstanceHandle key, std::wstring* outId, std::wstring* outText)
 {
     g_selCommentRevision.clear();
@@ -401,6 +402,13 @@ static void SelLookupComment(InstanceHandle key, std::wstring* outId, std::wstri
                 if (outText) *outText = p.text;
                 return;
             }
+        }
+        const auto& write = g_guestCommentWrite;
+        if (write.persisted && !write.superseded && write.editor == GuestCommentEditor::Selection && write.handle == key &&
+            write.root == g_pickRoot && !write.id.empty()) {
+            if (outId) *outId = write.id;
+            if (outText) *outText = write.submitted;
+            return;
         }
     }
     if (outId) *outId = GenCommentId();
@@ -534,6 +542,7 @@ static void GuestCommentRestoreDraft(bool composer)
 // save completes, so the confirmation cannot live in it.
 static IInspectable* g_commentToast = nullptr;
 static UINT_PTR g_commentToastTimer = 0;
+static std::wstring g_commentToastText;   // the last confirmation shown
 
 static void HideCommentToast()
 {
@@ -559,6 +568,7 @@ static std::wstring CommentToastText(bool deleted, bool linked)
 static void ShowCommentToast(const std::wstring& text, bool problem)
 {
     HideCommentToast();
+    g_commentToastText = text;
     if (!g_canvasChildren) return;
     const DevToolsPalette& pal = DevToolsInverseAcrylicPalette();
     int w = 0, h = 0;
@@ -638,8 +648,12 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
             L"Submitted text was saved. Your newer draft is not saved yet.") :
         DevToolsCommentText::SavedStatus(write.authority != nullptr, write.linked);
     if (write.editor == GuestCommentEditor::Selection || write.editor == GuestCommentEditor::Delete) {
-        if (saved && !write.failed)
+        // A save that reached the store is never reported as not saved; one the refreshed comments disagree with
+        // says so.
+        if (saved && !write.superseded)
             ShowCommentToast(CommentToastText(write.editor == GuestCommentEditor::Delete, write.linked), false);
+        else if (saved)
+            ShowCommentToast(L"Comment saved, but it changed since. Reopen the element to check it.", true);
         else if (!GuestCommentMatchesEditor(false, false))
             ShowCommentToast(L"Comment not saved. Pick the element again to retry.", true);
     }

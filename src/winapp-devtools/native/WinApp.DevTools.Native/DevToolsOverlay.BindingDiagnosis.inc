@@ -423,7 +423,9 @@ static std::wstring BuildSelectionPanelMarkup(const std::wstring& title, const s
         { L"CMTLIMIT", g_guestCommentAuthority.load() ? std::wstring(L"65536") : std::wstring(L"0") },
         { L"CMTPLACEHOLDER", readOnly ? std::wstring(L"Mutation access is required to edit comments")
                                       : guestAuthority && !guestAuthority->Bound() ? std::wstring(L"Host comments are unavailable for this launch")
-                                      : !GuestCommentCanEdit(g_selHandle) ? std::wstring(L"Finish the earlier host save, then reselect this element")
+                                      : !GuestCommentCanEdit(g_selHandle) ? std::wstring(guestAuthority
+                                            ? L"Finish the earlier host save, then reselect this element"
+                                            : L"An earlier comment did not save. Reopen its element first")
                                       : std::wstring(L"Comment on this element&#x2026;") },
         { L"CMTDELVIS", readOnly || !GuestCommentCanEdit(g_selHandle) || commentText.empty() ? std::wstring(L"Collapsed") : std::wstring(L"Visible") },
     });
