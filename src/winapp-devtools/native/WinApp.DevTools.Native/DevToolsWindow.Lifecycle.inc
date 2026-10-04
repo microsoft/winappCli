@@ -90,6 +90,13 @@ if (g_route1WindowHidden) {
             }
             DevToolsOverlayLog(L"route1.open re-activate existing (live) window");
             SelectNodeByWire(preselectWire);
+            // The quick panel may have changed this element since the window last read it; re-read before
+            // revealing, rather than reveal a stale row.
+            if (preselectWire && preselectWire == g_selWire) {
+                WalkForget();
+                ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+            }
+            ApplyPendingReveal();
             return S_OK;
         }
         DevToolsOverlayLog(L"route1.open existing window was closed; rebuilding");

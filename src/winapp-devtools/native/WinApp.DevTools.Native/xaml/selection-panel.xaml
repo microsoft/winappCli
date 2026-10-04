@@ -20,6 +20,55 @@
     <Thickness x:Key="ExpanderHeaderBorderThickness">0</Thickness>
     <x:Double x:Key="ExpanderChevronButtonSize">24</x:Double>
     <Thickness x:Key="ExpanderChevronMargin">8,0,0,0</Thickness>
+    <!-- Segmented choice for small spatial enums: the checked segment is a raised pill inside a recessed track. -->
+    <Style x:Key="DevToolsSegment" TargetType="RadioButton">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalAlignment" Value="Stretch" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="4,0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Grid x:Name="Root" Background="Transparent" CornerRadius="3">
+              <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                  <VisualState x:Name="Normal" />
+                  <VisualState x:Name="PointerOver">
+                    <VisualState.Setters>
+                      <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                    </VisualState.Setters>
+                  </VisualState>
+                  <VisualState x:Name="Pressed">
+                    <VisualState.Setters>
+                      <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </VisualState.Setters>
+                  </VisualState>
+                  <VisualState x:Name="Disabled" />
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="CheckStates">
+                  <VisualState x:Name="Checked">
+                    <VisualState.Setters>
+                      <Setter Target="Pill.Opacity" Value="1" />
+                      <Setter Target="Label.Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                    </VisualState.Setters>
+                  </VisualState>
+                  <VisualState x:Name="Unchecked" />
+                  <VisualState x:Name="Indeterminate" />
+                </VisualStateGroup>
+              </VisualStateManager.VisualStateGroups>
+              <Border x:Name="Pill" Opacity="0" CornerRadius="3" BorderThickness="1"
+                      Background="{ThemeResource ControlFillColorDefaultBrush}"
+                      BorderBrush="{ThemeResource ControlElevationBorderBrush}" />
+              <ContentPresenter x:Name="Label" Content="{TemplateBinding Content}" Margin="{TemplateBinding Padding}"
+                                Foreground="{TemplateBinding Foreground}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
 
     <!-- Open animation origin sits on the leader line so the panel grows from the selected element. -->
     <Storyboard x:Name="DevToolsSelMorph">

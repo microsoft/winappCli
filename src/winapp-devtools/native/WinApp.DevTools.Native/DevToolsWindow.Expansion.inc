@@ -378,29 +378,79 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
     }
 
     const bool bound = (shown == DevToolsKind::XBind || shown == DevToolsKind::Binding);
-    if (bound) PostWalk(path);
+    if (bound) { PostWalk(path); PostDiagnose(path); }
     const WalkAnswer* answer = bound ? WalkFind(path) : nullptr;
     DevToolsPathWalkView wv;
     if (answer && answer->done) wv = DevToolsPathWalk_FromJson(answer->json, DevToolsBindingRelay_AgentPresent());
+    const DiagAnswer* diag = bound ? DiagFind(path) : nullptr;
+    DevToolsBindingSummary sum = (diag && diag->done) ? DevToolsBindingRow_Summary(diag->json) : DevToolsBindingSummary{};
+    // The XAML declares a binding but the element no longer has one: an edit replaced it with a local value.
+    const bool replaced = diag && diag->done &&
+        (BindingLost(path) || sum.tone == DevToolsBindingTone::Unknown || sum.tone == DevToolsBindingTone::NotBound);
+    if (replaced) {
+        sum.tone = DevToolsBindingTone::Warning;
+        sum.status = L"Replaced by a local value";
+        sum.reason = L"until you restore it or restart the app";
+        DevToolsJson act;
+        if (DevToolsJsonParse(diag->action, act) && act.IsObject() && act.GetString(L"state") != L"restored")
+            sum.reason = L"Restore failed: " + act.GetString(L"reason");
+    }
+    // With the managed answer in hand the labelled lines say it all; the native walk's prose is the fallback.
+    const bool knows = diag && diag->done && sum.tone != DevToolsBindingTone::Unknown;
+    const bool pending = (answer && !answer->done) || (diag && !diag->done);
+    const bool broken = sum.tone == DevToolsBindingTone::Broken;
+    if (knows || pending) wv.steps.clear();
 
     if (IInspectable* blk = FindInRow(fe, L"PDiagBlock")) {
-        ShowEl(blk, bound && (wv.show || (answer && !answer->done)));
-        SetAutomationTextOn(blk, path + L" binding diagnosis", path + L" binding diagnosis", L"");
+        ShowEl(blk, bound && (knows || wv.show || pending));
+        SetAutomationTextOn(blk, path + L" binding", path + L" binding", L"");
         blk->Release();
     }
+    if (IInspectable* g = FindInRow(fe, L"PBindSummary")) { ShowEl(g, knows); g->Release(); }
+    if (knows) {
+        auto put = [&](const wchar_t* name, const std::wstring& text) {
+            if (IInspectable* el = FindInRow(fe, name)) { SetTextOn(el, text); ShowEl(el, !text.empty()); el->Release(); }
+        };
+        put(L"PBindStatus", broken ? std::wstring() : sum.status);
+        put(L"PBindStatusBad", broken ? sum.status : std::wstring());
+        put(L"PBindReason", sum.reason);
+        // A replaced binding has no live source or path; the lines that would be blank are hidden instead.
+        put(L"PBindSource", replaced ? std::wstring() : (sum.source.empty() ? std::wstring(L"(unknown)") : sum.source));
+        put(L"PBindPath", replaced ? std::wstring() : sum.pathMode);
+        put(L"PBindValue", replaced ? std::wstring() : (sum.value.empty() ? std::wstring(broken ? L"(none)" : L"(empty)") : sum.value));
+    }
+    {
+        // Restore is offered once the binding has been replaced; on a working binding it would do nothing.
+        const bool offer = bound && g_ctx.bindFn && replaced;
+        if (IInspectable* row = FindInRow(fe, L"PBindRestoreRow")) { ShowEl(row, offer); row->Release(); }
+        if (IInspectable* note = FindInRow(fe, L"PBindRestoreNote")) { ShowEl(note, offer && shown == DevToolsKind::XBind); note->Release(); }
+        if (IInspectable* b = FindInRow(fe, L"PBindRestore")) {
+            SetAutomationTextOn(b, L"Restore the binding on " + path, L"", L"");
+            void* bb = nullptr;
+            if (offer && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+                BindRestoreSink* rs = new BindRestoreSink();
+                rs->Init(path, shown == DevToolsKind::XBind);
+                __int64 tok = 0;
+                DevToolsAddClick(bb, rs, &tok);
+                reinterpret_cast<IUnknown*>(bb)->Release();
+            }
+            b->Release();
+        }
+    }
     if (IInspectable* q = FindInRow(fe, L"PDiagQ")) {
-        const std::wstring qline = (answer && !answer->done)
-            ? std::wstring(DevToolsBindingRow_PendingText())
-            : wv.qHead + wv.qEmphasis + wv.qTail;
+        const std::wstring qline = knows ? std::wstring()
+            : (pending ? std::wstring(DevToolsBindingRow_PendingText()) : wv.qHead + wv.qEmphasis + wv.qTail);
         SetTextOn(q, qline);
         SetAutomationTextOn(q, path + L" binding question", path + L" binding question", L"");
         ShowEl(q, !qline.empty());
         q->Release();
     }
     if (IInspectable* a = FindInRow(fe, L"PDiag")) {
-        SetTextOn(a, wv.answer);
+        // While the managed answer is on its way, the native walk's prose would flash and then be replaced.
+        const std::wstring text = (knows || pending) ? std::wstring() : wv.answer;
+        SetTextOn(a, text);
         SetAutomationTextOn(a, path + L" binding answer", path + L" binding answer", L"");
-        ShowEl(a, !wv.answer.empty());
+        ShowEl(a, !text.empty());
         a->Release();
     }
     if (IInspectable* host = FindInRow(fe, L"PWalkLines")) {
@@ -446,7 +496,7 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
                          L"survive the ABI. A managed binding host loaded before app startup can read the "
                          L"inner exception directly. Everything else on this row works "
                          L"without it.");
-        ShowEl(d, wv.revealException);
+        ShowEl(d, wv.revealException && !knows);
         d->Release();
     }
 }

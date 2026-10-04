@@ -169,6 +169,28 @@ static void Test_ScopeWarningsCannotBeHiddenByNativeFallback()
     Check(confirm.subtitle.find(L"TestPage") != std::wstring::npos, "the owner is disclosed");
 }
 
+static void Test_SummaryIsAFewLabelledLines()
+{
+    std::printf("the summary reduces a diagnosis to status, source, path and value\n");
+    const auto bad = DevToolsBindingRow_Summary(kBadSegment);
+    Check(bad.tone == DevToolsBindingTone::Broken, "a missing segment is broken");
+    CheckEqW(bad.status, L"\u2715 Broken at NoSuchPropertyAtAll", "the status names the segment");
+    CheckEqW(bad.reason, L"not found on FixtureViewModel", "the reason is a few words");
+    CheckEqW(bad.source, L"FixtureViewModel (DataContext)", "the source names the DataContext type");
+    CheckEqW(bad.pathMode, L"NoSuchPropertyAtAll \u00b7 OneWay", "path and mode share one line");
+    const auto xbind = DevToolsBindingRow_Summary(kHealthyXBind);
+    Check(xbind.tone == DevToolsBindingTone::Works, "a resolving x:Bind works");
+    CheckEqW(xbind.source, L"MainWindow (x:Bind owner)", "an x:Bind names its owner");
+    const auto evaluated = DevToolsBindingRow_Summary(
+        LR"({"state":"evaluated","reason":"Forward path and CLR type evaluated only; target freshness was not checked.","resolvedValue":"Hello","path":"Greeting","source":"MainWindow","kind":"{x:Bind}","mode":"OneWay"})");
+    Check(evaluated.tone == DevToolsBindingTone::Works && evaluated.reason.empty(), "engine caveats stay out of the summary");
+    CheckEqW(evaluated.value, L"Hello", "the resolved value is shown");
+    Check(DevToolsBindingRow_Summary(kSilent).tone == DevToolsBindingTone::Warning, "a type mismatch is a warning, not a break");
+    Check(DevToolsBindingRow_Summary(kNotBound).tone == DevToolsBindingTone::NotBound, "an unbound property says so");
+    Check(DevToolsBindingRow_Summary(kUnavailable).tone == DevToolsBindingTone::Unknown, "no answer is unknown, never works");
+    Check(DevToolsBindingRow_Summary(L"not json").tone == DevToolsBindingTone::Unknown, "garbage is unknown");
+}
+
 int RunBindingRowTests()
 {
     std::printf("DevToolsBindingRow tests -- captured answers and scoped evaluation contracts\n");
@@ -179,5 +201,6 @@ int RunBindingRowTests()
     Test_UndiagnosableSaysSoRatherThanNothing();
     Test_EvaluationDoesNotClaimFreshness();
     Test_ScopeWarningsCannotBeHiddenByNativeFallback();
+    Test_SummaryIsAFewLabelledLines();
     return g_failures;
 }

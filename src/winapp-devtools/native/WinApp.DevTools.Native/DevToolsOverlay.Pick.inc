@@ -476,6 +476,9 @@ static void OnCatcherClick(void* sender, void*)
             g_selFocusCommentOnOpen = !IsInOpenPopup(g_pickDiag, picked);
             DevToolsOverlay_ShowBadgeForHandle(g_pickDiag, picked, /*fromUserPick*/ true);
             g_selFocusCommentOnOpen = false;
+            // The pick is done once its panel is up: leave pick mode so the toolbar stops showing it armed and the
+            // next click on the app reaches the app. Pick again to choose another element.
+            if (DevToolsSelPanelIsOpen()) ExitPickMode();
         }
         TrackingSync();
     }

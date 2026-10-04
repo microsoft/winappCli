@@ -225,6 +225,9 @@ HRESULT DevToolsOverlay_SetComments(IXamlDiagnostics* diag, InstanceHandle root,
 // False is logged locally; this callback never redirects to another host.
 typedef bool (*DevToolsInprocInspectFn)();
 void DevToolsOverlay_SetInprocInspect(DevToolsInprocInspectFn fn);
+// One-shot hand-off from the quick-edit panel: the property the inspector should reveal (expanded and scrolled
+// into view) for the element it opens on. False when the panel asked for nothing. UI thread only.
+bool DevToolsOverlay_TakeInspectorReveal(std::wstring* prop);
 
 
 // Precedence entries mirror DevToolsReadChainEntry without pulling wire-only fields into overlay ABI.
@@ -250,6 +253,7 @@ struct DevToolsCardRow
     std::wstring authoredKind;
     std::wstring authoredKey;
     std::vector<std::wstring> fields;
+    std::vector<std::wstring> enumValues;
     std::wstring valueState;
     std::wstring editKind;
     std::vector<DevToolsCardChainEntry> chain;

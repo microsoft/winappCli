@@ -30,6 +30,63 @@ static bool CanRereadSelection(bool* filterFocused)
     return true;
 }
 
+// The quick-edit panel's open-in-DevTools buttons land here: expand the requested property, then bring its row
+// into view once the repeater has laid it out. Focus stays put: moving it into a binding editor would start an
+// edit the user did not ask for.
+static std::wstring g_revealProp;
+static UINT_PTR     g_revealTimer = 0;
+static int          g_revealTries = 0;
+
+static void CALLBACK RevealTimerProc(HWND, UINT, UINT_PTR id, DWORD)
+{
+    int index = -1;
+    for (size_t k = 0; k < g_paneItems.size() && !g_revealProp.empty(); ++k) {
+        const DevToolsPaneItem& it = g_paneItems[k];
+        if (it.kind == DevToolsPaneItemKind::Row && it.rowIndex < g_propRows.size() &&
+            g_propRows[it.rowIndex].name == g_revealProp) { index = (int)k; break; }
+    }
+    bool done = index < 0 || !g_propRepeater;
+    if (!done) {
+        try {
+            winrt::Windows::Foundation::IInspectable object{ nullptr };
+            winrt::copy_from_abi(object, g_propRepeater);
+            const auto element = object.as<DevToolsXC::ItemsRepeater>().GetOrCreateElement(index);
+            DevToolsX::BringIntoViewOptions options;
+            options.AnimationDesired(false);
+            options.VerticalAlignmentRatio(0.0);
+            options.VerticalOffset(-36);
+            element.StartBringIntoView(options);
+            DevToolsOverlayLog(L"route1.props revealed '%s' at item %d", g_revealProp.c_str(), index);
+            // A window that is still sizing itself lays the pane out again, so settle over a few ticks.
+            done = ++g_revealTries >= 3;
+        } catch (...) {
+            done = ++g_revealTries >= 5;
+        }
+    }
+    if (done) {
+        KillTimer(nullptr, id);
+        g_revealTimer = 0;
+        g_revealProp.clear();
+    }
+}
+
+static void ApplyPendingReveal()
+{
+    std::wstring prop;
+    if (!DevToolsOverlay_TakeInspectorReveal(&prop) || prop.empty()) return;
+    if (!FindPropertyRow(g_propRows, prop)) {
+        DevToolsOverlayLog(L"route1.props reveal '%s': the selected element has no such row", prop.c_str());
+        return;
+    }
+    if (!PropIsExpanded(prop)) {
+        PropSetExpanded(prop, true);
+        RebuildPaneItems();
+    }
+    g_revealProp = prop;
+    g_revealTries = 0;
+    g_revealTimer = SetTimer(nullptr, g_revealTimer, 200, &RevealTimerProc);
+}
+
 static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, const std::wstring& breadcrumb,
                              bool force)
 {
@@ -329,6 +386,7 @@ g_propRows = rows;
                   (double)(tAuthor1.QuadPart - tAuthor0.QuadPart) * ms,
                   (double)(tParse1.QuadPart - tAuthor1.QuadPart) * ms,
                   (double)(tWire1.QuadPart - tParse1.QuadPart) * ms);
+    ApplyPendingReveal();
 }
 
 // Capture canonical XamlRoot identity for inspector census exclusion. If unavailable, retain

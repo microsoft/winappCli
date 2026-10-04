@@ -647,19 +647,27 @@ int main()
             DevToolsCardRow item;item.name=name;item.value=L"sample";all.push_back(item);
         }
         const auto curated=DevToolsSelCurateRows(all);
-        check(curated.size()==5, "quick peek", "at most five meaningful rows");
-        check(std::any_of(curated.begin(),curated.end(),[](const auto& item){return item.name==L"IsChecked";}),
-            "quick peek", "contextual checked value precedes generic layout defaults");
+        check(curated.size()==6, "quick peek", "at most six meaningful rows");
+        const auto checkBox=DevToolsSelCurateRows(all,L"CheckBox");
+        check(checkBox.size()>1 && checkBox[0].name==L"Content" && checkBox[1].name==L"IsChecked",
+            "quick peek", "a CheckBox leads with its content and checked state");
+        const auto stack=DevToolsSelCurateRows(all,L"StackPanel");
+        check(std::none_of(stack.begin(),stack.end(),[](const auto& item){return item.name==L"Text";}) && !stack.empty(),
+            "quick peek", "a panel without type-specific values still falls back to generic rows");
         row.name=L"Text";row.type=L"String";row.editKind=L"text";row.value=L"effective";
         row.source=L"Binding";row.binding=L"{Binding Title}";
         const auto markup=BuildSelRowsMarkup({row},false);
-        check(markup.find(L"x:Name=\"DevToolsSelEdit0\"") < markup.find(L"AutomationProperties.AutomationId=\"DevToolsSelBinding0\"") &&
-            markup.find(L"IsExpanded=\"False\"")!=std::wstring::npos,
-            "quick peek", "editor is inline; only binding details are disclosed on demand");
+        check(markup.find(L"x:Name=\"DevToolsSelEdit0\"")!=std::wstring::npos &&
+            markup.find(L"<Expander ")==std::wstring::npos,
+            "quick peek", "editor is inline and binding details are handed to the inspector, not disclosed in place");
         check(markup.find(L"Text=\"effective\"")!=std::wstring::npos &&
-            markup.find(L"Text=\"Binding details\"")!=std::wstring::npos &&
-            markup.find(L"Binding Title}\" FontSize=\"12\"")!=std::wstring::npos,
-            "quick peek", "effective value, binding expression and binding details are separate");
+            markup.find(L"Binding Title}\" FontSize=\"12\"")!=std::wstring::npos &&
+            markup.find(L"x:Name=\"DevToolsSelStatus0\"")!=std::wstring::npos &&
+            markup.find(L"x:Name=\"DevToolsSelReveal0\"")!=std::wstring::npos,
+            "quick peek", "a bound row shows its value, expression, compact status and an inspector hand-off");
+        check(markup.find(L"x:Name=\"DevToolsSelCaution0\" Visibility=\"Collapsed\"")!=std::wstring::npos &&
+            markup.find(L"Editing replaces {Binding Title} until the app restarts.")!=std::wstring::npos,
+            "quick peek", "the bound-edit caution is hidden until editing starts and names what an edit replaces");
         row.name=L"Opacity";row.type=L"Double";row.editKind=L"number";row.value=L"0.75";
         row.source.clear();row.binding.clear();
         const auto opacityMarkup=BuildSelRowsMarkup({row},false);
@@ -724,7 +732,7 @@ int main()
             "quick peek", "read-only posture never exposes mutation editors");
         all[0].valueState=L"unresolved";
         const auto available=DevToolsSelCurateRows(all);
-        check(available.size()==5 && std::none_of(available.begin(),available.end(),[](const auto& item){return item.name==L"Content";}),
+        check(available.size()==6 && std::none_of(available.begin(),available.end(),[](const auto& item){return item.name==L"Content";}),
             "quick peek","unresolved complex Content does not displace meaningful values");
         row.name=L"Width";row.type=L"Double";row.editKind=L"number";row.authored.clear();
         for (const auto* symbolic : {L"Auto",L"NaN",L"inf",L"Infinity",L"",L"not-a-number"}) {
@@ -733,8 +741,10 @@ int main()
                 "quick numeric seed","nonfinite symbolic or invalid numeric seed never creates a zero-initialized editor");
         }
         row.value=L"NaN";row.valueState=L"unset";
-        check(SelectionPreviewValue(row)==L"Auto" && !SelRowCanEdit(row),
-            "quick numeric seed","legitimate auto-sized Width remains Auto and read-only");
+        check(SelectionPreviewValue(row)==L"Auto" && SelRowCanEdit(row) &&
+            BuildSelRowsMarkup({row},false).find(L"Value=\"NaN\"")!=std::wstring::npos &&
+            BuildSelRowsMarkup({row},false).find(L"PlaceholderText=\"Auto\"")!=std::wstring::npos,
+            "quick numeric seed","auto-sized Width edits in an empty number box that reads Auto");
         row.name=L"MaxWidth";row.value=L"inf";
         check(SelectionPreviewValue(row)==L"Unbounded" && !SelRowCanEdit(row),
             "quick numeric seed","unconstrained maximum is distinct from Auto or zero");

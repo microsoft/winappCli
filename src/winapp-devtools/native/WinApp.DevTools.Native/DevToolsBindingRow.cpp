@@ -114,3 +114,69 @@ DevToolsBindingRowView DevToolsBindingRow_FromJson(const std::wstring& json)
     v.subtitle = reason.empty() ? L"this app could not answer" : reason;
     return v;
 }
+
+DevToolsBindingSummary DevToolsBindingRow_Summary(const std::wstring& json)
+{
+    DevToolsBindingSummary s;
+    DevToolsJson j;
+    if (json.empty() || !DevToolsJsonParse(json, j) || !j.IsObject()) {
+        s.status = L"Status unknown";
+        s.reason = L"the app did not answer";
+        return s;
+    }
+    const std::wstring state = j.GetString(L"state");
+    const std::wstring path  = j.GetString(L"path");
+    const std::wstring seg   = j.GetString(L"segment");
+    const std::wstring mode  = j.GetString(L"mode");
+    s.kind = j.GetString(L"kind");
+    s.source = j.GetString(L"source");
+    if (s.source.empty()) s.source = j.GetString(L"dataContextType");
+    if (s.source.rfind(L"DataContext=", 0) == 0) s.source = s.source.substr(12) + L" (DataContext)";
+    else if (!s.source.empty() && s.kind == L"{x:Bind}") s.source += L" (x:Bind owner)";
+    s.pathMode = path.empty() ? std::wstring(L"(no path)") : path;
+    if (!mode.empty()) s.pathMode += L" \u00b7 " + mode;
+    s.value = j.HasKey(L"resolvedValue") ? j.GetString(L"resolvedValue") : j.GetString(L"sourceValue");
+
+    if (state == L"none") { s.tone = DevToolsBindingTone::NotBound; s.status = L"Not bound"; return s; }
+    if (state == L"evaluated" || state == L"ok") { s.tone = DevToolsBindingTone::Works; s.status = L"\u2713 Works"; return s; }
+    if (state == L"silent") {
+        const std::wstring rtype = j.GetString(L"resolvedType"), ttype = j.GetString(L"targetType");
+        if (!rtype.empty() && !ttype.empty() && rtype != ttype) {
+            s.tone = DevToolsBindingTone::Warning;
+            s.status = L"\u26A0 Wrong type";
+            s.reason = L"resolves to " + rtype + L", " + j.GetString(L"targetProperty") + L" expects " + ttype;
+        } else {
+            s.tone = DevToolsBindingTone::Works;
+            s.status = L"\u2713 Works";
+        }
+        return s;
+    }
+    if (state == L"bad-segment" || state == L"null-link") {
+        s.tone = DevToolsBindingTone::Broken;
+        s.status = L"\u2715 Broken at " + (seg.empty() ? path : seg);
+        const std::wstring why = j.GetString(L"reason");
+        const size_t on = why.rfind(L" on ");
+        s.reason = state == L"null-link" ? std::wstring(L"the value before it is null")
+                 : on != std::wstring::npos ? L"not found on " + why.substr(on + 4)
+                 : std::wstring(L"not found on the source");
+        s.value.clear();
+        return s;
+    }
+    if (state == L"no-datacontext") {
+        s.tone = DevToolsBindingTone::Broken;
+        s.status = L"\u2715 No DataContext";
+        s.reason = L"nothing to bind to";
+        s.value.clear();
+        return s;
+    }
+    if (state == L"threw") {
+        s.tone = DevToolsBindingTone::Broken;
+        s.status = L"\u2715 " + (seg.empty() ? path : seg) + L" threw";
+        s.reason = L"its getter threw an exception";
+        s.value.clear();
+        return s;
+    }
+    s.status = L"Status unknown";
+    s.reason = j.GetString(L"reason");
+    return s;
+}

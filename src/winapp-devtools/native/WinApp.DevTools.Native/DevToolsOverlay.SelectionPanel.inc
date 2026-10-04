@@ -383,6 +383,8 @@ static void OnSelCommentGotFocus(void*, void*)
 static bool SelectionSourceIsTextEditor(IInspectable* source, bool ctrl);
 // Commits that editor in place, leaving focus (and the caret) where the user was typing.
 static void SelectionCommitTextEditor(IInspectable* source);
+// Puts a quick-edit editor holding an uncommitted change back to its committed value. False when it was clean.
+static bool SelectionRevertEditor(IInspectable* source);
 
 static void OnSelKeyDown(void* /*sender*/, void* args)
 {
@@ -397,7 +399,17 @@ static void OnSelKeyDown(void* /*sender*/, void* args)
     const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     bool handled = false;
 
+    winrt::com_ptr<IInspectable> escSource;
     if (key == kVkEscape) {
+        winrt::com_ptr<IUnknown> routedEsc;
+        if (SUCCEEDED(a->QueryInterface(DevToolsIid<DevToolsX::IRoutedEventArgs>(), routedEsc.put_void())))
+            DevToolsGetOriginalSource(routedEsc.get(), escSource.put());
+    }
+    if (key == kVkEscape && escSource && SelectionRevertEditor(escSource.get())) {
+        // Esc closes one layer at a time, and an uncommitted edit is the innermost layer.
+        handled = true;
+        DevToolsOverlayLog(L"overlay.sel key Esc -> reverted the uncommitted edit");
+    } else if (key == kVkEscape) {
         const bool queued = DismissSelectionPanel(!g_selRootLost);
         handled = true;
         DevToolsOverlayLog(L"overlay.sel key Esc -> commit+deselect queued=%d", (int)queued);
@@ -493,6 +505,12 @@ static void SetSelectionOperationError(const std::wstring& prop, const std::wstr
     }
 }
 
+// The runtime's own member list when the read found one, else the small built-in table.
+static std::vector<std::wstring> SelRowMembers(const DevToolsCardRow& row)
+{
+    return row.enumValues.empty() ? DevToolsEnumMembersFor(row.type) : row.enumValues;
+}
+
 static std::wstring SelectionPreviewValue(const DevToolsCardRow& row)
 {
     if (row.valueState == L"null") return L"(null)";
@@ -502,7 +520,7 @@ static std::wstring SelectionPreviewValue(const DevToolsCardRow& row)
         return L"Auto";
     }
     if (row.valueState == L"unresolved") return L"Unavailable";
-    const auto members = DevToolsEnumMembersFor(row.type);
+    const auto members = SelRowMembers(row);
     const int member = DevToolsEnumIndexOf(members, row.value);
     if (member >= 0) return members[(size_t)member];
     return row.value.empty() ? L"(empty)" : row.value;
@@ -581,10 +599,13 @@ static bool DevToolsSelApplyCommit(DevToolsWriteOutcome oc, const std::wstring& 
             if (x->btn) DevToolsPutVisibility(x->btn, 1);
             if (x->text) DevToolsPutVisibility(x->text, 0);
             if (x->textTb) {
-                HSTRING hs = DevToolsSelMakeStr(L"Binding replaced. Inspect restoration support in DevTools.");
+                HSTRING hs = DevToolsSelMakeStr(L"Binding replaced until the app restarts");
                 DevToolsPutText(x->textTb, hs); WindowsDeleteString(hs);
             }
         }
+        const auto row = std::find(g_selPreviewProperties.begin(), g_selPreviewProperties.end(), prop);
+        if (row != g_selPreviewProperties.end())
+            SetSelectionText(L"DevToolsSelStatus" + std::to_wstring(row - g_selPreviewProperties.begin()), L"");
         return true;
     }
 
@@ -624,9 +645,13 @@ static bool TrySelectionNumber(const std::wstring& text, double* value)
     return true;
 }
 
+// Set while Esc puts an editor back to its committed text, so the editor's own change events do not commit it.
+static bool g_selReverting = false;
+
 struct SelRowSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*) {
+        if (g_selReverting) return S_OK;
 // An inert sink returning S_OK with no trace is how a dropped commit stayed invisible for three issues: the
 // editor's value cannot be read here (the box is released during teardown), so say that the commit was refused
 // and let the reader decide whether the row held an edit.
@@ -647,14 +672,33 @@ struct SelRowSink : DevToolsSinkBase
         };
         if (number || slider) {
             double value = 0;
-            if (!std::isfinite(originalNumber)) return readFailed();
+            if (!allowAuto && !std::isfinite(originalNumber)) return readFailed();
             const HRESULT hr = slider ? DevToolsRangeGetValue(slider, &value) : DevToolsNumberBoxGetValue(number, &value);
-            if (FAILED(hr) || !std::isfinite(value)) return readFailed();
-            if (value == originalNumber) return S_OK;
-            std::wostringstream formatted;
-            formatted.imbue(std::locale::classic());
-            formatted << std::setprecision(17) << value;
-            val = formatted.str();
+            if (FAILED(hr)) return readFailed();
+            if (!std::isfinite(value)) {
+                // An emptied Width/Height box means Auto; anywhere else an empty number is not a value.
+                if (!allowAuto) return readFailed();
+                if (!std::isfinite(originalNumber)) return S_OK;
+                val = L"Auto";
+            } else {
+                if (value == originalNumber) return S_OK;
+                std::wostringstream formatted;
+                formatted.imbue(std::locale::classic());
+                formatted << std::setprecision(17) << value;
+                val = formatted.str();
+            }
+        } else if (!segments.empty()) {
+            int idx = -1;
+            for (size_t k = 0; k < segments.size(); ++k) {
+                try {
+                    winrt::Windows::Foundation::IInspectable seg{ nullptr };
+                    winrt::copy_from_abi(seg, segments[k]);
+                    const auto checked = seg.as<DevToolsXCP::ToggleButton>().IsChecked();
+                    if (checked && checked.Value()) { idx = (int)k; break; }
+                } catch (...) { return readFailed(); }
+            }
+            if (idx < 0 || idx >= (int)members.size()) return S_OK;
+            val = members[(size_t)idx];
         } else if (toggle) {
             bool on = false;
             if (FAILED(DevToolsToggleGetIsOn(toggle, &on))) return readFailed();
@@ -696,13 +740,19 @@ struct SelRowSink : DevToolsSinkBase
         using Changed = winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::NumberBox, DevToolsXC::NumberBoxValueChangedEventArgs>;
         InitSink(DevToolsIid<Changed>(), g_selGen);
     }
+    void InitSegments(const std::wstring& p, const std::wstring& t, const std::wstring& orig,
+                      std::vector<std::wstring> mem, std::vector<IInspectable*> buttons) {
+        prop = p; type = t; original = orig; members = std::move(mem); segments = std::move(buttons);
+        InitSink(IID_RoutedEventHandler_Del, g_selGen);
+    }
     void InitSlider(const std::wstring& p, const std::wstring& t, const std::wstring& orig, void* input, double seed) {
         prop = p; type = t; original = orig; slider = input; originalNumber = seed;
         InitSink(DevToolsIid<DevToolsXCP::RangeBaseValueChangedEventHandler>(), g_selGen);
     }
     void AcceptValue(const std::wstring& value) {
         original = value;
-        if (number || slider) TrySelectionNumber(value, &originalNumber);
+        if ((number || slider) && !TrySelectionNumber(value, &originalNumber))
+            originalNumber = std::numeric_limits<double>::quiet_NaN();
         if (box) RememberShown();
     }
     // Rows are a snapshot; a text editor re-reads its value when it gains focus, unless the user already typed.
@@ -740,8 +790,9 @@ struct SelRowSink : DevToolsSinkBase
     void*                     slider = nullptr;
     double                    originalNumber = std::numeric_limits<double>::quiet_NaN();
     std::wstring              prop, type, original, shown;
-    bool                      hasShown = false, multiline = false;
+    bool                      hasShown = false, multiline = false, allowAuto = false;
     std::vector<std::wstring> members;
+    std::vector<IInspectable*> segments;
 };
 
 struct SelRowFocusSink : DevToolsSinkBase

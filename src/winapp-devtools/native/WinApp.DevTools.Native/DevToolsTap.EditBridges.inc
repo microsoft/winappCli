@@ -100,9 +100,12 @@ static const wchar_t* CardMapType(const std::wstring& name)
 }
 
 // Preferred, reference-like display order for card rows (only those actually present on the element show).
+// The quick panel chooses its few rows per element type from these.
 static const wchar_t* const kCardOrder[] = {
-    L"Content", L"Text", L"Foreground", L"Background", L"FontSize", L"Opacity",
-    L"Visibility", L"IsEnabled", L"HorizontalAlignment", L"VerticalAlignment", L"Width", L"Height", L"Margin", L"Padding",
+    L"Content", L"Text", L"Header", L"PlaceholderText", L"IsChecked", L"IsOn", L"Foreground", L"Background",
+    L"BorderBrush", L"Fill", L"Stroke", L"FontSize", L"FontFamily", L"TextWrapping", L"Opacity", L"Visibility", L"IsEnabled",
+    L"Orientation", L"Spacing", L"HorizontalAlignment", L"VerticalAlignment", L"Width", L"Height", L"Margin",
+    L"Padding", L"BorderThickness", L"CornerRadius", L"Stretch",
 };
 
 static DevToolsCardRow ToCardRow(const DevToolsReadProp& p);
@@ -288,6 +291,7 @@ static DevToolsCardRow ToCardRow(const DevToolsReadProp& p)
     row.authoredKind = p.authoredKind;
     row.authoredKey = p.authoredKey;
     row.fields = p.fields;
+    row.enumValues = p.enumValues;
     row.valueState = p.valueState;
     row.editKind = p.editKind;
     for (const auto& c : p.chain) {

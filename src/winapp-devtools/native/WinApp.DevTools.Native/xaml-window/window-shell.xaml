@@ -450,6 +450,42 @@
 
                 </StackPanel>
 
+                <!-- Binding status as a few labelled lines. The engine's caveats stay in the diagnose-binding JSON. -->
+                <StackPanel x:Name="PDiagBlock" Visibility="Collapsed" Margin="0,10,0,0" Spacing="4">
+                  <TextBlock Text="BINDING" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                  <Grid x:Name="PBindSummary" Visibility="Collapsed" ColumnDefinitions="88,*" RowDefinitions="Auto,Auto,Auto,Auto"
+                        ColumnSpacing="8" RowSpacing="4">
+                    <TextBlock Text="Status" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel Grid.Column="1" Spacing="2">
+                      <TextBlock x:Name="PBindStatus" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                      <TextBlock x:Name="PBindStatusBad" FontSize="12" Visibility="Collapsed" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                      <TextBlock x:Name="PBindReason" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                    <TextBlock Grid.Row="1" Text="Source" FontSize="12" Visibility="{Binding Visibility, ElementName=PBindSource}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="PBindSource" Grid.Row="1" Grid.Column="1" FontSize="12" IsTextSelectionEnabled="True" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Grid.Row="2" Text="Path &#x00B7; Mode" FontSize="12" Visibility="{Binding Visibility, ElementName=PBindPath}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="PBindPath" Grid.Row="2" Grid.Column="1" FontSize="12" FontFamily="Consolas" IsTextSelectionEnabled="True" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Grid.Row="3" Text="Value" FontSize="12" Visibility="{Binding Visibility, ElementName=PBindValue}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="PBindValue" Grid.Row="3" Grid.Column="1" FontSize="12" IsTextSelectionEnabled="True" TextTrimming="CharacterEllipsis"/>
+                  </Grid>
+                  <StackPanel x:Name="PBindRestoreRow" Visibility="Collapsed" Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                    <Button x:Name="PBindRestore" Content="Restore binding" FontSize="12" Padding="8,4,8,4" MinHeight="0"
+                            ToolTipService.ToolTip="Re-attach the binding written in your XAML"/>
+                    <TextBlock x:Name="PBindRestoreNote" FontSize="12" VerticalAlignment="Center" Visibility="Collapsed"
+                               Text="Re-applies every x:Bind on this page." Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
+                  </StackPanel>
+                  <TextBlock x:Name="PDiagQ" FontSize="12" FontFamily="Consolas" TextWrapping="Wrap" Visibility="Collapsed"
+                             IsTextSelectionEnabled="True"/>
+                  <TextBlock x:Name="PDiag" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" IsTextSelectionEnabled="True"
+                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                  <Border x:Name="PWalk" Visibility="Collapsed" Margin="0,4,0,0" Padding="7,3,0,3"
+                          BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <StackPanel x:Name="PWalkLines" Spacing="1"/>
+                  </Border>
+                  <TextBlock x:Name="PWalkAgentNote" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,4,0,0"
+                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                </StackPanel>
+
                 <Border x:Name="PStaged" Visibility="Collapsed" Margin="0,8,0,0" Padding="8,6,8,7"
                         BorderThickness="2,0,0,0" CornerRadius="0,4,4,0"
                         BorderBrush="{ThemeResource SystemFillColorCautionBrush}">
@@ -475,7 +511,7 @@
                 <TextBlock x:Name="PEditedWas" FontSize="11" FontFamily="Consolas" TextWrapping="Wrap" Visibility="Collapsed" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
                   <Button x:Name="PRestore" Content="Restore original" FontSize="11" Padding="8,4,8,4" MinHeight="0" Visibility="Collapsed" ToolTipService.ToolTip="Restore: put this property back to the value it had before you changed it."/>
-                  <Button x:Name="PClear" Content="Clear value" FontSize="11" Padding="8,4,8,4" MinHeight="0" Visibility="Collapsed" ToolTipService.ToolTip="Clear value: DELETES the local value. The property falls back to its default and any binding or resource link is gone. This is not an undo."/>
+                  <Button x:Name="PClear" Content="Clear value" FontSize="11" Padding="8,4,8,4" MinHeight="0" Visibility="Collapsed" ToolTipService.ToolTip="Removes the local value. The property falls back to its default and loses any binding or resource link."/>
                 </StackPanel>
 
                 <TextBlock x:Name="PDerivedHdr" Text="DERIVED FROM" FontSize="10" CharacterSpacing="60" Margin="0,10,0,3" Visibility="Collapsed" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
@@ -505,18 +541,6 @@
 
                 <StackPanel x:Name="PChildren" Visibility="Collapsed" Margin="0,6,0,0" Spacing="0"/>
 
-                <StackPanel x:Name="PDiagBlock" Visibility="Collapsed" Margin="0,10,0,0" Spacing="2">
-                  <TextBlock x:Name="PDiagQ" FontSize="12" FontFamily="Consolas" TextWrapping="Wrap" Visibility="Collapsed"
-                             IsTextSelectionEnabled="True"/>
-                  <TextBlock x:Name="PDiag" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" IsTextSelectionEnabled="True"
-                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                  <Border x:Name="PWalk" Visibility="Collapsed" Margin="0,4,0,0" Padding="7,3,0,3"
-                          BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <StackPanel x:Name="PWalkLines" Spacing="1"/>
-                  </Border>
-                  <TextBlock x:Name="PWalkAgentNote" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,4,0,0"
-                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                </StackPanel>
 
               </StackPanel>
             </Border>

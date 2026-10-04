@@ -57,54 +57,29 @@ static void SelDiagShow(const std::wstring& name, bool visible)
     }
 }
 
-// UI thread only.
+// UI thread only. The panel shows one compact status per bound row; the full diagnosis lives in the inspector.
 static void SelDiagApply(const DevToolsSelDiagRow& r)
 {
     const std::wstring i = std::to_wstring(r.index);
-    const DevToolsBindingRowView v = DevToolsBindingRow_FromJson(r.json);
-// `agentPresent` is the relay's own answer about itself, not a guess from the launch flags: with the agent
-// loaded the thrown-getter row names the exception, and without it the row says what it cannot see.
-    const DevToolsPathWalkView w = r.walkJson.empty() || v.suppressNativeWalk
-        ? DevToolsPathWalkView{}
-        : DevToolsPathWalk_FromJson(r.walkJson, DevToolsBindingRelay_AgentPresent());
-
-    const bool walkSpeaks = w.show && (!v.show || v.unavailable);
-    SelDiagShow(L"DevToolsSelDiag" + i, v.show || w.show);
-    if (walkSpeaks) {
-        SelDiagSetText(L"DevToolsSelDiagPre" + i,  w.qHead);
-        SelDiagSetText(L"DevToolsSelDiagSeg" + i,  w.qEmphasis);
-        SelDiagSetText(L"DevToolsSelDiagTail" + i, w.qTail);
-        SelDiagSetText(L"DevToolsSelDiagWhy" + i,  w.answer);
-    } else if (v.show) {
-        SelDiagSetText(L"DevToolsSelDiagPre" + i,  v.head);
-        SelDiagSetText(L"DevToolsSelDiagSeg" + i,  v.headEmphasis);
-        SelDiagSetText(L"DevToolsSelDiagTail" + i, v.headTail);
-        SelDiagSetText(L"DevToolsSelDiagWhy" + i,  v.subtitle);
+    DevToolsBindingSummary s = DevToolsBindingRow_Summary(r.json);
+// Without the managed agent the native walk still names the segment where a path stops.
+    if (s.tone == DevToolsBindingTone::Unknown && !r.walkJson.empty()) {
+        const DevToolsPathWalkView w = DevToolsPathWalk_FromJson(r.walkJson, DevToolsBindingRelay_AgentPresent());
+        for (const auto& step : w.steps) {
+            if (!step.stop || step.outcome == DevToolsWalkOutcome::Resolved || step.outcome == DevToolsWalkOutcome::NotReached)
+                continue;
+            s.tone = DevToolsBindingTone::Broken;
+            s.status = L"\u2715 Broken at " + step.path;
+            break;
+        }
     }
-
-// The walk is the diagnosis's EVIDENCE, not a section of its own: it renders only where a question is already
-// being asked, and a row with nothing wrong gets none. The probe costs a round trip and must not run on twenty
-// rows of a working element.
-    const std::wstring walkText = DevToolsPathWalk_PlainText(w);
-    SelDiagShow(L"DevToolsSelDiagWalk" + i, !walkText.empty());
-    if (!walkText.empty()) {
-        SelDiagSetText(L"DevToolsSelDiagWalk" + i, walkText);
-    }
-
-// They are named for what they DO: Restore binding re-attaches the authored binding; Clear value deletes,
-// leaving the property at its default with no binding.
-    SelDiagShow(L"DevToolsSelBindBtns" + i, r.restorable && !g_selDiagReadOnly);
-    SelDiagSetText(L"DevToolsSelRestoreLabel" + i, r.confirmOwnerRebind ? L"Confirm owner-wide restore" : L"Restore binding");
-    std::wstring disclosure = r.editWarning;
-    if (!r.restoreWarning.empty()) disclosure += (disclosure.empty() ? L"" : L"  ") + r.restoreWarning;
-    if (!r.restoreDisclosure.empty()) disclosure += (disclosure.empty() ? L"" : L"  ") + r.restoreDisclosure;
-    if (r.writesThrough && !r.writesThroughTo.empty()) {
-        disclosure += L"  Editing writes through to " + r.writesThroughTo;
-    }
-    SelDiagShow(L"DevToolsSelThrough" + i, !disclosure.empty());
-    if (!disclosure.empty()) {
-        SelDiagSetText(L"DevToolsSelThrough" + i, disclosure);
-    }
+    const bool bad = s.tone == DevToolsBindingTone::Broken;
+    SelDiagSetText(L"DevToolsSelStatus" + i, bad ? std::wstring() : s.status);
+    SelDiagShow(L"DevToolsSelStatus" + i, !bad);
+    SelDiagSetText(L"DevToolsSelStatusBad" + i, bad ? s.status : std::wstring());
+    SelDiagShow(L"DevToolsSelStatusBad" + i, bad);
+    if (r.writesThrough && !r.writesThroughTo.empty())
+        SelDiagSetText(L"DevToolsSelCaution" + i, L"Editing also writes to " + r.writesThroughTo + L".");
 }
 
 static void CALLBACK SelDiagTimerProc(HWND, UINT, UINT_PTR, DWORD)
@@ -215,7 +190,7 @@ static void SelDiagBegin(IInspectable* root, const std::vector<DevToolsCardRow>&
 
     std::vector<DevToolsSelDiagRow> want;
     for (size_t i = 0; i < rows.size(); i++) {
-        if (!SelRowHasExpression(rows[i])) continue;
+        if (!SelRowIsBinding(rows[i])) continue;
         DevToolsSelDiagRow r; r.index = i; r.prop = rows[i].name;
         want.push_back(std::move(r));
     }
@@ -242,76 +217,6 @@ static void SelDiagBegin(IInspectable* root, const std::vector<DevToolsCardRow>&
         ReleaseSRWLockExclusive(&g_selDiagLock);
     }
     if (!g_selDiagTimer) g_selDiagTimer = SetTimer(nullptr, 0, 100, &SelDiagTimerProc);
-}
-
-// Run one Restore binding / Clear value, then re-diagnose that row so the panel shows the RESULT rather than
-// the state the row was in when the button was pressed. UI thread entry; the work happens on a worker.
-struct SelDiagAction { size_t index; std::wstring prop; std::wstring op; unsigned long long gen; unsigned long long wire; };
-
-static DWORD WINAPI SelDiagActionWorker(LPVOID param)
-{
-    std::unique_ptr<SelDiagAction> a(reinterpret_cast<SelDiagAction*>(param));
-    if (g_bindAsk && a->wire) {
-        std::wstring actionJson, diagJson;
-        g_bindAsk(a->wire, a->op.c_str(), a->prop.c_str(), &actionJson);
-        DevToolsJson answer;
-        const bool parsed = DevToolsJsonParse(actionJson, answer) && answer.IsObject();
-        const bool confirm = parsed && answer.GetString(L"state") == L"confirmation-required";
-        const bool changed = parsed && (answer.GetString(L"state") == L"restored" || answer.GetString(L"state") == L"cleared");
-// A refused action must remain visible.
-        if (changed) g_bindAsk(a->wire, L"diagnose", a->prop.c_str(), &diagJson);
-        else diagJson = actionJson;
-        AcquireSRWLockExclusive(&g_selDiagLock);
-        if (a->gen == g_selDiagGen) {
-            for (auto& r : g_selDiagRows) {
-                if (r.index != a->index) continue;
-                r.json = diagJson.empty() ? DevToolsBindingRelay_UnavailableJson(L"the app did not answer") : diagJson;
-                r.walkJson.clear();
-                r.confirmOwnerRebind = confirm;
-                if (answer.HasKey(L"restoreDisclosure")) r.restoreDisclosure = answer.GetString(L"restoreDisclosure");
-                r.applied = false;
-// Clear value DELETES the binding, so there is nothing left to restore afterwards. Leaving the button up would
-// offer an undo that cannot work.
-                // Clear value deletes the binding; do not offer an undo that cannot restore it.
-                if (a->op == L"clear" && changed) r.restorable = false;
-                break;
-            }
-        }
-        ReleaseSRWLockExclusive(&g_selDiagLock);
-    }
-    InterlockedExchange(&g_selDiagBusy, 0);
-    return 0;
-}
-
-static void SelDiagRunAction(size_t index, const std::wstring& prop, const wchar_t* op)
-{
-    if (!g_bindAsk || InterlockedCompareExchange(&g_selDiagBusy, 1, 0) != 0) return;
-    unsigned long long wire = 0, gen = 0;
-    std::wstring action = op;
-    {
-        AcquireSRWLockExclusive(&g_selDiagLock);
-        wire = g_selDiagHandle; gen = g_selDiagGen;
-        for (auto& r : g_selDiagRows) {
-            if (r.index != index) continue;
-            if (action == L"restore" && r.applied && r.confirmOwnerRebind) action = L"restoreconfirmed";
-            r.confirmOwnerRebind = false;
-            break;
-        }
-        ReleaseSRWLockExclusive(&g_selDiagLock);
-    }
-    if (!wire) { InterlockedExchange(&g_selDiagBusy, 0); return; }
-
-    auto* a = new SelDiagAction{ index, prop, action, gen, wire };
-    if (HANDLE th = CreateThread(nullptr, 0, DevToolsThreadEntry<SelDiagActionWorker>, a, 0, nullptr)) {
-        CloseHandle(th);
-// Started HERE because a timer with a null hwnd belongs to the thread that creates it, and only this thread may
-// touch XAML.
-        // The UI-thread timer owns XAML updates; a null-HWND timer belongs to the thread that created it.
-        if (!g_selDiagTimer) g_selDiagTimer = SetTimer(nullptr, 0, 100, &SelDiagTimerProc);
-    } else {
-        InterlockedExchange(&g_selDiagBusy, 0);
-        delete a;
-    }
 }
 
 // UI thread; called from ClearSelectionAnchor.
@@ -549,11 +454,11 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
         DevToolsOverlayLog(L"overlay.sel read failed");
         return;
     }
-    rows = DevToolsSelCurateRows(rows);
 // Header reads "Button #CounterButton", not the fully-qualified type -- the panel is 400 DIP wide and the
 // namespace ate it (the header was ellipsised before the element's own name was visible).
     size_t dot = type.rfind(L'.');
     std::wstring shortType = (dot == std::wstring::npos) ? type : type.substr(dot + 1);
+    rows = DevToolsSelCurateRows(rows, shortType);
     std::wstring title = shortType;
     std::wstring titleTip = type;
     if (!name.empty()) { title += L"  #"; title += name; titleTip += L"  #" + name; }
@@ -588,7 +493,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
     int estimatedHeight = 304;
     for (const auto& row : rows) {
         estimatedHeight += 40;
-        if (SelRowHasExpression(row)) estimatedHeight += 60;
+        if (SelRowHasExpression(row)) estimatedHeight += 32;
         if (DevToolsEditText::IsMultiline(row.value)) estimatedHeight += 72;
     }
     DevToolsSelection::Rect viewport{ 0, 0, w, h };

@@ -359,7 +359,8 @@ static WalkAnswer* WalkFind(const std::wstring& prop)
         if (a.prop == prop && a.tryPath.empty() && a.wire == g_selWire && a.gen == g_route1Gen) return &a;
     return nullptr;
 }
-static void WalkForget() { g_walkAnswers.clear(); }
+static void DiagForgetAll();
+static void WalkForget() { g_walkAnswers.clear(); DiagForgetAll(); }
 
 struct WalkAsk { InstanceHandle wire; std::wstring prop; std::wstring tryPath; unsigned gen; };
 
@@ -416,6 +417,113 @@ static void PostWalk(const std::wstring& prop)
         delete ask;
     }
 }
+
+// The managed diagnosis behind the BINDING lines. Same worker-and-drain shape as the walk, keyed by selection
+// and property. Capture runs only while a binding is live: capturing after a local write has replaced it would
+// overwrite the capture the quick panel took at pick time, and with it the only way back.
+struct DiagAnswer { unsigned gen; InstanceHandle wire; std::wstring prop; std::wstring json; std::wstring action;
+                    bool done; };
+static std::vector<DiagAnswer> g_diagAnswers;
+static SRWLOCK                 g_diagLock = SRWLOCK_INIT;
+static std::vector<DiagAnswer> g_diagDone;
+static UINT_PTR                g_diagTimer = 0;
+static volatile LONG           g_diagRestoreBusy = 0;
+static volatile LONG           g_diagOutstanding = 0;
+
+static DiagAnswer* DiagFind(const std::wstring& prop)
+{
+    for (auto& a : g_diagAnswers)
+        if (a.prop == prop && a.wire == g_selWire && a.gen == g_route1Gen) return &a;
+    return nullptr;
+}
+static void DiagForgetAll() { g_diagAnswers.clear(); }
+
+struct DiagAsk { InstanceHandle wire; std::wstring prop; std::wstring op; unsigned gen; };
+
+static DWORD WINAPI DiagWorker(LPVOID param)
+{
+    std::unique_ptr<DiagAsk> ask(reinterpret_cast<DiagAsk*>(param));
+    DiagAnswer r{ ask->gen, ask->wire, ask->prop, std::wstring(), std::wstring(), true };
+    if (g_ctx.bindFn) {
+        if (!ask->op.empty()) g_ctx.bindFn(ask->wire, ask->op, ask->prop, std::wstring(), std::wstring(), &r.action);
+        g_ctx.bindFn(ask->wire, L"diagnose", ask->prop, std::wstring(), std::wstring(), &r.json);
+        const DevToolsBindingTone tone = DevToolsBindingRow_Summary(r.json).tone;
+        if (tone == DevToolsBindingTone::Works || tone == DevToolsBindingTone::Broken || tone == DevToolsBindingTone::Warning) {
+            std::wstring ignored;
+            g_ctx.bindFn(ask->wire, L"capture", ask->prop, std::wstring(), std::wstring(), &ignored);
+        }
+    }
+    AcquireSRWLockExclusive(&g_diagLock);
+    g_diagDone.push_back(r);
+    ReleaseSRWLockExclusive(&g_diagLock);
+    if (!ask->op.empty()) InterlockedExchange(&g_diagRestoreBusy, 0);
+    InterlockedDecrement(&g_diagOutstanding);
+    return 0;
+}
+
+static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
+{
+    std::vector<DiagAnswer> done;
+    AcquireSRWLockExclusive(&g_diagLock);
+    done.swap(g_diagDone);
+    ReleaseSRWLockExclusive(&g_diagLock);
+    // The managed answer takes longer than one tick; stop only once nothing is still being asked.
+    if (done.empty()) {
+        if (InterlockedCompareExchange(&g_diagOutstanding, 0, 0) == 0) { KillTimer(nullptr, id); g_diagTimer = 0; }
+        return;
+    }
+    bool any = false;
+    for (const DiagAnswer& a : done) {
+        if (a.gen != g_route1Gen || a.wire != g_selWire) continue;
+        if (DiagAnswer* existing = DiagFind(a.prop)) *existing = a;
+        else g_diagAnswers.push_back(a);
+        any = true;
+    }
+    if (any) ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+}
+
+static bool StartDiag(const std::wstring& prop, const std::wstring& op)
+{
+    DiagAsk* ask = new DiagAsk{ g_selWire, prop, op, g_route1Gen };
+    InterlockedIncrement(&g_diagOutstanding);
+    if (HANDLE th = CreateThread(nullptr, 0, DevToolsThreadEntry<DiagWorker>, ask, 0, nullptr)) {
+        CloseHandle(th);
+        if (!g_diagTimer) g_diagTimer = SetTimer(nullptr, 0, 100, &DiagTimerProc);
+        return true;
+    }
+    InterlockedDecrement(&g_diagOutstanding);
+    delete ask;
+    return false;
+}
+
+static void PostDiagnose(const std::wstring& prop)
+{
+    if (!g_ctx.bindFn || !g_selWire || prop.empty() || DiagFind(prop)) return;
+    g_diagAnswers.push_back({ g_route1Gen, g_selWire, prop, std::wstring(), std::wstring(), false });
+    if (!StartDiag(prop, std::wstring())) g_diagAnswers.pop_back();
+}
+
+// Restore binding: re-attach what the XAML declares, then read the binding again so the lines show the result.
+struct BindRestoreSink : DevToolsSinkBase
+{
+    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
+    {
+        if (gen != g_route1Gen || wire != g_selWire) return S_OK;
+        if (InterlockedCompareExchange(&g_diagRestoreBusy, 1, 0) != 0) return S_OK;
+        SetStatusText(L"Restoring the binding on " + prop + L"...");
+        if (!StartDiag(prop, xbind ? L"restoreconfirmed" : L"restore")) {
+            InterlockedExchange(&g_diagRestoreBusy, 0);
+            SetStatusText(L"Could not start restoring " + prop);
+            return S_OK;
+        }
+        for (size_t i = g_bindingLost.size(); i-- > 0;) if (g_bindingLost[i] == prop) g_bindingLost.erase(g_bindingLost.begin() + i);
+        return S_OK;
+    }
+    void Init(const std::wstring& p, bool x) { prop = p; xbind = x; wire = g_selWire; InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
+    std::wstring prop;
+    InstanceHandle wire = 0;
+    bool xbind = false;
+};
 
 static const UINT kValidateIdleMs = 400;
 
