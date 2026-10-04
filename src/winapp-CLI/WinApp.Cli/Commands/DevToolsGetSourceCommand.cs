@@ -65,13 +65,18 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
 
             var root = doc.RootElement;
             var file = ReadString(root, "fileName");
-            var line = root.TryGetProperty("lineNumber", out var l) && l.TryGetInt32(out var lineNumber) ? lineNumber : 0;
-            var column = root.TryGetProperty("columnNumber", out var c) && c.TryGetInt32(out var col) ? col : 0;
+            var line = ReadInt(root, "lineNumber");
+            var column = ReadInt(root, "columnNumber");
             var authoredState = ReadString(root, "authoredState");
-            var authoredLine = root.TryGetProperty("authoredLineNumber", out var al) && al.TryGetInt32(out var authoredLineNumber) ? authoredLineNumber : 0;
-            var authoredColumn = root.TryGetProperty("authoredColumnNumber", out var ac) && ac.TryGetInt32(out var authoredCol) ? authoredCol : 0;
-            var coordinateProvenance = ReadString(root, "coordinateProvenance");
-            var authoredFile = ReadString(root, "authoredFileName");
+            var authoredLine = ReadInt(root, "authoredLineNumber");
+            var authoredEndLine = ReadInt(root, "authoredEndLineNumber");
+            var authoredColumn = ReadInt(root, "authoredColumnNumber");
+            var provenance = ReadString(root, "coordinateProvenance") switch
+            {
+                "disk-matched-unique-declaration" => "disk-matched",
+                "likely-source-line" => "likely",
+                _ => "",
+            };
             var sourceEvidence = ReadString(root, "sourceEvidence");
             var xaml = ReadString(root, "xaml");
 
@@ -81,6 +86,12 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             const string NoSource =
                 "No XAML source is recorded for this element. Framework, template or generated elements " +
                 "may have no app-authored declaration.";
+            var confirmed = authoredLine > 0 && authoredColumn > 0 && provenance.Length > 0;
+            var projectFile = confirmed && ReadString(root, "authoredFileName") is { Length: > 0 } authoredFile
+                ? authoredFile
+                : DevToolsFormat.ShortFileName(file) ?? file;
+            var endLine = Math.Max(authoredLine, authoredEndLine);
+            var path = hasSource ? ProjectPath(target, projectFile, cancellationToken) : null;
 
             if (json)
             {
@@ -92,9 +103,18 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     WriteWarning(writer);
                     if (hasSource)
                     {
-                        writer.WriteString("fileName", file);
-                        writer.WriteNumber("lineNumber", line);
-                        writer.WriteNumber("columnNumber", column);
+                        writer.WriteString("file", projectFile);
+                        if (path is not null)
+                        {
+                            writer.WriteString("path", path);
+                        }
+                        if (confirmed)
+                        {
+                            writer.WriteNumber("line", authoredLine);
+                            writer.WriteNumber("endLine", endLine);
+                            writer.WriteNumber("column", authoredColumn);
+                            writer.WriteString("provenance", provenance);
+                        }
                     }
 
                     if (authoredState.Length > 0)
@@ -102,13 +122,6 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                         writer.WriteString("authoredState", authoredState);
                     }
                     if (sourceEvidence.Length > 0) { writer.WriteString("sourceEvidence", sourceEvidence); }
-                    if (authoredLine > 0 && authoredColumn > 0 && coordinateProvenance.Length > 0)
-                    {
-                        writer.WriteNumber("authoredLineNumber", authoredLine);
-                        writer.WriteNumber("authoredColumnNumber", authoredColumn);
-                        writer.WriteString("coordinateProvenance", coordinateProvenance);
-                        if (authoredFile.Length > 0) { writer.WriteString("authoredFileName", authoredFile); }
-                    }
 
                     if (xaml.Length > 0)
                     {
@@ -116,10 +129,19 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     }
                     else if (hasSource && authoredState.Length > 0 && authoredState != "available")
                     {
-                        writer.WriteString("xamlUnavailable", DescribeAuthoredState(authoredState, ShortFile(file)));
+                        writer.WriteString("xamlUnavailable", DescribeAuthoredState(authoredState, projectFile));
                     }
 
-                    if (!hasSource)
+                    if (hasSource)
+                    {
+                        // Where the runtime recorded the element: the end of its start tag, not its declaration.
+                        writer.WriteStartObject("runtime");
+                        writer.WriteString("file", file);
+                        writer.WriteNumber("line", line);
+                        writer.WriteNumber("column", column);
+                        writer.WriteEndObject();
+                    }
+                    else
                     {
                         DevToolsJson.WriteError(writer, "source-unavailable", NoSource);
                     }
@@ -134,19 +156,25 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                 return Task.FromResult(1);
             }
 
-            var shortFile = ShortFile(file);
-            DevToolsRender.WriteMarkupLine(Console, $"  {Markup.Escape(shortFile)}:{line}:{column}");
-            if (authoredLine > 0 && authoredColumn > 0 && coordinateProvenance.Length > 0)
+            if (confirmed)
             {
-                var tier = authoredState == "likely" ? "likely source; confirmation required for comments" : "disk-matched";
-                DevToolsRender.WriteMarkupLine(Console, $"  Authored declaration: {Markup.Escape(authoredFile.Length > 0 ? authoredFile : shortFile)}:{authoredLine}:{authoredColumn} ({tier})");
+                var range = endLine > authoredLine ? $"{authoredLine}-{endLine}" : $"{authoredLine}";
+                var tier = provenance == "likely" ? " [yellow](likely source; confirmation required for comments)[/]" : "";
+                DevToolsRender.WriteMarkupLine(Console, $"  {Markup.Escape(projectFile)}:{range}{tier}");
                 if (sourceEvidence.Length > 0) { DevToolsRender.WriteMarkupLine(Console, $"  [grey]{Markup.Escape(sourceEvidence)}[/]"); }
-                Console.MarkupLine("  [grey]The running app may retain different XAML after a rebuild or hot reload.[/]");
+            }
+            else if (xaml.Length > 0)
+            {
+                DevToolsRender.WriteMarkupLine(Console, $"  {Markup.Escape(projectFile)} [grey](declaration line not confirmed for this build)[/]");
+            }
+            else
+            {
+                var reason = authoredState.Length > 0 && authoredState != "available"
+                    ? DescribeAuthoredState(authoredState, projectFile)
+                    : "The declaration is not confirmed.";
+                DevToolsRender.WriteMarkupLine(Console, $"  {Markup.Escape(projectFile)}: [yellow]{Markup.Escape(reason)}[/]");
             }
 
-            // authoredState says whether the AUTHORED MARKUP could be read, which is a different question from
-            // whether the file/line is known. Conflating them would let a missing `xaml` block read as "this
-            // element declares nothing", so each state gets its own sentence.
             if (xaml.Length > 0)
             {
                 Console.WriteLine();
@@ -155,24 +183,36 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     DevToolsRender.WriteMarkupLine(Console, $"  [grey]{Markup.Escape(xamlLine)}[/]");
                 }
             }
-            else if (authoredState.Length > 0 && authoredState != "available")
-            {
-                DevToolsRender.WriteMarkupLine(Console, $"  [grey]{Markup.Escape(DescribeAuthoredState(authoredState, shortFile))}[/]");
-            }
 
             return Task.FromResult(0);
         }
 
-        private static string ShortFile(string file) => DevToolsFormat.ShortFileName(file) ?? file;
+        // The absolute path of a project file, when the app's project is known and the file exists.
+        private static string? ProjectPath(DevToolsTarget target, string file, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var root = CommentSelectionCapture.ReadStringResult(target.Tap!.GetSourceRoot(cancellationToken), "sourceRoot");
+                var path = root.Length == 0 ? null : Path.GetFullPath(Path.Combine(root, file));
+                return path is not null && File.Exists(path) ? path : null;
+            }
+            catch (Exception ex) when (ex is DevToolsProtocolException or JsonException or ArgumentException or IOException)
+            {
+                return null;
+            }
+        }
+
+        private static int ReadInt(JsonElement element, string name) =>
+            element.TryGetProperty(name, out var value) && value.TryGetInt32(out var number) ? number : 0;
 
         private static string DescribeAuthoredState(string state, string file) => state switch
         {
-            "noFile" => $"The authored markup is not shown: {file} could not be opened from here.",
-            "noSourceInfo" => "The authored markup is not shown: the runtime reported no XAML source text for this element.",
-            "stale" => $"The authored markup is not shown: {file} no longer matches the inspected build.",
-            "unverifiedBuild" => $"The authored markup is not shown: DevTools could not confirm that {file} matches the running build. " +
+            "noFile" => $"Not confirmed: {file} could not be opened from here.",
+            "noSourceInfo" => "Not confirmed: the runtime reported no XAML source text for this element.",
+            "stale" => $"Not confirmed: {file} changed since the app was built. Rebuild to confirm the declaration.",
+            "unverifiedBuild" => $"Not confirmed: DevTools could not confirm that {file} matches the running build. " +
                 "Rebuild and run again (without --no-build); if this persists, check the original XAML before editing.",
-            _ => $"The authored markup is not shown ({state}).",
+            _ => $"Not confirmed ({state}).",
         };
 
         private static string ReadString(JsonElement element, string name) =>

@@ -245,8 +245,8 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(humanExit, jsonExit, "ok:true with fileName:\"\" and exit 0 is the bug.");
         using var doc = JsonDocument.Parse(jsonOut);
         Assert.IsFalse(doc.RootElement.GetProperty("ok").GetBoolean());
-        Assert.IsFalse(doc.RootElement.TryGetProperty("fileName", out _),
-            "An empty fileName must not be emitted as though it were a location.");
+        Assert.IsFalse(doc.RootElement.TryGetProperty("file", out _),
+            "An empty file must not be emitted as though it were a location.");
         var error = doc.RootElement.GetProperty("error");
         Assert.AreEqual("source-unavailable", error.GetProperty("token").GetString());
         const string message = "No XAML source is recorded for this element. Framework, template or generated elements may have no app-authored declaration.";
@@ -268,31 +268,48 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(0, jsonExit);
         using var doc = JsonDocument.Parse(jsonOut);
         Assert.IsTrue(doc.RootElement.GetProperty("ok").GetBoolean());
-        Assert.AreEqual(90, doc.RootElement.GetProperty("lineNumber").GetInt32());
+        Assert.AreEqual("MainWindow.xaml", doc.RootElement.GetProperty("file").GetString());
+        Assert.IsFalse(doc.RootElement.TryGetProperty("line", out _), "An unconfirmed declaration has no line.");
+        Assert.AreEqual(90, doc.RootElement.GetProperty("runtime").GetProperty("line").GetInt32());
     }
 
     [TestMethod]
-    public async Task GetSource_MappedDeclaration_DoesNotRewriteRawCapturedCoordinates()
+    [DataRow(246, "MainPage.xaml:246")]
+    [DataRow(248, "MainPage.xaml:246-248")]
+    public async Task GetSource_MappedDeclaration_ShowsOneLocationAndKeepsRuntimeCoordinatesApart(int endLine, string location)
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
-            .Answer("Source.get", """
-                {"handle":"42","fileName":"ms-appx:///Views/Header.xaml","lineNumber":246,"columnNumber":128,
-                 "authoredState":"available","authoredFileName":"MainPage.xaml","authoredLineNumber":246,
+            .Answer("Source.get", $$"""
+                {"handle":"42","fileName":"ms-appx:///Views/Header.xaml","lineNumber":{{endLine}},"columnNumber":128,
+                 "authoredState":"available","authoredFileName":"MainPage.xaml","authoredLineNumber":246,"authoredEndLineNumber":{{endLine}},
                  "authoredColumnNumber":25,"coordinateProvenance":"disk-matched-unique-declaration","xaml":"<TextBlock />"}
                 """);
         var (humanExit, humanOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
         var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
         Assert.AreEqual(0, humanExit);
         Assert.AreEqual(0, jsonExit);
-        StringAssert.Contains(humanOut, "MainPage.xaml:246:25");
-        StringAssert.Contains(humanOut, "disk-matched");
-        StringAssert.Contains(humanOut, "running app may retain different XAML");
+        StringAssert.Contains(humanOut, location + Environment.NewLine);
+        Assert.IsFalse(humanOut.Contains(":128", StringComparison.Ordinal), "The runtime end-of-tag position is not shown.");
+        Assert.IsFalse(humanOut.Contains("hot reload", StringComparison.Ordinal), "An unchanged file needs no rebuild caveat.");
         using var document = JsonDocument.Parse(jsonOut);
-        Assert.AreEqual(128, document.RootElement.GetProperty("columnNumber").GetInt32());
-        Assert.AreEqual(25, document.RootElement.GetProperty("authoredColumnNumber").GetInt32());
-        Assert.AreEqual("MainPage.xaml", document.RootElement.GetProperty("authoredFileName").GetString());
-        Assert.AreEqual("disk-matched-unique-declaration", document.RootElement.GetProperty("coordinateProvenance").GetString());
+        Assert.AreEqual("MainPage.xaml", document.RootElement.GetProperty("file").GetString());
+        Assert.AreEqual(246, document.RootElement.GetProperty("line").GetInt32());
+        Assert.AreEqual(endLine, document.RootElement.GetProperty("endLine").GetInt32());
+        Assert.AreEqual(25, document.RootElement.GetProperty("column").GetInt32());
+        Assert.AreEqual("disk-matched", document.RootElement.GetProperty("provenance").GetString());
+        Assert.AreEqual(128, document.RootElement.GetProperty("runtime").GetProperty("column").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task GetSource_ChangedSourceFile_SaysSoInOneLine()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Source.get", """{"handle":"42","fileName":"ms-appx:///MainPage.xaml","lineNumber":20,"columnNumber":40,"authoredState":"stale"}""");
+        var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
+        Assert.AreEqual(0, exit);
+        StringAssert.Contains(output, "MainPage.xaml: Not confirmed: MainPage.xaml changed since the app was built");
     }
 
     [TestMethod]
@@ -312,12 +329,12 @@ public class DevToolsJsonParityTests
         Assert.AreEqual(0, jsonExit);
         StringAssert.Contains(humanOut, "likely");
         StringAssert.Contains(humanOut, "Compiler line preservation is unverified.");
-        StringAssert.Contains(humanOut, "MainPage.xaml:48:25");
+        StringAssert.Contains(humanOut, "MainPage.xaml:48");
         using var document = JsonDocument.Parse(jsonOut);
         Assert.AreEqual("likely", document.RootElement.GetProperty("authoredState").GetString());
-        Assert.AreEqual("likely-source-line", document.RootElement.GetProperty("coordinateProvenance").GetString());
-        Assert.AreEqual(128, document.RootElement.GetProperty("columnNumber").GetInt32());
-        Assert.AreEqual(25, document.RootElement.GetProperty("authoredColumnNumber").GetInt32());
+        Assert.AreEqual("likely", document.RootElement.GetProperty("provenance").GetString());
+        Assert.AreEqual(128, document.RootElement.GetProperty("runtime").GetProperty("column").GetInt32());
+        Assert.AreEqual(25, document.RootElement.GetProperty("column").GetInt32());
     }
 
     [TestMethod]

@@ -34,6 +34,7 @@ void DevToolsAuthored_InitCoordinates(const std::wstring& inventoryPath, const s
 struct DevToolsAuthoredLocation
 {
     unsigned int line = 0;
+    unsigned int endLine = 0;     // last line of the start tag
     unsigned int column = 0;
     bool mapped = false;
     std::wstring sourceFile;
@@ -45,6 +46,11 @@ struct DevToolsAuthoredLocation
 DevToolsAuthoredState DevToolsAuthored_ReadElement(const std::wstring& fileUri, unsigned int line, std::wstring* out,
     unsigned int column = 0, const std::wstring& type = L"", const std::wstring& name = L"",
     DevToolsAuthoredLocation* authoredLocation = nullptr);
+
+// The confirmed declaration for a runtime position: only a verified build map with an unchanged source file answers.
+// Reads no source text, so it is cheap enough to call for every element of a tree.
+bool DevToolsAuthored_Locate(const std::wstring& fileUri, unsigned int line, unsigned int column,
+    const std::wstring& type, const std::wstring& name, DevToolsAuthoredLocation* location);
 
 bool DevToolsAuthored_FindAttribute(const std::wstring& element, const std::wstring& prop, std::wstring* out);
 

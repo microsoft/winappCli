@@ -426,6 +426,8 @@ static std::wstring CmdElementSource(const std::vector<std::wstring>& p)
     if (authoredLocation->mapped) {
         out += L",\"authoredFileName\":\"" + DevToolsJsonEscape(authoredLocation->sourceFile) + L"\"";
         out += L",\"authoredLineNumber\":" + std::to_wstring(authoredLocation->line);
+        if (authoredLocation->endLine >= authoredLocation->line)
+            out += L",\"authoredEndLineNumber\":" + std::to_wstring(authoredLocation->endLine);
         out += L",\"authoredColumnNumber\":" + std::to_wstring(authoredLocation->column);
         out += *authoredState == DevToolsAuthoredState::Likely
             ? L",\"coordinateProvenance\":\"likely-source-line\""

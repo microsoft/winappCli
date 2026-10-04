@@ -225,6 +225,21 @@ static void Test_HashCoveredCoordinates()
         == DevToolsAuthoredState::Available, "hash-covered map resolves exact recorded emitted column");
     ACheck(location.line == 246 && location.column == 25 && location.mapped,
         "raw source coordinates are not replaced; authored coordinates are separately identified");
+    ACheck(location.endLine == 246, "the declaration's last start-tag line comes from the build map");
+    {
+        DevToolsAuthoredLocation located;
+        ACheck(DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"Microsoft.UI.Xaml.Controls.TextBlock", L"", &located) &&
+            located.line == 246 && located.endLine == 246 && located.column == 25 && located.sourceFile == L"MainPage.xaml",
+            "a confirmed declaration is located without reading its text");
+        ACheck(!DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"Button", L"", &located),
+            "a different element type is not located");
+        write(sourcePath, original + " ");
+        ACheck(!DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"TextBlock", L"", &located),
+            "a source file changed since the build is not located");
+        write(sourcePath, original);
+        ACheck(DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"TextBlock", L"", &located),
+            "restoring the built source locates it again");
+    }
     ACheck(DevToolsAuthored_FindAttribute(span, L"Text", &value) &&
         value == L"{x:Bind ViewModel.ListHeading, Mode=OneWay}", "mapped reader retains original binding expression");
     {

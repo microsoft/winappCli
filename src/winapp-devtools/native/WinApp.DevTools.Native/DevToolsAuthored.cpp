@@ -596,6 +596,7 @@ DevToolsAuthoredState DevToolsAuthored_ReadElement(const std::wstring& fileUri, 
             return DevToolsAuthoredState::Unavailable;
         line = static_cast<unsigned int>(selected->GetInt(L"line", 0));
         column = static_cast<unsigned int>(selected->GetInt(L"column", 0));
+        if (authoredLocation) authoredLocation->endLine = static_cast<unsigned int>(selected->GetInt(L"endLine", 0));
         if (authoredLocation && coordinates->likely) {
             authoredLocation->parentLine = static_cast<unsigned int>(selected->GetInt(L"parentLine", 0));
             authoredLocation->parentType = selected->GetString(L"parentType");
@@ -633,6 +634,73 @@ bool DevToolsAuthored_FindAttribute(const std::wstring& element, const std::wstr
     std::wstring value;
     if (!FindAttribute(element, prop, &value)) return false;
     *out = std::move(value);
+    return true;
+}
+
+namespace {
+// A source file's hash, recomputed only when its size or write time changes: a tree of thousands of elements asks
+// about the same few files.
+struct SourceStamp { unsigned long long write = 0, size = 0; std::wstring hash; };
+std::map<std::wstring, SourceStamp> g_sourceStamps;
+SRWLOCK g_stampLock = SRWLOCK_INIT;
+
+std::wstring CurrentSourceHash(const std::wstring& path)
+{
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) return L"";
+    const unsigned long long write = (static_cast<unsigned long long>(data.ftLastWriteTime.dwHighDateTime) << 32) |
+        data.ftLastWriteTime.dwLowDateTime;
+    const unsigned long long size = (static_cast<unsigned long long>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+    AcquireSRWLockShared(&g_stampLock);
+    const auto known = g_sourceStamps.find(path);
+    if (known != g_sourceStamps.end() && known->second.write == write && known->second.size == size) {
+        std::wstring hash = known->second.hash;
+        ReleaseSRWLockShared(&g_stampLock);
+        return hash;
+    }
+    ReleaseSRWLockShared(&g_stampLock);
+    std::vector<char> bytes;
+    if (!ReadBytes(path, 4 << 20, &bytes)) return L"";
+    SourceStamp stamp{ write, size, HashBytes(bytes) };
+    AcquireSRWLockExclusive(&g_stampLock);
+    g_sourceStamps[path] = stamp;
+    ReleaseSRWLockExclusive(&g_stampLock);
+    return stamp.hash;
+}
+}
+
+bool DevToolsAuthored_Locate(const std::wstring& fileUri, unsigned int line, unsigned int column,
+    const std::wstring& type, const std::wstring& name, DevToolsAuthoredLocation* location)
+{
+    if (location) *location = {};
+    if (!location || fileUri.empty() || !line || !column || type.empty() || !g_coordinateError.empty()) return false;
+    const auto key = ResourceKey(fileUri);
+    if (g_coordinateExclusions.count(key)) return false;
+    const auto mapping = g_coordinates.find(key);
+    if (mapping == g_coordinates.end()) return false;
+    const CoordinateFile& coordinates = mapping->second;
+    if (!coordinates.payloadVerified || coordinates.likely || coordinates.advisory) return false;
+    const std::wstring path = UriToDiskPath(L"ms-appx:///" + coordinates.source);
+    if (path.empty() || g_excludedSourcePaths.count(ResourceKey(path)) ||
+        CurrentSourceHash(path) != coordinates.sourceHash) return false;
+    const DevToolsJson* selected = nullptr;
+    for (const auto& element : coordinates.elements) {
+        if (line < static_cast<unsigned int>(element.GetInt(L"line", 0)) ||
+            line > static_cast<unsigned int>(element.GetInt(L"endLine", 0))) continue;
+        if (selected) return false;
+        selected = &element;
+    }
+    const std::wstring declaredName = selected ? selected->GetString(L"name") : std::wstring();
+    if (!selected ||
+        (selected->GetString(L"type") != type.substr(type.find_last_of(L'.') + 1) &&
+            selected->GetString(L"runtimeClass") != type) ||
+        (declaredName != name && !(declaredName.empty() && SelfNamedType(type, name))))
+        return false;
+    location->line = static_cast<unsigned int>(selected->GetInt(L"line", 0));
+    location->endLine = static_cast<unsigned int>(selected->GetInt(L"endLine", 0));
+    location->column = static_cast<unsigned int>(selected->GetInt(L"column", 0));
+    location->mapped = true;
+    location->sourceFile = coordinates.source;
     return true;
 }
 

@@ -183,14 +183,15 @@ whose name ends in `Password`, shows as `<redacted>` everywhere (JSON adds
 written in your XAML: source previews, `get-source`, and comments show and store
 `Password="<redacted>"`.
 
-`winapp devtools get-source <element> --json` preserves the runtime's file, line,
-and column. When compiler artifacts let DevTools verify a unique authored XAML
-declaration, JSON adds authored coordinates and provenance. New comments captured
-from that element use the authored declaration; existing notes are not rewritten.
-
-**Disk-matched source does not prove what the running app loaded.** After a rebuild
-or hot reload, the app may retain different XAML. Check the displayed declaration
-before editing or anchoring a comment.
+`get-source` prints one location for the element's declaration, such as
+`Controls/FocusPanel.xaml:24-26` for a start tag spanning three lines (`:24` for one
+line), followed by the tag. If the file changed since the app was built, or the
+declaration can't be confirmed for this build, it says so in one line instead. With
+`--json`, `file` is the project-relative path, `path` the absolute path, and `line`,
+`endLine` and `column` the confirmed declaration (absent when unconfirmed), with
+`provenance` (`disk-matched` or `likely`); `runtime` keeps the position the runtime
+recorded, the end of the start tag. New comments captured from that element use the
+confirmed declaration; existing notes are not rewritten.
 
 When compiler artifacts are missing, DevTools can display **likely source**. This
 is weaker than a verified match and requires confirmation before saving a comment:
