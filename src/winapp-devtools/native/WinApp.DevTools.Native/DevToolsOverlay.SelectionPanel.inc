@@ -96,7 +96,6 @@ static void SelLookupComment(InstanceHandle key, std::wstring* outId, std::wstri
 
 static const int kSelIconSz = 22;
 static const int kSelPanelW = 400;
-static const int kSelEditorW = 254;
 
 // Caller Releases the result.
 static IInspectable* DevToolsSelFindName(IInspectable* root, const wchar_t* name)
@@ -382,6 +381,8 @@ static void OnSelCommentGotFocus(void*, void*)
 // Panel keyboard handling commits before collapse so accessibility navigation is not orphaned.
 // Whether Enter (with Ctrl or not) commits the quick-edit text editor that raised it. A multi-line editor needs Ctrl.
 static bool SelectionSourceIsTextEditor(IInspectable* source, bool ctrl);
+// Commits that editor in place, leaving focus (and the caret) where the user was typing.
+static void SelectionCommitTextEditor(IInspectable* source);
 
 static void OnSelKeyDown(void* /*sender*/, void* args)
 {
@@ -414,8 +415,9 @@ static void OnSelKeyDown(void* /*sender*/, void* args)
             if (SUCCEEDED(a->QueryInterface(DevToolsIid<DevToolsX::IRoutedEventArgs>(), routed.put_void())) &&
                 SUCCEEDED(DevToolsGetOriginalSource(routed.get(), source.put())) && source &&
                 SelectionSourceIsTextEditor(source.get(), ctrl)) {
-                handled = DevToolsSelFocusIcon();
-                DevToolsOverlayLog(L"overlay.sel key Enter -> commit row focused=%d", (int)handled);
+                SelectionCommitTextEditor(source.get());
+                handled = true;
+                DevToolsOverlayLog(L"overlay.sel key Enter -> commit row in place");
             }
         }
     }

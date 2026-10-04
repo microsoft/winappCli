@@ -171,9 +171,9 @@ static void TestToolbarContract()
                      selectionPanel.find("TabIndex=") == std::string::npos,
                  "default keyboard order reaches the comment before quick properties and Open in DevTools");
     CheckToolbar(overlay.find("static const int kSelPanelW = 400;") != std::string::npos &&
-                     overlay.find("static const int kSelEditorW = 254;") != std::string::npos &&
-                     overlay.find("Margin=\\\"0,0,8,0\\\"") != std::string::npos,
-                 "the quick-edit panel and editors use the wider layout");
+                     overlay.find("<ColumnDefinition Width=\\\"88\\\"/>") != std::string::npos &&
+                     overlay.find("HorizontalAlignment=\\\"Stretch\\\" MinHeight=\\\"32\\\"") != std::string::npos,
+                 "quick-edit rows share one label column and stretch 32 DIP editors into the value column");
     CheckToolbar(windowShell.find("Background=\"Transparent\"") != std::string::npos,
                  "the DevTools window shell exposes its system backdrop");
     CheckToolbar(windowShell.find("InspectorTitleBarHost") == std::string::npos &&

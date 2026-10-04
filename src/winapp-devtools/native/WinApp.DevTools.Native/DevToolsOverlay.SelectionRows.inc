@@ -20,6 +20,21 @@ static bool SelectionSourceIsTextEditor(IInspectable* source, bool ctrl)
     return false;
 }
 
+static void SelectionCommitTextEditor(IInspectable* source)
+{
+    if (!source) return;
+    winrt::com_ptr<IUnknown> identity;
+    if (FAILED(source->QueryInterface(IID_IUnknown, identity.put_void()))) return;
+    for (auto* sink : std::vector<SelRowSink*>(g_selRowSinks)) {
+        if (!sink || sink->gen != g_selGen || !sink->box) continue;
+        winrt::com_ptr<IUnknown> editor;
+        if (SUCCEEDED(sink->box->QueryInterface(IID_IUnknown, editor.put_void())) && editor.get() == identity.get()) {
+            sink->Invoke(nullptr, nullptr);
+            return;
+        }
+    }
+}
+
 static void GuestCommentRememberDraft(bool composer);
 static void GuestCommentRestoreDraft(bool composer);
 static bool GuestCommentCanEdit(InstanceHandle handle);
@@ -109,21 +124,21 @@ static std::wstring BuildSelDiagMarkup(size_t i, const std::wstring& prop, const
 {
     const std::wstring n = std::to_wstring(i);
     std::wstring m;
-    m += L"<StackPanel x:Name=\"DevToolsSelDiag" + n + L"\" Visibility=\"Collapsed\" Margin=\"0,3,0,1\" Spacing=\"1\">";
+    m += L"<StackPanel x:Name=\"DevToolsSelDiag" + n + L"\" Visibility=\"Collapsed\" Margin=\"0,0,0,4\" Spacing=\"4\">";
     m += L"<StackPanel Orientation=\"Horizontal\">";
-    m += L"<TextBlock x:Name=\"DevToolsSelDiagPre" + n + L"\" Text=\"\" FontSize=\"11\" FontFamily=\"Consolas\""
+    m += L"<TextBlock x:Name=\"DevToolsSelDiagPre" + n + L"\" Text=\"\" FontSize=\"12\" FontFamily=\"Consolas\""
          L" TextTrimming=\"CharacterEllipsis\" Foreground=\"" + pal.textTertiary + L"\"/>";
     m += L"<TextBlock x:Name=\"DevToolsSelDiagSeg" + n + L"\" Text=\"" + DevToolsXmlEscape(DevToolsBindingRow_PendingText()) +
-         L"\" FontSize=\"11\" FontFamily=\"Consolas\" FontWeight=\"SemiBold\" Foreground=\"" + pal.caution + L"\"/>";
-    m += L"<TextBlock x:Name=\"DevToolsSelDiagTail" + n + L"\" Text=\"\" FontSize=\"11\" FontFamily=\"Consolas\""
+         L"\" FontSize=\"12\" FontFamily=\"Consolas\" FontWeight=\"SemiBold\" Foreground=\"" + pal.caution + L"\"/>";
+    m += L"<TextBlock x:Name=\"DevToolsSelDiagTail" + n + L"\" Text=\"\" FontSize=\"12\" FontFamily=\"Consolas\""
          L" TextTrimming=\"CharacterEllipsis\" Foreground=\"" + pal.textTertiary + L"\"/>";
     m += L"</StackPanel>";
-    m += L"<TextBlock x:Name=\"DevToolsSelDiagWhy" + n + L"\" Text=\"\" FontSize=\"10\" TextWrapping=\"Wrap\""
+    m += L"<TextBlock x:Name=\"DevToolsSelDiagWhy" + n + L"\" Text=\"\" FontSize=\"12\" TextWrapping=\"Wrap\""
          L" IsTextSelectionEnabled=\"True\" Foreground=\"" + pal.textSecondary + L"\"/>";
 // Use resolved palette colors to avoid repeated resource lookup while rebuilding per pick. The accessible prose
 // above carries the same answer; the decorative table is AccessibilityView=Raw so a screen reader does not
 // repeat alignment spaces and glyphs as a second diagnosis.
-    m += L"<TextBlock x:Name=\"DevToolsSelDiagWalk" + n + L"\" Visibility=\"Collapsed\" Text=\"\" FontSize=\"10\""
+    m += L"<TextBlock x:Name=\"DevToolsSelDiagWalk" + n + L"\" Visibility=\"Collapsed\" Text=\"\" FontSize=\"11\""
          L" FontFamily=\"Consolas\" TextWrapping=\"NoWrap\" Margin=\"0,2,0,0\""
          L" AutomationProperties.AccessibilityView=\"Raw\""
          L" IsTextSelectionEnabled=\"True\" Foreground=\"" + pal.textSecondary + L"\"/>";
@@ -131,22 +146,22 @@ static std::wstring BuildSelDiagMarkup(size_t i, const std::wstring& prop, const
 
 // Capture is asynchronous; disclose the unknown source-write risk even before it answers.
     m += L"<TextBlock x:Name=\"DevToolsSelThrough" + n + L"\" Text=\"Source-write behavior is not yet known. "
-         L"Editing may change the source model; restore is not model undo.\" FontSize=\"10\""
+         L"Editing may change the source model; restore is not model undo.\" FontSize=\"12\""
          L" TextWrapping=\"Wrap\" Foreground=\"" + pal.caution + L"\"/>";
 
 // "Restore binding" re-attaches what the author wrote; "Clear value" calls ClearValue, which DELETES -- the
 // property falls back to its default and the binding is gone.
     m += L"<StackPanel x:Name=\"DevToolsSelBindBtns" + n + L"\" Visibility=\"Collapsed\" Orientation=\"Horizontal\""
-         L" Spacing=\"6\" Margin=\"0,3,0,2\">";
-    m += L"<Button x:Name=\"DevToolsSelRestore" + n + L"\" Padding=\"8,2,8,2\" MinWidth=\"0\""
+         L" Spacing=\"8\" Margin=\"0,4,0,4\">";
+    m += L"<Button x:Name=\"DevToolsSelRestore" + n + L"\" Padding=\"8,4,8,4\" MinWidth=\"0\""
          L" ToolTipService.ToolTip=\"Re-attach the binding the author wrote for " + DevToolsXmlEscape(prop) + L"\""
          L" AutomationProperties.Name=\"Restore the binding on " + DevToolsXmlEscape(prop) + L"\">"
-         L"<TextBlock x:Name=\"DevToolsSelRestoreLabel" + n + L"\" Text=\"Restore binding\" FontSize=\"10\"/></Button>";
-    m += L"<Button x:Name=\"DevToolsSelClearVal" + n + L"\" Padding=\"8,2,8,2\" MinWidth=\"0\""
+         L"<TextBlock x:Name=\"DevToolsSelRestoreLabel" + n + L"\" Text=\"Restore binding\" FontSize=\"12\"/></Button>";
+    m += L"<Button x:Name=\"DevToolsSelClearVal" + n + L"\" Padding=\"8,4,8,4\" MinWidth=\"0\""
          L" ToolTipService.ToolTip=\"Delete the local value. " + DevToolsXmlEscape(prop) + L" falls back to its default"
          L" and the binding is gone -- this is not an undo.\""
          L" AutomationProperties.Name=\"Clear the value of " + DevToolsXmlEscape(prop) + L"\">"
-         L"<TextBlock Text=\"Clear value\" FontSize=\"10\"/></Button>";
+         L"<TextBlock Text=\"Clear value\" FontSize=\"12\"/></Button>";
     m += L"</StackPanel>";
     return m;
 }
@@ -167,6 +182,25 @@ static bool SelRowUsesSlider(const DevToolsCardRow& row)
         TrySelectionNumber(row.value, &value) && value >= 0 && value <= 1;
 }
 
+// Flat label/value rows with the editor inline: one click or Tab reaches a value, and the row never re-states
+// it. Only binding details stay behind a disclosure. Editors stretch to the value column; the label column is
+// shared with the Source row so every value starts on the same x.
+static const wchar_t* const kSelLabelColumn = L"<Grid.ColumnDefinitions><ColumnDefinition Width=\"88\"/>"
+    L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
+
+// A flat Expander whose header text lines up with the column it sits in: the template pads its header 16 px,
+// which the negative margin returns, and the content padding re-applies it so disclosed content aligns too.
+static std::wstring SelFlatDisclosureOpen(const std::wstring& automationId, const std::wstring& name,
+                                          const std::wstring& headerMarkup)
+{
+    return L"<Expander IsExpanded=\"False\" MinHeight=\"32\" Margin=\"-16,0,0,0\" Padding=\"16,4,0,8\""
+           L" Background=\"Transparent\" BorderBrush=\"Transparent\""
+           L" HorizontalAlignment=\"Stretch\" HorizontalContentAlignment=\"Stretch\""
+           L" AutomationProperties.AutomationId=\"" + automationId + L"\""
+           L" AutomationProperties.Name=\"" + name + L"\"><Expander.Header>" + headerMarkup +
+           L"</Expander.Header>";
+}
+
 static std::wstring BuildSelRowsMarkup(const std::vector<DevToolsCardRow>& rows, bool readOnly)
 {
     const DevToolsPalette& pal = DevToolsInverseAcrylicPalette();
@@ -176,128 +210,137 @@ static std::wstring BuildSelRowsMarkup(const std::vector<DevToolsCardRow>& rows,
     std::wstring m;
     for (size_t i = 0; i < rows.size(); ++i) {
         const DevToolsCardRow& r = rows[i];
-// A curated property the runtime reports as read-only arrives with an empty write type; it now shows as a
-// static value instead of being dropped from the panel, which is what the window has always done for the same
-// element.
+        const std::wstring n = std::to_wstring(i);
+// A curated property the runtime reports as read-only arrives with an empty write type; it shows as a static
+// value instead of being dropped from the panel, which is what the window has always done for the same element.
         const bool rowReadOnly = readOnly || !SelRowCanEdit(r);
 // Prefer what the developer literally wrote - that is the only way an {x:Bind} or a {ThemeResource} key can
-// appear at all - and fall back to the reconstructed {Binding...}, which still works when the source is
-// unreadable. A bound row gets the line EVEN WHEN neither is readable, saying so explicitly: silence would read
-// as.
+// appear at all - and fall back to the reconstructed {Binding...}. A bound row gets the line EVEN WHEN neither
+// is readable, saying so explicitly: silence would read as "not bound".
         const std::wstring expr = !r.authored.empty() ? r.authored : r.binding;
         const bool exprUnknown = expr.empty();
         const bool bound = SelRowHasExpression(r);
-        const bool expandable = !rowReadOnly || bound;
         const std::wstring display = SelectionPreviewValue(r);
-        if (expandable)
-            m += L"<Expander HorizontalAlignment=\"Stretch\" HorizontalContentAlignment=\"Stretch\" IsExpanded=\"False\""
-                 L" AutomationProperties.AutomationId=\"DevToolsSelRow" + std::to_wstring(i) + L"\""
-                 L" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L" details and editor\"><Expander.Header>";
-        m += L"<Grid Width=\"296\" ColumnSpacing=\"8\"><Grid.ColumnDefinitions>"
-             L"<ColumnDefinition Width=\"96\"/><ColumnDefinition Width=\"Auto\"/><ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>"
-             L"<TextBlock Text=\"" + DevToolsXmlEscape(r.name) + L"\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-             L" VerticalAlignment=\"Center\" TextTrimming=\"CharacterEllipsis\" Foreground=\"" + pal.textSecondary + L"\"/>";
-        if (SelectionHasColorSwatch(r))
-            m += L"<Border x:Name=\"DevToolsSelSwatch" + std::to_wstring(i) + L"\" Grid.Column=\"1\""
-                 L" Width=\"16\" Height=\"16\" VerticalAlignment=\"Center\" Background=\"" + r.value + L"\""
-                 L" BorderThickness=\"1\" BorderBrush=\"" + pal.border + L"\" AutomationProperties.AccessibilityView=\"Raw\"/>";
-        m += L"<TextBlock x:Name=\"DevToolsSelValue" + std::to_wstring(i) + L"\" Grid.Column=\"2\" Text=\"" +
-             XmlEscapeLines(display) + L"\" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\""
-             L" Foreground=\"" + pal.textPrimary + L"\"/></Grid>";
-        if (!expandable) continue;
-        m += L"</Expander.Header><StackPanel Spacing=\"8\">";
-        if (!rowReadOnly) {
-            if (bound)
-                m += L"<TextBlock Text=\"Editing may replace the binding or change its source model.\""
-                     L" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\" Foreground=\"" + pal.textSecondary + L"\"/>";
-            const std::wstring editName = L"DevToolsSelEdit" + std::to_wstring(i);
-// Booleans render as a real ToggleSwitch in the card too -- the window and the card must agree on how a boolean
-// looks, or we ship the cross-surface divergence this project keeps paying for.
-            if (r.editKind == L"bool") {
-                m += L"<ToggleSwitch x:Name=\"" + editName + L"\" MinWidth=\"0\" HorizontalAlignment=\"Left\""
-                     L" AutomationProperties.AutomationId=\"" + editName + L"\""
-                     L" VerticalAlignment=\"Center\" Margin=\"0,0,8,0\" OnContent=\"True\" OffContent=\"False\" IsOn=\"";
-                m += (DevToolsBoolValueIsOn(r.value) ? L"True" : L"False");
-                m += L"\" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"/>";
-            } else if (SelRowUsesSlider(r)) {
-                m += L"<Slider x:Name=\"" + editName + L"\" Value=\"" + DevToolsXmlEscape(r.value) + L"\""
-                     L" Minimum=\"0\" Maximum=\"1\" StepFrequency=\"0.01\" SmallChange=\"0.01\" LargeChange=\"0.1\""
-                     L" Width=\"" + std::to_wstring(kSelEditorW) + L"\" HorizontalAlignment=\"Left\""
-                     L" AutomationProperties.AutomationId=\"" + editName + L"\""
-                     L" AutomationProperties.Name=\"Opacity\"/>";
-            } else if (r.editKind == L"number") {
-                m += L"<NumberBox x:Name=\"" + editName + L"\" Value=\"" + DevToolsXmlEscape(r.value) + L"\""
-                     L" Width=\"" + std::to_wstring(kSelEditorW) + L"\" HorizontalAlignment=\"Left\""
-                     L" SpinButtonPlacementMode=\"Compact\" SmallChange=\"" +
-                     (r.name == L"Opacity" ? std::wstring(L"0.1") : std::wstring(L"1")) + L"\""
-                     L" AutomationProperties.AutomationId=\"" + editName + L"\""
-                     L" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"/>";
-            } else {
-            std::vector<std::wstring> members = DevToolsEnumMembersFor(r.type);
-            if (!members.empty()) {
-                int sel = DevToolsEnumIndexOf(members, r.value);
-                m += L"<ComboBox x:Name=\"" + editName + L"\" Width=\"" + std::to_wstring(kSelEditorW) +
-                     L"\" MinHeight=\"30\" Margin=\"0,0,8,0\" FontSize=\"12\" VerticalAlignment=\"Center\"";
-                if (sel >= 0) m += L" SelectedIndex=\"" + std::to_wstring(sel) + L"\"";
-                m += L" AutomationProperties.AutomationId=\"" + editName + L"\" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\">";
-                for (const auto& mem : members) m += L"<ComboBoxItem Content=\"" + DevToolsXmlEscape(mem) + L"\"/>";
-                m += L"</ComboBox>";
-            } else {
-                m += L"<TextBox x:Name=\"" + editName + L"\"";
-                // Before Text: XAML applies attributes in order, and a single-line box keeps only the first line.
-                if (DevToolsEditText::IsMultiline(r.value))
-                    m += L" AcceptsReturn=\"True\" TextWrapping=\"Wrap\" MaxHeight=\"120\""
-                         L" ToolTipService.ToolTip=\"Ctrl+Enter to apply\"";
-                m += L" Text=\"" + XmlEscapeLines(r.value) + L"\" Width=\"" +
-                     std::to_wstring(kSelEditorW) + L"\" MinHeight=\"30\" Margin=\"0,0,8,0\""
-                     L" VerticalAlignment=\"Center\" HorizontalAlignment=\"Left\" Padding=\"8,4,8,4\""
-                     L" AutomationProperties.AutomationId=\"" + editName + L"\" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"";
-                if (r.editKind == L"color") m += L" Header=\"Color (#AARRGGBB)\" PlaceholderText=\"#AARRGGBB\"";
-                m += L"/>";
+        const std::wstring editName = L"DevToolsSelEdit" + n;
+        const std::wstring boundTip = bound && !rowReadOnly
+            ? L" ToolTipService.ToolTip=\"Bound value. Editing may replace the binding or change its source model.\""
+            : std::wstring();
+
+        m += L"<Grid ColumnSpacing=\"12\" AutomationProperties.AutomationId=\"DevToolsSelRow" + n + L"\">";
+        m += kSelLabelColumn;
+        m += L"<TextBlock x:Name=\"DevToolsSelLabel" + n + L"\" Text=\"" + DevToolsXmlEscape(r.name) + L"\""
+             L" Style=\"{StaticResource CaptionTextBlockStyle}\" Margin=\"0,8,0,0\" VerticalAlignment=\"Top\""
+             L" TextTrimming=\"CharacterEllipsis\" Foreground=\"" + pal.textSecondary + L"\""
+             L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(r.name) + L"\"/>";
+        m += L"<StackPanel Grid.Column=\"1\" Spacing=\"4\">";
+
+        if (rowReadOnly) {
+            m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"8\" Margin=\"0,6,0,6\">";
+            if (SelectionHasColorSwatch(r))
+                m += L"<Border x:Name=\"DevToolsSelSwatch" + n + L"\" Width=\"16\" Height=\"16\" CornerRadius=\"3\""
+                     L" VerticalAlignment=\"Center\" Background=\"" + r.value + L"\" BorderThickness=\"1\""
+                     L" BorderBrush=\"" + pal.rim + L"\" AutomationProperties.AccessibilityView=\"Raw\"/>";
+            m += L"<TextBlock x:Name=\"DevToolsSelValue" + n + L"\" Text=\"" + XmlEscapeLines(display) + L"\""
+                 L" TextWrapping=\"Wrap\" MaxLines=\"3\" TextTrimming=\"CharacterEllipsis\" IsTextSelectionEnabled=\"True\""
+                 L" Foreground=\"" + pal.textPrimary + L"\" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"/>";
+            m += L"</StackPanel>";
+        } else if (r.editKind == L"bool") {
+// Booleans render as a real ToggleSwitch in the card too -- the window and the card must agree on how a
+// boolean looks.
+            m += L"<ToggleSwitch x:Name=\"" + editName + L"\" MinWidth=\"0\" Height=\"32\" HorizontalAlignment=\"Left\""
+                 L" AutomationProperties.AutomationId=\"" + editName + L"\" VerticalAlignment=\"Center\""
+                 L" OnContent=\"True\" OffContent=\"False\" IsOn=\"";
+            m += (DevToolsBoolValueIsOn(r.value) ? L"True" : L"False");
+            m += L"\" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"" + boundTip + L"/>";
+        } else if (SelRowUsesSlider(r)) {
+            m += L"<Grid ColumnSpacing=\"12\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"*\"/>"
+                 L"<ColumnDefinition Width=\"36\"/></Grid.ColumnDefinitions>";
+            m += L"<Slider x:Name=\"" + editName + L"\" Value=\"" + DevToolsXmlEscape(r.value) + L"\""
+                 L" Minimum=\"0\" Maximum=\"1\" StepFrequency=\"0.01\" SmallChange=\"0.01\" LargeChange=\"0.1\""
+                 L" VerticalAlignment=\"Center\" AutomationProperties.AutomationId=\"" + editName + L"\""
+                 L" AutomationProperties.Name=\"Opacity\"" + boundTip + L"/>";
+            m += L"<TextBlock x:Name=\"DevToolsSelValue" + n + L"\" Grid.Column=\"1\" Text=\"" + XmlEscapeLines(display) + L"\""
+                 L" VerticalAlignment=\"Center\" HorizontalAlignment=\"Right\" Foreground=\"" + pal.textPrimary + L"\""
+                 L" AutomationProperties.AccessibilityView=\"Raw\"/>";
+            m += L"</Grid>";
+        } else if (r.editKind == L"number") {
+            m += L"<NumberBox x:Name=\"" + editName + L"\" Value=\"" + DevToolsXmlEscape(r.value) + L"\""
+                 L" HorizontalAlignment=\"Stretch\" MinHeight=\"32\" SpinButtonPlacementMode=\"Compact\" SmallChange=\"" +
+                 (r.name == L"Opacity" ? std::wstring(L"0.1") : std::wstring(L"1")) + L"\""
+                 L" AutomationProperties.AutomationId=\"" + editName + L"\""
+                 L" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"" + boundTip + L"/>";
+        } else if (const auto members = DevToolsEnumMembersFor(r.type); !members.empty()) {
+            const int sel = DevToolsEnumIndexOf(members, r.value);
+            m += L"<ComboBox x:Name=\"" + editName + L"\" HorizontalAlignment=\"Stretch\" MinHeight=\"32\"";
+            if (sel >= 0) m += L" SelectedIndex=\"" + std::to_wstring(sel) + L"\"";
+            m += L" AutomationProperties.AutomationId=\"" + editName + L"\" AutomationProperties.Name=\"" +
+                 DevToolsXmlEscape(r.name) + L"\"" + boundTip + L">";
+            for (const auto& mem : members) m += L"<ComboBoxItem Content=\"" + DevToolsXmlEscape(mem) + L"\"/>";
+            m += L"</ComboBox>";
+        } else {
+            const bool color = r.editKind == L"color";
+            if (color) {
+                m += L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
+                     L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
+                m += L"<Border x:Name=\"DevToolsSelSwatch" + n + L"\" Width=\"20\" Height=\"20\" CornerRadius=\"4\""
+                     L" VerticalAlignment=\"Center\" Background=\"" +
+                     (SelectionHasColorSwatch(r) ? r.value : std::wstring(L"Transparent")) + L"\""
+                     L" BorderThickness=\"1\" BorderBrush=\"" + pal.rim + L"\" AutomationProperties.AccessibilityView=\"Raw\"/>";
             }
-            }
+            m += L"<TextBox x:Name=\"" + editName + L"\"";
+            if (color) m += L" Grid.Column=\"1\"";
+            // Before Text: XAML applies attributes in order, and a single-line box keeps only the first line.
+            if (DevToolsEditText::IsMultiline(r.value))
+                m += L" AcceptsReturn=\"True\" TextWrapping=\"Wrap\" MaxHeight=\"104\"";
+            m += L" Text=\"" + XmlEscapeLines(r.value) + L"\" HorizontalAlignment=\"Stretch\" MinHeight=\"32\""
+                 L" AutomationProperties.AutomationId=\"" + editName + L"\" AutomationProperties.Name=\"" + DevToolsXmlEscape(r.name) + L"\"";
+            if (color) m += L" PlaceholderText=\"#AARRGGBB\" ToolTipService.ToolTip=\"Color as #AARRGGBB\"";
+            else if (r.value.empty()) m += L" PlaceholderText=\"Empty\"";
+            else if (DevToolsEditText::IsMultiline(r.value)) m += L" ToolTipService.ToolTip=\"Ctrl+Enter to apply\"";
+            else m += boundTip;
+            m += L"/>";
+            if (color) m += L"</Grid>";
         }
+
         if (bound) {
             const bool confirmable = !rowReadOnly && r.source == L"Binding";
-            m += L"<TextBlock";
-            if (confirmable) m += L" x:Name=\"DevToolsSelExpr" + std::to_wstring(i) + L"\"";
-            m += L" Text=\"" + DevToolsXmlEscape(exprUnknown ? std::wstring(L"binding expression unavailable") : expr) +
-                 L"\" Width=\"" + std::to_wstring(kSelEditorW) +
-                 L"\" Style=\"{StaticResource CaptionTextBlockStyle}\" TextTrimming=\"CharacterEllipsis\"";
+            m += L"<Grid ColumnSpacing=\"6\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"Auto\"/>"
+                 L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>"
+                 L"<FontIcon FlowDirection=\"LeftToRight\" Glyph=\"&#xE71B;\" FontSize=\"12\" VerticalAlignment=\"Center\""
+                 L" Foreground=\"" + pal.textSecondary + L"\" AutomationProperties.AccessibilityView=\"Raw\"/>";
+            m += L"<TextBlock Grid.Column=\"1\"";
+            if (confirmable) m += L" x:Name=\"DevToolsSelExpr" + n + L"\"";
+            m += L" Text=\"" + DevToolsXmlEscape(exprUnknown ? std::wstring(L"Bound (expression unavailable)") : expr) +
+                 L"\" FontSize=\"12\" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\"";
             if (exprUnknown) {
-                m += L" FontStyle=\"Italic\" Foreground=\"" + pal.textTertiary + L"\""
+                m += L" FontStyle=\"Italic\" Foreground=\"" + pal.textSecondary + L"\""
                      L" ToolTipService.ToolTip=\"This value comes from a binding, but its expression could not be read\"/>";
             } else {
                 m += L" FontFamily=\"Consolas\" IsTextSelectionEnabled=\"True\" Foreground=\"" + pal.textSecondary + L"\""
-                     L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(expr) +
-                     L"\"/>";
+                     L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(expr) + L"\"/>";
             }
+            m += L"</Grid>";
             if (confirmable) {
-                m += L"<Button x:Name=\"DevToolsSelConfirm" + std::to_wstring(i) + L"\" Visibility=\"Collapsed\""
-                     L" Padding=\"8,4,8,4\" MinWidth=\"0\" MaxWidth=\"" +
-                     std::to_wstring(kSelEditorW) + L"\""
-                     L" HorizontalAlignment=\"Left\""
+                m += L"<Button x:Name=\"DevToolsSelConfirm" + n + L"\" Visibility=\"Collapsed\""
+                     L" Padding=\"8,4,8,4\" MinWidth=\"0\" HorizontalAlignment=\"Left\""
                      L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(r.name) + L" is bound. Committing replaces that"
                      L" binding with a literal value. Inspect restoration support in DevTools.\""
-                     L" AutomationProperties.AutomationId=\"DevToolsSelConfirm" + std::to_wstring(i) + L"\""
+                     L" AutomationProperties.AutomationId=\"DevToolsSelConfirm" + n + L"\""
                      L" AutomationProperties.Name=\"Replace the binding on " + DevToolsXmlEscape(r.name) + L"\">"
-                     L"<TextBlock x:Name=\"DevToolsSelConfirmText" + std::to_wstring(i) + L"\" Text=\"\""
+                     L"<TextBlock x:Name=\"DevToolsSelConfirmText" + n + L"\" Text=\"\""
                      L" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\"/></Button>";
             }
-            m += L"<Expander Header=\"Binding details\" IsExpanded=\"False\" HorizontalAlignment=\"Stretch\""
-                 L" HorizontalContentAlignment=\"Stretch\" AutomationProperties.AutomationId=\"DevToolsSelBinding" +
-                 std::to_wstring(i) + L"\"><StackPanel Spacing=\"4\">";
+            m += SelFlatDisclosureOpen(L"DevToolsSelBinding" + n, L"Binding details for " + DevToolsXmlEscape(r.name),
+                     L"<TextBlock Text=\"Binding details\" Style=\"{StaticResource CaptionTextBlockStyle}\""
+                     L" Foreground=\"" + pal.textSecondary + L"\"/>");
+            m += L"<StackPanel Spacing=\"4\">";
             m += BuildSelDiagMarkup(i, r.name, pal);
             m += L"</StackPanel></Expander>";
-        } else if (!r.source.empty()) {
-            m += L"<TextBlock Text=\"Value source: " + DevToolsXmlEscape(r.source) + L"\""
-                 L" Style=\"{StaticResource CaptionTextBlockStyle}\" Foreground=\"" + pal.textSecondary + L"\"/>";
         }
-        m += L"</StackPanel></Expander>";
+        m += L"</StackPanel></Grid>";
     }
     return m;
 }
-
 // Hook one row's Restore binding / Clear value buttons. They stay Collapsed until the diagnosis says the row
 // actually has something to restore, so a row that cannot be undone never shows an undo.
 static void DevToolsSelWireBindButtons(IInspectable* root, size_t i, const std::wstring& prop)

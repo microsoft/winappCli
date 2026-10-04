@@ -653,11 +653,13 @@ int main()
         row.name=L"Text";row.type=L"String";row.editKind=L"text";row.value=L"effective";
         row.source=L"Binding";row.binding=L"{Binding Title}";
         const auto markup=BuildSelRowsMarkup({row},false);
-        check(markup.find(L"<Expander ")!=std::wstring::npos && markup.find(L"IsExpanded=\"False\"")!=std::wstring::npos,
-            "quick peek", "editor is opt-in rather than always visible");
+        check(markup.find(L"x:Name=\"DevToolsSelEdit0\"") < markup.find(L"AutomationProperties.AutomationId=\"DevToolsSelBinding0\"") &&
+            markup.find(L"IsExpanded=\"False\"")!=std::wstring::npos,
+            "quick peek", "editor is inline; only binding details are disclosed on demand");
         check(markup.find(L"Text=\"effective\"")!=std::wstring::npos &&
-            markup.find(L"Header=\"Binding details\"")!=std::wstring::npos,
-            "quick peek", "effective value and binding details are separate");
+            markup.find(L"Text=\"Binding details\"")!=std::wstring::npos &&
+            markup.find(L"Binding Title}\" FontSize=\"12\"")!=std::wstring::npos,
+            "quick peek", "effective value, binding expression and binding details are separate");
         row.name=L"Opacity";row.type=L"Double";row.editKind=L"number";row.value=L"0.75";
         row.source.clear();row.binding.clear();
         const auto opacityMarkup=BuildSelRowsMarkup({row},false);
@@ -710,7 +712,7 @@ int main()
             BuildSelRowsMarkup({row},false).find(L"Georgia")!=std::wstring::npos,
             "quick peek", "read-only font has a real value and no empty disclosure");
         row.name=L"Foreground";row.type=L"Brush";row.editKind=L"color";row.value=L"#80123456";
-        check(BuildSelRowsMarkup({row},false).find(L"Color (#AARRGGBB)")!=std::wstring::npos &&
+        check(BuildSelRowsMarkup({row},false).find(L"PlaceholderText=\"#AARRGGBB\"")!=std::wstring::npos &&
             BuildSelRowsMarkup({row},false).find(L"Text=\"#80123456\"")!=std::wstring::npos &&
             BuildSelRowsMarkup({row},false).find(L"Background=\"#80123456\"")!=std::wstring::npos,
             "quick peek", "color editor shows real alpha-inclusive hex with explicit format");

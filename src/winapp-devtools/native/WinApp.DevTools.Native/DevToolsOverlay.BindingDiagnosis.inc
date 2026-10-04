@@ -430,20 +430,23 @@ static std::wstring BuildSelectionPanelMarkup(const std::wstring& title, const s
         std::wstring leaf = (sl == std::wstring::npos) ? srcFile : srcFile.substr(sl + 1);
         srcText = leaf; if (srcLine > 0) srcText += L":" + std::to_wstring(srcLine);
         srcTip = srcFile; if (srcLine > 0) srcTip += L" (line " + std::to_wstring(srcLine) + L")";
-        srcFg = pal.textTertiary;
+        srcFg = pal.textPrimary;
     } else {
         srcText = L"Source unavailable";
         srcTip = L"No authored XAML location was reported for this element. Its selection and comment target are unchanged.";
         srcFg = pal.textSecondary;
     }
+    // The Source row shares the property rows' label column; its disclosure reveals the authored declaration.
     std::wstring xamlMarkup =
-        L"<Expander IsExpanded=\"False\" HorizontalAlignment=\"Stretch\" HorizontalContentAlignment=\"Stretch\""
-        L" AutomationProperties.AutomationId=\"DevToolsSelXamlDisclosure\" AutomationProperties.Name=\"XAML source: " +
-        DevToolsXmlEscape(srcText) + L"\"><Expander.Header><StackPanel Width=\"296\" Spacing=\"4\">"
-        L"<TextBlock Text=\"XAML\" Style=\"{StaticResource CaptionTextBlockStyle}\" Foreground=\"" + pal.textSecondary + L"\"/>"
-        L"<TextBlock x:Name=\"DevToolsSelSource\" Text=\"" + DevToolsXmlEscape(srcText) + L"\" TextTrimming=\"CharacterEllipsis\""
-        L" Foreground=\"" + srcFg + L"\" AutomationProperties.AutomationId=\"DevToolsSelSource\"/>"
-        L"</StackPanel></Expander.Header><StackPanel Spacing=\"8\">"
+        SelFlatDisclosureOpen(L"DevToolsSelXamlDisclosure", L"XAML source: " + DevToolsXmlEscape(srcText),
+            L"<Grid Width=\"" + std::to_wstring(kSelPanelW - 32 - 32) + L"\" ColumnSpacing=\"12\">" +
+            std::wstring(kSelLabelColumn) +
+            L"<TextBlock Text=\"Source\" Style=\"{StaticResource CaptionTextBlockStyle}\" VerticalAlignment=\"Center\""
+            L" Foreground=\"" + pal.textSecondary + L"\"/>"
+            L"<TextBlock x:Name=\"DevToolsSelSource\" Grid.Column=\"1\" Text=\"" + DevToolsXmlEscape(srcText) + L"\""
+            L" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\" Foreground=\"" + srcFg + L"\""
+            L" AutomationProperties.AutomationId=\"DevToolsSelSource\"/></Grid>") +
+        L"<StackPanel Spacing=\"8\">"
         L"<TextBlock Text=\"" + DevToolsXmlEscape(srcTip) + L"\" TextWrapping=\"Wrap\" IsTextSelectionEnabled=\"True\""
         L" Style=\"{StaticResource CaptionTextBlockStyle}\" Foreground=\"" + pal.textSecondary + L"\"/>";
     if (!authoredXaml.empty()) {
@@ -578,7 +581,16 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
 // PANEL geometry: use the monitor work area when the Popup confirms it is unconstrained; otherwise use the
 // client area.
     const int pw = kSelPanelW;
-    const int estimatedHeight = 264 + (int)rows.size() * 56;
+    // Header, comment, Source row and footer, then 32 px rows on an 8 px rhythm; a bound row adds its expression
+    // line and disclosure, and a multi-line value its taller editor. The panel still sizes to its content.
+    // Room to open one disclosure before the panel starts scrolling.
+    constexpr int kSelDisclosureRoom = 160;
+    int estimatedHeight = 304;
+    for (const auto& row : rows) {
+        estimatedHeight += 40;
+        if (SelRowHasExpression(row)) estimatedHeight += 60;
+        if (DevToolsEditText::IsMultiline(row.value)) estimatedHeight += 72;
+    }
     DevToolsSelection::Rect viewport{ 0, 0, w, h };
     DevToolsSelection::Rect workArea{};
     if (GetMonitorWorkAreaDips(&workArea)) viewport = workArea;
@@ -587,7 +599,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
     const bool haveToolbar = g_toolbarSurface.xamlRootKey == g_activeSurface.xamlRootKey && ToolbarRectDip(&toolbarDip);
     const DevToolsSelection::Rect toolbar{ toolbarDip.left, toolbarDip.top, toolbarDip.right, toolbarDip.bottom };
     const DevToolsSelection::Placement placement =
-        DevToolsSelection::PlacePanel(element, viewport, pw, estimatedHeight, 14, 8, haveToolbar ? &toolbar : nullptr);
+        DevToolsSelection::PlacePanel(element, viewport, pw, estimatedHeight + kSelDisclosureRoom, 14, 8, haveToolbar ? &toolbar : nullptr);
     const bool onRight = placement.onRight;
     const int px = placement.panelX;
     const int py = placement.panelY;
