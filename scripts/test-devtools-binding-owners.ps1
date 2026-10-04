@@ -297,6 +297,7 @@ try {
             # The panel is a non-activating popup, so `ui focus` (which activates the control's own window)
             # correctly refuses it; the explicit Save action exercises the same writer path.
             $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', 'Owned comment failure probe', '-a', $app)
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--value', 'Owned comment failure probe', '-t', '5000')
             $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelCommentSave', '-a', $app)
             $failureStatus = Wait-CommentStatus $app 'Save not confirmed (stage: writer-exit, code: 1)*'
             $writerDeadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -353,13 +354,17 @@ try {
         try {
             $held = $mutex.WaitOne(0)
             Check $held 'owned store lock is available for the bounded active-draft control'
+            # Save reads the box, so wait until the set value is the box's text. Once, Save ran while the box still
+            # held the typed '!' text (no blur, no commit of the set text), and the wrong text was submitted.
             $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', 'Owned submitted text', '-a', $app)
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--value', 'Owned submitted text', '-t', '5000')
             $dirty = Invoke-Cli @('ui', 'get-property', 'DevToolsGuestCommentStatus', '-a', $app, '-p', 'Name')
             Check ($dirty.properties.Name -ceq 'Unsaved changes.') 'editing after acknowledgement removes the stale Saved status'
             $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelCommentSave', '-a', $app)
             $pending = Invoke-Cli @('ui', 'get-property', 'DevToolsGuestCommentStatus', '-a', $app, '-p', 'Name')
             Check ($pending.properties.Name -ceq 'Saving...') 'blocked writer reports pending rather than persisted'
             $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', 'Owned newer draft', '-a', $app)
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--value', 'Owned newer draft', '-t', '5000')
         }
         finally {
             if ($held) { $mutex.ReleaseMutex() }
@@ -380,6 +385,7 @@ try {
         $null = Invoke-Cli @('ui', 'click', 'NarrowCommentProbe', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', 'Owned unbound draft', '-a', $app)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--value', 'Owned unbound draft', '-t', '5000')
         $null = Wait-CommentStatus $app 'Unsaved changes.'
         $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', '', '-a', $app)
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelClose', '-a', $app)
