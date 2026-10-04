@@ -173,7 +173,7 @@ The `ProcessorArchitecture` is always force-set to the detected architecture per
 
 **Output:** `<Name>_<Version>_<arch1>_<arch2>.msixbundle` (architectures sorted alphabetically).
 
-**Store submission:** An unsigned bundle is valid for Store upload — Partner Center signs it with your reserved identity certificate. For sideloading, pass `--cert` or `--generate-cert`.
+**Store submission:** An unsigned bundle is valid for Store upload — Partner Center signs it with your reserved identity certificate. For sideloading, pass `--cert` or `--generate-cert`. To submit or manage the listing from the command line, use `winapp store <args>` (passthrough to the Microsoft Store Developer CLI, downloaded on first use).
 
 This hashes executables in the specified directories so Windows trusts them when running with sparse package identity.
 
