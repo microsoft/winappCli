@@ -1,6 +1,6 @@
 ---
 name: winapp-setup
-description: Set up a Windows app project for MSIX packaging, Windows SDK access, or Windows API usage, or scaffold a brand-new WinUI 3 app. Use when creating or scaffolding a new WinUI app from scratch, adding Windows support to an Electron, .NET, C++, Rust, Flutter, or Tauri project, or restoring SDK packages after cloning.
+description: Add Windows SDK and Windows App SDK support to an existing project (winapp init), restore pinned SDKs after cloning (winapp restore), update SDKs, or create a new WinUI app (winapp new). Use for Electron, .NET, C++, Rust, Flutter, or Tauri projects that need Windows setup.
 ---
 ## When to use
 

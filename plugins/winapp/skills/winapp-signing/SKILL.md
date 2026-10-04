@@ -1,6 +1,6 @@
 ---
 name: winapp-signing
-description: Create and manage code signing certificates for Windows apps and MSIX packages. Use when generating a certificate, signing a Windows app or installer, or fixing certificate trust issues.
+description: "Sign an existing .msix or .exe and manage code-signing certificates: winapp sign, cert generate/install/info, Azure Trusted Signing. Use when signing with a .pfx, creating or trusting a dev certificate, verifying a signature, or fixing a publisher mismatch. Not for building the MSIX."
 ---
 ## When to use
 

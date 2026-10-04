@@ -1,6 +1,6 @@
 ---
 name: winapp-manifest
-description: Create and edit Windows app manifest files (Package.appxmanifest or appxmanifest.xml) that define app identity, capabilities, and visual assets, or generate new assets from existing images. Use when creating a Windows app manifest for any app type (GUI, console, CLI tool, service), adding Windows capabilities, generating new app icons and assets, or adding execution aliases, file associations, protocol handlers, or other app extensions.
+description: "Edit Package.appxmanifest or appxmanifest.xml: execution aliases (launch from a terminal), file associations, protocols, capabilities, identity, and app icons/tiles (regenerate all from one image). Use when changing what the manifest declares or replacing icons. Not for packaging or signing."
 ---
 ## When to use
 
