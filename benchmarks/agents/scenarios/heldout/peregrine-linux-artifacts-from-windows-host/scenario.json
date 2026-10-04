@@ -1,0 +1,29 @@
+{
+  "id": "peregrine-linux-artifacts-from-windows-host",
+  "description": "Ignores Windows bundler credentials when the actual Tauri release target is Linux.",
+  "set": "heldout",
+  "cohort": "trap",
+  "persona": "5",
+  "framework": "Tauri / Rust / Linux release",
+  "conflictingSignal": true,
+  "sources": [],
+  "prompt": "I'm on a Windows laptop working on Peregrine Scribe. Can you set up the Ubuntu CI job to produce .deb and AppImage releases from this Tauri config?",
+  "paraphrases": {
+    "novice": "I need Linux users to install Peregrine Scribe as a .deb or AppImage. How do we make those in the Ubuntu job? I'm editing the Tauri project on Windows.",
+    "terse": "Peregrine Tauri: Ubuntu CI .deb and AppImage releases."
+  },
+  "configurations": [
+    "none",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "id": "orris-needs-a-first-window",
+  "description": "Recognizes a request to start a new WinUI application rather than restore an existing one.",
+  "set": "heldout",
+  "cohort": "vague",
+  "persona": "3",
+  "framework": "WinUI 3 / C#",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/get-started/start-here"
+  ],
+  "prompt": "Help me start Orris Clock as a new C# WinUI 3 app from this sketch. The dev tools are installed; I need the initial project.",
+  "paraphrases": {
+    "novice": "I have a sketch for Orris Clock but no code yet. Can you make the starting C# project using WinUI 3 so I can begin working on it?",
+    "terse": "New Orris Clock app: C#, WinUI 3. Scaffold from attached sketch."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "project.scaffold"
+        ]
+      ],
+      "acceptable": [
+        "winui.build"
+      ],
+      "forbid": [
+        "project.setup",
+        "winui.migrate",
+        "session.report"
+      ]
+    }
+  }
+}

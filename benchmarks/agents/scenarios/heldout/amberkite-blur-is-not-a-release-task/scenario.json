@@ -1,0 +1,29 @@
+{
+  "id": "amberkite-blur-is-not-a-release-task",
+  "description": "Rejects WinUI and packaging help for a MAUI-only page background request despite a Windows platform shell.",
+  "set": "heldout",
+  "cohort": "trap",
+  "persona": "9",
+  "framework": ".NET MAUI / Windows appearance",
+  "conflictingSignal": true,
+  "sources": [],
+  "prompt": "Can Amberkite Planner's Windows page have a Mica-style background behind these cards? It's a shared MAUI ContentPage; we'd like to keep that page and its handlers.",
+  "paraphrases": {
+    "novice": "I'd like the soft background effect called Mica behind Amberkite Planner's cards on Windows. Can we do that while keeping the same MAUI page we use on the phone?",
+    "terse": "Amberkite MAUI ContentPage: Mica-like Windows background?"
+  },
+  "configurations": [
+    "none",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

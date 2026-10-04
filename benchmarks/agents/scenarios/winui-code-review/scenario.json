@@ -1,22 +1,26 @@
 {
   "id": "winui-code-review",
   "description": "Review WinUI page code for issues before committing.",
-  "prompt": "Review OrdersPage for bugs, binding, accessibility, theming, and performance issues before I commit.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Anything obviously wrong with OrdersPage before I merge it?",
   "configurations": [
     "winui",
     "both"
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winui-code-review",
-      "winui-design"
-    ],
-    "skillsForbid": [
-      "winui-wpf-migration",
-      "winui-session-report",
-      "winapp-signing",
-      "winapp-package"
-    ]
+    "capabilities": {
+      "primary": [
+        "winui.review",
+        "winui.design"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "session.report",
+        "msix.sign",
+        "msix.package"
+      ]
+    }
   }
 }

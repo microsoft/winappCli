@@ -1,19 +1,24 @@
 {
   "id": "msix-install-fails",
   "description": "MSIX install fails because the signing certificate is not trusted.",
+  "set": "dev",
+  "cohort": "error",
   "prompt": "Installing dist\\ContosoApp.msix fails with 0x800B0109 (certificate chain not trusted). Figure out why and fix it.",
   "configurations": [
     "winapp",
     "both"
   ],
+  "routingSnapshot": true,
   "expect": {
-    "skillsAny": [
-      "winapp-troubleshoot",
-      "winapp-signing"
-    ],
-    "skillsForbid": [
-      "winui-wpf-migration",
-      "winui-session-report"
-    ]
+    "capabilities": {
+      "primary": [
+        "troubleshoot",
+        "msix.sign"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "session.report"
+      ]
+    }
   }
 }

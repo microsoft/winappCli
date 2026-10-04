@@ -1,0 +1,7 @@
+<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+ <StackPanel Background="LightGray">
+  <Button Content="Inbox" Margin="4" />
+  <Button Content="Filed records" Margin="4" />
+  <Button Content="Settings" Margin="4" />
+ </StackPanel>
+</UserControl>

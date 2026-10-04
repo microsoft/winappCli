@@ -1,0 +1,44 @@
+{
+  "id": "bracken-vendor-not-recognized",
+  "description": "Recognizes signing from an IT publisher-policy goal without certificate terminology in the request.",
+  "set": "heldout",
+  "cohort": "vague",
+  "persona": "5",
+  "framework": "Rust / native Windows executable",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations"
+  ],
+  "prompt": "How do I sign Bracken Meter's Rust executable so IT's publisher rule accepts it? Cargo release works, but Windows currently shows an unknown publisher.",
+  "paraphrases": {
+    "novice": "Bracken Meter runs, but the office computers call its publisher unknown and won't let people use it. IT approves programs by company name. How do I make ours show up as Bracken Research?",
+    "terse": "Bracken Meter: unknown publisher blocks IT approval. Need Rust executable signing."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The produced executable and organization policy are represented by metadata; no binary or private credential is embedded.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "msix.sign"
+        ]
+      ],
+      "acceptable": [
+        "framework.guidance",
+        "troubleshoot"
+      ],
+      "forbid": [
+        "msix.package",
+        "identity",
+        "winui.*",
+        "session.report"
+      ]
+    }
+  }
+}

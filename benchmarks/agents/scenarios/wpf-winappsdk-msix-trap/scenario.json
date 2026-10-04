@@ -1,6 +1,8 @@
 {
   "id": "wpf-winappsdk-msix-trap",
   "description": "Package a WPF app that references the Windows App SDK; WinUI build/design skills are a trap.",
+  "set": "dev",
+  "cohort": "trap",
   "prompt": "Testers need to install this app from a file share. Turn it into an MSIX installer signed with a test certificate, and give me the commands so I can rerun them after each build.",
   "configurations": [
     "winapp",
@@ -9,16 +11,21 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winapp-package",
-      "winapp-signing"
-    ],
-    "skillsForbid": [
-      "winui-design",
-      "winui-dev-workflow",
-      "winui-wpf-migration",
-      "winui-code-review",
-      "winui-setup"
-    ]
+    "capabilities": {
+      "primary": [
+        "msix.package",
+        "msix.sign"
+      ],
+      "acceptable": [
+        "framework.guidance",
+        "troubleshoot"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report",
+        "toolchain.prereqs"
+      ]
+    }
   }
 }

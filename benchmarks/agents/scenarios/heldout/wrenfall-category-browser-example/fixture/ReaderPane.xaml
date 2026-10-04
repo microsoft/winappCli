@@ -1,0 +1,9 @@
+<Page x:Class="Wrenfall.ReaderPane"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <Grid>
+  <Grid.ColumnDefinitions><ColumnDefinition Width="220" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+  <StackPanel x:Name="CategoryPlaceholder" />
+  <TextBlock Grid.Column="1" Text="Article content" />
+ </Grid>
+</Page>

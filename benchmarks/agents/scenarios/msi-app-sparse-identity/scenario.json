@@ -1,6 +1,8 @@
 {
   "id": "msi-app-sparse-identity",
   "description": "Package identity for an MSI-installed Win32 app without moving to full MSIX (sparse package).",
+  "set": "dev",
+  "cohort": "implicit",
   "prompt": "ContosoCAD installs with our existing MSI into C:\\Program Files\\Contoso\\CAD and we can't move to a full MSIX. We still need package identity so the app shows up as a Share target. Keep the MSI and the install location; add whatever the build and installer need.",
   "configurations": [
     "winapp",
@@ -8,12 +10,20 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winapp-identity",
-      "winapp-package"
-    ],
-    "skillsForbid": [
-      "winui-*"
-    ]
+    "capabilities": {
+      "primary": [
+        "identity"
+      ],
+      "acceptable": [
+        "msix.package",
+        "msix.manifest",
+        "troubleshoot"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
   }
 }

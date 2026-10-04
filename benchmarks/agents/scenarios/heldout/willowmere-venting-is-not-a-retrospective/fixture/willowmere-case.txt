@@ -1,0 +1,5 @@
+ApplicationData access succeeds in the existing host.
+Input: done=1, total=4
+Actual percentage: 0
+Expected percentage: 25
+Current request is limited to pure arithmetic.

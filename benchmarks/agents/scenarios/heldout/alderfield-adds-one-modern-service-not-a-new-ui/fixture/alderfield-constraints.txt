@@ -1,0 +1,5 @@
+About 200 WPF views; modernization is incremental.
+Dependency restoration already succeeds.
+Desired service: Microsoft.Windows.AppLifecycle.AppInstance.
+No Microsoft.UI.Xaml application will be introduced.
+Delivery remains WiX MSI.

@@ -1,6 +1,11 @@
 Set-StrictMode -Version Latest
 
 $script:ValidConfigurations = @('none', 'winapp', 'winui', 'both')
+$script:ValidSets = @('dev', 'heldout')
+# Implicit routing results leave out explicit-command scenarios (the prompt names the command).
+$script:ValidCohorts = @('implicit', 'error', 'vague', 'followup', 'explicit-command', 'near-miss', 'trap')
+$script:CapabilityMap = $null
+$script:DefaultCapabilityPath = Join-Path $PSScriptRoot '..\capabilities.json'
 
 # Environment variables that can change which skills, instructions, or CLI build a
 # child Copilot process picks up. Auth variables are kept so the child can sign in.
@@ -30,22 +35,59 @@ function Get-ScenarioDefinitions {
         if ('both' -notin $s.configurations) { throw "Scenario '$($s.id)' must include the 'both' configuration." }
         $fixture = $null
         if ($s.ContainsKey('fixture') -and $s.fixture) {
-            $fixture = Join-Path $dir $s.fixture
+            $fixture = [System.IO.Path]::GetFullPath((Join-Path $dir $s.fixture))
             if (-not (Test-Path -LiteralPath $fixture -PathType Container)) { throw "Scenario '$($s.id)' fixture folder not found: $fixture" }
         }
+        $set = if ($s.ContainsKey('set') -and $s.set) { $s.set } else { 'dev' }
+        if ($set -notin $script:ValidSets) { throw "Scenario '$($s.id)' has unknown set '$set'. Use $($script:ValidSets -join ' or ')." }
+        if (-not $s.ContainsKey('cohort') -or $s.cohort -notin $script:ValidCohorts) {
+            throw "Scenario '$($s.id)' needs a cohort: $($script:ValidCohorts -join ', ')."
+        }
         $expect = $s.expect
-        [pscustomobject]@{
-            Id             = $s.id
-            Description    = $s.description
-            Prompt         = $s.prompt
-            Configurations = @($s.configurations)
-            FixturePath    = $fixture
-            TimeoutMinutes = if ($s.ContainsKey('timeoutMinutes')) { $s.timeoutMinutes } else { $null }
-            Expect         = [pscustomobject]@{
-                SkillsAny    = @(if ($expect.ContainsKey('skillsAny')) { $expect.skillsAny })
-                SkillsAll    = @(if ($expect.ContainsKey('skillsAll')) { $expect.skillsAll })
-                SkillsForbid = @(if ($expect.ContainsKey('skillsForbid')) { $expect.skillsForbid })
-                MaxSkills    = if ($expect.ContainsKey('maxSkills')) { $expect.maxSkills } else { $null }
+        $caps = $null
+        if ($expect.ContainsKey('capabilities') -and $expect.capabilities) {
+            $c = $expect.capabilities
+            # A primary entry is one capability, or an array of capabilities that must all load.
+            $primary = @(if ($c.ContainsKey('primary')) { foreach ($p in $c.primary) { , @($p) } })
+            $caps = [pscustomobject]@{
+                Primary      = $primary
+                Acceptable   = @(if ($c.ContainsKey('acceptable')) { $c.acceptable })
+                Forbid       = @(if ($c.ContainsKey('forbid')) { $c.forbid })
+                BudgetTokens = if ($c.ContainsKey('budgetTokens')) { $c.budgetTokens } else { $null }
+            }
+        }
+        $expectObject = [pscustomobject]@{
+            SkillsAny    = @(if ($expect.ContainsKey('skillsAny')) { $expect.skillsAny })
+            SkillsAll    = @(if ($expect.ContainsKey('skillsAll')) { $expect.skillsAll })
+            SkillsForbid = @(if ($expect.ContainsKey('skillsForbid')) { $expect.skillsForbid })
+            MaxSkills    = if ($expect.ContainsKey('maxSkills')) { $expect.maxSkills } else { $null }
+            Capabilities = $caps
+            Commands     = @(if ($expect.ContainsKey('commands')) { $expect.commands })
+        }
+        # Paraphrases share the fixture and expectations and run as separate scenarios '<id>.<variant>'.
+        $variants = [ordered]@{ '' = $s.prompt }
+        if ($s.ContainsKey('paraphrases') -and $s.paraphrases) {
+            foreach ($k in $s.paraphrases.Keys) {
+                if ($k -notmatch '^[a-z][a-z0-9-]*$') { throw "Scenario '$($s.id)' paraphrase name '$k' must be lowercase kebab-case." }
+                $variants[$k] = $s.paraphrases[$k]
+            }
+        }
+        foreach ($v in $variants.Keys) {
+            [pscustomobject]@{
+                Id               = if ($v) { "$($s.id).$v" } else { $s.id }
+                BaseId           = $s.id
+                Variant          = if ($v) { $v } else { 'base' }
+                Set              = $set
+                Cohort           = $s.cohort
+                Description      = $s.description
+                Prompt           = $variants[$v]
+                Configurations   = @($s.configurations)
+                FixturePath      = $fixture
+                RoutingSnapshot  = [bool]($s.ContainsKey('routingSnapshot') -and $s.routingSnapshot)
+                LeakAllow        = @(if ($s.ContainsKey('leakAllow')) { $s.leakAllow })
+                ScenarioFile     = $file.FullName
+                TimeoutMinutes   = if ($s.ContainsKey('timeoutMinutes')) { $s.timeoutMinutes } else { $null }
+                Expect           = $expectObject
             }
         }
     }
@@ -443,6 +485,168 @@ function Test-Expectations {
     }
 }
 
+function Get-ShortHash {
+    param([AllowEmptyString()][string]$Text)
+    $bytes = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($Text))
+    return ([System.Convert]::ToHexString($bytes).ToLowerInvariant()).Substring(0, 12)
+}
+
+function Get-SkillSetHash {
+    # Short, stable hash of a plugin's skill names; identifies which capability map describes it.
+    param([AllowEmptyCollection()][string[]]$SkillNames = @())
+    return Get-ShortHash (@($SkillNames | Sort-Object -Unique) -join "`n")
+}
+
+function Read-CapabilityMap {
+    # Loads capabilities.json: capability definitions (with winapp command patterns) and, per plugin
+    # version, the capabilities each skill provides.
+    param([Parameter(Mandatory)][string]$Path)
+    $j = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json -AsHashtable
+    $caps = [ordered]@{}
+    foreach ($k in $j.capabilities.Keys) {
+        $caps[$k] = [pscustomobject]@{ Description = $j.capabilities[$k].description; Commands = @($j.capabilities[$k].commands) }
+    }
+    $maps = foreach ($m in $j.maps) {
+        foreach ($skill in $m.skills.Keys) {
+            $unknown = @($m.skills[$skill] | Where-Object { -not $caps.Contains($_) })
+            if ($unknown) { throw "Capability map '$($m.id)' maps '$skill' to unknown capabilities: $($unknown -join ', ')" }
+        }
+        [pscustomobject]@{ Id = $m.id; Plugin = $m.plugin; Source = $m.source; SkillSetHash = $m.skillSetHash; Skills = $m.skills }
+    }
+    return [pscustomobject]@{ Path = $Path; Capabilities = $caps; Maps = @($maps) }
+}
+
+function Get-CapabilityMap {
+    if (-not $script:CapabilityMap) { $script:CapabilityMap = Read-CapabilityMap -Path $script:DefaultCapabilityPath }
+    return $script:CapabilityMap
+}
+
+function Set-CapabilityMap {
+    param([Parameter(Mandatory)][string]$Path)
+    $script:CapabilityMap = Read-CapabilityMap -Path $Path
+}
+
+function Resolve-SkillCapabilities {
+    # A plugin map applies when every skill it names is installed. When several maps of one plugin
+    # apply, the one naming the most skills wins. Installed skills no applied map names are unmapped.
+    param([AllowEmptyCollection()][string[]]$InstalledSkills = @(), $Map = (Get-CapabilityMap))
+    $installed = @($InstalledSkills | Select-Object -Unique)
+    $applied = foreach ($g in ($Map.Maps | Group-Object Plugin)) {
+        $g.Group | Where-Object { $m = $_; -not @($m.Skills.Keys | Where-Object { $_ -notin $installed }) } |
+            Sort-Object { $_.Skills.Count } -Descending -Stable | Select-Object -First 1
+    }
+    $skillCaps = @{}
+    foreach ($m in @($applied)) { foreach ($s in $m.Skills.Keys) { $skillCaps[$s] = @($m.Skills[$s]) } }
+    [pscustomobject]@{
+        SkillCapabilities = $skillCaps
+        Maps              = @($applied | ForEach-Object Id)
+        Unmapped          = @($installed | Where-Object { -not $skillCaps.ContainsKey($_) })
+    }
+}
+
+function Test-CapabilityExpectations {
+    # Scores a run against capability expectations:
+    #   pass    - a primary alternative (one capability, or a group that must all load) fully loaded
+    #   partial - only part of a primary group, or only acceptable capabilities, loaded
+    #   fail    - a forbidden capability loaded, maxSkills exceeded, or nothing expected loaded
+    #   n/a     - no primary alternative and no forbidden capability is installed, and no maxSkills
+    param(
+        [Parameter(Mandatory)]$Expect,
+        [AllowEmptyCollection()][string[]]$LoadedSkills = @(),
+        [AllowEmptyCollection()][string[]]$InstalledSkills = @(),
+        $Map = (Get-CapabilityMap)
+    )
+    $c = $Expect.Capabilities
+    $resolved = Resolve-SkillCapabilities -InstalledSkills $InstalledSkills -Map $Map
+    $skillCaps = $resolved.SkillCapabilities
+    $loaded = @($LoadedSkills | Select-Object -Unique)
+    $installedCaps = @($InstalledSkills | Where-Object { $skillCaps.ContainsKey($_) } | ForEach-Object { $skillCaps[$_] } | Select-Object -Unique)
+    $loadedCaps = @($loaded | Where-Object { $skillCaps.ContainsKey($_) } | ForEach-Object { $skillCaps[$_] } | Select-Object -Unique)
+    $failures = [System.Collections.Generic.List[string]]::new()
+    $notes = [System.Collections.Generic.List[string]]::new()
+    if ($resolved.Unmapped) { $notes.Add("installed skills without a capability map: $($resolved.Unmapped -join ', ')") }
+
+    $forbidden = @($loadedCaps | Where-Object { Test-SkillMatch $_ $c.Forbid })
+    if ($forbidden) {
+        $by = @($loaded | Where-Object { $skillCaps.ContainsKey($_) -and @($skillCaps[$_] | Where-Object { $_ -in $forbidden }) })
+        $failures.Add("forbidden capability loaded: $($forbidden -join ', ') (via $($by -join ', '))")
+    }
+    if ($null -ne $Expect.MaxSkills -and $loaded.Count -gt $Expect.MaxSkills) {
+        $failures.Add("loaded $($loaded.Count) skills, max $($Expect.MaxSkills)")
+    }
+
+    $primaryInstalled = @($c.Primary | Where-Object { $alt = @($_); -not @($alt | Where-Object { $_ -notin $installedCaps }) })
+    $partial = $false
+    if ($c.Primary.Count -gt 0 -and $primaryInstalled.Count -eq 0) { $notes.Add('primary capability not installed') }
+    if ($primaryInstalled.Count -gt 0) {
+        $met = @($primaryInstalled | Where-Object { $alt = @($_); -not @($alt | Where-Object { $_ -notin $loadedCaps }) })
+        if (-not $met) {
+            $some = @(@($primaryInstalled | ForEach-Object { $_ }) + @($c.Acceptable) | Where-Object { $_ -in $loadedCaps } | Select-Object -Unique)
+            if ($some) { $partial = $true; $notes.Add("partial: loaded $($some -join ', ') but no complete primary alternative") }
+            else { $failures.Add("no primary capability loaded ($(@($primaryInstalled | ForEach-Object { @($_) -join '+' }) -join ' | '))") }
+        }
+    }
+
+    $forbidApplies = @($installedCaps | Where-Object { Test-SkillMatch $_ $c.Forbid }).Count -gt 0
+    $notApplicable = $primaryInstalled.Count -eq 0 -and -not $forbidApplies -and $null -eq $Expect.MaxSkills
+    $status = if ($failures.Count -gt 0) { 'fail' } elseif ($partial) { 'partial' } elseif ($notApplicable) { 'n/a' } else { 'pass' }
+    [pscustomobject]@{
+        Status             = $status
+        Passed             = $status -eq 'pass'
+        NotApplicable      = $status -eq 'n/a'
+        ExpectedInstalled  = $primaryInstalled.Count -gt 0
+        Failures           = @($failures)
+        Notes              = @($notes)
+        CapabilitiesLoaded = $loadedCaps
+    }
+}
+
+function Test-ScenarioExpectations {
+    # Scores a run with the scenario's capability expectations, or its skill-name expectations when it
+    # has none, and adds the command and budget signals shared by both.
+    param(
+        [Parameter(Mandatory)]$Expect,
+        [AllowEmptyCollection()][string[]]$LoadedSkills = @(),
+        [AllowEmptyCollection()][string[]]$InstalledSkills = @(),
+        [AllowNull()][AllowEmptyCollection()][string[]]$WinappCommands = $null,
+        [AllowNull()]$SkillContextTokens = $null,
+        $Map = (Get-CapabilityMap)
+    )
+    $caps = $Expect.PSObject.Properties['Capabilities'] ? $Expect.Capabilities : $null
+    if ($caps) {
+        $r = Test-CapabilityExpectations -Expect $Expect -LoadedSkills $LoadedSkills -InstalledSkills $InstalledSkills -Map $Map
+    }
+    else {
+        $legacy = Test-Expectations -Expect $Expect -LoadedSkills $LoadedSkills -InstalledSkills $InstalledSkills
+        $r = [pscustomobject]@{
+            Status = $legacy.Status; Passed = $legacy.Passed; NotApplicable = $legacy.NotApplicable
+            ExpectedInstalled = $legacy.ExpectedInstalled
+            Failures = $legacy.Failures; Notes = $legacy.Notes; CapabilitiesLoaded = $null
+        }
+    }
+
+    # The right winapp command named (tried in the shell or in the answer), from the scenario's
+    # `commands` or the primary capabilities' command patterns.
+    $patterns = @($Expect.PSObject.Properties['Commands'] ? $Expect.Commands : @())
+    if (-not $patterns -and $caps) {
+        $patterns = @($caps.Primary | ForEach-Object { $_ } | Select-Object -Unique |
+                Where-Object { $Map.Capabilities.Contains($_) } | ForEach-Object { $Map.Capabilities[$_].Commands })
+    }
+    $commandHit = $null
+    if ($patterns -and $null -ne $WinappCommands) {
+        $commandHit = [bool]@($WinappCommands | Where-Object { $cmd = $_; @($patterns | Where-Object { $cmd -match $_ }) }).Count
+    }
+    $overBudget = $null
+    if ($caps -and $null -ne $caps.BudgetTokens -and $null -ne $SkillContextTokens) { $overBudget = [int64]$SkillContextTokens -gt [int64]$caps.BudgetTokens }
+
+    $r | Add-Member -NotePropertyName CommandHit -NotePropertyValue $commandHit
+    # Named the right command, but no primary skill loaded: a routing miss the agent partly covered.
+    $r | Add-Member -NotePropertyName CommandWithoutSkill -NotePropertyValue ($commandHit -eq $true -and $r.Status -in 'fail', 'partial')
+    $r | Add-Member -NotePropertyName OverBudget -NotePropertyValue $overBudget
+    if ($overBudget) { $r.Notes = @($r.Notes) + "skill context ~$SkillContextTokens tokens over budget $($caps.BudgetTokens)" }
+    return $r
+}
+
 function Get-Median {
     param([AllowEmptyCollection()][double[]]$Values)
     $v = @($Values | Where-Object { $null -ne $_ } | Sort-Object)
@@ -480,6 +684,21 @@ function Get-RepeatStats {
     }
 }
 
+function Get-StatusStats {
+    # Pass / partial / fail / n/a counts and the pass rate over scored (pass, partial, fail) runs.
+    param([AllowEmptyCollection()][object[]]$Runs)
+    $pass = @($Runs | Where-Object status -eq 'pass').Count
+    $partial = @($Runs | Where-Object status -eq 'partial').Count
+    $fail = @($Runs | Where-Object status -eq 'fail').Count
+    $scored = $pass + $partial + $fail
+    $rate = if ($scored) { '{0:N0}%' -f (100 * $pass / $scored) } else { 'n/a' }
+    [pscustomobject]@{
+        Pass = $pass; Partial = $partial; Fail = $fail; Scored = $scored; Rate = $rate
+        NA = @($Runs | Where-Object status -eq 'n/a').Count
+        Text = "$pass/$scored$(if ($scored) { " ($rate)" }), $partial partial"
+    }
+}
+
 function Write-BenchmarkSummary {
     # Builds summary.md from runs.jsonl, reading one line at a time.
     param(
@@ -506,11 +725,20 @@ function Write-BenchmarkSummary {
     [void]$sb.AppendLine("## Totals")
     [void]$sb.AppendLine()
     [void]$sb.AppendLine("- Runs: $($rows.Count) ($($statusCounts -join ', '))")
-    $passCount = @($rows | Where-Object status -eq 'pass').Count
-    $scored = $passCount + @($rows | Where-Object status -eq 'fail').Count
+    # Routing results leave out the no-plugin control and prompts that name the command.
+    $routing = @($rows | Where-Object { $_.configuration -ne 'none' -and (Get-RecordValue $_ 'cohort') -ne 'explicit-command' })
     $naRows = @($rows | Where-Object status -eq 'n/a')
-    $rate = if ($scored) { ' ({0:N0}%)' -f (100 * $passCount / $scored) } else { '' }
-    [void]$sb.AppendLine("- Pass rate: $passCount/$scored$rate; $($naRows.Count) n/a runs excluded (nothing in the expectation applies to the installed skills)")
+    $st = Get-StatusStats $routing
+    [void]$sb.AppendLine("- Pass rate: $($st.Text); $(@($routing | Where-Object status -eq 'n/a').Count) n/a runs excluded (nothing in the expectation applies to the installed skills). Leaves out the ``none`` control and explicit-command scenarios")
+    $explicit = @($rows | Where-Object { $_.configuration -ne 'none' -and (Get-RecordValue $_ 'cohort') -eq 'explicit-command' })
+    if ($explicit) { [void]$sb.AppendLine("- Explicit-command pass rate: $((Get-StatusStats $explicit).Text)") }
+    $missed = @($rows | Where-Object { $_.configuration -ne 'none' -and $_.status -in 'fail', 'partial' })
+    $cmdMiss = @($missed | Where-Object { (Get-RecordValue $_ 'commandWithoutSkill') -eq $true })
+    if (@($rows | Where-Object { $null -ne (Get-RecordValue $_ 'commandHit') })) {
+        [void]$sb.AppendLine("- Right winapp command named without loading a primary skill: $($cmdMiss.Count) of $($missed.Count) fail/partial runs")
+    }
+    $budget = @($rows | Where-Object { $null -ne (Get-RecordValue $_ 'overBudget') })
+    if ($budget) { [void]$sb.AppendLine("- Over the scenario's skill-context budget: $(@($budget | Where-Object overBudget).Count) of $($budget.Count) runs with a budget") }
     $tokIn = ($rows | Where-Object { $_.tokens } | ForEach-Object { $_.tokens.input } | Measure-Object -Sum).Sum
     $tokOut = ($rows | Where-Object { $_.tokens } | ForEach-Object { $_.tokens.output } | Measure-Object -Sum).Sum
     $credits = ($rows | Where-Object { $null -ne $_.aiCredits } | ForEach-Object { $_.aiCredits } | Measure-Object -Sum).Sum
@@ -527,6 +755,42 @@ function Write-BenchmarkSummary {
     [void]$sb.AppendLine("Copilot's own system prompt, tool definitions, and conversation. The skill context column shows what the")
     [void]$sb.AppendLine('loaded skills added; it is an estimate, not a tokenizer count.')
     [void]$sb.AppendLine()
+
+    $grouped = @($rows | Where-Object { Get-RecordValue $_ 'cohort' })
+    $plugged = @($grouped | Where-Object configuration -ne 'none')
+    if ($plugged) {
+        [void]$sb.AppendLine('## By set and cohort')
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('Pass rate is pass / (pass + partial + fail). The `none` control is reported separately below.')
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('| Set | Cohort | Model | Runs | Pass | Partial | Fail | n/a | Pass rate | Right command, no skill |')
+        [void]$sb.AppendLine('|---|---|---|---|---|---|---|---|---|---|')
+        foreach ($g in ($plugged | Group-Object set, cohort, model | Sort-Object { $_.Group[0].set }, { $_.Group[0].cohort }, { $_.Group[0].model })) {
+            $r0 = $g.Group[0]
+            $s = Get-StatusStats $g.Group
+            $cmd = @($g.Group | Where-Object { (Get-RecordValue $_ 'commandWithoutSkill') -eq $true }).Count
+            [void]$sb.AppendLine("| $($r0.set) | $($r0.cohort) | $($r0.model) | $($g.Count) | $($s.Pass) | $($s.Partial) | $($s.Fail) | $($s.NA) | $($s.Rate) | $cmd |")
+        }
+        [void]$sb.AppendLine()
+    }
+    $control = @($grouped | Where-Object configuration -eq 'none')
+    if ($control) {
+        [void]$sb.AppendLine('## No-plugin control')
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('What models do with no plugin installed. Not part of any pass rate.')
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('| Set | Cohort | Model | Runs | Named any winapp command | Named the right command | Median AI credits |')
+        [void]$sb.AppendLine('|---|---|---|---|---|---|---|')
+        foreach ($g in ($control | Group-Object set, cohort, model | Sort-Object { $_.Group[0].set }, { $_.Group[0].cohort }, { $_.Group[0].model })) {
+            $r0 = $g.Group[0]
+            $any = @($g.Group | Where-Object { @(Get-RecordValue $_ 'winappCommands').Count -gt 0 }).Count
+            $withCheck = @($g.Group | Where-Object { $null -ne (Get-RecordValue $_ 'commandHit') })
+            $right = if ($withCheck) { "$(@($withCheck | Where-Object commandHit).Count)/$($withCheck.Count)" } else { 'n/a' }
+            $medCredits = Get-Median @($g.Group | Where-Object { $null -ne $_.aiCredits } | ForEach-Object { [double]$_.aiCredits })
+            [void]$sb.AppendLine("| $($r0.set) | $($r0.cohort) | $($r0.model) | $($g.Count) | $any | $right | $(if ($null -ne $medCredits) { '{0:N1}' -f $medCredits } else { 'n/a' }) |")
+        }
+        [void]$sb.AppendLine()
+    }
 
     if ($naRows) {
         [void]$sb.AppendLine('## Not applicable')
@@ -591,6 +855,21 @@ function Write-BenchmarkSummary {
     Set-Content -LiteralPath $SummaryPath -Value $text -Encoding utf8NoBOM
 }
 
+function Add-EvaluationFields {
+    # Copies scenario grouping fields and, when given, evaluation signals onto a run record.
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Record, [Parameter(Mandatory)]$Scenario, $Evaluation)
+    $Record['set'] = Get-RecordValue $Scenario 'Set'
+    $Record['cohort'] = Get-RecordValue $Scenario 'Cohort'
+    $Record['baseScenario'] = Get-RecordValue $Scenario 'BaseId'
+    $Record['variant'] = Get-RecordValue $Scenario 'Variant'
+    if ($Evaluation) {
+        $Record['capabilitiesLoaded'] = $Evaluation.CapabilitiesLoaded
+        $Record['commandHit'] = $Evaluation.CommandHit
+        $Record['commandWithoutSkill'] = $Evaluation.CommandWithoutSkill
+        $Record['overBudget'] = $Evaluation.OverBudget
+    }
+}
+
 function Invoke-Rescore {
     # Re-evaluates recorded pass/fail runs against the current scenario expectations, without model
     # calls. Writes runs.rescored.jsonl and summary.rescored.md next to the originals, which stay untouched.
@@ -616,17 +895,24 @@ function Invoke-Rescore {
             $rec = $line | ConvertFrom-Json -AsHashtable -Depth 64
             $rec.originalStatus = $rec.status
             if (-not $rec.ContainsKey('expectationNotes')) { $rec.expectationNotes = @() }
-            if ($rec.status -in 'pass', 'fail', 'n/a') {
+            if ($byId[$rec.scenario]) { Add-EvaluationFields -Record $rec -Scenario $byId[$rec.scenario] }
+            if ($rec.status -in 'pass', 'fail', 'n/a', 'partial') {
                 $s = $byId[$rec.scenario]
                 if (-not $s) {
                     $rec.expectationNotes = @($rec.expectationNotes) + 'scenario no longer defined; status not rescored'
                 }
+                elseif ($rec.ContainsKey('promptHash') -and $rec.promptHash -and $rec.promptHash -ne (Get-ShortHash $s.Prompt)) {
+                    $rec.expectationNotes = @($rec.expectationNotes) + 'prompt changed since this run; status not rescored'
+                }
                 else {
                     $installed = @(if ($rec.preflight) { $rec.preflight.expectedSkills })
-                    $eval = Test-Expectations -Expect $s.Expect -LoadedSkills @($rec.skillsLoaded) -InstalledSkills $installed
+                    $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @($rec.skillsLoaded) -InstalledSkills $installed `
+                        -WinappCommands ($rec.ContainsKey('winappCommands') ? $rec.winappCommands : $null) `
+                        -SkillContextTokens ($rec.ContainsKey('skillContextTokensApprox') ? $rec.skillContextTokensApprox : $null)
                     $rec.status = $eval.Status
                     $rec.reason = $eval.Failures -join '; '
                     $rec.expectationNotes = @($eval.Notes)
+                    Add-EvaluationFields -Record $rec -Scenario $s -Evaluation $eval
                     if ($rec.configuration -notin $s.Configurations) { $rec.expectationNotes += 'configuration no longer listed for this scenario' }
                 }
             }
@@ -673,10 +959,10 @@ function Read-ComparisonRuns {
             $status = $rec.status
             $expectedInstalled = $null
             $s = $byId[$rec.scenario]
-            if ($s -and $status -in 'pass', 'fail', 'n/a') {
+            if ($s -and $status -in 'pass', 'fail', 'n/a', 'partial') {
                 $pre = Get-RecordValue $rec 'preflight'
                 $installed = @(if ($pre) { $pre.expectedSkills })
-                $eval = Test-Expectations -Expect $s.Expect -LoadedSkills @($rec.skillsLoaded) -InstalledSkills $installed
+                $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @($rec.skillsLoaded) -InstalledSkills $installed
                 $status = $eval.Status
                 $expectedInstalled = $eval.ExpectedInstalled
             }
@@ -686,6 +972,8 @@ function Read-ComparisonRuns {
                 Scenario     = $rec.scenario
                 Configuration = $rec.configuration
                 Model        = $rec.model
+                Set          = if ($s) { Get-RecordValue $s 'Set' } else { Get-RecordValue $rec 'set' }
+                Cohort       = if ($s) { Get-RecordValue $s 'Cohort' } else { Get-RecordValue $rec 'cohort' }
                 Agent        = Get-RecordValue $rec 'agent'
                 Status       = $status
                 ExpectedInstalled = $expectedInstalled
@@ -701,7 +989,7 @@ function Read-ComparisonRuns {
 
 function Get-ComparisonStats {
     param([AllowEmptyCollection()][object[]]$Runs)
-    $done = @($Runs | Where-Object { $_.Status -in 'pass', 'fail', 'n/a' })
+    $done = @($Runs | Where-Object { $_.Status -in 'pass', 'partial', 'fail', 'n/a' })
     $mean = {
         param($values)
         $v = @($values | Where-Object { $null -ne $_ })
@@ -711,10 +999,11 @@ function Get-ComparisonStats {
     [pscustomobject]@{
         Done     = $done.Count
         Pass     = @($done | Where-Object Status -eq 'pass').Count
-        Scored   = @($done | Where-Object Status -in 'pass', 'fail').Count
+        Partial  = @($done | Where-Object Status -eq 'partial').Count
+        Scored   = @($done | Where-Object Status -in 'pass', 'partial', 'fail').Count
         NA       = @($done | Where-Object Status -eq 'n/a').Count
         # Whether an expected skill was installed; differs when a candidate adds or removes one.
-        Checks   = @($done | Where-Object Status -in 'pass', 'fail' | ForEach-Object { $_.ExpectedInstalled } | Select-Object -Unique | Sort-Object) -join ','
+        Checks   = @($done | Where-Object Status -in 'pass', 'partial', 'fail' | ForEach-Object { $_.ExpectedInstalled } | Select-Object -Unique | Sort-Object) -join ','
         Ctx      = & $mean @($done | ForEach-Object { $_.Ctx })
         Input    = & $mean @($done | ForEach-Object { $_.Input })
         Credits  = & $mean @($done | ForEach-Object { $_.Credits })
@@ -805,13 +1094,8 @@ function Get-ComparisonReport {
         return ($md -join "`n")
     }
 
-    $md.Add('')
-    $md.Add('## By model')
-    $md.Add('')
-    $md.Add("| Model | Cells $header")
-    $md.Add("|---|---$rule")
-    foreach ($m in ($shared | ForEach-Object { $bCells[$_][0].Model } | Select-Object -Unique | Sort-Object)) {
-        $keys = @($shared | Where-Object { $bCells[$_][0].Model -eq $m })
+    $pooled = {
+        param($label, $keys)
         $bs = Get-ComparisonStats @($keys | ForEach-Object { $bCells[$_] })
         $cs = Get-ComparisonStats @($keys | ForEach-Object { $cCells[$_] })
         # Pooled pass only over cells that are applicable, and check the same thing, on both sides.
@@ -822,8 +1106,32 @@ function Get-ComparisonReport {
             })
         $bp = Get-ComparisonStats @($both | ForEach-Object { $bCells[$_] })
         $cp = Get-ComparisonStats @($both | ForEach-Object { $cCells[$_] })
-        foreach ($k in 'Pass', 'Scored', 'NA', 'Checks') { $bs.$k = $bp.$k; $cs.$k = $cp.$k }
-        $md.Add((& $row "$m | $($keys.Count)" $bs $cs))
+        foreach ($k in 'Pass', 'Partial', 'Scored', 'NA', 'Checks') { $bs.$k = $bp.$k; $cs.$k = $cp.$k }
+        & $row "$label | $($keys.Count)" $bs $cs
+    }
+    # The no-plugin control and prompts that name the command are not routing results.
+    $plugged = @($shared | Where-Object { $bCells[$_][0].Configuration -ne 'none' })
+    $routing = @($plugged | Where-Object { $bCells[$_][0].Cohort -ne 'explicit-command' })
+
+    $md.Add('')
+    $md.Add('## By model')
+    $md.Add('')
+    $md.Add('Leaves out the `none` control and explicit-command scenarios.')
+    $md.Add('')
+    $md.Add("| Model | Cells $header")
+    $md.Add("|---|---$rule")
+    foreach ($m in ($routing | ForEach-Object { $bCells[$_][0].Model } | Select-Object -Unique | Sort-Object)) {
+        $md.Add((& $pooled $m @($routing | Where-Object { $bCells[$_][0].Model -eq $m })))
+    }
+
+    $groups = @($plugged | Group-Object { "$($bCells[$_][0].Set) | $($bCells[$_][0].Cohort)" } | Sort-Object Name)
+    if ($groups.Count -gt 1 -or ($groups -and $groups[0].Name -ne ' | ')) {
+        $md.Add('')
+        $md.Add('## By set and cohort')
+        $md.Add('')
+        $md.Add("| Set | Cohort | Cells $header")
+        $md.Add("|---|---|---$rule")
+        foreach ($g in $groups) { $md.Add((& $pooled $g.Name @($g.Group))) }
     }
 
     $md.Add('')
@@ -840,4 +1148,6 @@ function Get-ComparisonReport {
 
 Export-ModuleMember -Function Get-ScenarioDefinitions, Get-PluginSkillNames, Get-ConfigurationPlugins, New-ChildEnvironment,
 Invoke-LoggedProcess, Get-FileTail, Read-SessionEvents, Get-DirectorySnapshot, Compare-DirectorySnapshot, Test-Expectations,
-Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands, Get-BareSkillName, Get-ComparisonReport
+Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands, Get-BareSkillName, Get-ComparisonReport,
+Get-ShortHash, Get-SkillSetHash, Read-CapabilityMap, Get-CapabilityMap, Set-CapabilityMap, Resolve-SkillCapabilities,
+Test-CapabilityExpectations, Test-ScenarioExpectations, Add-EvaluationFields, Get-StatusStats

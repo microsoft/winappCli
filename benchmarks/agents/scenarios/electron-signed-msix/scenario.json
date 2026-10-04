@@ -1,6 +1,8 @@
 {
   "id": "electron-signed-msix",
   "description": "Electron app: build a signed MSIX with an npm script (Electron packaging job).",
+  "set": "dev",
+  "cohort": "implicit",
   "prompt": "Make this Electron app build a signed MSIX installer on Windows. A dev certificate is fine for now. Add an npm script I can run after each change.",
   "configurations": [
     "winapp",
@@ -8,13 +10,21 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winapp-package",
-      "winapp-frameworks"
-    ],
-    "skillsForbid": [
-      "winui-*",
-      "winapp-maui"
-    ]
+    "capabilities": {
+      "primary": [
+        "msix.package",
+        "framework.guidance"
+      ],
+      "acceptable": [
+        "msix.sign",
+        "project.setup"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report",
+        "maui.package"
+      ]
+    }
   }
 }

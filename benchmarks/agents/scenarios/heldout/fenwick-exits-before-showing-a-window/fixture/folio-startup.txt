@@ -1,0 +1,8 @@
+Project selected: Folio
+Compilation: 0 errors
+Runtime packages: matching Windows App SDK runtime installed
+Bootstrap initialization: not called before Application.Start
+System.Runtime.InteropServices.COMException (0x80040154)
+Class not registered
+at Microsoft.UI.Xaml.Application.Start(...)
+No window was created.

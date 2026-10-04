@@ -1,0 +1,43 @@
+{
+  "id": "silverfin-flipview-role-regression",
+  "description": "Requires inspecting a desktop accessibility tree and specifying a repeatable regression test.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "7",
+  "framework": "WinUI 3 / desktop accessibility testing",
+  "conflictingSignal": false,
+  "sources": [
+    "https://github.com/microsoft/microsoft-ui-xaml/issues/11514"
+  ],
+  "prompt": "Silverfin Album's FlipView reports ControlType=Unknown. Inspect it in the open window for its name, role, and supported patterns, then add a regression test that saves evidence when this fails.",
+  "paraphrases": {
+    "novice": "The accessibility checker can't identify Silverfin Album's photo-flipping area. Can you find it in the window that's open and see what Windows says about it? Then make a test that catches this again and records what failed.",
+    "terse": "Silverfin FlipView ControlType=Unknown. Inspect live element, add regression with failure capture."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The open desktop window and accessibility provider are represented by a captured tree; the evaluated agent selects help rather than interacting with a live process.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "ui.automate",
+          "ui.test"
+        ]
+      ],
+      "acceptable": [
+        "winui.design"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

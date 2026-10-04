@@ -1,22 +1,30 @@
 {
   "id": "winui-repair-prerequisites",
   "description": "WinUI toolchain repair on a new machine (winui-setup primary).",
-  "prompt": "I'm setting up this existing C# WinUI 3 project on a new Windows machine. Only the .NET runtime is installed, the winapp command is missing, and Developer Mode is off. Get the development prerequisites ready and verify the versions before building. Don't create a new project or change its package versions.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "This repo won't build on my new laptop. `dotnet --list-sdks` prints nothing and PowerShell says winapp isn't recognized. Help me get it running.",
   "configurations": [
     "winui",
     "both"
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winui-setup"
-    ],
-    "skillsForbid": [
-      "winapp-package",
-      "winapp-signing",
-      "winui-packaging",
-      "winui-wpf-migration",
-      "winui-session-report"
-    ]
+    "capabilities": {
+      "primary": [
+        "toolchain.prereqs"
+      ],
+      "acceptable": [
+        "project.setup",
+        "winui.build"
+      ],
+      "forbid": [
+        "msix.package",
+        "msix.sign",
+        "winui.package",
+        "winui.migrate",
+        "session.report"
+      ]
+    }
   }
 }

@@ -1,6 +1,8 @@
 {
   "id": "trusted-signing-ci",
   "description": "Switch CI signing from a PFX to Azure Trusted Signing.",
+  "set": "dev",
+  "cohort": "implicit",
   "prompt": "Our GitHub Actions release workflow signs ContosoApp.msix with a PFX from secrets. Switch it to our Azure Trusted Signing account (endpoint https://eus.codesigning.azure.net, account contoso-signing, certificate profile contoso-public) and remove the PFX step.",
   "configurations": [
     "winapp",
@@ -8,14 +10,21 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winapp-signing"
-    ],
-    "skillsForbid": [
-      "winui-*",
-      "winapp-setup",
-      "winapp-maui"
-    ],
+    "capabilities": {
+      "primary": [
+        "msix.sign"
+      ],
+      "acceptable": [
+        "troubleshoot"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report",
+        "project.setup",
+        "maui.package"
+      ]
+    },
     "maxSkills": 2
   }
 }

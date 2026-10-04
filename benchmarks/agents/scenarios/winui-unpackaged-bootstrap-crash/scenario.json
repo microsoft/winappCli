@@ -1,0 +1,31 @@
+{
+  "id": "winui-unpackaged-bootstrap-crash",
+  "description": "Error-first: unpackaged WinUI app cannot load the Windows App SDK bootstrap DLL at launch.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "App dies on launch, nothing on screen. Event Viewer: System.DllNotFoundException: Unable to load DLL 'Microsoft.WindowsAppRuntime.Bootstrap.dll' or one of its dependencies. Works from Visual Studio, not from the copied bin folder.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "winui.build",
+        "troubleshoot"
+      ],
+      "acceptable": [
+        "project.setup",
+        "toolchain.prereqs"
+      ],
+      "forbid": [
+        "winui.design",
+        "winui.migrate",
+        "ui.samples",
+        "session.report"
+      ]
+    }
+  }
+}

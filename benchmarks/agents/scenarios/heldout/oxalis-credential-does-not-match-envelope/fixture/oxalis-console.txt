@@ -1,0 +1,5 @@
+Stage: apply publisher authentication
+Result: 0x8007000B
+Manifest Publisher: CN=Oxalis Development
+Credential Subject: CN=Oxalis Software Ltd
+Destination: internal pilot, not a Store reservation

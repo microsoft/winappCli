@@ -1,0 +1,28 @@
+{
+  "id": "trusted-signing-ci-no-credentials",
+  "description": "Error-first: Azure Trusted Signing works locally but CI finds no credentials.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "Azure signing works on my machine. In GitHub Actions the sign step says 'No credentials found' (see the workflow). How do I fix CI without checking in a PFX?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "msix.sign"
+      ],
+      "acceptable": [
+        "troubleshoot"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report",
+        "maui.package"
+      ]
+    }
+  }
+}

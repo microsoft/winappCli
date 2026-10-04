@@ -1,0 +1,130 @@
+{
+  "capabilities": {
+    "project.setup": {
+      "description": "Get an existing project's Windows SDK and Windows App SDK dependencies in place: restore pinned packages after cloning, generate C++/WinRT headers, or add Windows platform support to a project that is not WinUI.",
+      "commands": ["^(init|restore|update)$"]
+    },
+    "project.scaffold": {
+      "description": "Create a brand-new WinUI 3 app.",
+      "commands": ["^(new|init)$"]
+    },
+    "toolchain.prereqs": {
+      "description": "Install or repair developer machine prerequisites (SDKs, command-line tools, Developer Mode) and verify their versions.",
+      "commands": []
+    },
+    "winui.build": {
+      "description": "Build, run, and debug a WinUI 3 app: build errors, startup crashes, and Native AOT publish.",
+      "commands": ["^run$"]
+    },
+    "msix.package": {
+      "description": "Turn a desktop app's build output into an MSIX installer, locally or in a build script or CI pipeline.",
+      "commands": ["^(package|pack)$"]
+    },
+    "winui.package": {
+      "description": "Package, sign, and release a WinUI 3 app specifically, including Native AOT and handing the package to the Microsoft Store.",
+      "commands": ["^(package|pack|sign)$", "^cert"]
+    },
+    "msix.sign": {
+      "description": "Code-sign apps and installers: create test certificates, sign with a PFX or a cloud signing service, and make a certificate trusted on a test machine.",
+      "commands": ["^(sign|az-sign)$", "^cert"]
+    },
+    "msix.manifest": {
+      "description": "Edit the package manifest: declared capabilities, icons and tile images, command-line aliases, file type associations, URL protocol handlers, and other extensions.",
+      "commands": ["^manifest"]
+    },
+    "identity": {
+      "description": "Give a desktop app that is not installed as a package a package identity (while debugging, or next to an existing installer) so identity-gated Windows features work.",
+      "commands": ["^(create-debug-identity|embed-identity|create-external-catalog)$"]
+    },
+    "framework.guidance": {
+      "description": "Framework-specific advice for Windows platform work from Electron, WPF, WinForms, C++, Rust, Flutter, or Tauri.",
+      "commands": []
+    },
+    "maui.package": {
+      "description": "Package and sign the Windows target of a .NET MAUI app, including MAUI-specific manifest and publish problems.",
+      "commands": ["^(package|sign)$"]
+    },
+    "api.lookup": {
+      "description": "Check the exact Windows or WinRT types, members, and enum values available in the SDK version a project references.",
+      "commands": ["^find-api"]
+    },
+    "ui.samples": {
+      "description": "Find a working sample of a WinUI control for a UI need.",
+      "commands": ["^find-ui$"]
+    },
+    "winui.design": {
+      "description": "Design or fix WinUI 3 XAML UI: layout, control choice, Fluent look, theming, accessibility, and binding.",
+      "commands": []
+    },
+    "winui.review": {
+      "description": "Review WinUI 3 code for bugs and quality problems before it is merged.",
+      "commands": []
+    },
+    "winui.migrate": {
+      "description": "Port a WPF app to WinUI 3.",
+      "commands": []
+    },
+    "ui.automate": {
+      "description": "Inspect or operate a running desktop app's UI: find elements, click, type, read text, and take screenshots.",
+      "commands": ["^ui"]
+    },
+    "ui.test": {
+      "description": "Write and run repeatable automated UI tests for a desktop app.",
+      "commands": ["^ui"]
+    },
+    "sandbox.run": {
+      "description": "Run an app in a clean, disposable Windows Sandbox to test it away from the developer's machine.",
+      "commands": ["^(run|target)\\b"]
+    },
+    "troubleshoot": {
+      "description": "Diagnose packaging, signing, install, package identity, or SDK setup failures from error codes and logs.",
+      "commands": []
+    },
+    "store.publish": {
+      "description": "Submit an app to the Microsoft Store through Partner Center, by hand or from CI.",
+      "commands": ["^store"]
+    },
+    "session.report": {
+      "description": "Analyze a previous AI agent session and report what went wrong. Only when the user explicitly asks.",
+      "commands": []
+    }
+  },
+  "maps": [
+    {
+      "id": "winapp-current",
+      "plugin": "winapp",
+      "source": "plugins/winapp",
+      "skillSetHash": "4a4abc8b6541",
+      "skills": {
+        "winapp-find-api": ["api.lookup"],
+        "winapp-find-ui": ["ui.samples"],
+        "winapp-frameworks": ["framework.guidance"],
+        "winapp-identity": ["identity"],
+        "winapp-manifest": ["msix.manifest"],
+        "winapp-maui": ["maui.package"],
+        "winapp-package": ["msix.package"],
+        "winapp-sandbox": ["sandbox.run", "ui.automate"],
+        "winapp-setup": ["project.setup", "project.scaffold"],
+        "winapp-signing": ["msix.sign"],
+        "winapp-troubleshoot": ["troubleshoot"],
+        "winapp-ui-automation": ["ui.automate"]
+      }
+    },
+    {
+      "id": "winui-current",
+      "plugin": "winui",
+      "source": "plugins/winui/agent-plugin (win-dev-skills v0.7.1)",
+      "skillSetHash": "f9e7383f927d",
+      "skills": {
+        "winui-code-review": ["winui.review"],
+        "winui-design": ["winui.design", "ui.samples", "api.lookup"],
+        "winui-dev-workflow": ["winui.build", "project.scaffold"],
+        "winui-packaging": ["winui.package", "store.publish"],
+        "winui-session-report": ["session.report"],
+        "winui-setup": ["toolchain.prereqs"],
+        "winui-ui-testing": ["ui.test", "ui.automate", "sandbox.run"],
+        "winui-wpf-migration": ["winui.migrate"]
+      }
+    }
+  ]
+}

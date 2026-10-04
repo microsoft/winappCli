@@ -1,0 +1,40 @@
+{
+  "id": "marigold-one-off-check-away-from-workstation",
+  "description": "Recognizes one-off desktop interaction plus disposable Windows isolation without automation or sandbox jargon.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "7",
+  "framework": "WinForms / Windows 11",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file"
+  ],
+  "prompt": "Try a 12.50 receipt in Marigold Register on a fresh Sandbox desktop. Does the balance come out right? Send me an image of the result.",
+  "paraphrases": {
+    "novice": "Open Marigold Register on a fresh Windows desktop that gets discarded when closed. Click through making a receipt for 12.50, tell me the balance shown, and send me a picture of the screen.",
+    "terse": "Marigold in Sandbox: enter receipt 12.50, read balance, screenshot."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "A runnable candidate and disposable desktop are represented by artifact metadata and the expected window layout.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "sandbox.run",
+          "ui.automate"
+        ]
+      ],
+      "forbid": [
+        "ui.test",
+        "winui.*",
+        "session.report"
+      ]
+    }
+  }
+}

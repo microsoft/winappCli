@@ -1,0 +1,36 @@
+{
+  "id": "rookhaven-assistant-retried-the-wrong-surface",
+  "description": "Requires explicit analysis of an earlier assistant session, not execution of its failed desktop test.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "7",
+  "framework": "WPF / prior assistant transcript",
+  "conflictingSignal": false,
+  "sources": [],
+  "prompt": "The AI's Rookhaven Sync attempt ended with 'no element found' three times. Analyze the previous conversation here: where did it first go wrong, what did it ignore, and what should it have done instead?",
+  "paraphrases": {
+    "novice": "Can you read the earlier Rookhaven Sync chat and explain why the assistant kept failing? I'd like to know the first mistake and what clues it missed.",
+    "terse": "Rookhaven previous AI chat: three 'no element found' retries. Analyze what went wrong."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "session.report"
+        ]
+      ],
+      "forbid": [
+        "ui.automate",
+        "ui.test",
+        "winui.*",
+        "sandbox.run"
+      ]
+    }
+  }
+}

@@ -1,6 +1,8 @@
 {
   "id": "winforms-package-sign",
   "description": "Existing .NET WinForms app should become a signed MSIX for test machines.",
+  "set": "dev",
+  "cohort": "implicit",
   "prompt": "Package my WinForms app as an MSIX installer that testers can install on their machines, signed with a development certificate.",
   "configurations": [
     "winapp",
@@ -8,12 +10,19 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winapp-package"
-    ],
-    "skillsForbid": [
-      "winui-wpf-migration",
-      "winui-session-report"
-    ]
+    "capabilities": {
+      "primary": [
+        "msix.package"
+      ],
+      "acceptable": [
+        "msix.sign",
+        "framework.guidance"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
   }
 }

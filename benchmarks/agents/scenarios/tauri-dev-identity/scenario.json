@@ -1,0 +1,28 @@
+{
+  "id": "tauri-dev-identity",
+  "description": "Journey: Tauri feature works in the installed build but not under tauri dev; debug identity.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Share sheet works in the installed Store build, not in `tauri dev`. Do I really need to rebuild the installer every time I want to test it?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "identity"
+      ],
+      "acceptable": [
+        "framework.guidance",
+        "msix.manifest"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
+  }
+}

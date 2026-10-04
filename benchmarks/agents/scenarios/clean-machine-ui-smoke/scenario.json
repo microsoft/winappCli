@@ -1,23 +1,39 @@
 {
   "id": "clean-machine-ui-smoke",
   "description": "Keyword-free sandbox + UI automation: check a build on a clean Windows install and click through.",
-  "prompt": "Before we ship, check what a first-time user sees on a clean Windows install without my dev tools: launch the build in bin\\Release\\net8.0-windows\\publish, click 'Get started', and send me a screenshot of the next screen.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Can you try the release build on a clean Windows VM? Click Get started and grab a screenshot of what comes next.",
   "configurations": [
     "winapp",
     "winui",
     "both"
   ],
   "fixture": "fixture",
+  "routingSnapshot": true,
   "expect": {
-    "skillsAny": [
-      "winapp-sandbox",
-      "winui-ui-testing"
-    ],
-    "skillsForbid": [
-      "winui-wpf-migration",
-      "winui-design",
-      "winapp-signing",
-      "winapp-package"
-    ]
+    "capabilities": {
+      "primary": [
+        [
+          "sandbox.run",
+          "ui.automate"
+        ],
+        [
+          "sandbox.run",
+          "ui.test"
+        ]
+      ],
+      "acceptable": [
+        "ui.automate",
+        "ui.test"
+      ],
+      "forbid": [
+        "winui.design",
+        "winui.migrate",
+        "msix.sign",
+        "msix.package",
+        "session.report"
+      ]
+    }
   }
 }

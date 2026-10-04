@@ -1,0 +1,5 @@
+Existing native argument parser:
+jdispatch --status prints queue status.
+Passing a path ending .jdp opens a dispatch record.
+App is already installed from MSIX.
+No alias or file association is currently declared.

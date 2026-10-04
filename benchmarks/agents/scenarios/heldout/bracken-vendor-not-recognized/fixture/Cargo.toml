@@ -1,0 +1,4 @@
+[package]
+name = "bracken-meter"
+version = "1.4.0"
+edition = "2021"

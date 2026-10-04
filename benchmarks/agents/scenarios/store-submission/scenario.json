@@ -1,6 +1,8 @@
 {
   "id": "store-submission",
   "description": "Gap probe: submit a WinUI app to the Microsoft Store from the command line.",
+  "set": "dev",
+  "cohort": "implicit",
   "prompt": "ContosoReader 2.1 is already reserved in Partner Center. Get this build submitted to the Microsoft Store from the command line, and tell me what I need to set up once so CI can do it next time.",
   "configurations": [
     "winapp",
@@ -9,14 +11,22 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winui-packaging",
-      "winapp-package"
-    ],
-    "skillsForbid": [
-      "winui-wpf-migration",
-      "winui-session-report",
-      "winui-design"
+    "capabilities": {
+      "primary": [
+        "store.publish"
+      ],
+      "acceptable": [
+        "msix.package",
+        "winui.package"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "winui.design",
+        "session.report"
+      ]
+    },
+    "commands": [
+      "^store"
     ]
   }
 }

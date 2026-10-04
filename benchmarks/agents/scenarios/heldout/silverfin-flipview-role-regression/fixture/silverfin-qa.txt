@@ -1,0 +1,4 @@
+Target is a native desktop window, not a web page.
+Need live role/name/pattern observation and a repeatable regression.
+Store element details and a screenshot when the assertion fails.
+Do not alter application code during this investigation.

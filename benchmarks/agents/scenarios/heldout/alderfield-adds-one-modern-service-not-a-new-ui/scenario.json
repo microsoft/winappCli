@@ -1,0 +1,42 @@
+{
+  "id": "alderfield-adds-one-modern-service-not-a-new-ui",
+  "description": "Uses framework-specific incremental guidance for WPF despite a Windows App SDK dependency.",
+  "set": "heldout",
+  "cohort": "trap",
+  "persona": "2",
+  "framework": "WPF / .NET 8 / Microsoft.WindowsAppSDK",
+  "conflictingSignal": true,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/use-windows-app-sdk-in-existing-project"
+  ],
+  "prompt": "We're using Microsoft.WindowsAppSDK's AppInstance in Alderfield Console to enforce one instance per user. Where should initialization and shutdown go in our WPF Application? We're staying on WPF.",
+  "paraphrases": {
+    "novice": "I want Alderfield Console to open only once for each user. We've added Microsoft's AppInstance library, but I don't know how it fits around starting and closing our existing WPF application.",
+    "terse": "Alderfield WPF + AppInstance. Where to initialize and shut down?"
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "framework.guidance"
+        ]
+      ],
+      "acceptable": [
+        "project.setup"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "project.scaffold",
+        "msix.package",
+        "session.report"
+      ]
+    }
+  }
+}
