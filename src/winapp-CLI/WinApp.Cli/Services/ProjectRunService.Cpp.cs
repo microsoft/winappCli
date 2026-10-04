@@ -251,6 +251,69 @@ internal sealed partial class ProjectRunService
     }
 
     /// <summary>
+    /// Rejects building a .NET project whose <c>ProjectReference</c> closure contains a C++ project: the
+    /// .NET SDK can't build it (MSB4278), so say what works instead of letting the build fail.
+    /// </summary>
+    private static void ThrowIfReferencesCppProject(FileInfo project)
+    {
+        if (FindCppProjectReference(project) is { } cpp)
+        {
+            throw new ProjectRunException(
+                $"'{project.Name}' references the C++ project '{cpp.Name}', which dotnet can't build. " +
+                "Build it with Visual Studio or MSBuild.exe (Visual Studio or Build Tools 2022 17.8+ with the \"Desktop development with C++\" workload), " +
+                "then re-run this command with --no-build.");
+        }
+    }
+
+    /// <summary>
+    /// Finds a <c>.vcxproj</c> in the transitive <c>ProjectReference</c> closure of <paramref name="start"/>,
+    /// read statically. Unlike the platform walk, build-only references count: a native DLL is usually
+    /// referenced with <c>ReferenceOutputAssembly=false</c> and must still be built.
+    /// </summary>
+    internal static FileInfo? FindCppProjectReference(FileInfo start)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { start.FullName };
+        var queue = new Queue<FileInfo>([start]);
+        while (queue.Count > 0 && visited.Count <= MaxProjectReferenceClosure)
+        {
+            var current = queue.Dequeue();
+            XDocument doc;
+            try
+            {
+                doc = XDocument.Load(current.FullName);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+            {
+                continue;
+            }
+
+            var includes = doc.Descendants()
+                .Where(e => e.Name.LocalName == "ProjectReference")
+                .SelectMany(e => (e.Attribute("Include")?.Value ?? string.Empty)
+                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            foreach (var include in includes)
+            {
+                if (!TryResolveReferencePath(current, include, out var reference))
+                {
+                    continue;
+                }
+
+                if (IsCppProject(reference))
+                {
+                    return reference;
+                }
+
+                if (visited.Add(reference.FullName))
+                {
+                    queue.Enqueue(reference);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Watches MSBuild output for the errors that mean a prerequisite is missing, so the failure can say
     /// what to install instead of leaving the user with a raw MSBuild code.
     /// </summary>

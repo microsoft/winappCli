@@ -322,6 +322,10 @@ internal sealed partial class ProjectRunService(
         var publish = preparation is not null;
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
         WarnOnOverriddenFlags(options);
+        if (!options.NoBuild)
+        {
+            ThrowIfReferencesCppProject(csproj);
+        }
 
         // Restore output must remain visible: NuGet can spend minutes retrying an unreachable feed, and
         // buffering those diagnostics makes the command look frozen. Property discovery remains buffered
@@ -641,6 +645,10 @@ internal sealed partial class ProjectRunService(
         CancellationToken cancellationToken)
     {
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+        if (!options.NoBuild)
+        {
+            ThrowIfReferencesCppProject(csproj);
+        }
         (_, options, var metadata) = await PrepareBuildInputsAsync(
             csproj, options, workingDir, cancellationToken, publish: true);
         var props = await EvaluatePreparedPropertiesAsync(csproj, options, workingDir, metadata, cancellationToken);

@@ -469,6 +469,61 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
     #endregion
 
+    #region C# app referencing a C++ project
+
+    private const string CsharpAppReferencingNative = """
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <OutputType>Exe</OutputType>
+            <TargetFramework>net10.0-windows</TargetFramework>
+          </PropertyGroup>
+          <ItemGroup>
+            <ProjectReference Include="..\Lib\Lib.csproj" />
+          </ItemGroup>
+        </Project>
+        """;
+
+    private const string CsharpLibReferencingNative = """
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <TargetFramework>net10.0-windows</TargetFramework>
+          </PropertyGroup>
+          <ItemGroup>
+            <ProjectReference Include="..\Native\Native.vcxproj" ReferenceOutputAssembly="false" />
+          </ItemGroup>
+        </Project>
+        """;
+
+    [TestMethod]
+    public void FindCppProjectReference_FindsTransitiveBuildOnlyNativeReference()
+    {
+        var app = WriteFile(@"App\App.csproj", CsharpAppReferencingNative);
+        WriteFile(@"Lib\Lib.csproj", CsharpLibReferencingNative);
+        var native = WriteFile(@"Native\Native.vcxproj", CppLibrary);
+
+        Assert.AreEqual(native.FullName, ProjectRunService.FindCppProjectReference(app)?.FullName);
+        Assert.IsNull(ProjectRunService.FindCppProjectReference(WriteFile(@"Plain\Plain.csproj", CsharpApp)));
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_CsprojReferencingVcxproj_ExplainsHowToBuildBeforeDotnetRuns()
+    {
+        var app = WriteFile(@"App\App.csproj", CsharpAppReferencingNative);
+        WriteFile(@"Lib\Lib.csproj", CsharpLibReferencingNative);
+        WriteFile(@"Native\Native.vcxproj", CppLibrary);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => _service.BuildAndResolveAsync(app, options, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "references the C++ project 'Native.vcxproj'");
+        StringAssert.Contains(ex.Message, "--no-build");
+        Assert.AreEqual(0, _dotnet.StringInvocations.Count + _dotnet.ArgumentListInvocations.Count + _dotnet.StreamingCalls.Count,
+            "the guard must run before any dotnet restore/build");
+    }
+
+    #endregion
+
     #region packages.config
 
     [TestMethod]
