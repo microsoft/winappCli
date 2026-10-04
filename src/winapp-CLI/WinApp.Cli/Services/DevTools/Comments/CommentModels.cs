@@ -133,6 +133,9 @@ internal sealed class CommentContext
 {
     public string? Property { get; set; }
 
+    /// <summary>Title of the window that showed the element. Captured from a live element only.</summary>
+    public string? Window { get; set; }
+
     public CommentBounds? Bounds { get; set; }
 
     /// <summary>The element's style when it comes from a resource. Captured from a live element only.</summary>

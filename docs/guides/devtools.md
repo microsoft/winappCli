@@ -137,10 +137,17 @@ the captured declaration more than any other element of its type. Templates, mov
 files, and ambiguous matches remain ranked candidates; confirm the intended candidate
 before editing. A comment on an element without source is not linked to source:
 it reports `weak` and `requiresConfirmation`, and any candidates come from a
-source-wide search.
+source-wide search. Its identity keeps the element's `x:Name`, AutomationId (the live
+value when there is no declaration) and runtime text, so search the project for those.
+
+When the app has no project, for example a C++ app run from its build output, comments
+are saved in the folder you ran `winapp run` from (or the root of its git repository),
+not in the build output. Run `comments list` from that folder. The app still shows
+them in its Comments list and count, but cannot place markers for them.
 
 A comment left on a live element (in the overlay, or with `--from-element`) also
-records the element's style and brushes, so a request such as "make this warmer" leads
+records the title of the window it was in (`context.window`) and the element's style
+and brushes, so a request such as "make this warmer" leads
 straight to the resource to change. In `--json`, `context.style` names the style's
 resource key (or `implicit`), and each `context.brushes` entry gives the property, its
 resolved value, where the value comes from, and, when known, the `{ThemeResource}` or

@@ -123,6 +123,10 @@ internal static partial class CommentElementContext
     /// <summary>The captured style and brushes in a few short lines, for human output.</summary>
     public static IEnumerable<string> Lines(CommentContext? context)
     {
+        if (context?.Window is { } window)
+        {
+            yield return $"Window: {window}";
+        }
         if (context?.Style is { } style)
         {
             var name = style.Key ?? (style.TargetType is null ? "implicit style" : $"implicit {style.TargetType} style");

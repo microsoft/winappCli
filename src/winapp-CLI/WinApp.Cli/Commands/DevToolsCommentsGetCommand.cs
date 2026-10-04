@@ -82,7 +82,8 @@ internal class DevToolsCommentsGetCommand : Command, IShortDescription, IHelpExa
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]{CommentsSharedOptions.NoteLabel(view.Status)}: {Markup.Escape(note)}[/]");
                     }
                     var idn = view.Anchor.Identity;
-                    DevToolsRender.WriteMarkupLine(ansiConsole, $"  [teal]{Markup.Escape(idn.Type ?? "element")}[/] {Markup.Escape(idn.Name ?? string.Empty)}");
+                    DevToolsRender.WriteMarkupLine(ansiConsole, $"  [teal]{Markup.Escape(idn.Type ?? "element")}[/] {Markup.Escape(idn.Name ?? string.Empty)}" +
+                        (idn.AutomationId is { Length: > 0 } aid && aid != idn.Name ? $" [grey]AutomationId={Markup.Escape(aid)}[/]" : ""));
                     if (CommentViewBuilder.HistoricalLocation(view) is { } historical)
                     {
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"  [grey]Created at (historical): {Markup.Escape(historical)}[/]");

@@ -111,6 +111,13 @@ XAML. When `requiresConfirmation` is true, show the ranked candidates and obtain
 the user's confirmation before editing; never promote a weak hit by proximity.
 See [comment identity](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#review-comments-with-an-agent).
 
+A comment that is not linked to source (no `anchor.sourceFile`, often an app with
+no project) has no candidates to confirm. Search the whole project, including code
+that builds or loads XAML at runtime, for `anchor.identity.name` (x:Name), then
+`anchor.identity.automationId`, then `anchor.identity.content` (runtime text);
+`context.window` names the window it was in. Show the match to the user before
+editing when more than one place fits.
+
 For visual requests ("warmer", "less contrast"), read `context` first:
 `context.style` is the element's style resource and `context.brushes` lists each
 brush's resolved value with its `resourceKey`, `resourceKind` and, for project

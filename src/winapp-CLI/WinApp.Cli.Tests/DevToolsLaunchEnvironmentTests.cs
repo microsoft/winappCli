@@ -53,4 +53,15 @@ public class DevToolsLaunchEnvironmentTests
         Assert.AreEqual("1", environment["ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO"]);
         Assert.IsNull(environment["WINAPP_WATCH_PID"]);
     }
+
+    [TestMethod]
+    public void WithoutAProject_CommentsLiveWhereWinappRan_NotInTheBuildOutput()
+    {
+        var unlinked = DevToolsArtifacts.ComposeLaunchEnvironment(null, null, Source, null, @"C:\src\Orders");
+        Assert.AreEqual(@"C:\src\Orders", unlinked["WINAPP_DEVTOOLS_COMMENT_ROOT"]);
+        Assert.IsFalse(unlinked.ContainsKey("WINAPP_DEVTOOLS_SOURCE_ROOT"), "the launch folder is not claimed as source");
+
+        var linked = DevToolsArtifacts.ComposeLaunchEnvironment(@"C:\src\Orders\App", null, Source, null, @"C:\src\Orders");
+        Assert.IsNull(linked["WINAPP_DEVTOOLS_COMMENT_ROOT"], "a project keeps its own store, and an inherited value is cleared");
+    }
 }

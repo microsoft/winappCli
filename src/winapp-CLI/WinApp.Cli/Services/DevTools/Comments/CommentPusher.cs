@@ -42,7 +42,7 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
     internal Func<IReadOnlyList<int>> ListTaps { get; init; } = () => DevToolsPipeDiscovery.EnumerateInjectedPids();
 
     internal Func<uint, CancellationToken, string?> ReadSourceRoot { get; init; } = (pid, cancellationToken) =>
-        CommentSelectionCapture.ReadStringResult(new VisualTreeTap(pid).GetSourceRoot(cancellationToken), "sourceRoot");
+        CommentSelectionCapture.ReadCommentRoot(new VisualTreeTap(pid).GetSourceRoot(cancellationToken));
 
     public (int Refreshed, int Failed) PushStore(string storePath, uint? skipPid, CancellationToken cancellationToken = default)
     {
@@ -88,7 +88,7 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
             // from a repo root would otherwise push against a different .winapp than the one the in-app
             // composer writes through, and the two views of "my comments" would silently disagree.
             var appRoot = sourceRootOverride ??
-                CommentSelectionCapture.ReadStringResult(tap.GetSourceRoot(cancellationToken), "sourceRoot");
+                CommentSelectionCapture.ReadCommentRoot(tap.GetSourceRoot(cancellationToken));
             var project = string.IsNullOrWhiteSpace(appRoot) ? null : appRoot;
             var root = project ?? fallbackRoot;
 

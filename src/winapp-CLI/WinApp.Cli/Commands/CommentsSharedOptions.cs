@@ -47,8 +47,8 @@ internal static class CommentsSharedOptions
     };
 
     internal static string? ReadTapSourceRoot(uint pid, CancellationToken cancellationToken) =>
-        Services.DevTools.CommentSelectionCapture.ReadStringResult(
-            new Services.DevTools.VisualTreeTap(pid).GetSourceRoot(cancellationToken), "sourceRoot");
+        Services.DevTools.CommentSelectionCapture.ReadCommentRoot(
+            new Services.DevTools.VisualTreeTap(pid).GetSourceRoot(cancellationToken));
 
     /// <summary>Resolves <c>--app</c> to the running app's project directory. Without <c>--app</c>, returns true and null.</summary>
     internal static bool TryReadAppRoot(IUiTargetResolver targets, string? app, Func<uint, CancellationToken, string?> readSourceRoot,
