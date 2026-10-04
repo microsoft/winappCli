@@ -1,0 +1,43 @@
+{
+  "id": "cinder-native-publish-fails",
+  "description": "Accepts either WinUI build-debugging or WinUI release expertise for an AOT publish failure.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "3",
+  "framework": "WinUI 3 / .NET 9 / AOT",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/single-project-msix"
+  ],
+  "prompt": "Cinder Atlas works in Debug but publish with PublishAot=true fails on IL3050 at JsonSerializer.Serialize. How should I change the JSON code for AOT? We want to keep AOT enabled.",
+  "paraphrases": {
+    "novice": "The native version of Cinder Atlas won't compile, although it works during development. The error points to JSON serialization. Can you fix that code so we can still publish the native version?",
+    "terse": "Cinder publish IL3050 at JsonSerializer.Serialize. Need AOT-compatible fix."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "winui.build"
+        ],
+        [
+          "winui.package"
+        ]
+      ],
+      "acceptable": [
+        "winui.review"
+      ],
+      "forbid": [
+        "msix.sign",
+        "identity",
+        "session.report"
+      ]
+    }
+  }
+}

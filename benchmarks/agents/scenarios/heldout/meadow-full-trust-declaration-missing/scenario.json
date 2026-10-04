@@ -1,0 +1,45 @@
+{
+  "id": "meadow-full-trust-declaration-missing",
+  "description": "Allows manifest expertise or packaging diagnostics to resolve a rejected full-trust declaration.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "1",
+  "framework": "Electron / MSIX",
+  "conflictingSignal": false,
+  "sources": [
+    "https://stackoverflow.com/questions/72105566",
+    "https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-packaging-dot-net"
+  ],
+  "prompt": "Meadow Relay's Electron package fails validation with 0x80080204 and a missing runFullTrust declaration. Can you fix the manifest, including the namespace?",
+  "paraphrases": {
+    "novice": "Windows rejects Meadow Relay's package before it can install. The error mentions runFullTrust. Where does that go in the manifest for an Electron app?",
+    "terse": "Meadow Electron msix: 0x80080204, runFullTrust missing. Fix manifest."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "msix.manifest"
+        ],
+        [
+          "troubleshoot"
+        ]
+      ],
+      "acceptable": [
+        "msix.package"
+      ],
+      "forbid": [
+        "winui.*",
+        "msix.sign",
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

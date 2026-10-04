@@ -1,6 +1,8 @@
 {
   "id": "wpf-bluetooth-api-lookup",
   "description": "WinRT API discovery in a WPF app (find-api outside WinUI; WinUI skills are a trap).",
+  "set": "dev",
+  "cohort": "implicit",
   "prompt": "Add a Scan button to MainWindow that lists nearby Bluetooth LE devices (name and signal strength) using the Windows APIs this project already targets. No extra NuGet packages.",
   "configurations": [
     "winapp",
@@ -9,11 +11,18 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winapp-find-api"
-    ],
-    "skillsForbid": [
-      "winui-*"
-    ]
+    "capabilities": {
+      "primary": [
+        "api.lookup"
+      ],
+      "acceptable": [
+        "framework.guidance"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
   }
 }

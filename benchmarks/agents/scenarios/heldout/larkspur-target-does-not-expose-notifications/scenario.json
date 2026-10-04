@@ -1,0 +1,41 @@
+{
+  "id": "larkspur-target-does-not-expose-notifications",
+  "description": "Routes a WPF application's missing Windows references to dependency setup rather than WinUI migration.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "2",
+  "framework": "WPF / .NET 8",
+  "conflictingSignal": true,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/use-windows-app-sdk-in-existing-project"
+  ],
+  "prompt": "CS0234 on Windows.UI.Notifications in Larkspur Ledger after adding Microsoft.WindowsAppSDK. Is the target framework wrong, or am I missing a reference? We're keeping the WPF client and its MSI.",
+  "paraphrases": {
+    "novice": "The reminder code in Larkspur Ledger won't compile after we added Microsoft's library. Can you sort out what this WPF project needs to see those Windows classes?",
+    "terse": "Larkspur WPF: CS0234 Windows.UI.Notifications after adding Microsoft.WindowsAppSDK. Fix references."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "project.setup"
+        ]
+      ],
+      "acceptable": [
+        "framework.guidance",
+        "troubleshoot"
+      ],
+      "forbid": [
+        "winui.*",
+        "msix.package",
+        "session.report"
+      ]
+    }
+  }
+}

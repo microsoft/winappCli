@@ -1,0 +1,9 @@
+name: Tallowline candidate
+on: workflow_dispatch
+jobs:
+  candidate:
+    runs-on: [self-hosted, Windows, X64]
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: makeappx pack /d payload /p Tallowline.msix

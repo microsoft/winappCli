@@ -1,0 +1,31 @@
+{
+  "id": "winui-share-target-extra-window",
+  "description": "Journey: share target activation opens a second splash-only window.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "Sharing a photo into the app works, but another window opens with just the splash image. Why two windows?",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "api.lookup",
+        "identity",
+        "winui.build"
+      ],
+      "acceptable": [
+        "msix.manifest",
+        "winui.design"
+      ],
+      "forbid": [
+        "msix.sign",
+        "winui.migrate",
+        "session.report"
+      ]
+    }
+  }
+}

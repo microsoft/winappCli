@@ -1,0 +1,5 @@
+Runner is a fresh Windows Server image.
+.NET SDK 8.0.403: present
+Node 22: present
+Windows Kits directory: absent
+Get-Command makeappx: no result

@@ -1,0 +1,41 @@
+{
+  "id": "fenwick-exits-before-showing-a-window",
+  "description": "Targets a WinUI startup failure despite a neighboring WPF project.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "3",
+  "framework": "WinUI 3 / C#",
+  "conflictingSignal": true,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/use-windows-app-sdk-in-existing-project"
+  ],
+  "prompt": "Fenwick Folio builds, then crashes with 0x80040154 at Application.Start when I launch it from the debugger. Can you find what's wrong with startup? I've included the trace and both project files.",
+  "paraphrases": {
+    "novice": "Fenwick Folio compiles without errors, but disappears before showing anything. The debugger says 0x80040154. What is missing when this WinUI app starts?",
+    "terse": "Fenwick Folio: 0x80040154 at Application.Start. Build succeeds, debugger launch crashes."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "A real launch is represented by a captured trace and project extracts; the executable and debugger are not present in the fixture.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "winui.build"
+        ]
+      ],
+      "acceptable": [
+        "troubleshoot"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "session.report"
+      ]
+    }
+  }
+}

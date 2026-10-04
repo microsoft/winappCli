@@ -1,0 +1,30 @@
+{
+  "id": "wpf-toast-no-identity",
+  "description": "Error-first: WPF app on the Windows App SDK throws 0x80073D54 from AppNotificationManager; identity, not WinUI.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "AppNotificationManager.Default.Register() throws in our WPF app: 'The process has no package identity. (0x80073D54)'. We're not rewriting this in WinUI. What's the fix?",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "identity"
+      ],
+      "acceptable": [
+        "troubleshoot",
+        "framework.guidance",
+        "api.lookup"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
+  }
+}

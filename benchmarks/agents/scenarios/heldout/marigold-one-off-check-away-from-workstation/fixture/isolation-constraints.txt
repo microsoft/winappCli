@@ -1,0 +1,6 @@
+Host: Windows 11 Pro with virtualization enabled.
+Disposable Windows feature already installed.
+No host user-profile sharing.
+Candidate folder may be exposed read-only.
+Closing the guest must discard its state.
+This request is exploratory, not a reusable test suite.

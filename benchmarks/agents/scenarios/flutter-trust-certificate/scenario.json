@@ -1,22 +1,29 @@
 {
   "id": "flutter-trust-certificate",
   "description": "Flutter: trust an existing dev certificate and install an already-signed MSIX (cert install).",
-  "prompt": "The Flutter app's MSIX in build\\windows\\x64\\runner\\Release is already built and signed with devcert.pfx. On this test PC, trust that certificate and install the package. Tell me which step needs administrator rights. Don't make a new certificate or rebuild the app.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "Trying to install the Flutter build on a test PC. It says the publisher can't be verified; devcert.cer is alongside the MSIX. What do I need to do?",
   "configurations": [
     "winapp",
     "both"
   ],
   "fixture": "fixture",
+  "routingSnapshot": true,
   "expect": {
-    "skillsAny": [
-      "winapp-signing",
-      "winapp-troubleshoot"
-    ],
-    "skillsForbid": [
-      "winapp-package",
-      "winapp-setup",
-      "winapp-manifest",
-      "winui-*"
-    ]
+    "capabilities": {
+      "primary": [
+        "msix.sign",
+        "troubleshoot"
+      ],
+      "forbid": [
+        "msix.package",
+        "project.*",
+        "msix.manifest",
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
   }
 }

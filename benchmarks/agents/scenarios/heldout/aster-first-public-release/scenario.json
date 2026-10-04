@@ -1,0 +1,49 @@
+{
+  "id": "aster-first-public-release",
+  "description": "Requires preparing a WinUI release payload and explaining its Microsoft Store submission.",
+  "set": "heldout",
+  "cohort": "vague",
+  "persona": "3",
+  "framework": "WinUI 3 / C# / Microsoft Store",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/single-project-msix",
+    "https://learn.microsoft.com/en-us/windows/apps/publish/"
+  ],
+  "prompt": "I've reserved Aster Loom's name in the Microsoft Store. How do I package this WinUI 3 project and submit the first release?",
+  "paraphrases": {
+    "novice": "I claimed Aster Loom's name with Microsoft. How do I turn my drawing program into something people can download from the Store, starting from the C# project here?",
+    "terse": "Aster Loom first Store release. Need package and submission steps."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "A successful local application and a remote name reservation are represented by text metadata, not by binaries or a logged-in dashboard.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "winui.package",
+          "store.publish"
+        ],
+        [
+          "msix.package",
+          "store.publish"
+        ]
+      ],
+      "acceptable": [
+        "msix.manifest",
+        "msix.sign"
+      ],
+      "forbid": [
+        "maui.package",
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

@@ -1,0 +1,6 @@
+Authorized endpoint inventory query.
+Desired columns: Name, Version
+Scope: all users
+Sort: Name ascending
+Read-only observation; no add/remove/update operations.
+Output CSV is a future report, not an existing input artifact.

@@ -1,0 +1,9 @@
+name: Peregrine Linux candidate
+on: workflow_dispatch
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: npm run tauri build -- --bundles deb,appimage

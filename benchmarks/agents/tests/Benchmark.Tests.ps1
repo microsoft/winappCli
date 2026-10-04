@@ -205,7 +205,7 @@ Describe 'Write-BenchmarkSummary' {
         Write-BenchmarkSummary -RunsPath $runs -SummaryPath $out -Header ([ordered]@{ Models = 'm' }) -ScenarioOrder 's1'
         $text = Get-Content -Raw $out
 
-        $text | Should -Match 'Pass rate: 1/2 \(50%\); 2 n/a runs excluded'
+        $text | Should -Match 'Pass rate: 1/2 \(50%\), 0 partial; 2 n/a runs excluded'
         $text | Should -Match 'Repeated skill deliveries: 2 in 1 of 3 measured runs \(~900 extra'
         $text | Should -Match '\| s1 \| winui \| 1 \|'
         $text | Should -Match '\| winapp \| m \| 1/2 \(1 n/a\) \|.*\| 2 \(~900\) \|'

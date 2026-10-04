@@ -80,6 +80,61 @@ Fixtures are 1-3 tiny files each. No prompt names a skill.
 
 ## Not done yet (recommended follow-ups)
 
-1. **Capability-based expectations.** Opus and GPT both called this blocking for comparing restructured plugins. Today expectations name skills, so a candidate that renames or merges skills gets vacuous passes. Each variant should map its skills to capabilities (`sign`, `package`, `api-lookup`, and so on), and scenarios should expect capabilities.
+1. ~~**Capability-based expectations.**~~ Done in v2 (below).
 2. **More skill-context statistics in `summary.md`:** mean and p90 alongside the median, and first-turn input tokens.
 3. **Content hashes** for prompts, fixtures, and installed skills in `run-info.json`.
+
+## Benchmark v2: realism review (October 2026)
+
+A second review (GPT: real developer phrasing from GitHub and Stack Overflow; Gemini: personas and journeys; Sonnet: leakage, gaming, held-out design) found that 19 of 39 skill-expecting prompts echoed skill-description vocabulary, only 3 of 43 started from an error, near-misses were 9% of the set and all of the "load nothing" kind, and always loading the same 3 skills passed 35% of scenarios. v2 changes:
+
+- **Capabilities, not skill names.** `capabilities.json` maps each plugin version's skills to 22 capabilities. Scenarios list primary, acceptable, and forbidden capabilities; `partial` is a new status. Renamed or merged skills are scored through a new map.
+- **Cohorts.** Every scenario is `implicit`, `error`, `vague`, `explicit-command`, `near-miss`, or `trap` (`followup` reserved). Explicit-command scenarios are reported apart from implicit routing.
+- **Right command without the skill** is reported separately from a routing miss.
+- **Dev set (67):** the 42 scenarios plus 25 from the reviews. Reworded to remove leaked vocabulary: `winui-code-review`, `restore-cloned-cpp`, `winui-infobar-enum-lookup`, `winui-card-grid-control`, `winui-control-sample-request`, `winui-repair-prerequisites`, `electron-desktop-ui-test`, `winui-generic-csharp-bug` (now with real tests), `flutter-trust-certificate`, `electron-notifications`, `clean-machine-ui-smoke`, `explicit-session-diagnostic`. Expectation fixes: `xaml-unknown-member` (API lookup, WinUI design, or WinUI build; troubleshooting only partial), `store-submission` (Store publishing is primary; packaging is partial; `n/a` where no skill covers the Store), `msi-app-sparse-identity` (identity primary), `electron-notifications` (framework guidance or identity), `clean-machine-ui-smoke` (needs Sandbox and UI automation together). New: 9 error-first, 3 vague, 3 journeys, 10 near-misses and traps. Near-misses and traps are 22% of dev.
+- **Held-out set (40 x 3 prompts)** written blind by GPT-6.1 Sol from capability definitions, personas, and public sources; two revision rounds against the lint. 27.5% near-miss/trap, 14 conflicting-signal cases, every capability primary at least twice, every scenario with a `none` control.
+- **Lint** (`run.ps1 -Lint`) for leaked phrases, description overlap, fixed names, and fixture realism. Held-out: 0 errors. Dev: warnings only (the dev set keeps some leaky originals as regression sentinels).
+
+### Where judgment calls were made
+
+- **WinUI-scoped capabilities.** `winui-packaging` maps to `winui.package`, not `msix.package`, so non-WinUI scenarios that forbid `winui.*` now fail it. This turned 9 `winui`-configuration passes of `wpf-winappsdk-msix-trap` into failures on rescore.
+- **`winui-design` provides `api.lookup`** because it documents project-aware API checks. In WPF scenarios it still fails through the `winui.*` forbid.
+- **Neutral vocabulary.** The lint ignores framework and product names ("WinUI app", "MSIX", "Microsoft Store") so the held-out prompts do not need euphemisms. The first held-out draft avoided vocabulary by inventing words ("envelope" for manifest); it was rewritten.
+- **Held-out expectation fixes after the baseline.** Five held-out scenarios forbade a capability that the only skill providing their primary capability also carries (for example, `project.setup` primary with `project.scaffold` forbidden, when `winapp-setup` provides both), so they could not pass. Their forbids were narrowed (`cairnwatch`, `larkspur`, `fenwick`, `orris`, and `bluefern`, which forbade `winui.*` while only `winui-packaging` covers the Store). Scoring now also treats a primary capability that is only reachable through a skill carrying a forbidden capability as not installed, and a test keeps held-out scenarios free of such contradictions. Prompts were not changed.
+
+### v2 baseline (current plugins, October 2026)
+
+Held-out: 3 models x 1 run per prompt (base + 2 paraphrases) in `winapp`/`winui` (whichever provides the primary capability) and `both`, plus the `none` control on base prompts. Dev: new and reworded scenarios 3 models x 2 iterations; unchanged scenarios are the prior 3 x 3 runs rescored. 1,335 new sessions, 13,193 AI credits.
+
+| Model | Dev routing | Held-out routing | Held-out base / novice / terse |
+|---|---|---|---|
+| claude-sonnet-5.5 | 57% | 32% | 35% / 28% / 34% |
+| claude-opus-5.5 | 92% | 78% | 76% / 81% / 76% |
+| gpt-6.1-sol | 94% | 84% | 86% / 80% / 85% |
+
+Routing leaves out the `none` control and explicit-command scenarios; pass = pass / (pass + partial + fail).
+
+- The dev set overstates routing: every model drops 10-25 points on held-out prompts. Rewording the 12 leaky dev prompts alone dropped several from 100% (for example `restore-cloned-cpp` 18/18 to 9/12, `winui-code-review` 18/18 to 9/12, `electron-notifications` 18/18 to 8/12).
+- Sonnet mostly loads no skill on realistic prompts (held-out 32%).
+- Weakest capabilities on held-out (`both`): `winui.migrate` 17%, `framework.guidance` 22%, `winui.review` 28%, `project.setup` 33%, `store.publish` 33% (8 partial: packaging loaded, no Store guidance).
+- Without plugins, models named the right `winapp` command on 4 of 71 base prompts; with no plugins, sessions cost 66-82% of the `both` cost for the same prompts.
+- In 46 of 137 held-out misses the agent still named the right `winapp` command.
+- Loading the three most-loaded skills on every prompt passes 15 of 65 dev and 15 of 120 held-out prompts (it passed 35% of the old scenarios).
+- Near-miss traps that should load nothing pass 100%. The failing traps expect `framework.guidance` for "WPF, but Fluent-looking" asks (`holloway` 1/18, `alderfield` 9/18); no current skill documents WPF styling, so read these as a coverage gap as much as a routing miss.
+### Answer quality next to routing
+
+Each run now also gets an answer status from deterministic signals in `capabilities.json` (no LLM judge). The v2 baseline runs did not keep the final response, so they were rescored offline from their recorded `winapp` commands; no sessions were re-run. 324 older dev runs (prior copies recorded before commands were captured) have no answer score.
+
+| Set | Model | Routing | Answer | Routed + answered | Routed only | Answered only | Neither |
+|---|---|---|---|---|---|---|---|
+| held-out | claude-sonnet-5.5 | 32% | 68% (80/118) | 52 | 9 | 28 | 29 |
+| held-out | claude-opus-5.5 | 78% | 79% (95/121) | 94 | 14 | 1 | 12 |
+| held-out | gpt-6.1-sol | 84% | 70% (85/122) | 84 | 24 | 1 | 13 |
+| dev | claude-sonnet-5.5 | 57% | 79% (172/218) | 142 | 10 | 27 | 36 |
+| dev | claude-opus-5.5 | 92% | 85% (191/226) | 183 | 28 | 5 | 7 |
+| dev | gpt-6.1-sol | 94% | 77% (163/213) | 154 | 37 | 7 | 12 |
+
+- Sonnet often names the right `winapp` command without loading a skill (it reads the commands from skill descriptions in its prompt), so its answer rate is far above its routing rate.
+- GPT loads the right skill but then often doesn't name the command (24 held-out runs routed but not answered).
+- Without plugins, models named the right command on 1 of 13 scorable held-out base prompts; with both plugins, 67-73%.
+- On held-out, 277 of 638 routing runs have no answer score: their primary capability has no objective signal (`winui.design`, `winui.review`, `troubleshoot`, `framework.guidance`, …) or its signal needs the response text (manifest XML, Sandbox flags).

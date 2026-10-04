@@ -1,0 +1,30 @@
+{
+  "id": "monorepo-desktop-installer",
+  "description": "Conflicting signals: monorepo with WPF, MAUI, and web API; package only the WPF desktop app.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Need an installer for apps\\desktop for the testers. The API and mobile projects aren't part of that release.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "msix.package"
+      ],
+      "acceptable": [
+        "msix.sign",
+        "framework.guidance"
+      ],
+      "forbid": [
+        "maui.package",
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
+  }
+}

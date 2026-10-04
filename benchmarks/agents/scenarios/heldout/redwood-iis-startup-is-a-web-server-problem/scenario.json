@@ -1,0 +1,29 @@
+{
+  "id": "redwood-iis-startup-is-a-web-server-problem",
+  "description": "Avoids Windows desktop capabilities for ASP.NET Core hosting failures on IIS.",
+  "set": "heldout",
+  "cohort": "near-miss",
+  "persona": "10",
+  "framework": "ASP.NET Core / IIS",
+  "conflictingSignal": false,
+  "sources": [],
+  "prompt": "Redwood Gate returns HTTP 500.30 on IIS after deployment. Here's the ASP.NET startup exception and production config. What setting am I missing?",
+  "paraphrases": {
+    "novice": "Redwood Gate stopped responding after we put it on the Windows server. IIS says 500.30 and the log mentions a missing database setting. Can you fix the configuration?",
+    "terse": "Redwood IIS 500.30: ConnectionStrings:LedgerDb required."
+  },
+  "configurations": [
+    "none",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

@@ -1,0 +1,7 @@
+Flutter release, Windows x64, verified on the developer workstation:
+sable_ferry.exe
+flutter_windows.dll
+data/icudtl.dat
+data/flutter_assets/AssetManifest.bin
+data/flutter_assets/FontManifest.json
+Authentication happens after archive generation.

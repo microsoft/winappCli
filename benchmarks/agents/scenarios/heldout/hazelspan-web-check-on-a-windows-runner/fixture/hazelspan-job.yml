@@ -1,0 +1,8 @@
+name: Hazelspan browser checks
+on: push
+jobs:
+  web:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx playwright test

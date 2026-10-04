@@ -1,0 +1,5 @@
+QueryService.SearchAsync(string) returns Task<string>.
+Completion order is not guaranteed.
+Keep the existing service implementation.
+The next host exists and has its own application entry point.
+The older screen uses System.Windows types.

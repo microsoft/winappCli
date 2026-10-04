@@ -1,0 +1,36 @@
+{
+  "id": "holloway-fluent-without-changing-framework",
+  "description": "Uses WPF-specific guidance for a Fluent appearance goal rather than migrating to WinUI.",
+  "set": "heldout",
+  "cohort": "trap",
+  "persona": "2",
+  "framework": "WPF / .NET 8 / Fluent appearance",
+  "conflictingSignal": true,
+  "sources": [],
+  "prompt": "Holloway Archive's sidebar looks dated. We like the Fluent look in the screenshot mentioned here; how can we get softer surfaces and better hierarchy while staying on WPF?",
+  "paraphrases": {
+    "novice": "The sidebar in Holloway Archive is pretty ugly. Could it look more like the example described in the notes? We need to keep WPF, but nicer spacing and softer backgrounds would help.",
+    "terse": "Holloway sidebar Fluent refresh. Staying on WPF."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "framework.guidance"
+        ]
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

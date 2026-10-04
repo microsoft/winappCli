@@ -1,7 +1,9 @@
 {
   "id": "winui-infobar-enum-lookup",
   "description": "WinUI: get InfoBar property and enum names right for the referenced Windows App SDK (find-api in WinUI).",
-  "prompt": "ShowError in MainWindow.xaml.cs should turn the StatusBar InfoBar into an error the user can't dismiss, with a Retry button. I always mix up the InfoBar property and enum names, so get them right for the Windows App SDK version we reference.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "When sync fails, show a red banner with Retry. Don't let users close it until sync succeeds.",
   "configurations": [
     "winapp",
     "winui",
@@ -9,16 +11,21 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winapp-find-api",
-      "winui-design"
-    ],
-    "skillsForbid": [
-      "winui-wpf-migration",
-      "winui-session-report",
-      "winapp-package",
-      "winui-packaging",
-      "winapp-signing"
-    ]
+    "capabilities": {
+      "primary": [
+        "api.lookup",
+        "winui.design"
+      ],
+      "acceptable": [
+        "ui.samples"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "session.report",
+        "msix.package",
+        "winui.package",
+        "msix.sign"
+      ]
+    }
   }
 }

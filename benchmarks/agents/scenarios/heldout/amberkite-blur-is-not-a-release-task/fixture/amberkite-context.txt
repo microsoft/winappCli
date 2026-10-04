@@ -1,0 +1,4 @@
+UseMaui=true; shared ContentPage UI.
+The Microsoft.UI.Xaml reference belongs to the platform host.
+Release and installation are already working.
+Request is for MAUI appearance guidance only.

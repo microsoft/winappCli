@@ -1,0 +1,30 @@
+{
+  "id": "winui-delete-binding-noop",
+  "description": "Error-first: WinUI Delete button bound through ElementName does nothing.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "Delete does nothing. No build errors, no exception. Binding is in TodoPage.xaml.",
+  "configurations": [
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "winui.design"
+      ],
+      "acceptable": [
+        "winui.review",
+        "winui.build",
+        "ui.automate"
+      ],
+      "forbid": [
+        "msix.package",
+        "msix.sign",
+        "winui.migrate",
+        "session.report"
+      ]
+    }
+  }
+}

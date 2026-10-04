@@ -1,0 +1,40 @@
+{
+  "id": "cairnwatch-checkout-has-no-projections",
+  "description": "Distinguishes repairing a cloned C++ dependency checkout from creating an app or installing machine-wide tools.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "4",
+  "framework": "CMake / C++/WinRT / Win32",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/use-windows-app-sdk-in-existing-project"
+  ],
+  "prompt": "Just cloned Cairnwatch and the winrt includes are missing. MSVC and the Windows SDK are installed. How do I restore the versions in packages.config and rerun cppwinrt?",
+  "paraphrases": {
+    "novice": "I downloaded Cairnwatch, but the editor can't find the Windows-related includes. The computer has the required software. How do I get the libraries and generated files our team uses, at the versions listed here?",
+    "terse": "Cairnwatch clone missing winrt includes. Restore recorded dependencies and regenerate headers."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "project.setup"
+        ]
+      ],
+      "acceptable": [
+        "framework.guidance",
+        "troubleshoot"
+      ],
+      "forbid": [
+        "winui.*",
+        "session.report"
+      ]
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "id": "opaline-check-only-the-new-editor",
+  "description": "Selects WinUI code review for the requested editor despite a WPF sibling in the monorepo.",
+  "set": "heldout",
+  "cohort": "trap",
+  "persona": "3",
+  "framework": "WinUI 3 / WPF monorepo",
+  "conflictingSignal": true,
+  "sources": [
+    "https://github.com/microsoft/microsoft-ui-xaml/issues/11514"
+  ],
+  "prompt": "Can you review Opaline Studio's editor change before I approve it? I'm worried about the title binding, event subscription, and that delete button. Both the editor and exporter files are attached.",
+  "paraphrases": {
+    "novice": "Please check the Opaline Studio editor code before we accept it. Will the title update properly, can the events keep old screens alive, and will people understand the delete button?",
+    "terse": "Opaline editor review: title binding, event lifetime, delete-button accessibility."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "winui.review"
+        ]
+      ],
+      "acceptable": [
+        "winui.design"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "project.scaffold",
+        "ui.automate",
+        "session.report"
+      ]
+    }
+  }
+}

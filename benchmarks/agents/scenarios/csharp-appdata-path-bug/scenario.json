@@ -1,0 +1,22 @@
+{
+  "id": "csharp-appdata-path-bug",
+  "description": "Trap: plain C# path bug in code that mentions ApplicationData.",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "SettingsStore.Load returns defaults every time even though the settings file is there. I think the path is wrong somehow.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

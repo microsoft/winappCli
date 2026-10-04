@@ -1,0 +1,41 @@
+{
+  "id": "tallowline-runner-cannot-find-makeappx",
+  "description": "Separates provisioning a release runner's missing executable from changing package contents.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "6",
+  "framework": "GitHub Actions / Windows runner",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/msix/package/sign-app-package-using-signtool"
+  ],
+  "prompt": "'makeappx' is not recognized on the Tallowline runner, but this job works on my laptop. Which Windows SDK components should we install, and how should the job locate and verify the tools?",
+  "paraphrases": {
+    "novice": "The Tallowline job can't find a Microsoft program that exists on my computer. Can you show what to install on the runner and how to check that the job finds the right version?",
+    "terse": "Tallowline CI: makeappx not found. Fix SDK installation and tool discovery."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "toolchain.prereqs"
+        ],
+        [
+          "troubleshoot"
+        ]
+      ],
+      "forbid": [
+        "project.scaffold",
+        "winui.*",
+        "msix.manifest",
+        "session.report"
+      ]
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "id": "thistledown-explain-last-assistants-detour",
+  "description": "Recognizes an explicit retrospective request even when the earlier transcript contains enticing packaging work.",
+  "set": "heldout",
+  "cohort": "vague",
+  "persona": "6",
+  "framework": "Electron / prior assistant release conversation",
+  "conflictingSignal": true,
+  "sources": [],
+  "prompt": "Why did my previous Thistledown Charts chat with the AI go off the rails? Review the transcript, separate the useful advice from the detour, and suggest a better way to ask next time.",
+  "paraphrases": {
+    "novice": "Please look back through my Thistledown Charts conversation. Why did the assistant start proposing things I hadn't asked for, was any of its advice useful, and how could I word my next request better?",
+    "terse": "Thistledown previous AI chat review. Explain detour and improve next request."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "session.report"
+        ]
+      ],
+      "forbid": [
+        "msix.package",
+        "msix.sign",
+        "store.publish",
+        "winui.*"
+      ]
+    }
+  }
+}

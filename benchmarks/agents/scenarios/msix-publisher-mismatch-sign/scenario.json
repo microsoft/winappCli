@@ -1,0 +1,28 @@
+{
+  "id": "msix-publisher-mismatch-sign",
+  "description": "Error-first: SignerSign 0x8007000b because the manifest Publisher does not match the certificate subject.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "sign.ps1 started failing after IT gave us the new cert: 'SignTool Error: An unexpected internal error has occurred. Error information: SignerSign() failed. (-2147024885/0x8007000b)'. Same command as before.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "msix.sign",
+        "troubleshoot"
+      ],
+      "acceptable": [
+        "msix.manifest"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
+  }
+}

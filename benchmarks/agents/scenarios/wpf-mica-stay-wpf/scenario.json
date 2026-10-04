@@ -1,0 +1,25 @@
+{
+  "id": "wpf-mica-stay-wpf",
+  "description": "Trap: WPF app wants the Windows 11 Mica look while staying WPF.",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "Design wants the Windows 11 translucent Mica look behind our nav bar. We're staying on WPF. What are the options?",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "msix.*",
+        "identity",
+        "session.report"
+      ]
+    }
+  }
+}

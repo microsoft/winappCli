@@ -1,0 +1,3 @@
+ReminderDraft.cs(1,18): error CS0234: The type or namespace name 'Notifications' does not exist in the namespace 'Windows.UI'.
+Delivery: existing WiX MSI.
+No WinUI project is selected for this request.

@@ -1,0 +1,7 @@
+Window title: Marigold Register
+Button: New receipt
+Edit: Total
+Button: Save receipt
+Text: Balance
+Expected after saving 12.50: Balance 12.50
+Need an image of the resulting window.

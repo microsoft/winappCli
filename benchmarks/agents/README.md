@@ -13,6 +13,14 @@ tokens it uses, under different plugin configurations:
 Use it to baseline the current plugins, check that a moved or restructured plugin still routes the
 same way, and compare skill restructuring candidates.
 
+Scenarios expect **capabilities** (`msix.sign`, `api.lookup`, ...), not skill names, so a plugin that
+renames or merges skills can still be scored. They come in two sets:
+
+| Set | Scenarios | Use |
+|---|---|---|
+| `dev` (default) | 67 | Iterate on descriptions and structure freely. Never cite it as proof. |
+| `heldout` | 40, each with 2 paraphrases (120 prompts) | Release and decision checks only. See [Held-out set](#held-out-set). |
+
 ```powershell
 pwsh benchmarks\agents\run.ps1 -Plan
 ```
@@ -30,11 +38,14 @@ pwsh benchmarks\agents\run.ps1 -Plan
 # Print the expanded run list and session count without calling a model
 pwsh benchmarks\agents\run.ps1 -Plan
 
-# Recommended first step: a quick baseline (one model, one iteration: 106 sessions)
+# Recommended first step: a quick dev baseline (one model, one iteration: 172 sessions)
 pwsh benchmarks\agents\run.ps1 -Model claude-sonnet-5.5 -Iterations 1
 
-# Then the full default matrix (3 models x 3 iterations: 954 sessions)
+# Then the full dev matrix (3 models x 3 iterations: 1548 sessions)
 pwsh benchmarks\agents\run.ps1
+
+# Check scenario prompts for leaked skill vocabulary and unrealistic fixtures (no model calls)
+pwsh benchmarks\agents\run.ps1 -Lint
 
 # A single scenario
 pwsh benchmarks\agents\run.ps1 -Scenario electron-notifications -Configuration winapp -Model claude-sonnet-5.5 -Iterations 1
@@ -48,7 +59,9 @@ pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\my-
 
 | Parameter | Default (`config.json`) | Notes |
 |---|---|---|
-| `-Scenario <id[]>` | all | Folder names under `scenarios\` |
+| `-Set <dev\|heldout\|all>` | `dev` | Which scenario set to run. `-Lint` checks every set unless `-Set` is given |
+| `-Scenario <id[]>` | all in the set | Scenario ids; a base id selects its paraphrases too |
+| `-Variant <name[]>` | all | Paraphrase filter: `base`, `novice`, `terse` |
 | `-Configuration <none\|winapp\|winui\|both[]>` | each scenario's list | Filters a scenario's `configurations` |
 | `-Model <id[]>` | `claude-sonnet-5.5`, `claude-opus-5.5`, `gpt-6.1-sol` | Any model your Copilot account can use |
 | `-Iterations <n>` | 3 | |
@@ -60,7 +73,8 @@ pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\my-
 | `-CopilotVersion <v>` | newest Copilot CLI build already on the machine | Pinned with `--prefer-version` for every call |
 | `-OutDir <path>` | `results\<timestamp>` | |
 | `-KeepArtifacts` | off | Keeps each run's Copilot home, workspace, and logs under `%TEMP%\winapp-agent-bench` |
-| `-Plan` | | Dry run |
+| `-Plan` | | Dry run; shows sessions per cohort |
+| `-Lint` | | Leakage and fixture lint of the scenarios; exits 1 on errors. See [Scenario lint](#scenario-lint) |
 | `-Rescore <resultsDir>` | | Re-evaluate recorded runs against the current scenario expectations; no model calls |
 | `-Compare <dir[]> -Candidate <dir[]>` | | Markdown comparison of two sets of result folders; no model calls. `-Scenario`, `-Configuration`, and `-Model` filter it, and `-OutDir` writes `comparison.md` there instead of printing it |
 
@@ -84,8 +98,10 @@ comma-separated values (`-Scenario a,b`), including through `pwsh -File`.
    denied ones), `winapp` commands the agent tried to run or named in its final answer, the selected
    agent, duration, and exit status. Missing values are `null` with a reason, never 0. If the
    workspace changed, the run is a `harness_error`.
-6. Evaluates the scenario's expectations against the invoked skills, appends a line to
-   `runs.jsonl`, and deletes the temporary folders.
+6. Maps the invoked skills to capabilities with `capabilities.json`, evaluates the scenario's
+   expectations, scores the final response against the answer signals (see
+   [Routing and answer](#routing-and-answer)), appends a line to `runs.jsonl`, and deletes the
+   temporary folders.
 
 Nothing is installed into your own Copilot home.
 
@@ -93,9 +109,10 @@ Nothing is installed into your own Copilot home.
 
 Each invocation writes `results\<timestamp>\`:
 
-- `summary.md`: totals (overall pass rate, tokens, credits, repeated deliveries), the `n/a` cells,
-  and per scenario one row per configuration and model with pass rate, the most common set of
-  loaded skills, median tokens, skill context, and duration, and repeated deliveries.
+- `summary.md`: totals (pass rate, tokens, credits, repeated deliveries, right command named
+  without a skill), pass/partial/fail by set, cohort, and model, the no-plugin control, the `n/a`
+  cells, and per scenario one row per configuration and model with pass rate, the most common set
+  of loaded skills, median tokens, skill context, and duration, and repeated deliveries.
 - `runs.jsonl`: one JSON object per run with all extracted fields.
 - `run-info.json`: Copilot CLI version and path, models, and each plugin's path, version, git SHA,
   and skill list.
@@ -115,12 +132,71 @@ Run statuses:
 
 | Status | Meaning |
 |---|---|
-| `pass` / `fail` | The run completed and its expectations were / were not met |
-| `n/a` | The run completed, but nothing in the scenario's expectations applies to this configuration: no installed skill is expected or forbidden, and there is no `maxSkills`. Left out of pass rates and listed under **Not applicable** in `summary.md` |
+| `pass` | A primary capability (or every capability of a primary group) loaded, nothing forbidden loaded, and `maxSkills` held |
+| `partial` | Only part of a primary group, or only acceptable capabilities, loaded. Counts as scored but not passed |
+| `fail` | A forbidden capability loaded, `maxSkills` was exceeded, or no expected capability loaded |
+| `n/a` | The run completed, but no primary capability and no forbidden capability is installed in this configuration, and there is no `maxSkills`. Left out of pass rates and listed under **Not applicable** in `summary.md` |
 | `timeout` | The session exceeded its timeout and was killed |
 | `preflight_failed` | Plugin install failed or the installed skill set did not match the configuration |
 | `harness_error` | Copilot exited with an error, no session log was found, or the workspace was modified |
 | `cleanup_failed` | The run's temporary folders could not be deleted (`reason` keeps the original status) |
+
+Pass rates are pass / (pass + partial + fail). The headline pass rate leaves out:
+
+- the `none` configuration: a no-plugin control that shows what models do unaided (which `winapp`
+  commands they name, and what it costs). It has its own table.
+- the `explicit-command` cohort, where the prompt names the command. It has its own line.
+
+Every scenario has a **cohort**, reported separately: `implicit` (a goal or feature ask), `error`
+(starts from an error or symptom), `vague` (under-specified), `explicit-command`, `near-miss` (needs
+no plugin), `trap` (the context baits a wrong capability), and `followup` (reserved for two-turn
+scenarios).
+
+**Right command, no skill** counts failed or partial runs where the agent still named the right
+`winapp` command (from the scenario's `commands`, or the primary capabilities' command patterns in
+`capabilities.json`). It separates "skipped the skill but knew the command" from "knew nothing".
+Runs recorded before commands were captured show `n/a` for it.
+
+### Routing and answer
+
+Every run gets two independent statuses:
+
+- **Routing** (`status`): did the expected skill load? See the status table above.
+- **Answer** (`answer`): does the final response name what a correct answer must name? It does not
+  depend on which skills loaded, so it is also scored for the `none` control.
+
+Answer signals live in `capabilities.json`, next to each capability:
+
+```json
+"msix.sign": { "answer": { "require": [["winapp (sign|az-sign|cert)\\b"]], "forbid": [] } }
+```
+
+`require` is a list of groups; each group needs one matching regex (case-insensitive) in the final
+response. `forbid` regexes fail the answer. For a scenario:
+
+| Answer | Meaning |
+|---|---|
+| `pass` | Every capability of a primary alternative met its signals |
+| `partial` | Some signals of a primary or acceptable capability were met, but no full alternative |
+| `fail` | No signals were met (and every alternative could be checked), or a `forbid` pattern matched |
+| `n/a` | No primary capability has signals, a miss can't be judged because another alternative has no signals, or the run recorded nothing to score |
+
+Scenarios that need no plugin (`"primary": []`) pass when the response names no `winapp` command.
+
+Signals are deliberately small and objective: the `winapp` command for capabilities that have one,
+and a key term for a few that do not (`Microsoft.UI.Xaml` for a WinUI port, a `--version` check for
+prerequisites, manifest extension elements). Capabilities whose correct answer depends on the
+scenario (`winui.design`, `winui.review`, `winui.build`, `troubleshoot`, `framework.guidance`,
+`session.report`) have no signals and score `n/a`.
+
+Runs recorded before the final response was kept are scored from their recorded `winapp` commands
+instead (`answerBasis: commands`). Those commands include ones the agent tried to run, have no
+arguments, and contain no prose, so only signal groups made entirely of `winapp <command>` patterns
+are checked; the rest are `n/a`. Runs recorded before commands were captured stay `n/a`.
+
+`summary.md` shows routing and answer side by side per set, model, cohort, and primary capability,
+plus a 2 x 2 table (routed and answered, routed only, answered only, neither). `-Compare` adds
+answer columns and the same 2 x 2 for each side.
 
 ### Rescoring after changing expectations
 
@@ -132,9 +208,10 @@ pwsh benchmarks\agents\run.ps1 -Rescore benchmarks\agents\results\<timestamp>
 ```
 
 This writes `runs.rescored.jsonl` and `summary.rescored.md` next to the originals, which are left
-unchanged. Only `pass`, `fail`, and `n/a` runs are re-evaluated. Each rescored run keeps its
-`originalStatus`, and the command prints how many runs moved between statuses. A changed prompt or
-fixture still needs a new run.
+unchanged. Only `pass`, `partial`, `fail`, and `n/a` runs are re-evaluated. Each rescored run keeps
+its `originalStatus`, and the command prints how many runs moved between statuses. Runs record a
+hash of their prompt; a run whose prompt has changed since is not rescored and gets a note. A
+changed fixture still needs a new run.
 
 ### Comparing runs
 
@@ -147,7 +224,9 @@ pass rate, mean skill context, mean input tokens, and mean AI credits per run on
 change, and repeated deliveries. Only cells present on both sides are compared. Both sides are
 re-evaluated in memory against the current scenario expectations; the folders are not modified.
 
-- `n/a` runs are left out of pass rates.
+- `n/a` runs are left out of pass rates; `partial` runs count as scored but not passed.
+- The per-model rows leave out the `none` control and explicit-command scenarios. A **By set and
+  cohort** table follows.
 - A cell shows `check differs` when an expected skill is installed on one side only, for example
   when a candidate adds a skill to a plugin. It then tests something different on each side, so
   it is left out of the per-model pass rate.
@@ -158,45 +237,114 @@ re-evaluated in memory against the current scenario expectations; the folders ar
 1. Screen with one model: `-Model claude-sonnet-5.5 -Iterations 1` against the candidate plugin
    (`-WinAppPlugin` or `-WinUIPlugin`), then `-Compare` it with a baseline of the same scope.
 2. Confirm with all three models x 3 iterations on the scenarios the change affects plus the
-   near-misses (`console-arg-parsing`, `powershell-log-retention`, `win32-registry-read`,
-   `winui-generic-csharp-bug`), and compare again.
-3. Set `-MaxCredits` on long runs. To measure a plugin agent, pass `-Agent` on both sides.
+   near-miss and trap cohorts, and compare again.
+3. Before shipping, run the held-out set once on both sides (`-Set heldout`) and compare. Ship only
+   if the held-out set improves or holds.
+4. Set `-MaxCredits` on long runs. To measure a plugin agent, pass `-Agent` on both sides.
+5. If the change renames, merges, or splits skills, add a map for the new skill set to
+   `capabilities.json` first (see [Capabilities](#capabilities)).
 
 With 3 iterations per cell, only a 0/3 versus 3/3 swing in a single cell is a signal; the per-model
 rows are more reliable.
 
+## Capabilities
+
+`capabilities.json` defines each capability in plain language, with the `winapp` command patterns
+that serve it, and maps each plugin's skills to capabilities:
+
+```json
+{ "id": "winapp-current", "plugin": "winapp", "skillSetHash": "4a4abc8b6541",
+  "skills": { "winapp-signing": ["msix.sign"], "winapp-sandbox": ["sandbox.run", "ui.automate"] } }
+```
+
+A map applies to a run when every skill it names is installed; if several maps of one plugin apply,
+the one naming the most skills wins. `skillSetHash` identifies the skill-name set the map was written
+for. `run.ps1` warns when no map matches a plugin's current skills, and the tests fail when the repo
+plugins change their skill names without a map update. For a candidate that renames, merges, or
+splits skills, add a map for its skill set; the existing maps keep scoring older results.
+
+Capabilities starting with `winui.` (and `ui.samples`) are WinUI-specific, so non-WinUI scenarios
+forbid `winui.*`.
+
 ## Adding a scenario
 
-Create `scenarios\<id>\scenario.json` (the id must match the folder name) and, optionally, a
-`fixture\` folder with the few files the prompt needs:
+Create `scenarios\<id>\scenario.json` (the id must match the folder name) and a `fixture\` folder
+with the few files the prompt needs:
 
 ```json
 {
-  "id": "sign-existing-msix",
-  "description": "Only sign an MSIX that a pipeline already built.",
-  "prompt": "Our build pipeline already produces dist\\ContosoApp.msix. Sign it with our company certificate ...",
+  "id": "msix-publisher-mismatch-sign",
+  "description": "Error-first: SignerSign 0x8007000b because the manifest Publisher does not match the certificate subject.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "sign.ps1 started failing after IT gave us the new cert: 'SignTool Error: ... (-2147024885/0x8007000b)'. Same command as before.",
   "configurations": ["winapp", "both"],
   "fixture": "fixture",
-  "timeoutMinutes": 5,
   "expect": {
-    "skillsAny": ["winapp-signing"],
-    "skillsAll": [],
-    "skillsForbid": ["winui-*"],
+    "capabilities": {
+      "primary": ["msix.sign", "troubleshoot"],
+      "acceptable": ["msix.manifest"],
+      "forbid": ["winui.*", "ui.samples", "session.report"],
+      "budgetTokens": 12000
+    },
+    "commands": ["^sign$", "^cert"],
     "maxSkills": 3
   }
 }
 ```
 
-- Write the prompt the way a developer would ask for the work. Never name a skill.
-- `configurations` must include `both`, because most users install both plugins. Scenario
-  validation fails otherwise.
-- `skillsAny`: at least one must load. `skillsAll`: all must load. `skillsForbid`: none may load.
-  `maxSkills`: upper bound on distinct skills loaded. Names accept `*` wildcards. "Loaded" means the
-  agent invoked the skill.
-- Expected skills that are not installed in a configuration are ignored for that configuration, so
-  one scenario can list skills from both plugins. A configuration where nothing in `expect` applies
-  scores `n/a`.
-- Run `Invoke-Pester benchmarks\agents\tests` to validate scenario files.
+- Write the prompt the way a developer would ask for the work: often an error, a symptom, or a vague
+  goal. Never name a skill, and avoid the wording of skill descriptions (`-Lint` checks).
+- `configurations` must include `both`, because most users install both plugins.
+- `primary`: alternatives; each is a capability or an array of capabilities that must all load
+  (`[["sandbox.run", "ui.automate"]]`). `acceptable`: partial credit. `forbid`: capability patterns
+  (`winui.*`, or `*` for "nothing should load"). `maxSkills`: upper bound on distinct skills.
+  `budgetTokens` (optional): runs whose skill context exceeds it are counted as over budget; it
+  does not change the status. `commands` (optional): regexes over the recorded `winapp` commands;
+  defaults to the primary capabilities' patterns.
+- Near-misses and traps with nothing to load use `"primary": [], "forbid": ["*"], "maxSkills": 0`.
+- `paraphrases` (optional): `{ "novice": "...", "terse": "..." }`. Each runs as `<id>.<name>` with the
+  same fixture and expectations.
+- `routingSnapshot: true` marks a scenario whose prompt refers to things the fixture cannot contain
+  (a built MSIX, a running app). It only measures routing.
+- `leakAllow`: phrases a prompt may share with a skill description because they are quoted from a
+  real error message.
+- The older `skillsAny` / `skillsAll` / `skillsForbid` format still loads and scores, so old result
+  folders can be rescored, but new scenarios use capabilities.
+- Run `pwsh benchmarks\agents\run.ps1 -Lint` and `Invoke-Pester benchmarks\agents\tests`.
+
+## Scenario lint
+
+`-Lint` compares each prompt, plus its fixture file names, with every skill and agent description of
+the plugins being run:
+
+| Rule | Held-out | Dev |
+|---|---|---|
+| `leak-bigram`: shares a distinctive two-word phrase (one that appears in at most 3 descriptions) | error | warning |
+| `leak-jaccard`: content-word overlap with one description above 0.10 | error | warning |
+| `fixed-name`, `names-tooling`: uses "Contoso", or names winapp, a skill, or a plugin | error | - |
+| `fixture-empty`: the prompt names an empty fixture file (unless `routingSnapshot`) | error | error |
+| `fixture-missing`: the prompt names a file the fixture lacks (unless `routingSnapshot`) | warning | warning |
+| `leak-answer`: the prompt already contains an answer signal of its own primary or acceptable capabilities | error | warning |
+
+Framework, product, and generic project words ("WinUI app", "Windows desktop", "Microsoft Store",
+"MSIX") are not counted as leakage: a developer naming their own stack is not echoing a description.
+
+## Held-out set
+
+`scenarios\heldout\` holds 40 scenarios, each with a `novice` and a `terse` paraphrase. They were
+written by a different model family (GPT-6.1 Sol) than the one that wrote the dev scenarios, from public developer
+reports (GitHub issues, Stack Overflow, Microsoft Learn), personas, and plain capability definitions,
+without seeing any skill or agent description. Fixtures use randomized names. Every capability is a
+primary expectation at least twice, and near-misses and traps are over 20% of the set. Every
+held-out scenario also runs in the `none` configuration as a control.
+
+Treat it as gated:
+
+- Run it for release and decision checks (`-Set heldout`), not while iterating on descriptions.
+- Do not edit held-out prompts to make a candidate pass, and do not copy their wording into skill
+  descriptions. If a held-out scenario is wrong, fix its expectation and say so in the change.
+- A description change ships only if it improves or holds the held-out results.
 
 ## Limits
 

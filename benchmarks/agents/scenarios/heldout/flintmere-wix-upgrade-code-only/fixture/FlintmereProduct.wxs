@@ -1,0 +1,7 @@
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+ <Product Id="*" Name="Flintmere Billing" Language="1033" Version="2.0.0" Manufacturer="Flintmere Finance" UpgradeCode="BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB">
+  <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+  <MajorUpgrade DowngradeErrorMessage="A newer version is installed." />
+  <MediaTemplate />
+ </Product>
+</Wix>

@@ -3,4 +3,11 @@
   <input id="filename" aria-label="File name" />
   <button id="export">Export</button>
   <div id="status" role="status">Idle</div>
+  <script>
+    document.getElementById('export').onclick = async () => {
+      const status = document.getElementById('status');
+      status.textContent = 'Exporting...';
+      status.textContent = await window.exporter.run(document.getElementById('filename').value);
+    };
+  </script>
 </body></html>

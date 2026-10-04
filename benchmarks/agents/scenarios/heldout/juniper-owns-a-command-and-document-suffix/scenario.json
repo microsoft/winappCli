@@ -1,0 +1,43 @@
+{
+  "id": "juniper-owns-a-command-and-document-suffix",
+  "description": "Recognizes command aliases and file associations as package declarations, not application UI work.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "4",
+  "framework": "C++ / Win32 / MSIX",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-packaging-dot-net"
+  ],
+  "prompt": "Add jdispatch as a terminal alias and associate .jdp files with Juniper Dispatch in its manifest. It's already a packaged Win32 app, and the argument parser handles both.",
+  "paraphrases": {
+    "novice": "I want people to open Juniper Dispatch by typing jdispatch or double-clicking a .jdp document. The program can already handle those arguments. What do I put in its manifest to make Windows connect them?",
+    "terse": "Juniper manifest: jdispatch command and double-click .jdp support."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The installed application's parser and existing .msix are described in a text contract; only the editable manifest extract is supplied.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "msix.manifest"
+        ]
+      ],
+      "acceptable": [
+        "framework.guidance"
+      ],
+      "forbid": [
+        "winui.*",
+        "identity",
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

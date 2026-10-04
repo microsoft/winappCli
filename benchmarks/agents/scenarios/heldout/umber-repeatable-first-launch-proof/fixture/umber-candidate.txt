@@ -1,0 +1,6 @@
+Application: Umber Ledger
+Framework: WPF, .NET 8
+Candidate: UmberLedger.msi
+Host: Windows 11 Enterprise
+Disposable Windows feature enabled
+No external service is required for the first-launch flow.

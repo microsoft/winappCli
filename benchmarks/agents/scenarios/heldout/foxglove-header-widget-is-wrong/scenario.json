@@ -1,0 +1,43 @@
+{
+  "id": "foxglove-header-widget-is-wrong",
+  "description": "Allows WinUI design help or a working control example to correct an invalid layout approach.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "3",
+  "framework": "WinUI 3 / XAML",
+  "conflictingSignal": false,
+  "sources": [
+    "https://github.com/microsoft/WinUI-Gallery/issues/1867"
+  ],
+  "prompt": "Foxglove Queue rejects ListView.HeaderTemplateSelector. What's the WinUI 3 layout for a filter row that stays put above scrolling results? An example would help; it needs to work at 200% text size.",
+  "paraphrases": {
+    "novice": "I can't get Foxglove Queue's filter box to stay above the list while it scrolls. The property I tried isn't accepted. Can you show how to arrange this WinUI 3 screen so it also works with larger text?",
+    "terse": "Foxglove: HeaderTemplateSelector rejected. Fixed filter above scrolling WinUI list, 200% text."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "winui.design"
+        ],
+        [
+          "ui.samples"
+        ]
+      ],
+      "acceptable": [
+        "winui.build"
+      ],
+      "forbid": [
+        "project.scaffold",
+        "winui.migrate",
+        "session.report"
+      ]
+    }
+  }
+}

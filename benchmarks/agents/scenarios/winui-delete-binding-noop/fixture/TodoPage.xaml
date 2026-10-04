@@ -1,0 +1,12 @@
+<Page x:Class="Brightwater.TodoPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ListView x:Name="TodoList" ItemsSource="{x:Bind ViewModel.Items}">
+    <ListView.ItemTemplate>
+      <DataTemplate>
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Text="{Binding Title}" />
+          <Button Content="Delete" Command="{Binding DataContext.DeleteCommand, ElementName=TodoList}" CommandParameter="{Binding}" />
+        </StackPanel>
+      </DataTemplate>
+    </ListView.ItemTemplate>
+  </ListView>
+</Page>
