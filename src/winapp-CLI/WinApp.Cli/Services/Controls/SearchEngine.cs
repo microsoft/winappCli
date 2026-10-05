@@ -132,11 +132,71 @@ internal sealed class SearchEngine
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Remove the control name from a scenario header, but only where it stands alone —
+    /// never where it is the prefix of a longer identifier.
+    /// </summary>
+    /// <remarks>
+    /// The strip exists so prose headers like "A simple ColorPicker" don't double-count
+    /// against the dedicated controlName field. A plain replace also eats the discriminating
+    /// prefix of a sibling type: header "ColorPickerButton" under control "ColorPicker"
+    /// collapses to "Button", and the only query that names the type exactly stops matching.
+    /// </remarks>
+    private static string StripControlName(string header, string controlName)
+    {
+        if (string.IsNullOrEmpty(header) || string.IsNullOrEmpty(controlName)) return header;
+
+        var sb = new System.Text.StringBuilder(header.Length);
+        int i = 0;
+        while (i < header.Length)
+        {
+            if (i + controlName.Length <= header.Length
+                && string.Compare(header, i, controlName, 0, controlName.Length, StringComparison.OrdinalIgnoreCase) == 0
+                && (i == 0 || !char.IsLetterOrDigit(header[i - 1]))
+                && (i + controlName.Length == header.Length || !char.IsLetterOrDigit(header[i + controlName.Length])))
+            {
+                i += controlName.Length;
+                continue;
+            }
+
+            sb.Append(header[i]);
+            i++;
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Index a scenario header as both its original text and its CamelCase split, so a
+    /// header that is a type name rather than prose is reachable by its parts.
+    /// </summary>
+    /// <remarks>
+    /// Toolkit helpers, converters and behaviors are grouped under an umbrella control
+    /// ("Converters", "Header Behaviors") and name the specific type in the header. Without
+    /// the split, BM25 sees "filesizetofriendlystringconverter" as one opaque token, so the
+    /// only query that finds it is the exact type name. Both forms are kept: the compact
+    /// token is what makes that exact-name query work today.
+    /// </remarks>
+    private static string ExpandHeaderForIndex(string header) =>
+        string.IsNullOrEmpty(header) ? header : $"{header} {SplitCamelCase(header)}";
+
+    /// <summary>
+    /// Add the CamelCase split of a query to the query itself, before anything lowercases it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Synonyms.Preprocess"/> lowercases first, so by the time a query reaches the
+    /// tokenizer its word boundaries are gone: "ColorPickerButton" is one token that matches
+    /// neither "color" nor "picker". The original is kept alongside the split so an exact
+    /// identifier still scores as an exact identifier.
+    /// </remarks>
+    private static string ExpandQueryForIndex(string query) =>
+        string.IsNullOrEmpty(query) ? query : $"{query} {SplitCamelCase(query)}";
+
     /// <summary>Two-layer search: find controls first, then pick best scenario.</summary>
     public List<SearchResult> Search(string query, int maxResults = 5)
     {
         // Phrase preprocessing: append merged tokens (e.g. "data grid" → keeps "data", "grid", adds "datagrid")
-        var preprocessed = Synonyms.Preprocess(query);
+        var preprocessed = Synonyms.Preprocess(ExpandQueryForIndex(query));
         var queryWords = BM25.Tokenize(preprocessed);
         if (queryWords.Length == 0) return [];
         var queryCompact = CompactQuery(query);   // e.g., "Color Picker Button" → "colorpickerbutton"
@@ -181,7 +241,7 @@ internal sealed class SearchEngine
                 (nameSplit, 2.5),
                 (string.Join(" ", keywords), 5.0),
                 (string.Join(" ", enrichTags), 3.0),
-                (scenarios[0].HeaderText, 1.5)
+                (ExpandHeaderForIndex(scenarios[0].HeaderText), 1.5)
             );
         }).ToArray();
 
@@ -265,7 +325,7 @@ internal sealed class SearchEngine
         string query, int maxControls = 3, int maxScenariosPerControl = 3,
         bool applyFloor = true, string? sourceFilter = null)
     {
-        var preprocessed = Synonyms.Preprocess(query);
+        var preprocessed = Synonyms.Preprocess(ExpandQueryForIndex(query));
         var queryWords = BM25.Tokenize(preprocessed);
         if (queryWords.Length == 0) return [];
         var queryCompact = CompactQuery(query);
@@ -326,8 +386,8 @@ internal sealed class SearchEngine
             // bias: every scenario contributes equally; BM25's TF saturation handles repeats.
             string CleanHeader(string h)
             {
-                var stripped = h.Replace(controlName, "", StringComparison.OrdinalIgnoreCase);
-                return string.Join(" ", StopWords.FilterTagList(BM25.Tokenize(stripped)));
+                var stripped = StripControlName(h, controlName);
+                return string.Join(" ", StopWords.FilterTagList(BM25.Tokenize(ExpandHeaderForIndex(stripped))));
             }
             var allHeaders = string.Join(" ", scenarios.Select(s => CleanHeader(s.HeaderText)));
             // CamelCase-split control name: "TokenizingTextBox" → "tokenizing text box"
@@ -483,7 +543,7 @@ internal sealed class SearchEngine
 
             // Score each scenario individually so we can present them in relevance order.
             var scenDocs = scenarios.Select(sc => BM25.BuildDoc(
-                (sc.HeaderText, 2.0),
+                (ExpandHeaderForIndex(sc.HeaderText), 2.0),
                 (sc.ControlName, 1.0)
             )).ToArray();
             var scenCorpus = BM25.BuildCorpus(scenDocs);
@@ -606,7 +666,7 @@ internal sealed class SearchEngine
         if (scenarios.Count == 1) return scenarios[0];
 
         var scenDocs = scenarios.Select(s => BM25.BuildDoc(
-            (s.HeaderText, 2.0),
+            (ExpandHeaderForIndex(s.HeaderText), 2.0),
             (s.ControlName, 1.0)
         )).ToArray();
         var corpus = BM25.BuildCorpus(scenDocs);

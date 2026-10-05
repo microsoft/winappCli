@@ -358,4 +358,68 @@ public class FindUiSearchTests
         }
     }
 
+    /// <summary>
+    /// The Toolkit groups helpers, converters and behaviors under an umbrella control and
+    /// names the specific type in the scenario header, so the header carries vocabulary that
+    /// exists nowhere else on the control.
+    /// </summary>
+    private static SearchEngine BuildTypeNameHeaderEngine() => new(
+        [
+            Scn("toolkit", "converters", "Converters", "converters-1", "FileSizeToFriendlyStringConverter", "Converters for data binding."),
+            Scn("toolkit", "converters", "Converters", "converters-2", "VisibilityToBoolConverter", "Converters for data binding."),
+            Scn("toolkit", "headerbehaviors", "Header Behaviors", "headerbehaviors-1", "StickyHeaderBehavior", "Behaviors for list headers."),
+            Scn("toolkit", "colorpicker", "ColorPicker", "colorpicker-1", "ColorPicker", "Extended color picker."),
+            Scn("toolkit", "colorpicker", "ColorPicker", "colorpicker-2", "ColorPickerButton", "Extended color picker."),
+        ],
+        corePatterns: [],
+        enrichmentTags: new(),
+        curatedKeywords: new());
+
+    [TestMethod]
+    public void SearchGrouped_FindsATypeNameHeaderByItsWordParts()
+    {
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("file size converter", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'file size converter' must reach the Converters group");
+        Assert.AreEqual("Converters", groups[0].ControlName);
+        Assert.AreEqual("toolkit-converters-1", groups[0].Scenarios[0].Id);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_FindsATypeNameHeaderBySingleWordPart()
+    {
+        // "converter" is singular, so it matches no control name — only the split header.
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("converter", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'converter' must reach the Converters group");
+        Assert.AreEqual("Converters", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_FindsABehaviorByItsDescriptiveWords()
+    {
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("sticky header", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'sticky header' must reach the Header Behaviors group");
+        Assert.AreEqual("Header Behaviors", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_StillMatchesTheExactTypeName()
+    {
+        // Splitting the header must not cost the compact form the exact name relies on.
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("StickyHeaderBehavior", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "the exact type name must keep matching");
+        Assert.AreEqual("Header Behaviors", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_MatchesAScenarioWhoseHeaderExtendsTheControlName()
+    {
+        // "ColorPickerButton" under control "ColorPicker": stripping the control name by plain
+        // replace would leave "Button" and lose the only token that identifies this scenario.
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("ColorPickerButton", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'ColorPickerButton' must reach the ColorPicker group");
+        Assert.AreEqual("ColorPicker", groups[0].ControlName);
+        Assert.AreEqual("toolkit-colorpicker-2", groups[0].Scenarios[0].Id,
+            "the ColorPickerButton scenario must rank above its sibling");
+    }
+
 }
