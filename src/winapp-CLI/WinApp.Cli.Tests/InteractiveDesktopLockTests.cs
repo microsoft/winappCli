@@ -272,6 +272,7 @@ public partial class InteractiveDesktopLockTests
         Assert.AreEqual(InteractiveDesktopLock.CancelledExitCode, exitCode,
             "a cancelled command reports 130, not an internal error");
         StringAssert.Contains(errorWriter.ToString(), "\"code\":\"cancelled\"");
+        StringAssert.Contains(errorWriter.ToString(), "cancelled after it acquired the desktop");
         Assert.AreEqual(0, ReadOwnerDeadline(),
             "a command that produced nothing must not renew the owner's idle grace");
     }

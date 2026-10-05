@@ -10,8 +10,18 @@ namespace WinApp.Cli.Helpers;
 /// the debugger cache) therefore only ever observes the final path as either absent or fully written
 /// — never partially written or not-yet-verified.
 /// </summary>
+/// <remarks>
+/// Windows refuses to rename over a file that any handle still has open, even one opened with
+/// <see cref="FileShare.Delete"/>, and reports it as "Access to the path is denied". A concurrent
+/// reader therefore makes the publishing rename fail, not just wait. Readers hold the file only for
+/// as long as one read takes, so every rename retries that refusal for a short, bounded window
+/// before giving up.
+/// </remarks>
 internal static class AtomicFile
 {
+    /// <summary>How long a publishing rename keeps retrying while a reader holds the destination open.</summary>
+    internal static readonly TimeSpan ReplaceRetryWindow = TimeSpan.FromSeconds(2);
+
     /// <summary>Writes <paramref name="bytes"/> to <paramref name="destinationPath"/> atomically.</summary>
     public static async Task WriteAllBytesAsync(string destinationPath, byte[] bytes, CancellationToken cancellationToken)
     {
@@ -19,7 +29,7 @@ internal static class AtomicFile
         try
         {
             await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken);
-            File.Move(tempPath, destinationPath, overwrite: true);
+            ReplaceWithRetry(tempPath, destinationPath);
         }
         finally
         {
@@ -34,7 +44,7 @@ internal static class AtomicFile
         try
         {
             File.WriteAllText(tempPath, content);
-            File.Move(tempPath, destinationPath, overwrite: true);
+            ReplaceWithRetry(tempPath, destinationPath);
         }
         finally
         {
@@ -49,7 +59,7 @@ internal static class AtomicFile
         try
         {
             File.Copy(sourcePath, tempPath, overwrite: true);
-            File.Move(tempPath, destinationPath, overwrite: true);
+            ReplaceWithRetry(tempPath, destinationPath);
         }
         finally
         {
@@ -71,10 +81,35 @@ internal static class AtomicFile
 
     /// <summary>Atomically moves a staged temp file (from <see cref="WriteStagedAsync"/>) into place.</summary>
     public static void Publish(string stagedPath, string destinationPath) =>
-        File.Move(stagedPath, destinationPath, overwrite: true);
+        ReplaceWithRetry(stagedPath, destinationPath);
 
     /// <summary>Deletes a staged temp file that will not be published. Best effort.</summary>
     public static void DiscardStaged(string stagedPath) => TryDeleteLeftoverTemp(stagedPath);
+
+    private static void ReplaceWithRetry(string sourcePath, string destinationPath)
+    {
+        var deadline = Environment.TickCount64 + (long)ReplaceRetryWindow.TotalMilliseconds;
+        var delay = 1;
+        while (true)
+        {
+            try
+            {
+                File.Move(sourcePath, destinationPath, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (IsHeldOpenByAnotherHandle(ex) && Environment.TickCount64 < deadline)
+            {
+                Thread.Sleep(delay);
+                delay = Math.Min(delay * 2, 50);
+            }
+        }
+    }
+
+    // ERROR_ACCESS_DENIED is how a rename over an open destination fails; sharing and lock
+    // violations are how it fails while another writer is mid-replace.
+    private static bool IsHeldOpenByAnotherHandle(Exception ex) =>
+        ex is UnauthorizedAccessException
+        || (ex is IOException && (ex.HResult & 0xffff) is 32 or 33);
 
     private static string MakeTempPath(string destinationPath) =>
         destinationPath + "." + Guid.NewGuid().ToString("N") + ".tmp";

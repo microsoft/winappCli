@@ -227,6 +227,9 @@ jobs:
 
     - name: Run ${{ matrix.sample }} test
       if: steps.check.outputs.skip != 'true'
+      # The slowest sample takes about 15 minutes. A hang should fail the job, not hold a runner
+      # for the 6-hour default.
+      timeout-minutes: 40
       shell: pwsh
       run: |
         $container = New-PesterContainer -Path "samples/${{ matrix.sample }}/test.Tests.ps1" -Data @{
