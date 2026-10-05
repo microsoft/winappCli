@@ -2,7 +2,7 @@
   "name": "winapp",
   "version": "0.7.2",
   "schemaVersion": "1.0",
-  "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
+  "description": "Create, run, debug, test, and package Windows apps from the command line. Works with WinUI and any other app framework targeting Windows, and manages Windows SDKs, package identity, manifests, and certificates.",
   "hidden": false,
   "options": {
     "--cli-schema": {

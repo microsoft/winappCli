@@ -11,7 +11,7 @@ namespace WinApp.Cli.Commands;
 
 internal class WinAppRootCommand : RootCommand, IShortDescription
 {
-    public string ShortDescription => "Tools for Windows app development, package identity, packaging, and the Windows (App) SDK";
+    public string ShortDescription => "Create, run, debug, test, and package Windows apps";
     internal static Option<bool> VerboseOption = new Option<bool>("--verbose", "-v")
     {
         Description = "Enable verbose output"
@@ -88,7 +88,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         GuestRuntimeCommand guestRuntimeCommand,
         GuestLaunchCommand guestLaunchCommand,
         TargetCommand targetCommand,
-        FindApiCommand findApiCommand) : base("CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows")
+        FindApiCommand findApiCommand) : base("Create, run, debug, test, and package Windows apps from the command line. Works with WinUI and any other app framework targeting Windows, and manages Windows SDKs, package identity, manifests, and certificates.")
     {
         Subcommands.Add(initCommand);
         Subcommands.Add(newCommand);
@@ -128,11 +128,12 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         // Replace the default help with a custom categorized help screen
         var helpOption = Options.OfType<HelpOption>().First();
         helpOption.Action = new CustomHelpAction(this, ansiConsole,
-            ("Setup", [typeof(InitCommand), typeof(NewCommand), typeof(RestoreCommand), typeof(UpdateCommand)]),
-            ("Packaging & Signing", [typeof(PackageCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(CertCommand), typeof(ManifestCommand), typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand)]),
-            ("Development Tools", [typeof(CreateDebugIdentityCommand), typeof(MSStoreCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(RunCommand), typeof(UnregisterCommand), typeof(TargetCommand)]),
-            ("Discovery", [typeof(FindApiCommand), typeof(FindUiCommand)]),
-            ("UI Automation", [typeof(UiCommand)])
+            ("Get Started", [typeof(NewCommand), typeof(InitCommand), typeof(RestoreCommand), typeof(UpdateCommand)]),
+            ("Run & Debug", [typeof(RunCommand), typeof(CreateDebugIdentityCommand), typeof(UnregisterCommand), typeof(TargetCommand)]),
+            ("Discovery", [typeof(FindUiCommand), typeof(FindApiCommand)]),
+            ("UI Automation", [typeof(UiCommand)]),
+            ("Package, Sign & Publish", [typeof(PackageCommand), typeof(ManifestCommand), typeof(CertCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(MSStoreCommand)]),
+            ("Advanced", [typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand), typeof(ToolCommand), typeof(GetWinappPathCommand)])
         );
     }
 }

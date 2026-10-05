@@ -21,7 +21,7 @@ namespace WinApp.Cli.Commands;
 
 internal partial class RunCommand : Command, IShortDescription, ITargetAwareCommand
 {
-    public string ShortDescription => "Run a Windows app from a project, .NET file-based app, or build-output folder.";
+    public string ShortDescription => "Run a Windows app from a project, .NET file-based app, or build-output folder";
 
     public static Argument<FileSystemInfo> InputArgument { get; }
     public static Option<FileInfo> ManifestOption { get; }
