@@ -290,6 +290,125 @@ function Remove-TempTestDirectory {
 }
 
 # ============================================================================
+# Bounded Process Waits
+# ============================================================================
+
+function Get-ProcessTree {
+    <#
+    .SYNOPSIS
+    Returns a process and its live descendants from one snapshot, root first, each with its depth.
+
+    .DESCRIPTION
+    Windows keeps a child's parent PID after the parent exits, and PIDs are reused, so a parent PID
+    alone can make an unrelated, older process look like a descendant. An edge is followed only
+    when the child was created after its parent.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [int]$RootProcessId
+    )
+
+    $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $byParent = $all | Group-Object ParentProcessId -AsHashTable -AsString
+    $tree = [System.Collections.Generic.List[object]]::new()
+    $root = $all | Where-Object ProcessId -eq $RootProcessId | Select-Object -First 1
+    if (-not $root) { return ,$tree.ToArray() }
+
+    $pending = [System.Collections.Generic.Stack[object]]::new()
+    $pending.Push([pscustomobject]@{ Process = $root; Depth = 0 })
+    while ($pending.Count -gt 0) {
+        $node = $pending.Pop()
+        $tree.Add($node)
+        foreach ($child in @($byParent["$($node.Process.ProcessId)"])) {
+            if ($child -and $child.ProcessId -ne $node.Process.ProcessId -and
+                $child.CreationDate -and $node.Process.CreationDate -and
+                $child.CreationDate -ge $node.Process.CreationDate) {
+                $pending.Push([pscustomobject]@{ Process = $child; Depth = $node.Depth + 1 })
+            }
+        }
+    }
+
+    return ,$tree.ToArray()
+}
+
+function Format-ProcessTree {
+    <#
+    .SYNOPSIS
+    Describes each process from Get-ProcessTree: PID, parent, age, command line, and what its
+    threads are waiting on. Used to show what a timed-out step was stuck on.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [object[]]$Tree
+    )
+
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($node in $Tree) {
+        $cim = $node.Process
+        $indent = '  ' * $node.Depth
+        $age = '{0:N0}s' -f ((Get-Date) - $cim.CreationDate).TotalSeconds
+        $lines.Add("$indent[$($cim.ProcessId)] $($cim.Name) (parent $($cim.ParentProcessId), age $age)")
+        $lines.Add("$indent    cmd: $($cim.CommandLine)")
+        $live = Get-Process -Id $cim.ProcessId -ErrorAction SilentlyContinue
+        if ($live) {
+            try {
+                $states = $live.Threads | Group-Object { if ("$($_.ThreadState)" -eq 'Wait') { "Wait:$($_.WaitReason)" } else { "$($_.ThreadState)" } } |
+                    ForEach-Object { "$($_.Name) x$($_.Count)" }
+                $lines.Add("$indent    threads: $($states -join ', ')")
+            } catch {
+                $lines.Add("$indent    threads: unavailable ($($_.Exception.Message))")
+            }
+        }
+    }
+
+    return $lines -join [Environment]::NewLine
+}
+
+function Wait-ProcessExitOrFail {
+    <#
+    .SYNOPSIS
+    Waits for a started process to exit, failing with a process-tree report instead of hanging.
+
+    .DESCRIPTION
+    Waits only on the process itself, not its descendants, so an app it launched and left running
+    does not count. If the process has not exited within the timeout, writes what the process and
+    each live descendant were doing, stops exactly those processes, and throws.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Process]$Process,
+
+        [Parameter(Mandatory)]
+        [TimeSpan]$Timeout,
+
+        [string]$Description = "process $($Process.Id)"
+    )
+
+    if ($Process.WaitForExit([int]$Timeout.TotalMilliseconds)) {
+        # The timed overload can return before asynchronous output handling finishes; this one cannot.
+        $Process.WaitForExit()
+        return
+    }
+
+    $tree = Get-ProcessTree -RootProcessId $Process.Id
+    Write-Host "::group::$Description did not exit within $($Timeout.TotalSeconds)s; live process tree"
+    Write-Host (Format-ProcessTree -Tree $tree)
+    Write-Host "::endgroup::"
+
+    # Stops exactly the processes reported above, deepest first. A PID that exited while the report
+    # was gathered can already belong to another process, so each is re-identified by creation time.
+    foreach ($node in ($tree | Sort-Object Depth -Descending)) {
+        $current = Get-CimInstance Win32_Process -Filter "ProcessId=$($node.Process.ProcessId)" -ErrorAction SilentlyContinue
+        if ($current -and $current.CreationDate -eq $node.Process.CreationDate) {
+            Stop-Process -Id $node.Process.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    throw "$Description did not exit within $($Timeout.TotalSeconds)s. The live process tree is printed above."
+}
+
+# ============================================================================
 # Exports
 # ============================================================================
 
@@ -302,4 +421,7 @@ Export-ModuleMember -Function @(
     'Invoke-WithRetry'
     'New-TempTestDirectory'
     'Remove-TempTestDirectory'
+    'Get-ProcessTree'
+    'Format-ProcessTree'
+    'Wait-ProcessExitOrFail'
 )
