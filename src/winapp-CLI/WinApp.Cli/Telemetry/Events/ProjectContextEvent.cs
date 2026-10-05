@@ -68,7 +68,7 @@ internal sealed class ProjectContextEvent : EventBase
 
         telemetry.Log(
             "ProjectContext_Event",
-            LogLevel.Measure,
+            LogLevel.Critical,
             new ProjectContextEvent(command, context),
             TelemetryCorrelation.CurrentId);
     }
@@ -83,7 +83,7 @@ internal sealed class ProjectContextEvent : EventBase
 
         telemetry.Log(
             "ProjectContext_Event",
-            LogLevel.Measure,
+            LogLevel.Critical,
             new ProjectContextEvent(command, createContext()),
             TelemetryCorrelation.CurrentId);
     }
