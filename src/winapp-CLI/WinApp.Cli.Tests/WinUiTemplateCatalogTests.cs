@@ -297,6 +297,53 @@ public class WinUiTemplateCatalogTests
         Assert.IsFalse(Entry("WinUI Blank App", "winui", "Windows/WinUI/Desktop/XAML").IsExperimental);
     }
 
+    private static readonly string[] ExpectedDisplayOrder =
+    [
+        "winui blank app",
+        "WinUI Class Library",
+        "WinUI TabView App",
+        "Contoso App",
+        "reactor MVU App (Experimental)",
+        "Reactor NavigationView App (Experimental)",
+    ];
+
+    [TestMethod]
+    public void OrderForDisplay_PutsWinUiTemplatesFirstThenOthers_EachAlphabeticalIgnoringCase()
+    {
+        // `dotnet new list` sorts alphabetically, which places the Reactor templates (and any other
+        // non-WinUI template) ahead of the WinUI ones. The Reactor alias "winui-reactor" must not make
+        // it a WinUI template; only the display name or the canonical short name counts.
+        var entries = new List<WinUiTemplateEntry>
+        {
+            Entry("Reactor NavigationView App (Experimental)", "reactor-navview,winui-reactor-navview"),
+            Entry("reactor MVU App (Experimental)", "reactor-mvu,winui-reactor-mvu"),
+            Entry("Contoso App", "contoso"),
+            Entry("WinUI TabView App", "winui-tabview"),
+            Entry("winui blank app", "winui"),
+            Entry("WinUI Class Library", "winui-lib"),
+        };
+
+        var ordered = WinUiTemplateCatalog.OrderForDisplay(entries);
+
+        CollectionAssert.AreEqual(ExpectedDisplayOrder, ordered.Select(e => e.DisplayName).ToArray());
+    }
+
+    [TestMethod]
+    public void OrderForDisplay_TreatsCanonicalWinUiShortNameAsWinUiWhenDisplayNameIsMissing()
+    {
+        var entries = new List<WinUiTemplateEntry>
+        {
+            Entry("Alpha App", "alpha"),
+            Entry(string.Empty, "winui-mvvm"),
+        };
+
+        var ordered = WinUiTemplateCatalog.OrderForDisplay(entries);
+
+        CollectionAssert.AreEqual(ExpectedShortNameFallbackOrder, ordered.Select(e => e.ShortName).ToArray());
+    }
+
+    private static readonly string[] ExpectedShortNameFallbackOrder = ["winui-mvvm", "alpha"];
+
     private static readonly string[] ExpectedKeptDisplayNames =
         ["Reactor NavigationView App (Experimental)", "WinUI Blank App"];
 

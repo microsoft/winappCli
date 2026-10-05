@@ -154,7 +154,7 @@ winapp new [options]
 
 **Templates:**
 
-The pack ships two styles of WinUI app. **XAML** templates define the UI in markup with a C# code-behind. **Reactor** templates are pure C# with no XAML, using an MVU (Model-View-Update) pattern. The template list is read live from the installed pack, so it always reflects the version you have — run `winapp new --list` to see the current set. Common templates:
+The pack ships two styles of WinUI app. **XAML** templates define the UI in markup with a C# code-behind. **Reactor** templates are pure C# with no XAML, using an MVU (Model-View-Update) pattern. The template list is read live from the installed pack, so it always reflects the version you have — run `winapp new --list` to see the current set. The interactive picker and `--list` show the WinUI templates first, then all others, each group in alphabetical order. Common templates:
 
 | Short name | Description |
 |------------|-------------|
