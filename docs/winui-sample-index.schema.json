@@ -92,6 +92,33 @@
           "description": "The control's samples, in the order the source wants them presented. Consumers assign ids positionally, so appending is safe and reordering is not.",
           "type": "array",
           "items": { "$ref": "#/$defs/sample" }
+        },
+        "toolkit": {
+          "description": "Windows Community Toolkit-specific extraction metadata. Consumers must not require this object; it is informational and may be ignored by non-Toolkit sources.",
+          "type": "object",
+          "properties": {
+            "component": {
+              "description": "The Toolkit component this control belongs to (for example 'Animations', 'SettingsControls'). One component can publish several controls, and it is the unit the Toolkit versions and ships, so it is a coarser grouping than 'nugetPackage'.",
+              "type": "string"
+            },
+            "documentPath": {
+              "description": "Repository-relative path to the component's authored markdown documentation.",
+              "type": "string"
+            },
+            "category": {
+              "description": "The Toolkit's own top-level grouping for this control, as shown in its sample app.",
+              "type": "string"
+            },
+            "subcategory": {
+              "description": "The Toolkit's second-level grouping beneath 'category'.",
+              "type": "string"
+            },
+            "author": {
+              "description": "GitHub username credited as the component's author in the Toolkit's own metadata. Attribution only; consumers should not treat it as a support contact.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
         }
       },
       "additionalProperties": true
@@ -161,6 +188,31 @@
             },
             "codePlaceholdersPresent": {
               "description": "Names of Gallery substitution placeholders that are STILL PRESENT in this sample's 'code'. Note the deliberate asymmetry with 'xamlPlaceholdersDropped': that field lists placeholders already removed and guarantees clean output, whereas this one warns that the published 'code' is NOT pasteable as-is. Placeholders survive in C# because, unlike a XAML attribute, there is no construct whose absence yields a default: the token may be an identifier fragment ('BadgeNotificationGlyph.$(SelectedGlyph)'), a fixed-arity argument ('SetBorderAndTitleBar($(HasBorder), $(HasTitleBar))'), or an entire statement, none of which can be deleted without a syntax error or gutting the sample. Consumers that promise pasteable output should suppress or clearly mark such 'code' rather than serving it; consumers that can reason about the tokens may use these names to substitute their own values.",
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": true
+        },
+        "toolkit": {
+          "description": "Windows Community Toolkit-specific extraction metadata. Consumers must not require this object; it is informational and may be ignored by non-Toolkit sources.",
+          "type": "object",
+          "properties": {
+            "sampleId": {
+              "description": "The Toolkit's own identifier for this sample — the name of the class that hosts it (for example 'AnimationsImplicitSample'). Stable across reorderings, unlike the positional id a consumer assigns, so it is the field to match on when tracking one sample over time.",
+              "type": "string"
+            },
+            "sourcePath": {
+              "description": "Repository-relative path to the sample's XAML file in the Toolkit repository.",
+              "type": "string"
+            },
+            "optionsResolved": {
+              "description": "'Name=Value' pairs for the Toolkit sample-app options that were baked into the published 'xaml' as literal values. The Toolkit's sample browser renders an options pane from '[ToolkitSample*Option]' attributes and binds the markup to it; that pane does not exist in a user's app, so each binding is replaced by the option's declared default. This is a diagnostic trail only — the published 'xaml' already carries the literals.",
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "optionBindingsDropped": {
+              "description": "Names of Toolkit sample-app options whose bindings were removed rather than resolved, because no usable default was available. The enclosing attribute is deleted so the control's own default applies, which means the published sample demonstrates that property at its default rather than at the value the Toolkit's sample browser would show.",
               "type": "array",
               "items": { "type": "string" }
             }

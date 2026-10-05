@@ -137,4 +137,53 @@ public class ToolkitProviderNormalizeTests
         StringAssert.Contains(scenario.Xaml, "Click=\"Move_Click\"",
             "a handler the snippet declares is exactly what the sample is teaching");
     }
+
+    [TestMethod]
+    public void NormalizeForPaste_RewritesNamespacesThatOnlyExistInTheToolkitSampleApp()
+    {
+        // Rendered as the "Setup:" line, so this is printed to the user as an instruction.
+        // Every Toolkit component's sample project is named <Component>Experiment, and those
+        // namespaces ship in no NuGet package -- telling the user to map one is telling them
+        // to add a mapping that cannot resolve.
+        var scenario = new Scenario
+        {
+            Id = "richsuggestbox-1",
+            ControlId = "richsuggestbox",
+            ControlName = "RichSuggestBox",
+            Xaml = """<Grid xmlns:local="using:RichSuggestBoxExperiment.Samples"><local:SuggestionTemplateSelector /></Grid>""",
+            XmlnsImports =
+            [
+                "xmlns:controls=\"using:CommunityToolkit.WinUI.Controls\"",
+                "xmlns:local=\"using:RichSuggestBoxExperiment.Samples\"",
+            ],
+        };
+
+        ToolkitProvider.NormalizeForPaste(scenario);
+
+        Assert.AreEqual("xmlns:controls=\"using:CommunityToolkit.WinUI.Controls\"", scenario.XmlnsImports[0],
+            "the shipping namespace of the package the user is told to install must survive untouched");
+        Assert.AreEqual("xmlns:local=\"using:YourApp\"", scenario.XmlnsImports[1],
+            "the emitted C# declares namespace YourApp, so the prefix should name that");
+        Assert.IsFalse(scenario.Xaml!.Contains("RichSuggestBoxExperiment"),
+            "the sample app's namespace should not survive in the markup either");
+    }
+
+    [TestMethod]
+    public void NormalizeForPaste_RewritesASampleAppNamespaceWithTrailingSegments()
+    {
+        // PrimitivesExperiment.Samples.SwitchPresenter -- the match has to consume the whole
+        // namespace, not stop at "Samples" and leave ".SwitchPresenter" dangling.
+        var scenario = new Scenario
+        {
+            Id = "switchpresenter-1",
+            ControlId = "switchpresenter",
+            ControlName = "SwitchPresenter",
+            Xaml = "<Grid />",
+            XmlnsImports = ["xmlns:local=\"using:PrimitivesExperiment.Samples.SwitchPresenter\""],
+        };
+
+        ToolkitProvider.NormalizeForPaste(scenario);
+
+        Assert.AreEqual("xmlns:local=\"using:YourApp\"", scenario.XmlnsImports[0]);
+    }
 }

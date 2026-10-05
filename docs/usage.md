@@ -1768,6 +1768,15 @@ and capture-readiness failures.
 
 Search **WinUI** controls and samples for a working code example. WinUI-only: the corpus is the [WinUI 3 Gallery](https://github.com/microsoft/WinUI-Gallery) and the [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows) (plus a few curated core patterns) — it does **not** cover WPF, WinForms, or other UI frameworks. A third source, the [microsoft-ui-reactor ReactorGallery](https://github.com/microsoft/microsoft-ui-reactor), is **opt-in**: it is excluded from a normal search and only searched when you pass `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app, so reach for it only when building a Reactor/MVU project).
 
+Not everything the Toolkit contributes is a control. Searching `--source toolkit` also reaches its helpers, converters, behaviors, and extensions. These are grouped under an umbrella entry — `Converters`, `Header Behaviors`, `Helpers` — whose individual samples are named for the specific type, so search for the **type name** or the **group name** rather than for an intent:
+
+```bash
+winapp find-ui "FileSizeToFriendlyStringConverter" --source toolkit   # the specific type
+winapp find-ui "converters" --source toolkit                          # the whole group
+```
+
+Intent phrasing that works well for controls (`"tabbed layout"`) is weaker here, because a converter or behavior is indexed under its type name rather than under what it accomplishes. If an intent query comes back empty, retry with the type name, or use `--list` to browse the group.
+
 ```bash
 winapp find-ui "<query>" [options]
 ```
@@ -1795,6 +1804,9 @@ winapp find-ui "tabbed layout"
 
 # Restrict to the Windows Community Toolkit
 winapp find-ui "settings card" --source toolkit
+
+# The Toolkit also carries helpers, converters, and behaviors, not just controls
+winapp find-ui "converters" --source toolkit
 
 # Restrict to Reactor (opt-in; C#-only declarative WinUI — Reactor projects only)
 winapp find-ui "flex layout" --source reactor

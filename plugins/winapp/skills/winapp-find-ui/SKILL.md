@@ -1,6 +1,6 @@
 ---
 name: winapp-find-ui
-description: Agent-first search of WinUI 3 controls and samples for a working code example. Built primarily for AI coding agents to pull real, compiling WinUI markup into the editor instead of inventing it, and equally usable by hand. Use when building a WinUI 3 UI and you need to discover which control fits an intent (e.g. 'tabbed layout', 'a card with an image and title', 'swipeable list rows') and get a real code example from the WinUI Gallery or the Windows Community Toolkit (Gallery/Toolkit return XAML and/or C#). The microsoft-ui-reactor ReactorGallery is an opt-in source (C#-only declarative WinUI) searched only via --source reactor. WinUI-only — not WPF/WinForms. Distinct from 'winapp ui', which automates a running app's UI, and from 'winapp find-api', which searches the API surface (types, members, enums) a project references.
+description: Agent-first search of WinUI 3 controls and samples for a working code example. Built primarily for AI coding agents to pull real, compiling WinUI markup into the editor instead of inventing it, and equally usable by hand. Use when building a WinUI 3 UI and you need to discover which control fits an intent (e.g. 'tabbed layout', 'a card with an image and title', 'swipeable list rows') and get a real code example from the WinUI Gallery or the Windows Community Toolkit (Gallery/Toolkit return XAML and/or C#). The Toolkit corpus also covers its helpers, converters, and behaviors, which are found by type or group name rather than by intent. The microsoft-ui-reactor ReactorGallery is an opt-in source (C#-only declarative WinUI) searched only via --source reactor. WinUI-only — not WPF/WinForms. Distinct from 'winapp ui', which automates a running app's UI, and from 'winapp find-api', which searches the API surface (types, members, enums) a project references.
 ---
 
 ## This is an agent-first command
@@ -42,6 +42,13 @@ searched when you pass `--source reactor`.
 - **WinUI-only.** The corpus is WinUI 3 Gallery + Windows Community Toolkit (+
   Reactor when opted in). It does **not** cover WPF, WinForms, or other UI
   frameworks.
+- **The Toolkit contributes more than controls.** Its helpers, converters,
+  behaviors, and extensions are searchable and fetchable the same way, but they
+  are grouped under an umbrella entry (`Converters`, `Header Behaviors`,
+  `Helpers`) whose samples are named for the specific type. Search the **type
+  name** (`FileSizeToFriendlyStringConverter`) or the **group name**
+  (`converters`) — intent phrasing like "format a file size" will not find them,
+  because they are indexed under what they are called rather than what they do.
 - **Reactor is opt-in and for Reactor projects only.** Reactor is a C#-only
   declarative/MVU framework — its samples can't paste into a standard `dotnet new
   winui` XAML + code-behind app, so a default search deliberately omits it. Only

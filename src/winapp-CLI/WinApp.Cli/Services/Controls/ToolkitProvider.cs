@@ -179,6 +179,20 @@ internal sealed partial class ToolkitProvider : CachedProviderBase
     [GeneratedRegex(@"\n\s*\n\s*\n+")]
     private static partial Regex BlankLineRunRegex();
 
+    /// <summary>A namespace belonging to the Toolkit's own sample app rather than to a
+    /// shipping package: every component's sample project is named <c>&lt;Component&gt;Experiment</c>
+    /// and declares its samples under <c>.Samples</c>.</summary>
+    /// <remarks>
+    /// <para>Deliberately narrower than the Gallery equivalent, which treats every Gallery
+    /// namespace as private. <c>using:CommunityToolkit.WinUI.Controls</c> is the real shipping
+    /// namespace of the NuGet package the user is told to install, so only the sample app's own
+    /// namespaces are rewritten here. This mirrors the pattern
+    /// <c>EmbeddedSnapshotTests.ToolkitCorpus_ServesNoSampleAppSymbols</c> rejects, so the two
+    /// cannot drift into disagreeing about what "private" means.</para>
+    /// </remarks>
+    [GeneratedRegex(@"using:[\w.]*(?:Experiment|Samples)[\w.]*")]
+    private static partial Regex ToolkitSampleAppXmlnsRegex();
+
     /// <summary>
     /// Make one Toolkit scenario pasteable.
     ///
@@ -186,17 +200,20 @@ internal sealed partial class ToolkitProvider : CachedProviderBase
     /// header, the Toolkit namespace, the <c>[ToolkitSample…]</c> attributes its docs
     /// generator consumes, the <c>ConvertStringTo…</c> helpers that back them, or the
     /// <c>#if</c> branches for UWP and Uno. What is left to settle here is what only a
-    /// consumer can know: the name the user's own page will have, and whether the markup
-    /// still refers to event handlers the code we serve does not declare.</para>
+    /// consumer can know: the name the user's own page will have, which namespaces belong to
+    /// the Toolkit's sample app rather than to a package the user can install, and whether
+    /// the markup still refers to event handlers the code we serve does not declare.</para>
     ///
     /// <para>The removals upstream now performs are still attempted, and are expected to
     /// find nothing. They cost one failed match each on text that is already clean, and they
     /// are what keeps a change on the other side of the index from reaching a user's
-    /// clipboard before anyone notices.</para>
+    /// clipboard before anyone notices. The <c>#if</c> folding that preceded the index is
+    /// <em>not</em> kept on that basis: it was a line-by-line parser rather than one match,
+    /// and the corpus guards already fail on a directive that survives.</para>
     ///
     /// <para>What is rewritten here is environment, never substance: identifiers, build-time
-    /// metadata, and branches for platforms the user is not on. The sample still teaches
-    /// exactly what upstream wrote it to teach.</para>
+    /// metadata, and namespaces that name the Toolkit's own sample project. The sample still
+    /// teaches exactly what upstream wrote it to teach.</para>
     ///
     /// <para><see cref="GalleryProvider.NormalizeForPaste"/> is the same job for Gallery.</para>
     ///
@@ -222,10 +239,6 @@ internal sealed partial class ToolkitProvider : CachedProviderBase
             csharp = LicenseFoundationRegex().Replace(csharp, "");
             csharp = LicenseSeeAlsoRegex().Replace(csharp, "");
 
-            // Fold platform #if/#else/#endif before the rest of the cleanup, so the removals
-            // below don't spend work on text that is about to be discarded.
-            csharp = FoldPreprocessorDirectives(csharp);
-
             csharp = ToolkitSampleAttributeRegex().Replace(csharp, "");
             csharp = SuppressMessageAttributeRegex().Replace(csharp, "");
             csharp = ToolkitNamespaceRegex().Replace(csharp, "namespace YourApp;\n\n");
@@ -243,100 +256,24 @@ internal sealed partial class ToolkitProvider : CachedProviderBase
 
         if (!string.IsNullOrEmpty(scenario.Xaml))
         {
+            var xaml = ToolkitSampleAppXmlnsRegex().Replace(scenario.Xaml!, "using:YourApp");
+
             // Strip handlers against the C# settled above, so an attribute survives only
             // when the code we actually serve declares its method. Scenarios split out of a
             // multi-instance sample carry no code-behind at all, so for those this drops
             // every bare-method handler — which is correct: none of them are backed.
-            scenario.Xaml = ControlSnippetText.StripUnbackedEventHandlers(scenario.Xaml!, scenario.CSharp);
+            scenario.Xaml = ControlSnippetText.StripUnbackedEventHandlers(xaml, scenario.CSharp);
+        }
+
+        // Rendered as the "Setup:" line, so a sample-app namespace here is worse than one
+        // buried in the markup: it reads as an instruction to add a mapping that cannot
+        // resolve, pointing at a namespace no shipping package contains. The emitted C# is
+        // already rewritten to `namespace YourApp;`, so the prefix now names the place the
+        // user has to supply the type — which is where it was always going to have to live.
+        for (var i = 0; i < scenario.XmlnsImports.Length; i++)
+        {
+            scenario.XmlnsImports[i] = ToolkitSampleAppXmlnsRegex().Replace(scenario.XmlnsImports[i], "using:YourApp");
         }
     }
 
-    /// <summary>
-    /// Compile-time preprocessor folding for toolkit samples. Agents target WinAppSDK,
-    /// so we evaluate <c>#if WINAPPSDK</c> as true (and <c>HAS_UNO</c> / <c>WINUI2</c> /
-    /// <c>UWP</c> / <c>NETFX_CORE</c> as false), keep the live branch's lines, and drop
-    /// the directives + dead branches. Unknown symbols are treated as true (conservative:
-    /// keep code rather than silently delete it). Supports <c>#if</c>, <c>#elif</c>,
-    /// <c>#else</c>, <c>#endif</c>, single <c>!</c> negation, and nested blocks.
-    /// </summary>
-    internal static string FoldPreprocessorDirectives(string cs)
-    {
-        if (cs.IndexOf("#if", StringComparison.Ordinal) < 0) return cs;
-
-        // Treat WinAppSDK-targeting symbols as true; UWP/Uno/legacy as false.
-        // Anything else: true (preserve code we don't recognize).
-        static bool Eval(string expr)
-        {
-            expr = expr.Trim();
-            bool negate = false;
-            if (expr.StartsWith('!'))
-            {
-                negate = true;
-                expr = expr[1..].Trim();
-            }
-            bool value = expr switch
-            {
-                "WINAPPSDK" or "WINUI3" or "NET" => true,
-                "HAS_UNO" or "WINUI2" or "UWP" or "NETFX_CORE" => false,
-                _ => true,
-            };
-            return negate ? !value : value;
-        }
-
-        var lines = cs.Replace("\r\n", "\n").Split('\n');
-        var output = new List<string>(lines.Length);
-        // Stack frame: (anyBranchTakenYet, currentlyEmittingThisBranch).
-        // Parent's emitting state is tracked separately via parentEmit.
-        var stack = new Stack<(bool taken, bool emit)>();
-
-        bool ParentEmitting()
-        {
-            foreach (var f in stack)
-                if (!f.emit) return false;
-            return true;
-        }
-
-        foreach (var rawLine in lines)
-        {
-            var line = rawLine;
-            var trimmed = line.TrimStart();
-
-            if (trimmed.StartsWith("#if ", StringComparison.Ordinal) || trimmed == "#if")
-            {
-                var expr = trimmed.Length > 3 ? trimmed[3..].Trim() : "";
-                bool parentEmit = ParentEmitting();
-                bool take = parentEmit && Eval(expr);
-                stack.Push((take, take));
-                continue;
-            }
-            if (trimmed.StartsWith("#elif ", StringComparison.Ordinal))
-            {
-                if (stack.Count == 0) continue; // malformed, drop
-                var (taken, _) = stack.Pop();
-                var expr = trimmed[5..].Trim();
-                bool parentEmit = ParentEmitting();
-                bool take = parentEmit && !taken && Eval(expr);
-                stack.Push((taken || take, take));
-                continue;
-            }
-            if (trimmed.StartsWith("#else", StringComparison.Ordinal))
-            {
-                if (stack.Count == 0) continue;
-                var (taken, _) = stack.Pop();
-                bool parentEmit = ParentEmitting();
-                bool take = parentEmit && !taken;
-                stack.Push((true, take));
-                continue;
-            }
-            if (trimmed.StartsWith("#endif", StringComparison.Ordinal))
-            {
-                if (stack.Count > 0) stack.Pop();
-                continue;
-            }
-
-            if (ParentEmitting()) output.Add(line);
-        }
-
-        return string.Join('\n', output);
-    }
 }
