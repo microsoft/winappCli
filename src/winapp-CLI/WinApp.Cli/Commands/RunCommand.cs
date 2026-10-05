@@ -612,6 +612,16 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             // behavior is identical to before project mode existed.
             var inputFolder = inputResolution.ProjectDirectory;
 
+            // A folder whose only projects are C++ libraries has nothing to run. Say so instead of the generic
+            // "manifest not found", but only when folder mode has no manifest to use either.
+            if (manifest is null
+                && !FindManifest(inputFolder.FullName).Exists
+                && !FindManifest(currentDirectoryProvider.GetCurrentDirectory()).Exists
+                && ProjectRunService.DescribeCppLibraryOnlyFolder(inputFolder) is { } libraryOnly)
+            {
+                return Fail(libraryOnly, isJson);
+            }
+
             // Breadcrumb: we reached folder mode because no top-level .csproj/.sln/.slnx with a runnable
             // app was found, so the path is treated as a pre-built layout (nothing is built). Without
             // this, a user troubleshooting why a source directory was not built only sees a later

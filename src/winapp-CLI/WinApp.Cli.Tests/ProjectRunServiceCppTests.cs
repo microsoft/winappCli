@@ -138,26 +138,60 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
-    public async Task ResolveInput_DirectoryWithOnlyCppLibrary_ExplainsThereIsNothingToRun()
+    public async Task ResolveInput_DirectoryWithOnlyCppLibrary_StaysFolderMode_AndIsDescribed()
     {
         WriteFile("Lib.vcxproj", CppLibrary);
+
+        var resolution = await _service.ResolveInputAsync(_tempDir, CancellationToken.None);
+
+        Assert.AreEqual(WinAppRunMode.Folder, resolution.Mode, "folder mode can still use --manifest or a manifest in the current directory");
+        StringAssert.Contains(ProjectRunService.DescribeCppLibraryOnlyFolder(_tempDir), "Lib.vcxproj");
+        StringAssert.Contains(ProjectRunService.DescribeCppLibraryOnlyFolder(_tempDir), "builds a library");
+    }
+
+    [TestMethod]
+    public void DescribeCppLibraryOnlyFolder_IsNullWithAnAppOrNoCppProjects()
+    {
+        WriteFile("Lib.vcxproj", CppLibrary);
+        WriteFile("App.vcxproj", CppApp);
+        Assert.IsNull(ProjectRunService.DescribeCppLibraryOnlyFolder(_tempDir));
+    }
+
+    [TestMethod]
+    public async Task ResolveInput_DirectoryWithTwoCsharpAppsAndCppApp_StaysAmbiguous()
+    {
+        WriteFile("App1.csproj", CsharpApp);
+        WriteFile("App2.csproj", CsharpApp);
+        WriteFile("Native.vcxproj", CppApp);
 
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Lib.vcxproj");
-        StringAssert.Contains(ex.Message, "builds a library");
+        StringAssert.Contains(ex.Message, "Multiple .csproj files");
     }
 
     [TestMethod]
-    public async Task ResolveInput_DirectoryWithCppLibraryAndManifest_StaysFolderMode()
+    public async Task ResolveInput_ProjectSelectorNamingVcxproj_PrefersItOverSameNamedCsproj()
     {
-        WriteFile("Lib.vcxproj", CppLibrary);
-        WriteFile("appxmanifest.xml", "<Package />");
+        WriteFile("Foo.csproj", CsharpApp);
+        var cpp = WriteFile("Foo.vcxproj", CppApp);
 
-        var resolution = await _service.ResolveInputAsync(_tempDir, CancellationToken.None);
+        var lone = await _service.ResolveInputAsync(_tempDir, CancellationToken.None, projectSelector: "Foo.vcxproj");
+        Assert.AreEqual(cpp.FullName, lone.Csproj!.FullName);
 
-        Assert.AreEqual(WinAppRunMode.Folder, resolution.Mode);
+        WriteFile("Bar.csproj", CsharpApp);
+        var multi = await _service.ResolveInputAsync(_tempDir, CancellationToken.None, projectSelector: "Foo.vcxproj");
+        Assert.AreEqual(cpp.FullName, multi.Csproj!.FullName);
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => _service.ResolveInputAsync(_tempDir, CancellationToken.None, projectSelector: "Nope"));
+        StringAssert.Contains(ex.Message, "Foo.vcxproj");
+    }
+
+    [TestMethod]
+    public void DescribeCppLibraryOnlyFolder_NoProjects_IsNull()
+    {
+        Assert.IsNull(ProjectRunService.DescribeCppLibraryOnlyFolder(_tempDir));
     }
 
     [TestMethod]

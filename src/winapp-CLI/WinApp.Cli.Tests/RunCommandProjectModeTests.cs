@@ -620,6 +620,28 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task FolderMode_CppLibraryOnlyFolder_ExplainsUnlessAManifestIsGiven()
+    {
+        var withoutManifestDir = _tempDirectory.CreateSubdirectory("LibA");
+        var withManifestDir = _tempDirectory.CreateSubdirectory("LibB");
+        const string library = "<Project><PropertyGroup><ConfigurationType>DynamicLibrary</ConfigurationType></PropertyGroup></Project>";
+        File.WriteAllText(Path.Combine(withoutManifestDir.FullName, "LibA.vcxproj"), library);
+        File.WriteAllText(Path.Combine(withManifestDir.FullName, "LibB.vcxproj"), library);
+        var manifestPath = Path.Combine(_tempDirectory.CreateSubdirectory("pkg").FullName, "appxmanifest.xml");
+        File.WriteAllText(manifestPath, TestManifestContent);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [withoutManifestDir.FullName]);
+        await ParseAndInvokeWithCaptureAsync(command, [withManifestDir.FullName, "--manifest", manifestPath]);
+
+        var output = $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}";
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(output, "LibA.vcxproj in");
+        Assert.IsFalse(output.Contains("LibB.vcxproj in", StringComparison.Ordinal),
+            "with --manifest, folder mode runs as before instead of reporting the library");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Cpp_PlatformProperty_SelectsArchitectureWhenArchIsNotGiven()
     {
         var vcxproj = new FileInfo(Path.Combine(_tempDirectory.FullName, "App.vcxproj"));
