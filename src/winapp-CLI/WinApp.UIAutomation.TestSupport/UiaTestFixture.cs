@@ -750,6 +750,7 @@ public sealed partial class UiaTestFixture : IDisposable
                         _ownedWindow.Close();
                         _ownedWindow.Dispose();
                     }
+                    CloseWindowedPopups();
                     _form.Close();
                     _form.Dispose();
                 });

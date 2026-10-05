@@ -165,9 +165,9 @@ public interface IUiAutomation
     bool TryResolveRootWindow(UiTarget target, out nint hwnd, out string? title);
 
     /// <summary>
-    /// Resolves the element's top-level native window by walking its UIA ancestors, or 0 when no
-    /// ancestor exposes one. Lets a caller retarget capture at the window an element actually lives
-    /// in, which for popups and dialogs is not the session window.
+    /// Resolves the top-level native window an element is drawn in, or 0 when no UIA ancestor exposes
+    /// one. Lets a caller retarget capture at the window an element actually lives in, which for
+    /// popups, dialogs and windowed XAML flyouts is not the session window.
     /// </summary>
     nint ResolveElementTopLevelWindow(UiTarget target, UiElement element);
 
