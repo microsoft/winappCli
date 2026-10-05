@@ -186,4 +186,70 @@ public class ToolkitProviderNormalizeTests
 
         Assert.AreEqual("xmlns:local=\"using:YourApp\"", scenario.XmlnsImports[0]);
     }
+
+    [TestMethod]
+    public void NormalizeForPaste_ReplacesASampleAppImageWithAPlaceholder()
+    {
+        // ImageCropper's published C# really does load "ms-appx:///Assets/Owl.jpg", a file that
+        // exists only inside the Toolkit's own package. Pasted as-is it compiles and then shows
+        // an empty cropper, with nothing on screen to say why.
+        var scenario = Sample("""
+            var file = await StorageFile.GetFileFromApplicationUriAsync(new Uri("ms-appx:///Assets/Owl.jpg"));
+            """);
+
+        ToolkitProvider.NormalizeForPaste(scenario);
+
+        StringAssert.Contains(scenario.CSharp, "ms-appx:///Assets/YourImage.jpg",
+            "the placeholder should keep the URI form and the extension so the failure is visible");
+        Assert.IsFalse(scenario.CSharp!.Contains("Owl.jpg"),
+            "a path into the Toolkit's own package should not survive into the user's app");
+    }
+
+    [TestMethod]
+    public void NormalizeForPaste_ReplacesAnAssetInsideAMarkupExtension()
+    {
+        // SettingsCard writes "{ui:BitmapIcon Source=ms-appx:///Assets/AppTitleBar.scale-200.png}".
+        // A rewrite that swallowed the closing brace would produce "YourImage.png}" and leave
+        // markup that no longer parses -- worse than the path it replaced.
+        var scenario = Sample(
+            "",
+            """<ui:SettingsCard HeaderIcon="{ui:BitmapIcon Source=ms-appx:///Assets/AppTitleBar.scale-200.png}" />""");
+
+        ToolkitProvider.NormalizeForPaste(scenario);
+
+        StringAssert.Contains(scenario.Xaml, "{ui:BitmapIcon Source=ms-appx:///Assets/YourImage.png}",
+            "the markup extension must still be terminated after the path is replaced");
+    }
+
+    [TestMethod]
+    public void NormalizeForPaste_NamesANonImageAssetGenerically()
+    {
+        // MediaPlayerElement points at Assets/Llama.mp3. Calling that "YourImage" would be a
+        // different kind of wrong, so the placeholder is named after what it actually is.
+        var scenario = Sample("", """<MediaPlayerElement Source="Assets/Llama.mp3" />""");
+
+        ToolkitProvider.NormalizeForPaste(scenario);
+
+        StringAssert.Contains(scenario.Xaml, "Assets/YourAsset.mp3");
+    }
+
+    [TestMethod]
+    public void NormalizeForPaste_FlattensAnAssetSubfolderAndKeepsEachPrefixForm()
+    {
+        // Toolkit assets sit directly under Assets/ except for Assets/BrushAssets/, which has
+        // to collapse to the same placeholder -- a subfolder the user has no reason to create
+        // is as broken as the file itself. The three prefix forms are not interchangeable
+        // (a package-relative path is not a URI), so each is preserved as written.
+        var scenario = Sample("", """
+            <Image Source="ms-appx:///Assets/BrushAssets/Trex.png" />
+            <Image Source="/Assets/Converters.png" />
+            """);
+
+        ToolkitProvider.NormalizeForPaste(scenario);
+
+        StringAssert.Contains(scenario.Xaml, "ms-appx:///Assets/YourImage.png");
+        StringAssert.Contains(scenario.Xaml, "\"/Assets/YourImage.png\"");
+        Assert.IsFalse(scenario.Xaml!.Contains("BrushAssets"),
+            "the placeholder should not sit in a subfolder the user is not told to create");
+    }
 }

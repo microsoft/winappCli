@@ -524,6 +524,45 @@ public class EmbeddedSnapshotTests
     }
 
     [TestMethod]
+    public void ToolkitCorpus_ServesNoToolkitOnlyAsset()
+    {
+        // The same defect the Gallery guard above covers, on the other corpus. The Toolkit
+        // sample app ships its photos directly under Assets/ (plus Assets/BrushAssets/), so a
+        // pasted sample naming one compiles and then renders nothing — a blank <Image>, an
+        // ImageCropper with no source — with nothing on screen to explain why. ImageCropper is
+        // the concrete case: it loads "ms-appx:///Assets/Owl.jpg", a file that exists only in
+        // the Toolkit's package.
+        //
+        // Unlike its Gallery counterpart this runs the corpus back through the normalizer
+        // rather than reading the blob as baked, because the committed Toolkit snapshot still
+        // predates the switch to the published index (see the floors above) and was baked by a
+        // provider that did no asset rewriting at all. Asserting on the blob would therefore be
+        // asserting on the age of the bake. Feeding the real corpus through the current
+        // normalizer asks the question that stays true on both sides of that re-bake: does the
+        // rewriting cover every asset shape the Toolkit actually ships? It fails on the corpus
+        // as committed without that rewriting, so it is not vacuous today either.
+        var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+        foreach (var scenario in scenarios)
+        {
+            ToolkitProvider.NormalizeForPaste(scenario);
+        }
+
+        // Anything under Assets/ that is not the placeholder the provider rewrites to.
+        const string toolkitAsset = @"Assets/(?!Your(?:Image|Asset)\b)";
+
+        var leaked = scenarios
+            .Where(s => Regex.IsMatch(s.Xaml ?? "", toolkitAsset)
+                        || Regex.IsMatch(s.CSharp ?? "", toolkitAsset))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Toolkit samples point at an asset that only exists in the Toolkit's own " +
+            $"package: {string.Join(", ", leaked.Take(10))}");
+    }
+
+    [TestMethod]
     public void ToolkitCorpus_ServesNoDocsOnlyOptionHelper()
     {
         // The Toolkit's options pane is generated from class-level [ToolkitSample*Option]

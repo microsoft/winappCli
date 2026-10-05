@@ -43,13 +43,15 @@ searched when you pass `--source reactor`.
   Reactor when opted in). It does **not** cover WPF, WinForms, or other UI
   frameworks.
 - **The Toolkit contributes more than controls.** Its helpers, converters,
-  behaviors, and extensions are searchable and fetchable the same way, but they
-  are grouped under an umbrella entry (`Converters`, `Header Behaviors`,
-  `Helpers`) whose samples are named for the specific type. They are indexed by
+  behaviors, and extensions are searchable and fetchable the same way.
+  Converters, behaviors, and triggers are grouped under an umbrella entry
+  (`Converters`, `Behaviors`, `Header Behaviors`, `Triggers`) whose samples are
+  named for the specific type; helpers are not grouped, and each is a top-level
+  entry under its own name (`NetworkHelper`, `ColorHelper`). All are indexed by
   the words in those type names, so `FileSizeToFriendlyStringConverter`,
   `converters`, and `convert bool to visibility` all land. A description that
   shares no words with the type name does not — `check internet connection`
-  misses `NetworkHelper`. Fall back to the **group name** or `--list`.
+  misses `NetworkHelper`. Fall back to the **type name** or `--list`.
 - **Reactor is opt-in and for Reactor projects only.** Reactor is a C#-only
   declarative/MVU framework — its samples can't paste into a standard `dotnet new
   winui` XAML + code-behind app, so a default search deliberately omits it. Only

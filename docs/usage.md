@@ -1768,7 +1768,7 @@ and capture-readiness failures.
 
 Search **WinUI** controls and samples for a working code example. WinUI-only: the corpus is the [WinUI 3 Gallery](https://github.com/microsoft/WinUI-Gallery) and the [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows) (plus a few curated core patterns) — it does **not** cover WPF, WinForms, or other UI frameworks. A third source, the [microsoft-ui-reactor ReactorGallery](https://github.com/microsoft/microsoft-ui-reactor), is **opt-in**: it is excluded from a normal search and only searched when you pass `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app, so reach for it only when building a Reactor/MVU project).
 
-Not everything the Toolkit contributes is a control. Searching `--source toolkit` also reaches its helpers, converters, behaviors, and extensions. These are grouped under an umbrella entry — `Converters`, `Header Behaviors`, `Helpers` — whose individual samples are named for the specific type:
+Not everything the Toolkit contributes is a control. Searching `--source toolkit` also reaches its helpers, converters, behaviors, and extensions. Converters, behaviors, and triggers are grouped under an umbrella entry — `Converters`, `Behaviors`, `Header Behaviors`, `Triggers` — whose individual samples are named for the specific type. Helpers are not grouped: each is a top-level entry under its own name, such as `NetworkHelper` or `ColorHelper`. Either way, search by the type name, the group name, or a plain description:
 
 ```bash
 winapp find-ui "FileSizeToFriendlyStringConverter" --source toolkit   # the specific type

@@ -193,6 +193,27 @@ internal sealed partial class ToolkitProvider : CachedProviderBase
     [GeneratedRegex(@"using:[\w.]*(?:Experiment|Samples)[\w.]*")]
     private static partial Regex ToolkitSampleAppXmlnsRegex();
 
+    /// <summary>A package-relative path into the Toolkit sample app's own <c>Assets</c> folder,
+    /// so a pasted sample naming one resolves to nothing in the user's app. Group 1 captures the
+    /// prefix so its form is preserved verbatim; group 2 is everything after it, which may name a
+    /// subfolder (<c>BrushAssets/</c>).</summary>
+    /// <remarks>Deliberately broader than <see cref="GalleryProvider"/>'s equivalent, which scopes
+    /// itself to the two subfolders Gallery keeps its media in. The Toolkit sample app puts its
+    /// files directly under <c>Assets/</c>, so there is no subfolder to key on and every match is
+    /// one of its own. Braces are excluded from the path because these occur inside XAML markup
+    /// extensions (<c>"{ui:BitmapIcon Source=ms-appx:///Assets/AppTitleBar.scale-200.png}"</c>) —
+    /// swallowing the terminator would rewrite the extension to <c>.png}</c> and leave markup that
+    /// no longer parses.</remarks>
+    [GeneratedRegex(@"((?:ms-appx:///)?/?Assets/)([^""'\s<>){}]+)")]
+    private static partial Regex ToolkitAssetRegex();
+
+    /// <summary>Rewrite every Toolkit-only asset path to an obvious placeholder. The result is
+    /// equally absent from the user's app — that is the point: it fails visibly, where the
+    /// upstream path fails as a blank control with nothing to explain it.</summary>
+    private static string ReplaceToolkitAssets(string content) =>
+        ToolkitAssetRegex().Replace(content, static m =>
+            ControlSnippetText.AssetPlaceholder(m.Groups[1].Value, m.Groups[2].Value));
+
     /// <summary>
     /// Make one Toolkit scenario pasteable.
     ///
@@ -249,6 +270,7 @@ internal sealed partial class ToolkitProvider : CachedProviderBase
             }
 
             csharp = OptionConverterHelperRegex().Replace(csharp, "");
+            csharp = ReplaceToolkitAssets(csharp);
             csharp = BlankLineRunRegex().Replace(csharp, "\n\n");
 
             scenario.CSharp = string.IsNullOrWhiteSpace(csharp) ? null : csharp.Trim();
@@ -257,6 +279,7 @@ internal sealed partial class ToolkitProvider : CachedProviderBase
         if (!string.IsNullOrEmpty(scenario.Xaml))
         {
             var xaml = ToolkitSampleAppXmlnsRegex().Replace(scenario.Xaml!, "using:YourApp");
+            xaml = ReplaceToolkitAssets(xaml);
 
             // Strip handlers against the C# settled above, so an attribute survives only
             // when the code we actually serve declares its method. Scenarios split out of a

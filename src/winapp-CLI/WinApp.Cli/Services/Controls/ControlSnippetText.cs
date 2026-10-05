@@ -112,4 +112,28 @@ internal static partial class ControlSnippetText
         while (stack.Count > 0) sb.Append("</").Append(stack.Pop()).Append('>');
         return sb.ToString();
     }
+
+    /// <summary>Extensions that make the placeholder an image rather than a generic asset. The
+    /// extension itself is always preserved: a <c>MediaPlayerElement</c> pointed at a .png is a
+    /// different kind of broken than one pointed at a file the user has yet to add.</summary>
+    private static readonly string[] ImageExtensions =
+        [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico"];
+
+    /// <summary>
+    /// Name one asset path after the kind of file it pointed at, preserving
+    /// <paramref name="prefix"/> verbatim — the forms are not interchangeable, since
+    /// <c>AppWindow.SetIcon</c> takes a package-relative path rather than a URI.
+    /// </summary>
+    /// <remarks>Each source matches its own asset layout — Gallery files sit under
+    /// <c>Assets/SampleMedia</c> and <c>Assets/Tiles</c>, Toolkit's directly under
+    /// <c>Assets/</c> — but what the replacement is named is one rule, so it lives in one
+    /// place and the two cannot drift into labelling the same missing file differently.</remarks>
+    public static string AssetPlaceholder(string prefix, string path)
+    {
+        var extension = Path.GetExtension(path);
+        var name = ImageExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase)
+            ? "YourImage"
+            : "YourAsset";
+        return prefix + name + extension;
+    }
 }
