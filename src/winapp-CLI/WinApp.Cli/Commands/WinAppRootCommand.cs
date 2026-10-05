@@ -88,7 +88,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         GuestRuntimeCommand guestRuntimeCommand,
         GuestLaunchCommand guestLaunchCommand,
         TargetCommand targetCommand,
-        FindApiCommand findApiCommand) : base("Create, run, debug, test, and package Windows apps from the command line. Works with WinUI and any other app framework targeting Windows, and manages Windows SDKs, package identity, manifests, and certificates.")
+        FindApiCommand findApiCommand) : base("Create, run, debug, test, and package Windows apps from the command line. Works with WinUI and any other (cross-platform) app framework targeting Windows, and manages Windows SDKs, package identity, manifests, and certificates.")
     {
         Subcommands.Add(initCommand);
         Subcommands.Add(newCommand);
