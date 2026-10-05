@@ -45,23 +45,28 @@
   <span> • </span>
   <a href="#-usage">Usage</a>
   <span> • </span>
-  <a href="./docs/usage.md">Docs</a>
+  <a href="https://learn.microsoft.com/windows/apps/dev-tools/winapp-cli/">Docs</a>
   <span> • </span>
   <a href="#-feedback-and-support">Feedback</a>
 </h3>
 <br/>
 
-The Windows App Development CLI (winapp CLI) is a single command-line interface for managing Windows SDKs, packaging, generating app identity, manifests, certificates, and using build tools with any app framework. This tool bridges the gap between cross-platform development and Windows-native capabilities.
+The Windows App Development CLI (winapp CLI) is a single command-line interface for creating, running, debugging, testing, and packaging Windows apps. It manages Windows SDKs, app identity, manifests, certificates, and build tools for WinUI and any other app framework.
 <br/><br/>
-Whether you're building with .NET/Win32, CMake, Electron, or Rust, this CLI gives you access to:
+Whether you're building with WinUI, .NET/Win32, CMake, Electron, or Rust, this CLI gives you access to:
 
+- **WinUI from the terminal** - Create apps from official templates with `winapp new` and launch them with `winapp run`
 - **Modern Windows APIs** - [Windows App SDK](https://learn.microsoft.com/windows/apps/windows-app-sdk/) and Windows SDK with automatic setup and code generation
 - **Package Identity** - Debug and test by adding package identity without full packaging in a snap
 - **MSIX Packaging** - App packaging with signing and Store readiness
+- **UI automation and agent tooling** - Inspect and drive running apps with `winapp ui`, and ground AI coding agents with `find-ui` and `find-api`
 - **Developer Tools** - Manifests, certificates, assets, and build integration
+
+Full documentation is published on Microsoft Learn: **[Windows App Development CLI](https://learn.microsoft.com/windows/apps/dev-tools/winapp-cli/)**.
 
 Perfect for:
 
+- **WinUI developers** who want to create, run, test, and package apps from the terminal, VS Code, or an AI coding agent
 - **Cross-platform developers using frameworks like Qt or Electron** wanting native Windows features or targeting Windows
 - **Developers who love their current tools** and want to build Windows apps from VS Code, or any other editor
 - **Developers crafting CI/CD pipelines** to automate building apps for Windows
@@ -82,7 +87,7 @@ Our goal is to support developers wherever they are, with the tools and framewor
 </p>
 <p align="center"><i>Without winapp CLI, setting up a project involves 12 manual steps—downloading SDKs, generating headers, creating manifests, and more. With the CLI, it's just 4 commands.</i></p>
 
-**Few examples of what package identity and MSIX packaging unlocks:**
+**A few examples of what package identity and MSIX packaging unlock:**
 
 - [Interactive native notifications](https://learn.microsoft.com/windows/apps/develop/notifications/app-notifications/app-notifications-quickstart?tabs=cs) and notification management
 - [Integration with Windows Explorer, Taskbar, Share sheet](https://learn.microsoft.com/windows/apps/develop/windows-integration/integrate-sharesheet-packaged), and other shell surfaces
@@ -99,9 +104,13 @@ Our goal is to support developers wherever they are, with the tools and framewor
 
 ## ✏️ Get started
 
-Checkout our getting started guides for step by step instructions of how to setup your environment, generate manifests, assets, and certificate, how to debug APIs that require package identity, and how to MSIX package your app.
+Check out our getting started guides for step by step instructions of how to setup your environment, generate manifests, assets, and certificate, how to debug APIs that require package identity, and how to MSIX package your app.
 
 <p>
+  <a href="./docs/guides/winui.md">
+    <img src="https://img.shields.io/badge/WinUI-Get%20Started-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Get Started with WinUI">
+  </a>
+    <br />
   <a href="./docs/guides/dotnet.md">
     <img src="https://img.shields.io/badge/.NET/WPF/WinForms-Get%20Started-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt="Get Started with .NET">
   </a>
@@ -133,7 +142,8 @@ Checkout our getting started guides for step by step instructions of how to setu
 
 Additional guides:
 - [Packaging an EXE/CLI](/docs/guides/packaging-cli.md): step by step guide of packaging an existing exe/cli as MSIX
-- [MAUI (Windows)](./docs/guides/maui.md): package and sign .NET MAUI Windows outputs with the generated resizetizer manifest
+- [Sparse packaging](./docs/guides/sparse.md): give an unpackaged app package identity with an identity-only MSIX and external content
+- [Shell completion](./docs/guides/shell-completion.md): tab completion for commands, options, and values in PowerShell, bash, zsh, and fish
 - **Electron JS/TypeScript bindings** *(npm only)*: opt into auto-generated WinRT bindings via `winapp init --add-js-bindings`. See task-focused guides:
   - [File picker](/docs/guides/electron/js-file-picker.md) — open native Windows file/folder pickers from the renderer
   - [Toast notifications](/docs/guides/electron/js-notification.md) — show Windows toasts with actions
@@ -144,7 +154,7 @@ Additional guides:
 
 ### WinGet <img src="https://img.shields.io/winget/v/Microsoft.WinAppCli?style=for-the-badge&logo=windows&color=357EC7" alt="WinGet" height="24">
 
-The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, simply run:
+The easiest way to use the CLI is via WinGet (Windows Package Manager). In Terminal, run:
 
 `winget install Microsoft.winappcli --source winget`
 
@@ -230,7 +240,6 @@ npx winapp --help
 
 **App Identity & Debugging:**
 
-- [`pack`](./docs/usage.md#pack) - Create MSIX packages from directories
 - [`run`](./docs/usage.md#run) - Run app as a packaged application for debugging (loose layout registration)
 - [`create-debug-identity`](./docs/usage.md#create-debug-identity) - Add sparse package identity to an existing exe
 - [`embed-identity`](./docs/usage.md#embed-identity) - Connect an exe to its sparse identity package by embedding the `<msix>` element
@@ -239,8 +248,9 @@ npx winapp --help
 
 See also: [Debugging Guide](./docs/debugging.md) — choosing between `winapp run` and `create-debug-identity`, IDE setup, and debugging scenarios.
 
-**Certificates & Signing:**
+**Packaging, Certificates & Signing:**
 
+- [`pack`](./docs/usage.md#pack) - Create MSIX packages from a project or prepared directories
 - [`cert`](./docs/usage.md#cert) - Generate and install development certificates
 - [`sign`](./docs/usage.md#sign) - Sign MSIX packages and executables
 - [`az-sign`](./docs/usage.md#az-sign) - Sign with Azure Trusted Signing (cloud-managed identity, no local PFX)
@@ -253,6 +263,12 @@ See also: [Security guidance](./docs/security.md) — what development certifica
 - [`tool`](./docs/usage.md#tool) - Access Windows SDK tools
 - [`store`](./docs/usage.md#store) - Run Microsoft Store Developer CLI commands
 - [`get-winapp-path`](./docs/usage.md#get-winapp-path) - Get paths to installed SDK components
+- [`complete`](./docs/usage.md#shell-completion) - Tab completion for PowerShell, bash, zsh, and fish
+
+**UI Automation & Sandbox:**
+
+- [`ui`](./docs/usage.md#ui) - Inspect and interact with running app UIs through UI Automation (screenshots, element trees, clicks, and text input). See the [UI Automation guide](./docs/ui-automation.md)
+- [`target`](./docs/usage.md#target) - Run commands, copy files, and capture the desktop inside Windows Sandbox. See [Windows Sandbox execution](./docs/sandbox-execution.md)
 
 **Discovery** (agent-first — built for AI coding agents to ground generated code in real metadata and real samples, and usable by hand):
 
@@ -262,6 +278,7 @@ See also: [Security guidance](./docs/security.md) — what development certifica
 **Node.js/Electron Specific:**
 
 - [`node create-addon`](./docs/usage.md#node-create-addon) - Generate native C# or C++ addons
+- [`node generate-bindings`](./docs/usage.md#node-generate-bindings) - Generate JavaScript/TypeScript bindings for WinRT APIs
 - [`node add-electron-debug-identity`](./docs/usage.md#node-add-electron-debug-identity) - Add identity to Electron processes
 - [`node clear-electron-debug-identity`](./docs/usage.md#node-clear-electron-debug-identity) - Remove identity from Electron processes
 
@@ -280,6 +297,8 @@ This repository includes samples demonstrating how to use the CLI with various f
 | [WinUI App](/samples/winui-app/README.md) | Packaged WinUI 3 app registered and launched via `winapp run <csproj>` |
 | [WinUI Unpackaged App](/samples/winui-unpackaged-app/README.md) | Unpackaged WinUI 3 app launched via `winapp run <csproj>` |
 | [WinUI Solution](/samples/winui-solution/README.md) | Multi-project `.sln` (app + test project) demonstrating `winapp run` solution-mode auto-selection |
+| [C++ WinUI App](/samples/cpp-app-winui/README.md) | WinUI 3 window built in C++ with CMake, without XAML or MSBuild |
+| [.NET MAUI App](/samples/maui-app/README.md) | .NET MAUI Windows project packaged and signed with `winapp` |
 | [Electron](/samples/electron/README.md) | Electron Forge app with appxmanifest, assets, native C++ addon, and C# addon |
 | [Electron WinML](/samples/electron-winml/README.md) | Electron app using Windows ML for image classification |
 | [Node.js WinUI 3](/samples/node-winui/README.md) | Native WinUI 3 controls created directly from JavaScript |
@@ -292,7 +311,7 @@ This repository includes samples demonstrating how to use the CLI with various f
 
 The **[WinApp VS Code Extension](https://marketplace.visualstudio.com/items?itemName=Microsoft-WinAppCLI.winapp)** brings WinApp CLI into Visual Studio Code. It can initialize projects, debug with package identity, package, sign, and more without leaving the editor. Press **F5** to launch your app with identity and automatically attach a debugger.
 
-Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Microsoft-WinAppCLI.winapp). Checkout the repo for the WinApp VS Code Extension at [microsoft/WinAppVSCE](https://github.com/microsoft/WinAppVSCE).
+Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Microsoft-WinAppCLI.winapp). Check out the repo for the WinApp VS Code Extension at [microsoft/WinAppVSCE](https://github.com/microsoft/WinAppVSCE).
 
 ## 🤖 Using with AI Coding Agents
 

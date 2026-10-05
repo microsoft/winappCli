@@ -487,7 +487,7 @@ if ($portedIndexContent -match '(?ms)(## Supported frameworks\s*\n.+?)(?=\n## )'
 $guidesIndex = @"
 ---
 title: winapp CLI framework guides
-description: Step-by-step guides for using the winapp CLI with .NET, C++, Electron, Rust, Tauri, Flutter, and other frameworks.
+description: Step-by-step guides for using the winapp CLI with WinUI, .NET, .NET MAUI, C++, Electron, Rust, Tauri, Flutter, and other frameworks.
 ms.date: $msDate
 ms.topic: overview
 ---
@@ -567,6 +567,7 @@ $TocLabels = [ordered]@{
     "sandbox-execution.md"                       = "Windows Sandbox execution"
     "security.md"                                = "Security guidance"
     "guides/index.md"                            = "Framework guides"
+    "guides/winui.md"                            = "WinUI"
     "guides/dotnet.md"                           = ".NET / WPF / WinForms"
     "guides/maui.md"                             = ".NET MAUI"
     "guides/cpp.md"                              = "C++ (CMake)"
@@ -609,9 +610,9 @@ function Get-PortedTitle {
 }
 
 function New-TocNode {
-    param([string]$Href, [object[]]$Items = @())
+    param([string]$Href, [object[]]$Items = @(), [switch]$Expanded)
     $name = if ($TocLabels.Contains($Href)) { $TocLabels[$Href] } else { Get-PortedTitle $Href }
-    return @{ Name = $name; Href = $Href; Items = $Items }
+    return @{ Name = $name; Href = $Href; Items = $Items; Expanded = [bool]$Expanded }
 }
 
 function ConvertTo-TocLines {
@@ -623,14 +624,22 @@ function ConvertTo-TocLines {
             Write-Warn "  Skipping TOC entry for un-ported file: $($node.Href)"
             continue
         }
-        $lines.Add("$pad- name: $(Format-MsLearnYamlValue $node.Name)")
-        $lines.Add("$pad  href: $($node.Href)")
+        $childLines = @()
         if ($node.Items -and $node.Items.Count -gt 0) {
             $childLines = ConvertTo-TocLines -Nodes $node.Items -Indent ($Indent + 2)
-            if ($childLines.Count -gt 0) {
-                $lines.Add("$pad  items:")
-                foreach ($cl in $childLines) { $lines.Add($cl) }
-            }
+        }
+        $lines.Add("$pad- name: $(Format-MsLearnYamlValue $node.Name)")
+        if ($childLines.Count -gt 0) {
+            # Learn repeats a parent's own name as its first child when the parent
+            # has an href, so emit a name-only parent with an explicit "Overview" child.
+            if ($node.Expanded) { $lines.Add("$pad  expanded: true") }
+            $lines.Add("$pad  items:")
+            $lines.Add("$pad  - name: Overview")
+            $lines.Add("$pad    href: $($node.Href)")
+            foreach ($cl in $childLines) { $lines.Add($cl) }
+        }
+        else {
+            $lines.Add("$pad  href: $($node.Href)")
         }
     }
     return , $lines.ToArray()
@@ -655,7 +664,8 @@ $tocTree = @(
     (New-TocNode "ui-automation.md")
     (New-TocNode "sandbox-execution.md")
     (New-TocNode "security.md")
-    (New-TocNode "guides/index.md" @(
+    (New-TocNode "guides/index.md" -Expanded @(
+        (New-TocNode "guides/winui.md")
         (New-TocNode "guides/dotnet.md")
         (New-TocNode "guides/maui.md")
         (New-TocNode "guides/cpp.md")
