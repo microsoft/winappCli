@@ -189,10 +189,24 @@ internal sealed partial class ProjectRunService
             return new RunInputResolution(WinAppRunMode.Project, dirPick, dir, FindOwningSolution(dirPick), "only runnable project");
         }
 
-        // Zero or several runnable candidates → we cannot safely guess; require explicit selection.
-        var names = string.Join(", ", csprojs.Select(c => c.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase));
+        // Zero or several runnable candidates → we cannot safely guess; require explicit selection. List only
+        // the projects the user can actually run (matching the solution path) so the suggestion is valid.
+        if (dirApps.Count == 0 && dirTests.Count == 0)
+        {
+            throw new ProjectRunException(
+                $"No runnable app project found in '{dir.FullName}' ({FormatProjectNameList(csprojs.Select(p => p.Name))}). 'winapp run' requires an executable project (OutputType Exe or WinExe).");
+        }
+
+        var dirCandidates = dirApps.Count > 0 ? dirApps : dirTests;
+        var dirCandidateList = FormatProjectNameList(dirCandidates.Select(p => p.Name));
+        var dirReason = dirApps.Count > 1
+            ? $"Multiple runnable app projects found in '{dir.FullName}' ({dirCandidateList})"
+            : $"Only test projects found in '{dir.FullName}' ({dirCandidateList})";
+        var dirExample = Path.GetFileNameWithoutExtension(
+            dirCandidates.Select(p => p.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).First());
+
         throw new ProjectRunException(
-            $"Multiple .csproj files found in '{dir.FullName}' ({names}). Specify which project to run, e.g. 'winapp run {csprojs[0].Name}' or --project <name>.");
+            $"{dirReason}. Specify which project to run, e.g. '{FormatDirectoryRunExample(dir, dirExample)}'.");
     }
 
     /// <summary>
@@ -263,9 +277,23 @@ internal sealed partial class ProjectRunService
             0 => null,
             1 => new RunInputResolution(WinAppRunMode.Project, apps[0], dir, FindOwningSolution(apps[0])),
             _ => throw new ProjectRunException(
-                $"Multiple C++ application projects found in '{dir.FullName}' ({FormatProjectNameList(apps.Select(p => p.Name))}). Specify which project to run, e.g. 'winapp run {apps[0].Name}' or --project <name>."),
+                $"Multiple C++ application projects found in '{dir.FullName}' ({FormatProjectNameList(apps.Select(p => p.Name))}). Specify which project to run, e.g. '{FormatDirectoryRunExample(dir, apps.Select(p => p.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).First())}'."),
         };
     }
+
+    /// <summary>
+    /// Builds a copy-pasteable <c>winapp run [dir] --project &lt;name&gt;</c> example. The directory is made
+    /// relative to the current working directory (and omitted when it IS the cwd) because a bare project
+    /// file name would be resolved against the cwd, not the directory the user passed.
+    /// </summary>
+    private static string FormatDirectoryRunExample(DirectoryInfo dir, string projectName)
+    {
+        var relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), dir.FullName);
+        var dirArg = relative == "." ? string.Empty : $"{QuoteIfNeeded(relative)} ";
+        return $"winapp run {dirArg}--project {QuoteIfNeeded(projectName)}";
+    }
+
+    private static string QuoteIfNeeded(string value) => value.Contains(' ') ? $"\"{value}\"" : value;
 
     /// <summary>
     /// Builds the "Available: …" hint for a failed <c>--project</c> match. Prefers the projects the user

@@ -167,7 +167,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "Multiple .csproj files");
+        StringAssert.Contains(ex.Message, "Multiple runnable app projects found");
     }
 
     [TestMethod]
