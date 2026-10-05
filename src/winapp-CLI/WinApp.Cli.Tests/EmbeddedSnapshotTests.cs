@@ -51,6 +51,18 @@ public class EmbeddedSnapshotTests
     /// as the Gallery floors above. The Toolkit corpus is an order of magnitude smaller, so
     /// these are tighter in absolute terms — losing one component here is a visible loss of
     /// coverage, not churn.
+    ///
+    /// Those measurements describe the scraped corpus, and the snapshot these guard has not
+    /// been re-baked since the Toolkit switched to reading its published index — which carries
+    /// substantially more samples. Until that bake happens these floors sit correctly against
+    /// the committed snapshot; afterwards they will sit far below it and stop catching a
+    /// collapse. Re-measure all four against the sanitized corpus at that point and reset them
+    /// to roughly 90% of what is observed. Take the numbers from the sanitized snapshot rather
+    /// than the index's raw sample count: sanitizing can strip a scenario's code, which is why
+    /// the C# figure above is well under the scenario count.
+    ///
+    /// Raising them before the bake would fail the gate, since the snapshot they read is still
+    /// the scraped one.
     /// </summary>
     private const int MinToolkitScenarios = 43;
     private const int MinToolkitControls = 23;
@@ -405,10 +417,10 @@ public class EmbeddedSnapshotTests
     public void ToolkitCorpus_MeetsItsServingFloors()
     {
         // Same contract as the Gallery floors above: a floor, not an equality. The Toolkit
-        // corpus is still scraped rather than read from a published index
-        // (https://github.com/microsoft/winappCli/issues/810), which makes these floors do
-        // double duty — they also catch a scrape that silently stopped finding samples
-        // because upstream moved a file or renamed a component folder.
+        // corpus is read from the index the Toolkit publishes, so these floors do double duty
+        // — they also catch a fetch or a bake that silently stopped producing samples. A
+        // component the Toolkit stops publishing now shows up as a smaller index rather than
+        // as a failed scrape, and either way the corpus shrinks without anything throwing.
         var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
         ScenarioSanitizer.SanitizeAll(scenarios);
 

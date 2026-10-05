@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 
 /// <summary>
 /// Shared snippet-repair helpers used by every scenario source
-/// (<see cref="GalleryProvider"/>, <see cref="ToolkitFetcher"/>, …). These used to
+/// (<see cref="GalleryProvider"/>, <see cref="ToolkitProvider"/>, …). These used to
 /// be copy-pasted per fetcher and had already drifted (only one copy stripped XML
 /// comments), so they live here as the single source of truth. Snippets are emitted
 /// whole — nothing here shortens a sample. The final safety net for malformed output
