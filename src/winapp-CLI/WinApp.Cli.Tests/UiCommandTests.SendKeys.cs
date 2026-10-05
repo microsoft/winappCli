@@ -1040,8 +1040,7 @@ public partial class UiCommandTests
     {
         _fakeTargetResolver.TargetResult.WindowHandle = 4242;
         var previous = UiSendKeysCommand.Handler.s_isCapsLockOn;
-        var reads = new Queue<bool>([before, after]);
-        UiSendKeysCommand.Handler.s_isCapsLockOn = () => reads.Dequeue();
+        UiSendKeysCommand.Handler.s_isCapsLockOn = CapsLockReads(before, after);
         try
         {
             var command = GetRequiredService<UiSendKeysCommand>();
@@ -1056,6 +1055,40 @@ public partial class UiCommandTests
         {
             UiSendKeysCommand.Handler.s_isCapsLockOn = previous;
         }
+    }
+
+    [TestMethod]
+    public async Task SendKeys_TwoUnconsumedCapsLockChords_StillWarns()
+    {
+        // Two unconsumed chords toggle Caps Lock twice; a single before/after comparison would see no change.
+        // Each capslock chord is sent and checked on its own: reads are before/after chord 1, then chord 2.
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        var previous = UiSendKeysCommand.Handler.s_isCapsLockOn;
+        UiSendKeysCommand.Handler.s_isCapsLockOn = CapsLockReads(false, true, true, false);
+        try
+        {
+            var command = GetRequiredService<UiSendKeysCommand>();
+            var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+                ["enter ctrl+capslock+f12 tab ctrl+capslock+f12 esc", "-a", "TestApp", "--via", "send-input", "--json"]);
+
+            Assert.AreEqual(0, exitCode);
+            Assert.AreEqual(5, _fakeKeyboard.SendCalls.Count, "each capslock chord is isolated: [enter] [chord] [tab] [chord] [esc]");
+            Assert.AreEqual(5, _fakeKeyboard.SendCalls.Sum(c => c.Actions.Count), "no action is lost or duplicated by the split");
+            var warning = ReadWarnings(TestAnsiConsole.Output).SingleOrDefault(w => w.Contains("Caps Lock", StringComparison.Ordinal));
+            Assert.IsNotNull(warning);
+            StringAssert.Contains(warning, "2 time(s)");
+        }
+        finally
+        {
+            UiSendKeysCommand.Handler.s_isCapsLockOn = previous;
+        }
+    }
+
+    // Returns the given Caps Lock states in order, then keeps returning the last one.
+    private static Func<bool> CapsLockReads(params bool[] states)
+    {
+        var i = 0;
+        return () => states[Math.Min(i++, states.Length - 1)];
     }
 
     [TestMethod]

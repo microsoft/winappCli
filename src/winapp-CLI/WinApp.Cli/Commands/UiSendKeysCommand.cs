@@ -259,7 +259,7 @@ internal class UiSendKeysCommand : Command, IShortDescription
 
                 var effectiveHwnd = targetHwnd;
                 bool targetLooksXaml;
-                bool? capsLockBefore = null;
+                var capsLockToggles = 0;
 
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
@@ -354,10 +354,23 @@ internal class UiSendKeysCommand : Command, IShortDescription
 
                     if (transport == KeyTransport.SendInput && KeyStringParser.HoldsCapsLock(actions))
                     {
-                        capsLockBefore = s_isCapsLockOn();
+                        // A running screen reader consumes a held Caps Lock; if the toggle state changes, none did.
+                        // Check each chord on its own so two unconsumed chords can't cancel out.
+                        foreach (var segment in SplitAroundCapsLockChords(actions))
+                        {
+                            var isCapsLockChord = KeyStringParser.HoldsCapsLock(segment);
+                            var before = isCapsLockChord && s_isCapsLockOn();
+                            keyboardInput.Send(effectiveHwnd, segment, transport);
+                            if (isCapsLockChord && s_isCapsLockOn() != before)
+                            {
+                                capsLockToggles++;
+                            }
+                        }
                     }
-
-                    keyboardInput.Send(effectiveHwnd, actions, transport);
+                    else
+                    {
+                        keyboardInput.Send(effectiveHwnd, actions, transport);
+                    }
                 }
 
                 if (ShouldWarnPostMessageMayNotDeliver(transport == KeyTransport.PostMessage, targetLooksXaml))
@@ -372,12 +385,11 @@ internal class UiSendKeysCommand : Command, IShortDescription
 
                 if (transport == KeyTransport.SendInput)
                 {
-                    // A running screen reader consumes the held Caps Lock; if the toggle state changed, none did.
-                    if (capsLockBefore is bool wasOn && s_isCapsLockOn() != wasOn)
+                    if (capsLockToggles > 0)
                     {
                         var capsLockWarning =
-                            $"Holding capslock turned Caps Lock {(wasOn ? "off" : "on")}, so no screen reader received the command. " +
-                            "Start the screen reader first, or hold insert instead.";
+                            $"Holding capslock toggled Caps Lock ({capsLockToggles} time(s); it is now {(s_isCapsLockOn() ? "on" : "off")}), " +
+                            "so no screen reader received the command. Start the screen reader first, or hold insert instead.";
                         logger.LogWarning("{Symbol} {Message}", UiSymbols.Warning, capsLockWarning);
                         warnings.Add(capsLockWarning);
                     }
@@ -480,6 +492,36 @@ internal class UiSendKeysCommand : Command, IShortDescription
         /// Tests replace it to exercise the warning deterministically.
         /// </remarks>
         internal static Func<bool> s_isCapsLockOn = NativeIsCapsLockOn;
+
+        /// <summary>
+        /// Splits actions into consecutive runs, isolating each chord that holds capslock in its own segment.
+        /// </summary>
+        internal static IEnumerable<IReadOnlyList<KeyAction>> SplitAroundCapsLockChords(IReadOnlyList<KeyAction> actions)
+        {
+            var run = new List<KeyAction>();
+            foreach (var action in actions)
+            {
+                if (action is KeyChord chord && KeyStringParser.HoldsCapsLock([chord]))
+                {
+                    if (run.Count > 0)
+                    {
+                        yield return run;
+                        run = [];
+                    }
+
+                    yield return [chord];
+                }
+                else
+                {
+                    run.Add(action);
+                }
+            }
+
+            if (run.Count > 0)
+            {
+                yield return run;
+            }
+        }
 
         internal static bool NativeIsCapsLockOn()
             => (global::Windows.Win32.PInvoke.GetKeyState(0x14) & 1) != 0;
