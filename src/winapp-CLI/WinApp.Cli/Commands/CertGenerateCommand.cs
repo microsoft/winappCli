@@ -110,6 +110,12 @@ internal class CertGenerateCommand : Command, IShortDescription
                 }
                 else if (ifExists == IfExists.Skip)
                 {
+                    if (json)
+                    {
+                        var skippedOutput = new CertGenerateSkippedJsonOutput { CertificatePath = output.FullName };
+                        ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(skippedOutput, WinAppJsonContext.Default.CertGenerateSkippedJsonOutput));
+                        return 0;
+                    }
                     logger.LogInformation("{UISymbol} Certificate file already exists: {Output}", UiSymbols.Warning, output);
                     return 0;
                 }

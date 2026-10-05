@@ -254,6 +254,62 @@ public sealed class ApiMetadataServiceTests
         Assert.AreEqual(ApiScopeNames.Sdk, result.Data!.Scope, "a projectless directory must be answered by the SDK scope, and say so");
     }
 
+    /// <summary>Makes the find-api cache folder impossible to create, as a denied global folder does.</summary>
+    private void BlockCacheFolder() => File.WriteAllText(Path.Join(_globalDir, "cache"), string.Empty);
+
+    [TestMethod]
+    public void Refresh_CacheNotWritable_ReturnsOneClearError()
+    {
+        BlockCacheFolder();
+
+        var result = CreateService().Refresh(new ApiRequestScope(null, null), scan: false);
+
+        Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
+        StringAssert.Contains(result.Message, "can't write the API index");
+        StringAssert.Contains(result.Message, "WINAPP_CLI_CACHE_DIRECTORY");
+    }
+
+    [TestMethod]
+    public void Query_SdkScopeNeedsIndexingButCacheNotWritable_SaysWhyInsteadOfNoSdk()
+    {
+        BlockCacheFolder();
+
+        var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
+
+        Assert.AreEqual(ApiQueryOutcome.NoProject, result.Outcome);
+        StringAssert.Contains(result.Message, "WINAPP_CLI_CACHE_DIRECTORY");
+    }
+
+    [TestMethod]
+    public void Query_CurrentIndexInReadOnlyCache_StillAnswers()
+    {
+        WriteSdkManifest();
+        var cacheDir = new DirectoryInfo(Path.Join(_globalDir, "cache", "find-api"));
+        var user = System.Security.Principal.WindowsIdentity.GetCurrent().User!;
+        var deny = new System.Security.AccessControl.FileSystemAccessRule(
+            user,
+            System.Security.AccessControl.FileSystemRights.CreateFiles | System.Security.AccessControl.FileSystemRights.CreateDirectories,
+            System.Security.AccessControl.InheritanceFlags.ContainerInherit,
+            System.Security.AccessControl.PropagationFlags.None,
+            System.Security.AccessControl.AccessControlType.Deny);
+        var acl = cacheDir.GetAccessControl();
+        acl.AddAccessRule(deny);
+        cacheDir.SetAccessControl(acl);
+        try
+        {
+            Assert.IsNotNull(ApiMetadataService.CacheWriteError(cacheDir.FullName), "the cache must really be read-only for this test");
+
+            var result = CreateService().Namespaces(null, new ApiRequestScope(null, null));
+
+            Assert.AreEqual(ApiQueryOutcome.Ok, result.Outcome, result.Message);
+        }
+        finally
+        {
+            acl.RemoveAccessRule(deny);
+            cacheDir.SetAccessControl(acl);
+        }
+    }
+
     [TestMethod]
     public void Query_ProjectlessDir_FallsBackToSdkScope_EvenWithManyProjectsIndexed()
     {

@@ -1166,6 +1166,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
 
     private async Task RunOperationAsync(Guid operationId, RunningOperation operation)
     {
+        var exited = false;
         try
         {
             await SendAsync(
@@ -1193,6 +1194,7 @@ internal sealed class GuestCommandServer : IAsyncDisposable
             }
 
             var exitCode = await operation.Host.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            exited = true;
 
             await operation.StopInputAsync().ConfigureAwait(false);
             await operation.WaitForStopAsync().ConfigureAwait(false);
@@ -1220,6 +1222,10 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         catch (ExecutionTargetException ex)
         {
             await SendFailureAsync(operationId, ex.Error).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_connectionClosed.IsCancellationRequested)
+        {
+            // The connection closed before the start could be reported; there is no one to tell.
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException)
         {
@@ -1252,6 +1258,15 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         {
             try
             {
+                // Reached before the child exited only when reporting failed, typically because the
+                // connection closed as the operation started. Stop it the same graceful-then-forced
+                // way shutdown does, rather than only releasing its job, so that whether it gets a
+                // graceful stop does not depend on which of the two paths reached it first.
+                if (!exited && !operation.Detach)
+                {
+                    await StopOperationProcessAsync(operation).ConfigureAwait(false);
+                }
+
                 await operation.StopInputAsync().ConfigureAwait(false);
                 await operation.Host.DisposeAsync().ConfigureAwait(false);
             }
@@ -1400,6 +1415,13 @@ internal sealed class GuestCommandServer : IAsyncDisposable
     /// <summary>Stops one operation and waits for it to finish reporting and releasing its child.</summary>
     private static async Task StopOperationAsync(RunningOperation operation)
     {
+        await StopOperationProcessAsync(operation).ConfigureAwait(false);
+        await operation.Completion.ConfigureAwait(false);
+    }
+
+    /// <summary>Asks an operation's child to exit, terminating it after the graceful timeout.</summary>
+    private static async Task StopOperationProcessAsync(RunningOperation operation)
+    {
         try
         {
             // Bounded by the host's own graceful timeout, after which it terminates the job.
@@ -1409,8 +1431,6 @@ internal sealed class GuestCommandServer : IAsyncDisposable
         {
             // The process already died with the connection.
         }
-
-        await operation.Completion.ConfigureAwait(false);
     }
     /// <summary>One in-flight operation and its child process.</summary>
     private sealed class RunningOperation(
