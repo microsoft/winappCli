@@ -46,8 +46,9 @@ searched when you pass `--source reactor`.
   behaviors, and extensions are searchable and fetchable the same way.
   Converters, behaviors, and triggers are grouped under an umbrella entry
   (`Converters`, `Behaviors`, `Header Behaviors`, `Triggers`) whose samples are
-  named for the specific type; helpers are not grouped, and each is a top-level
-  entry under its own name (`NetworkHelper`, `ColorHelper`). All are indexed by
+  named for the specific type; helpers and extensions are not grouped, and each
+  is a top-level entry under its own name (`NetworkHelper`, `TextBoxExtensions`).
+  All are indexed by
   the words in those type names, so `FileSizeToFriendlyStringConverter`,
   `converters`, and `convert bool to visibility` all land. A description that
   shares no words with the type name does not — `check internet connection`
