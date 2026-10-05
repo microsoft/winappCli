@@ -243,7 +243,8 @@ internal sealed partial class UiRecordingService(
                     ref captureOriginLeft, ref captureOriginTop,
                     ref srcWidth, ref srcHeight);
 
-                // Main-tree elements inherit the session HWND, so confirm it from the UIA ancestor chain.
+                // Main-tree elements inherit the session HWND, so confirm it from the UIA ancestor chain
+                // and any windowed popup that hosts the element.
                 if (captureTargetHwnd == (nint)hwnd)
                 {
                     var derivedHwnd = DeriveElementCaptureHwnd(
@@ -255,7 +256,7 @@ internal sealed partial class UiRecordingService(
                     {
                         captureTargetHwnd = derivedHwnd;
                         _logger.LogDebug(
-                            "Selector '{Sel}' element resolved to top-level window HWND 0x{Hwnd:X} via UIA ancestor walk; retargeting capture",
+                            "Selector '{Sel}' element is drawn in top-level window HWND 0x{Hwnd:X}; retargeting capture",
                             elementId, captureTargetHwnd);
                     }
                 }

@@ -497,7 +497,7 @@ winapp ui screenshot -w 131906 --capture-screen     # one screen region, with vi
 winapp ui screenshot -a myapp --focus               # bring window to foreground first, then capture (default WGC path)
 ```
 
-Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` by process name or PID includes the app's windows and their owned windows. A title-based `-a` match selects one matching window plus its owned windows; `-w` explicitly selects one window plus its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows.
+Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` by process name or PID includes the app's windows and their owned windows. A title-based `-a` match selects one matching window plus its owned windows; `-w` explicitly selects one window plus its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows. An element in a menu, flyout, tooltip, or teaching tip that opens in its own popup window is cropped from that popup, not from the window behind it.
 
 `--quiet` suppresses informational output for both single-window and composite captures, including the saved path. Warnings and capture-failure diagnostics remain visible. Use `--json` instead when you need the file path and dimensions as structured output.
 
@@ -586,7 +586,9 @@ recordings and whole-desktop capture.
 - `frame_output_failed` — Neither artifact could be preserved after frame output failed.
 - `partial_output` — Only one artifact completed; inspect `partialOutput` and `recoveryHint`.
 
-**Known limitation:** Recording an element inside a windowed popup may capture the underlying window. Record the whole window or follow the [screenshot overlay workflow](#screenshot) for a still image. See [#646](https://github.com/microsoft/winappCli/issues/646).
+An element selector records that element's region from the window it is drawn in. For an item in a
+menu, flyout, tooltip, or teaching tip that opens in its own popup window, the recording shows the
+popup rather than the window behind it.
 
 
 ### invoke
