@@ -1015,4 +1015,60 @@ public partial class UiCommandTests
         StringAssert.Contains(ConsoleStdErr.ToString(), "--allow-system-keys");
     }
 
+    [TestMethod]
+    [DataRow("ctrl+capslock+f12")]
+    [DataRow("insert+t")]
+    public async Task SendKeys_ScreenReaderChord_ViaPostMessage_IsRefused(string keys)
+    {
+        // Issue #952: screen readers hook low-level input, so a posted chord never reaches them. Refuse
+        // up front (nothing sent) and point at --via send-input.
+        var command = GetRequiredService<UiSendKeysCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [keys, "-a", "TestApp", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeKeyboard.SendCalls.Count);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "--via send-input");
+    }
+
+    [TestMethod]
+    [DataRow("ctrl+capslock+f12", false, true, true)]   // Caps Lock turned on: no screen reader consumed it
+    [DataRow("ctrl+capslock+f12", true, false, true)]   // turned off
+    [DataRow("ctrl+capslock+f12", false, false, false)] // unchanged: a screen reader consumed it
+    [DataRow("ctrl+insert+f12", false, true, false)]    // insert never toggles Caps Lock; state isn't checked
+    public async Task SendKeys_ScreenReaderChord_ViaSendInput_WarnsOnlyWhenCapsLockToggled(
+        string keys, bool before, bool after, bool expectWarning)
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        var previous = UiSendKeysCommand.Handler.s_isCapsLockOn;
+        var reads = new Queue<bool>([before, after]);
+        UiSendKeysCommand.Handler.s_isCapsLockOn = () => reads.Dequeue();
+        try
+        {
+            var command = GetRequiredService<UiSendKeysCommand>();
+            var exitCode = await ParseAndInvokeWithCaptureAsync(command, [keys, "-a", "TestApp", "--via", "send-input", "--json"]);
+
+            Assert.AreEqual(0, exitCode);
+            Assert.AreEqual(1, _fakeKeyboard.SendCalls.Count);
+            var warned = ReadWarnings(TestAnsiConsole.Output).Any(w => w.Contains("Caps Lock", StringComparison.Ordinal));
+            Assert.AreEqual(expectWarning, warned);
+        }
+        finally
+        {
+            UiSendKeysCommand.Handler.s_isCapsLockOn = previous;
+        }
+    }
+
+    [TestMethod]
+    public async Task SendKeys_ModifierLedUnknownMiddle_IsRefusedNotTyped()
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        var command = GetRequiredService<UiSendKeysCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["ctrl+numlock+f12", "-a", "TestApp", "--via", "send-input", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeKeyboard.SendCalls.Count);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "Unknown modifier");
+    }
+
 }
