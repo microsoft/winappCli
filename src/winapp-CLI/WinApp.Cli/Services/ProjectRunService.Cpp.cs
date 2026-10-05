@@ -72,19 +72,27 @@ internal sealed partial class ProjectRunService
         _ => null,
     };
 
+    /// <summary>
+    /// The architecture a user <c>-p Platform</c> names (e.g. <c>ARM64</c> → <c>arm64</c>), or null when
+    /// none is set or it is a custom platform. Lets <c>-p Platform=ARM64</c> select the target like
+    /// <c>--arch arm64</c> when no architecture was requested explicitly.
+    /// </summary>
+    internal static string? CppArchitectureFromProperties(IReadOnlyList<string> properties) =>
+        TryGetUserProperty(properties, "Platform", out var platform) ? ArchitectureOfCppPlatform(platform) : null;
+
     private async Task<ProjectBuildOutcome> BuildAndResolveCppAsync(
         FileInfo project,
         ProjectRunOptions options,
         CancellationToken cancellationToken)
     {
         // The architecture drives toolchain lookup and runtime provisioning, so a -p Platform naming another
-        // one would build one architecture and provision another.
-        if (TryGetUserProperty(options.Properties, "Platform", out var userPlatform)
-            && ArchitectureOfCppPlatform(userPlatform) is { } platformArch
+        // one would build one architecture and provision another. Without --arch/--runtime the run command
+        // takes the architecture from -p Platform, so a conflict here means both were given.
+        if (CppArchitectureFromProperties(options.Properties) is { } platformArch
             && !string.Equals(platformArch, options.Architecture, StringComparison.OrdinalIgnoreCase))
         {
             throw new ProjectRunException(
-                $"-p Platform={userPlatform} conflicts with the target architecture ({options.Architecture}). Use --arch {platformArch} instead.");
+                $"-p Platform targets {platformArch}, but --arch/--runtime selects {options.Architecture}. Pass only one of them.");
         }
 
         var msbuild = await msBuildService.LocateCppMSBuildAsync(options.Architecture, cancellationToken);
@@ -146,8 +154,9 @@ internal sealed partial class ProjectRunService
     }
 
     /// <summary>
-    /// Builds the C++ project, streaming MSBuild's output like the <c>.csproj</c> build pass. Restores
-    /// <c>packages.config</c> NuGet packages first unless <c>--no-restore</c>, as Visual Studio does.
+    /// Builds the C++ project. Restores <c>packages.config</c> NuGet packages first unless
+    /// <c>--no-restore</c>, as Visual Studio does. C++/WinRT and MIDL log hundreds of lines even at minimal
+    /// verbosity, so MSBuild runs quiet (warnings and errors only) unless <c>--verbose</c> is set.
     /// </summary>
     private async Task<int> RunCppBuildPassAsync(
         string msbuild,
@@ -156,7 +165,7 @@ internal sealed partial class ProjectRunService
         IReadOnlyList<string> properties,
         CancellationToken cancellationToken)
     {
-        var verbosity = ResolveBuildVerbosity(logger, options.Json);
+        var verbosity = logger.IsEnabled(LogLevel.Debug) ? "minimal" : "quiet";
         List<string> arguments = [project.FullName, "-nologo", "-nodeReuse:false", $"-verbosity:{verbosity}"];
         if (!options.NoRestore)
         {
@@ -165,48 +174,116 @@ internal sealed partial class ProjectRunService
         arguments.Add("-t:Build");
         arguments.AddRange(properties);
 
-        var display = RedactSecretsForDisplay(WindowsCommandLine.JoinArguments([msbuild, .. arguments]) ?? string.Empty);
+        var fullCommand = RedactSecretsForDisplay(WindowsCommandLine.JoinArguments([msbuild, .. arguments]) ?? string.Empty);
+        logger.LogDebug("{UISymbol} {Command}", UiSymbols.Note, fullCommand);
         var failures = new CppBuildFailureCollector();
-        Action<string> writeLine;
-        var interactive = !options.Json && logger.IsEnabled(LogLevel.Information);
-        if (interactive)
+        var stopwatch = Stopwatch.StartNew();
+
+        // --json/--quiet keep stdout clean: the invocation (json only) and build output go to stderr.
+        if (options.Json || !logger.IsEnabled(LogLevel.Information))
         {
-            ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} Building {project.Name} ({options.Configuration} | {ToCppPlatform(options.Architecture)})...");
-            ansiConsole.MarkupLineInterpolated($"[dim]   {display}[/]");
-            writeLine = CreateSynchronizedRedactedLineWriter();
+            if (options.Json)
+            {
+                Console.Error.WriteLine(BuildCppCommandDisplay(project, options, Directory.GetCurrentDirectory()));
+            }
+
+            var redirected = await msBuildService.RunAsync(msbuild, arguments, line =>
+            {
+                failures.Observe(line);
+                Console.Error.WriteLine(NugetErrorMessage.Redact(line));
+            }, cancellationToken);
+            return ThrowIfPrerequisiteMissing(project, redirected.ExitCode, failures);
+        }
+
+        ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} Building {project.Name} ({options.Configuration} | {ToCppPlatform(options.Architecture)})...");
+        ansiConsole.MarkupLineInterpolated($"[dim]   {BuildCppCommandDisplay(project, options, Directory.GetCurrentDirectory())}[/]");
+        var writeLine = CreateSynchronizedRedactedLineWriter();
+
+        int exitCode;
+        var liveSpinner = (NativeTerminalGateOverrideForTests?.Invoke() ?? ProgressDisplay.ShouldUseLiveSpinner(ansiConsole, logger))
+            && !logger.IsEnabled(LogLevel.Debug);
+        if (liveSpinner)
+        {
+            // Real terminal: a spinner with elapsed time instead of a silent minute-long first build. Output is
+            // buffered while the spinner owns the console and printed afterwards.
+            var buffered = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            exitCode = await ansiConsole.Status()
+                .AutoRefresh(true)
+                .Spinner(Spinner.Known.Dots)
+                .SpinnerStyle(Style.Parse("blue"))
+                .StartAsync("MSBuild is running...", async ctx =>
+                {
+                    var run = msBuildService.RunAsync(msbuild, arguments, line =>
+                    {
+                        failures.Observe(line);
+                        buffered.Enqueue(line);
+                    }, cancellationToken);
+                    while (!cancellationToken.IsCancellationRequested
+                        && await Task.WhenAny(run, Task.Delay(1000, cancellationToken)) != run)
+                    {
+                        ctx.Status($"MSBuild is running... {stopwatch.Elapsed.TotalSeconds:0}s");
+                    }
+
+                    return (await run).ExitCode;
+                });
+
+            // When winapp explains a missing prerequisite itself, the raw MSBuild line would only repeat it.
+            var explained = exitCode != 0 && failures.Hint is not null;
+            foreach (var line in buffered.Where(l => !(explained && CppBuildFailureCollector.IsPrerequisiteError(l))))
+            {
+                writeLine(line);
+            }
         }
         else
         {
-            // --json/--quiet keep stdout clean: the invocation (json only) and build output go to stderr.
-            if (options.Json)
-            {
-                Console.Error.WriteLine(display);
-            }
-            writeLine = static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line));
-        }
-
-        var stopwatch = Stopwatch.StartNew();
-        var result = await msBuildService.RunAsync(
-            msbuild,
-            arguments,
-            line =>
+            exitCode = (await msBuildService.RunAsync(msbuild, arguments, line =>
             {
                 failures.Observe(line);
                 writeLine(line);
-            },
-            cancellationToken);
-
-        if (result.ExitCode != 0 && failures.Hint is { } hint)
-        {
-            throw new ProjectRunException($"Build failed for {project.Name}. {hint}");
+            }, cancellationToken)).ExitCode;
         }
 
-        if (result.ExitCode == 0 && interactive)
+        exitCode = ThrowIfPrerequisiteMissing(project, exitCode, failures);
+        if (exitCode == 0)
         {
             PrintBuildSucceeded(project, options, stopwatch.Elapsed);
         }
 
-        return result.ExitCode;
+        return exitCode;
+    }
+
+    private static int ThrowIfPrerequisiteMissing(FileInfo project, int exitCode, CppBuildFailureCollector failures)
+    {
+        if (exitCode != 0 && failures.Hint is { } hint)
+        {
+            throw new ProjectRunException($"Build failed for {project.Name}. {hint}");
+        }
+
+        return exitCode;
+    }
+
+    /// <summary>
+    /// A short, readable form of the build command for the console: the project relative to the current
+    /// directory, restore, and the properties that change what is built. The exact command is logged at
+    /// <c>--verbose</c>.
+    /// </summary>
+    internal static string BuildCppCommandDisplay(FileInfo project, ProjectRunOptions options, string currentDirectory)
+    {
+        var relative = Path.GetRelativePath(currentDirectory, project.FullName);
+        List<string> tokens = ["MSBuild.exe", relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative) ? project.FullName : relative];
+        if (!options.NoRestore)
+        {
+            tokens.Add("-restore");
+        }
+
+        tokens.AddRange(ForwardableProperties(options.Properties).Select(p => $"-p:{p}"));
+        tokens.Add($"-p:Configuration={options.Configuration}");
+        if (!UserSpecifiesProperty(options.Properties, "Platform"))
+        {
+            tokens.Add($"-p:Platform={ToCppPlatform(options.Architecture)}");
+        }
+
+        return RedactSecretsForDisplay(WindowsCommandLine.JoinArguments(tokens) ?? string.Empty);
     }
 
     /// <summary>
@@ -351,6 +428,11 @@ internal sealed partial class ProjectRunService
     {
         private int _missingToolset;
         private int _missingWindowsSdk;
+
+        /// <summary>True for the MSBuild error lines winapp replaces with its own explanation.</summary>
+        public static bool IsPrerequisiteError(string line) =>
+            line.Contains("error MSB8020", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("error MSB8036", StringComparison.OrdinalIgnoreCase);
 
         public void Observe(string line)
         {

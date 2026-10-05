@@ -192,6 +192,14 @@ internal partial class RunCommand
                 return Fail($"{(aot ? "--aot" : "--framework")} applies to .NET projects and can't be used with a C++ project ({csproj.Name}).", isJson);
             }
 
+            // For C++, -p Platform=ARM64 is how Visual Studio users pick the architecture, so honor it when
+            // --arch/--runtime weren't given instead of defaulting to the machine's architecture.
+            if (isCpp && archOption is null && runtimeOption is null
+                && ProjectRunService.CppArchitectureFromProperties(properties) is { } platformArch)
+            {
+                architecture = platformArch;
+            }
+
             // Immediate, persistent context line (UX): the pre-build steps below each spawn dotnet and can
             // take several silent seconds. Print WHAT we're about to run — and, when the input was
             // ambiguous, WHY this project was chosen — so the run never looks hung. Suppressed for --json

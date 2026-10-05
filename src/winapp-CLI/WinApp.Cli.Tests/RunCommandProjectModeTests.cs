@@ -620,6 +620,37 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_Cpp_PlatformProperty_SelectsArchitectureWhenArchIsNotGiven()
+    {
+        var vcxproj = new FileInfo(Path.Combine(_tempDirectory.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
+        SetUnpackagedOutcome(vcxproj, CreateTargetDir(withManifest: false), selfContained: false, arch: "arm64");
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, "-p", "Platform=ARM64", "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("arm64", _fakeProjectRunService.BuildOptions[0].Architecture,
+            "-p Platform=ARM64 must select arm64 instead of the machine's architecture");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Cpp_ExplicitArch_IsNotOverriddenByPlatformProperty()
+    {
+        var vcxproj = new FileInfo(Path.Combine(_tempDirectory.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
+        SetUnpackagedOutcome(vcxproj, CreateTargetDir(withManifest: false), selfContained: false, arch: "x64");
+        var command = GetRequiredService<RunCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, "--arch", "x64", "-p", "Platform=ARM64", "--detach"]);
+
+        Assert.AreEqual("x64", _fakeProjectRunService.BuildOptions[0].Architecture,
+            "an explicit --arch is kept so the service reports the conflict");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Runtime_ResolvesArchIntoBuild()
     {
         var csproj = CreateCsproj();

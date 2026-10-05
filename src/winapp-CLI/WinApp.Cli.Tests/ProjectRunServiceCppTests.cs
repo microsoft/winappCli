@@ -37,6 +37,15 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         </Project>
         """;
 
+    private const string CsharpLibrary = """
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <OutputType>Library</OutputType>
+            <TargetFramework>net10.0</TargetFramework>
+          </PropertyGroup>
+        </Project>
+        """;
+
     private const string CsharpTests = """
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
@@ -129,13 +138,65 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
-    public async Task ResolveInput_DirectoryWithOnlyCppLibrary_StaysFolderMode()
+    public async Task ResolveInput_DirectoryWithOnlyCppLibrary_ExplainsThereIsNothingToRun()
     {
         WriteFile("Lib.vcxproj", CppLibrary);
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "Lib.vcxproj");
+        StringAssert.Contains(ex.Message, "builds a library");
+    }
+
+    [TestMethod]
+    public async Task ResolveInput_DirectoryWithCppLibraryAndManifest_StaysFolderMode()
+    {
+        WriteFile("Lib.vcxproj", CppLibrary);
+        WriteFile("appxmanifest.xml", "<Package />");
 
         var resolution = await _service.ResolveInputAsync(_tempDir, CancellationToken.None);
 
         Assert.AreEqual(WinAppRunMode.Folder, resolution.Mode);
+    }
+
+    [TestMethod]
+    public async Task ResolveInput_DirectoryWithCppAppAndCsharpLibrary_PicksCppApp()
+    {
+        var app = WriteFile("App.vcxproj", CppApp);
+        WriteFile("Shared.csproj", CsharpLibrary);
+        WriteFile("Shared2.csproj", CsharpLibrary);
+
+        var lone = await _service.ResolveInputAsync(_tempDir, CancellationToken.None);
+        Assert.AreEqual(app.FullName, lone.Csproj!.FullName, "C++ app beside several C# libraries");
+
+        File.Delete(Path.Join(_tempDir.FullName, "Shared2.csproj"));
+        var single = await _service.ResolveInputAsync(_tempDir, CancellationToken.None);
+        Assert.AreEqual(app.FullName, single.Csproj!.FullName, "C++ app beside one C# library");
+    }
+
+    [TestMethod]
+    public async Task ResolveInput_DirectoryWithCppAppAndCsharpTests_PicksCppApp()
+    {
+        var app = WriteFile("App.vcxproj", CppApp);
+        WriteFile("App.Tests.csproj", CsharpTests);
+
+        var resolution = await _service.ResolveInputAsync(_tempDir, CancellationToken.None);
+
+        Assert.AreEqual(app.FullName, resolution.Csproj!.FullName);
+    }
+
+    [TestMethod]
+    public async Task ResolveInput_DirectoryWithCsharpAppAndCppApp_KeepsCsharpApp()
+    {
+        var csharp = WriteFile("App.csproj", CsharpApp);
+        WriteFile("Helper.vcxproj", CppApp);
+
+        var resolution = await _service.ResolveInputAsync(_tempDir, CancellationToken.None);
+        var selected = await _service.ResolveInputAsync(_tempDir, CancellationToken.None, projectSelector: "Helper");
+
+        Assert.AreEqual(csharp.FullName, resolution.Csproj!.FullName);
+        Assert.AreEqual("Helper.vcxproj", selected.Csproj!.Name, "--project can select the C++ app");
     }
 
     [TestMethod]
@@ -348,8 +409,68 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
             () => _service.BuildAndResolveAsync(project, options, CancellationToken.None));
 
-        StringAssert.Contains(ex.Message, "--arch arm64");
+        StringAssert.Contains(ex.Message, "-p Platform targets arm64, but --arch/--runtime selects x64");
         Assert.AreEqual(0, _msbuild.Calls.Count);
+    }
+
+    [TestMethod]
+    public void CppArchitectureFromProperties_MapsStandardPlatforms()
+    {
+        Assert.AreEqual("arm64", ProjectRunService.CppArchitectureFromProperties(["Platform=ARM64"]));
+        Assert.AreEqual("x86", ProjectRunService.CppArchitectureFromProperties(["Foo=1;Platform=Win32"]));
+        Assert.IsNull(ProjectRunService.CppArchitectureFromProperties(["Platform=Custom"]));
+        Assert.IsNull(ProjectRunService.CppArchitectureFromProperties([]));
+    }
+
+    [TestMethod]
+    public void BuildCppCommandDisplay_ShowsOnlyWhatChangesTheBuild()
+    {
+        var solution = WriteFile("App.slnx", Slnx("App/App.vcxproj"));
+        var project = WriteFile(@"App\App.vcxproj", CppApp);
+        var options = new ProjectRunOptions("Debug", "arm64", null, false, false, ["Foo=Bar", "MyPassword=hunter2"], Solution: solution);
+
+        var display = ProjectRunService.BuildCppCommandDisplay(project, options, _tempDir.FullName);
+        var outside = ProjectRunService.BuildCppCommandDisplay(project, options with { NoRestore = true }, Path.Join(_tempDir.FullName, "elsewhere"));
+
+        Assert.AreEqual(@"MSBuild.exe App\App.vcxproj -restore -p:Foo=Bar -p:MyPassword=*** -p:Configuration=Debug -p:Platform=ARM64", display);
+        StringAssert.StartsWith(outside, $"MSBuild.exe {project.FullName} -p:Foo=Bar");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_Vcxproj_BuildsQuietlyByDefault()
+    {
+        var (project, outDir) = WritePackagedBuildOutput();
+        _msbuild.Replies.Add((new ProcessRunResult(0, string.Empty, string.Empty), []));
+        _msbuild.Replies.Add((new ProcessRunResult(0, PackagedProperties(outDir), string.Empty), []));
+
+        await _service.BuildAndResolveAsync(project, new ProjectRunOptions("Debug", "x64", null, false, false, []), CancellationToken.None);
+
+        CollectionAssert.Contains(_msbuild.Calls[0].ToArray(), "-verbosity:quiet", "C++/WinRT floods minimal verbosity; only warnings and errors are shown by default");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_Vcxproj_InTerminal_PrintsWinappExplanationInsteadOfRawPrerequisiteError()
+    {
+        var project = WriteFile("App.vcxproj", CppApp);
+        using var console = new TestConsole();
+        using var logger = new LevelLogger<ProjectRunService>(Microsoft.Extensions.Logging.LogLevel.Information);
+        var service = new ProjectRunService(
+            _dotnet, new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, _dotnet), new FakeCsWinRTMetadataShimService(),
+            console, logger, _msbuild)
+        {
+            NativeTerminalGateOverrideForTests = () => true,
+        };
+        _msbuild.Replies.Add((new ProcessRunResult(1, string.Empty, string.Empty),
+        [
+            @"main.cpp(3): warning C4100: unreferenced parameter",
+            @"Microsoft.CppBuild.targets(474,5): error MSB8020: The build tools for 'v999' cannot be found.",
+        ]));
+
+        await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => service.BuildAndResolveAsync(project, new ProjectRunOptions("Debug", "x64", null, false, false, []), CancellationToken.None));
+
+        StringAssert.Contains(console.Output, "warning C4100");
+        Assert.IsFalse(console.Output.Contains("error MSB8020", StringComparison.Ordinal), "winapp's explanation replaces the raw MSB8020 line");
     }
 
     [TestMethod]

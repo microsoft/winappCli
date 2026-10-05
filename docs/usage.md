@@ -899,10 +899,11 @@ winapp run . --no-build --detach --json
 ```
 
 - A WinUI 3 C++/WinRT app from the Visual Studio **WinUI Blank App (Packaged)** template runs packaged. Other application projects, such as a console app or a WinUI app built with `-p WindowsPackageType=None`, run unpackaged from their built `.exe`.
-- Builds `Debug` for the current architecture by default. `--arch x64|arm64|x86` selects the `x64`, `ARM64`, or `Win32` platform; a custom `-p Platform=...` is passed through, but one that names a different architecture than `--arch` is rejected.
+- Builds `Debug` for the current architecture by default. `--arch x64|arm64|x86` or `-p Platform=x64|ARM64|Win32` selects the architecture (passing both with different architectures is an error); a custom `-p Platform` name is passed through.
 - Restores the `packages.config` NuGet packages first (skip with `--no-restore`) and installs the Windows App Runtime version they pin. Packaged apps also get the framework packages the build references, such as the Debug VC++ runtime, installed when missing.
 - `--framework` and `--aot` apply only to .NET projects.
-- In a solution that also has a runnable C# app, the C# app is selected; use `--project <name>` to run the C++ app.
+- Build output shows MSBuild's warnings and errors only, with a spinner while it builds; `--verbose` shows MSBuild's full output and exact command.
+- In a folder or solution that also has a runnable C# app, the C# app is selected; use `--project <name>` to run the C++ app. C# libraries and test projects next to a C++ app don't get in the way.
 - A C# app that references a C++ project (for example a native DLL) can't be built with `dotnet`. Build it with Visual Studio or `MSBuild.exe`, then run `winapp run <app>.csproj --no-build`, or package its output folder with `winapp package <folder>`.
 
 **Prerequisites:** Visual Studio or Build Tools for Visual Studio 2022 version 17.8 or later, with the MSVC C++ build tools for the target architecture (the **Desktop development with C++** workload) and the Windows SDK the project targets. WinUI 3 apps also need **C++ WinUI app development tools**. The .NET SDK is not required. When the build tools, platform toolset (`MSB8020`), or Windows SDK (`MSB8036`) are missing, `winapp run` says what to install, including a `winget` command.

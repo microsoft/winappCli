@@ -49,6 +49,8 @@ Does the project already have an appxmanifest.xml?
    │  ├─ Have a .NET/WinUI .csproj or .sln/.slnx (or a folder with one)? (build + run in one step)
    │  │  └─ winapp run <project-or-solution>  (dotnet build + provision runtime + launch)
    │  │     (packaged apps launch with identity; unpackaged apps launch the .exe directly, no identity)
+   │  ├─ Have a C++ .vcxproj (e.g. WinUI 3 C++/WinRT)? (build + run in one step)
+   │  │  └─ winapp run <project.vcxproj>  (Visual Studio MSBuild + launch; needs VS/Build Tools with the C++ workload)
    │  ├─ Is the exe in the same folder as your build output? (most frameworks)
    │  │  └─ winapp run <build-output-dir>  (registers loose layout + launches)
    │  └─ Is the exe separate from your app code? (Electron, sparse package testing)
@@ -224,7 +226,7 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 ### `winapp run [<input>]`
 **Purpose:** Build and/or package a Windows app and launch it — for **packaged** apps this simulates a full MSIX install with package identity; for **unpackaged** apps it launches the built `.exe` directly (no package identity). Returns the launched process ID for debugger attachment. Operates in one of three modes, auto-selected from the input:
 - **Folder mode** — input is a build-output folder (contains `Package.appxmanifest`/`AppxManifest.xml`). Creates a loose-layout package, registers it with Windows, and launches it. Original behavior, unchanged.
-- **Project mode** — input is a `.csproj`, a `.sln`/`.slnx` solution, or a directory containing one (including `.`). Builds the project with `dotnet build`, installs the matching-architecture Windows App Runtime if the app uses the Windows App SDK, then launches it. Supports both **packaged** (`WindowsPackageType=MSIX` → loose-layout + AUMID) and **unpackaged** (`WindowsPackageType=None` → launch the built `.exe` directly) WinUI apps, detected from the effective `WindowsPackageType` MSBuild property. Input defaults to the current directory when omitted (like `dotnet run`). Requires .NET SDK 8.0.100+.
+- **Project mode** — input is a `.csproj`, a C++ `.vcxproj`, a `.sln`/`.slnx` solution, or a directory containing one (including `.`). Builds the project with `dotnet build` (a `.vcxproj` with Visual Studio's MSBuild), installs the matching-architecture Windows App Runtime if the app uses the Windows App SDK, then launches it. Supports both **packaged** (`WindowsPackageType=MSIX` → loose-layout + AUMID) and **unpackaged** (`WindowsPackageType=None` → launch the built `.exe` directly) WinUI apps, detected from the effective `WindowsPackageType` MSBuild property. Input defaults to the current directory when omitted (like `dotnet run`). Requires .NET SDK 8.0.100+.
 - **Single-file mode** — input is a `.cs` .NET file-based app (a single file configured by `#:` directives, no project file). Builds it, **generates a manifest** from its `#:property` values, and launches it packaged with identity — so **no `winapp init` or `manifest generate` step is needed**. Configure identity with `#:property WinAppPackageName`, `WinAppDisplayName`, `WinAppPublisher`, `WinAppVersion`, `WinAppDescription` (all optional), and declare capabilities for gated APIs with `WinAppCapabilities` (e.g. `systemAIModels` for the Windows AI APIs; names are placed in the correct XML namespace automatically). A console app (`OutputType=Exe`) launches through an execution alias by default so its output reaches the terminal. Supports packaged and unpackaged (`WindowsPackageType=None`) just like project mode, and builds for the current winapp process architecture by default. Requires .NET SDK 10.0.300+.
 **When to use:** The **preferred command** for iterative development and debugging with package identity (.NET, C++, Rust, Flutter, Tauri). Point it at a project/solution to build-and-run in one step, at a `.cs` file-based app, or at a build-output folder to package-and-run existing output.
 **Key options:**
@@ -245,7 +247,7 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 - `--symbols` — with `--debug-output`, download Microsoft public symbols for richer native crash stacks (first run downloads and caches them)
 - `--output-appx-directory <path>` — custom output directory for the loose layout
 - `--on sandbox` — build on the host and run in the guest. Use `--detach` before follow-up UI commands; `--debug-output` requires a packaged app. See `winapp-sandbox` for runtime and app-lifetime limits.
-**Requires:** Folder mode — built app output directory + `appxmanifest.xml`. Project mode — a `.csproj`/`.sln`/`.slnx` (or directory containing one) + .NET SDK 8.0.100+. Single-file mode — a `.cs` file-based app + .NET SDK 10.0.300+ (no manifest needed).
+**Requires:** Folder mode — built app output directory + `appxmanifest.xml`. Project mode — a `.csproj`/`.sln`/`.slnx` (or directory containing one) + .NET SDK 8.0.100+; a `.vcxproj` + Visual Studio or Build Tools 2022 17.8+ with the "Desktop development with C++" workload (no .NET SDK needed). Single-file mode — a `.cs` file-based app + .NET SDK 10.0.300+ (no manifest needed).
 
 ### `winapp unregister`
 **Purpose:** Remove a development package registration created by `winapp run` / `create-debug-identity`.
