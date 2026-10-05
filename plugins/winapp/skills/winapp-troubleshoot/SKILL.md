@@ -27,6 +27,7 @@ Use this skill when:
 | `run` registration conflict | Another folder already registered this package (same name and publisher) | Opt into `winapp run . --unique-identity` for supported packaged apps, or explicitly unregister your previous layout. `--force` does not apply |
 | `create-debug-identity` registration error `0x80073CFB` | An earlier `create-debug-identity` registration is still present | Run `winapp unregister --manifest .\Package.appxmanifest`, then retry. See [registrations without a winapp record](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#registrations-without-a-winapp-record) |
 | App's Start menu entry launches nothing, silently | Package still registered after its files were deleted | Run `winapp unregister --prune` to remove every dev registration whose files are gone |
+| "winapp can't write the API index" / "can't install the Microsoft Store Developer CLI" | `%USERPROFILE%\.winapp` isn't writable (for example, an agent sandbox) | Set `WINAPP_CLI_CACHE_DIRECTORY` to a writable folder, such as one inside the project, and retry. Other commands keep working without it |
 
 For `--unique-identity` errors about unsupported extensions or resources, see
 [unique identity for parallel checkouts](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts).

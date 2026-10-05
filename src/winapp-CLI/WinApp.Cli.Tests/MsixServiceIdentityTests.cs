@@ -1145,6 +1145,42 @@ public class MsixServiceIdentityTests : BaseCommandTests
     }
 
     /// <summary>
+    /// Where winapp can read but not write its state directory (a sandbox that only allows writes
+    /// to the project), <c>run</c> proceeds without the claim instead of waiting out the timeout.
+    /// </summary>
+    [TestMethod]
+    public void LayoutLease_StateDirectoryNotWritable_ProceedsWithoutWaiting()
+    {
+        var layout = _tempDirectory.CreateSubdirectory("layout-e");
+        var stateRoot = _tempDirectory.CreateSubdirectory("read-only-state");
+        var locks = stateRoot.CreateSubdirectory("layout-locks");
+
+        var user = System.Security.Principal.WindowsIdentity.GetCurrent().User!;
+        var deny = new System.Security.AccessControl.FileSystemAccessRule(
+            user,
+            System.Security.AccessControl.FileSystemRights.CreateFiles,
+            System.Security.AccessControl.AccessControlType.Deny);
+        var acl = locks.GetAccessControl();
+        acl.AddAccessRule(deny);
+        locks.SetAccessControl(acl);
+        try
+        {
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+            using (LayoutLease.AcquireLayoutIn(locks.FullName, layout, TestContext.CancellationToken, TimeSpan.FromSeconds(30)))
+            {
+            }
+
+            Assert.IsLessThan(TimeSpan.FromSeconds(5), elapsed.Elapsed, "A read-only state directory must not make run wait out the timeout.");
+        }
+        finally
+        {
+            acl.RemoveAccessRule(deny);
+            locks.SetAccessControl(acl);
+        }
+    }
+
+    /// <summary>
     /// The shape of a packaged Windows Sandbox run, twice: the host deploys an exact payload into
     /// the guest, and the guest registers from a layout directory the host created beside it. When
     /// the app drops a file, the second run must drop it from that registration layout too --

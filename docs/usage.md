@@ -1494,16 +1494,30 @@ winapp cert generate [options]
   "subjectName": "CN=Contoso",
   "warnings": [
     "Protected with the default password ('password'), which is public. Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship."
-  ]
+  ],
+  "skipped": false
 }
 ```
 
 `publisher` is the display name and `subjectName` the full distinguished name the certificate was
-issued to. `defaultPasswordIsPublic` is always present. When it is `true`, the `.pfx` is protected by
+issued to. `defaultPasswordIsPublic` is always present when a certificate is generated. When it is `true`, the `.pfx` is protected by
 a password anyone can guess, so the certificate must only sign builds that stay on your own machines
 — check it before a script hands the certificate to anything else. `warnings` carries the same
 disclosure as text and is omitted when there is nothing to report. `publicCertificatePath` appears
 only with `--export-cer`.
+
+With `--if-exists skip`, when the certificate file already exists, the command leaves it untouched
+and returns only its path:
+
+```json
+{
+  "certificatePath": "C:\\app\\devcert.pfx",
+  "skipped": true
+}
+```
+
+Check `skipped` before reading the other fields. To inspect the existing certificate, run
+[`winapp cert info`](#cert-info).
 
 #### cert info
 
@@ -2219,7 +2233,24 @@ In **PowerShell** and **pwsh**:
 $env:WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
 ```
 
-Winapp will create this directory automatically when you run commands like `init` or `restore`.
+Winapp creates this directory when a command first needs it.
+
+#### When winapp can't write to the global cache directory
+
+Some environments, such as agent sandboxes that only allow writes to the current project, block access to `%USERPROFILE%\.winapp`. Most commands still work there, and the update check is skipped. If winapp hasn't completed its first run in that directory, each run also prints a one-line telemetry notice to stderr.
+
+These commands need to write to the cache directory and stop with an error that names the path:
+
+| Command | What it writes |
+|---------|----------------|
+| `find-api` | The API index, when it needs to be built or refreshed. An existing, up-to-date index is still read. |
+| `store` | The Microsoft Store Developer CLI, the first time it's installed. |
+
+To fix it, set `WINAPP_CLI_CACHE_DIRECTORY` to a folder winapp can write to (for example, one inside your project), then retry.
+
+`winapp ui` commands keep their turn-taking state in `%USERPROFILE%\.winapp\state\ui`. If they can't access it, they still run, but without waiting for other `winapp ui` commands on the same desktop, and print one warning (omitted with `--json` or `--quiet`). Avoid running other `winapp ui` commands on that desktop at the same time.
+
+Windows Sandbox commands keep their state in `%USERPROFILE%\.winapp\state`. If that folder isn't writable, they stop with `sandbox_state_unavailable` and name the variable to set.
 
 ### Update Checks
 
@@ -2330,10 +2361,5 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.m
 
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
 stop reason, optional `frameArtifacts`, and warnings.
-
-> **Known limitation:** recording a *specific element* inside a popup that renders in its own
-> top-level window (WinUI/XAML flyout, teaching tip, tooltip) may capture the underlying main
-> window instead. Record the whole window, or follow the [screenshot overlay workflow](ui-automation.md#screenshot)
-> for popup stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).

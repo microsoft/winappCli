@@ -33,33 +33,66 @@ internal sealed class LayoutLease : IDisposable
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
 
-    private readonly FileStream _stream;
+    private readonly FileStream? _stream;
 
-    private LayoutLease(FileStream stream) => _stream = stream;
+    private LayoutLease(FileStream? stream) => _stream = stream;
 
     /// <summary>
     /// Claims <paramref name="layoutDirectory"/> until the returned lease is disposed.
     /// </summary>
+    /// <remarks>
+    /// When winapp can't write its lock directory (for example, in a sandbox that only allows
+    /// writes to the project), the run proceeds without a claim rather than failing: concurrent runs
+    /// into one layout are rare, and refusing every run there would be worse. Package ownership
+    /// changes stay serialized by <see cref="AcquireFamilies"/>, which never proceeds unlocked.
+    /// </remarks>
     /// <exception cref="TimeoutException">Another winapp process held the layout for too long.</exception>
     internal static LayoutLease Acquire(
         DirectoryInfo winappStateRoot,
         DirectoryInfo layoutDirectory,
         CancellationToken cancellationToken,
         TimeSpan? timeout = null)
+        => AcquireLayoutIn(LockDirectory("layout"), layoutDirectory, cancellationToken, timeout);
+
+    /// <summary>Claims a layout using an explicit lock directory; <see cref="Acquire"/> supplies the shared one.</summary>
+    internal static LayoutLease AcquireLayoutIn(
+        string lockDirectory,
+        DirectoryInfo layoutDirectory,
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         var canonical = DevelopmentIdentityHelper.CanonicalizePath(layoutDirectory.FullName);
-        return AcquireKey("layout", canonical, cancellationToken, timeout);
+        return AcquireKey(lockDirectory, "layout", canonical, cancellationToken, timeout, proceedUnlockedIfUnwritable: true);
     }
 
-    private static LayoutLease AcquireKey(string kind, string canonical, CancellationToken cancellationToken, TimeSpan? timeout = null)
+    // Shared across worktrees: different project state roots can refer to the same layout or family.
+    private static string LockDirectory(string kind)
+        => Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "winapp", kind + "-locks");
+
+    private static LayoutLease AcquireKey(
+        string stateDirectory,
+        string kind,
+        string canonical,
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null,
+        bool proceedUnlockedIfUnwritable = false)
     {
-        // Shared across worktrees: different project state roots can refer to the same layout or family.
-        var stateDirectory = Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "winapp", kind + "-locks");
         DevelopmentRegistrationStore.EnsureRealPath(stateDirectory);
-        Directory.CreateDirectory(stateDirectory);
+        try
+        {
+            Directory.CreateDirectory(stateDirectory);
+        }
+        catch (Exception ex) when (proceedUnlockedIfUnwritable && ex is IOException or UnauthorizedAccessException)
+        {
+            return new LayoutLease(null);
+        }
+
+        // Hashed so the name is a fixed length no matter how long the key is, and
+        // case-insensitively, so two spellings of one Windows path do not become two locks.
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToUpperInvariant())));
         var lockPath = Path.Join(stateDirectory, key + ".lock");
         var deadline = DateTime.UtcNow + (timeout ?? DefaultTimeout);
+        var consecutiveDenials = 0;
 
         while (true)
         {
@@ -77,8 +110,19 @@ internal sealed class LayoutLease : IDisposable
                     bufferSize: 1,
                     FileOptions.DeleteOnClose));
             }
+            catch (UnauthorizedAccessException) when (proceedUnlockedIfUnwritable && ++consecutiveDenials > 1)
+            {
+                // A held lock is a sharing violation (IOException). Access denied is only transient
+                // while a released lock file is being deleted, so a repeat means winapp can't write here.
+                return new LayoutLease(null);
+            }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                if (ex is IOException)
+                {
+                    consecutiveDenials = 0;
+                }
+
                 if (DateTime.UtcNow >= deadline)
                 {
                     throw new TimeoutException(
@@ -91,7 +135,7 @@ internal sealed class LayoutLease : IDisposable
         }
     }
 
-    public void Dispose() => _stream.Dispose();
+    public void Dispose() => _stream?.Dispose();
 
     internal static IDisposable AcquireFamilies(IEnumerable<string> familyNames, CancellationToken cancellationToken)
     {
@@ -100,7 +144,7 @@ internal sealed class LayoutLease : IDisposable
         {
             foreach (var family in familyNames.Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
             {
-                leases.Add(AcquireKey("family", family, cancellationToken));
+                leases.Add(AcquireKey(LockDirectory("family"), "family", family, cancellationToken));
             }
             return new FamilyLeases(leases);
         }

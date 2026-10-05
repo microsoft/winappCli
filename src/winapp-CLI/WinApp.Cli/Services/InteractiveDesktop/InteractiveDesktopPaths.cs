@@ -378,7 +378,8 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
             throw new UiCoordinationException(
                 UiCoordinationErrorCodes.Unavailable,
                 $"The UI coordination directory '{directoryInfo.FullName}' could not be restricted to the current user: {ex.Message}",
-                "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use %USERPROFILE%\\.winapp\\state\\ui.");
+                "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use %USERPROFILE%\\.winapp\\state\\ui.",
+                ex);
         }
     }
 
@@ -561,5 +562,6 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
         => new(
             UiCoordinationErrorCodes.Unavailable,
             $"The UI coordination directory '{path}' could not be created: {ex.Message}",
-            "Check that the current user can write to the directory, or set WINAPP_UI_LOCK_DIRECTORY to a writable local directory.");
+            "Check that the current user can write to the directory, or set WINAPP_UI_LOCK_DIRECTORY to a writable local directory.",
+            ex);
 }
