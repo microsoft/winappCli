@@ -625,9 +625,9 @@ public class RunCommandProjectModeTests : BaseCommandTests
         var withoutManifestDir = _tempDirectory.CreateSubdirectory("LibA");
         var withManifestDir = _tempDirectory.CreateSubdirectory("LibB");
         const string library = "<Project><PropertyGroup><ConfigurationType>DynamicLibrary</ConfigurationType></PropertyGroup></Project>";
-        File.WriteAllText(Path.Combine(withoutManifestDir.FullName, "LibA.vcxproj"), library);
-        File.WriteAllText(Path.Combine(withManifestDir.FullName, "LibB.vcxproj"), library);
-        var manifestPath = Path.Combine(_tempDirectory.CreateSubdirectory("pkg").FullName, "appxmanifest.xml");
+        File.WriteAllText(Path.Join(withoutManifestDir.FullName, "LibA.vcxproj"), library);
+        File.WriteAllText(Path.Join(withManifestDir.FullName, "LibB.vcxproj"), library);
+        var manifestPath = Path.Join(_tempDirectory.CreateSubdirectory("pkg").FullName, "appxmanifest.xml");
         File.WriteAllText(manifestPath, TestManifestContent);
         var command = GetRequiredService<RunCommand>();
 
@@ -644,7 +644,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
     [TestMethod]
     public async Task ProjectMode_Cpp_PlatformProperty_SelectsArchitectureWhenArchIsNotGiven()
     {
-        var vcxproj = new FileInfo(Path.Combine(_tempDirectory.FullName, "App.vcxproj"));
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
         File.WriteAllText(vcxproj.FullName, "<Project />");
         _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
         SetUnpackagedOutcome(vcxproj, CreateTargetDir(withManifest: false), selfContained: false, arch: "arm64");
@@ -660,7 +660,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
     [TestMethod]
     public async Task ProjectMode_Cpp_ExplicitArch_IsNotOverriddenByPlatformProperty()
     {
-        var vcxproj = new FileInfo(Path.Combine(_tempDirectory.FullName, "App.vcxproj"));
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
         File.WriteAllText(vcxproj.FullName, "<Project />");
         _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
         SetUnpackagedOutcome(vcxproj, CreateTargetDir(withManifest: false), selfContained: false, arch: "x64");
