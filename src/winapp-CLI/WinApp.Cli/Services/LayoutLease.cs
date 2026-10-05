@@ -32,13 +32,18 @@ internal sealed class LayoutLease : IDisposable
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
 
-    private readonly FileStream _stream;
+    private readonly FileStream? _stream;
 
-    private LayoutLease(FileStream stream) => _stream = stream;
+    private LayoutLease(FileStream? stream) => _stream = stream;
 
     /// <summary>
     /// Claims <paramref name="layoutDirectory"/> until the returned lease is disposed.
     /// </summary>
+    /// <remarks>
+    /// When winapp can't write its state directory (for example, in a sandbox that only allows
+    /// writes to the project), the run proceeds without a claim rather than failing: concurrent runs
+    /// into one layout are rare, and refusing every run there would be worse.
+    /// </remarks>
     /// <exception cref="TimeoutException">Another winapp process held the layout for too long.</exception>
     internal static LayoutLease Acquire(
         DirectoryInfo winappStateRoot,
@@ -47,7 +52,15 @@ internal sealed class LayoutLease : IDisposable
         TimeSpan? timeout = null)
     {
         var stateDirectory = Path.Combine(winappStateRoot.FullName, "layout-locks");
-        Directory.CreateDirectory(stateDirectory);
+
+        try
+        {
+            Directory.CreateDirectory(stateDirectory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new LayoutLease(null);
+        }
 
         // Hashed so the name is a fixed length no matter how deep the layout is, and
         // case-insensitively, so two spellings of one Windows path do not become two locks.
@@ -56,6 +69,7 @@ internal sealed class LayoutLease : IDisposable
         var lockPath = Path.Combine(stateDirectory, key + ".lock");
 
         var deadline = DateTime.UtcNow + (timeout ?? DefaultTimeout);
+        var consecutiveDenials = 0;
 
         while (true)
         {
@@ -72,8 +86,19 @@ internal sealed class LayoutLease : IDisposable
                     bufferSize: 1,
                     FileOptions.DeleteOnClose));
             }
+            catch (UnauthorizedAccessException) when (++consecutiveDenials > 1)
+            {
+                // A held lock is a sharing violation (IOException). Access denied is only transient
+                // while a released lock file is being deleted, so a repeat means winapp can't write here.
+                return new LayoutLease(null);
+            }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                if (ex is IOException)
+                {
+                    consecutiveDenials = 0;
+                }
+
                 if (DateTime.UtcNow >= deadline)
                 {
                     throw new TimeoutException(
@@ -86,5 +111,5 @@ internal sealed class LayoutLease : IDisposable
         }
     }
 
-    public void Dispose() => _stream.Dispose();
+    public void Dispose() => _stream?.Dispose();
 }

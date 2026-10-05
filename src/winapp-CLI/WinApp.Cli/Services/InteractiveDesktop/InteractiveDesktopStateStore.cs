@@ -100,7 +100,8 @@ internal sealed class InteractiveDesktopStateStore(
                 throw new UiCoordinationException(
                     UiCoordinationErrorCodes.Unavailable,
                     $"The UI coordination state lock '{paths.StateLockPath}' could not be opened: {ex.Message}",
-                    "Check that the current user can write to the coordination directory.");
+                    "Check that the current user can write to the coordination directory.",
+                    ex);
             }
 
             attempt++;

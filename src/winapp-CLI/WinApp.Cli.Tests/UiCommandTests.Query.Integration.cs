@@ -48,10 +48,13 @@ public partial class UiCommandTests
                 }
                 return nativeProcessId(element);
             };
+            // The timeout only bounds a failure; the counts below are what prove one retry. It must
+            // leave room for that retry: on a loaded machine the first root-constrained lookup alone
+            // can take several seconds, and a tight budget expires before the second poll runs.
             var args = new List<string>
             {
                 "txtValue", "-w", fx.Hwnd.ToString(), "--root", "fixtureForm", "--type", "Edit",
-                "--value", "ready", "--timeout", "5000", "--json",
+                "--value", "ready", "--timeout", "120000", "--json",
             };
             if (property) { args.AddRange(["--property", "Value"]); }
             var exit = await ParseAndInvokeWithCaptureAsync(RealStringQueryCommand("wait-for", svc), args.ToArray());
