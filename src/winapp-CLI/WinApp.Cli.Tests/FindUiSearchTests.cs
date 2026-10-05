@@ -139,10 +139,48 @@ public class FindUiSearchTests
         Assert.IsTrue(found);
         StringAssert.Contains(formatted, "[Reactor]");
         StringAssert.Contains(formatted, "**Setup:** NuGet `Microsoft.UI.Reactor`");
-        // All reactor controls share Microsoft.UI.Reactor, so the namespace hint is suppressed.
-        Assert.IsFalse(formatted.Contains("**Namespace:**"), "reactor must not emit a **Namespace:** line");
+        // Reactor's apiNamespace is uniform across all its controls, so it is never emitted.
+        // A reactor control that publishes its own `usings` still gets a **Namespace:** line
+        // (see GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine); this one has none.
+        Assert.IsFalse(formatted.Contains("**Namespace:**"), "the shared reactor apiNamespace is not a hint");
         // Reactor samples are C#-only — no XAML block.
         Assert.IsFalse(formatted.Contains("**XAML:**"), "reactor scenarios have no XAML");
+    }
+
+    [TestMethod]
+    public void GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine()
+    {
+        // Per-control reactor namespaces (Microsoft.UI.Reactor.Docking and friends) are
+        // exactly the imports a consumer cannot guess, so they get the line even though the
+        // uniform apiNamespace does not.
+        var flex = ReactorScn("flex", "Flex", "flex-1", "CSS-style flex layout");
+        flex.Usings = ["Microsoft.UI.Reactor.Flex", "Microsoft.UI.Xaml.Controls"];
+        var engine = new SearchEngine([flex], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, found, _) = engine.GetPattern("reactor-flex-1");
+
+        Assert.IsTrue(found);
+        StringAssert.Contains(formatted, "**Namespace:** `Microsoft.UI.Reactor.Flex`");
+        // Ambient namespaces are filtered: a stock WinUI project already resolves this one.
+        Assert.IsFalse(formatted.Contains("Microsoft.UI.Xaml.Controls"), "ambient namespaces are noise");
+    }
+
+    [TestMethod]
+    public void GetPattern_GalleryScenario_KeepsApiNamespaceWhenUsingsAreAllAmbient()
+    {
+        // Regression: 49 Gallery controls publish BOTH usings and apiNamespace, and they
+        // differ. AppWindow imports only template namespaces but the type itself lives in
+        // Microsoft.UI.Windowing — treating usings as a replacement for apiNamespace rather
+        // than a union silently dropped that hint, which is the whole point of the line.
+        var s = Scn("gallery", "appwindow", "AppWindow", "appwindow-1", "Basic usage", "Windowing.");
+        s.Usings = ["Microsoft.UI.Xaml", "Microsoft.UI.Xaml.Controls"];
+        s.ApiNamespace = "Microsoft.UI.Windowing";
+        var engine = new SearchEngine([s], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, found, _) = engine.GetPattern("gallery-appwindow-1");
+
+        Assert.IsTrue(found);
+        StringAssert.Contains(formatted, "**Namespace:** `Microsoft.UI.Windowing`");
     }
 
     [TestMethod]

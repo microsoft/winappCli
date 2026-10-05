@@ -25,14 +25,6 @@ using System.Text.Json;
 internal static class SampleIndexParser
 {
     /// <summary>
-    /// Ceiling on the control-level <c>usings</c> block that gets copied onto every one of
-    /// a control's samples. Generous next to real indexes — the largest shipping control
-    /// uses a few short namespace names — so it bounds the copy without touching
-    /// legitimate content.
-    /// </summary>
-    private const int MaxUsingsPrefixChars = 8 * 1024;
-
-    /// <summary>
     /// Map an index document to <see cref="Scenario"/>[] plus the two per-control search
     /// dictionaries. <paramref name="source"/> is stamped onto every scenario
     /// (<see cref="Scenario.Source"/>) rather than read from the document, so a source can
@@ -89,17 +81,17 @@ internal static class SampleIndexParser
             if (keywords.Length > 0) tags[controlId] = keywords;
             if (authorKeywords.Length > 0) curatedKeywords[controlId] = authorKeywords;
 
-            // Control-level usings are prepended to EACH sample's code so a snippet
-            // compiles standalone. Sources are asked not to repeat them inside samples.
+            // Control-level usings are carried on the scenario and rendered as their own
+            // "Namespace:" line. They are deliberately NOT prepended to each sample's code:
+            // the published code is a class-body fragment (members, no class or namespace),
+            // so a `using` line glued to the front sits where C# forbids one — it compiles
+            // neither as its own file nor pasted into a class (CS1529), and a consumer has
+            // to relocate it by hand either way.
             //
-            // That prepend is a multiplier: the fetch is byte-capped, but one oversized
-            // usings block copied onto every sample of a control expands far past that
-            // cap. Real usings are a handful of namespace names, so anything near this
-            // limit is malformed or hostile and is worth more than dropping the prefix.
-            var usingsPrefix = usings.Length > 0
-                ? string.Concat(usings.Select(u => $"using {u};\n")) + "\n"
-                : "";
-            if (usingsPrefix.Length > MaxUsingsPrefixChars) usingsPrefix = "";
+            // Scope: a source parser sees only the `using` directives written in the sample
+            // file, not the host project's global usings, so this is the set of imports a
+            // consumer cannot guess (CommunityToolkit.WinUI.*, Microsoft.UI.Reactor.*)
+            // rather than everything the snippet references.
 
             if (!control.TryGetProperty(SampleIndexSchema.Samples, out var samples)
                 || samples.ValueKind != JsonValueKind.Array)
@@ -127,8 +119,6 @@ internal static class SampleIndexParser
                 // A sample with neither XAML nor code has no usable content. Placeholder
                 // tokens depend on live Gallery option controls, so suppress only the
                 // affected language block and keep the sample when the other block remains.
-                // Guard on the raw code (before the usings prefix) so a control that
-                // declares only control-level usings can't slip a using-only stub through.
                 // Code is pasted into a C# file, so drop it when tagged as another
                 // language rather than emitting, say, C++ as if it were C#.
                 var hasXaml = !string.IsNullOrWhiteSpace(xaml) && !SampleSubstitutionPlaceholder.Contains(xaml);
@@ -146,10 +136,12 @@ internal static class SampleIndexParser
                     ControlName = controlName,
                     HeaderText = header,
                     Xaml = hasXaml ? xaml : null,
-                    CSharp = hasCode ? usingsPrefix + code : null,
+                    CSharp = hasCode ? code : null,
                     Source = source,
                     NuGetPackage = NullIfEmpty(nugetPackage),
                     ApiNamespace = NullIfEmpty(apiNamespace),
+                    // Only meaningful alongside code; a xaml-only sample has nothing to import for.
+                    Usings = hasCode ? usings : [],
                     Description = NullIfEmpty(sampleDetails),
                     ControlDescription = NullIfEmpty(summary),
                     RelatedControls = relatedControls,

@@ -86,6 +86,30 @@ internal sealed class SearchEngine
         ["toolkit", "communitytoolkit", "community"];
 
     /// <summary>
+    /// Namespaces a stock WinUI project already resolves, so repeating them on the
+    /// "Namespace:" line is noise rather than help. Verified empirically against
+    /// <c>dotnet new winui</c>: the generated page imports Microsoft.UI.Xaml and the project
+    /// enables ImplicitUsings, which supplies the System.* entries below — a probe
+    /// referencing all of them compiles with no additional using directives.
+    /// Microsoft.UI.Xaml.Controls is not implicit but is imported by every page template and
+    /// dominates both corpora, which is why the Gallery apiNamespace rule has always
+    /// filtered it. The value of this line is the long tail an agent cannot guess
+    /// (CommunityToolkit.WinUI.*, Microsoft.Windows.*, Microsoft.UI.Windowing).
+    /// </summary>
+    private static readonly HashSet<string> AmbientNamespaces = new(StringComparer.Ordinal)
+    {
+        "Microsoft.UI.Xaml",
+        "Microsoft.UI.Xaml.Controls",
+        "System",
+        "System.Collections.Generic",
+        "System.IO",
+        "System.Linq",
+        "System.Net.Http",
+        "System.Threading",
+        "System.Threading.Tasks",
+    };
+
+    /// <summary>
     /// Maps platform-intent query keywords → the core pattern id that should be boosted.
     /// Keys are lowercased single tokens that appear in the user's query (after Preprocess).
     /// We use this to nudge the *specific* curated pattern, not every core pattern.
@@ -843,10 +867,9 @@ internal sealed class SearchEngine
         };
         sb.AppendLine($"## {ControlHeader(s.ControlName, s.HeaderText)}{sourceTag}");
 
-        // Reactor: surface the (uniform) NuGet package. Any control-level `using`
-        // directives are already folded into the C# snippet, and the shared
-        // Microsoft.UI.Reactor api namespace is deliberately NOT emitted as a
-        // **Namespace:** line — all reactor controls share it, so it'd be pure noise.
+        // Reactor: surface the (uniform) NuGet package. The shared Microsoft.UI.Reactor api
+        // namespace is deliberately NOT emitted as a **Namespace:** line — all reactor
+        // controls share it, so it'd be pure noise. Per-control `usings` still are, below.
         if (s.Source == "reactor")
         {
             if (!string.IsNullOrEmpty(s.NuGetPackage))
@@ -865,18 +888,36 @@ internal sealed class SearchEngine
                     parts.Add($"`{ns}`");
                 sb.AppendLine($"**Setup:** {string.Join(" · ", parts)}");
             }
-
-            // Gallery non-default namespace hint — agents miss `using Microsoft.Windows.Notifications`
-            // and similar long-tail imports. Skip the dominant Microsoft.UI.Xaml.Controls (auto-imported
-            // in default templates) so 79/107 controls stay quiet. This is independent of the Setup
-            // line above: a sample can need both an xmlns declaration and a C# using.
-            if (s.Source == "gallery"
-                && !string.IsNullOrEmpty(s.ApiNamespace)
-                && s.ApiNamespace != "Microsoft.UI.Xaml.Controls")
-            {
-                sb.AppendLine($"**Namespace:** `{s.ApiNamespace}`");
-            }
         }
+
+        // C# imports, as their own line rather than prepended to the snippet: sample code is
+        // a class-body fragment, so a `using` glued to the front of it compiles neither as a
+        // file nor pasted into a class (CS1529). On its own line it merges into the target
+        // file's existing header, which is where the consumer has to put it anyway.
+        //
+        // Two complementary inputs, unioned: the control's `usings` (what its samples import)
+        // and the Gallery's apiNamespace (where the control type itself lives). A Gallery
+        // control routinely has both and they differ — appwindow imports only template
+        // namespaces but lives in Microsoft.UI.Windowing, so dropping either loses the hint.
+        // Ambient namespaces are filtered so the line carries only what an agent would miss.
+        //
+        // Scope: a producer parsing source sees only the `using` directives written in the
+        // sample file, not the host project's global usings, so treat this as the non-obvious
+        // imports rather than a complete set.
+        var imports = new List<string>(s.Usings.Length + 1);
+        foreach (var u in s.Usings)
+        {
+            if (!AmbientNamespaces.Contains(u) && !imports.Contains(u)) imports.Add(u);
+        }
+        if (s.Source == "gallery"
+            && !string.IsNullOrEmpty(s.ApiNamespace)
+            && s.ApiNamespace != "Microsoft.UI.Xaml.Controls"
+            && !imports.Contains(s.ApiNamespace))
+        {
+            imports.Add(s.ApiNamespace);
+        }
+        if (imports.Count > 0)
+            sb.AppendLine($"**Namespace:** {string.Join(" · ", imports.Select(u => $"`{u}`"))}");
 
         if (s.Xaml != null)
         {

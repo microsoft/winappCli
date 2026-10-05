@@ -69,7 +69,7 @@
           "items": { "type": "string" }
         },
         "usings": {
-          "description": "Namespaces the control's C# samples assume are imported. Consumers prepend these as 'using X;' lines so a sample compiles standalone; do not repeat them inside each sample's 'code'.",
+          "description": "C# namespaces the control's samples import, beyond those the host project already provides. Producers that parse source can only see the 'using' directives written in a sample file, not the project's global or implicit usings, so this is the set of imports a consumer cannot infer — library namespaces such as 'CommunityToolkit.WinUI.Helpers' — rather than a complete import set for the snippet. Consumers surface these alongside the sample instead of prepending them to 'code', because 'code' is a class-body fragment and a 'using' placed inside it is not valid C# there. Do not repeat them inside each sample's 'code'.",
           "type": "array",
           "items": { "type": "string" }
         },
@@ -156,7 +156,7 @@
           "type": "string"
         },
         "code": {
-          "description": "The sample's C#, exactly as it should be pasted into a project. Gallery substitution placeholders of the form '$(Name)' are not pasteable C# because they can occur inside expressions, enum members, or assignment right-hand sides. Schema version 1 has no safe generic rewrite for them: producers should omit or resolve placeholder-dependent C# before publishing, and consumers that promise pasteable output may drop or explicitly mark code that still contains those placeholders. Consumers also validate that braces balance and drop the code otherwise. Omit the control-level 'usings' — consumers add those.",
+          "description": "The sample's C#, exactly as it should be pasted into a project. Gallery substitution placeholders of the form '$(Name)' are not pasteable C# because they can occur inside expressions, enum members, or assignment right-hand sides. Schema version 1 has no safe generic rewrite for them: producers should omit or resolve placeholder-dependent C# before publishing, and consumers that promise pasteable output may drop or explicitly mark code that still contains those placeholders. Consumers also validate that braces balance and drop the code otherwise. Omit the control-level 'usings' — consumers surface those separately.",
           "type": "string"
         },
         "language": {

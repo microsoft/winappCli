@@ -9,7 +9,7 @@ namespace WinApp.Cli.Tests;
 /// Hermetic tests for <see cref="ReactorFetcher"/>'s JSON parser — the
 /// reactor-search-index.json → <see cref="Scenario"/> mapping. No network: the
 /// index document is supplied inline so the C#-only shape, curated-keyword tags,
-/// control-level usings folding, and empty-sample skipping are all verified
+/// control-level usings carried alongside code, and empty-sample skipping are all verified
 /// against a fixed input.
 /// </summary>
 [TestClass]
@@ -78,17 +78,20 @@ public class ReactorFetcherTests
     }
 
     [TestMethod]
-    public void Parse_FoldsControlLevelUsingsIntoSampleCode()
+    public void Parse_CarriesControlLevelUsingsAlongsideSampleCode()
     {
         var (scenarios, _) = ReactorFetcher.Parse(SampleIndex);
 
+        // Carried as data, not prepended: the code is a class-body fragment, so a `using`
+        // glued to the front of it lands where C# does not allow one.
         var flex = scenarios.Single(s => s.ControlId == "flex");
-        StringAssert.Contains(flex.CSharp, "using Microsoft.UI.Reactor.Flex;");
-        StringAssert.Contains(flex.CSharp, "new Flex()");
+        CollectionAssert.AreEqual(new[] { "Microsoft.UI.Reactor.Flex" }, flex.Usings);
+        Assert.AreEqual("new Flex()", flex.CSharp);
 
-        // Controls without usings keep their code verbatim (no prefix).
+        // Controls without usings keep their code verbatim and carry no imports.
         var acrylic = scenarios.Single(s => s.ControlId == "acrylic");
         Assert.AreEqual("new Acrylic()", acrylic.CSharp);
+        Assert.AreEqual(0, acrylic.Usings.Length);
     }
 
     [TestMethod]
