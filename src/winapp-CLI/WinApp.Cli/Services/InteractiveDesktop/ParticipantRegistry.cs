@@ -84,7 +84,8 @@ internal sealed class ParticipantRegistry(
             throw new UiCoordinationException(
                 UiCoordinationErrorCodes.Unavailable,
                 $"The UI coordination participant lease '{path}' could not be opened: {ex.Message}",
-                "Check that the current user can write to the coordination directory.");
+                "Check that the current user can write to the coordination directory.",
+                ex);
         }
     }
 
