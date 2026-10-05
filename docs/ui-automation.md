@@ -112,7 +112,10 @@ other, dismiss a menu the other just opened, or move a target out from under a p
 
 **Arbitration is always on.** Every `winapp ui` command that touches the physical desktop takes a
 turn, with no setup and no way to switch it off, so two agents can never type into each other's
-windows. Read-only commands keep running concurrently.
+windows. Read-only commands keep running concurrently. The one exception is a process that can't
+access winapp's coordination folder, such as an agent sandbox that blocks `%USERPROFILE%\.winapp`:
+its commands still run, but without taking turns, and print a warning (except with `--json` or
+`--quiet`).
 
 **Continuity between commands is opt-in.** By default each command is a self-contained one-shot: it
 waits its turn, does its work, and releases the desktop immediately. To keep the desktop across
