@@ -63,7 +63,8 @@ the other window trees remain available.
 Element `x`, `y`, `width`, and `height` values are numbers in physical screen
 pixels. `0,0,0,0` is UI Automation's empty/no-displayed-UI rectangle in this
 projection. `isOffscreen` is independent: an offscreen element can still have
-nonzero bounds.
+nonzero bounds. `isEditable: true` appears on elements whose value `set-value`
+can change; the field is omitted otherwise.
 
 ## `ui inspect --ancestors --json`
 
