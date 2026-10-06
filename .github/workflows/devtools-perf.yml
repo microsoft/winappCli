@@ -1,0 +1,81 @@
+name: DevTools Performance
+
+# Measures what `winapp run --devtools` costs a WinUI app (startup, idle CPU, memory, UI
+# responsiveness, interaction cost, stress) with scripts/devtools-perf.ps1 and publishes the
+# summary. Informational only: budget failures are reported, not enforced, and this is not a PR check.
+on:
+  workflow_dispatch:
+    inputs:
+      repetitions:
+        description: Launches per app and mode
+        default: '3'
+      idle-seconds:
+        description: Idle CPU window per launch, in seconds
+        default: '60'
+      soak-minutes:
+        description: Soak length per mode, in minutes (0 to skip)
+        default: '0'
+      include-gallery:
+        description: Also measure WinUI Gallery (adds about an hour)
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  devtools-perf:
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0  # Required for build number calculation
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        dotnet-version: |
+          9.0.x
+          10.0.x
+
+    - name: Enable Windows Developer Mode
+      run: |
+        reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v "AllowDevelopmentWithoutDevLicense" /d 1 /f
+
+    - name: Build CLI and DevTools engine
+      run: .\scripts\build-cli.ps1 -SkipAll
+
+    - name: Clone WinUI Gallery
+      if: ${{ inputs.include-gallery }}
+      run: git clone --depth 1 https://github.com/microsoft/WinUI-Gallery "$env:RUNNER_TEMP\WinUI-Gallery"
+
+    - name: Run benchmark
+      env:
+        REPETITIONS: ${{ inputs.repetitions || '3' }}
+        IDLE_SECONDS: ${{ inputs.idle-seconds || '60' }}
+        SOAK_MINUTES: ${{ inputs.soak-minutes || '0' }}
+        INCLUDE_GALLERY: ${{ inputs.include-gallery }}
+      run: |
+        $apps = @('bench')
+        $extra = @{}
+        if ($env:INCLUDE_GALLERY -eq 'true') { $apps += 'gallery'; $extra.GalleryPath = "$env:RUNNER_TEMP\WinUI-Gallery" }
+        .\scripts\devtools-perf.ps1 -Apps $apps -Repetitions ([int]$env:REPETITIONS) -IdleSeconds ([int]$env:IDLE_SECONDS) `
+          -SoakMinutes ([int]$env:SOAK_MINUTES) -OutDir artifacts\devtools-perf @extra
+        Get-Content artifacts\devtools-perf\summary.md | Add-Content $env:GITHUB_STEP_SUMMARY
+
+    - name: Upload results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: devtools-perf
+        path: artifacts/devtools-perf/
+        if-no-files-found: warn
+        overwrite: true

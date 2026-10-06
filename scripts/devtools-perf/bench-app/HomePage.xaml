@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="winui_app.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer>
+        <StackPanel Padding="40" Spacing="16">
+            <TextBlock x:Name="PageTitle" Style="{StaticResource TitleTextBlockStyle}" Text="DevTools Perf Bench" />
+            <TextBlock x:Name="PageSubtitle" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       Text="Driven by scripts/devtools-perf.ps1" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="CounterButton" Content="Click Me" />
+                <TextBlock x:Name="CounterText" VerticalAlignment="Center" Text="Count: 0" />
+            </StackPanel>
+            <TextBox x:Name="InputTextBox" Header="Enter text:" PlaceholderText="Type something here..." />
+            <CheckBox x:Name="FeatureCheckBox" Content="Enable feature" />
+            <Button x:Name="SubmitButton" Content="Submit" Style="{StaticResource AccentButtonStyle}" />
+            <TextBlock x:Name="ResultText" Text="" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

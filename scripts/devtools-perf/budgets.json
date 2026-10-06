@@ -1,0 +1,23 @@
+{
+  "$comment": "DevTools overhead budgets. Deltas compare a DevTools mode with 'off' on the same app and build. Edit thresholds here; ids are used by summarize.ps1.",
+  "startup.runDeltaMs":            { "max": 1500, "description": "winapp run (launch, no build) added time, median" },
+  "startup.firstWindowDeltaMs":    { "max": 300,  "description": "process start to first visible window added time, median" },
+  "startup.settledDeltaMs":        { "max": 1500, "description": "winapp run start to UI settled added time, median" },
+  "build.runWithBuildDeltaMs":     { "max": 3000, "description": "warm winapp run with incremental build added time, median" },
+  "idle.cpuDeltaPercent":          { "max": 0.5,  "description": "idle CPU added, % of one core, median over the idle window" },
+  "idle.privateDelta":            { "maxMB": 15, "maxPercent": 15, "description": "steady-state private bytes added (passes if within either the MB or the % limit), median" },
+  "scroll.missedFramesDelta":      { "max": 2,    "description": "added missed frames while scrolling a 10,000-row ListView, median" },
+  "scroll.uiLagP95DeltaMs":        { "max": 5,    "description": "added UI-thread dispatch lag p95 while scrolling, median" },
+  "nav.navP50DeltaPercent":        { "max": 15,   "description": "added time to navigate to a XAML page with ~2,200 elements, % of off" },
+  "churn.createDeltaPercent":      { "max": 50,   "description": "added time to create, show and remove elements (not rendered), % of off" },
+  "churn.retainedBytesPerElement": { "max": 256,  "description": "memory retained per created and removed element (not rendered), median" },
+  "walk.pingP95DeltaMs":           { "max": 10,   "description": "real apps: added UI-thread ping p95 during the navigation walk, median" },
+  "walk.growthDeltaMB":            { "max": 30,   "description": "real apps: added private-bytes growth over the navigation walk, median" },
+  "interaction.highlightMeanMs":   { "max": 4,    "description": "UI-thread time per hover highlight" },
+  "interaction.pickMeanMs":        { "max": 8,    "description": "UI-thread time per pick hit test" },
+  "interaction.inspectorStallMs":  { "max": 300,  "description": "UI-thread stall while opening the inspector and selecting an element" },
+  "interaction.propertyEditP95Ms": { "max": 16,   "description": "live property edit round trip p95" },
+  "interaction.commentSaveP95Ms":  { "max": 750,  "description": "comment save end to end (CLI) p95" },
+  "stress.commentsSetMeanMs":      { "max": 16,   "description": "UI-thread time to refresh comment pins with the stress store loaded" },
+  "soak.growthDeltaMBPerHour":     { "max": 60,   "description": "added private-bytes growth per hour of navigation and scrolling" }
+}
