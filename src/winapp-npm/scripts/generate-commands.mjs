@@ -12,6 +12,7 @@
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -21,7 +22,7 @@ const checkOnly = args.includes('--check');
 const schemaIdx = args.indexOf('--schema');
 const schemaOverride = schemaIdx !== -1 ? args[schemaIdx + 1] : null;
 
-const SCRIPT_DIR = import.meta.dirname;
+const SCRIPT_DIR = fileURLToPath(new URL('.', import.meta.url));
 const NPM_ROOT = resolve(SCRIPT_DIR, '..');
 const OUTPUT = resolve(NPM_ROOT, 'src/winapp-commands.ts');
 

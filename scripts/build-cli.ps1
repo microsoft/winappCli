@@ -567,7 +567,8 @@ try
                 Write-Error "Node CLI command generation failed"
                 exit 1
             }
-            npm run compile
+            # Preserve the explicit live schema; standalone pre-hooks may find stale npm binaries.
+            npm run compile --ignore-scripts
             if ($LASTEXITCODE -ne 0) {
                 Write-Error "Node CLI compile failed"
                 exit 1
@@ -576,7 +577,7 @@ try
 
             if ($RunAuxiliaryTests) {
                 Write-Host "[TEST] Running npm unit tests..." -ForegroundColor Blue
-                npm test
+                npm test --ignore-scripts
                 if ($LASTEXITCODE -ne 0) {
                     Write-Warning "npm unit tests failed with exit code $LASTEXITCODE"
                     if ($FailOnTestFailure) {
@@ -760,7 +761,7 @@ try
             Write-Host "[NPM] Generating npm API documentation..." -ForegroundColor Blue
             Push-Location (Join-Path $ProjectRoot "src\winapp-npm")
             try {
-                npm run generate-docs
+                npm run generate-docs --ignore-scripts
                 if ($LASTEXITCODE -ne 0) {
                     Write-Warning "npm API documentation generation failed, but continuing..."
                 } else {

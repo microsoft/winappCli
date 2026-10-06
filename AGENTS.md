@@ -99,6 +99,15 @@ node cli.js help
 .\scripts\build-cli.ps1 -OnlyTests -UseExistingArtifacts
 ```
 
+`src\winapp-npm\src\winapp-commands.ts` is ignored generated output. Change the
+CLI commands or `src\winapp-npm\scripts\generate-commands.mjs`, not that file.
+Standalone npm compile, watch, test, and documentation commands regenerate it
+automatically, using an available CLI binary or the tracked `docs\cli-schema.json`
+on a fresh checkout. The repository build extracts its current CLI schema
+explicitly and skips these npm pre-hooks to preserve that schema. Keep the
+generated schema and npm API documentation tracked; do not add the generated
+TypeScript wrappers to a commit.
+
 ### Running tests on a Microsoft corporate machine
 
 `api.nuget.org` is **not reachable** from corp machines. Any test that downloads a package

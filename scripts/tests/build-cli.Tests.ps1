@@ -163,6 +163,9 @@ function npm {
             throw 'Codegen used a stale schema'
         }
     }
+    if ($step -in @('compile', 'test', 'generate-docs') -and $arguments -notcontains '--ignore-scripts') {
+        throw 'Standalone generation hooks would replace the explicitly generated commands'
+    }
     $global:LASTEXITCODE = if ($fixture.Fail -eq "npm-$step") { 13 } else { 0 }
 }
 function Get-Module {
@@ -259,8 +262,8 @@ Describe 'build-cli.ps1 control flow' {
         $result.Trace | Should -Match 'WinApp.Cli.csproj -c Debug --no-build --cli-schema'
         $result.Trace | Should -Match 'npm ci --ignore-scripts'
         $result.Trace | Should -Match 'npm run generate-commands --schema .*artifacts\\TestResults\\cli-schema-All.json'
-        $result.Trace | Should -Match 'npm run compile'
-        $result.Trace | Should -Match 'npm test'
+        $result.Trace | Should -Match 'npm run compile --ignore-scripts'
+        $result.Trace | Should -Match 'npm test --ignore-scripts'
         $result.Trace | Should -Match 'WinApp.Cli.Tests.csproj -c Debug --no-build'
         $result.Trace | Should -Match 'WinApp.UIAutomation.Tests.csproj -c Debug --no-build'
         $result.Trace | Should -Match 'dotnet test .*Microsoft.WindowsAppSDK.Analyzers.Tests.csproj -c Debug'

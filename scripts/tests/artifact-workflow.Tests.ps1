@@ -90,6 +90,7 @@ Describe 'Artifact-first workflow dependencies' {
         $codegen | Should -BeLessThan $format
         $format | Should -BeLessThan $lint
         $lint | Should -BeLessThan $compile
+        $npmPackaging | Should -Match 'npm run compile --ignore-scripts'
     }
 
     It 'starts validation, docs, UI E2E and samples from early artifacts, not the final gate' {
