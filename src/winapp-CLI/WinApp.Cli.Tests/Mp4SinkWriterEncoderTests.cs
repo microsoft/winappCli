@@ -11,6 +11,26 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public class Mp4SinkWriterEncoderTests
 {
+    // H.264 encoder MFTs hold a lookahead of input frames (12 with the Microsoft software encoder
+    // in local measurements), so a single frame reaches Finalize() with nothing delivered to the MP4
+    // sink and depends entirely on the end-of-stream drain. On some hosts that drain yields no
+    // sample and Finalize() fails with MF_E_SINK_NO_SAMPLES_PROCESSED (issue #834). Writing well
+    // past the lookahead makes the encoder emit samples during normal input processing, which
+    // Finalize() delivers to the sink before closing the file.
+    private const int FramesPastEncoderLookahead = 30;
+
+    /// <summary>
+    /// Writes enough 1-second frames to a real encoder (created with fps 1) that
+    /// <see cref="Mp4SinkWriterEncoder.Complete"/> does not depend on the encoder's end-of-stream drain.
+    /// </summary>
+    internal static void WritePastEncoderLookahead(Mp4SinkWriterEncoder encoder, byte[] frame)
+    {
+        for (var i = 0; i < FramesPastEncoderLookahead; i++)
+        {
+            encoder.WriteFrame(frame, i * 10_000_000L, 10_000_000);
+        }
+    }
+
     private static string CreateScratchDirectory()
     {
         var dir = Path.Join(Path.GetTempPath(), "winapp-mp4-" + Guid.NewGuid().ToString("N"));
@@ -53,7 +73,7 @@ public class Mp4SinkWriterEncoderTests
         var dir = CreateScratchDirectory();
         try
         {
-            var path = Path.Join(dir, "one-frame.mp4");
+            var path = Path.Join(dir, "encoded.mp4");
             using var encoder = CreateEncoderOrInconclusive(path);
             Assert.AreEqual(64, encoder.Width);
             Assert.AreEqual(64, encoder.Height);
@@ -63,7 +83,7 @@ public class Mp4SinkWriterEncoderTests
                 () => encoder.WriteFrame(shortFrame, 0, 10_000_000));
             StringAssert.Contains(ex.Message, "expected 16384");
 
-            encoder.WriteFrame(Enumerable.Repeat((byte)0x22, 64 * 64 * 4).ToArray(), 0, 10_000_000);
+            WritePastEncoderLookahead(encoder, Enumerable.Repeat((byte)0x22, 64 * 64 * 4).ToArray());
             encoder.Complete();
             encoder.Complete();
 

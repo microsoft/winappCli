@@ -48,7 +48,7 @@ internal class CommandInvokedEvent : EventBase
         {
             foreach (var option in command.Children.OfType<OptionResult>())
             {
-                if (option.Option != ExecutionTargetSelection.OnOption || option.Implicit)
+                if (!ExecutionTargetSelection.IsSelectorOption(option.Option) || option.Implicit)
                 {
                     continue;
                 }
