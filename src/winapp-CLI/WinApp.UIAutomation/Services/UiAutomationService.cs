@@ -2665,7 +2665,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     isEditable = true;
                 }
             }
-            catch { }
+            catch (COMException)
+            {
+                // The provider can't report writability; leave IsEditable unset like any other optional hint.
+            }
         }
 
         // Try to get toggle state for checkboxes/toggles
