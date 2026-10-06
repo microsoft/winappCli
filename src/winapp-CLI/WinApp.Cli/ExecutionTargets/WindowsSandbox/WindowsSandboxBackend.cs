@@ -239,7 +239,7 @@ internal sealed class WindowsSandboxBackend(
             ? "Repairing the Windows Sandbox connection..."
             : "Preparing the Windows Sandbox guest agent...");
         var bootstrap = PrepareBootstrapDirectories(lease.Epoch);
-        var agentHash = await StageBootstrapBinaryAsync(bootstrap.HostBootstrap, cancellationToken)
+        var agentHash = await StageBootstrapBinaryAsync(lease.InstanceId, bootstrap.HostBootstrap, cancellationToken)
             .ConfigureAwait(false);
 
         // The port is chosen here, by the host, and written into the material the agent reads. That
@@ -950,6 +950,7 @@ internal sealed class WindowsSandboxBackend(
     /// the running agent may still hold the old one open.
     /// </remarks>
     private async Task<string> StageBootstrapBinaryAsync(
+        string instanceId,
         string bootstrapDirectory,
         CancellationToken cancellationToken)
     {
@@ -975,10 +976,13 @@ internal sealed class WindowsSandboxBackend(
                 ExecutionTargetErrorCodes.AgentIncompatible,
                 "A different version of winapp started the Windows Sandbox agent, and the Sandbox " +
                 "is still using its files, so this version could not replace them.",
-                userAction: "Close Windows Sandbox, then run the command again to start a fresh agent.",
+                // Stopped, not closed: closing the window leaves a Sandbox winapp started running, so
+                // its files stay in use.
+                userAction: "Save anything you need from the Sandbox, stop it with `wsb stop`, then run the command again to start a fresh agent.",
+                context: new Dictionary<string, string> { ["sandboxId"] = instanceId },
                 nextCommand: new ExecutionTargetNextCommand
                 {
-                    Command = "wsb stop",
+                    Command = $"wsb stop --id {instanceId}",
 
                     // Stopping discards whatever is running in the guest, so it stays the user's call.
                     Advisory = true,

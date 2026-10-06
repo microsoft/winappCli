@@ -595,7 +595,7 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         }
     }
 
-    private static unsafe void PlaceBehindForeground(
+    internal static unsafe void PlaceBehindForeground(
         HWND window,
         HWND previousForeground,
         IDesktopForegroundService foregroundService)
@@ -609,16 +609,16 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             SET_WINDOW_POS_FLAGS.SWP_NOOWNERZORDER |
             SET_WINDOW_POS_FLAGS.SWP_SHOWWINDOW;
 
-        // Directly behind what the user was working in, so it never covers their work but is still
-        // on screen to switch to. Without a window to sit behind, the z-order is left alone.
-        var insertAfter = HWND.Null;
-        if (previousForeground.IsNull || previousForeground == window || !PInvoke.IsWindow(previousForeground))
+        var foregroundExists = !previousForeground.IsNull && PInvoke.IsWindow(previousForeground);
+        var insertAfter = new HWND((void*)ChooseWindowToSitBehind(
+            (nint)window.Value,
+            (nint)previousForeground.Value,
+            foregroundExists,
+            foregroundExists && IsTopmost(previousForeground)));
+
+        if (insertAfter.IsNull)
         {
             flags |= SET_WINDOW_POS_FLAGS.SWP_NOZORDER;
-        }
-        else
-        {
-            insertAfter = previousForeground;
         }
 
         // A window on no monitor at all -- parked off-screen by winapp 0.7.0, or left on a display
@@ -643,6 +643,31 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             RestoreForeground(previousForeground, window, foregroundService);
         }
     }
+
+    /// <summary>
+    /// The window the Sandbox client should sit directly behind, or 0 to leave its z-order alone.
+    /// </summary>
+    /// <remarks>
+    /// Directly behind what the user was working in, so the client never covers their work but is
+    /// still on screen to switch to. Not behind an always-on-top window: Windows makes a window
+    /// inserted after a topmost window topmost too, which would leave the Sandbox permanently above
+    /// every normal window. With no usable window to sit behind, the z-order is left alone.
+    /// </remarks>
+    internal static nint ChooseWindowToSitBehind(
+        nint window,
+        nint previousForeground,
+        bool previousForegroundExists,
+        bool previousForegroundIsTopmost) =>
+        previousForeground == 0 ||
+        previousForeground == window ||
+        !previousForegroundExists ||
+        previousForegroundIsTopmost
+            ? 0
+            : previousForeground;
+
+    private static bool IsTopmost(HWND window) =>
+        ((WINDOW_EX_STYLE)PInvoke.GetWindowLong(window, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE) &
+            WINDOW_EX_STYLE.WS_EX_TOPMOST) != 0;
 
     /// <summary>
     /// Where to move a window that is on no monitor at all: centred in the nearest monitor's work
