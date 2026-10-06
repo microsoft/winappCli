@@ -139,7 +139,19 @@ static void OnAExpand(void*, void*)  { if (g_dragging) return; ShowARow(true); }
 // An open menu decides for itself, once the pointer has settled on neither the bar nor the menu.
 static void OnACollapse(void*, void*){ if (g_pinned || g_dragging || g_toolbarFocusWithin > 0 || g_toolbarMenu) return; ShowARow(false); }
 static void OnToolbarGotFocus(void*, void*) { ++g_toolbarFocusWithin; }
-static void OnToolbarLostFocus(void*, void*) { if (g_toolbarFocusWithin > 0) --g_toolbarFocusWithin; }
+// Focus leaving the toolbar for good (not just moving between its buttons) lets it collapse once the pointer is
+// not over it either; otherwise a click in the app after using the toolbar leaves it open.
+static bool g_barHover = false;
+static void CALLBACK ToolbarFocusLeftProc(HWND, UINT, UINT_PTR id, DWORD)
+{
+    KillTimer(nullptr, id);
+    if (g_toolbarFocusWithin == 0 && !g_barHover && !g_pinned && !g_dragging && !g_toolbarMenu && g_aRowOpen) ShowARow(false);
+}
+static void OnToolbarLostFocus(void*, void*)
+{
+    if (g_toolbarFocusWithin > 0) --g_toolbarFocusWithin;
+    if (g_toolbarFocusWithin == 0) SetTimer(nullptr, 0, 50, &ToolbarFocusLeftProc);
+}
 static bool FocusToolbarFirstAction()
 {
     ShowARow(true);
@@ -317,7 +329,7 @@ static size_t CommentCount();
 // Toolbar menus are canvas parts shown beside the bar, one at a time. They live in the toolbar's layer rather than
 // in a popup, so they never mix with the app's own popups.
 static const wchar_t* g_toolbarMenuAnchor = nullptr;
-static bool g_menuHover = false, g_barHover = false;
+static bool g_menuHover = false;
 static UINT_PTR g_menuLeaveTimer = 0;
 
 static winrt::Windows::Foundation::IInspectable ToolbarPart(const wchar_t* name)

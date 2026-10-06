@@ -608,6 +608,16 @@ int main()
             "toolbar visibility", "show restores the selected half without stale drag targets");
         ProtoSetPinned(false); ShowARow(false);
         check(pill.visibility == 0, "toolbar visibility", "unpinned bar collapses to the pill without parking");
+        // Focus that leaves the toolbar (after a toolbar button was used) collapses it once the pointer is away too.
+        ShowARow(true);
+        g_toolbarFocusWithin = 1; g_barHover = true;
+        OnToolbarLostFocus(nullptr, nullptr);
+        ToolbarFocusLeftProc(nullptr, 0, 0, 0);
+        check(g_aRowOpen && bar.visibility == 0, "toolbar visibility", "focus leaving keeps the bar open under the pointer");
+        g_toolbarFocusWithin = 1; g_barHover = false;
+        OnToolbarLostFocus(nullptr, nullptr);
+        ToolbarFocusLeftProc(nullptr, 0, 0, 0);
+        check(!g_aRowOpen && pill.visibility == 0, "toolbar visibility", "focus leaving with the pointer away collapses the bar");
         g_canvasStatics = g_aRow = g_railL = nullptr;
         for (auto& snap : g_snapUi) snap = nullptr;
         g_toolbarVisible = false;
