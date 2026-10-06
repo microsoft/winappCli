@@ -101,22 +101,34 @@ public class AtomicFileTests
     }
 
     [TestMethod]
-    public async Task WriteAllText_WhileAReaderHoldsTheDestinationOpen_PublishesOnceTheReaderCloses()
+    public void WriteAllText_WhileAReaderHoldsTheDestinationOpen_PublishesOnceTheReaderCloses()
     {
         var dest = TestPaths.Under(_tempDir, "state.json");
         File.WriteAllText(dest, "old");
 
         // The way every state reader opens the file. Windows still refuses a rename over it while
         // it is open, so the writer must wait the reader out rather than fail with access denied.
-        Task write;
-        await using (new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
+        // The reader closes in response to the first refusal, on the writer's own thread. Closing it
+        // from a timer instead needs a free thread-pool thread inside the retry window, which a
+        // loaded parallel test run does not guarantee.
+        var reader = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        var refusals = 0;
+        try
         {
-            write = Task.Run(() => AtomicFile.WriteAllText(dest, "new"));
-            await Task.Delay(200, TestContext.CancellationToken);
+            AtomicFile.WriteAllText(dest, "new", onRenameRefused: () =>
+            {
+                if (++refusals == 1)
+                {
+                    reader.Dispose();
+                }
+            });
+        }
+        finally
+        {
+            reader.Dispose();
         }
 
-        await write.WaitAsync(TimeSpan.FromSeconds(30), TestContext.CancellationToken);
-
+        Assert.IsGreaterThanOrEqualTo(1, refusals, "The open reader must refuse the first rename, or the retry was never exercised.");
         Assert.AreEqual("new", File.ReadAllText(dest));
         Assert.AreEqual(0, Directory.GetFiles(_tempDir, "*.tmp").Length);
     }
@@ -164,6 +176,4 @@ public class AtomicFileTests
         Assert.ThrowsExactly<UnauthorizedAccessException>(() => AtomicFile.WriteAllText(dest, "new"));
         Assert.AreEqual(0, Directory.GetFiles(_tempDir, "*.tmp").Length, "A failed publish must not leave its temp file.");
     }
-
-    public TestContext TestContext { get; set; } = null!;
 }

@@ -38,13 +38,22 @@ internal static class AtomicFile
     }
 
     /// <summary>Writes <paramref name="content"/> to <paramref name="destinationPath"/> atomically.</summary>
-    public static void WriteAllText(string destinationPath, string content)
+    public static void WriteAllText(string destinationPath, string content) =>
+        WriteAllText(destinationPath, content, onRenameRefused: null);
+
+    /// <summary>
+    /// Writes <paramref name="content"/> to <paramref name="destinationPath"/> atomically, calling
+    /// <paramref name="onRenameRefused"/> on the writing thread each time the publishing rename is
+    /// refused, before it is retried. Lets a test release the destination in response to the refusal
+    /// itself instead of racing a timer against <see cref="ReplaceRetryWindow"/>.
+    /// </summary>
+    internal static void WriteAllText(string destinationPath, string content, Action? onRenameRefused)
     {
         var tempPath = MakeTempPath(destinationPath);
         try
         {
             File.WriteAllText(tempPath, content);
-            ReplaceWithRetry(tempPath, destinationPath);
+            ReplaceWithRetry(tempPath, destinationPath, onRenameRefused);
         }
         finally
         {
@@ -86,7 +95,7 @@ internal static class AtomicFile
     /// <summary>Deletes a staged temp file that will not be published. Best effort.</summary>
     public static void DiscardStaged(string stagedPath) => TryDeleteLeftoverTemp(stagedPath);
 
-    private static void ReplaceWithRetry(string sourcePath, string destinationPath)
+    private static void ReplaceWithRetry(string sourcePath, string destinationPath, Action? onRenameRefused = null)
     {
         var deadline = Environment.TickCount64 + (long)ReplaceRetryWindow.TotalMilliseconds;
         var delay = 1;
@@ -99,6 +108,7 @@ internal static class AtomicFile
             }
             catch (Exception ex) when (IsHeldOpenByAnotherHandle(ex) && Environment.TickCount64 < deadline)
             {
+                onRenameRefused?.Invoke();
                 Thread.Sleep(delay);
                 delay = Math.Min(delay * 2, 50);
             }
