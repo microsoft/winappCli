@@ -158,6 +158,9 @@ public class WindowsSandboxWindowPlacementTests
                 // Already gone.
             }
 
+            // Closing a shown form already disposes it; these only make that explicit.
+            _client.Dispose();
+            _pinned.Dispose();
             _ready.Dispose();
         }
     }
