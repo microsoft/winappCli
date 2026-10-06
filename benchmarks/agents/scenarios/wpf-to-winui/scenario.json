@@ -1,0 +1,19 @@
+{
+  "id": "wpf-to-winui",
+  "description": "Migrate a WPF window to WinUI 3.",
+  "prompt": "Migrate this WPF app to WinUI 3, starting with MainWindow.",
+  "configurations": [
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winui-wpf-migration"
+    ],
+    "skillsForbid": [
+      "winui-session-report",
+      "winapp-signing"
+    ]
+  }
+}
