@@ -155,7 +155,7 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 - `-o, --output <path>` — directory to create the app in (default: `./<name>`)
 - `--use-defaults` / `--no-prompt` — skip prompts (blank template, default name)
 - `--force` — scaffold even if the output directory already contains files
-- `--template-version <latest|installed|version>` — WinUI template pack version: `latest` installs the newest published pack, `installed` keeps whatever is already installed, or an explicit version (e.g. `1.2.3`) installs exactly that. Default (no value): install the latest if no pack is present, otherwise check for a newer pack and prompt to update a stale one — not pinned.
+- `--template-version <latest|installed|version>` — WinUI template pack version: `latest` updates to the newest published pack (never downgrades a newer installed pack), `installed` keeps whatever is already installed, or an explicit version (e.g. `1.2.3`) installs exactly that. Default (no value): install the latest if no pack is present, otherwise check for a newer pack and prompt to update a stale one — not pinned.
 - `--json` — machine-readable output for agents
 **Next step:** `cd <name>` then `winapp run` to build and launch the freshly-scaffolded app. The `lib` template differs — reference it from an app project. The `unittest` template is a packaged MSTest app whose tests run when it's launched (`winapp run`), not via `dotnet test`.
 

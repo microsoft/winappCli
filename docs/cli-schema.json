@@ -2223,7 +2223,7 @@
           "recursive": false
         },
         "--template-version": {
-          "description": "WinUI template pack version: 'latest' (install newest), 'installed' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack.",
+          "description": "WinUI template pack version: 'latest' (update to newest; never downgrades), 'installed' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack.",
           "hidden": false,
           "valueType": "System.String",
           "hasDefaultValue": false,

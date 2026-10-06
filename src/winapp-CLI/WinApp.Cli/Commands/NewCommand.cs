@@ -31,7 +31,7 @@ internal class NewCommand : Command, IShortDescription
     /// </summary>
     internal const string DefaultTemplateShortName = "winui";
 
-    /// <summary><c>--template-version latest</c>: install the newest published pack, skip the update prompt.</summary>
+    /// <summary><c>--template-version latest</c>: update to the newest published pack without prompting; never downgrades a newer installed pack.</summary>
     internal const string LatestVersionKeyword = "latest";
 
     /// <summary><c>--template-version installed</c>: keep whatever pack is installed, skip the feed check and prompt.</summary>
@@ -110,7 +110,7 @@ internal class NewCommand : Command, IShortDescription
         };
         TemplateVersionOption = new Option<string?>("--template-version")
         {
-            Description = $"WinUI template pack version: '{LatestVersionKeyword}' (install newest), '{InstalledVersionKeyword}' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack."
+            Description = $"WinUI template pack version: '{LatestVersionKeyword}' (update to newest; never downgrades), '{InstalledVersionKeyword}' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack."
         };
         ListOption = new Option<bool>("--list")
         {
@@ -293,7 +293,7 @@ internal class NewCommand : Command, IShortDescription
         {
             /// <summary>No <c>--template-version</c>: install latest if none, else prompt to update a stale pack.</summary>
             Default,
-            /// <summary><c>latest</c>: install the newest pack, no prompt.</summary>
+            /// <summary><c>latest</c>: install the newest pack, no prompt; keep an installed pack that is already newer.</summary>
             Latest,
             /// <summary><c>installed</c>: keep the installed pack, no feed check or prompt.</summary>
             Installed,
@@ -849,12 +849,50 @@ internal class NewCommand : Command, IShortDescription
 
                 case VersionMode.Latest:
                 {
-                    var (ok, err) = await InstallPackWithSpinnerAsync(cwd, version: null, sdkVersion, isJson, quiet, cancellationToken);
-                    if (!ok)
+                    if (installed is null)
                     {
-                        return (false, null, err);
+                        var (ok, err) = await InstallPackWithSpinnerAsync(cwd, version: null, sdkVersion, isJson, quiet, cancellationToken);
+                        if (!ok)
+                        {
+                            return (false, null, err);
+                        }
+                        return (true, await QueryInstalledPackVersionAsync(cwd, cancellationToken), null);
                     }
-                    return (true, await QueryInstalledPackVersionAsync(cwd, cancellationToken) ?? installed, null);
+
+                    // A pack is installed: only replace it with a strictly newer feed version. A floating
+                    // `dotnet new install <id>` would take the feed's newest even when the installed pack
+                    // (e.g. a locally built prerelease) is newer, silently downgrading it and dropping its
+                    // templates. The explicit request always re-queries the feed rather than the throttle.
+                    var (checkSucceeded, feedLatest) = await WithSpinnerAsync(
+                        "Checking for WinUI template pack updates...",
+                        () => GetLatestAvailableVersionAsync(cwd, installed, cancellationToken));
+
+                    if (!checkSucceeded)
+                    {
+                        if (!isJson)
+                        {
+                            logger.LogWarning(
+                                "{Warning}  Could not check the feed for a newer WinUI template pack; keeping installed version {Version}. Re-run with --verbose for details.",
+                                UiSymbols.Warning, installed);
+                        }
+                        return (true, installed, null);
+                    }
+
+                    templateUpdateThrottle.Record(installed, feedLatest);
+
+                    if (feedLatest is null || NuGetVersionHelper.Compare(installed, feedLatest) is not int cmp || cmp >= 0)
+                    {
+                        if (!isJson && !quiet)
+                        {
+                            logger.LogInformation(
+                                "{Info}  Installed WinUI template pack {Version} is already the latest available.",
+                                UiSymbols.Info, installed);
+                        }
+                        return (true, installed, null);
+                    }
+
+                    var (updated, updateErr) = await InstallPackWithSpinnerAsync(cwd, feedLatest, sdkVersion, isJson, quiet, cancellationToken);
+                    return updated ? (true, feedLatest, null) : (false, null, updateErr);
                 }
 
                 case VersionMode.Default:

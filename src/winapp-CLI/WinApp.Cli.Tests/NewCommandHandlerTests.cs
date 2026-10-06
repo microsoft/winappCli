@@ -1524,6 +1524,85 @@ public class NewCommandHandlerTests : BaseCommandTests
             "'latest' must install the bare package id (no version pin) so it floats to the newest published version.");
     }
 
+    private void ScriptInstalledPackWithUpdateCheck(string installedVersion, int updateExit, string updateOutput)
+    {
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args.Count >= 1 && args[0] == "--version")
+            {
+                return (0, "9.0.100\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, BuildUninstallOutput(installedVersion), string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
+            {
+                return (updateExit, updateOutput, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
+            {
+                return (0, "Success", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
+            {
+                return (0, SampleListOutput, string.Empty);
+            }
+            return (0, "created", string.Empty);
+        };
+    }
+
+    [TestMethod]
+    public async Task Handler_TemplateVersionLatest_InstalledNewerThanFeed_KeepsInstalledPack()
+    {
+        // Regression for #859: a locally installed prerelease newer than the feed must not be downgraded.
+        ScriptInstalledPackWithUpdateCheck("0.0.7-alpha-2026-0911-2329-pr0", 0, "All template packages are up-to-date.\n");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--use-defaults", "--json", "--template-version", "latest", "--list"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        Assert.IsFalse(
+            _dotnet.ArgumentListInvocations.Any(a => a.Count >= 2 && a[0] == "new" && a[1] == "install"),
+            "'latest' must not replace an installed pack that is already at or above the feed's newest version.");
+    }
+
+    [TestMethod]
+    public async Task Handler_TemplateVersionLatest_FeedNewer_InstallsExactFeedVersion()
+    {
+        ScriptInstalledPackWithUpdateCheck("0.0.5-alpha", 0,
+            "Package                                          Current      Latest\n" +
+            "-----------------------------------------------  -----------  -----------\n" +
+            "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates   0.0.5-alpha  0.0.6-alpha\n");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--use-defaults", "--json", "--template-version", "latest", "--list"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        var install = _dotnet.ArgumentListInvocations
+            .FirstOrDefault(a => a.Count >= 3 && a[0] == "new" && a[1] == "install");
+        Assert.IsNotNull(install, "'latest' must update a pack that is behind the feed.");
+        Assert.AreEqual($"{NewCommand.TemplatePackageId}::0.0.6-alpha", install[2],
+            "The update must pin the version the feed reported rather than float.");
+    }
+
+    [TestMethod]
+    public async Task Handler_TemplateVersionLatest_UpdateCheckFails_KeepsInstalledPack()
+    {
+        ScriptInstalledPackWithUpdateCheck("0.0.5-alpha", 1, string.Empty);
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--use-defaults", "--json", "--template-version", "latest", "--list"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        Assert.IsFalse(
+            _dotnet.ArgumentListInvocations.Any(a => a.Count >= 2 && a[0] == "new" && a[1] == "install"),
+            "Without an authoritative feed check, 'latest' must not blindly reinstall over the installed pack.");
+    }
+
     [TestMethod]
     public async Task Handler_TemplateVersionInstalled_ReusesInstalledPackWithoutInstalling()
     {
