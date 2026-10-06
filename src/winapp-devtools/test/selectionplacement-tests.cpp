@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 //
-// Tests for the quick-edit panel placement used by the in-app DevTools overlay.
+// Tests for the comment flyout placement used by the in-app DevTools overlay.
 
 #include "DevToolsSelectionPlacement.h"
 

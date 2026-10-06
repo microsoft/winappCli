@@ -414,6 +414,18 @@ static void SelLookupComment(InstanceHandle key, std::wstring* outId, std::wstri
     if (outId) *outId = GenCommentId();
 }
 
+// Every open comment on the element except the first, which SelLookupComment puts in the box.
+static std::vector<std::wstring> SelOtherComments(InstanceHandle handle)
+{
+    std::vector<std::wstring> others;
+    bool first = true;
+    for (const auto& p : g_pins) {
+        if (!handle || p.handle != handle) continue;
+        if (!std::exchange(first, false)) others.push_back(p.text);
+    }
+    return others;
+}
+
 // NOT through the diagnostics chain: the live read of the box is exact. The diagnostics read stays as a fallback
 // for a box that will not QI.
 static bool SelReadCommentText(std::wstring* out)
@@ -1021,7 +1033,7 @@ static std::wstring BuildComposerMarkup(const std::wstring& type, const std::wst
             L"<Expander Header=\"Review likely XAML\"><TextBlock Text=\"" + XmlEscapeLines(authoredXaml) +
             L"\" TextWrapping=\"Wrap\" IsTextSelectionEnabled=\"True\" FontFamily=\"Consolas\""
             L" Style=\"{StaticResource CaptionTextBlockStyle}\"/></Expander>" +
-            LikelySourceConfirmationMarkup(true) + L"</StackPanel>";
+            LikelySourceConfirmationMarkup(true, L"") + L"</StackPanel>";
     }
     m += L"</StackPanel></Border>";
     return m;

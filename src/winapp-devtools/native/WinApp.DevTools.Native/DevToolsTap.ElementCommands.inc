@@ -123,42 +123,6 @@ static std::wstring CmdBindingInstall(unsigned long long wire, const std::wstrin
 static std::wstring CmdBindingWalk(unsigned long long wire, const std::wstring& prop,
                                    const std::wstring& tryPath = std::wstring());
 
-// Overlay bridge to the same native CmdBindingWalk used by DevTools. Worker-only: the implementation
-// dispatches to the UI thread and does not depend on the managed agent.
-static bool OverlayPathWalkBridge(unsigned long long rawHandle, const wchar_t* prop, std::wstring* out)
-{
-    if (!out) return false;
-    const auto wire = TapWireOf((InstanceHandle)rawHandle);
-    if (!wire) return false;
-    std::wstring reply = CmdBindingWalk(wire, prop ? prop : L"");
-    // An `ERR <token>` is a handle that no longer resolves. Answer NOTHING rather than a walk-shaped object,
-    // so the row falls back to whatever the diagnosis said instead of rendering an empty walk -- an empty
-    // walk under a real question reads as "the path is fine", which is the one thing it must not say.
-    if (reply.rfind(L"ERR ", 0) == 0) return false;
-    *out = reply;
-    return true;
-}
-// MUST NOT be called on the UI thread -- the agent needs it (see DevToolsBindingRelay), and the relay refuses rather
-// than deadlocking if that rule is ever broken.
-static bool OverlayBindingAskBridge(unsigned long long rawHandle, const wchar_t* op, const wchar_t* prop, std::wstring* out)
-{
-    if (!out) return false;
-    const auto wire = TapWireOf((InstanceHandle)rawHandle);
-    if (!wire) {
-        *out = DevToolsBindingRelay_UnavailableJson(L"this element is not in the DevTools census");
-        return false;
-    }
-    *out = CmdBindingOp(wire, op ? op : L"", prop ? prop : L"");
-    // CmdBindingOp answers `ERR <token>` only for a handle that no longer resolves; every other outcome is
-    // already a diagnosis object. Translate that one case so the panel has a single response shape to render
-    // and can never mistake a retired handle for a healthy binding.
-    if (out->rfind(L"ERR ", 0) == 0) {
-        *out = DevToolsBindingRelay_UnavailableJson(L"this element is no longer in the visual tree");
-        return false;
-    }
-    return true;
-}
-
 // layout.get|<handle> -> the element's MEASURED layout facts as JSON (UI-thread live read).
 //
 // Forward declarations: both census accessors are defined with the other snapshot helpers further down.

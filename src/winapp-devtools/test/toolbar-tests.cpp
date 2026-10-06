@@ -143,38 +143,34 @@ static void TestToolbarContract()
                  "the toolbar stays inverse when its app-theme action is used");
 
     CheckToolbar(selectionPanel.find("RequestedTheme=\"$PANELTHEME$\"") != std::string::npos,
-                 "the quick-edit panel requests the inverse app theme");
+                 "the comment flyout requests the inverse app theme");
     CheckToolbar(selectionPanel.find("BackgroundSizing=\"InnerBorderEdge\"") != std::string::npos,
-                 "the quick-edit panel clips Acrylic inside its border");
+                 "the comment flyout clips Acrylic inside its border");
     CheckToolbar(overlay.find("{ThemeResource AcrylicBackgroundFillColorDefaultBrush}") != std::string::npos,
-                 "the quick-edit panel uses the standard flyout Acrylic brush");
+                 "the comment flyout uses the standard flyout Acrylic brush");
     CheckToolbar(overlay.find("DevToolsSetSelectionPanelRequestedTheme(toolbarTheme);") != std::string::npos &&
                      overlay.find("DevToolsPutRequestedTheme(fe, requestedTheme);") != std::string::npos,
-                 "an open quick-edit panel stays inverse when the app theme changes");
+                 "an open comment flyout stays inverse when the app theme changes");
     CheckToolbar(overlay.find("{ThemeResource SurfaceStrokeColorFlyoutBrush}") != std::string::npos,
-                 "the quick-edit panel uses the standard flyout stroke");
+                 "the comment flyout uses the standard flyout stroke");
     CheckToolbar(selectionPanel.find("x:Key=\"ButtonBackground\"") == std::string::npos &&
                      selectionPanel.find("x:Key=\"ButtonForeground\"") == std::string::npos,
-                 "quick-edit controls inherit inverse-theme platform states");
+                 "flyout controls inherit inverse-theme platform states");
     const auto commentLabel = selectionPanel.find("Text=\"Comment\"");
     const auto commentInput = selectionPanel.find("<TextBox x:Name=\"DevToolsSelComment\"");
     const auto commentInputEnd = selectionPanel.find("/>", commentInput);
-    const auto quickProperties = selectionPanel.find("x:Name=\"DevToolsSelRows\"");
+    const auto sourceLine = selectionPanel.find("x:Name=\"DevToolsSelSource\"");
     const auto openDevTools = selectionPanel.find("<Button x:Name=\"DevToolsSelOpen\"");
     CheckToolbar(commentLabel != std::string::npos && commentInput != std::string::npos &&
                      commentInputEnd != std::string::npos && commentLabel < commentInput &&
                      selectionPanel.substr(commentInput, commentInputEnd - commentInput).find(
                          "AutomationProperties.Name=\"Comment\"") != std::string::npos,
                  "the visible Comment label precedes a comment box with its own accessible name");
-    CheckToolbar(quickProperties != std::string::npos && openDevTools != std::string::npos &&
-                     commentInput < quickProperties && quickProperties < openDevTools &&
+    CheckToolbar(sourceLine != std::string::npos && openDevTools != std::string::npos &&
+                     sourceLine < commentInput && commentInput < openDevTools &&
+                     selectionPanel.find("DevToolsSelRows") == std::string::npos &&
                      selectionPanel.find("TabIndex=") == std::string::npos,
-                 "default keyboard order reaches the comment before quick properties and Open in DevTools");
-    CheckToolbar(overlay.find("static const int kSelPanelW = 400;") != std::string::npos &&
-                     overlay.find("<ColumnDefinition Width=\\\"104\\\"/>") != std::string::npos &&
-                     overlay.find("HorizontalAlignment=\\\"Stretch\\\" MinHeight=\\\"32\\\"") != std::string::npos,
-                 "quick-edit rows share one label column and stretch 32 DIP editors into the value column");
-    CheckToolbar(windowShell.find("Background=\"Transparent\"") != std::string::npos,
+                 "the flyout reads source, then the comment, then Open in DevTools, with no property rows");    CheckToolbar(windowShell.find("Background=\"Transparent\"") != std::string::npos,
                  "the DevTools window shell exposes its system backdrop");
     CheckToolbar(windowShell.find("InspectorTitleBarHost") == std::string::npos &&
                      window.find("<TitleBar xmlns=") == std::string::npos &&
@@ -225,17 +221,8 @@ static void TestToolbarContract()
                      window.find("if (r.authoredKind != L\"literal\" || r.authored.empty()) return std::wstring();")
                          != std::string::npos,
                  "only missing non-String literals fall back to authored text");
-    // part 2 SPLIT THIS INVARIANT, so the two halves are asserted separately now.
-    //
-    // THE IN-APP FLYOUT still edits a compound value through ONE comma-separated TextBox: it is a 254px
-    // editor in a 400px panel and has no room for four labelled boxes. THE WINDOW PANE does not: its expansion
-    // is full width, and `editKind` "fields" carries its own labels on the wire (DevToolsRead.h:83-87), so a
-    // Thickness gets four boxes, a Point two and a Vector3 three from ONE editor shape rather than a branch
-    // per type. A pane that kept the joined box would be the "0.000000,0.000000,0.000000" row was filed
-    // on, in the surface that has the space to fix it.
-    CheckToolbar(overlay.find("const std::wstring editName = L\"DevToolsSelEdit\"") != std::string::npos &&
-                     overlay.find("r.fields") == std::string::npos,
-                 "the in-app flyout still edits a compound value through one comma-separated TextBox");
+    // The window pane edits a compound value field by field: `editKind` "fields" carries its own labels on the wire, so a
+    // Thickness gets four boxes, a Point two and a Vector3 three from one editor shape.
     CheckToolbar(windowShell.find("x:Name=\"PEdFields\"") != std::string::npos &&
                      windowShell.find("x:Name=\"PFieldBoxes\"") != std::string::npos &&
                      window.find("for (size_t i = 0; i < r.fields.size(); ++i)") != std::string::npos &&

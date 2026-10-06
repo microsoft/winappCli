@@ -457,8 +457,8 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     // Hand the last in-app pick (published by PublishOverlayPick as a wire handle) to the window so it opens with
     // that element selected. 0 when nothing was picked (plain toolbar Inspect) -> window opens with no selection.
     InstanceHandle preselect = g_lastPickHandle.load(std::memory_order_relaxed);
-    // A hand-off from the quick-edit panel names its element, which a comment marker opens without a pick.
-    if (const InstanceHandle reveal = DevToolsOverlay_InspectorRevealElement()) {
+    // "Open in DevTools" names its element, which a comment marker opens without a pick.
+    if (const InstanceHandle reveal = DevToolsOverlay_InspectorTarget()) {
         unsigned long long wire;
         { AcquireSRWLockShared(&g_censusLock); wire = PackWire_nolock(reveal); ReleaseSRWLockShared(&g_censusLock); }
         if (wire) { preselect = wire; g_lastPickHandle.store(wire, std::memory_order_relaxed); }

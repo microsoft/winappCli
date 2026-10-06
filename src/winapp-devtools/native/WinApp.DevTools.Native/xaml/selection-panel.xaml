@@ -10,66 +10,8 @@
         Width="$PANELW$" MaxHeight="$PANELH$"
         Background="$SURFACE$" BorderBrush="$RIM$" BorderThickness="1" CornerRadius="8"
         BackgroundSizing="InnerBorderEdge"
-        AutomationProperties.AutomationId="DevToolsSelPanel" AutomationProperties.Name="Quick edits">
+        AutomationProperties.AutomationId="DevToolsSelPanel" AutomationProperties.Name="Comments">
   <Border.Resources>
-    <!-- Disclosures are quiet text toggles, not cards: no header fill or stroke inside the flyout surface. -->
-    <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
-    <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="Transparent" />
-    <SolidColorBrush x:Key="ExpanderHeaderBorderPointerOverBrush" Color="Transparent" />
-    <SolidColorBrush x:Key="ExpanderHeaderBorderPressedBrush" Color="Transparent" />
-    <Thickness x:Key="ExpanderHeaderBorderThickness">0</Thickness>
-    <x:Double x:Key="ExpanderChevronButtonSize">24</x:Double>
-    <Thickness x:Key="ExpanderChevronMargin">8,0,0,0</Thickness>
-    <!-- Segmented choice for small spatial enums: the checked segment is a raised pill inside a recessed track. -->
-    <Style x:Key="DevToolsSegment" TargetType="RadioButton">
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="VerticalAlignment" Value="Stretch" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="Padding" Value="4,0" />
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="RadioButton">
-            <Grid x:Name="Root" Background="Transparent" CornerRadius="3">
-              <VisualStateManager.VisualStateGroups>
-                <VisualStateGroup x:Name="CommonStates">
-                  <VisualState x:Name="Normal" />
-                  <VisualState x:Name="PointerOver">
-                    <VisualState.Setters>
-                      <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
-                    </VisualState.Setters>
-                  </VisualState>
-                  <VisualState x:Name="Pressed">
-                    <VisualState.Setters>
-                      <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
-                    </VisualState.Setters>
-                  </VisualState>
-                  <VisualState x:Name="Disabled" />
-                </VisualStateGroup>
-                <VisualStateGroup x:Name="CheckStates">
-                  <VisualState x:Name="Checked">
-                    <VisualState.Setters>
-                      <Setter Target="Pill.Opacity" Value="1" />
-                      <Setter Target="Label.Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-                    </VisualState.Setters>
-                  </VisualState>
-                  <VisualState x:Name="Unchecked" />
-                  <VisualState x:Name="Indeterminate" />
-                </VisualStateGroup>
-              </VisualStateManager.VisualStateGroups>
-              <Border x:Name="Pill" Opacity="0" CornerRadius="3" BorderThickness="1"
-                      Background="{ThemeResource ControlFillColorDefaultBrush}"
-                      BorderBrush="{ThemeResource ControlElevationBorderBrush}" />
-              <ContentPresenter x:Name="Label" Content="{TemplateBinding Content}" Margin="{TemplateBinding Padding}"
-                                Foreground="{TemplateBinding Foreground}"
-                                HorizontalAlignment="Center" VerticalAlignment="Center" />
-            </Grid>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
     <!-- Open animation origin sits on the leader line so the panel grows from the selected element. -->
     <Storyboard x:Name="DevToolsSelMorph">
       <DoubleAnimation Storyboard.TargetName="DevToolsSelScale" Storyboard.TargetProperty="ScaleX"
@@ -92,7 +34,6 @@
       <RowDefinition Height="Auto" />
       <RowDefinition Height="1" />
       <RowDefinition Height="Auto" />
-      <RowDefinition Height="1" />
       <RowDefinition Height="*" />
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
@@ -106,7 +47,7 @@
           </Grid.ColumnDefinitions>
           <FontIcon Grid.Column="0" FlowDirection="LeftToRight" Glyph="&#xE7BA;"
                     FontSize="11" VerticalAlignment="Top" Margin="0,2,7,0" Foreground="$CAUTION$" />
-          <TextBlock Grid.Column="1" Text="This element is gone from the app, so the panel below no longer edits anything. Your comment has unsaved changes &#x2014; copy them somewhere safe before closing."
+          <TextBlock Grid.Column="1" Text="This element is gone from the app. Your comment has unsaved changes &#x2014; copy them somewhere safe before closing."
                      FontSize="11" TextWrapping="Wrap" Foreground="$CAUTION$" />
         </Grid>
       </Border>
@@ -115,18 +56,21 @@
           <ColumnDefinition Width="*" />
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
-        <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="4">
+        <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
           <TextBlock x:Name="DevToolsSelTitle" Style="{StaticResource BodyStrongTextBlockStyle}" Foreground="$TEXT$"
-                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="$TITLE$"
+                     TextTrimming="CharacterEllipsis" Text="$TITLE$"
                      ToolTipService.ToolTip="$TITLETIP$"
                      AutomationProperties.AutomationId="DevToolsSelTitle" />
+          <TextBlock x:Name="DevToolsSelSource" Style="{StaticResource CaptionTextBlockStyle}" Foreground="$SOURCEFG$"
+                     TextTrimming="CharacterEllipsis" Text="$SOURCE$" ToolTipService.ToolTip="$SOURCETIP$"
+                     AutomationProperties.AutomationId="DevToolsSelSource" AutomationProperties.Name="Source: $SOURCE$" />
         </StackPanel>
         <Button x:Name="DevToolsSelClose" Grid.Column="1" Style="{x:Null}" Width="32" Height="32" Padding="0"
                 VerticalAlignment="Center" BorderThickness="0" CornerRadius="4" Background="#00000000"
                 Foreground="$TEXTDIM$"
-                ToolTipService.ToolTip="Close and deselect (Esc)"
+                ToolTipService.ToolTip="Close (Esc)"
                 AutomationProperties.AutomationId="DevToolsSelClose"
-                AutomationProperties.Name="Close and deselect">
+                AutomationProperties.Name="Close">
           <FontIcon FlowDirection="LeftToRight" Glyph="&#xE711;" FontSize="11"
                     Foreground="$TEXTDIM$" />
         </Button>
@@ -135,7 +79,7 @@
 
     <Border Grid.Row="1" Height="1" Background="$BORDER$" />
     <!-- Clearing comment text commits a delete, matching delete button semantics. -->
-    <StackPanel Grid.Row="2" Orientation="Vertical" Margin="16,12,16,16" Spacing="8">
+    <StackPanel Grid.Row="2" Orientation="Vertical" Margin="16,12,16,12" Spacing="8">
       <TextBlock x:Name="DevToolsSelOperationStatus" Visibility="Collapsed" TextWrapping="Wrap"
                  Style="{StaticResource CaptionTextBlockStyle}" Foreground="$CAUTION$"
                  AutomationProperties.AutomationId="DevToolsSelOperationStatus" AutomationProperties.LiveSetting="Polite"/>
@@ -174,12 +118,8 @@
                  Style="{StaticResource CaptionTextBlockStyle}"
                  AutomationProperties.AutomationId="DevToolsGuestCommentStatus" AutomationProperties.LiveSetting="Polite" />
     </StackPanel>
-
-    <Border Grid.Row="3" Height="1" Background="$BORDER$" />
-    <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-      <StackPanel x:Name="DevToolsSelRows" Margin="16,12,16,8" Spacing="8">$XAML$$ROWS$</StackPanel>
-    </ScrollViewer>
-    <Button x:Name="DevToolsSelOpen" Grid.Row="5" Style="{x:Null}" Margin="10,0,16,12" Padding="6,4" HorizontalAlignment="Left"
+    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16,0,16,12">$OTHERS$</ScrollViewer>
+    <Button x:Name="DevToolsSelOpen" Grid.Row="4" Style="{x:Null}" Margin="10,0,16,12" Padding="6,4" HorizontalAlignment="Left"
             Background="#00000000" BorderThickness="0" CornerRadius="5" Foreground="$ACCENT$"
             AutomationProperties.AutomationId="DevToolsSelOpen"
             AutomationProperties.Name="Open in DevTools window">

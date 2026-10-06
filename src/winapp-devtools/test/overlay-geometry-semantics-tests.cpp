@@ -69,7 +69,6 @@ static HRESULT GeometryPoint(void*, float, float, float*, float*);
 static HRESULT GeometryMargin(void*, double*, double*, double*, double*);
 static double quickNumber = 0;
 static LONGLONG dismissClock = 0;
-static LONGLONG dismissWriteCost = 0;
 static LONGLONG dismissClosedAt = -1;
 static BOOL WINAPI DismissCounter(LARGE_INTEGER* value) { value->QuadPart=dismissClock;return TRUE; }
 static BOOL WINAPI DismissFrequency(LARGE_INTEGER* value) { value->QuadPart=1'000'000;return TRUE; }
@@ -543,28 +542,6 @@ struct PickerHosts
     }
 };
 
-static unsigned quickWrites = 0;
-static bool quickReentrant = false;
-static std::wstring quickWritten;
-static DevToolsWriteOutcome quickOutcome = DevToolsWriteOutcome::Ok;
-static unsigned quickReads = 0;
-static bool quickReadSucceeded = true;
-static bool ReadQuickRows(IInspectable*, std::wstring*, std::wstring*, std::vector<DevToolsCardRow>* rows,
-    std::wstring*, std::wstring*)
-{
-    ++quickReads;
-    DevToolsCardRow row;row.name=L"Opacity";row.type=L"Double";row.value=L"0.4";
-    *rows={row};
-    return quickReadSucceeded;
-}
-static DevToolsWriteOutcome WriteQuickValue(IInspectable*, const wchar_t*, const wchar_t*, const wchar_t* value, bool confirmed)
-{
-    ++quickWrites;quickWritten=value;
-    dismissClock+=dismissWriteCost;
-    if (quickReentrant) ++g_selGen;
-    return confirmed ? DevToolsWriteOutcome::ReplacedBinding : quickOutcome;
-}
-
 static unsigned pickSourceReads = 0;
 static bool ReadPickedSource(InstanceHandle handle, std::wstring* file, unsigned* line, unsigned* column)
 {
@@ -632,312 +609,62 @@ int main()
         g_toolbarVisible = false;
     }
     {
-        DevToolsCardRow row;
-        row.name = L"Content"; row.type = L"String"; row.editKind = L"text";
-        for (const auto* text : {L"", L"(bound)", L"{SolidColorBrush}"}) {
-            row.value = text;
-            check(SelRowCanEdit(row) && BuildSelRowsMarkup({row}, false).find(L"DevToolsSelEdit0") != std::wstring::npos,
-                "quick values", "real boxed String remains an editor value");
-        }
-        for (const auto* state : {L"unresolved", L"null", L"unset"}) {
-            row.valueState = state;
-            check(!SelRowCanEdit(row) && BuildSelRowsMarkup({row}, false).find(L"DevToolsSelEdit0") == std::wstring::npos,
-                "quick values", "unavailable value cannot become an editor seed");
-        }
-        row.valueState.clear(); row.editKind = L"none";
-        check(!SelRowCanEdit(row), "quick values", "complex value has no quick editor");
-        std::vector<DevToolsCardRow> all;
-        for (const auto* name : {L"Content",L"Text",L"Foreground",L"Opacity",L"IsEnabled",L"Visibility",L"Margin",L"Padding",L"IsChecked"}) {
-            DevToolsCardRow item;item.name=name;item.value=L"sample";all.push_back(item);
-        }
-        const auto curated=DevToolsSelCurateRows(all);
-        check(curated.size()==6, "quick peek", "at most six meaningful rows");
-        const auto checkBox=DevToolsSelCurateRows(all,L"CheckBox");
-        check(checkBox.size()>1 && checkBox[0].name==L"Content" && checkBox[1].name==L"IsChecked",
-            "quick peek", "a CheckBox leads with its content and checked state");
-        const auto stack=DevToolsSelCurateRows(all,L"StackPanel");
-        check(std::none_of(stack.begin(),stack.end(),[](const auto& item){return item.name==L"Text";}) && !stack.empty(),
-            "quick peek", "a panel without type-specific values still falls back to generic rows");
-        row.name=L"Text";row.type=L"String";row.editKind=L"text";row.value=L"effective";
-        row.source=L"Binding";row.binding=L"{Binding Title}";
-        const auto markup=BuildSelRowsMarkup({row},false);
-        check(markup.find(L"x:Name=\"DevToolsSelEdit0\"")!=std::wstring::npos &&
-            markup.find(L"<Expander ")==std::wstring::npos,
-            "quick peek", "editor is inline and binding details are handed to the inspector, not disclosed in place");
-        check(markup.find(L"Text=\"effective\"")!=std::wstring::npos &&
-            markup.find(L"Binding Title}\" FontSize=\"12\"")!=std::wstring::npos &&
-            markup.find(L"x:Name=\"DevToolsSelStatus0\"")!=std::wstring::npos &&
-            markup.find(L"x:Name=\"DevToolsSelReveal0\"")!=std::wstring::npos,
-            "quick peek", "a bound row shows its value, expression, compact status and an inspector hand-off");
-        check(markup.find(L"x:Name=\"DevToolsSelCaution0\" Visibility=\"Collapsed\"")!=std::wstring::npos &&
-            markup.find(L"Editing replaces {Binding Title} until the app restarts.")!=std::wstring::npos,
-            "quick peek", "the bound-edit caution is hidden until editing starts and names what an edit replaces");
-        row.name=L"Opacity";row.type=L"Double";row.editKind=L"number";row.value=L"0.75";
-        row.source.clear();row.binding.clear();
-        const auto opacityMarkup=BuildSelRowsMarkup({row},false);
-        check(opacityMarkup.find(L"<Slider ")!=std::wstring::npos &&
-            opacityMarkup.find(L"Minimum=\"0\" Maximum=\"1\" StepFrequency=\"0.01\"")!=std::wstring::npos &&
-            opacityMarkup.find(L"Text=\"0.75\"")!=std::wstring::npos,
-            "quick peek", "opacity has a ranged keyboard slider and precise visible value");
-        row.name=L"Width";
-        check(BuildSelRowsMarkup({row},false).find(L"<NumberBox ")!=std::wstring::npos,
-            "quick peek", "arbitrary numeric properties keep their unbounded numeric editor");
-        row.name=L"Opacity";row.value=L"2";
-        check(!SelRowUsesSlider(row),"quick peek","an out-of-range seed is not silently clamped");
-        row.value=L"0.75";
-        const auto panel=BuildSelectionPanelMarkup(L"TextBlock",L"TextBlock",0,0,500,0,0,L"",L"",
-            L"",0,L"noFile",L"",0,0,false);
-        check(panel.find(L"Source unavailable")!=std::wstring::npos &&
-            panel.find(L"AutomationProperties.Name=\"XAML source:")!=std::wstring::npos &&
+        const auto panel=BuildSelectionPanelMarkup(L"TextBlock",L"TextBlock",0,0,500,0,0,L"",
+            L"C:\\app\\MainPage.xaml",12,true,L"exact",L"",{},0,0,false);
+        check(panel.find(L"Text=\"MainPage.xaml:12\"")!=std::wstring::npos &&
             panel.find(L"DevToolsSelOperationStatus")!=std::wstring::npos,
-            "quick peek", "ordinary source absence is quiet and operation status has its own surface");
-        check(panel.find(L"x:Name=\"DevToolsSelComment\"") < panel.find(L"x:Name=\"DevToolsSelRows\"") &&
-            panel.find(L"Text=\"Comment\"")!=std::wstring::npos,
-            "quick peek", "visible comment label and editor precede the property rows in keyboard order");
+            "comment flyout", "a linked element shows its file and line");
+        for (const auto* gone : {L"DevToolsSelRow", L"DevToolsSelEdit", L"DevToolsSelStatus", L"DevToolsSelReveal", L"<Expander ", L"<Slider ", L"<NumberBox "})
+            check(panel.find(gone)==std::wstring::npos, "comment flyout", "the flyout has no property rows, editors, binding status or hand-offs");
+        check(panel.find(L"x:Name=\"DevToolsSelComment\"") < panel.find(L"x:Name=\"DevToolsSelOpen\"") &&
+            panel.find(L"Text=\"Comment\"")!=std::wstring::npos && panel.find(L"AutomationProperties.Name=\"Comments\"")!=std::wstring::npos,
+            "comment flyout", "the comment box precedes Open in DevTools and the flyout is named Comments");
+        const auto unlinked=BuildSelectionPanelMarkup(L"TextBlock",L"TextBlock",0,0,500,0,0,L"",
+            L"C:\\app\\Generic.xaml",40,false,L"noFile",L"",{L"First <note>",L"Second"},0,0,false);
+        check(unlinked.find(L"Text=\"Not linked to source\"")!=std::wstring::npos &&
+            unlinked.find(L"Generic.xaml")==std::wstring::npos,
+            "comment flyout", "an element without a project declaration says it is not linked, even with a framework file");
+        check(unlinked.find(L"DevToolsSelOtherComments")!=std::wstring::npos &&
+            unlinked.find(L"First &lt;note&gt;")!=std::wstring::npos && unlinked.find(L"Text=\"Second\"")!=std::wstring::npos,
+            "comment flyout", "the element's other comments are listed, escaped");
+        check(panel.find(L"DevToolsSelOtherComments")==std::wstring::npos,
+            "comment flyout", "no list when the element has no other comments");
         check(panel.find(L"AutomationProperties.Name=\"Save comment\"") != std::wstring::npos &&
             panel.find(L"<Grid ColumnSpacing=\"8\" Visibility=\"Visible\">") != std::wstring::npos &&
             panel.find(L"Enter to save &#x00B7; Shift+Enter for a new line") != std::wstring::npos &&
-            panel.find(L"$CMTSAVEVIS$") == std::wstring::npos,
+            panel.find(L"$CMTSAVEVIS$") == std::wstring::npos && panel.find(L"$OTHERS$") == std::wstring::npos,
             "comment save", "inline Save and keyboard/blur hint are resolved in production markup");
-        const auto readOnlyPanel = BuildSelectionPanelMarkup(L"TextBlock", L"TextBlock", 0, 0, 500, 0, 0, L"", L"",
-            L"", 0, L"noFile", L"", 0, 0, true);
+        const auto readOnlyPanel = BuildSelectionPanelMarkup(L"TextBlock", L"TextBlock", 0, 0, 500, 0, 0, L"",
+            L"", 0, false, L"noFile", L"", {}, 0, 0, true);
         check(readOnlyPanel.find(L"<Grid ColumnSpacing=\"8\" Visibility=\"Collapsed\">") != std::wstring::npos,
-            "comment save", "read-only inspector hides write affordance and hint");
-        const auto likelyPanel = BuildSelectionPanelMarkup(L"TextBlock",L"TextBlock",0,0,500,0,0,L"",L"",
-            L"MainPage.xaml",48,L"likely",L"<TextBlock/>",0,0,false);
+            "comment save", "read-only posture hides the write affordance and hint");
+        const auto likelyPanel = BuildSelectionPanelMarkup(L"TextBlock",L"TextBlock",0,0,500,0,0,L"",
+            L"MainPage.xaml",48,true,L"likely",L"<TextBlock/>",{},0,0,false);
         check(likelyPanel.find(L"Likely source:") != std::wstring::npos &&
+            likelyPanel.find(L"&lt;TextBlock/&gt;") != std::wstring::npos &&
             likelyPanel.find(L"DevToolsConfirmLikelySource") != std::wstring::npos &&
             likelyPanel.find(L"IsChecked=\"False\"") != std::wstring::npos,
-            "source attribution", "likely quick-panel source requires an unchecked explicit confirmation");
-        const auto likelyComposer = BuildComposerMarkup(L"TextBlock",L"",0,0,L"",L"MainPage.xaml",48,L"likely",L"<TextBlock/>");
-        check(likelyComposer.find(L"Review likely XAML") != std::wstring::npos &&
-            likelyComposer.find(L"DevToolsConfirmLikelySource") != std::wstring::npos &&
-            likelyComposer.find(L"&lt;TextBlock/&gt;") != std::wstring::npos,
-            "source attribution", "composer displays the inferred declaration before confirmation");
+            "source attribution", "a likely source is shown for review with an unchecked explicit confirmation");
         check(panel.find(L"DevToolsConfirmLikelySource") == std::wstring::npos && !LikelySourceConfirmed(nullptr),
             "source attribution", "non-likely panel has no confirmation and a missing checkbox never confirms");
-        row.authoredKind=L"literal";row.authored=L"0.75";
-        check(!SelRowHasExpression(row) && BuildSelRowsMarkup({row},false).find(L"Binding details")==std::wstring::npos,
-            "quick peek", "authored literal is not mislabeled as binding provenance");
-        row.type=L"";row.editKind=L"none";row.authored.clear();row.value=L"Georgia";row.name=L"FontFamily";
-        check(BuildSelRowsMarkup({row},false).find(L"<Expander ")==std::wstring::npos &&
-            BuildSelRowsMarkup({row},false).find(L"Georgia")!=std::wstring::npos,
-            "quick peek", "read-only font has a real value and no empty disclosure");
-        {
-            const auto peer=BuildSelRowsMarkup({row},false);
-            const auto id=peer.find(L"AutomationProperties.AutomationId=\"DevToolsSelRow0\"");
-            check(id!=std::wstring::npos && peer.rfind(L"<TextBlock ",id)!=std::wstring::npos &&
-                peer.rfind(L"<TextBlock ",id)>peer.rfind(L"<Grid ",id),
-                "quick peek", "each row's UIA peer is its label, since a Grid exposes none");
-        }
-        {
-            DevToolsCardRow align;align.name=L"HorizontalAlignment";align.type=L"HorizontalAlignment";align.editKind=L"enum";
-            align.value=L"Stretch";align.enumValues={L"Left",L"Center",L"Right",L"Stretch"};
-            const auto m=BuildSelRowsMarkup({align},false);
-            check(m.find(L"Text=\"H. alignment\"")!=std::wstring::npos &&
-                m.find(L"AutomationProperties.Name=\"HorizontalAlignment\"")!=std::wstring::npos &&
-                m.find(L"ColumnDefinition Width=\"104\"")!=std::wstring::npos,
-                "quick peek", "a long label is shortened to fit, keeping its full name for tooltips and screen readers");
-            DevToolsCardRow bound;bound.name=L"Text";
-            const std::pair<const wchar_t*,const wchar_t*> expressions[]={
-                {L"{Binding ElementName=CounterButton, Path=Nope}",L"{Binding Nope}"},
-                {L"{Binding Content, ElementName=CounterButton}",L"{Binding Content}"},
-                {L"{x:Bind Greeting, Mode=OneWay}",L"{x:Bind Greeting}"},
-                {L"{Binding}",L"{Binding}"}};
-            bool keepsPath=true;
-            for (const auto& [authored, shown] : expressions) { bound.authored=authored; keepsPath=keepsPath && SelShortExpression(bound)==shown; }
-            check(keepsPath, "quick peek", "a bound row's expression keeps its path");
-        }
-        row.name=L"Foreground";row.type=L"Brush";row.editKind=L"color";row.value=L"#80123456";
-        check(BuildSelRowsMarkup({row},false).find(L"PlaceholderText=\"#AARRGGBB\"")!=std::wstring::npos &&
-            BuildSelRowsMarkup({row},false).find(L"Text=\"#80123456\"")!=std::wstring::npos &&
-            BuildSelRowsMarkup({row},false).find(L"Background=\"#80123456\"")!=std::wstring::npos,
-            "quick peek", "color editor shows real alpha-inclusive hex with explicit format");
-        row.value=L"#nothex";
-        check(!SelectionHasColorSwatch(row),"quick peek","invalid color cannot inject markup or a made-up swatch");
-        row.value=L"#80123456";row.editKind=L"text";row.valueType=L"Windows.Foundation.String";
-        check(!SelectionHasColorSwatch(row),"quick peek","hex-looking text is not mislabeled as a color");
-        check(BuildSelRowsMarkup({row},true).find(L"DevToolsSelEdit")==std::wstring::npos,
-            "quick peek", "read-only posture never exposes mutation editors");
-        all[0].valueState=L"unresolved";
-        const auto available=DevToolsSelCurateRows(all);
-        check(available.size()==6 && std::none_of(available.begin(),available.end(),[](const auto& item){return item.name==L"Content";}),
-            "quick peek","unresolved complex Content does not displace meaningful values");
-        row.name=L"Width";row.type=L"Double";row.editKind=L"number";row.authored.clear();
-        for (const auto* symbolic : {L"Auto",L"NaN",L"inf",L"Infinity",L"",L"not-a-number"}) {
-            row.value=symbolic;row.valueState.clear();
-            check(!SelRowCanEdit(row) && BuildSelRowsMarkup({row},false).find(L"<NumberBox ")==std::wstring::npos,
-                "quick numeric seed","nonfinite symbolic or invalid numeric seed never creates a zero-initialized editor");
-        }
-        row.value=L"NaN";row.valueState=L"unset";
-        check(SelectionPreviewValue(row)==L"Auto" && SelRowCanEdit(row) &&
-            BuildSelRowsMarkup({row},false).find(L"Value=\"NaN\"")!=std::wstring::npos &&
-            BuildSelRowsMarkup({row},false).find(L"PlaceholderText=\"Auto\"")!=std::wstring::npos,
-            "quick numeric seed","auto-sized Width edits in an empty number box that reads Auto");
-        row.name=L"MaxWidth";row.value=L"inf";
-        check(SelectionPreviewValue(row)==L"Unbounded" && !SelRowCanEdit(row),
-            "quick numeric seed","unconstrained maximum is distinct from Auto or zero");
-    }
-    {
-        GeometryObject target;
-        g_selTarget=&target;g_cardWrite=WriteQuickValue;
-        SelRowSink slider;
-        quickNumber=0.75;
-        slider.InitSlider(L"Opacity",L"Double",L"0.753",&target,quickNumber);
-        slider.Invoke(nullptr,nullptr);
-        check(quickWrites==0 && slider.original==L"0.753",
-            "quick slider","realization and dismiss never write a rounded initial value");
-        quickNumber=0.5;slider.Invoke(nullptr,nullptr);
-        check(quickWrites==1 && quickWritten==L"0.5",
-            "quick slider","user range change uses the existing write and readback path");
-        slider.Invoke(nullptr,nullptr);
-        check(quickWrites==1,"quick slider","unchanged slider value does not echo");
-        quickNumber=0.6;quickOutcome=DevToolsWriteOutcome::NeedsConfirm;slider.Invoke(nullptr,nullptr);
-        check(quickWrites==2 && g_selPending.size()==1 && slider.originalNumber==0.5,
-            "quick slider","bound slider refuses replacement before consent");
-        g_selPending.clear();quickOutcome=DevToolsWriteOutcome::Ok;quickWrites=0;
-        SelRowSink numeric;
-        quickNumber=0.75;
-        numeric.InitNumber(L"Opacity",L"Double",L"0.750000",&target);
-        numeric.Invoke(nullptr,nullptr);
-        check(quickWrites==0,"quick editor","numeric realization does not write or reformat seed");
-        quickNumber=0.5;numeric.Invoke(nullptr,nullptr);
-        check(quickWrites==1 && quickWritten==L"0.5" && numeric.originalNumber==0.5,
-            "quick editor","typed numeric change commits invariant-culture value");
-        numeric.Invoke(nullptr,nullptr);
-        check(quickWrites==1,"quick editor","unchanged numeric value does not echo");
-        quickNumberResult=E_FAIL;numeric.Invoke(nullptr,nullptr);
-        check(quickWrites==1 && !g_selOperationError.empty() && g_selDismissCommitFailed,
-            "quick editor","failed getter is visible and keeps panel open");
-        quickNumberResult=S_OK;quickNumber=std::nan("");numeric.Invoke(nullptr,nullptr);
-        check(quickWrites==1,"quick editor","empty numeric input cannot write NaN");
-        quickNumber=0.6;quickOutcome=DevToolsWriteOutcome::Failed;numeric.Invoke(nullptr,nullptr);
-        check(quickWrites==2 && numeric.originalNumber==0.5 && g_selOperationError.find(L"Couldn't set")!=std::wstring::npos,
-            "quick editor","failed write retains original seed and actionable status");
-        quickOutcome=DevToolsWriteOutcome::NeedsConfirm;numeric.Invoke(nullptr,nullptr);
-        check(quickWrites==3 && g_selPending.size()==1 && numeric.originalNumber==0.5,
-            "quick editor","binding replacement is refused before consent");
-        g_selRowSinks={&numeric};
-        check(!SelectionSourceIsTextEditor(&target,false,false),
-            "quick editor","numeric Enter remains owned by NumberBox rather than panel text commit");
-        SelConfirmSink confirm;confirm.Init(L"Opacity");confirm.Invoke(nullptr,nullptr);
-        check(quickWrites==4 && g_selPending.empty() && numeric.originalNumber==0.6 && g_selOperationError.empty(),
-            "quick editor","confirmed replacement advances seed and clears its error");
-        numeric.Invoke(nullptr,nullptr);
-        check(quickWrites==4,"quick editor","dismiss after confirmation cannot repeat the mutation");
-        quickOutcome=DevToolsWriteOutcome::Ok;quickReentrant=true;quickNumber=0.8;
-        numeric.Invoke(nullptr,nullptr);
-        check(quickWrites==5 && numeric.originalNumber==0.6,
-            "quick editor","reentrant selection change cannot update new panel or old seed");
-        numeric.Invoke(nullptr,nullptr);
-        check(quickWrites==5,"quick editor","retired numeric callback is inert");
-        SelRowSink text;
-        text.InitText(L"Text",L"String",L"before",&target);
-        g_selRowSinks={&text};
-        GeometryObject header;
-        check(SelectionSourceIsTextEditor(&target,false,false) && SelectionSourceIsTextEditor(&target,true,false) &&
-            !SelectionSourceIsTextEditor(&header,false,false) &&
-            !SelectionSourceIsTextEditor(nullptr,false,false),"quick editor","only current text editor intercepts Enter");
-        {
-            // A TextBox cannot hold every string: a single-line box keeps the first line, a multi-line box stores
-            // line breaks as '\r'. Closing it unchanged must write nothing, and an edit keeps the value's own breaks.
-            const std::wstring multi=L"Make room for\nwhat matters.";
-            const unsigned writesBefore=quickWrites;
-            const auto saveOutcome=quickOutcome;quickOutcome=DevToolsWriteOutcome::Ok;quickReentrant=false;
-            g_cardReadInput=CommentReadInput;
-            for (const auto* shown : {L"Make room for",L"Make room for\rwhat matters."}) {
-                commentInput=shown;
-                SelRowSink row;row.InitText(L"Text",L"String",multi,&target);
-                row.Invoke(nullptr,nullptr);
-                check(quickWrites==writesBefore && row.original==multi,"quick text","closing an unedited multi-line editor writes nothing");
-            }
-            commentInput=L"Make room for\rwhat matters.";
-            SelRowSink row;row.InitText(L"Text",L"String",multi,&target);
-            g_selRowSinks={&row};
-            check(SelectionSourceIsTextEditor(&target,false,false) && !SelectionSourceIsTextEditor(&target,true,false) &&
-                SelectionSourceIsTextEditor(&target,true,true),
-                "quick text","Enter (or Ctrl+Enter) applies a multi-line editor; Shift+Enter is left to it for a new line");
-            check(!DevToolsEditText::StartsNewLine(true,false,false) && DevToolsEditText::StartsNewLine(true,true,false) &&
-                !DevToolsEditText::StartsNewLine(true,true,true) && !DevToolsEditText::StartsNewLine(false,true,false),
-                "quick text","the inspector shares the rule: only Shift+Enter in a multi-line editor starts a new line");
-            commentInput=L"Make room for\ryou.";
-            row.Invoke(nullptr,nullptr);
-            check(quickWrites==writesBefore+1 && quickWritten==L"Make room for\nyou.","quick text","an edit keeps the value's \\n line breaks");
-            SelRowSink crlf;commentInput=L"a\rb";crlf.InitText(L"Text",L"String",L"a\r\nb",&target);
-            commentInput=L"a\rc";crlf.Invoke(nullptr,nullptr);
-            check(quickWrites==writesBefore+2 && quickWritten==L"a\r\nc","quick text","an edit keeps the value's \\r\\n line breaks");
-            check(XmlEscapeLines(L"a\r\nb")==L"a&#xD;&#xA;b","quick text","markup keeps both line-break characters");
-            DevToolsCardRow multiRow;multiRow.name=L"Text";multiRow.type=L"String";multiRow.editKind=L"text";multiRow.value=multi;
-            const std::wstring rowMarkup=BuildSelRowsMarkup({multiRow},false);
-            const size_t editor=rowMarkup.find(L"<TextBox x:Name=\"DevToolsSelEdit0\"");
-            const size_t accepts=rowMarkup.find(L"AcceptsReturn=\"True\"",editor), seeded=rowMarkup.find(L" Text=\"Make room for&#xA;",editor);
-            check(editor!=std::wstring::npos && accepts!=std::wstring::npos && seeded!=std::wstring::npos && accepts<seeded,
-                "quick text","a multi-line value accepts returns before its text is set, so the editor keeps every line");
-            check(rowMarkup.find(L"Enter to apply &#x00B7; Shift+Enter for a new line")!=std::wstring::npos &&
-                rowMarkup.find(L"Ctrl+Enter")==std::wstring::npos,"quick text","the multi-line hint names the comment box's keys");
-            g_cardReadInput=nullptr;g_selRowSinks={&text};quickOutcome=saveOutcome;
-        }
-        ++g_selGen;
-        check(!SelectionSourceIsTextEditor(&target,false,false),"quick editor","retired text editor cannot intercept disclosure Enter");
-        quickReentrant=false;g_selPreviewProperties={L"Opacity"};g_cardRead=ReadQuickRows;
-        UpdateSelectionPreview(L"Opacity");
-        check(quickReads==1 && g_selOperationError.empty(),
-            "quick preview","successful write rereads actual effective value instead of echoing requested input");
-        quickReadSucceeded=false;UpdateSelectionPreview(L"Opacity");
-        check(quickReads==2 && g_selOperationError.find(L"preview couldn't refresh")!=std::wstring::npos,
-            "quick preview","readback failure remains explicit after successful mutation");
-        DevToolsCardRow coerced;coerced.type=L"Double";coerced.value=L"0.4";
-        check(SelectionPreviewValue(coerced)==L"0.4",
-            "quick preview","fresh effective scalar is the preview display authority");
-        g_cardRead=nullptr;g_selPreviewProperties.clear();
-        for (const auto* invalid : {L"Auto",L"NaN",L"inf",L"",L"1junk"}) {
-            SelRowSink unsupported;
-            unsupported.InitNumber(L"Width",L"Double",invalid,&target);
-            quickNumber=0;g_selRowSinks={&unsupported};
-            const auto before=quickWrites;
-            DevToolsSelFlushCommits();
-            check(quickWrites==before && !std::isfinite(unsupported.originalNumber),
-                "quick numeric seed","untouched symbolic or invalid dimension cannot become zero on panel close");
-        }
-        g_selTarget=nullptr;g_cardWrite=nullptr;g_selRowSinks.clear();
-        g_selDismissCommitFailed=false;g_selOperationError.clear();g_selOperationProperty.clear();
-        quickReentrant=false;
+        check(XmlEscapeLines(L"a\r\nb")==L"a&#xD;&#xA;b","markup","markup keeps both line-break characters");
     }
     {
         SwitchObject popup;
-        GeometryObject panel, icon, target;
-        auto setup = [&] {
-            g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
-            g_selPopup=&popup;popup.AddRef();g_selTarget=&target;target.AddRef();
-            popup.popupOpen=true;g_cardWrite=WriteQuickValue;
-            g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
-            dismissClock=0;dismissClosedAt=-1;dismissWriteCost=750'000;
-        };
-        setup();
-        SelRowSink numeric;
-        numeric.InitNumber(L"Width",L"Double",L"10",&target);
-        quickNumber=20;quickOutcome=DevToolsWriteOutcome::Ok;g_selRowSinks={&numeric};
-        check(DismissSelectionPanel() && dismissClosedAt==750'000 && !popup.popupOpen && g_selPanel==&panel,
-            "dismiss phases","visual close follows controlled slow commit but does not wait for timer teardown");
-        dismissClock+=5'000'000;
-        check(!popup.popupOpen && g_selTarget==&target,
-            "dismiss phases","starved teardown retains editor state without keeping popup visible");
-        DevToolsSelDismissTimerProc(nullptr,0,0,0);
-        check(g_selPanel==nullptr && panel.refs==1 && icon.refs==1 && target.refs==1 && popup.refs==1,
-            "dismiss phases","later teardown releases the retained subtree exactly once");
-        setup();
-        numeric.InitNumber(L"Width",L"Double",L"10",&target);g_selRowSinks={&numeric};
-        quickOutcome=DevToolsWriteOutcome::Failed;
-        check(!DismissSelectionPanel() && popup.popupOpen && dismissClosedAt==-1 && !g_selDismissTimer,
-            "dismiss phases","failed synchronous write keeps the draft and visible panel");
-        quickOutcome=DevToolsWriteOutcome::Ok;
-        check(DismissSelectionPanel() && !popup.popupOpen,"dismiss phases","explicit retry can close after successful write");
-        SetSelectionOperationError(L"Width",L"Late blur failed");
+        GeometryObject panel, icon;
+        g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
+        g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
+        g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
+        check(DismissSelectionPanel() && !popup.popupOpen && g_selPanel==&panel,
+            "dismiss phases","the flyout hides at once and is torn down on the next turn");
+        SetSelectionOperationError(L"Comment",L"Late save failed");
         DevToolsSelDismissTimerProc(nullptr,0,0,0);
         check(popup.popupOpen && g_selPanel==&panel && !g_selDismissVisualClosed,
-            "dismiss phases","late failure restores the same panel without replaying a write");
+            "dismiss phases","a late failure restores the same panel");
         ClearSelectionAnchor();
-        g_cardWrite=nullptr;dismissWriteCost=0;
+        check(g_selPanel==nullptr && panel.refs==1 && icon.refs==1 && popup.refs==1,
+            "dismiss phases","teardown releases the subtree exactly once");
+        g_selDismissCommitFailed=false;g_selOperationError.clear();g_selOperationProperty.clear();
     }
     {
         // Closing the quick peek hands focus back to the app with pointer state, and only when focus is in the peek.
@@ -947,7 +674,7 @@ int main()
         auto open = [&] {
             g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
             g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
-            g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;g_selRowSinks.clear();
+            g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
         };
         auto teardown = [&] { if (g_selDismissTimer) DevToolsSelDismissTimerProc(nullptr,0,0,0); ClearSelectionAnchor(); };
         open();
@@ -1002,7 +729,7 @@ int main()
         g_pickDiag=&diag;g_pickRoot=10;g_pickCatcher=&catcher;
         for (const InstanceHandle under : {InstanceHandle(11), InstanceHandle(12)}) {
             g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
-            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
             g_selectedHandle=11;diag.hitHandle=under;dismissFocusState=-1;
             OnCatcherClick(&catcher,nullptr);
             check(under==11 ? (dismissFocusState==-1 && popup.popupOpen && g_selectedHandle==11) : g_selectedHandle==12,
@@ -1053,7 +780,7 @@ int main()
             declared = mode != 3;
             g_isDeclared = [](InstanceHandle) { return declared; };
             g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
-            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
             g_selComment=&input;input.AddRef();
             g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
             SetCommentTarget(11,false);
@@ -1085,7 +812,7 @@ int main()
             SwitchObject popup;
             GeometryObject panel, icon;
             g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
-            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
             g_selComment=&input;input.AddRef();
             g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
             SetCommentTarget(11,false);
@@ -1105,7 +832,7 @@ int main()
             GeometryObject panel, icon, keyArgs;
             keyArgs.keyArgs = true;
             g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
-            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
             g_selComment=&input;input.AddRef();
             SetCommentTarget(11,false);
             g_selCommentId=L"enter-saves";g_selCommentSaved.clear();g_guestCommentWrite={};commentLaunches=0;
@@ -1126,7 +853,7 @@ int main()
             GeometryObject panel, icon, keyArgs;
             keyArgs.keyArgs = true;
             g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
-            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;g_selRowSinks.clear();
+            g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
             commentKey=modifier;commentShift=false;commentControl=false;g_selFocusedIsComment=true;escapeHandled=false;
             OnSelKeyDown(nullptr,&keyArgs);
             check(escapeHandled && popup.popupOpen, "comment keys", "a modifier key-down is kept in the panel and closes nothing");
@@ -1178,24 +905,16 @@ int main()
             HideCommentToast();
             g_guestCommentWrite={};g_selComment=nullptr;
         }
-        // A hand-off to the inspector names the panel's element, however the panel was opened (a marker opens it
-        // without a pick), so the window can select it.
+        // "Open in DevTools" names the flyout's element, however it was opened (a marker opens it without a pick), so
+        // the window can select it.
         {
             static InstanceHandle seenElement = 0;
-            static std::wstring seenProp;
-            DevToolsOverlay_SetInprocInspect([]() {
-                seenElement = DevToolsOverlay_InspectorRevealElement();
-                std::wstring prop;
-                if (DevToolsOverlay_TakeInspectorReveal(&prop)) seenProp = prop;
-                return false;
-            });
+            DevToolsOverlay_SetInprocInspect([]() { seenElement = DevToolsOverlay_InspectorTarget(); return false; });
             const InstanceHandle savedHandle = g_selHandle;
             g_selHandle = 77;
-            SelRevealSink reveal;
-            reveal.Init(L"Text");
-            reveal.Invoke(nullptr, nullptr);
-            check(seenElement == 77 && seenProp == L"Text" && DevToolsOverlay_InspectorRevealElement() == 0,
-                "hand-off", "the inspector is told which element to select, and the request is not left behind");
+            OnSelOpenClick(nullptr, nullptr);
+            check(seenElement == 77 && DevToolsOverlay_InspectorTarget() == 0,
+                "open in DevTools", "the inspector is told which element to select, and the request is not left behind");
             g_selHandle = savedHandle;
             DevToolsOverlay_SetInprocInspect(nullptr);
         }
@@ -1221,7 +940,7 @@ int main()
             OnCatcherPointerPressed(&catcher, nullptr);
             OnCatcherPointerWheel(&catcher, nullptr);
             check(diag.hits == hits && g_selectedHandle == 11 && g_lastHighlightHandle == 11,
-                "picker editor pause", composer ? "composer prevents hit-testing and outline changes" : "quick panel prevents hit-testing and outline changes");
+                "picker editor pause", composer ? "composer prevents hit-testing and outline changes" : "the flyout prevents hit-testing and outline changes");
             check(!g_pressValid, "picker editor pause", "editor does not latch an underlying press");
             g_selPanel = g_composerUi = nullptr;
             g_hoverLastTick = 0;

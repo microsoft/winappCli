@@ -165,10 +165,7 @@ HRESULT DevToolsOverlay_RecoverHost(IXamlDiagnostics* diag, DevToolsFindHostPane
                 g_pickRoot = 0;
                 if (draft) {
                     g_selRootLost = true;
-                    auto* staleTarget = g_selTarget;
-                    g_selTarget = nullptr;
-                    if (staleTarget) staleTarget->Release();
-                    for (const auto* name : {L"DevToolsSelRows", L"DevToolsSelOpen", L"DevToolsSelCommentDelete"}) {
+                    for (const auto* name : {L"DevToolsSelOpen", L"DevToolsSelCommentDelete"}) {
                         if (auto* element = DevToolsSelFindName(g_selUi, name)) {
                             SetOverlayElementVisible(element, false);
                             element->Release();

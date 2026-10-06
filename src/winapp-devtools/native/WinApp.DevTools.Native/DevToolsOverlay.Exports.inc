@@ -934,4 +934,4 @@ HRESULT DevToolsOverlay_SelectHandle(IXamlDiagnostics* diag, InstanceHandle root
     return hr;
 }
 
-bool DevToolsOverlay_IsQuickPanelOpen() { return DevToolsSelPanelIsOpen(); }
+bool DevToolsOverlay_IsCommentFlyoutOpen() { return DevToolsSelPanelIsOpen(); }

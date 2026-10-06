@@ -242,16 +242,6 @@ static DevToolsWriteOutcome InteractiveWrite(InstanceHandle h, const std::wstrin
 }
 
 
-static DevToolsWriteOutcome CardWriteBridge(IInspectable* target, const wchar_t* prop, const wchar_t* type,
-                                       const wchar_t* value, bool confirmBindingReplace)
-{
-    if (!target || !g_diag || !prop || !type || !value) return DevToolsWriteOutcome::Failed;
-    InstanceHandle h = 0;
-    if (FAILED(g_diag->GetHandleFromIInspectable(target, &h)) || !h) return DevToolsWriteOutcome::Failed;
-    return InteractiveWrite(h, prop, type, value, confirmBindingReplace);
-}
-
-
 // Unlike the overlay card (editable rows only), this returns EVERY curated property so the window shows the full set;
 // Does `wire` still resolve to a live element? Shares ResolveWire_nolock with every other verb, so liveness here
 // cannot drift from liveness as the read/write paths see it -- one predicate, not a second opinion.

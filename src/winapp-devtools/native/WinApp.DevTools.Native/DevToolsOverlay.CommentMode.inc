@@ -109,20 +109,6 @@ static void OnAppEscape(void* /*sender*/, void* args)
         return;
     }
     const bool isEsc = SUCCEEDED(hr) && key == VK_ESCAPE;
-    // This handler tunnels ahead of the panel's own key handler, so the first Esc in a quick-edit editor holding an
-    // uncommitted change is resolved here: it reverts the edit and leaves the panel open.
-    if (isEsc && DevToolsSelPanelIsOpen()) {
-        winrt::com_ptr<IUnknown> routed;
-        winrt::com_ptr<IInspectable> source;
-        if (SUCCEEDED(ai->QueryInterface(DevToolsIid<DevToolsX::IRoutedEventArgs>(), routed.put_void())) &&
-            SUCCEEDED(DevToolsGetOriginalSource(routed.get(), source.put())) && source &&
-            SelectionRevertEditor(source.get())) {
-            DevToolsPutHandled(kr, true);
-            reinterpret_cast<IUnknown*>(kr)->Release();
-            DevToolsOverlayLog(L"overlay.esc reverted an uncommitted quick edit");
-            return;
-        }
-    }
     const bool acting = isEsc && (g_pickCatcher != nullptr || g_selectedHandle != 0 || g_selRootLost);
     if (acting) {
         DevToolsPutHandled(kr, true);

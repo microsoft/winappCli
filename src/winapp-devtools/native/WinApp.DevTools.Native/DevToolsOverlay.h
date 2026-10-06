@@ -154,8 +154,8 @@ HRESULT DevToolsOverlay_SetToolbarVisible(bool visible);
 
 // Returns the raw handle currently drawn, not merely the last requested target.
 InstanceHandle DevToolsOverlay_GetHighlightHandle();
-// Whether the in-app quick-edit panel is open: a selection the user made in the app, not one the inspector drew.
-bool DevToolsOverlay_IsQuickPanelOpen();
+// Whether the in-app comment flyout is open: a selection the user made in the app, not one the inspector drew.
+bool DevToolsOverlay_IsCommentFlyoutOpen();
 
 // Reads the layout-toggle latch without recomputing geometry.
 bool DevToolsOverlay_IsLayoutAdornersOn();
@@ -227,11 +227,8 @@ HRESULT DevToolsOverlay_SetComments(IXamlDiagnostics* diag, InstanceHandle root,
 // False is logged locally; this callback never redirects to another host.
 typedef bool (*DevToolsInprocInspectFn)();
 void DevToolsOverlay_SetInprocInspect(DevToolsInprocInspectFn fn);
-// One-shot hand-off from the quick-edit panel: the property the inspector should reveal (expanded and scrolled
-// into view) for the element it opens on. False when the panel asked for nothing. UI thread only.
-bool DevToolsOverlay_TakeInspectorReveal(std::wstring* prop);
-// The element that pending hand-off is for (0 when none), so the window opens on it whatever opened the panel.
-InstanceHandle DevToolsOverlay_InspectorRevealElement();
+// The element an inspector open request is for (0: the last pick). UI thread only.
+InstanceHandle DevToolsOverlay_InspectorTarget();
 
 
 // Precedence entries mirror DevToolsReadChainEntry without pulling wire-only fields into overlay ABI.
@@ -270,10 +267,7 @@ typedef bool (*DevToolsCardReadFn)(IInspectable* target, std::wstring* outType, 
                               std::wstring* outAuthoredXaml);
 // Reads TextBox text through diagnostics so the overlay needs no TextBox ABI.
 typedef bool (*DevToolsCardReadInputFn)(IInspectable* input, std::wstring* outText);
-// Write outcomes distinguish failure, success, and binding-replacement confirmation.
-typedef DevToolsWriteOutcome (*DevToolsCardWriteFn)(IInspectable* target, const wchar_t* prop, const wchar_t* type,
-                                          const wchar_t* value, bool confirmBindingReplace);
-void DevToolsOverlay_SetCardBridge(DevToolsCardReadFn read, DevToolsCardReadInputFn readInput, DevToolsCardWriteFn write);
+void DevToolsOverlay_SetCardBridge(DevToolsCardReadFn read, DevToolsCardReadInputFn readInput);
 // Bracket card insertion so card elements self-exclude by live handle.
 typedef void (*DevToolsCardScopeFn)(int on);
 void DevToolsOverlay_SetCardScope(DevToolsCardScopeFn scope);
@@ -289,16 +283,7 @@ void DevToolsOverlay_SetSourceReader(DevToolsSourceReadFn read);
 typedef bool (*DevToolsDeclaredFn)(InstanceHandle raw);
 void DevToolsOverlay_SetDeclaredReader(DevToolsDeclaredFn read);
 
-// Invoke from a worker: the managed relay needs the UI thread and would deadlock if called there.
-typedef bool (*DevToolsBindingAskFn)(unsigned long long rawHandle, const wchar_t* op, const wchar_t* prop,
-                                std::wstring* out);
-void DevToolsOverlay_SetBindingAsk(DevToolsBindingAskFn ask);
-
-// Invoke from a worker because the implementation marshals to the app UI thread.
-typedef bool (*DevToolsPathWalkAskFn)(unsigned long long rawHandle, const wchar_t* prop, std::wstring* out);
-void DevToolsOverlay_SetPathWalkAsk(DevToolsPathWalkAskFn ask);
-
-// `fromUserPick` is call-local state; protocol/window selections must not open the quick-edit panel.
+// `fromUserPick` is call-local state; protocol/window selections must not open the comment flyout.
 void DevToolsOverlay_ShowBadgeForHandle(IXamlDiagnostics* diag, InstanceHandle target, bool fromUserPick = false);
 
 // Arms the shared full-canvas picker on the UI thread; false means no catcher can deliver a pick.

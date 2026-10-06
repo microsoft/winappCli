@@ -272,7 +272,7 @@ static HRESULT HostAttach(IXamlDiagnostics* diag, IInspectable* panel, IInspecta
 
 // A windowed Popup whose parent is in the layer makes the framework list the layer's chrome under that popup's
 // window for UI Automation, so clients resolve the toolbar to the popup and cannot focus it. On the layer path the
-// quick peek's Popup therefore opens unparented on the XamlRoot; its offsets keep their meaning because the
+// flyout's Popup therefore opens unparented on the XamlRoot; its offsets keep their meaning because the
 // selection canvas it came from sits at the root origin. Outside the layer the framework reports its content to
 // the census, so it is seeded to stay excluded like the rest of our chrome.
 static winrt::Windows::Foundation::IInspectable g_hostLiftedChild{ nullptr };
@@ -350,7 +350,7 @@ static void HostSetLayerTheme(int theme)
     }
 }
 
-// A windowed popup (one not constrained to its root's bounds: the quick peek, a MenuFlyout, a ComboBox drop-down)
+// A windowed popup (one not constrained to its root's bounds: the flyout, a MenuFlyout, a ComboBox drop-down)
 // draws above the layer, but input is hit-tested against the layer first. Chrome that such a popup covers stops
 // taking input while it does, so a click goes to what is drawn on top.
 static bool ChromeRectOverride(IInspectable* element, winrt::Windows::Foundation::Rect* rect);

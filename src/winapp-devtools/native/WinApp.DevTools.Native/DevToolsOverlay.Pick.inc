@@ -748,9 +748,9 @@ static std::atomic<DevToolsInprocInspectFn> g_inprocInspect{nullptr};
 
 void DevToolsOverlay_SetInprocInspect(DevToolsInprocInspectFn fn) { g_inprocInspect.store(fn); }
 
-void DevToolsOverlay_SetCardBridge(DevToolsCardReadFn read, DevToolsCardReadInputFn readInput, DevToolsCardWriteFn write)
+void DevToolsOverlay_SetCardBridge(DevToolsCardReadFn read, DevToolsCardReadInputFn readInput)
 {
-    g_cardRead = read; g_cardReadInput = readInput; g_cardWrite = write;
+    g_cardRead = read; g_cardReadInput = readInput;
 }
 
 void DevToolsOverlay_SetCardScope(DevToolsCardScopeFn scope) { g_cardScope = scope; }

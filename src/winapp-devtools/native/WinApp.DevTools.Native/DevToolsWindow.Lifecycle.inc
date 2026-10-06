@@ -90,13 +90,11 @@ if (g_route1WindowHidden) {
             }
             DevToolsOverlayLog(L"route1.open re-activate existing (live) window");
             SelectNodeByWire(preselectWire);
-            // The quick panel may have changed this element since the window last read it; re-read before
-            // revealing, rather than reveal a stale row.
+            // The app may have changed this element since the window last read it.
             if (preselectWire && preselectWire == g_selWire) {
                 WalkForget();
                 ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
             }
-            ApplyPendingReveal();
             LiveWatchSelection();
             return S_OK;
         }
@@ -534,7 +532,7 @@ static void ResetAppVisibleModes(HWND h)
     }
     if (g_hoverRevertTimer) { KillTimer(nullptr, g_hoverRevertTimer); g_hoverRevertTimer = 0; }
     // The highlight and its tag belong to the window, except a selection the user made in the app, whose panel is open.
-    if (g_ctx.highlightFn && !DevToolsOverlay_IsQuickPanelOpen()) g_ctx.highlightFn(0, true);
+    if (g_ctx.highlightFn && !DevToolsOverlay_IsCommentFlyoutOpen()) g_ctx.highlightFn(0, true);
     if (g_pickRoute.IsWindowPickArmed()) {
         DevToolsOverlay_DisarmPick();
         g_pickRoute.CancelWindowPick();

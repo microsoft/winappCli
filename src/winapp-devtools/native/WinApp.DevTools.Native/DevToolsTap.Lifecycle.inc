@@ -222,7 +222,7 @@ static const wchar_t* TryBuildOverlayOnUiThread(std::wstring* errorMessage)
         &TapResolveAnchor, &TapWireOf);
     // Drop 2: register the inline property-card bridge so the overlay's Quick-edits card can read/write the
     // picked element's curated properties in-process (no pipe, no shipped host).
-    DevToolsOverlay_SetCardBridge(&CardReadBridge, &CardReadInputBridge, &CardWriteBridge);
+    DevToolsOverlay_SetCardBridge(&CardReadBridge, &CardReadInputBridge);
     DevToolsOverlay_SetCardScope(&CardScopeBridge);
     DevToolsOverlay_SetCardFreeze(&CardFreezeBridge);
     DevToolsOverlay_SetSourceReader(&OverlaySourceBridge);
@@ -231,8 +231,6 @@ static const wchar_t* TryBuildOverlayOnUiThread(std::wstring* errorMessage)
     // let the in-app panel ask the injected managed agent why a binding is broken. It goes through the
     // SAME CmdBindingOp the `Binding.*` DevTools verbs use, so the panel and an external protocol client cannot
     // disagree -- which is exactly the defect shipped by having two implementations of one capability.
-    DevToolsOverlay_SetBindingAsk(&OverlayBindingAskBridge);
-    DevToolsOverlay_SetPathWalkAsk(&OverlayPathWalkBridge);
     // Route 1: register the in-proc Inspect bridge so the Inspect button can open a second WinUI Window on
     // this app's UI thread (default for WinUI targets) instead of launching the external host.
     DevToolsOverlay_SetInprocInspect(&InprocInspect);

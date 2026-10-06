@@ -573,7 +573,7 @@ int RunSinkTests();
 int RunToolbarCornerTests();
 // Defined in toolbar-tests.cpp: the toolbar action order/wiring and Light/Dark target selection.
 int RunToolbarTests();
-// Defined in selectionplacement-tests.cpp: screen-safe placement for the in-app quick-edit panel.
+// Defined in selectionplacement-tests.cpp: screen-safe placement for the in-app comment flyout.
 int RunSelectionPlacementTests();
 int RunInspectorAcceptanceTests();
 // Defined in selectiontracking-tests.cpp: scroll-offset translation for live selection tracking.

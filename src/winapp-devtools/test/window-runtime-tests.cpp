@@ -372,7 +372,7 @@ int main()
         g_ctx.highlightFn=[](InstanceHandle wire, bool select) { if (!wire && select) ++clears; };
         g_route1WindowInsp=&testRow;clears=0;
         Route1MinSizeProc(nullptr,WM_CLOSE,0,0,1,g_route1Gen);
-        check(clears==1 && !DevToolsOverlay_IsQuickPanelOpen(),
+        check(clears==1 && !DevToolsOverlay_IsCommentFlyoutOpen(),
             "closing the inspector clears the selection it drew on the app");
         Route1MinSizeProc(nullptr,WM_CLOSE,0,0,1,g_route1Gen-1);
         check(clears==1, "a stale close does not touch the current window's selection");

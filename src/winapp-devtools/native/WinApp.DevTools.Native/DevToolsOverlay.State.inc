@@ -458,7 +458,7 @@ static std::wstring DevToolsInverseAppRequestedTheme();
 
 // Build the corner-parked toolbar markup from the toolbar.xaml resource. Place the collapsed pill at the
 // persisted corner, park the action bar and the snap targets, and apply the same inverse-themed WinUI Acrylic
-// treatment as the quick-edit panel.
+// treatment as the comment flyout.
 static std::wstring BuildPrototypeMarkup(int wDip, int hDip)
 {
     const DevToolsPalette& pal = DevToolsInverseAcrylicPalette();
@@ -601,7 +601,6 @@ static DevToolsCardReadFn       g_cardRead = nullptr;
 // Set by an in-app pick just before its panel opens: only that path moves focus into the comment box.
 static bool g_selFocusCommentOnOpen = false;
 static DevToolsCardReadInputFn  g_cardReadInput = nullptr;
-static DevToolsCardWriteFn      g_cardWrite = nullptr;
 static DevToolsCardScopeFn      g_cardScope = nullptr;
 static DevToolsCardFreezeFn     g_cardFreeze = nullptr;
 static DevToolsSourceReadFn     g_srcRead = nullptr;

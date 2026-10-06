@@ -187,7 +187,7 @@ static InstanceHandle TapResolveAnchor(const wchar_t* anchor)
 // Caller must hold g_censusLock (shared suffices - this only reads g_type). Overlay elements never enter g_type (they
 // self-exclude at Add), so this is non-overlay by construction.
 static size_t CensusPopulation_nolock() {
-    // While the inline Quick-edits card is open, report the frozen pre-card baseline so the card's transient,
+    // While the comment flyout is open, report the frozen pre-card baseline so the card's transient,
     // handle-unexcludable async template parts don't inflate the app-only oracle (see g_cardFrozen above).
     if (g_cardFrozen.load(std::memory_order_acquire)) return g_cardFrozenCount.load(std::memory_order_acquire);
     size_t n = 0;

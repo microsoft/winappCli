@@ -19,9 +19,10 @@ workflow and commands; each command's `--help` shows examples.
    app; cancelling it stops the process it launched.
 
 2. Select **Select element** on the toolbar, then click an element in your app.
-   The quick-edit panel opens next to it, ready for a comment.
+   The comment panel opens next to it, showing where the element is declared, ready
+   for a comment.
 
-   ![The DevTools toolbar and the quick-edit panel on a selected button](../images/devtools-quick-edit.png)
+   ![The DevTools toolbar and the comment panel on a selected button](../images/devtools-quick-edit.png)
 
 3. Type a note and press **Enter** (or select **Save**). **Shift+Enter** starts a new
    line. A **Comment saved** notice appears by the toolbar, the panel closes and the
@@ -46,20 +47,11 @@ workflow and commands; each command's `--help` shows examples.
 
 ### The overlay
 
-The quick-edit panel opens with a **Comment** box, followed by up to six values chosen
-for the kind of element you picked, each with its editor in place: text, numbers
-(Width and Height accept **Auto**), switches, choices, a single box for margins and
-corners (`8`, `8,4` or `8,4,8,4`), and colors as `#AARRGGBB`. A value that comes from a
-binding or resource shows where it comes from; a binding also shows whether it works.
-An edit applies when you leave the field or press **Enter**, as in the comment box;
-in a multi-line text value, **Shift+Enter** adds a line. Esc puts back a value you are
-still typing. Closing a value you didn't change leaves the app untouched.
+The comment panel shows the element, its XAML file and line (or **Not linked to source**),
+a **Comment** box, and any other comments already on the element. To change properties,
+bindings or colors, select **Open in DevTools**: the inspector window has every editor.
 
-Select the ↗ button beside a binding, color, or margin (or a **Broken at** status) to
-open the inspector on that property, with its binding details, color picker, or
-per-side editor. **Open in DevTools** opens the full inspector.
-
-Hover picking pauses while the quick-edit panel or comment editor is open, preserving
+Hover picking pauses while the comment panel is open, preserving
 your selection and draft. Clicking the selected element keeps it selected; clicking
 another element saves what the panel holds and moves it there. Esc saves
 a comment you typed and closes the panel; the next Esc turns pick mode off. When your app has several windows, pick
@@ -84,7 +76,7 @@ The toolbar, highlight and markers draw above your app, including over open dial
 and flyouts, and stay out of your app's visual tree and layout. Menus and drop-downs
 that open in their own window, such as a `MenuFlyout` or a `ComboBox` list, draw over
 them; clicks there go to the menu, and the toolbar or marker underneath responds again
-once the menu closes. In pick mode, a click on a menu picks the menu item. The quick-edit panel opens clear
+once the menu closes. In pick mode, a click on a menu picks the menu item. The comment panel opens clear
 of the toolbar. Screen readers and `winapp ui` find the toolbar under a **DevTools** pane in the window.
 
 Press **Ctrl+Shift+F12** in your app to move keyboard focus to the toolbar. Tab moves

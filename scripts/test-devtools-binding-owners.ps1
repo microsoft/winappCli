@@ -235,27 +235,23 @@ try {
         $peek = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
         $peek | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $evidence 'overlay-peek-uia.json')
         $all = @($peek.windows | ForEach-Object { Nodes $_.elements })
-        Check (@($all | Where-Object hasMoreChildren -eq $true).Count -eq 0) 'quick peek UIA observation is not depth-limited'
-        Check (@($all | Where-Object { $_.automationId -eq 'DevToolsSelComment' -and -not $_.isOffscreen }).Count -gt 0) 'quick peek comment editor is visible'
-        $rows = Invoke-Cli @('ui', 'search', 'DevToolsSelRow', '-a', $app)
-        Check (-not $rows.hasMore) 'quick-property search is not result-limited'
-        $duplicates = @($rows.matches | Where-Object { $_.selector } | Group-Object selector | Where-Object Count -gt 1 |
-            ForEach-Object { [ordered]@{ selector = $_.Name; count = $_.Count; elements = $_.Group } })
-        $inspectedRows = @($all | Where-Object { $_.automationId -match '^DevToolsSelRow[0-5]$' })
-        Check ($rows.matchCount -ge 1 -and $rows.matchCount -le 6 -and $duplicates.Count -eq 0) 'search emits each quick-property peer once (at most six)'
-        Check ($inspectedRows.Count -eq $rows.matchCount -and @($inspectedRows | Group-Object automationId | Where-Object Count -ne 1).Count -eq 0) 'inspect emits each quick-property peer once across HWND roots'
+        Check (@($all | Where-Object hasMoreChildren -eq $true).Count -eq 0) 'flyout UIA observation is not depth-limited'
+        Check (@($all | Where-Object { $_.automationId -eq 'DevToolsSelComment' -and -not $_.isOffscreen }).Count -gt 0) 'flyout comment editor is visible'
+        $sourceLine = @($all | Where-Object { $_.automationId -eq 'DevToolsSelSource' -and -not $_.isOffscreen })
+        Check ($sourceLine.Count -eq 1 -and $sourceLine[0].name -match 'MainWindow\.xaml:\d+') 'the comment flyout names the picked element''s source line'
+        Check (@($all | Where-Object { $_.automationId -match '^DevToolsSel(Row|Edit|Status|Reveal)' }).Count -eq 0) 'the comment flyout has no property rows'
         $saveCandidates = @($all | Where-Object {
             -not $_.isOffscreen -and $_.type -eq 'Button' -and ($_.name -match '(?i)save|commit' -or $_.automationId -match '(?i)save|commit')
         })
         Check ($saveCandidates.Count -eq 1 -and $saveCandidates[0].automationId -eq 'DevToolsSelCommentSave') 'one visible inline Save action is available'
         $peekPanel = @($all | Where-Object { $_.automationId -eq 'DevToolsSelPanel' -and -not $_.isOffscreen })
         $peekToolbar = @($all | Where-Object { $_.automationId -in @('DevToolsProtoRailL', 'DevToolsProtoPill') -and -not $_.isOffscreen })
-        Check ($peekPanel.Count -eq 1 -and $peekToolbar.Count -eq 1 -and -not (Overlaps $peekPanel[0] $peekToolbar[0])) 'quick peek opens clear of the toolbar'
+        Check ($peekPanel.Count -eq 1 -and $peekToolbar.Count -eq 1 -and -not (Overlaps $peekPanel[0] $peekToolbar[0])) 'the flyout opens clear of the toolbar'
         $popupBounds = @($all | Where-Object { $_.type -eq 'Window' -or $_.className -match 'Popup' } |
             Select-Object selector, name, className, isOffscreen, x, y, width, height)
         $null = Invoke-Cli @('ui', 'screenshot', '-w', $window, '--capture-screen', '-o', (Join-Path $evidence 'overlay-peek.png'))
         $popupWindows = @($peek.windows | Where-Object className -eq 'Microsoft.UI.Content.PopupWindowSiteBridge')
-        Check ($popupWindows.Count -eq 1) 'one owned quick-peek popup is available for bounded capture'
+        Check ($popupWindows.Count -eq 1) 'one owned flyout popup is available for bounded capture'
         $popupWindow = [string]$popupWindows[0].hwnd
         Window-Guard $popupWindow
         $null = Invoke-Cli @('ui', 'screenshot', '-w', $popupWindow, '--capture-screen', '-o', (Join-Path $evidence 'overlay-comment-panel.png'))
@@ -336,7 +332,7 @@ try {
         }
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelCommentSave', '-a', $app)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '--gone', '-t', '10000')
-        Check $true 'a saved comment closes the quick peek'
+        Check $true 'a saved comment closes the flyout'
         $stored = Get-Content -LiteralPath $blockedStore -Raw | ConvertFrom-Json
         $savedComment = @($stored.comments | Where-Object text -CEQ 'Owned comment failure probe')
         Check ($savedComment.Count -eq 1) 'retry through Save actually persists the retained draft to the owned store'
@@ -380,7 +376,7 @@ try {
         $stored = Get-Content -LiteralPath $blockedStore -Raw | ConvertFrom-Json
         Check (@($stored.comments | Where-Object text -CEQ 'Owned newer draft').Count -eq 1) 'second explicit Save persists the newer draft'
 
-        # Comment status must also show for an element whose quick peek has no binding rows.
+        # Comment status also shows on a second element.
         $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
         $null = Invoke-Cli @('ui', 'click', 'NarrowCommentProbe', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
@@ -531,9 +527,7 @@ try {
         [ordered]@{
             processId = $owned.Id; startTicksUtc = $started.Ticks; executable = $executable
             sourceHandle = [string]$heading[0].handle
-            rowMatchCount = $rows.matchCount; rowSearchHasMore = $rows.hasMore
-            duplicateRuntimeDerivedSelectors = $duplicates
-            inspectedRowCount = $inspectedRows.Count; deduplicationVerified = $true
+            sourceLine = $sourceLine[0].name
             visibleSaveCandidates = $saveCandidates; popupBounds = $popupBounds
             commentPanelHwnd = $popupWindow
             toolbarVisibilityVerified = $true; keyboardFocusId = $focused.element.automationId

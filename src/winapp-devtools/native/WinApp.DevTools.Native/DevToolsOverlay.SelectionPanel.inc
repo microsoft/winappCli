@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 // Part of DevToolsOverlay.cpp; included into that translation unit, not compiled on its own.
 
-// ============================ Selection morph anchor ============================ One inline panel (quick-edit
-// rows + comment box + "open in DevTools") anchored beside the selection. Authored in xaml/selection.xaml +
-// selection-panel.xaml, loaded through the same XamlReader loader as the toolbar and driven by name (DevTo.
+// ============================ Comment flyout ============================ One panel (source location, comment
+// box, the element's other comments, "open in DevTools") anchored beside the selected element. Authored in
+// xaml/selection.xaml + selection-panel.xaml and driven by name.
 static IInspectable* g_selUi      = nullptr;
 static IInspectable* g_selPopup   = nullptr;
 static IInspectable* g_selIcon    = nullptr;
@@ -34,36 +34,11 @@ static EventSink     g_selFocusInSink, g_selFocusOutSink;
 static EventSink     g_selOpenInSink, g_selOpenOutSink;
 static EventSink     g_selIconClickSink;
 static IInspectable* g_selTag      = nullptr;
-static IInspectable* g_selTarget = nullptr;
 static unsigned      g_selGen = 0;
 static UINT_PTR      g_selDismissTimer = 0;
 static unsigned      g_selDismissGen = 0;
 static bool          g_selDismissCommitFailed = false;
-static unsigned long long g_selDiagHandle = 0;
-static std::vector<IInspectable*> g_selRowBoxes;
-
-struct DevToolsSelPending { std::wstring prop, type, value; };
-static std::vector<DevToolsSelPending> g_selPending;
-static DevToolsSelPending* DevToolsSelPendingFind(const std::wstring& p) { for (auto& e : g_selPending) if (e.prop == p) return &e; return nullptr; }
-static void DevToolsSelPendingErase(const std::wstring& p) { for (size_t i = 0; i < g_selPending.size(); ++i) if (g_selPending[i].prop == p) { g_selPending.erase(g_selPending.begin() + i); return; } }
-// AddRef'd; released in ClearSelectionAnchor with g_selRowBoxes.
-// Row handles are AddRef'd and released with the selection anchor lifetime.
-struct DevToolsSelExprRefs { std::wstring prop; void* text = nullptr; void* textTb = nullptr; void* btn = nullptr; void* label = nullptr; };
-static std::vector<DevToolsSelExprRefs> g_selExprRefs;
-static DevToolsSelExprRefs* DevToolsSelExprFind(const std::wstring& p) { for (auto& e : g_selExprRefs) if (e.prop == p) return &e; return nullptr; }
-static void DevToolsSelReleaseExprRefs()
-{
-    for (auto& e : g_selExprRefs) {
-        if (e.text)   reinterpret_cast<IUnknown*>(e.text)->Release();
-        if (e.textTb) reinterpret_cast<IUnknown*>(e.textTb)->Release();
-        if (e.btn)    reinterpret_cast<IUnknown*>(e.btn)->Release();
-        if (e.label)  reinterpret_cast<IUnknown*>(e.label)->Release();
-    }
-    g_selExprRefs.clear();
-}
-
-// HSTRING from a wide string, for the two runtime put_Text calls below (the card otherwise authors all its text
-// in markup). Caller WindowsDeleteStrings it.
+// Caller WindowsDeleteStrings it.
 static HSTRING DevToolsSelMakeStr(const std::wstring& s)
 {
     HSTRING h = nullptr;
@@ -94,7 +69,6 @@ static void OnSelCommentTextChanged(void*, void*);
 static void OnSelCommentDeleteClick(void*, void*);
 static void SelLookupComment(InstanceHandle key, std::wstring* outId, std::wstring* outText);
 
-static const int kSelIconSz = 22;
 static const int kSelPanelW = 400;
 
 // Caller Releases the result.
@@ -109,7 +83,7 @@ static IInspectable* DevToolsSelFindName(IInspectable* root, const wchar_t* name
         WindowsDeleteString(h);
     }
     reinterpret_cast<IUnknown*>(fe)->Release();
-    // Names inside the quick peek are not reachable from the selection root once its Popup is lifted.
+    // Names inside the flyout are not reachable from the selection root once its Popup is lifted.
     if (!out && g_hostLiftedChild && root != reinterpret_cast<IInspectable*>(winrt::get_abi(g_hostLiftedChild)))
         return DevToolsSelFindName(reinterpret_cast<IInspectable*>(winrt::get_abi(g_hostLiftedChild)), name);
     return out;
@@ -156,14 +130,11 @@ static void DevToolsSelWirePointer(IInspectable* el, DevToolsUiEvent which, Even
 }
 
 
-// Dismissal COMMITS FIRST (inline,) and then moves focus to the Close button, so focus is not orphaned when the
-// panel leaves the tree and an editor that is still focused blurs through its ordinary path. Teardown is
-// deferred to the next UI turn because ClearSelectionAnchor invalidates the row sinks, but nothing the user t.
+// Dismissal saves the comment first (inline), then moves focus to the Close button so focus is not orphaned when the
+// panel leaves the tree. Teardown is deferred to the next UI turn.
 static bool DevToolsSelFocusIcon();
-// Applies every dirty row's (and the comment's) commit INLINE, so a dismiss does not depend on the focus-driven
-// LostFocus winning a race it is not guaranteed to win.
+// Saves the comment INLINE, so a dismiss does not depend on the focus-driven LostFocus winning a race.
 static void DevToolsSelFlushCommits();
-static bool SelRowCanEdit(const DevToolsCardRow& row);
 static void DevToolsSelCommitComment(bool explicitSave = false);
 static void DiscardSelectionCommentDraft();
 static bool DiscardFailedSelectionCommentDraft();
@@ -173,7 +144,7 @@ static bool DevToolsSelPanelIsOpen() { return g_selPanel != nullptr; }
 static bool g_selDismissVisualClosed = false;
 static double g_selDismissBegan = 0;
 
-// What had focus when the quick peek opened. Closing the peek hands focus back with pointer state: left alone,
+// What had focus when the flyout opened. Closing the flyout hands focus back with pointer state: left alone,
 // WinUI moves focus out of the removed peek with keyboard state, which draws a focus rectangle and opens
 // accelerator tips in the app.
 static winrt::com_ptr<IInspectable> g_selReturnFocus;
@@ -221,8 +192,8 @@ static void KeepChordsInPanel(IInspectable* panelRoot)
 }
 
 // On the UI layer a windowed Popup's input is hit-tested against the layer as well, so the full-size pick catcher
-// would take clicks meant for the open quick peek. While the peek is open there, the catcher keeps only a
-// transparent border around the peek's rectangle: clicks outside still dismiss, clicks on the peek reach it.
+// would take clicks meant for the open flyout. While the flyout is open there, the catcher keeps only a
+// transparent border around the flyout's rectangle: clicks outside still dismiss, clicks on the flyout reach it.
 static void UpdateCatcherHole()
 {
     HostYieldToWindowedPopups();
@@ -282,7 +253,7 @@ static void CALLBACK DevToolsSelDismissTimerProc(HWND, UINT, UINT_PTR, DWORD)
             if (SUCCEEDED(hr)) g_selDismissVisualClosed = false;
         }
         g_selDismissGen = 0;
-        DevToolsOverlayLog(L"overlay.sel dismiss cancelled: focused row commit failed");
+        DevToolsOverlayLog(L"overlay.sel dismiss cancelled: the comment save failed");
         return;
     }
     DevToolsOverlayLog(L"overlay.sel dismiss teardown elapsedMs=%.1f", (QpcNow() - g_selDismissBegan) / 1000.0);
@@ -308,9 +279,6 @@ static bool DismissSelectionPanel(bool discardDetached)
     g_selDismissBegan = QpcNow();
     DevToolsOverlayLog(L"overlay.sel dismiss entry gen=%u", generation);
     g_selDismissCommitFailed = false;
-// Moving focus to Close still runs, for focus hygiene and as the ordinary blur path, but it CANNOT be the only
-// commit path: XAML delivers the resulting LostFocus on the dispatcher, which loses to this WM_TIMER often
-// enough to measure (4 runs in 8 on a busy machine), and by then ClearSelectionAnchor has bumped g_selGen an.
     // Commit before teardown synchronously; focus movement alone cannot guarantee LostFocus wins.
     DevToolsSelFlushCommits();
     if (generation != g_selGen) return true;
@@ -340,9 +308,6 @@ static bool DismissSelectionPanel(bool discardDetached)
         DevToolsOverlayLog(L"overlay.sel dismiss visual-close elapsedMs=%.1f hr=0x%08X",
             (QpcNow() - g_selDismissBegan) / 1000.0, hr);
     }
-    if (!g_selPending.empty())
-        DevToolsOverlayLog(L"overlay.sel dismiss: discarding %zu pending binding confirm(s) -- not auto-confirmed",
-                      g_selPending.size());
     DevToolsOverlayLog(L"overlay.sel dismiss queued after inline commit gen=%u timer=%llu",
                   g_selDismissGen, (unsigned long long)g_selDismissTimer);
     return true;
@@ -382,17 +347,8 @@ static void OnSelCommentGotFocus(void*, void*)
     DevToolsOverlayLog(L"overlay.sel focus-in within=%d (comment)", g_selFocusWithin);
 }
 
-// Keyboard/a11y contract for the morph panel: Esc -> commit the active field, then collapse (focus lands on the
-// icon so nav is not orphaned). "Commit" is expressed by moving focus to the icon, which fires the field's
-// wired LostFocus - so there is exactly one commit path (blur), keyboard and pointer alike.
-// Panel keyboard handling commits before collapse so accessibility navigation is not orphaned.
-// Whether this Enter commits the quick-edit text editor that raised it (see DevToolsEditText::StartsNewLine).
-static bool SelectionSourceIsTextEditor(IInspectable* source, bool shift, bool ctrl);
-// Commits that editor in place, leaving focus (and the caret) where the user was typing.
-static void SelectionCommitTextEditor(IInspectable* source);
-// Puts a quick-edit editor holding an uncommitted change back to its committed value. False when it was clean.
-static bool SelectionRevertEditor(IInspectable* source);
-
+// Esc closes the flyout (saving the draft); Enter saves the comment and Shift+Enter is left to the box for a new
+// line. Ctrl+Enter, the earlier save gesture, still saves.
 static void OnSelKeyDown(void* /*sender*/, void* args)
 {
     if (!args) return;
@@ -402,55 +358,26 @@ static void OnSelKeyDown(void* /*sender*/, void* args)
     int key = 0;
     DevToolsGetKey(kra, &key);
 
-    const int kVkEnter = 13, kVkEscape = 27;
     const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     bool handled = false;
-
-    winrt::com_ptr<IInspectable> escSource;
-    if (key == kVkEscape) {
-        winrt::com_ptr<IUnknown> routedEsc;
-        if (SUCCEEDED(a->QueryInterface(DevToolsIid<DevToolsX::IRoutedEventArgs>(), routedEsc.put_void())))
-            DevToolsGetOriginalSource(routedEsc.get(), escSource.put());
-    }
     if (key == VK_CONTROL || key == VK_MENU || (key >= VK_LCONTROL && key <= VK_RMENU)) {
         // The modifier itself stays in the panel, so the app never starts showing its accelerator or access-key tips.
         // The panel's own chords still arrive: each is a separate key-down with the modifier held.
         handled = true;
-    } else if (key == kVkEscape && escSource && SelectionRevertEditor(escSource.get())) {
-        // Esc closes one layer at a time, and an uncommitted edit is the innermost layer.
-        handled = true;
-        DevToolsOverlayLog(L"overlay.sel key Esc -> reverted the uncommitted edit");
-    } else if (key == kVkEscape) {
+    } else if (key == VK_ESCAPE) {
         const bool queued = DismissSelectionPanel(!g_selRootLost);
         handled = true;
         DevToolsOverlayLog(L"overlay.sel key Esc -> commit+deselect queued=%d", (int)queued);
-    } else if (key == kVkEnter) {
-        if (g_selFocusedIsComment) {
-            // Enter saves the comment and Shift+Enter is left to the box, which starts a new line. Ctrl+Enter, the
-            // earlier save gesture, still saves.
-            if (!shift || ctrl) {
-                DevToolsSelCommitComment(true);
-                const bool focused = DevToolsSelFocusIcon();
-                handled = true;
-                DevToolsOverlayLog(L"overlay.sel key Enter -> save comment focused=%d", (int)focused);
-            }
-        } else {
-            winrt::com_ptr<IUnknown> routed;
-            winrt::com_ptr<IInspectable> source;
-            if (SUCCEEDED(a->QueryInterface(DevToolsIid<DevToolsX::IRoutedEventArgs>(), routed.put_void())) &&
-                SUCCEEDED(DevToolsGetOriginalSource(routed.get(), source.put())) && source &&
-                SelectionSourceIsTextEditor(source.get(), shift, ctrl)) {
-                SelectionCommitTextEditor(source.get());
-                handled = true;
-                DevToolsOverlayLog(L"overlay.sel key Enter -> commit row in place");
-            }
-        }
+    } else if (key == VK_RETURN && g_selFocusedIsComment && (!shift || ctrl)) {
+        DevToolsSelCommitComment(true);
+        const bool focused = DevToolsSelFocusIcon();
+        handled = true;
+        DevToolsOverlayLog(L"overlay.sel key Enter -> save comment focused=%d", (int)focused);
     }
     if (handled) DevToolsPutHandled(kra, true);
     reinterpret_cast<IUnknown*>(kra)->Release();
 }
-
 // Same shape as the focus/pointer wirers; logged.
 static void DevToolsSelWireKey(IInspectable* el, EventSink& sink, void (*cb)(void*, void*))
 {
@@ -464,22 +391,8 @@ static void DevToolsSelWireKey(IInspectable* el, EventSink& sink, void (*cb)(voi
     DevToolsOverlayLog(L"overlay.sel wire-key add_PreviewKeyDown hr=0x%08X", hr);
 }
 
-// The panel and RPC dispatcher share DevToolsTrust's process-wide posture. Denied mutations must suppress
-// editors as well as refuse writes.
-// Editors and writes share DevToolsTrust posture; denied mutations must hide editors too.
-static std::wstring DevToolsSelQuoteForPrompt(const std::wstring& v)
-{
-    std::wstring s = v;
-    for (auto& c : s) if (c == L'\r' || c == L'\n' || c == L'\t') c = L' ';
-    if (s.size() > 24) { s.resize(23); s += L'\u2026'; }
-    return L"'" + s + L"'";
-}
-
-// Returns true when the caller should adopt `val` as its new seed. Refused binding writes raise the row's
-// confirmation.
 static std::wstring g_selOperationError;
 static std::wstring g_selOperationProperty;
-static std::vector<std::wstring> g_selPreviewProperties;
 
 static void SetSelectionText(const std::wstring& name, const std::wstring& text)
 {
@@ -519,302 +432,11 @@ static void SetSelectionOperationError(const std::wstring& prop, const std::wstr
     }
 }
 
-// The runtime's own member list when the read found one, else the small built-in table.
-static std::vector<std::wstring> SelRowMembers(const DevToolsCardRow& row)
+static void GuestCommentRememberDraft(bool composer);
+static void GuestCommentRestoreDraft(bool composer);
+static bool GuestCommentCanEdit(InstanceHandle handle);
+
+static void DevToolsSelFlushCommits()
 {
-    return row.enumValues.empty() ? DevToolsEnumMembersFor(row.type) : row.enumValues;
+    if (!g_selRootLost) DevToolsSelCommitComment();
 }
-
-static std::wstring SelectionPreviewValue(const DevToolsCardRow& row)
-{
-    if (row.valueState == L"null") return L"(null)";
-    if (row.valueState == L"unset") {
-        if (row.value == L"inf" || row.value == L"Infinity")
-            return row.name == L"MaxWidth" || row.name == L"MaxHeight" ? L"Unbounded" : L"Infinity";
-        return L"Auto";
-    }
-    if (row.valueState == L"unresolved") return L"Unavailable";
-    const auto members = SelRowMembers(row);
-    const int member = DevToolsEnumIndexOf(members, row.value);
-    if (member >= 0) return members[(size_t)member];
-    return row.value.empty() ? L"(empty)" : row.value;
-}
-
-static bool SelectionHasColorSwatch(const DevToolsCardRow& row)
-{
-    return row.valueState != L"unresolved" && row.valueState != L"null" &&
-        (row.editKind == L"color" || row.valueType == L"Microsoft.UI.Xaml.Media.SolidColorBrush" ||
-         row.valueType == L"Windows.UI.Color") && DevToolsRead_IsHexColor(row.value);
-}
-
-static HRESULT RefreshSelectionSwatch(size_t index, const DevToolsCardRow& row)
-{
-    if (!g_selUi) return S_OK;
-    winrt::com_ptr<IInspectable> swatch;
-    swatch.attach(DevToolsSelFindName(g_selUi, (L"DevToolsSelSwatch" + std::to_wstring(index)).c_str()));
-    if (!swatch) return S_OK;
-    winrt::com_ptr<IUnknown> ui;
-    HRESULT hr = swatch->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), ui.put_void());
-    if (FAILED(hr)) return hr;
-    hr = DevToolsPutVisibility(ui.get(), SelectionHasColorSwatch(row) ? 0 : 1);
-    if (FAILED(hr) || !SelectionHasColorSwatch(row)) return hr;
-    winrt::com_ptr<IInspectable> value;
-    hr = LoadMarkup(L"<SolidColorBrush xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Color=\"" +
-        row.value + L"\"/>", value.put());
-    if (FAILED(hr) || !value) return FAILED(hr) ? hr : E_NOINTERFACE;
-    winrt::com_ptr<IUnknown> brush, border;
-    hr = value->QueryInterface(DevToolsIid<DevToolsXM::IBrush>(), brush.put_void());
-    if (FAILED(hr)) return hr;
-    hr = swatch->QueryInterface(DevToolsIid<DevToolsXC::IBorder>(), border.put_void());
-    return FAILED(hr) ? hr : DevToolsPutBorderBackground(border.get(), brush.get());
-}
-
-static void UpdateSelectionPreview(const std::wstring& prop)
-{
-    const auto it = std::find(g_selPreviewProperties.begin(), g_selPreviewProperties.end(), prop);
-    if (it == g_selPreviewProperties.end()) return;
-    const auto index = it - g_selPreviewProperties.begin();
-    const unsigned gen = g_selGen;
-    std::wstring type, name, state, xaml;
-    std::vector<DevToolsCardRow> rows;
-    const bool read = g_cardRead && g_selTarget && g_cardRead(g_selTarget, &type, &name, &rows, &state, &xaml);
-    if (gen != g_selGen) return;
-    if (read) {
-        const auto fresh = std::find_if(rows.begin(), rows.end(), [&](const auto& row) { return row.name == prop; });
-        if (fresh != rows.end()) {
-            SetSelectionText(L"DevToolsSelValue" + std::to_wstring(index), SelectionPreviewValue(*fresh));
-            const HRESULT hr = RefreshSelectionSwatch(static_cast<size_t>(index), *fresh);
-            if (FAILED(hr))
-                SetSelectionOperationError(prop, L"Value changed, but its color swatch couldn't refresh. Reselect the element.");
-            return;
-        }
-    }
-    SetSelectionOperationError(prop, L"Value changed, but its preview couldn't refresh. Reselect the element.");
-}
-
-static bool DevToolsSelApplyCommit(DevToolsWriteOutcome oc, const std::wstring& prop, const std::wstring& type,
-                              const std::wstring& val)
-{
-    DevToolsOverlayLog(L"overlay.sel row commit %s=%s outcome=%d", prop.c_str(), val.c_str(), (int)oc);
-    switch (oc) {
-    case DevToolsWriteOutcome::Ok:
-        DevToolsSelPendingErase(prop);
-        SetSelectionOperationError(prop, L"");
-        UpdateSelectionPreview(prop);
-        return true;
-
-    case DevToolsWriteOutcome::ReplacedBinding: {
-        const unsigned gen = g_selGen;
-        DevToolsSelPendingErase(prop);
-        SetSelectionOperationError(prop, L"");
-        UpdateSelectionPreview(prop);
-        if (gen != g_selGen) return true;
-        if (DevToolsSelExprRefs* x = DevToolsSelExprFind(prop)) {
-            if (x->btn) DevToolsPutVisibility(x->btn, 1);
-            if (x->text) DevToolsPutVisibility(x->text, 0);
-            if (x->textTb) {
-                HSTRING hs = DevToolsSelMakeStr(L"Binding replaced until the app restarts");
-                DevToolsPutText(x->textTb, hs); WindowsDeleteString(hs);
-            }
-        }
-        const auto row = std::find(g_selPreviewProperties.begin(), g_selPreviewProperties.end(), prop);
-        if (row != g_selPreviewProperties.end())
-            SetSelectionText(L"DevToolsSelStatus" + std::to_wstring(row - g_selPreviewProperties.begin()), L"");
-        return true;
-    }
-
-    case DevToolsWriteOutcome::NeedsConfirm: {
-        DevToolsSelPendingErase(prop);
-        g_selPending.push_back({ prop, type, val });
-        if (DevToolsSelExprRefs* x = DevToolsSelExprFind(prop)) {
-            if (x->label) {
-                HSTRING hs = DevToolsSelMakeStr(L"Replace binding with " + DevToolsSelQuoteForPrompt(val) + L"?");
-                DevToolsPutText(x->label, hs); WindowsDeleteString(hs);
-            }
-            if (x->text) DevToolsPutVisibility(x->text, 1);
-            if (x->btn)  DevToolsPutVisibility(x->btn, 0);
-        }
-        return false;
-    }
-
-    case DevToolsWriteOutcome::Failed:
-    default:
-        SetSelectionOperationError(prop, L"Couldn't set " + prop + L". Check the value and try again.");
-        return false;
-    }
-}
-
-// Rows are seeded once, so Property.changed cannot echo into a focused editor and move its caret. Any future
-// live refresh must ignore its own origin and leave focused editors untouched.
-// Commit on blur/selection change with a generation guard; never write per keystroke.
-static bool TrySelectionNumber(const std::wstring& text, double* value)
-{
-    std::wistringstream input(text);
-    input.imbue(std::locale::classic());
-    double parsed = 0;
-    if (!(input >> parsed) || !std::isfinite(parsed)) return false;
-    input >> std::ws;
-    if (!input.eof()) return false;
-    if (value) *value = parsed;
-    return true;
-}
-
-// Set while Esc puts an editor back to its committed text, so the editor's own change events do not commit it.
-static bool g_selReverting = false;
-
-struct SelRowSink : DevToolsSinkBase
-{
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*) {
-        if (g_selReverting) return S_OK;
-// An inert sink returning S_OK with no trace is how a dropped commit stayed invisible for three issues: the
-// editor's value cannot be read here (the box is released during teardown), so say that the commit was refused
-// and let the reader decide whether the row held an edit.
-        if (gen != g_selGen) {
-            DevToolsOverlayLog(L"overlay.sel row commit SKIPPED %s: sink inert, anchor gen %u -> %u -- any uncommitted edit in this row is gone",
-                          prop.c_str(), gen, g_selGen);
-            return S_OK;
-        }
-        if (!g_selTarget || !g_cardWrite) {
-            DevToolsOverlayLog(L"overlay.sel row commit SKIPPED %s: no target/write bridge", prop.c_str());
-            SetSelectionOperationError(prop, L"Editing is unavailable. Reselect the element and try again.");
-            return S_OK;
-        }
-        std::wstring val;
-        auto readFailed = [&]() {
-            SetSelectionOperationError(prop, L"Couldn't read " + prop + L". Reopen its editor and try again.");
-            return S_OK;
-        };
-        if (number || slider) {
-            double value = 0;
-            if (!allowAuto && !std::isfinite(originalNumber)) return readFailed();
-            const HRESULT hr = slider ? DevToolsRangeGetValue(slider, &value) : DevToolsNumberBoxGetValue(number, &value);
-            if (FAILED(hr)) return readFailed();
-            if (!std::isfinite(value)) {
-                // An emptied Width/Height box means Auto; anywhere else an empty number is not a value.
-                if (!allowAuto) return readFailed();
-                if (!std::isfinite(originalNumber)) return S_OK;
-                val = L"Auto";
-            } else {
-                if (value == originalNumber) return S_OK;
-                std::wostringstream formatted;
-                formatted.imbue(std::locale::classic());
-                formatted << std::setprecision(17) << value;
-                val = formatted.str();
-            }
-        } else if (!segments.empty()) {
-            int idx = -1;
-            for (size_t k = 0; k < segments.size(); ++k) {
-                try {
-                    winrt::Windows::Foundation::IInspectable seg{ nullptr };
-                    winrt::copy_from_abi(seg, segments[k]);
-                    const auto checked = seg.as<DevToolsXCP::ToggleButton>().IsChecked();
-                    if (checked && checked.Value()) { idx = (int)k; break; }
-                } catch (...) { return readFailed(); }
-            }
-            if (idx < 0 || idx >= (int)members.size()) return S_OK;
-            val = members[(size_t)idx];
-        } else if (toggle) {
-            bool on = false;
-            if (FAILED(DevToolsToggleGetIsOn(toggle, &on))) return readFailed();
-            val = DevToolsBoolLiteral(on);
-        } else if (selector) {
-            int idx = -1;
-            if (FAILED(DevToolsGetSelectedIndex(selector, &idx))) return readFailed();
-            if (idx < 0 || idx >= (int)members.size()) return readFailed();
-            val = members[(size_t)idx];
-        } else {
-            if (!g_cardReadInput || !box) return readFailed();
-            std::wstring current;
-            if (!g_cardReadInput(box, &current)) return readFailed();
-            if (!DevToolsEditText::ValueToWrite(current, hasShown ? &shown : nullptr, original, &val)) return S_OK;
-        }
-        if (val == original) return S_OK;
-        const unsigned before = g_selGen;
-        const auto outcome = g_cardWrite(g_selTarget, prop.c_str(), type.c_str(), val.c_str(), false);
-        if (before != g_selGen) return S_OK;
-        if (DevToolsSelApplyCommit(outcome, prop, type, val) && before == g_selGen) AcceptValue(val);
-        return S_OK;
-    }
-    void InitText(const std::wstring& p, const std::wstring& t, const std::wstring& orig, IInspectable* b) {
-        prop = p; type = t; original = orig; box = b;
-        multiline = DevToolsEditText::IsMultiline(orig);
-        RememberShown();
-        InitSink(IID_RoutedEventHandler_Del, g_selGen, &IID_SelectionChanged_Del);
-    }
-    // What the editor holds now, so closing it unchanged writes nothing even where it cannot hold the value exactly.
-    void RememberShown() { hasShown = box && g_cardReadInput && g_cardReadInput(box, &shown); }
-    void InitEnum(const std::wstring& p, const std::wstring& t, const std::wstring& orig,
-                  std::vector<std::wstring> mem, IInspectable* sel) {
-        prop = p; type = t; original = orig; members = std::move(mem); selector = sel;
-        InitSink(IID_RoutedEventHandler_Del, g_selGen, &IID_SelectionChanged_Del);
-    }
-    void InitNumber(const std::wstring& p, const std::wstring& t, const std::wstring& orig, void* input) {
-        prop = p; type = t; original = orig; number = input;
-        TrySelectionNumber(orig, &originalNumber);
-        using Changed = winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::NumberBox, DevToolsXC::NumberBoxValueChangedEventArgs>;
-        InitSink(DevToolsIid<Changed>(), g_selGen);
-    }
-    void InitSegments(const std::wstring& p, const std::wstring& t, const std::wstring& orig,
-                      std::vector<std::wstring> mem, std::vector<IInspectable*> buttons) {
-        prop = p; type = t; original = orig; members = std::move(mem); segments = std::move(buttons);
-        InitSink(IID_RoutedEventHandler_Del, g_selGen);
-    }
-    void InitSlider(const std::wstring& p, const std::wstring& t, const std::wstring& orig, void* input, double seed) {
-        prop = p; type = t; original = orig; slider = input; originalNumber = seed;
-        InitSink(DevToolsIid<DevToolsXCP::RangeBaseValueChangedEventHandler>(), g_selGen);
-    }
-    void AcceptValue(const std::wstring& value) {
-        original = value;
-        if ((number || slider) && !TrySelectionNumber(value, &originalNumber))
-            originalNumber = std::numeric_limits<double>::quiet_NaN();
-        if (box) RememberShown();
-    }
-    // Rows are a snapshot; a text editor re-reads its value when it gains focus, unless the user already typed.
-    void RefreshTextFromLive() {
-        if (!box || gen != g_selGen || !g_cardRead || !g_cardReadInput || !g_selTarget) return;
-        std::wstring current;
-        if (!g_cardReadInput(box, &current) || (hasShown ? current != shown : current != original)) return;
-        std::wstring type, name, state, xaml;
-        std::vector<DevToolsCardRow> rows;
-        if (!g_cardRead(g_selTarget, &type, &name, &rows, &state, &xaml) || gen != g_selGen) return;
-        const auto fresh = std::find_if(rows.begin(), rows.end(), [&](const auto& row) { return row.name == prop; });
-        if (fresh == rows.end() || fresh->value == original || !SelRowCanEdit(*fresh)) return;
-        void* textBox = nullptr;
-        if (FAILED(box->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &textBox)) || !textBox) return;
-        HSTRING text = DevToolsSelMakeStr(fresh->value);
-        const HRESULT hr = DevToolsPutTextBoxText(textBox, text);
-        WindowsDeleteString(text);
-        reinterpret_cast<IUnknown*>(textBox)->Release();
-        if (FAILED(hr)) return;
-        AcceptValue(fresh->value);
-        UpdateSelectionPreview(prop);
-    }
-// `original` is load-bearing here rather than an optimisation: WinUI raises Toggled from OnIsOnChanged, so a
-// row seeded IsOn="True" in markup raises one on REALIZE -- without the compare in Invoke, merely selecting an
-// element would commit a write the user never made (and on a bound boolean would raise the binding-replace.
-    // Boolean rows use the existing RoutedEventHandler sink; original value distinguishes unchanged toggles.
-    void InitBool(const std::wstring& p, const std::wstring& t, const std::wstring& orig, void* ts) {
-        prop = p; type = t; original = orig; toggle = ts;
-        InitSink(IID_RoutedEventHandler_Del, g_selGen, &IID_SelectionChanged_Del);
-    }
-    IInspectable*             box = nullptr;
-    IInspectable*            selector = nullptr;
-    void*                     toggle = nullptr;
-    void*                     number = nullptr;
-    void*                     slider = nullptr;
-    double                    originalNumber = std::numeric_limits<double>::quiet_NaN();
-    std::wstring              prop, type, original, shown;
-    bool                      hasShown = false, multiline = false, allowAuto = false;
-    std::vector<std::wstring> members;
-    std::vector<IInspectable*> segments;
-};
-
-struct SelRowFocusSink : DevToolsSinkBase
-{
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*) {
-        if (gen == g_selGen && row) row->RefreshTextFromLive();
-        return S_OK;
-    }
-    void Init(SelRowSink* r) { row = r; InitSink(IID_RoutedEventHandler_Del, g_selGen); }
-    SelRowSink* row = nullptr;
-};

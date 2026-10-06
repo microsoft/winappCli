@@ -214,7 +214,7 @@ static SRWLOCK g_overlayLock = SRWLOCK_INIT;
 // this window is our overlay: exclude it AND seed it, so any later straggler is still caught by the parent-in-set
 // rule.
 static std::atomic<bool> g_overlayBuilding{false};
-// While the inline Quick-edits card is open, its editable TextBoxes realize default-template internal parts
+// While the comment flyout is open, its editable TextBoxes realize default-template internal parts
 // (ScrollViewer/TextBoxView/ScrollBars/...) ASYNCHRONOUSLY on later layout passes, and XamlDiagnostics re-issues
 // DIFFERENT InstanceHandles for the same object across the Add/parent phases - so unlike the flat, part-free toolbar
 // markup, those parts cannot be excluded from the element-count census by handle (verified: the seeded live TextBox
