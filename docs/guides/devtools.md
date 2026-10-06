@@ -91,9 +91,19 @@ of the toolbar. Screen readers and `winapp ui` find the toolbar under a **DevToo
 
 Press **Ctrl+Shift+F12** in your app to move keyboard focus to the toolbar. Tab moves
 between its actions, and Esc returns focus to where it was. If a mode is on, the
-next Esc turns it off. The shortcut does nothing while the toolbar is hidden,
-for example after `winapp run --devtools --no-overlay`.
+next Esc turns it off.
 
+The **More options** (**⋯**) menu at the end of the toolbar has:
+
+- **Hide toolbar**: hides it until you press **Ctrl+Shift+F12** or run
+  `winapp devtools call Overlay.show`. Comments, the DevTools window and `winapp devtools`
+  commands keep working.
+- **Show toolbar on launch**: turn it off to start later runs with the toolbar hidden.
+  The setting is per user and applies to every app.
+- **Keep toolbar open**: keeps the toolbar expanded instead of collapsing to its pill.
+
+`winapp run --devtools --no-overlay` starts without any in-app chrome, so the shortcut
+has nothing to show.
 Use a project, solution, build-output folder, or .NET file-based app as the `run`
 input. A DevTools launch prepares source diagnostics and, for managed apps, startup
 binding support before the app starts. It preserves unrelated startup hooks and

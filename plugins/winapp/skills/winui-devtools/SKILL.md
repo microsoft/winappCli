@@ -22,7 +22,7 @@ This opens the in-app overlay and waits for the app. Let the user leave comments
 turn on **Comments** in the toolbar, click an element, type, press Enter (Shift+Enter for a
 new line), or click the next element to save and move on. **Select element** opens the
 DevTools window on the element the user clicks. Ctrl+Shift+F12 moves keyboard
-focus to the toolbar, and Esc returns it. Use a second terminal for commands, or add `--detach`
+focus to the toolbar (showing it if the user hid it), and Esc returns it. Use a second terminal for commands, or add `--detach`
 to return to the terminal with the app still running and its PID printed.
 Use an exact PID with `-a` when multiple apps are attached.
 Never stop another app automatically to make a rebuild succeed.

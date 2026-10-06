@@ -106,8 +106,8 @@ static void TestToolbarContract()
     CheckToolbar(xaml.find("<ToggleButton x:Name=\"DevToolsProtoPin\"") != std::string::npos &&
                      xaml.find("x:Name=\"DevToolsPinOn\"") != std::string::npos &&
                      xaml.find("DevToolsProtoPinDot") == std::string::npos &&
-                     overlay.find("ProtoSetToggle(L\"DevToolsProtoPin\", L\"DevToolsPinOn\", L\"DevToolsPinOff\", on);") != std::string::npos,
-                 "Pinned uses the accent on-state and a UIA toggle, not a corner dot that reads as a badge");
+                     overlay.find("ProtoSetToggle(L\"DevToolsProtoPin\", L\"DevToolsPinOn\", L\"\", on);") != std::string::npos,
+                 "Keep toolbar open is a checked UIA toggle, not a corner dot that reads as a badge");
     CheckToolbar(xaml.find("ToolTipService.ToolTip=\"Switch app theme\"") != std::string::npos,
                  "Theme tooltip is short enough not to clip at the window edge");
     CheckToolbar(xaml.find("AutomationProperties.Name=\"Switch app theme\"") != std::string::npos,
@@ -115,20 +115,24 @@ static void TestToolbarContract()
     CheckToolbar(xaml.find("Glyph=\"&#xE706;\"") != std::string::npos,
                  "Theme uses the Segoe MDL2 Brightness glyph");
     const size_t inspectPos = xaml.find("x:Name=\"DevToolsProtoInspect\"");
-    const size_t pinPos = xaml.find("x:Name=\"DevToolsProtoPin\"");
-    CheckToolbar(inspectPos < pinPos &&
-                     CountOf(xaml.substr(inspectPos, pinPos - inspectPos), "x:Name=\"DevToolsProto") == 1,
-                 "Open DevTools is immediately before Pin in the action order");
+    const size_t morePos = xaml.find("x:Name=\"DevToolsProtoMore\"");
+    const size_t moreMenu = xaml.find("x:Name=\"DevToolsMoreMenu\"");
+    CheckToolbar(inspectPos < morePos &&
+                     CountOf(xaml.substr(inspectPos, morePos - inspectPos), "x:Name=\"DevToolsProto") == 1 &&
+                     moreMenu < xaml.find("x:Name=\"DevToolsProtoPin\"") &&
+                     moreMenu < xaml.find("x:Name=\"DevToolsHideToolbar\"") &&
+                     moreMenu < xaml.find("x:Name=\"DevToolsShowOnLaunch\""),
+                 "the bar ends with Open DevTools and More, whose menu holds Hide, Show on launch and Keep open");
     CheckToolbar(xaml.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
                      selectionPanel.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
                      windowShell.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
                      overlay.find("FontFamily=\\\"Segoe MDL2 Assets\\\"") == std::string::npos,
                  "DevTools FontIcons inherit the platform icon font");
 
-    CheckToolbar(CountOf(xaml, "RequestedTheme=\"$TOOLBARTHEME$\"") == 3,
-                 "the toolbar surfaces and its menu request the inverse app theme");
-    CheckToolbar(CountOf(xaml, "BackgroundSizing=\"InnerBorderEdge\"") == 3,
-                 "the toolbar surfaces and its menu clip Acrylic inside their borders");
+    CheckToolbar(CountOf(xaml, "RequestedTheme=\"$TOOLBARTHEME$\"") == 4,
+                 "the toolbar surfaces and its menus request the inverse app theme");
+    CheckToolbar(CountOf(xaml, "BackgroundSizing=\"InnerBorderEdge\"") == 4,
+                 "the toolbar surfaces and its menus clip Acrylic inside their borders");
     CheckToolbar(overlay.find("static const DevToolsPalette& DevToolsInverseAcrylicPalette()") != std::string::npos &&
                      overlay.find("{ThemeResource AcrylicBackgroundFillColorDefaultBrush}") != std::string::npos &&
                      overlay.find("{ThemeResource SurfaceStrokeColorFlyoutBrush}") != std::string::npos,
@@ -443,7 +447,7 @@ static void TestToolbarContract()
     CheckToolbar(window.find("AutomationProperties.AutomationId=\\\"WinAppDevToolsAddComment\\\"") != std::string::npos &&
                      window.find("DevToolsOverlay_AddComment(element, value") != std::string::npos,
                  "the inspector's Comment action saves through the in-app comment writer");
-    CheckToolbar(overlay.find("static EventSink g_protoSink[18];") != std::string::npos,
+    CheckToolbar(overlay.find("static EventSink g_protoSink[21];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");
     CheckToolbar(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &OnPickClick);") != std::string::npos,
                  "Pick is wired by namescope identity");

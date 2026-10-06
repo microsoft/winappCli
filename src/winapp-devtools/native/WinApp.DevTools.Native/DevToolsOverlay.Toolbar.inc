@@ -213,7 +213,10 @@ static DevToolsX::UIElement ToolbarFocusedElement(bool* inToolbar)
 
 static bool FocusToolbarFromShortcut()
 {
-    if (!g_toolbarVisible || !g_protoRoot || g_dragging) return false;
+    if (g_dragging) return false;
+    // A hidden toolbar comes back first, so the shortcut always ends with focus on it.
+    if (!g_toolbarVisible && FAILED(DevToolsOverlay_SetToolbarVisible(true))) return false;
+    if (!g_protoRoot) return false;
     try {
         bool inToolbar = false;
         auto focused = ToolbarFocusedElement(&inToolbar);
@@ -250,13 +253,14 @@ static void ProtoSetToggle(const wchar_t* button, const wchar_t* onPart, const w
 static void ProtoSetPinned(bool on)
 {
     g_pinned = on;
-    ProtoSetToggle(L"DevToolsProtoPin", L"DevToolsPinOn", L"DevToolsPinOff", on);
+    ProtoSetToggle(L"DevToolsProtoPin", L"DevToolsPinOn", L"", on);
 }
 
 // Pinning also opens the bar now; unpinning leaves it open until the next PointerExited (the pointer is on the
 // bar).
 static void OnPinClick(void*, void*)
 {
+    CloseToolbarMenu();
     const bool now = !g_pinned;
     ProtoSetPinned(now);
     DevToolsSettingsSetBool(L"ToolbarPinned", now);
@@ -414,6 +418,36 @@ static void OnCommentsMenuClick(void*, void*)
 }
 static void OnShowAllCommentsClick(void*, void*) { CloseToolbarMenu(); ShowAllComments(); }
 static void OnToggleMarkersClick(void*, void*) { CloseToolbarMenu(); SetCommentsShown(!CommentsShown()); }
+
+static void OnMoreMenuClick(void*, void*)
+{
+    ToggleToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore", 3, L"DevToolsHideToolbar");
+}
+
+// Hidden for this run: DevTools stays attached, and Ctrl+Shift+F12 or Overlay.show brings the toolbar back. A mode
+// left on with no toolbar to show it would be a trap, so hiding turns it off.
+static void ExitPickMode();
+static void OnHideToolbarClick(void*, void*)
+{
+    CloseToolbarMenu();
+    ExitPickMode();
+    DevToolsOverlay_SetToolbarVisible(false);
+    DevToolsOverlayLog(L"overlay.toolbar hidden from its menu");
+}
+
+// Whether a later launch starts with the toolbar shown. Per user, like the pin and the corner.
+static void SetShowOnLaunch(bool on)
+{
+    ProtoSetToggle(L"DevToolsShowOnLaunch", L"DevToolsShowOnLaunchCheck", L"", on);
+}
+static void OnShowOnLaunchClick(void*, void*)
+{
+    CloseToolbarMenu();
+    const bool now = !DevToolsSettingsGetBool(L"ToolbarOnLaunch", true);
+    DevToolsSettingsSetBool(L"ToolbarOnLaunch", now);
+    SetShowOnLaunch(now);
+    DevToolsOverlayLog(L"overlay.toolbar show on launch -> %s (persisted)", now ? L"on" : L"off");
+}
 
 static std::wstring ChipSurfaceLabel()
 {
@@ -844,6 +878,10 @@ static void WirePrototype(IInspectable* canvas)
         wireNamedClick(L"DevToolsShowAllComments", g_protoSink[16], &OnShowAllCommentsClick);
         wireNamedClick(L"DevToolsToggleMarkers", g_protoSink[17], &OnToggleMarkersClick);
         WireToolbarMenu(L"DevToolsCommentsMenu");
+        wireNamedClick(L"DevToolsProtoMore", g_protoSink[18], &OnMoreMenuClick);
+        wireNamedClick(L"DevToolsHideToolbar", g_protoSink[19], &OnHideToolbarClick);
+        wireNamedClick(L"DevToolsShowOnLaunch", g_protoSink[20], &OnShowOnLaunchClick);
+        WireToolbarMenu(L"DevToolsMoreMenu");
         wireNamedClick(L"DevToolsProtoInspect", g_protoSink[4], &OnInspectClick);
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &OnLayoutToggleClick);
         wireNamedClick(L"DevToolsProtoTheme", g_protoSink[6], &OnThemeToggleClick);

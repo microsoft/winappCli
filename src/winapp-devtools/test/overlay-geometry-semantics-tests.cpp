@@ -613,6 +613,35 @@ int main()
         g_toolbarVisible = false;
     }
     {
+        // Hide toolbar lasts for this run; Show toolbar on launch is a per-user preference; Ctrl+Shift+F12 brings a
+        // hidden toolbar back. The test restores the user's real preference file.
+        const std::wstring launchFile = DevToolsSettingsFile(L"ToolbarOnLaunch");
+        const bool hadPreference = GetFileAttributesW(launchFile.c_str()) != INVALID_FILE_ATTRIBUTES;
+        const bool preference = DevToolsSettingsGetBool(L"ToolbarOnLaunch", true);
+        SwitchObject canvas, bar, pill, snaps[kCornerCount];
+        g_canvasStatics = &canvas; g_aRow = &bar; g_railL = &pill;
+        for (int i = 0; i < kCornerCount; ++i) g_snapUi[i] = &snaps[i];
+        g_protoW = 800; g_protoH = 700; g_toolbarVisible = true;
+        ShowARow(true);
+        OnHideToolbarClick(nullptr, nullptr);
+        check(!g_toolbarVisible && bar.visibility == 1 && pill.visibility == 1 &&
+            DevToolsSettingsGetBool(L"ToolbarOnLaunch", true) == preference,
+            "toolbar hide", "Hide toolbar hides it for this run without changing the launch preference");
+        IInspectable* const savedRoot = g_protoRoot;
+        g_protoRoot = nullptr;
+        FocusToolbarFromShortcut();
+        check(g_toolbarVisible && bar.visibility == 0, "toolbar hide", "Ctrl+Shift+F12 shows a hidden toolbar");
+        g_protoRoot = savedRoot;
+        OnShowOnLaunchClick(nullptr, nullptr);
+        const bool flipped = DevToolsSettingsGetBool(L"ToolbarOnLaunch", true);
+        OnShowOnLaunchClick(nullptr, nullptr);
+        check(flipped == !preference && DevToolsSettingsGetBool(L"ToolbarOnLaunch", true) == preference,
+            "toolbar hide", "Show toolbar on launch toggles a persisted preference");
+        if (hadPreference) DevToolsSettingsSetBool(L"ToolbarOnLaunch", preference); else DeleteFileW(launchFile.c_str());
+        g_canvasStatics = g_aRow = g_railL = nullptr;
+        for (auto& snap : g_snapUi) snap = nullptr;
+        g_toolbarVisible = false;
+    }    {
         const auto panel=BuildSelectionPanelMarkup(L"TextBlock",L"TextBlock",0,0,500,0,0,L"",
             L"C:\\app\\MainPage.xaml",12,true,L"exact",L"",{},0,0,false);
         check(panel.find(L"Text=\"MainPage.xaml:12\"")!=std::wstring::npos &&
