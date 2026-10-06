@@ -412,6 +412,43 @@ through `{ThemeResource}` or `{StaticResource}` updates at once:
   For an app attached later, `set` warns that existing elements may keep the old
   value.
 
+## Copy a control's Style to edit it
+
+When resources alone can't make the change, for example a new shape, layout, or
+visual state, copy the Style an element uses into your app and edit the copy:
+
+```powershell
+winapp devtools resources copy-style CounterButton -a 12345           # preview
+winapp devtools resources copy-style CounterButton --write -a 12345   # apply
+```
+
+```text
+[CounterButton] Button MainWindow.xaml
+Copies the WinUI default style for Button (DefaultButtonStyle), from Microsoft.WindowsAppSDK.WinUI 1.8.260224000 generic.xaml:27587
+  + App.xaml:11  ButtonStyle1 (94 lines)
+                  <Style x:Key="ButtonStyle1" TargetType="Button" xmlns:controls="using:Microsoft.UI.Xaml.Controls">
+                      <Setter Property="Background" Value="{ThemeResource ButtonBackground}" />
+      … 92 more lines
+  ~ MainWindow.xaml:46  Style="{StaticResource ButtonStyle1}" on the element
+
+Preview only; nothing was written. Run again with --write to apply.
+The copy uses 18 WinUI resources (brushes, sizes); they still come from WinUI. If you only need other colors or sizes, override those keys instead (`winapp devtools resources explain`), which keeps future WinUI fixes.
+```
+
+- The source is the Style the element uses: one it names, such as
+  `{StaticResource AccentButtonStyle}`, the app's implicit Style for its type, or
+  WinUI's default Style, read from the WinUI package the project restored.
+- The copy goes into the `App.xaml` resources with a new key, and the element's
+  `Style` points at it. `--key` picks the key, and `--into <file>` picks another
+  resource dictionary file, which must be merged where the element can find it.
+- `--all-of-type` makes the copy an implicit Style, so it applies to every control of
+  that exact type that doesn't set its own `Style`, and leaves the element unchanged.
+- Without `--write`, nothing is changed. With it, the files are written, and the copy
+  takes effect after you rebuild and restart the app.
+- The app must be started with `winapp run <project folder> --devtools`, so DevTools
+  knows where its XAML is. Elements inside a control's template can't be copied;
+  copy the Style of the control that owns them.
+
 ## Try a live property change
 
 ```powershell

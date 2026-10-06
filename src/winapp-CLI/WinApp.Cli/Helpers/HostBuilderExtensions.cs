@@ -163,6 +163,7 @@ internal static class StoreHostBuilderExtensions
                 .UseCommandHandler<DevToolsResourcesListCommand, DevToolsResourcesListCommand.Handler>()
                 .UseCommandHandler<DevToolsResourcesSetCommand, DevToolsResourcesSetCommand.Handler>()
                 .UseCommandHandler<DevToolsResourcesResetCommand, DevToolsResourcesResetCommand.Handler>()
+                .UseCommandHandler<DevToolsResourcesCopyStyleCommand, DevToolsResourcesCopyStyleCommand.Handler>()
                 // GuestLaunchCommand shares RunCommand.Handler rather than a second handler
                 // instance: it is a structurally distinct, hidden verb (see
                 // RunCommand.GuestLaunch.cs) dispatched from the same class, because it reuses

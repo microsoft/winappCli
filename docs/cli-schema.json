@@ -2455,7 +2455,7 @@
           }
         },
         "resources": {
-          "description": "Find which Style setter, resource key, and theme produced a live property value, and the XAML file and line to edit. List app resources and try new values live.\n\n  winapp devtools resources explain <selector> Background\n  winapp devtools resources set <key> \"#FF0067C0\"",
+          "description": "Find which Style setter, resource key, and theme produced a live property value, and the XAML file and line to edit. List app resources, try new values live, or copy a Style into your XAML to edit it.\n\n  winapp devtools resources explain <selector> Background\n  winapp devtools resources set <key> \"#FF0067C0\"",
           "hidden": false,
           "options": {
             "--json": {
@@ -2473,6 +2473,177 @@
             }
           },
           "subcommands": {
+            "copy-style": {
+              "description": "Copy the Style an element uses into your XAML so you can edit its setters and template, like \"Edit a Copy\" in the Visual Studio designer. Copies the app's Style, or WinUI's own default style, into App.xaml under a new key and sets Style on the element. Shows the changes unless --write is passed; rebuild and restart the app to see the copy.",
+              "hidden": false,
+              "arguments": {
+                "selector": {
+                  "description": "Element whose Style to copy: the selector printed in brackets, an x:Name, an AutomationId, or a handle.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--all-of-type": {
+                  "description": "Make the copy an implicit Style (no x:Key) that applies to every element of its type in scope, instead of setting Style on this element.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--app": {
+                  "description": "Target app by process name, window title, or PID",
+                  "hidden": false,
+                  "aliases": [
+                    "-a"
+                  ],
+                  "helpName": "app",
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--attach": {
+                  "description": "Authorize attaching DevTools if the target is not already attached.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--into": {
+                  "description": "XAML file to add the copy to, relative to the project folder. Defaults to App.xaml.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--json": {
+                  "description": "Format output as JSON",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--key": {
+                  "description": "x:Key for the copy. Defaults to <Type>Style1 (the first unused number).",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--root": {
+                  "description": "Constrain execution to a live visual-tree root or subtree handle from DevTools inspect or Surface.list.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--window": {
+                  "description": "Target window by handle (printed by -a and list-windows; overrides --app)",
+                  "hidden": false,
+                  "aliases": [
+                    "-w"
+                  ],
+                  "helpName": "hwnd",
+                  "valueType": "System.Nullable<System.Int64>",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--write": {
+                  "description": "Write the files. Without it, copy-style shows what it would change.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
             "explain": {
               "description": "Show where a live property value comes from: the Style setter or local value that set it, the resource key it uses, the dictionary and theme branch that define the key, and the file and line to edit. Reads the app's XAML from the project folder; the value itself is read live.",
               "hidden": false,

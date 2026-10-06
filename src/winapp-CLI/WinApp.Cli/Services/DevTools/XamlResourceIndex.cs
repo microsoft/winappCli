@@ -42,14 +42,18 @@ internal sealed class XamlResourceIndex
 
     private readonly Dictionary<string, List<Definition>> definitions;
     private readonly Dictionary<string, List<StyleEntry>> stylesByFile;
+    private readonly HashSet<string> appScopeFiles;
 
     private XamlResourceIndex(
-        IReadOnlyList<Definition> definitions, IReadOnlyList<StyleEntry> styles, IReadOnlyList<string> skipped, bool truncated)
+        IReadOnlyList<Definition> definitions, IReadOnlyList<StyleEntry> styles, IReadOnlyList<string> skipped, bool truncated,
+        HashSet<string> appScopeFiles, string? applicationFile)
     {
         Definitions = definitions;
         Styles = styles;
         SkippedFiles = skipped;
         Truncated = truncated;
+        this.appScopeFiles = appScopeFiles;
+        ApplicationFile = applicationFile;
         this.definitions = definitions.GroupBy(d => d.Key, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
         stylesByFile = styles.GroupBy(s => s.File, StringComparer.OrdinalIgnoreCase)
@@ -65,6 +69,12 @@ internal sealed class XamlResourceIndex
 
     /// <summary>The project held more XAML files than <see cref="MaximumFiles"/>; the rest were not indexed.</summary>
     public bool Truncated { get; }
+
+    /// <summary>The file whose root is <c>&lt;Application&gt;</c> (normally <c>App.xaml</c>), if one was indexed.</summary>
+    public string? ApplicationFile { get; }
+
+    /// <summary>Whether resources in <paramref name="file"/> are visible app-wide (see the class remarks).</summary>
+    public bool IsAppScope(string file) => appScopeFiles.Contains(NormalizeFile(file));
 
     /// <summary>Every definition of <paramref name="key"/> in the app (keys are case-sensitive, as in XAML).</summary>
     public IReadOnlyList<Definition> Find(string key) =>
@@ -147,7 +157,9 @@ internal sealed class XamlResourceIndex
                 }
             }
         }
-        return new XamlResourceIndex(found, styles, skipped, truncated);
+        var application = documents.Where(d => d.Value.Root?.Name.LocalName == "Application").Select(d => d.Key)
+            .OrderBy(f => f.Count(c => c == '/')).FirstOrDefault();
+        return new XamlResourceIndex(found, styles, skipped, truncated, appFiles, application);
     }
 
     /// <summary>

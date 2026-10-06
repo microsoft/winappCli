@@ -263,6 +263,12 @@ internal static class DevToolsResourceExplainer
             ? definition.At
             : origin.At;
 
+    /// <summary>Where the app Style that sets this property is declared, when the chain names an app file.</summary>
+    internal static ExplainLocation? AppStyleLocation(JsonElement row) =>
+        ReadChain(row).FirstOrDefault(c => c.Source.Equals("Style", StringComparison.OrdinalIgnoreCase) && c.File is not null) is { } entry
+            ? new ExplainLocation(entry.File!, entry.Line)
+            : null;
+
     private static bool SameProperty(string setterProperty, string property) =>
         setterProperty.Equals(property, StringComparison.OrdinalIgnoreCase) ||
         (setterProperty.LastIndexOf('.') is var dot and > 0 &&
