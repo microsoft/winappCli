@@ -449,6 +449,23 @@ The copy uses 18 WinUI resources (brushes, sizes); they still come from WinUI. I
   knows where its XAML is. Elements inside a control's template can't be copied;
   copy the Style of the control that owns them.
 
+### Edit a Style from the inspector
+
+The inspector's properties pane shows a **STYLE** card for an element that has a
+Style:
+
+- **Edit current** finds the Style the element uses. If it's in your app, the file
+  opens at the Style. If it's WinUI's default Style, the card says so and links to
+  WinUI's `generic.xaml` for reading.
+- **Edit a copy…** copies the Style into your app, like `copy-style --write`. Enter a
+  key, or choose **Apply to all &lt;Type&gt;** to make it implicit. Then choose where
+  to define it: **Application (App.xaml)** or **This document**. Select **OK** to write
+  the copy and open it in your editor.
+
+```text
+Copied WinUI's default Button Style into App.xaml:11 as MyButtonStyle. Set this Button's Style in MainWindow.xaml:46. … Rebuild and restart the app to see the change.
+```
+
 ## Try a live property change
 
 ```powershell

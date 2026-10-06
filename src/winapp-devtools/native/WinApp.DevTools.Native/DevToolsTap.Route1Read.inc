@@ -336,6 +336,93 @@ static int TapRunCli(const std::wstring& args, DWORD waitMs, const std::wstring&
     return result;
 }
 
+// Runs winapp and returns its exit code with its stdout. WORKER THREAD ONLY: it blocks until the CLI exits, and
+// the CLI connects back to this app, which needs the UI thread to answer. Only the pipe's write end is inherited.
+static int TapRunCliCapture(const std::wstring& args, bool mutates, std::wstring* out)
+{
+    if (out) out->clear();
+    if (mutates && !DevToolsTrust_MutationEnabled()) return -4;
+    if (DevToolsOverlay_GuestCommentsJson() != L"null") return -5;
+    std::wstring exe;
+    {
+        std::lock_guard<std::mutex> lock(g_commentsMutex);
+        exe = g_cliExe;
+    }
+    if (exe.empty()) return -1;
+
+    SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, TRUE };
+    HANDLE readEnd = nullptr, writeEnd = nullptr;
+    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) return -2;
+    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+
+    SIZE_T attrSize = 0;
+    InitializeProcThreadAttributeList(nullptr, 1, 0, &attrSize);
+    std::vector<unsigned char> attrBuf(attrSize);
+    auto* attrs = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attrBuf.data());
+    const bool haveAttrs = attrSize && InitializeProcThreadAttributeList(attrs, 1, 0, &attrSize) &&
+        UpdateProcThreadAttribute(attrs, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &writeEnd, sizeof(writeEnd), nullptr, nullptr);
+    if (!haveAttrs) {
+        CloseHandle(readEnd); CloseHandle(writeEnd);
+        return -2;
+    }
+    STARTUPINFOEXW si{};
+    si.StartupInfo.cb = sizeof(si);
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    si.StartupInfo.hStdOutput = writeEnd;
+    si.StartupInfo.hStdError = writeEnd;
+    si.StartupInfo.hStdInput = nullptr;
+    si.lpAttributeList = attrs;
+
+    std::wstring cmd = TapQuoteArg(exe) + L" " + args;
+    std::vector<wchar_t> mutableCmd(cmd.begin(), cmd.end());
+    mutableCmd.push_back(L'\0');
+    PROCESS_INFORMATION pi{};
+    const BOOL started = CreateProcessW(exe.c_str(), mutableCmd.data(), nullptr, nullptr, TRUE,
+                                        CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr,
+                                        &si.StartupInfo, &pi);
+    DeleteProcThreadAttributeList(attrs);
+    CloseHandle(writeEnd);
+    if (!started) {
+        Log(L"styles.cli CreateProcess failed gle=%lu", GetLastError());
+        CloseHandle(readEnd);
+        return -2;
+    }
+    CloseHandle(pi.hThread);
+
+    constexpr size_t kMaxBytes = 1 << 20;
+    const ULONGLONG deadline = GetTickCount64() + 120000;
+    std::string bytes;
+    bool exited = false;
+    for (;;) {
+        DWORD avail = 0;
+        while (PeekNamedPipe(readEnd, nullptr, 0, nullptr, &avail, nullptr) && avail) {
+            char buf[4096];
+            DWORD got = 0;
+            if (!ReadFile(readEnd, buf, (DWORD)(std::min<size_t>)(sizeof(buf), avail), &got, nullptr) || !got) break;
+            if (bytes.size() < kMaxBytes) bytes.append(buf, (std::min<size_t>)(got, kMaxBytes - bytes.size()));
+        }
+        if (exited) break;
+        if (WaitForSingleObject(pi.hProcess, 50) == WAIT_OBJECT_0) { exited = true; continue; }
+        if (GetTickCount64() > deadline) break;
+    }
+    CloseHandle(readEnd);
+    int result = -3;
+    DWORD code = 0;
+    if (exited && GetExitCodeProcess(pi.hProcess, &code)) result = (int)code;
+    else if (!exited) TerminateProcess(pi.hProcess, 1);
+    CloseHandle(pi.hProcess);
+
+    if (out && !bytes.empty()) {
+        const int n = MultiByteToWideChar(CP_UTF8, 0, bytes.data(), (int)bytes.size(), nullptr, 0);
+        if (n > 0) {
+            out->resize(n);
+            MultiByteToWideChar(CP_UTF8, 0, bytes.data(), (int)bytes.size(), out->data(), n);
+        }
+    }
+    Log(L"styles.cli exit=%d bytes=%zu for `%s`", result, bytes.size(), args.c_str());
+    return result;
+}
+
 // True when the CLI has told us where winapp.exe is (verb `devtools.cli|`). Without it the store has no
 // reachable writer, which a mutating verb must say rather than fail obscurely inside CreateProcess.
 static bool CliExeRegistered()
@@ -435,6 +522,7 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     // the window asks for its OWN binding walk, natively. Registered before the open for the
     // same reason the comment bridge is -- the first expansion the user opens must be able to ask.
     DevToolsWindow_SetPathWalk(&WindowPathWalkBridge);
+    DevToolsWindow_SetCliRunner(&TapRunCliCapture);
     DevToolsWindow_SetElementResolver([](InstanceHandle wire) -> IInspectable* {
         InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
         AcquireSRWLockShared(&g_censusLock);

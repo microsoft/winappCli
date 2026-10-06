@@ -377,6 +377,7 @@ g_propRows = rows;
             }
             ob->Release();
         }
+        WireStyleSection(findByName);
         reinterpret_cast<IUnknown*>(fe)->Release();
     }
 

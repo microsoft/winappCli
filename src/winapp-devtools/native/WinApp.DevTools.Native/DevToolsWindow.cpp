@@ -43,6 +43,7 @@
 #include "DevToolsSettings.h"
 #include "DevToolsText.h"
 #include "DevToolsShellOpen.h"
+#include "DevToolsStyleEdit.h"
 #include "DevToolsLiveRows.h"
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>
 static const size_t kMaxRenderNodes = 1000;
@@ -306,6 +307,7 @@ static std::wstring ShortType(const std::wstring& t)
 #include "DevToolsWindow.TreeRows.inc"
 #include "DevToolsWindow.TreeRefresh.inc"
 #include "DevToolsWindow.PropsLayout.inc"
+#include "DevToolsWindow.StyleEdit.inc"
 #include "DevToolsWindow.PaneRows.inc"
 #include "DevToolsWindow.KindModel.inc"
 #include "DevToolsWindow.Editors.inc"

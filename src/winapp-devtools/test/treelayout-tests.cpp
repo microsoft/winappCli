@@ -617,6 +617,7 @@ int RunResourceInlineTests();
 // properties pane, with the association lookup and the launcher stubbed so "with no handler, ShellExecute is
 // never reached" is a fact rather than a reading of the code.
 int RunShellOpenTests();
+int RunStyleEditTests();
 // Defined in ownedstate-tests.cpp: the compare-and-restore ownership contract for process-global DevTools
 // UI state, which decides what a disconnecting client may undo without stepping on a newer client.
 int RunOwnedStateTests();
@@ -841,6 +842,9 @@ int main()
     const int shellOpenFailures = RunShellOpenTests();
 
     std::printf("\n");
+    const int styleEditFailures = RunStyleEditTests();
+
+    std::printf("\n");
     const int ownedStateFailures = RunOwnedStateTests();
 
     std::printf("\n");
@@ -867,7 +871,7 @@ int main()
                       selectionPlacementFailures + inspectorAcceptanceFailures + selectionTrackingFailures + relayFailures +
                       bindingRowFailures + pathWalkFailures + pathProbeFailures + pathSyntaxFailures + readFailures + pickRouteFailures + perfFailures + uiDispatchFailures +
                       focusSubscriptionFailures + overlayStateFailures + resourceInlineFailures +
-                      shellOpenFailures + ownedStateFailures + resourceOverrideFailures + batchFailures + queryFailures + bindingAnswerFailures +
+                      shellOpenFailures + styleEditFailures + ownedStateFailures + resourceOverrideFailures + batchFailures + queryFailures + bindingAnswerFailures +
                       pipeAcceptFailures + framingFailures + eventsFailures;
     // Unregister BEFORE reading the count, not after: once the handler is gone no further fault can be
     // recorded, so the value read here is final. Reading first would leave a window in which a fault is

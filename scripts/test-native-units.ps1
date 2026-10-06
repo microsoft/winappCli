@@ -69,6 +69,7 @@ $testCpps = @(
     (Join-Path $testDir "bindinganswer-tests.cpp"),
     (Join-Path $testDir "resourceinline-tests.cpp"),
     (Join-Path $testDir "shellopen-tests.cpp"),
+    (Join-Path $testDir "styleedit-tests.cpp"),
     (Join-Path $testDir "pipeaccept-tests.cpp"),
     (Join-Path $testDir "framing-tests.cpp"),
     (Join-Path $testDir "events-tests.cpp")
