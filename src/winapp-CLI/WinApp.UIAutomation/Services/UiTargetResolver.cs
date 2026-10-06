@@ -128,6 +128,11 @@ public sealed class UiTargetResolver(
 
     private const string ApplicationFrameWindowClass = "ApplicationFrameWindow";
 
+    /// <summary>True when <paramref name="hwnd"/> is an ApplicationFrameHost frame that hosts a packaged app's content.</summary>
+    /// <param name="hwnd">Native window handle to inspect.</param>
+    public static bool IsAppFrameWindow(nint hwnd) =>
+        string.Equals(GetWindowClassName(hwnd), ApplicationFrameWindowClass, StringComparison.Ordinal);
+
     /// <summary>
     /// Auto-selects the best window from multiple candidates silently.
     /// Heuristic: prefer foreground window → prefer largest window.

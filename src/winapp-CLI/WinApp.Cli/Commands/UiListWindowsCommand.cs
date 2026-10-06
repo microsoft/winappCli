@@ -85,6 +85,7 @@ internal class UiListWindowsCommand : Command, IShortDescription
                     else
                     {
                         // Try process name match, then title match
+                        var matchedProcess = true;
                         var byName = System.Diagnostics.Process.GetProcessesByName(app);
                         if (byName.Length > 0)
                         {
@@ -116,15 +117,20 @@ internal class UiListWindowsCommand : Command, IShortDescription
                             else
                             {
                                 // Fall back to title search
+                                matchedProcess = false;
                                 windows = uiAutomation.FindWindowsByTitle(app);
                             }
                         }
 
                         // A packaged app's window can belong to ApplicationFrameHost rather than
-                        // the app's process, so a matched process may own no window at all.
-                        if (windows.Count == 0)
+                        // the app's process, so a matched process may own no window at all. Only
+                        // frames qualify: other title matches ("myapp - Visual Studio Code") are a
+                        // different app.
+                        if (matchedProcess && windows.Count == 0)
                         {
-                            windows = uiAutomation.FindWindowsByTitle(app);
+                            windows = uiAutomation.FindWindowsByTitle(app)
+                                .Where(w => UiTargetResolver.IsAppFrameWindow(w.Hwnd))
+                                .ToList();
                         }
                     }
                 }

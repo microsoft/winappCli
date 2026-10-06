@@ -89,6 +89,35 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    public async Task ListWindows_MatchedProcessWithoutWindows_ListsOnlyAppFrames()
+    {
+        // A packaged app's process (e.g. CalculatorApp) owns no window; its frame belongs to
+        // ApplicationFrameHost. Only the frame may be listed, never another app's title match.
+        var me = Process.GetCurrentProcess();
+        _fakeUia.WindowsByPidResult = [];
+        _fakeUia.WindowsByTitleResult =
+        [
+            ((nint)0x5555, 4242, "Frame Match"),
+            ((nint)0x6666, 4343, "Editor Match - Visual Studio Code"),
+        ];
+        Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.SystemUiQuery.s_getWindowClassName =
+            hwnd => hwnd == 0x5555 ? "ApplicationFrameWindow" : "Chrome_WidgetWin_1";
+        try
+        {
+            var command = GetRequiredService<UiListWindowsCommand>();
+            var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", me.ProcessName]);
+
+            Assert.AreEqual(0, exitCode);
+            StringAssert.Contains(TestAnsiConsole.Output, "Frame Match");
+            Assert.IsFalse(TestAnsiConsole.Output.Contains("Editor Match"), "Non-frame title matches belong to another app.");
+        }
+        finally
+        {
+            Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.SystemUiQuery.ResetNativeSeams();
+        }
+    }
+
+    [TestMethod]
     public async Task ListWindows_Generic_ReturnsError()
     {
         _fakeUia.FindWindowsThrow = FakeGenericException;
