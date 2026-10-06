@@ -9,7 +9,7 @@ using WinApp.Cli.Commands;
 namespace WinApp.Cli.Tests;
 
 /// <summary>
-/// Keeps the set of commands that honour <c>--on</c> honest, in both languages that describe it.
+/// Keeps the set of commands that honour <c>--on</c> honest, and where it is advertised.
 /// </summary>
 [TestClass]
 public partial class ExecutionTargetSelectionTests : BaseCommandTests
@@ -40,50 +40,45 @@ public partial class ExecutionTargetSelectionTests : BaseCommandTests
     }
 
     /// <summary>
-    /// The npm generator emits an <c>on</c> property only for these trees, because everywhere else
-    /// the option exists solely to be rejected. The list is duplicated across a language boundary,
-    /// so it is asserted rather than assumed.
+    /// <c>--on</c> is shown only where it works. Every command still parses it (so it can be
+    /// rejected rather than absorbed by a positional argument), but help, completion, and the CLI
+    /// schema advertise it only on target-aware commands.
     /// </summary>
     [TestMethod]
-    public async Task TargetAwareCommands_MatchTheGeneratorList()
+    [DataRow(new[] { "run", "--help" }, true)]
+    [DataRow(new[] { "unregister", "--help" }, true)]
+    [DataRow(new[] { "ui", "--help" }, true)]
+    [DataRow(new[] { "ui", "click", "--help" }, true)]
+    [DataRow(new[] { "--help" }, false)]
+    [DataRow(new[] { "init", "--help" }, false)]
+    [DataRow(new[] { "cert", "generate", "--help" }, false)]
+    [DataRow(new[] { "target", "exec", "--help" }, false)]
+    public async Task Help_ShowsTheSelectorOnlyOnTargetAwareCommands(string[] args, bool expected)
     {
-        var generator = Path.Join(
-            FindRepositoryRoot(), "src", "winapp-npm", "scripts", "generate-commands.mjs");
+        var root = GetRequiredService<WinAppRootCommand>();
 
-        var source = await File.ReadAllTextAsync(generator, TestContext.CancellationToken);
-        var match = GeneratorListPattern().Match(source);
+        Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(root, args));
 
-        Assert.IsTrue(match.Success, $"Could not find TARGET_AWARE_COMMANDS in {generator}.");
-
-        var listed = match.Groups[1].Value
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(entry => entry.Trim('\'', '"'))
-            .OrderBy(name => name, StringComparer.Ordinal)
-            .ToArray();
-
-        CollectionAssert.AreEqual(
-            Expected.OrderBy(name => name, StringComparer.Ordinal).ToArray(),
-            listed,
-            "The npm generator's target-aware list has drifted from ITargetAwareCommand.");
+        Assert.AreEqual(
+            expected,
+            SelectorInHelpPattern().IsMatch(TestAnsiConsole.Output),
+            $"'winapp {string.Join(' ', args)}' {(expected ? "must" : "must not")} list --on.");
     }
 
-
-    [GeneratedRegex(@"const TARGET_AWARE_COMMANDS = \[([^\]]*)\]")]
-    private static partial Regex GeneratorListPattern();
-
-    private static string FindRepositoryRoot()
+    [TestMethod]
+    public void TargetAwareCommands_DeclareTheVisibleSelector()
     {
-        // Anchored on a file the repository is known to have rather than on `.git`, which is a file
-        // rather than a directory inside a worktree.
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        var root = GetRequiredService<WinAppRootCommand>();
 
-        while (directory is not null &&
-               !File.Exists(Path.Join(directory.FullName, "scripts", "build-cli.ps1")))
+        foreach (var command in root.Subcommands.OfType<ITargetAwareCommand>().Cast<Command>())
         {
-            directory = directory.Parent;
+            CollectionAssert.Contains(command.Options.ToList(), ExecutionTargetSelection.OnOption, command.Name);
         }
 
-        Assert.IsNotNull(directory, "Could not locate the repository root from the test output directory.");
-        return directory.FullName;
+        Assert.IsTrue(ExecutionTargetSelection.UnsupportedOnOption.Hidden);
+        CollectionAssert.DoesNotContain(root.Options.ToList(), ExecutionTargetSelection.OnOption);
     }
+
+    [GeneratedRegex(@"(^|\s)--on(\s|,|$)", RegexOptions.Multiline)]
+    private static partial Regex SelectorInHelpPattern();
 }

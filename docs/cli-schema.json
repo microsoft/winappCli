@@ -36,18 +36,6 @@
       "required": false,
       "recursive": true
     },
-    "--on": {
-      "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
-      "hidden": false,
-      "valueType": "System.String",
-      "hasDefaultValue": false,
-      "arity": {
-        "minimum": 1,
-        "maximum": 1
-      },
-      "required": false,
-      "recursive": true
-    },
     "--version": {
       "description": "Show version information",
       "hidden": false,
@@ -2832,6 +2820,18 @@
           "required": false,
           "recursive": false
         },
+        "--on": {
+          "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": true
+        },
         "--output-appx-directory": {
           "description": "Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used.",
           "hidden": false,
@@ -3657,6 +3657,20 @@
     "ui": {
       "description": "Inspect and interact with any running Windows app using UI Automation (UIA). Works with WPF, WinForms, Win32, Electron, and WinUI 3 apps.",
       "hidden": false,
+      "options": {
+        "--on": {
+          "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": true
+        }
+      },
       "subcommands": {
         "click": {
           "description": "Click an element by slug or text search using mouse simulation. Works on elements that don't support InvokePattern (e.g., column headers, list items). Use --double for double-click, --right for right-click.",
@@ -6564,6 +6578,18 @@
           },
           "required": false,
           "recursive": false
+        },
+        "--on": {
+          "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": true
         },
         "--output-appx-directory": {
           "description": "The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped.",

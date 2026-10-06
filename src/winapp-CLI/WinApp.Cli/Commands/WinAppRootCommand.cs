@@ -120,7 +120,12 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Options.Add(CliSchemaOption);
         Options.Add(CallerOption);
         Options.Add(ProjectFrameworkOption);
-        Options.Add(ExecutionTargetSelection.OnOption);
+        Options.Add(ExecutionTargetSelection.UnsupportedOnOption);
+
+        foreach (var targetAwareCommand in Subcommands.OfType<ITargetAwareCommand>().Cast<Command>())
+        {
+            targetAwareCommand.Options.Add(ExecutionTargetSelection.OnOption);
+        }
 
         // Reject unknown options/arguments so typos and removed flags fail loudly
         TreatUnmatchedTokensAsErrors = true;

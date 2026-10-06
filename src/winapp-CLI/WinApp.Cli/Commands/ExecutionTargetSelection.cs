@@ -22,13 +22,16 @@ internal interface ITargetAwareCommand;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>--on</c> is registered recursively on the <em>root</em>, not on the target-aware commands. That
-/// matters for safety rather than convenience: System.CommandLine binds an unrecognised token to a
-/// nearby optional positional argument rather than failing, so a command that did not declare
+/// <c>--on</c> is declared twice under the same name. <see cref="OnOption"/> is the visible one,
+/// attached to each target-aware command, so help, completion, and the CLI schema show it only
+/// where it works. <see cref="UnsupportedOnOption"/> is a hidden, recursive copy on the root, and
+/// it matters for safety rather than convenience: System.CommandLine binds an unrecognised token to
+/// a nearby optional positional argument rather than failing, so a command that did not parse
 /// <c>--on</c> would happily swallow <c>--on sandbox</c> into its <c>selector</c> argument and then
-/// run the command on this desktop, reporting success. Parsing the token everywhere and rejecting it
-/// where it is meaningless removes that failure mode: a command either honours <c>--on</c> or says it
-/// cannot.
+/// run the command on this desktop, reporting success. The hidden copy makes every command parse
+/// the token so it can be rejected where it is meaningless: a command either honours <c>--on</c>
+/// or says it cannot. A command's own options take precedence over a parent's recursive ones, so
+/// on a target-aware command the token binds to <see cref="OnOption"/>.
 /// </para>
 /// <para>
 /// There is deliberately no short alias. <c>-o</c> is already <c>--output</c>, and <c>--target</c>
@@ -37,23 +40,44 @@ internal interface ITargetAwareCommand;
 /// </remarks>
 internal static class ExecutionTargetSelection
 {
-    /// <summary>Selects where a target-aware command runs.</summary>
+    private const string OnOptionDescription =
+        "Run this command on the named execution target instead of this machine. " +
+        "Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). " +
+        "There is no fallback: if the target cannot be prepared, the command fails rather than " +
+        "running here.";
+
+    /// <summary>
+    /// Selects where a target-aware command runs. Attached to each <see cref="ITargetAwareCommand"/>
+    /// root; recursive so every verb beneath one (each <c>ui</c> verb) accepts it too.
+    /// </summary>
     public static Option<string?> OnOption { get; } = new("--on")
     {
-        Description =
-            "Run this command on the named execution target instead of this machine. " +
-            "Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). " +
-            "There is no fallback: if the target cannot be prepared, the command fails rather than " +
-            "running here.",
+        Description = OnOptionDescription,
         Recursive = true,
     };
+
+    /// <summary>
+    /// Hidden, recursive copy of <c>--on</c> on the root, so commands that cannot honour it still
+    /// parse it and reject it instead of absorbing it into a positional argument. Also catches
+    /// <c>--on</c> written before the subcommand (<c>winapp --on sandbox run</c>).
+    /// </summary>
+    public static Option<string?> UnsupportedOnOption { get; } = new("--on")
+    {
+        Description = OnOptionDescription,
+        Recursive = true,
+        Hidden = true,
+    };
+
+    /// <summary>Whether <paramref name="option"/> is either declaration of <c>--on</c>.</summary>
+    public static bool IsSelectorOption(Option option) =>
+        option == OnOption || option == UnsupportedOnOption;
 
     /// <summary>The selector as typed, or null when <c>--on</c> was not supplied.</summary>
     public static string? RawSelector(ParseResult parseResult)
     {
         ArgumentNullException.ThrowIfNull(parseResult);
 
-        if (parseResult.GetResult(OnOption) is not { Implicit: false } result)
+        if (SuppliedResult(parseResult) is not { } result)
         {
             return null;
         }
@@ -72,8 +96,18 @@ internal static class ExecutionTargetSelection
     }
 
     /// <summary>Whether the user supplied <c>--on</c> at all.</summary>
-    public static bool WasSupplied(ParseResult parseResult) =>
-        parseResult.GetResult(OnOption) is { Implicit: false };
+    public static bool WasSupplied(ParseResult parseResult) => SuppliedResult(parseResult) is not null;
+
+    private static OptionResult? SuppliedResult(ParseResult parseResult) =>
+        parseResult.GetResult(OnOption) is { Implicit: false } onResult
+            ? onResult
+            : parseResult.GetResult(UnsupportedOnOption) is { Implicit: false } unsupportedResult
+                ? unsupportedResult
+                : null;
+
+    private static bool WasSuppliedTwice(ParseResult parseResult) =>
+        parseResult.GetResult(OnOption) is { Implicit: false } &&
+        parseResult.GetResult(UnsupportedOnOption) is { Implicit: false };
 
     /// <summary>Whether the selected command can run anywhere but this machine.</summary>
     public static bool IsTargetAware(ParseResult parseResult)
@@ -150,6 +184,15 @@ internal static class ExecutionTargetSelection
                     "'winapp unregister'; to run an arbitrary command there, use 'winapp target exec'.",
                 example: "winapp run . --on sandbox",
                 context: new Dictionary<string, string> { ["command"] = name }).Error;
+        }
+
+        if (WasSuppliedTwice(parseResult))
+        {
+            return ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.TargetInvalid,
+                "--on was given more than once.",
+                userAction: "Pass --on once, after the command name.",
+                example: "winapp run . --on sandbox").Error;
         }
 
         return ExecutionTargetSelector.TryParse(RawSelector(parseResult), out _, out var error)
