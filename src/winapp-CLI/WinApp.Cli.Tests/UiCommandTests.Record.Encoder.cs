@@ -119,15 +119,17 @@ public partial class UiCommandTests
         Mp4SinkWriterEncoder? encoder = null;
         try
         {
+            encoder = new Mp4SinkWriterEncoder(finalPath, 64, 64, 1, 1_000_000);
+            Mp4SinkWriterEncoderTests.WritePastEncoderLookahead(encoder, MakeSolidFrame(64, 64, b: 0, g: 0, r: 0));
+
+            // The seam is process-wide and real-encoder tests in other classes can complete in
+            // parallel, so install it only for this Complete() call.
             Mp4SinkWriterEncoder.s_testPublishAtomic = (temp, _) =>
             {
                 tempFile = temp;
                 Assert.IsTrue(File.Exists(temp), "encoder temp file must exist before publish");
                 throw new IOException("simulated publish failure");
             };
-
-            encoder = new Mp4SinkWriterEncoder(finalPath, 64, 64, 1, 1_000_000);
-            encoder.WriteFrame(MakeSolidFrame(64, 64, b: 0, g: 0, r: 0), 0, 10_000_000);
             Assert.ThrowsExactly<IOException>(() => encoder.Complete());
         }
         catch (Mp4EncoderInitializationException ex)
@@ -159,7 +161,7 @@ public partial class UiCommandTests
                 1,
                 1_000_000,
                 overwriteExisting: false);
-            encoder.WriteFrame(MakeSolidFrame(64, 64, b: 0, g: 0, r: 0), 0, 10_000_000);
+            Mp4SinkWriterEncoderTests.WritePastEncoderLookahead(encoder, MakeSolidFrame(64, 64, b: 0, g: 0, r: 0));
             File.WriteAllText(finalPath, "late-sentinel");
 
             Assert.ThrowsExactly<IOException>(() => encoder.Complete());
