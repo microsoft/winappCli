@@ -7,6 +7,7 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -1115,6 +1116,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     using var process = Process.GetProcessById(unchecked((int)processId));
                     await process.WaitForExitAsync(cancellationToken);
                     appExitCode = process.ExitCode;
+                    HintDebugOutputOnFailure(appExitCode, isJson, cancellationToken);
                 }
                 catch (ArgumentException)
                 {
@@ -1161,6 +1163,28 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             // mirrors how the other JSON-emitting commands (cert/ui) write their output.
             ansiConsole.Profile.Out.Writer.WriteLine(json);
         }
+
+        /// <summary>
+        /// Points the user at <c>--debug-output</c> after an attached app exits with a nonzero code.
+        /// Only called from plain (non-debug) waits; skipped for JSON, --quiet, and Ctrl+C.
+        /// </summary>
+        private void HintDebugOutputOnFailure(int exitCode, bool isJson, CancellationToken cancellationToken)
+        {
+            if (exitCode == 0 || isJson || cancellationToken.IsCancellationRequested || !logger.IsEnabled(LogLevel.Information))
+            {
+                return;
+            }
+
+            ansiConsole.MarkupLineInterpolated(
+                $"{UiSymbols.Note} App exited with code {FormatExitCode(exitCode)}. Rerun with --debug-output for exception details.");
+        }
+
+        /// <summary>
+        /// Formats an exit code for display: negative codes (typically NTSTATUS/HRESULT values such as
+        /// <c>0xC000027B</c>) are shown in hex, others in decimal.
+        /// </summary>
+        internal static string FormatExitCode(int exitCode)
+            => exitCode < 0 ? $"0x{unchecked((uint)exitCode):X8}" : exitCode.ToString(CultureInfo.InvariantCulture);
 
         private static FileInfo FindManifest(string directory) => ManifestHelper.FindManifest(directory);
 
@@ -1542,6 +1566,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 try
                 {
                     await process.WaitForExitAsync(cancellationToken);
+                    HintDebugOutputOnFailure(process.ExitCode, isJson: false, cancellationToken);
                     return process.ExitCode;
                 }
                 catch (OperationCanceledException)

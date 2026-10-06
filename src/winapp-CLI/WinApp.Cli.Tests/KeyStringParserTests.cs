@@ -139,14 +139,52 @@ public class KeyStringParserTests
     }
 
     [TestMethod]
-    public void Parse_ModifierLedWithNonModifierMiddle_IsLiteralText()
+    [DataRow("ctrl+a+b")]
+    [DataRow("ctrl+bogus+f12")]
+    [DataRow("shift+numlock+a")]
+    public void Parse_ModifierLedWithNonModifierMiddle_Throws(string token)
     {
-        // "ctrl+a+b" is modifier-led but 'a' (a non-final segment) isn't a modifier, so it isn't a valid
-        // combo and stays literal text rather than throwing — only empty segments are malformed (M1).
-        var actions = KeyStringParser.Parse("ctrl+a+b");
+        // Issue #952: the token is modifier-led, so it was meant as a combo. Typing its spelling into the
+        // target would be a silent surprise; text= and --verbatim remain the explicit literal escapes.
+        var ex = Assert.ThrowsExactly<FormatException>(() => KeyStringParser.Parse(token));
+        StringAssert.Contains(ex.Message, $"text={token}");
+    }
+
+    [TestMethod]
+    [DataRow("ctrl+capslock+f12", new ushort[] { 0x11, 0x14 }, (ushort)0x7B)]
+    [DataRow("capslock+ctrl+f12", new ushort[] { 0x14, 0x11 }, (ushort)0x7B)]
+    [DataRow("insert+t", new ushort[] { 0x2D }, (ushort)0x54)]
+    [DataRow("ins+space", new ushort[] { 0x2D }, (ushort)0x20)]
+    public void Parse_ScreenReaderKeyAsModifier_IsChord(string token, ushort[] expectedModifiers, ushort expectedVk)
+    {
+        var actions = KeyStringParser.Parse(token);
         Assert.AreEqual(1, actions.Count);
-        Assert.IsInstanceOfType<TextInput>(actions[0]);
-        Assert.AreEqual("ctrl+a+b", ((TextInput)actions[0]).Text);
+        var chord = (KeyChord)actions[0];
+        CollectionAssert.AreEqual(expectedModifiers, chord.Modifiers.ToArray());
+        Assert.AreEqual(expectedVk, chord.Vk);
+        Assert.IsTrue(KeyStringParser.HoldsScreenReaderKey(actions));
+    }
+
+    [TestMethod]
+    [DataRow("capslock")]
+    [DataRow("insert")]
+    [DataRow("ctrl+insert")]
+    [DataRow("shift+capslock")]
+    public void Parse_ScreenReaderKeyAsMainKey_DoesNotHoldIt(string token)
+    {
+        // Pressing capslock/insert as the main key (alone or as ctrl+insert = copy) is unchanged and
+        // doesn't count as holding a screen-reader key.
+        var actions = KeyStringParser.Parse(token);
+        Assert.IsInstanceOfType<KeyChord>(actions[0]);
+        Assert.IsFalse(KeyStringParser.HoldsScreenReaderKey(actions));
+        Assert.IsFalse(KeyStringParser.HoldsCapsLock(actions));
+    }
+
+    [TestMethod]
+    public void HoldsCapsLock_OnlyForCapsLockModifier()
+    {
+        Assert.IsTrue(KeyStringParser.HoldsCapsLock(KeyStringParser.Parse("ctrl+capslock+f12")));
+        Assert.IsFalse(KeyStringParser.HoldsCapsLock(KeyStringParser.Parse("ctrl+insert+f12")));
     }
 
     [TestMethod]

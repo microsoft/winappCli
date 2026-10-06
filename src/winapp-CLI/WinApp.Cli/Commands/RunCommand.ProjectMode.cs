@@ -522,7 +522,9 @@ internal partial class RunCommand
                     return debugExit;
                 }
 
-                return await WaitForLaunchedProcessAsync(launched, cancellationToken);
+                var appExitCode = await WaitForLaunchedProcessAsync(launched, cancellationToken);
+                HintDebugOutputOnFailure(appExitCode, isJson, cancellationToken);
+                return appExitCode;
             }
         }
 
