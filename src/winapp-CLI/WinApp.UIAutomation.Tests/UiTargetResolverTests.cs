@@ -156,16 +156,89 @@ public class UiSessionServiceTests
 
         Assert.AreEqual(502, uiTarget.ProcessId, "A PID never falls back to a title match.");
         Assert.AreEqual(0L, (long)uiTarget.WindowHandle);
+        Assert.IsFalse(uiTarget.IsExplicitWindow);
     }
 
     // ---- Hosted (ApplicationFrameHost) apps -------------------------------
 
+    private static FakeSystemUiQuery SeedHostedCalculator(FakeSystemUiQuery sys)
+    {
+        // CalculatorApp (PID 880) owns no top-level window; ApplicationFrameHost (PID 882) owns the
+        // frame 0x302 that hosts its CoreWindow. The title is localized, so it never matches "-a".
+        sys.HostedFramesByPid[880] = [0x302];
+        sys.ProcessIdByHwnd[0x302] = 882;
+        sys.WindowTextByHwnd[0x302] = "Calculatrice";
+        sys.ProcessesById[882] = new UiProcessInfo(882, "ApplicationFrameHost", 0x302, "Calculatrice");
+        return sys;
+    }
+
+    private static void AssertHostedFrameTarget(UiTarget uiTarget)
+    {
+        Assert.AreEqual(0x302L, uiTarget.WindowHandle, "The frame hosting the process must be used.");
+        Assert.AreEqual(882, uiTarget.ProcessId);
+        Assert.AreEqual("Calculatrice", uiTarget.WindowTitle);
+        Assert.IsTrue(uiTarget.IsExplicitWindow,
+            "A frame target must stay in its window: ApplicationFrameHost also owns every other packaged app's frame.");
+    }
+
     [TestMethod]
-    public async Task ResolveByName_ProcessWithoutWindow_FallsBackToHostedFrameByTitle()
+    public async Task ResolveByExactName_ProcessWithoutWindow_UsesHostingFrame()
     {
         var (service, uia, sys) = NewService();
-        sys.MatchingResult = [new UiProcessInfo(880, "CalculatorApp", 0, "")];
+        SeedHostedCalculator(sys).ByNameResult = [new UiProcessInfo(880, "CalculatorApp", 0, "")];
         uia.WindowsByPidResult = [];
+
+        AssertHostedFrameTarget(await service.ResolveAsync(app: "CalculatorApp", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveByPid_ProcessWithoutWindow_UsesHostingFrame()
+    {
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys).ProcessesById[880] = new UiProcessInfo(880, "CalculatorApp", 0, "");
+        uia.WindowsByPidResult = [];
+
+        AssertHostedFrameTarget(await service.ResolveAsync(app: "880", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveByPartialName_ProcessWithoutWindow_UsesHostingFrameNotTitleMatches()
+    {
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys).MatchingResult = [new UiProcessInfo(880, "CalculatorApp", 0, "")];
+        uia.WindowsByPidResult = [];
+        // Another packaged app's frame titled like the input must not win over the hosting frame.
+        uia.WindowsByTitleResult = [((nint)0x303, 882, "Calculator notes")];
+        sys.WindowClassNameByHwnd[0x303] = "ApplicationFrameWindow";
+
+        AssertHostedFrameTarget(await service.ResolveAsync(app: "calculator", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveByName_ProcessWithoutWindow_IgnoresTitleMatches()
+    {
+        // While "myapp" starts it has no window; title matches (even frames) belong to other apps.
+        var (service, uia, sys) = NewService();
+        sys.ByNameResult = [new UiProcessInfo(890, "myapp", 0, null)];
+        uia.WindowsByPidResult = [];
+        uia.WindowsByTitleResult =
+        [
+            ((nint)0x501, 999, "myapp - Visual Studio Code"),
+            ((nint)0x502, 998, "myapp"),
+        ];
+        sys.WindowClassNameByHwnd[0x501] = "Chrome_WidgetWin_1";
+        sys.WindowClassNameByHwnd[0x502] = "ApplicationFrameWindow";
+
+        var uiTarget = await service.ResolveAsync(app: "myapp", hwnd: null, CancellationToken.None);
+
+        Assert.AreEqual(890, uiTarget.ProcessId);
+        Assert.AreEqual(0L, (long)uiTarget.WindowHandle);
+    }
+
+    [TestMethod]
+    public async Task ResolveByTitle_NoProcess_PrefersAppFrame()
+    {
+        var (service, uia, sys) = NewService();
         uia.WindowsByTitleResult =
         [
             ((nint)0x301, 881, "calculator.cs - Editor"),
@@ -173,31 +246,12 @@ public class UiSessionServiceTests
         ];
         sys.WindowClassNameByHwnd[0x301] = "Chrome_WidgetWin_1";
         sys.WindowClassNameByHwnd[0x302] = "ApplicationFrameWindow";
-        sys.ProcessesById[882] = new UiProcessInfo(882, "ApplicationFrameHost", 0x302, "Calculator");
+        sys.DefaultProcessById = new UiProcessInfo(0, "ApplicationFrameHost", 0, null);
 
         var uiTarget = await service.ResolveAsync(app: "calculator", hwnd: null, CancellationToken.None);
 
         Assert.AreEqual(0x302L, uiTarget.WindowHandle, "The ApplicationFrameWindow must win over other title matches.");
-        Assert.AreEqual(882, uiTarget.ProcessId);
-        Assert.AreEqual("Calculator", uiTarget.WindowTitle);
-        Assert.IsTrue(uiTarget.IsExplicitWindow,
-            "A frame target must stay in its window: ApplicationFrameHost also owns every other packaged app's frame.");
-    }
-
-    [TestMethod]
-    public async Task ResolveByName_ProcessWithoutWindow_IgnoresNonFrameTitleMatches()
-    {
-        // While "myapp" starts, an editor titled "myapp - Visual Studio Code" is a different app.
-        var (service, uia, sys) = NewService();
-        sys.ByNameResult = [new UiProcessInfo(890, "myapp", 0, null)];
-        uia.WindowsByPidResult = [];
-        uia.WindowsByTitleResult = [((nint)0x501, 999, "myapp - Visual Studio Code")];
-        sys.WindowClassNameByHwnd[0x501] = "Chrome_WidgetWin_1";
-
-        var uiTarget = await service.ResolveAsync(app: "myapp", hwnd: null, CancellationToken.None);
-
-        Assert.AreEqual(890, uiTarget.ProcessId);
-        Assert.AreEqual(0L, (long)uiTarget.WindowHandle);
+        Assert.IsTrue(uiTarget.IsExplicitWindow);
     }
 
     [TestMethod]

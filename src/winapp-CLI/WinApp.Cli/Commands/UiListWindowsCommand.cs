@@ -80,19 +80,18 @@ internal class UiListWindowsCommand : Command, IShortDescription
                     // Try as PID first
                     if (int.TryParse(app, out var pid))
                     {
-                        windows = uiAutomation.FindWindowsByPid(pid);
+                        windows = WindowsOrHostedFrames(pid);
                     }
                     else
                     {
                         // Try process name match, then title match
-                        var matchedProcess = true;
                         var byName = System.Diagnostics.Process.GetProcessesByName(app);
                         if (byName.Length > 0)
                         {
                             windows = [];
                             foreach (var process in byName)
                             {
-                                windows.AddRange(uiAutomation.FindWindowsByPid(process.Id));
+                                windows.AddRange(WindowsOrHostedFrames(process.Id));
                             }
                         }
                         else
@@ -111,26 +110,14 @@ internal class UiListWindowsCommand : Command, IShortDescription
                                 windows = [];
                                 foreach (var p in partial)
                                 {
-                                    windows.AddRange(uiAutomation.FindWindowsByPid(p.Id));
+                                    windows.AddRange(WindowsOrHostedFrames(p.Id));
                                 }
                             }
                             else
                             {
                                 // Fall back to title search
-                                matchedProcess = false;
                                 windows = uiAutomation.FindWindowsByTitle(app);
                             }
-                        }
-
-                        // A packaged app's window can belong to ApplicationFrameHost rather than
-                        // the app's process, so a matched process may own no window at all. Only
-                        // frames qualify: other title matches ("myapp - Visual Studio Code") are a
-                        // different app.
-                        if (matchedProcess && windows.Count == 0)
-                        {
-                            windows = uiAutomation.FindWindowsByTitle(app)
-                                .Where(w => UiTargetResolver.IsAppFrameWindow(w.Hwnd))
-                                .ToList();
                         }
                     }
                 }
@@ -199,6 +186,16 @@ internal class UiListWindowsCommand : Command, IShortDescription
                 UiErrors.GenericError(logger, ex, json);
                 return 1;
             }
+        }
+
+        /// <summary>
+        /// The process's own top-level windows or, when it has none, the ApplicationFrameHost frame
+        /// hosting it (packaged apps such as Calculator draw inside a frame owned by another process).
+        /// </summary>
+        private List<(nint Hwnd, int Pid, string Title)> WindowsOrHostedFrames(int pid)
+        {
+            var windows = uiAutomation.FindWindowsByPid(pid);
+            return windows.Count > 0 ? windows : UiTargetResolver.FindHostedAppFrameWindows(pid);
         }
 
         private static string GetProcessNameSafe(int pid)

@@ -270,9 +270,12 @@ internal partial class UiInspectCommand : Command, IShortDescription
                         ?? realElements.FirstOrDefault(IsInteractive)
                         ?? realElements.FirstOrDefault();
                     var exampleSelector = example?.Selector ?? example?.Id;
-                    var exampleCommand = example is { IsInvokable: false, IsEditable: true }
-                        ? $"set-value {exampleSelector} \"<text>\" -a <app>"
-                        : $"invoke {exampleSelector} -a <app>";
+                    var exampleCommand = example switch
+                    {
+                        { IsInvokable: true } => $"invoke {exampleSelector} -a <app>",
+                        { IsEditable: true } => $"set-value {exampleSelector} \"<text>\" -a <app>",
+                        _ => $"click {exampleSelector} -a <app>",
+                    };
                     var exampleHint = exampleSelector is not null
                         ? $" Use the [bold cyan]first token[/] as selector, e.g.: [grey]{EscapeMarkup(UiCommandAdvice.Command(exampleCommand))}[/]"
                         : "";
@@ -330,7 +333,7 @@ internal partial class UiInspectCommand : Command, IShortDescription
         // these types are conventionally interactive.
         private static readonly HashSet<string> InteractiveTypes = new(StringComparer.OrdinalIgnoreCase)
         {
-            "Button", "CheckBox", "ComboBox", "Edit", "TextBox", "Document", "Hyperlink",
+            "Button", "CheckBox", "ComboBox", "Edit", "TextBox", "Hyperlink",
             "ListItem", "MenuItem", "RadioButton", "Tab", "TabItem", "SplitButton",
             "TreeItem", "DataItem", "Slider"
         };

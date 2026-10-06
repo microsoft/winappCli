@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 using WinApp.Cli.Commands;
 
 namespace WinApp.Cli.Tests;
@@ -89,31 +90,31 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
-    public async Task ListWindows_MatchedProcessWithoutWindows_ListsOnlyAppFrames()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ListWindows_MatchedProcessWithoutWindows_ListsHostingFrameOnly(bool byPid)
     {
-        // A packaged app's process (e.g. CalculatorApp) owns no window; its frame belongs to
-        // ApplicationFrameHost. Only the frame may be listed, never another app's title match.
+        // A packaged app's process (e.g. CalculatorApp) owns no window; ApplicationFrameHost owns the
+        // frame hosting its content. List that frame, never another app's title match.
         var me = Process.GetCurrentProcess();
         _fakeUia.WindowsByPidResult = [];
-        _fakeUia.WindowsByTitleResult =
-        [
-            ((nint)0x5555, 4242, "Frame Match"),
-            ((nint)0x6666, 4343, "Editor Match - Visual Studio Code"),
-        ];
-        Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.SystemUiQuery.s_getWindowClassName =
-            hwnd => hwnd == 0x5555 ? "ApplicationFrameWindow" : "Chrome_WidgetWin_1";
+        _fakeUia.WindowsByTitleResult = [((nint)0x6666, 4343, "Editor Match - Visual Studio Code")];
+        SystemUiQuery.s_findHostedAppFrames = pid => pid == me.Id ? [0x5555L] : [];
+        SystemUiQuery.s_getProcessIdForWindow = _ => 4242;
+        SystemUiQuery.s_getWindowText = hwnd => hwnd == 0x5555 ? "Hosting Frame" : null;
         try
         {
             var command = GetRequiredService<UiListWindowsCommand>();
-            var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", me.ProcessName]);
+            var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+                ["-a", byPid ? me.Id.ToString(System.Globalization.CultureInfo.InvariantCulture) : me.ProcessName]);
 
             Assert.AreEqual(0, exitCode);
-            StringAssert.Contains(TestAnsiConsole.Output, "Frame Match");
-            Assert.IsFalse(TestAnsiConsole.Output.Contains("Editor Match"), "Non-frame title matches belong to another app.");
+            StringAssert.Contains(TestAnsiConsole.Output, "Hosting Frame");
+            Assert.IsFalse(TestAnsiConsole.Output.Contains("Editor Match"), "Title matches belong to another app.");
         }
         finally
         {
-            Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.SystemUiQuery.ResetNativeSeams();
+            SystemUiQuery.ResetNativeSeams();
         }
     }
 

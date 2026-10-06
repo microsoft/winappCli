@@ -161,8 +161,43 @@ internal sealed class SystemUiQuery : ISystemUiQuery
         return (long)(nint)root;
     }
 
+    /// <remarks>
+    /// Native adapter seam: the default body walks live ApplicationFrameHost frames with
+    /// <c>FindWindowEx</c>. Tests replace it to model a hosted packaged app without a real desktop.
+    /// </remarks>
+    internal static Func<int, IReadOnlyList<long>> s_findHostedAppFrames = NativeFindHostedAppFrames;
+
+    internal static IReadOnlyList<long> NativeFindHostedAppFrames(int pid)
+    {
+        var frames = new List<long>();
+        var frame = global::Windows.Win32.Foundation.HWND.Null;
+        while (true)
+        {
+            frame = global::Windows.Win32.PInvoke.FindWindowEx(
+                global::Windows.Win32.Foundation.HWND.Null, frame, "ApplicationFrameWindow", (string?)null);
+            if (frame.IsNull) { break; }
+            if (!global::Windows.Win32.PInvoke.IsWindowVisible(frame)) { continue; }
+
+            var child = global::Windows.Win32.Foundation.HWND.Null;
+            while (true)
+            {
+                child = global::Windows.Win32.PInvoke.FindWindowEx(
+                    frame, child, "Windows.UI.Core.CoreWindow", (string?)null);
+                if (child.IsNull) { break; }
+                if (NativeGetProcessIdForWindow((nint)child) == (uint)pid)
+                {
+                    frames.Add((nint)frame);
+                    break;
+                }
+            }
+        }
+
+        return frames;
+    }
+
     internal static void ResetNativeSeams()
     {
+        s_findHostedAppFrames = NativeFindHostedAppFrames;
         s_getForegroundWindow = NativeGetForegroundWindow;
         s_getProcessIdForWindow = NativeGetProcessIdForWindow;
         s_getWindowText = NativeGetWindowText;
@@ -319,5 +354,15 @@ internal sealed class SystemUiQuery : ISystemUiQuery
         }
         // Native guard: GetAncestor does not throw for invalid handles — honest ceiling.
         catch { return 0; }
+    }
+
+    public IReadOnlyList<long> FindHostedAppFrames(int pid)
+    {
+        try
+        {
+            return s_findHostedAppFrames(pid);
+        }
+        // Native guard: FindWindowEx does not throw — honest ceiling.
+        catch { return []; }
     }
 }

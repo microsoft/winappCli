@@ -254,13 +254,13 @@ which cannot run before the head does anyway — every few seconds.
 winapp ui inspect -a notepad
 winapp ui inspect -a slack            # auto-picks visible window for multi-process apps
 winapp ui inspect -a imageresizer     # partial match: finds PowerToys.ImageResizer
-winapp ui search Seven -a calculator  # hosted app: uses its "Calculator" frame window
+winapp ui search Seven -a calculator  # hosted app: uses the frame window that hosts it
 ```
 
 Some packaged apps (for example Calculator) have no window of their own; another process
-hosts their frame. When the matched process has no visible window, `-a` uses the app frame
-whose title matches instead. If there is none (for example, the app is still starting),
-`-a` targets the process, so `wait-for` keeps looking until its window appears.
+hosts their frame. When the matched process (by name or PID) has no visible window, `-a`
+uses the frame that hosts its content instead. If there is none (for example, the app is
+still starting), `-a` targets the process, so `wait-for` keeps looking until its window appears.
 
 ### By window title
 ```bash
