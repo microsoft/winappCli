@@ -13,15 +13,17 @@ internal static class UiQueryOptions
 {
     internal static readonly Option<string?> Root = new("--root")
     {
-        Description = "Search only descendants of this uniquely matching selector (excludes the root).",
+        HelpName = "selector",
+        Description = "Only search inside this element (must match exactly one element)",
     };
     internal static readonly Option<string?> Type = new("--type")
     {
-        Description = "UIA control type, case-insensitive. Supports all 41 official types; aliases: TextBox -> Edit, TextBlock -> Text.",
+        Description = "Only match this control type (Button, Edit, MenuItem, ...; TextBox = Edit, TextBlock = Text)",
     };
     internal static readonly Option<string?> ClassName = new("--class-name")
     {
-        Description = "Exact, case-insensitive UIA ClassName (literal, not a substring or wildcard).",
+        HelpName = "name",
+        Description = "Only match this exact UIA ClassName (case-insensitive)",
     };
 
     internal static void AddTo(Command command)

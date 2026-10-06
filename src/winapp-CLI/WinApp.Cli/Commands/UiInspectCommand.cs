@@ -14,9 +14,18 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal partial class UiInspectCommand : Command, IShortDescription
+internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "View the element tree of a running app";
+    public string ShortDescription => "Show an app's elements and their selectors";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui inspect -a <app> --interactive",
+        "winapp ui inspect <selector> -a <app> --depth 2",
+        "winapp ui inspect <selector> -w <hwnd> --ancestors",
+    ];
+
+    public string? Usage => "winapp ui inspect [<selector>] (-a <app> | -w <hwnd>) [options]";
 
     public static Option<bool> AncestorsOption { get; }
 

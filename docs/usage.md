@@ -2216,7 +2216,9 @@ as a credential, and is only ever persisted as a SHA-256 hash. See
 
 ### ui
 
-Inspect and interact with running Windows app UIs using UI Automation (UIA).
+Inspect and interact with running Windows app UIs using UI Automation (UIA). Run `winapp ui --help`
+for the core workflow (`inspect -a <app> --interactive`, then `invoke`/`set-value`, then `get-value`) and each
+command's `--help` for examples. An unknown `ui` command exits with code 1 and suggests the closest commands.
 
 ```bash
 winapp ui [command] [options]

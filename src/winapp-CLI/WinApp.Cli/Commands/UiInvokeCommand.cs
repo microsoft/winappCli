@@ -14,9 +14,16 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiInvokeCommand : Command, IShortDescription
+internal class UiInvokeCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Activate an element via UIA patterns (Invoke, Toggle, etc.)";
+    public string ShortDescription => "Activate an element (Invoke, Toggle, Select, Expand)";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui invoke \"Save\" -a <app>",
+        "winapp ui invoke \"Save\" --type Button -a <app>",
+        "winapp ui invoke <selector> -a <app> --action toggle-on",
+    ];
 
     public static Option<string?> ActionOption { get; } = new("--action")
     {

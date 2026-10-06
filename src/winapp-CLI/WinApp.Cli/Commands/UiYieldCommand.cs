@@ -12,9 +12,14 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiYieldCommand : Command, IShortDescription
+internal class UiYieldCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Release this workflow's UI turn immediately instead of waiting out the idle grace";
+    public string ShortDescription => "Release this workflow's UI turn now";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui yield",
+    ];
 
     public UiYieldCommand()
         : base("yield", "Release the current workflow's idle UI turn early. " +

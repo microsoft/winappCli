@@ -17,6 +17,12 @@ Most commands drive the app through UIA patterns (no input injection). The excep
 
 ## Quick Start
 
+Run `winapp ui --help` for the core loop: `inspect -a <app> --interactive` to see what you
+can act on, `invoke` or `set-value` to act, and `get-value` to check the result. Every
+command's `--help` shows examples. An unknown command, such as `winapp ui dump`, exits with
+code 1 and suggests the closest commands (as a JSON error with `suggestions` when you pass
+`--json`).
+
 ```bash
 # Connect to any app and see its UI tree
 winapp ui inspect -a notepad

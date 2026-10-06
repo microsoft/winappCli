@@ -15,9 +15,15 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiFocusCommand : Command, IShortDescription
+internal class UiFocusCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Activate the target window and verify keyboard focus";
+    public string ShortDescription => "Move keyboard focus to an element";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui focus \"Search\" -a <app>",
+        "winapp ui focus \"Search\" --type Edit -a <app>",
+    ];
 
     public static Argument<string> SelectorArgument { get; } = new("selector")
     {

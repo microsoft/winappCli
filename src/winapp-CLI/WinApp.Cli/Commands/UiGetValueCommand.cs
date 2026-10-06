@@ -13,14 +13,19 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiGetValueCommand : Command, IShortDescription
+internal class UiGetValueCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Read the current value from an element";
+    public string ShortDescription => "Read an element's text or value";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui get-value <selector> -a <app>",
+        "winapp ui get-value \"Search\" --type Edit -a <app>",
+    ];
 
     public UiGetValueCommand()
         : base("get-value", "Read the current value from an element. " +
-               "Tries TextPattern (RichEditBox, Document), ValuePattern (TextBox, ComboBox, Slider), then Name (labels). " +
-               "Usage: winapp ui get-value <selector> -a <app>")
+               "Tries TextPattern (RichEditBox, Document), ValuePattern (TextBox, ComboBox, Slider), then Name (labels).")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
