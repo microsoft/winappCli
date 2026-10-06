@@ -271,8 +271,8 @@ public class SignCommandTests : BaseCommandTests
     public async Task SignCommandWithPfx_LeavesNoKeyContainerBehind(string keyType)
     {
         // A real PE file so signtool actually signs it.
-        var target = new FileInfo(Path.Combine(_tempDirectory.FullName, $"Signable-{keyType}.exe"));
-        File.Copy(Path.Combine(Environment.SystemDirectory, "where.exe"), target.FullName);
+        var target = new FileInfo(Path.Join(_tempDirectory.FullName, $"Signable-{keyType}.exe"));
+        File.Copy(Path.Join(Environment.SystemDirectory, "where.exe"), target.FullName);
 
         var certPath = _testCertificatePath;
         if (keyType == "ecdsa")
@@ -307,12 +307,9 @@ public class SignCommandTests : BaseCommandTests
     {
         var crypto = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Crypto");
         var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var dir in new[] { Path.Combine(crypto, "Keys"), Path.Combine(crypto, "RSA") })
+        foreach (var dir in new[] { Path.Combine(crypto, "Keys"), Path.Combine(crypto, "RSA") }.Where(Directory.Exists))
         {
-            if (Directory.Exists(dir))
-            {
-                files.UnionWith(Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories));
-            }
+            files.UnionWith(Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories));
         }
         return files;
     }

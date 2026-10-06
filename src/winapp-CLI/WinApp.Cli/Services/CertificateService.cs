@@ -489,10 +489,10 @@ internal partial class CertificateService(
 
             if (pfxCertificates != null)
             {
-                foreach (var cert in pfxCertificates)
+                foreach (var certificate in pfxCertificates)
                 {
+                    using var cert = certificate;
                     DeletePersistedPrivateKey(cert, taskContext);
-                    cert.Dispose();
                 }
             }
         }

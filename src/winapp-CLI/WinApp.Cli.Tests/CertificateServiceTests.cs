@@ -432,7 +432,7 @@ public class CertificateServiceTests : BaseCommandTests
     public async Task SignFileAsync_WrongPfxPassword_ReportsReadableError()
     {
         var (svc, bt, _) = NewService();
-        var file = new FileInfo(Path.Combine(_tempDirectory.FullName, "app-badpw.exe"));
+        var file = new FileInfo(Path.Join(_tempDirectory.FullName, "app-badpw.exe"));
         await File.WriteAllTextAsync(file.FullName, "MZ");
         var cert = CreatePfx(_tempDirectory.FullName, "sign-badpw.pfx", "CN=BadPw", "pw");
         var signtoolRan = false;
@@ -452,7 +452,7 @@ public class CertificateServiceTests : BaseCommandTests
     public async Task SignFileAsync_DeletesTemporaryKeyAndStore(bool signtoolFails)
     {
         var (svc, bt, _) = NewService();
-        var file = new FileInfo(Path.Combine(_tempDirectory.FullName, "app-key.exe"));
+        var file = new FileInfo(Path.Join(_tempDirectory.FullName, "app-key.exe"));
         await File.WriteAllTextAsync(file.FullName, "MZ");
         var cert = CreatePfx(_tempDirectory.FullName, "sign-key.pfx", "CN=SignKey", "pw");
 
@@ -495,7 +495,7 @@ public class CertificateServiceTests : BaseCommandTests
     public async Task SignFileAsync_StoreIncludesBundledChainCertificates()
     {
         var (svc, bt, _) = NewService();
-        var file = new FileInfo(Path.Combine(_tempDirectory.FullName, "app-chain.exe"));
+        var file = new FileInfo(Path.Join(_tempDirectory.FullName, "app-chain.exe"));
         await File.WriteAllTextAsync(file.FullName, "MZ");
 
         using var caKey = RSA.Create(2048);
@@ -507,7 +507,7 @@ public class CertificateServiceTests : BaseCommandTests
         using var leafPublic = leafReq.Create(ca, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(2), [1, 2, 3, 4]);
         using var leaf = leafPublic.CopyWithPrivateKey(leafKey);
         using var caPublic = X509CertificateLoader.LoadCertificate(ca.RawData);
-        var pfx = new FileInfo(Path.Combine(_tempDirectory.FullName, "chain.pfx"));
+        var pfx = new FileInfo(Path.Join(_tempDirectory.FullName, "chain.pfx"));
         await File.WriteAllBytesAsync(pfx.FullName, new X509Certificate2Collection { leaf, caPublic }.Export(X509ContentType.Pfx, "pw")!);
 
         string[]? subjects = null;
