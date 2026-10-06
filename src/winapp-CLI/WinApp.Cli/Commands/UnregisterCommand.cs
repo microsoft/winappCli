@@ -19,7 +19,7 @@ namespace WinApp.Cli.Commands;
 
 internal partial class UnregisterCommand : Command, IShortDescription, ITargetAwareCommand
 {
-    public string ShortDescription => "Unregister a sideloaded development package.";
+    public string ShortDescription => "Unregister a sideloaded development package";
 
     public static Argument<FileInfo> InputArgument { get; }
     public static Option<FileInfo> ManifestOption { get; }

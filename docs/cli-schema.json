@@ -2,7 +2,7 @@
   "name": "winapp",
   "version": "0.7.2",
   "schemaVersion": "1.0",
-  "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
+  "description": "Create, run, debug, test, and package Windows apps from the command line. Works with WinUI and any other (cross-platform) app framework targeting Windows, and manages Windows SDKs, package identity, manifests, and certificates.",
   "hidden": false,
   "options": {
     "--cli-schema": {
@@ -32,18 +32,6 @@
       "arity": {
         "minimum": 0,
         "maximum": 0
-      },
-      "required": false,
-      "recursive": true
-    },
-    "--on": {
-      "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
-      "hidden": false,
-      "valueType": "System.String",
-      "hasDefaultValue": false,
-      "arity": {
-        "minimum": 1,
-        "maximum": 1
       },
       "required": false,
       "recursive": true
@@ -2832,6 +2820,18 @@
           "required": false,
           "recursive": false
         },
+        "--on": {
+          "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": true
+        },
         "--output-appx-directory": {
           "description": "Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used.",
           "hidden": false,
@@ -3670,6 +3670,20 @@
     "ui": {
       "description": "Inspect and interact with any running Windows app using UI Automation (UIA). Works with WPF, WinForms, Win32, Electron, and WinUI 3 apps.",
       "hidden": false,
+      "options": {
+        "--on": {
+          "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": true
+        }
+      },
       "subcommands": {
         "click": {
           "description": "Click an element by slug or text search using mouse simulation. Works on elements that don't support InvokePattern (e.g., column headers, list items). Use --double for double-click, --right for right-click.",
@@ -6577,6 +6591,18 @@
           },
           "required": false,
           "recursive": false
+        },
+        "--on": {
+          "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": true
         },
         "--output-appx-directory": {
           "description": "AppX layout folder the run registered. Use it when the app has several registered layouts or its source was deleted. With --on, pass the folder on this machine, not the Sandbox path.",

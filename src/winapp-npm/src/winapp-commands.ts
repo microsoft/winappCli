@@ -895,8 +895,6 @@ export interface RunOptions extends CommonOptions {
   input?: string;
   /** @deprecated Use `input` instead. Retained for backward compatibility. */
   inputFolder?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
-  on?: string;
   /** Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. */
   aot?: boolean;
   /** Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. */
@@ -925,6 +923,8 @@ export interface RunOptions extends CommonOptions {
   noLaunch?: boolean;
   /** Project and single-file mode: skip restoring before build or Native AOT publish. Ignored in folder mode. */
   noRestore?: boolean;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. */
   outputAppxDirectory?: string;
   /** Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project. */
@@ -935,8 +935,6 @@ export interface RunOptions extends CommonOptions {
   runtime?: string;
   /** Download symbols from Microsoft Symbol Server for richer native crash analysis, including the WinUI stowed-exception dispatch stack. Only used with --debug-output. First run downloads symbols and caches them locally; subsequent runs use the cache. */
   symbols?: boolean;
-  /** Give this checkout its own package identity and execution aliases, derived from its path, so copies of a packaged app in different worktrees can be registered side by side. Your source manifest is not changed. Not supported for unpackaged apps, sparse packages, bundles, manifests with several applications, or apps that register protocols, file types, COM servers, or other system-wide extensions. */
-  uniqueIdentity?: boolean;
   /** Unregister the development package after the application exits. Only removes packages registered in development mode. */
   unregisterOnExit?: boolean;
   /** Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Console apps (OutputType=Exe) already do this by default; pass this to force it for a windowed app. winapp adds a uap5:ExecutionAlias to the manifest it stages for you, so no manifest edit is needed. */
@@ -954,7 +952,6 @@ export async function run(options: RunOptions = {}): Promise<WinappResult> {
   const args: string[] = ['run'];
   const inputValue = options.input ?? options.inputFolder;
   if (inputValue) args.push(inputValue);
-  if (options.on !== undefined) args.push('--on', options.on);
   if (options.aot) args.push('--aot');
   if (options.arch !== undefined) args.push('--arch', options.arch);
   if (options.args !== undefined) args.push('--args', options.args);
@@ -969,6 +966,7 @@ export async function run(options: RunOptions = {}): Promise<WinappResult> {
   if (options.noBuild) args.push('--no-build');
   if (options.noLaunch) args.push('--no-launch');
   if (options.noRestore) args.push('--no-restore');
+  if (options.on !== undefined) args.push('--on', options.on);
   if (options.outputAppxDirectory !== undefined) args.push('--output-appx-directory', options.outputAppxDirectory);
   if (options.project !== undefined) args.push('--project', options.project);
   if (options.property) {
@@ -977,7 +975,6 @@ export async function run(options: RunOptions = {}): Promise<WinappResult> {
   }
   if (options.runtime !== undefined) args.push('--runtime', options.runtime);
   if (options.symbols) args.push('--symbols');
-  if (options.uniqueIdentity) args.push('--unique-identity');
   if (options.unregisterOnExit) args.push('--unregister-on-exit');
   if (options.withAlias) args.push('--with-alias');
   if (options.withoutAlias) args.push('--without-alias');
@@ -2087,27 +2084,27 @@ export async function uiYield(options: UiYieldOptions = {}): Promise<WinappResul
 // ---------------------------------------------------------------------------
 
 export interface UnregisterOptions extends CommonOptions {
-  /** App folder, .csproj, .sln, .slnx, or .cs file to unregister: the same input you passed to 'winapp run'. Nothing is built. Works whether or not the run used --unique-identity. Omit to use the current directory, --manifest, or --output-appx-directory. Cannot be combined with --manifest. */
+  /** Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest. */
   input?: string;
-  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
-  on?: string;
-  /** Target architecture (x64, arm64, x86) used when evaluating the app input to find the app (default: the current process architecture). Pass the same architecture the run used. */
+  /** Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input. */
   arch?: string;
-  /** Configuration used when evaluating the app input to find the app (default: Debug). Pass the same configuration the run used. */
+  /** Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input. */
   configuration?: string;
-  /** Skip the install-location check for registrations winapp has no record of (from create-debug-identity or an older winapp version). Has no effect on registrations recorded by 'winapp run'. Unrecorded registrations are matched by package name only, so a same-named package from another publisher can also be removed, with its app data. With --prune, skips the confirmation prompt. */
+  /** Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt. */
   force?: boolean;
   /** Format output as JSON */
   json?: boolean;
   /** Path to the Package.appxmanifest (default: auto-detect from current directory) */
   manifest?: string;
-  /** AppX layout folder the run registered. Use it when the app has several registered layouts or its source was deleted. With --on, pass the folder on this machine, not the Sandbox path. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
+  /** The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped. */
   outputAppxDirectory?: string;
-  /** MSBuild property (Name=Value) used when evaluating the app input to find the app. Repeatable. Pass the same properties the run used (e.g. -p WinAppPackageName=...). */
+  /** MSBuild property (Name=Value) used when resolving a .cs file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...), since a command-line property overrides the file's own #:property directives. Only applies to a .cs input. */
   property?: string | string[];
-  /** Remove development registrations whose files are gone and that winapp has no record of. Lists them and asks before removing; pass --force to skip the prompt. To remove a registration recorded by 'winapp run', pass its app input or --output-appx-directory instead. Cannot be combined with an input or --manifest. */
+  /** Remove every development-mode registration whose files are gone. These can never launch — Windows keeps the identity and its Start menu entry, but activation silently does nothing. Lists what it found and asks before removing; pass --force to skip the prompt. Cannot be combined with an input or --manifest. */
   prune?: boolean;
-  /** Target .NET runtime identifier (e.g. win-x64) used when evaluating the app input to find the app. Only its architecture is used, and it overrides --arch. */
+  /** Target .NET runtime identifier (e.g. win-x64) used when resolving a .cs file-based app's identity. Only its architecture is used, and it overrides --arch. Only applies to a .cs input. */
   runtime?: string;
 }
 
@@ -2118,12 +2115,12 @@ export async function unregister(options: UnregisterOptions = {}): Promise<Winap
   const args: string[] = ['unregister'];
   const positionals: string[] = [];
   if (options.input) positionals.push(options.input);
-  if (options.on !== undefined) args.push('--on', options.on);
   if (options.arch !== undefined) args.push('--arch', options.arch);
   if (options.configuration !== undefined) args.push('--configuration', options.configuration);
   if (options.force) args.push('--force');
   if (options.json) args.push('--json');
   if (options.manifest !== undefined) args.push('--manifest', options.manifest);
+  if (options.on !== undefined) args.push('--on', options.on);
   if (options.outputAppxDirectory !== undefined) args.push('--output-appx-directory', options.outputAppxDirectory);
   if (options.property) {
     const propertyArr = Array.isArray(options.property) ? options.property : [options.property];
