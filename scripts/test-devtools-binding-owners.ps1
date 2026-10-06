@@ -166,7 +166,8 @@ function Nodes($Items) { foreach ($item in $Items) { $item; Nodes $item.children
 # Turns on the toolbar's comment mode. A collapsed toolbar opens under the pointer and collapses again once the next
 # click moves the pointer away.
 function Enter-CommentMode {
-    $shown = @((Invoke-Cli @('ui', 'search', 'DevToolsProtoComments', '-a', $app)).matches | Where-Object automationId -eq 'DevToolsProtoComments')
+    $shown = @((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows | ForEach-Object { Nodes $_.elements } |
+        Where-Object { $_.automationId -eq 'DevToolsProtoComments' -and -not $_.isOffscreen })
     if ($shown.Count -eq 0) {
         $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoComments', '-a', $app, '-t', '5000')
@@ -425,7 +426,8 @@ try {
         $picked = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
         Check ($picked.result.handle -eq [string]$heading[0].handle -and
             @((Invoke-Cli @('ui', 'list-windows', '-a', $app)) | Where-Object title -like 'WinApp DevTools*').Count -eq 1) 'pick mode opens the inspector on the picked element'
-        Check (@((Invoke-Cli @('ui', 'search', 'DevToolsSelComment', '-a', $app)).matches).Count -eq 0) 'pick mode opens no comment flyout'
+        Check (@((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows | ForEach-Object { Nodes $_.elements } |
+            Where-Object automationId -eq 'DevToolsSelComment').Count -eq 0) 'pick mode opens no comment flyout'
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
         $null = Invoke-Cli @('devtools', 'call', 'Window.close', '-a', $app)
 
