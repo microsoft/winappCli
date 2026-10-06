@@ -207,6 +207,9 @@ CMakeCache.txt
 
 /artifacts
 
+# Retired generated documentation snapshot; schemas now live under artifacts.
+/docs/cli-schema.json
+
 # Development certificate
 devcert.pfx
 *.msix

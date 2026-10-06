@@ -1,6 +1,7 @@
 name: Plugin Check
 
-# Fast, build-free check of plugin manifests and skills. It always runs on PRs, so it is
+# Fast, build-free structural check of plugin manifests and skills. Command examples
+# are checked against the built CLI in the post-build validate-docs job. This always runs on PRs, so it is
 # safe to mark as a required check, and skips quickly when no relevant file changed.
 # The post-build validate-docs job in build-package.yml still runs the same script.
 on:
@@ -30,7 +31,7 @@ jobs:
       - name: Validate plugin packages and skills
         shell: pwsh
         run: |
-          $relevant = '^(plugins/|scripts/validate-plugin-package\.ps1$|docs/cli-schema\.json$|src/winapp-npm/src/cli\.ts$|\.github/workflows/plugin-check\.yml$)'
+          $relevant = '^(plugins/|scripts/validate-plugin-package\.ps1$|\.github/workflows/plugin-check\.yml$)'
           $changed = @(git diff --name-only HEAD^1 HEAD)
           if ($LASTEXITCODE -ne 0) { throw "Could not list the files this PR changes." }
           $matched = @($changed | Where-Object { $_ -match $relevant })

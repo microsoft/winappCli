@@ -488,7 +488,7 @@ Describe 'build-cli.ps1 control flow' {
         foreach ($name in @('build-number', 'prerelease-label', 'stand-down', 'generate-llm-docs', 'package-npm', 'package-nuget', 'nuget-pester', 'scripts-pester', 'package-msix')) {
             $result.Calls.Name | Should -Contain $name
         }
-        $result.Trace | Should -Match 'npm run generate-docs'
+        $result.Trace | Should -Not -Match 'npm run generate-docs'
         $result.Output | Should -Match 'Ready for distribution'
         Join-Path $root 'artifacts\keep.txt' | Should -Not -Exist
         Join-Path $root 'artifacts\setup-winapprun.ps1' | Should -Exist
@@ -503,6 +503,12 @@ Describe 'build-cli.ps1 control flow' {
         $result.Trace | Should -Match 'package-npm 1.2.3 Stable=True'
         $result.Trace | Should -Match 'package-nuget 1.2.3 Stable=True'
         $result.Trace | Should -Match 'package-msix 1.2.3.17 Stable=True'
+    }
+
+    It 'fails the build when live schema generation fails instead of reporting success' {
+        $result = Invoke-BuildFixture $root -Flags @{ SkipTests = $true } -Fail 'generate-llm-docs'
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Not -Match '\[SUCCESS\]'
     }
 
     It 'keeps legacy OnlyTests publishing without packaging or NuGet tests' {

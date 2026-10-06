@@ -291,7 +291,7 @@ try {
             $newVersionJson = @{ version = $releaseVersion } | ConvertTo-Json
             Set-Content -Path $VersionFilePath -Value $newVersionJson -NoNewline
 
-            # Regenerate version-dependent files (cli-schema.json, etc.)
+            # Synchronize version-dependent plugin manifests and build release artifacts.
             Write-Info "Running build to regenerate version-dependent files..."
             $buildScript = Join-Path $PSScriptRoot "build-cli.ps1"
             & $buildScript -SkipTests -SkipNpm -SkipMsix

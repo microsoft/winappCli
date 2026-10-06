@@ -26,7 +26,7 @@ This is not a rubber stamp. Do your **own** research against reality before you
 look at anyone's conclusions.
 
 1. **Independently research the spec** the way the specialists were asked to:
-   read the real code (`Commands/`, `Services/`, `docs/cli-schema.json`) **and,
+   read the real code (`Commands/`, `Services/`) and inspect `winapp --cli-schema` when built **and,
    for anything mechanical, run your own cheap experiment** — invoke the real
    tool, build a throwaway project in a temp dir, test the real command behavior
    — rather than only re-reasoning over the specialists' text. Form your own view

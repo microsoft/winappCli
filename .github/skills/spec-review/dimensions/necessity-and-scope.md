@@ -32,7 +32,7 @@ it is individually well-designed.
   recurring manual workaround, a documented user pain, linked issues — or is it
   "someone might want this someday" generality? Prefer concrete need.
 - **Duplication.** Does the CLI (or the npm/NuGet/VSC surfaces) already do this,
-  fully or partially? Independently check: read `docs/cli-schema.json` and skim
+  fully or partially? Independently check: run `winapp --cli-schema` when built and skim
   `src/winapp-CLI/WinApp.Cli/Commands/` for an existing command that overlaps.
 - **Smaller / staged.** Is there a minimal version that delivers most of the
   value now, with the rest deferred until the need is proven? Name the leanest
@@ -45,7 +45,7 @@ it is individually well-designed.
 
 Do not take the spec's framing of "why we need this" at face value. Verify:
 
-- Grep `Commands/` and `docs/cli-schema.json` for existing overlapping
+- Grep `Commands/` and inspect `winapp --cli-schema` when built for existing overlapping
   functionality.
 - Check whether an existing Windows SDK tool, Windows App SDK API, or standard
   OS mechanism already covers the need (so winapp would just be a thin,

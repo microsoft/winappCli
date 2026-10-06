@@ -9,7 +9,7 @@
  *   node scripts/generate-commands.mjs --check       # exit 1 if file would change
  *   node scripts/generate-commands.mjs --schema path  # use a specific schema JSON file
  */
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,20 +43,21 @@ function loadSchema() {
   const cliPath = candidates.find((p) => existsSync(p));
 
   if (cliPath) {
-    const raw = execSync(`"${cliPath}" --cli-schema`, { encoding: 'utf8' });
+    const raw = execFileSync(cliPath, ['--cli-schema'], { encoding: 'utf8' });
     return JSON.parse(raw);
   }
 
-  // Fallback: checked-in schema
-  const fallback = resolve(NPM_ROOT, '../../docs/cli-schema.json');
-  if (existsSync(fallback)) {
-    return JSON.parse(readFileSync(fallback, 'utf8'));
-  }
-
-  throw new Error(
-    'Cannot locate winapp CLI binary or docs/cli-schema.json.\n' +
-      'Build the CLI first (scripts/build-cli.ps1) or ensure docs/cli-schema.json exists.'
+  const project = resolve(NPM_ROOT, '../../src/winapp-CLI/WinApp.Cli/WinApp.Cli.csproj');
+  console.error('[generate-commands] No built CLI found. Building the Debug CLI with the .NET SDK.');
+  execFileSync('dotnet', ['build', project, '-c', 'Debug', '--nologo', '--verbosity', 'quiet'], {
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
+  const raw = execFileSync(
+    'dotnet',
+    ['run', '--project', project, '-c', 'Debug', '--no-build', '--', '--cli-schema'],
+    { encoding: 'utf8' }
   );
+  return JSON.parse(raw);
 }
 
 // ---------------------------------------------------------------------------
