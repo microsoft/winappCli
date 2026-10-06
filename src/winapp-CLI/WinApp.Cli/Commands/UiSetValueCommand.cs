@@ -30,6 +30,7 @@ internal class UiSetValueCommand : Command, IShortDescription
         Options.Add(SharedUiOptions.WindowOption);
 
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -79,7 +80,7 @@ internal class UiSetValueCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -94,7 +95,7 @@ internal class UiSetValueCommand : Command, IShortDescription
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = selectorParser.Parse(selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
                 var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
 
                 if (element is null)
@@ -115,6 +116,11 @@ internal class UiSetValueCommand : Command, IShortDescription
                     logger.LogInformation("Set value on {ElementId}", (element.Selector ?? element.Id ?? ""));
                 }
                 return 0;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {

@@ -53,11 +53,16 @@ winapp ui search "Welcome to MyApp" -a myapp --root MailRow --type Text --class-
 winapp ui get-value Subject -w 123456 --root MailRow --type TextBox
 winapp ui get-property Subject -a myapp --root MailRow --type Edit --property Value
 winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value "Ready" --timeout 10000
-winapp ui invoke Open -w <dialog-HWND> --type Button --action invoke
+winapp ui invoke Open -w <dialog-HWND> --type Button
+winapp ui set-value "Text editor" "hello" -a notepad --type Document
 ```
 
-`search`, `get-property`, `get-value`, `wait-for`, and `invoke --action` accept these optional filters.
-The selector and every supplied filter must match the **same element**:
+Every command that takes one element selector accepts these optional filters:
+`inspect` (with a selector), `search`, `get-property`, `get-value`, `wait-for`,
+`invoke`, `set-value`, `click`, `focus`, `hover`, `scroll`, `scroll-into-view`,
+`screenshot`, `record`, `touch`, and `pen`. `drag` does not, because it takes two selectors.
+The selector and every supplied filter must match the **same element**. Filters narrow a
+selector, so passing them without one fails with `invalid_arguments`:
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
   never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.
@@ -99,7 +104,7 @@ A root slug selects that element even when another window has the same
 AutomationId. If the selected root is replaced, its old slug no longer matches;
 use an AutomationId or name root when you want polling to follow a replacement.
 
-When filters are present, commands that read a single element and `invoke --action` fail with
+When filters are present, every command except `search` fails with
 `ambiguous_selector` if more than one element remains; narrow the filters or use
 a unique slug. Exact AutomationId matches retain precedence over substring
 matches, within the filtered scope. Omitting all three options preserves the
@@ -619,16 +624,16 @@ exactly one element; a plain-text or AutomationId selector that matches more tha
 one element fails closed with a nonzero exit code rather than acting on the first
 match, so pass a slug from `inspect`/`search` when a name is ambiguous.
 
-With `--action`, `--root`, `--type`, and `--class-name` narrow the match as
-described in [Scoped and typed queries](#scoped-and-typed-queries). Use
-`-w <dialog-HWND>` to restrict an action to that dialog, or `-a <app>` to
-include the app's windows. The filtered action confirms the unique target inside its
+`--root`, `--type`, and `--class-name` narrow the match as described in
+[Scoped and typed queries](#scoped-and-typed-queries), with or without `--action`.
+Use `-w <dialog-HWND>` to restrict an action to that dialog, or `-a <app>` to
+include the app's windows. A filtered invoke confirms the unique target inside its
 desktop turn, requires exactly one matching element, and never switches to
 another window or an invokable ancestor. Zero matches fail with `element_not_found`;
 duplicates fail with `ambiguous_selector`. A stale element or recycled window
 fails without acting; re-run `inspect` or `search` and choose a current selector.
-Filters **require `--action`**: supplying any of them without it fails with
-`invalid_arguments` instead of changing automatic invoke behavior.
+Without `--action`, a filtered invoke still tries the patterns in order on that
+one element.
 
 | Action | Operation |
 |--------|-----------|
@@ -644,7 +649,7 @@ transition. If the requested state is not reached, the command fails rather than
 continuing to toggle. A failed verification can leave the control changed; read
 `ToggleState` before deciding what to do next.
 
-Without `--action`, the existing automatic behavior is unchanged: try
+Without `--action` and without filters, the automatic behavior is unchanged: try
 InvokePattern, TogglePattern, SelectionItemPattern, then ExpandCollapsePattern
 (expand), with an invokable-ancestor retry when needed.
 

@@ -77,6 +77,7 @@ internal class UiPenCommand : Command, IShortDescription
         Options.Add(EraserOption);
         Options.Add(DurationOption);
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -185,6 +186,11 @@ internal class UiPenCommand : Command, IShortDescription
                 return 1;
             }
 
+            if ((path is not null || at is not null) && UiQueryOptions.HasFilters(parseResult))
+            {
+                return RejectInvalidArguments(parseResult, json, "--type, --root, and --class-name narrow a selector and cannot be combined with --at or --path.");
+            }
+
             // Missing-app check runs after all argument validation so invalid arg values return
             // invalid_arguments rather than missing_app.
             if (string.IsNullOrWhiteSpace(app) && window is null)
@@ -193,7 +199,7 @@ internal class UiPenCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -239,7 +245,7 @@ internal class UiPenCommand : Command, IShortDescription
                     if (path is null)
                     {
                         var target = await PointerCommandSupport.ResolvePointAsync(
-                            uiAutomation, selectorParser, uiTarget, selectorStr, at, atStr,
+                            uiAutomation, selectorParser, parseResult, uiTarget, selectorStr, at, atStr,
                             "pen", "pen point", logger, json, cancellationToken);
                         if (!target.Ok)
                         {
@@ -326,6 +332,11 @@ internal class UiPenCommand : Command, IShortDescription
                 }
 
                 return 0;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {

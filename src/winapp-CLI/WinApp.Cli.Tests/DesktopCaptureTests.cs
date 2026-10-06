@@ -252,7 +252,7 @@ public sealed class DesktopCaptureTests
         recording.WaitAfterRecordingStarted = release.Task;
         recording.AfterRecordingStarted = () => started.TrySetResult();
         var command = new GuestDesktopRecordCommand();
-        var handler = new GuestDesktopRecordCommand.Handler(new FakeUiTargetResolver(), recording,
+        var handler = new GuestDesktopRecordCommand.Handler(new FakeUiTargetResolver(), new FakeUiAutomationService(), new UnusedSelectorParser(), recording,
             Capture((_, _, _, _, ew, eh, _, _) => Pixels(ew, eh)), new FakeSystemUiQuery(),
             console, coordinator, NullLogger<UiRecordCommand>.Instance);
         var task = handler.InvokeAsync(Parse(command, Path.Join(_root, "shared.mp4"), "--duration-sec", "1"), TestContext.CancellationToken);

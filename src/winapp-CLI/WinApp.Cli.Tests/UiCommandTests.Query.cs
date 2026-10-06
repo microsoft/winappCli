@@ -197,4 +197,68 @@ public partial class UiCommandTests
         StringAssert.Contains(TestAnsiConsole.Output, "\"timedOut\": true");
         Assert.IsTrue(_fakeUia.Queries.Count > 1);
     }
+
+    [TestMethod]
+    public async Task QueryOptions_FilteredInspect_StaysInTheSelectedWindow()
+    {
+        // Inspect walks only the selected window, so a filtered match in another app window must not be used.
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        _fakeUia.FindSingleResult = new UiElement { Type = "Button", Selector = "btn-save-a123" };
+        _fakeUia.InspectResult = [new UiElement { Type = "Button", Depth = 0, Selector = "btn-save-a123" }];
+
+        var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiInspectCommand>(),
+            ["Save", "-a", "TestApp", "--type", "Button", "--json"]);
+
+        Assert.AreEqual(0, exit);
+        var scope = _fakeUia.QueryTargets.Single();
+        Assert.AreEqual(4242, scope.WindowHandle);
+        Assert.IsTrue(scope.IsExplicitWindow);
+        Assert.IsFalse(_fakeTargetResolver.TargetResult.IsExplicitWindow);
+    }
+
+    [TestMethod]
+    public async Task QueryOptions_FilteredRecord_KeepsSearchingPopupWindows()
+    {
+        // Recording finds a slug in the app's popups and owned dialogs, so its filtered lookup must too.
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        _fakeUia.FindSingleResult = new UiElement { Type = "Button", Selector = "btn-save-a123" };
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 30, Mode = "wgc" };
+
+        var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiRecordCommand>(),
+            ["Save", "-a", "TestApp", "--type", "Button", "--duration-sec", "1",
+             "-o", Path.Combine(_tempDirectory.FullName, "filtered.mp4"), "--json"]);
+
+        Assert.AreEqual(0, exit);
+        Assert.IsFalse(_fakeUia.QueryTargets.First().IsExplicitWindow);
+    }
+
+    [TestMethod]
+    [DataRow("touch", "--at", "5,5")]
+    [DataRow("pen", "--at", "5,5")]
+    [DataRow("pen", "--path", "5,5 10,10")]
+    public async Task QueryOptions_PointerCoordinates_RejectFilters(string name, string option, string value)
+    {
+        Command command = name == "touch" ? GetRequiredService<UiTouchCommand>() : GetRequiredService<UiPenCommand>();
+        var exit = await ParseAndInvokeWithCaptureAsync(command,
+            [option, value, "--type", "Button", "-w", "4242", "--json"]);
+        Assert.AreEqual(1, exit);
+        AssertJsonErrorCode("invalid_arguments");
+        Assert.IsEmpty(_fakeUia.Queries);
+    }
+
+    [TestMethod]
+    public void QueryOptions_EverySelectorCommand_AcceptsElementFilters()
+    {
+        static IEnumerable<Command> All(Command command) => command.Subcommands.SelectMany(c => All(c).Prepend(c));
+        var offenders = All(GetRequiredService<WinAppRootCommand>())
+            .Where(c => c.Arguments.Any(a => a.Name == "selector")
+                && !(c.Options.Contains(UiQueryOptions.Type)
+                     && c.Options.Contains(UiQueryOptions.Root)
+                     && c.Options.Contains(UiQueryOptions.ClassName)))
+            .Select(c => c.Name)
+            .ToList();
+
+        Assert.IsEmpty(offenders,
+            $"Commands that take a selector must accept --type, --root, and --class-name (UiQueryOptions.AddTo): {string.Join(", ", offenders)}");
+    }
 }

@@ -29,7 +29,8 @@ internal partial class UiInspectCommand : Command, IShortDescription
     }
 
     public UiInspectCommand()
-        : base("inspect", "View the UI element tree with semantic slugs, element types, names, and bounds.")
+        : base("inspect", "View the UI element tree with semantic slugs, element types, names, and bounds. " +
+               "With a selector, shows that element's subtree; --type, --root, and --class-name narrow the selector.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -41,11 +42,13 @@ internal partial class UiInspectCommand : Command, IShortDescription
         Options.Add(SharedUiOptions.InteractiveOption);
         Options.Add(SharedUiOptions.HideDisabledOption);
         Options.Add(SharedUiOptions.HideOffscreenOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public partial class Handler(
         IUiTargetResolver targetResolver,
         IUiAutomation uiAutomation,
+        IUiSelectorParser selectorParser,
         IWindowDpiContextProvider windowDpiContextProvider,
         IAnsiConsole ansiConsole,
         IInteractiveDesktopLock desktopLock,
@@ -68,7 +71,8 @@ internal partial class UiInspectCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.ValidateWithOptionalSelector(
+                parseResult, parseResult.GetValue(SharedUiOptions.SelectorArgument), logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -96,6 +100,18 @@ internal partial class UiInspectCommand : Command, IShortDescription
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
+                if (selector is not null)
+                {
+                    var exact = await UiQueryOptions.ResolveExactSelectorAsync(
+                        parseResult, selectorParser, uiAutomation, uiTarget, selector, searchOtherWindows: false, cancellationToken);
+                    if (exact is null)
+                    {
+                        UiErrors.ElementNotFound(logger, selector, json);
+                        return 1;
+                    }
+                    selector = exact;
+                }
+
                 UiElement[] elements;
 
                 if (ancestors && selector is not null)
@@ -297,6 +313,11 @@ internal partial class UiInspectCommand : Command, IShortDescription
 
                 logger.LogDebug("Inspect returned {Count} elements at depth {Depth}", elements.Length, depth);
                 return 0;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {
