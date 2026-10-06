@@ -356,13 +356,5 @@ internal sealed class SystemUiQuery : ISystemUiQuery
         catch { return 0; }
     }
 
-    public IReadOnlyList<long> FindHostedAppFrames(int pid)
-    {
-        try
-        {
-            return s_findHostedAppFrames(pid);
-        }
-        // Native guard: FindWindowEx does not throw — honest ceiling.
-        catch { return []; }
-    }
+    public IReadOnlyList<long> FindHostedAppFrames(int pid) => s_findHostedAppFrames(pid);
 }
