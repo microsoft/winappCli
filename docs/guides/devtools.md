@@ -318,6 +318,55 @@ Without either, the command requires exactly one attached app. Live commands nev
 inject just because a target was selected. To authorize injection, use
 `winapp devtools attach --pid <pid>` first, or add `--attach` to the live command.
 
+## Find where a value comes from
+
+```powershell
+winapp devtools resources explain SaveButton Background -a 12345
+```
+
+The command reads the live value and traces it back to the XAML you would edit. For
+a `SelectorBarItem` in WinUI Gallery:
+
+```text
+Background = #B3FFFFFF  (Microsoft.UI.Xaml.Media.SolidColorBrush)
+  ← Style setter   TokenViewSelectorBarItemStyle (explicit)  Styles/SelectorBar.xaml:109
+                   Background = {ThemeResource TokenItemBackground}
+  ← ThemeResource  TokenItemBackground   element theme: Dark
+  ← defined in     Styles/SelectorBar.xaml:6 [Default]
+                   also in Styles/SelectorBar.xaml:27 (Light theme only)
+  ← alias of       ControlFillColorDefaultBrush
+  ← defined in     WinUI default resources
+
+Change it: edit Styles/SelectorBar.xaml:109 (affects elements that use this Style), or override ControlFillColorDefaultBrush in App.xaml's resources (affects every control that uses it)
+```
+
+Each line is one step:
+
+- **Origin:** the Style setter (explicit or implicit, with its `BasedOn` chain), the
+  local value, or the default style.
+- **Resource:** the `{ThemeResource}` or `{StaticResource}` key the origin uses.
+- **Definition:** where the key is defined, including its theme branch and any
+  alias it points to.
+
+**Change it** names the narrowest place to edit. Keys from WinUI's own resources
+show as **WinUI default resources** without a line. To change one of those, define
+the same key in your `App.xaml` resources.
+
+Definitions are read from the XAML files under the app's project folder, so the
+lines are as current as those files. Keep the source in sync with the running build.
+The value itself is read live. Add `--json` for the full chain: `origin`, `resources`
+with every definition and whether it applies, and `changeIt`.
+
+Limits:
+
+- A local value points at the element's start line, not the attribute's line.
+- A `HighContrast` branch is treated as applying only while high contrast is on.
+- Values set by Style setters can resolve `{ThemeResource}` keys under the app's
+  theme rather than the element's `RequestedTheme`, so the value can differ from
+  the branch shown.
+- Values with no text form, such as `CornerRadius`, print as `(no text form)`. The
+  setter line still shows the authored value.
+
 ## Try a live property change
 
 ```powershell

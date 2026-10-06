@@ -157,6 +157,13 @@ For disk-matched source declarations and their limits, follow the guide's
 [source-coordinate guidance](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#find-and-inspect-an-element)
 before editing XAML or capturing a source-anchored comment.
 
+To change how something looks in source, start with
+`winapp devtools resources explain <selector> <property>`. It names the Style setter
+or local value, the resource key, the dictionary and theme branch that define it, and
+the file and line to edit. Edit the line named under **Change it** instead of
+searching for the color. Keys shown as **WinUI default resources** are not in the
+project; override them in `App.xaml` resources rather than editing a style.
+
 Use `set-property <selector> <property> <value>` for an authorized in-memory
 change. Report its observed read-back, not the requested value as if it succeeded.
 If the result has `replacedBinding`, say so: the local value replaced a `{Binding}`

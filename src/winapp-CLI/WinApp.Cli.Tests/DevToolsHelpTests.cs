@@ -14,7 +14,8 @@ public class DevToolsHelpTests : BaseCommandTests
 {
     private DevToolsCommand DevTools => GetRequiredService<WinAppRootCommand>().Subcommands.OfType<DevToolsCommand>().Single();
 
-    private IEnumerable<Command> Groups => [DevTools, DevTools.Subcommands.OfType<DevToolsCommentsCommand>().Single()];
+    private IEnumerable<Command> Groups => [DevTools, DevTools.Subcommands.OfType<DevToolsCommentsCommand>().Single(),
+        DevTools.Subcommands.OfType<DevToolsResourcesCommand>().Single()];
 
     private IEnumerable<Command> Leaves => Groups.SelectMany(g => g.Subcommands).Where(c => c is not ICompactHelpGroup);
 
@@ -114,7 +115,7 @@ public class DevToolsHelpTests : BaseCommandTests
     [DataRow("update", true)]
     public void CommentsHelp_MentionsOnOnlyWhereItIsAccepted(string verb, bool shown)
     {
-        var command = Groups.Last().Subcommands.Single(c => c.Name == verb);
+        var command = DevTools.Subcommands.OfType<DevToolsCommentsCommand>().Single().Subcommands.Single(c => c.Name == verb);
         Assert.AreEqual(shown, CompactHelpRenderer.Render(command).Contains("--on", StringComparison.Ordinal));
     }
 
