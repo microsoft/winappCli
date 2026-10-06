@@ -88,7 +88,7 @@ internal static class UiUnknownCommand
         return suggestions.Take(MaxSuggestions).ToArray();
     }
 
-    public static string Message(string token) => $"Unknown command '{token}'.";
+    public static string Message(string token) => $"Unknown command '{Printable(token)}'.";
 
     public static void WriteText(TextWriter error, string token, string[] suggestions)
     {
@@ -99,9 +99,18 @@ internal static class UiUnknownCommand
             _ => $" Did you mean '{suggestions[0]}' or '{suggestions[1]}'?",
         };
         error.WriteLine(Message(token) + didYouMean);
-        error.WriteLine($"Commands: {string.Join(", ", CommonCommands)}, ...");
+        if (suggestions.Length == 0)
+        {
+            error.WriteLine($"Commands: {string.Join(", ", CommonCommands)}, ...");
+        }
         error.WriteLine("Run 'winapp ui --help' for the full list.");
     }
+
+    /// <summary>Escapes control characters so a pasted token cannot drive the terminal.</summary>
+    private static string Printable(string token) =>
+        token.Any(char.IsControl)
+            ? string.Concat(token.Select(c => char.IsControl(c) ? $"\\u{(int)c:x4}" : c.ToString()))
+            : token;
 
     internal static int Distance(string a, string b)
     {

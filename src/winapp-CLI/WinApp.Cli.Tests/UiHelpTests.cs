@@ -147,7 +147,20 @@ public class UiHelpTests : BaseCommandTests
         Assert.IsTrue(string.IsNullOrWhiteSpace(stdout), stdout);
         StringAssert.StartsWith(stderr, "Unknown command 'dump'. Did you mean 'inspect'?");
         StringAssert.Contains(stderr, "Run 'winapp ui --help' for the full list.");
+        Assert.DoesNotContain("Commands:", stderr, "A suggestion replaces the command list.");
         Assert.DoesNotContain("Discover", stderr, "The full help must not be printed.");
+    }
+
+    [TestMethod]
+    public void UnknownCommand_Text_ListsCommandsOnlyWithoutSuggestion_AndEscapesControlCharacters()
+    {
+        var writer = new StringWriter();
+        UiUnknownCommand.WriteText(writer, "x\u001b]0;owned\u0007", []);
+
+        var text = writer.ToString();
+        StringAssert.StartsWith(text, "Unknown command 'x\\u001b]0;owned\\u0007'.");
+        StringAssert.Contains(text, "Commands: ");
+        Assert.IsFalse(text.Any(c => c is '\u001b' or '\u0007'), "Control characters must not reach the terminal.");
     }
 
     [TestMethod]

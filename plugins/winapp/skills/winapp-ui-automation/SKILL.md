@@ -163,7 +163,7 @@ winapp ui invoke Submit -a myapp
 
 ### Connect and discover
 ```powershell
-# Connect and see interactive elements in one call
+# Core loop and examples: `winapp ui --help`. Connect and see interactive elements in one call:
 winapp ui status -a myapp; winapp ui inspect -a myapp --interactive
 ```
 

@@ -50,7 +50,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
     }
 
     public UiScrollCommand()
-        : base("scroll", "Scroll a container element using ScrollPattern. " +
+        : base("scroll", "Scroll a container element. " +
                "Use --direction to scroll incrementally, --to to jump to top/bottom, or --wheel to synthesize mouse-wheel input.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);

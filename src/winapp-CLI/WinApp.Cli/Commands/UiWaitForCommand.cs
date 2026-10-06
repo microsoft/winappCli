@@ -49,8 +49,8 @@ internal class UiWaitForCommand : Command, IShortDescription, IHelpExamples
     }
 
     public UiWaitForCommand()
-        : base("wait-for", "Wait for an element to appear, disappear, or have a property reach a target value. " +
-               "Polls at 100ms intervals until condition met or timeout.")
+        : base("wait-for", "Wait for an element to appear, disappear, or reach a value. " +
+               "Polls every 100 ms until the condition is met or the timeout expires.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);

@@ -73,7 +73,7 @@ Need to run or automate the app somewhere other than the user's own desktop?
 │        guest commands, file transfers, and whole-desktop evidence
 └─ No → the same commands without --on sandbox act on this machine
 
-Want to inspect or interact with a running app's UI?
+Want to inspect or interact with a running app's UI? (`winapp ui --help` shows the core loop)
 ├─ See element tree → winapp ui inspect -a <appname>
 ├─ See only actionable elements → winapp ui inspect -a <appname> --interactive
 ├─ Find specific elements → winapp ui search <selector> -a <appname>

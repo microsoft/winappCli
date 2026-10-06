@@ -25,7 +25,7 @@ internal class UiSearchCommand : Command, IShortDescription, IHelpExamples
     ];
 
     public UiSearchCommand()
-        : base("search", "Search the element tree for elements matching a text query. Returns all matches with semantic slugs.")
+        : base("search", "Find elements by text; narrow with --type and --root. Returns all matches with semantic slugs.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);

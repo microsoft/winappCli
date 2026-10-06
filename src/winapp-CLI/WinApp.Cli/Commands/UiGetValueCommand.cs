@@ -24,7 +24,7 @@ internal class UiGetValueCommand : Command, IShortDescription, IHelpExamples
     ];
 
     public UiGetValueCommand()
-        : base("get-value", "Read the current value from an element. " +
+        : base("get-value", "Read an element's text or value. " +
                "Tries TextPattern (RichEditBox, Document), ValuePattern (TextBox, ComboBox, Slider), then Name (labels).")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);

@@ -63,9 +63,15 @@ internal static class UiHelpRenderer
         var sb = new StringBuilder();
         var summary = command is IShortDescription sd ? sd.ShortDescription.TrimEnd('.') + "." : "";
         AppendDescription(sb, $"{path} - ", summary);
-        if (!string.IsNullOrWhiteSpace(command.Description) && command.Description != summary)
+        // Descriptions open with the summary so they stand alone in --cli-schema; don't repeat it here.
+        var details = command.Description ?? "";
+        if (summary.Length > 0 && details.StartsWith(summary, StringComparison.Ordinal))
         {
-            AppendDescription(sb, "", command.Description);
+            details = details[summary.Length..].TrimStart();
+        }
+        if (!string.IsNullOrWhiteSpace(details))
+        {
+            AppendDescription(sb, "", details);
         }
 
         sb.AppendLine();
