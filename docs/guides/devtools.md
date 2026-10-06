@@ -21,7 +21,7 @@ workflow and commands; each command's `--help` shows examples.
 2. Select **Comments** on the toolbar, then click an element in your app. The comment
    panel opens next to it, showing where the element is declared, ready for a comment.
 
-   ![The DevTools toolbar and the comment panel on a selected button](../images/devtools-quick-edit.png)
+   ![The comment panel on a selected button](../images/devtools-comment-panel.png)
 
 3. Type a note and press **Enter** (or select **Save**). **Shift+Enter** starts a new
    line. A **Comment saved** notice appears by the toolbar, the panel closes and the
