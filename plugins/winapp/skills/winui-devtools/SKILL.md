@@ -177,8 +177,9 @@ run `winapp devtools resources copy-style <selector>` to preview a copy of the
 element's Style (the app's or WinUI's default) in `App.xaml`, then add `--write` to
 apply it; `--all-of-type` makes it an implicit Style instead. Prefer overriding
 resource keys when they are enough. After writing, edit the copy, then rebuild and
-restart the app. Users can do the same from the inspector's STYLE card
-(**Edit current**, **Edit a copy…**).
+restart the app. Users can do the same from the inspector's STYLE section
+(**Edit Style** or **Edit Template** ▸ **Edit Current** / **Edit a Copy…**); while
+the file is open there, each save updates the running app live.
 
 Use `set-property <selector> <property> <value>` for an authorized in-memory
 change. Report its observed read-back, not the requested value as if it succeeded.

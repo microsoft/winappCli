@@ -451,20 +451,40 @@ The copy uses 18 WinUI resources (brushes, sizes); they still come from WinUI. I
 
 ### Edit a Style from the inspector
 
-The inspector's properties pane shows a **STYLE** card for an element that has a
-Style:
+Select an element in the inspector. The properties pane shows a **STYLE** section
+with two menus: **Edit Style** and **Edit Template**. Each has two commands:
 
-- **Edit current** finds the Style the element uses. If it's in your app, the file
-  opens at the Style. If it's WinUI's default Style, the card says so and links to
-  WinUI's `generic.xaml` for reading.
-- **Edit a copy…** copies the Style into your app, like `copy-style --write`. Enter a
-  key, or choose **Apply to all &lt;Type&gt;** to make it implicit. Then choose where
-  to define it: **Application (App.xaml)** or **This document**. Select **OK** to write
-  the copy and open it in your editor.
+- **Edit Current** opens the file that defines the Style, at the Style (or at its
+  `Template` setter). If the element uses a Style built into WinUI, a dialog explains
+  that there's no file of yours to open and offers **Edit a Copy…**.
+- **Edit a Copy…** opens a **Create Style Resource** dialog. Enter a key, or choose
+  **Apply to all &lt;Type&gt; elements** to make the copy an implicit Style. Then
+  choose where to define it: **Application (App.xaml)** or **This document**. Select
+  **OK**. The copy is written, the element's `Style` is set to it, and the file opens
+  in your editor.
+
+While the Style is open, the running app shows your edits each time you save the
+file. No rebuild needed. A **Live** banner shows the Style and file, and when it last
+updated:
 
 ```text
-Copied WinUI's default Button Style into App.xaml:11 as MyButtonStyle. Set this Button's Style in MainWindow.xaml:46. … Rebuild and restart the app to see the change.
+Live BigButtonStyle · App.xaml
+Updated 17:42:04 · 1 element
 ```
+
+If the saved XAML has an error, the banner shows its file line, and the app keeps the
+last good Style:
+
+```text
+App.xaml line 13: The property 'NotAProperty' was not found in type 'Microsoft.UI.Xaml.Controls.Button'.
+```
+
+If the Style uses an attached property the running app can't load from new XAML,
+such as `AnimatedIcon.State`, the banner adds `previewed without AnimatedIcon.State
+until the app is rebuilt`; the rest of your edits still show.
+
+Select **Stop** to stop applying saves. What's already applied stays until the app
+restarts. Your file already holds the edits, so rebuild to keep them.
 
 ## Try a live property change
 

@@ -2,34 +2,92 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
-// The pane's STYLE card: Blend's "Edit Style > Edit Current / Edit a Copy...". Both run
-// `winapp devtools resources copy-style` on a worker thread (the CLI connects back to this app, so the UI thread must
-// keep pumping) and the drain timer renders the answer. State lives here, keyed by the selected element, so a pane
-// rebuild redraws the same form and result.
+// Blend's "Edit Style / Edit Template > Edit Current / Edit a Copy...". The menu is on a tree row's context menu and
+// on the pane's STYLE card. Both actions run `winapp devtools resources copy-style` on a worker thread (the CLI
+// connects back to this app, so the UI thread must keep pumping), open the XAML file that holds the Style, and then
+// watch that file: each save re-reads the Style and applies it to the elements that use it, so the running app shows
+// the edit without a rebuild.
 
 static DevToolsWindowCliFn g_cliFn;
+static IInspectable* ResolveLiveElement(InstanceHandle wire); // DevToolsWindow.LiveProps.inc
+
+enum class StyleIntent { Current, Preview, Copy };
 
 struct StyleEditUi {
     InstanceHandle wire = 0;
-    bool formOpen = false;
-    bool allOfType = false;
-    bool inDocument = false;
     bool busy = false;
-    std::wstring key;
-    std::wstring busyText;
-    bool haveOutcome = false;
-    DevToolsStyleEdit::Outcome outcome;
-    std::wstring opened; // what happened when the pane opened the outcome's file
+    std::wstring message; // the last thing an action said, or what it is doing now
 };
 static StyleEditUi g_styleUi;
 
-struct StyleEditAsk { DevToolsStyleEdit::Request request; unsigned gen; DevToolsWindowCliFn run; };
-struct StyleEditDone { DevToolsStyleEdit::Request request; unsigned gen; DevToolsStyleEdit::Outcome outcome; };
+struct StyleEditAsk { DevToolsStyleEdit::Request request; StyleIntent intent; bool templ; unsigned gen; DevToolsWindowCliFn run; };
+struct StyleEditDone { DevToolsStyleEdit::Request request; StyleIntent intent; bool templ; unsigned gen; DevToolsStyleEdit::Outcome outcome; };
 static SRWLOCK                    g_styleEditLock = SRWLOCK_INIT;
 static std::vector<StyleEditDone> g_styleEditDone;
 static UINT_PTR                   g_styleEditTimer = 0;
 static volatile LONG              g_styleEditBusy = 0;
 static bool                       g_styleEditRedraw = false;
+
+// The Style being edited live: the file it is in, how to find it there, and the elements it is applied to on save.
+struct StyleLive {
+    bool active = false;
+    std::wstring path;
+    std::wstring key;        // empty: the implicit Style for targetType
+    std::wstring targetType;
+    std::vector<winrt::weak_ref<DevToolsX::FrameworkElement>> targets;
+    ULONGLONG applied = 0;   // the file's write time last applied
+    ULONGLONG seen = 0;      // a newer write time, applied once it holds still for a tick
+    std::wstring status;
+    bool failed = false;
+};
+static StyleLive g_styleLive;
+static UINT_PTR  g_styleLiveTimer = 0;
+
+// The open "Create Style Resource" dialog.
+struct StyleDialog {
+    DevToolsXC::ContentDialog dialog{ nullptr };
+    DevToolsXC::TextBox key{ nullptr };
+    DevToolsXC::RadioButton keyed{ nullptr }, all{ nullptr }, inApp{ nullptr }, inDoc{ nullptr };
+    DevToolsXC::TextBlock source{ nullptr }, error{ nullptr };
+    DevToolsXC::ProgressRing ring{ nullptr };
+    InstanceHandle wire = 0;
+    bool templ = false;
+    bool busy = false;
+    std::wstring documentPath;
+};
+static StyleDialog g_styleDialog;
+
+static void RequestStyleRedraw();
+static void ShowCopyDialog(InstanceHandle wire, bool templ);
+
+static bool StyleChecked(const DevToolsXCP::ToggleButton& b)
+{
+    const auto v = b ? b.IsChecked() : nullptr;
+    return v && v.Value();
+}
+
+static DevToolsX::FrameworkElement StyleElement(InstanceHandle wire)
+{
+    IInspectable* raw = wire ? ResolveLiveElement(wire) : nullptr;
+    if (!raw) return nullptr;
+    winrt::Windows::Foundation::IInspectable object{ nullptr };
+    winrt::attach_abi(object, raw);
+    return object.try_as<DevToolsX::FrameworkElement>();
+}
+
+static std::wstring StyleNodeType(InstanceHandle wire)
+{
+    for (const auto& n : g_allTreeNodes) if (n.handle == wire) return n.type;
+    return L"";
+}
+
+static void SayStyle(InstanceHandle wire, const std::wstring& text)
+{
+    if (g_styleUi.wire != wire) return;
+    g_styleUi.busy = false;
+    g_styleUi.message = text;
+    RequestStyleRedraw();
+}
 
 static std::wstring StyleEditOpenFile(const std::wstring& path, unsigned int line)
 {
@@ -41,11 +99,490 @@ static std::wstring StyleEditOpenFile(const std::wstring& path, unsigned int lin
             HINSTANCE rc = ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             return static_cast<int>(reinterpret_cast<INT_PTR>(rc));
         });
-    DevToolsOverlayLog(L"route1.style open outcome=%d path='%s'", (int)r.outcome, path.c_str());
+    DevToolsOverlayLog(L"route1.style open outcome=%d path='%s' line=%u", (int)r.outcome, path.c_str(), line);
     std::wstring said = DevToolsShellOpen::Describe(r, DevToolsStyleEdit::FileName(path), line, path, L"");
     if (r.outcome == DevToolsShellOpen::Outcome::Handed && line > 0) said += L" Go to line " + std::to_wstring(line) + L".";
     if (!said.empty()) said[0] = static_cast<wchar_t>(towupper(said[0]));
     return said;
+}
+
+static bool StyleReadFile(const std::wstring& path, std::string& bytes, ULONGLONG* written = nullptr)
+{
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER size{};
+    bool ok = GetFileSizeEx(h, &size) && size.QuadPart < 64ll * 1024 * 1024;
+    if (ok) {
+        bytes.resize(static_cast<size_t>(size.QuadPart));
+        DWORD read = 0;
+        ok = bytes.empty() || (ReadFile(h, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr) && read == bytes.size());
+    }
+    if (ok && written) {
+        FILETIME ft{};
+        GetFileTime(h, nullptr, nullptr, &ft);
+        *written = (static_cast<ULONGLONG>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+    }
+    CloseHandle(h);
+    return ok;
+}
+
+static ULONGLONG StyleWriteTime(const std::wstring& path)
+{
+    WIN32_FILE_ATTRIBUTE_DATA a{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &a)) return 0;
+    return (static_cast<ULONGLONG>(a.ftLastWriteTime.dwHighDateTime) << 32) | a.ftLastWriteTime.dwLowDateTime;
+}
+
+static DevToolsStyleSource::Found StyleFind(const std::wstring& path, const std::wstring& key, const std::wstring& targetType,
+                                            ULONGLONG* written = nullptr)
+{
+    std::string bytes;
+    if (!StyleReadFile(path, bytes, written)) {
+        DevToolsStyleSource::Found f;
+        f.error = L"Can't read " + DevToolsStyleEdit::FileName(path) + L".";
+        return f;
+    }
+    return DevToolsStyleSource::Extract(bytes, key, targetType);
+}
+
+static std::wstring StyleClock()
+{
+    SYSTEMTIME t{};
+    GetLocalTime(&t);
+    wchar_t buf[16]{};
+    swprintf_s(buf, L"%02u:%02u:%02u", t.wHour, t.wMinute, t.wSecond);
+    return buf;
+}
+
+static std::wstring StyleLiveName()
+{
+    return g_styleLive.key.empty() ? L"implicit " + DevToolsStyleSource::ShortName(g_styleLive.targetType) + L" style"
+                                   : g_styleLive.key;
+}
+
+// Re-reads the Style from its file and applies it to every target. Leaves the app untouched when the file doesn't parse.
+static void ApplyStyleLive()
+{
+    ULONGLONG written = 0;
+    const DevToolsStyleSource::Found f = StyleFind(g_styleLive.path, g_styleLive.key, g_styleLive.targetType, &written);
+    g_styleLive.applied = written ? written : StyleWriteTime(g_styleLive.path);
+    g_styleLive.seen = g_styleLive.applied;
+    g_styleLive.failed = true;
+    if (!f.ok) { g_styleLive.status = f.error; return; }
+
+    std::wstring markup = f.markup;
+    std::vector<std::wstring> skipped;
+    std::wstring error;
+    const auto load = [&]() -> DevToolsX::Style {
+        IInspectable* raw = nullptr;
+        error.clear();
+        const HRESULT hr = LoadMarkupRaw(markup, &raw, &error);
+        if (FAILED(hr) || !raw) {
+            if (raw) raw->Release();
+            DevToolsOverlayLog(L"route1.style live parse hr=0x%08X '%s'", (unsigned)hr, error.c_str());
+            return nullptr;
+        }
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::attach_abi(object, raw);
+        return object.try_as<DevToolsX::Style>();
+    };
+    DevToolsX::Style style = load();
+    // An attached property the app's compiled XAML never used (AnimatedIcon.State in WinUI's Button template) is
+    // unknown to XamlReader until the app is rebuilt; preview without it rather than not at all.
+    for (int round = 0; !style && round < 8; ++round) {
+        std::wstring type, member;
+        if (!DevToolsStyleSource::UnknownAttachable(error, &type, &member)) break;
+        std::wstring next = DevToolsStyleSource::WithoutAttachable(markup, type, member);
+        if (next.empty()) break;
+        markup = std::move(next);
+        skipped.push_back(type + L"." + member);
+        style = load();
+    }
+    if (!style) {
+        const unsigned line = DevToolsStyleSource::FileLine(error, f.line);
+        // XamlReader's "[Line: N Position: M]" counts in the extracted Style, not the file; the file line leads instead.
+        if (line) {
+            const auto at = error.rfind(L" [Line: ");
+            if (at != std::wstring::npos) error.erase(at);
+        }
+        g_styleLive.status = (line ? DevToolsStyleEdit::FileName(g_styleLive.path) + L" line " + std::to_wstring(line) + L": " : std::wstring()) +
+                             (error.empty() ? L"XAML couldn't load the Style in " + DevToolsStyleEdit::FileName(g_styleLive.path) + L"." : error);
+        return;
+    }
+
+    size_t applied = 0;
+    std::wstring refused;
+    for (const auto& target : g_styleLive.targets) {
+        const auto element = target.get();
+        if (!element) continue;
+        try { element.Style(style); ++applied; }
+        catch (const winrt::hresult_error& e) { if (refused.empty()) refused = e.message().c_str(); }
+    }
+    DevToolsOverlayLog(L"route1.style live applied %zu of %zu", applied, g_styleLive.targets.size());
+    if (!applied) {
+        g_styleLive.status = refused.empty() ? L"The elements that used this Style are gone." : L"The app refused the Style: " + refused;
+        return;
+    }
+    g_styleLive.failed = false;
+    g_styleLive.status = L"Updated " + StyleClock() + L" \u00B7 " + std::to_wstring(applied) +
+                         (applied == 1 ? L" element" : L" elements");
+    if (!skipped.empty()) {
+        std::wstring list;
+        for (const auto& s : skipped) list += (list.empty() ? L"" : L", ") + s;
+        g_styleLive.status += L" \u00B7 previewed without " + list + L" until the app is rebuilt";
+    }
+}
+
+static void StopStyleLive()
+{
+    if (g_styleLiveTimer) { KillTimer(nullptr, g_styleLiveTimer); g_styleLiveTimer = 0; }
+    g_styleLive = StyleLive{};
+}
+
+static void CALLBACK StyleLiveTimerProc(HWND, UINT, UINT_PTR, DWORD)
+{
+    if (!g_styleLive.active || !DevToolsWindow_IsOpen()) { StopStyleLive(); return; }
+    const ULONGLONG now = StyleWriteTime(g_styleLive.path);
+    if (!now || now == g_styleLive.applied) return;
+    // Editors save in more than one write; apply once the time stays put for a tick.
+    if (now != g_styleLive.seen) { g_styleLive.seen = now; return; }
+    ApplyStyleLive();
+    RequestStyleRedraw();
+}
+
+// The elements a Style edit should reach: just the element, or every element of its type that shares its Style
+// (the same keyed Style object, or none, which is how an implicit or default Style shows).
+static std::vector<winrt::weak_ref<DevToolsX::FrameworkElement>> StyleTargets(InstanceHandle wire, bool shared)
+{
+    std::vector<winrt::weak_ref<DevToolsX::FrameworkElement>> out;
+    const auto selected = StyleElement(wire);
+    if (!selected) return out;
+    out.emplace_back(selected);
+    if (!shared) return out;
+    const std::wstring type = StyleNodeType(wire);
+    const auto original = selected.Style();
+    for (const auto& n : g_allTreeNodes) {
+        if (out.size() >= 500) break;
+        if (n.handle == wire || n.type != type) continue;
+        const auto element = StyleElement(n.handle);
+        if (element && element.Style() == original) out.emplace_back(element);
+    }
+    return out;
+}
+
+static void StartStyleLive(InstanceHandle wire, const std::wstring& path, const std::wstring& key,
+                           const std::wstring& targetType, bool shared)
+{
+    StopStyleLive();
+    g_styleLive.active = true;
+    g_styleLive.path = path;
+    g_styleLive.key = key;
+    g_styleLive.targetType = targetType;
+    g_styleLive.targets = StyleTargets(wire, shared);
+    ApplyStyleLive();
+    g_styleLiveTimer = SetTimer(nullptr, 0, 400, &StyleLiveTimerProc);
+    DevToolsOverlayLog(L"route1.style live start '%s' key='%s' type='%s' targets=%zu",
+                       path.c_str(), key.c_str(), targetType.c_str(), g_styleLive.targets.size());
+}
+
+static unsigned StyleOpenLine(const DevToolsStyleSource::Found& f, unsigned fallback, bool templ)
+{
+    if (!f.ok) return fallback;
+    return templ && f.templateLine ? f.templateLine : f.line;
+}
+
+// ---- runs ---------------------------------------------------------------------------------------------------------
+
+static DWORD WINAPI StyleEditWorker(LPVOID param)
+{
+    StyleEditAsk* ask = reinterpret_cast<StyleEditAsk*>(param);
+    std::wstring out;
+    const int code = ask->run
+        ? ask->run(DevToolsStyleEdit::Arguments(ask->request), ask->request.action == DevToolsStyleEdit::Action::Copy, &out)
+        : -1;
+    StyleEditDone d{ ask->request, ask->intent, ask->templ, ask->gen, DevToolsStyleEdit::Interpret(ask->request, code, out) };
+    AcquireSRWLockExclusive(&g_styleEditLock);
+    g_styleEditDone.push_back(std::move(d));
+    ReleaseSRWLockExclusive(&g_styleEditLock);
+    InterlockedExchange(&g_styleEditBusy, 0);
+    delete ask;
+    return 0;
+}
+
+static void CALLBACK StyleEditTimerProc(HWND, UINT, UINT_PTR id, DWORD);
+
+static void StartStyleEditTimer()
+{
+    if (!g_styleEditTimer) g_styleEditTimer = SetTimer(nullptr, 0, 100, &StyleEditTimerProc);
+}
+
+// Redraws the card from g_styleUi on the next timer tick, outside whatever event changed it.
+static void RequestStyleRedraw()
+{
+    g_styleEditRedraw = true;
+    StartStyleEditTimer();
+}
+
+// Starts one copy-style run. False when one is already running.
+static bool PostStyleEdit(const DevToolsStyleEdit::Request& request, StyleIntent intent, bool templ)
+{
+    if (InterlockedCompareExchange(&g_styleEditBusy, 1, 0) != 0) return false;
+    StyleEditAsk* ask = new StyleEditAsk{ request, intent, templ, g_route1Gen, g_cliFn };
+    HANDLE h = CreateThread(nullptr, 0, DevToolsThreadEntry<StyleEditWorker>, ask, 0, nullptr);
+    if (!h) {
+        delete ask;
+        InterlockedExchange(&g_styleEditBusy, 0);
+        return false;
+    }
+    CloseHandle(h);
+    StartStyleEditTimer();
+    return true;
+}
+
+static DevToolsStyleEdit::Request StyleRequest(InstanceHandle wire, DevToolsStyleEdit::Action action)
+{
+    DevToolsStyleEdit::Request r;
+    r.wire = static_cast<unsigned long long>(wire);
+    r.pid = GetCurrentProcessId();
+    r.action = action;
+    return r;
+}
+
+// ---- the dialogs ----------------------------------------------------------------------------------------------------
+
+static DevToolsX::XamlRoot InspectorXamlRoot()
+{
+    if (!g_inspectorContent) return nullptr;
+    winrt::Windows::Foundation::IInspectable content{ nullptr };
+    winrt::copy_from_abi(content, g_inspectorContent);
+    const auto element = content.try_as<DevToolsX::UIElement>();
+    return element ? element.XamlRoot() : nullptr;
+}
+
+static DevToolsXC::ContentDialog NewStyleDialog(const std::wstring& title)
+{
+    DevToolsXC::ContentDialog d;
+    d.XamlRoot(InspectorXamlRoot());
+    try {
+        const auto style = DevToolsX::Application::Current().Resources().TryLookup(winrt::box_value(L"DefaultContentDialogStyle"));
+        if (const auto s = style.try_as<DevToolsX::Style>()) d.Style(s);
+    } catch (const winrt::hresult_error&) {}
+    d.Title(winrt::box_value(winrt::hstring(title)));
+    d.DefaultButton(DevToolsXC::ContentDialogButton::Primary);
+    return d;
+}
+
+static void ShowStyleDialog(const DevToolsXC::ContentDialog& d)
+{
+    try { d.ShowAsync(); }
+    catch (const winrt::hresult_error& e) { DevToolsOverlayLog(L"route1.style dialog failed: %s", e.message().c_str()); }
+}
+
+static void StyleDialogError(const std::wstring& text)
+{
+    if (!g_styleDialog.error) return;
+    g_styleDialog.error.Text(text);
+    g_styleDialog.error.Visibility(text.empty() ? DevToolsX::Visibility::Collapsed : DevToolsX::Visibility::Visible);
+}
+
+static void StyleDialogBusy(bool busy)
+{
+    g_styleDialog.busy = busy;
+    if (!g_styleDialog.dialog) return;
+    g_styleDialog.ring.IsActive(busy);
+    g_styleDialog.ring.Visibility(busy ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
+    g_styleDialog.dialog.IsPrimaryButtonEnabled(!busy);
+    g_styleDialog.key.IsEnabled(!busy && !StyleChecked(g_styleDialog.all));
+    for (const auto& r : { g_styleDialog.keyed, g_styleDialog.all, g_styleDialog.inApp, g_styleDialog.inDoc }) if (r) r.IsEnabled(!busy);
+}
+
+// Blend's "Create Style Resource": name the copy (or apply it to every element of the type) and pick where it goes.
+static void ShowCopyDialog(InstanceHandle wire, bool templ)
+{
+    if (g_styleDialog.dialog) return;
+    const std::wstring shortType = ShortType(StyleNodeType(wire));
+    const std::wstring documentPath = wire == g_selWire ? ResolveSourcePath(g_selSourceFile) : std::wstring();
+    const std::wstring documentName = DevToolsStyleEdit::FileName(documentPath);
+    const bool offerDocument = !documentPath.empty() && _wcsicmp(documentName.c_str(), L"App.xaml") != 0;
+
+    std::wstring m = L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
+                     L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Spacing=\"6\" MinWidth=\"360\">";
+    m += L"<TextBlock x:Name=\"Source\" TextWrapping=\"Wrap\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
+         L" Text=\"Finding the Style this " + DevToolsXmlEscape(shortType) + L" uses\u2026\" Margin=\"0,0,0,6\"/>";
+    m += L"<TextBlock Text=\"Name (Key)\" Style=\"{ThemeResource BodyStrongTextBlockStyle}\"/>";
+    m += L"<RadioButton x:Name=\"Keyed\" GroupName=\"WinAppStyleScope\" IsChecked=\"True\" AutomationProperties.Name=\"Name the copy\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleKeyed\">";
+    m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"8\">";
+    m += L"<TextBox x:Name=\"Key\" Width=\"240\" IsEnabled=\"False\" PlaceholderText=\"" + DevToolsXmlEscape(shortType) + L"Style1\""
+         L" AutomationProperties.Name=\"Style key\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleKey\"/>";
+    m += L"<ProgressRing x:Name=\"Ring\" IsActive=\"True\" Width=\"16\" Height=\"16\"/>";
+    m += L"</StackPanel></RadioButton>";
+    m += L"<RadioButton x:Name=\"All\" GroupName=\"WinAppStyleScope\" Content=\"Apply to all " + DevToolsXmlEscape(shortType) + L" elements\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleAll\"/>";
+    m += L"<TextBlock Text=\"Define in\" Style=\"{ThemeResource BodyStrongTextBlockStyle}\" Margin=\"0,8,0,0\"/>";
+    m += L"<RadioButton x:Name=\"InApp\" GroupName=\"WinAppStyleWhere\" Content=\"Application (App.xaml)\" IsChecked=\"True\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleInApp\"/>";
+    if (offerDocument) {
+        m += L"<RadioButton x:Name=\"InDoc\" GroupName=\"WinAppStyleWhere\" Content=\"This document (" + DevToolsXmlEscape(documentName) + L")\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleInDocument\"/>";
+    }
+    m += L"<TextBlock x:Name=\"Error\" TextWrapping=\"Wrap\" Visibility=\"Collapsed\" Margin=\"0,6,0,0\""
+         L" Foreground=\"{ThemeResource SystemFillColorCriticalBrush}\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleError\"/>";
+    m += L"</StackPanel>";
+
+    IInspectable* raw = nullptr;
+    std::wstring error;
+    if (FAILED(LoadMarkupRaw(m, &raw, &error)) || !raw) {
+        DevToolsOverlayLog(L"route1.style dialog markup failed: %s", error.c_str());
+        SayStyle(wire, L"Couldn't open the dialog: " + error);
+        return;
+    }
+    winrt::Windows::Foundation::IInspectable object{ nullptr };
+    winrt::attach_abi(object, raw);
+    const auto panel = object.as<DevToolsX::FrameworkElement>();
+    const auto find = [&](const wchar_t* name) { return panel.FindName(name); };
+
+    StyleDialog s;
+    s.wire = wire;
+    s.templ = templ;
+    s.documentPath = offerDocument ? documentPath : std::wstring();
+    s.source = find(L"Source").as<DevToolsXC::TextBlock>();
+    s.key = find(L"Key").as<DevToolsXC::TextBox>();
+    s.ring = find(L"Ring").as<DevToolsXC::ProgressRing>();
+    s.keyed = find(L"Keyed").as<DevToolsXC::RadioButton>();
+    s.all = find(L"All").as<DevToolsXC::RadioButton>();
+    s.inApp = find(L"InApp").as<DevToolsXC::RadioButton>();
+    if (offerDocument) s.inDoc = find(L"InDoc").as<DevToolsXC::RadioButton>();
+    s.error = find(L"Error").as<DevToolsXC::TextBlock>();
+
+    s.dialog = NewStyleDialog(L"Create Style Resource");
+    s.dialog.Content(panel);
+    s.dialog.PrimaryButtonText(L"OK");
+    s.dialog.CloseButtonText(L"Cancel");
+    s.dialog.IsPrimaryButtonEnabled(false);
+
+    s.keyed.Checked([](auto&&, auto&&) { if (g_styleDialog.key) g_styleDialog.key.IsEnabled(!g_styleDialog.busy); });
+    s.all.Checked([](auto&&, auto&&) { if (g_styleDialog.key) g_styleDialog.key.IsEnabled(false); });
+    s.dialog.PrimaryButtonClick([](auto&&, DevToolsXC::ContentDialogButtonClickEventArgs const& args) {
+        args.Cancel(true);
+        if (g_styleDialog.busy) return;
+        const bool allOfType = StyleChecked(g_styleDialog.all);
+        const std::wstring key = DevToolsStyleEdit::Trim(g_styleDialog.key.Text().c_str());
+        if (!allOfType && !key.empty() && !DevToolsStyleEdit::ValidKey(key)) {
+            StyleDialogError(L"\"" + key + L"\" can't be a key. Use letters, digits, '_', '-' and '.', starting with a letter or '_'.");
+            g_styleDialog.key.Focus(DevToolsX::FocusState::Programmatic);
+            return;
+        }
+        auto request = StyleRequest(g_styleDialog.wire, DevToolsStyleEdit::Action::Copy);
+        request.allOfType = allOfType;
+        request.key = allOfType ? std::wstring() : key;
+        if (g_styleDialog.inDoc && StyleChecked(g_styleDialog.inDoc)) request.into = g_styleDialog.documentPath;
+        StyleDialogError(L"");
+        if (!PostStyleEdit(request, StyleIntent::Copy, g_styleDialog.templ)) {
+            StyleDialogError(L"winapp is still working on the last request. Try again in a moment.");
+            return;
+        }
+        StyleDialogBusy(true);
+    });
+    // Cancel can't abandon a copy that is being written.
+    s.dialog.Closing([](auto&&, DevToolsXC::ContentDialogClosingEventArgs const& args) {
+        if (g_styleDialog.busy && args.Result() != DevToolsXC::ContentDialogResult::Primary) args.Cancel(true);
+    });
+    s.dialog.Closed([](auto&&, auto&&) { g_styleDialog = StyleDialog{}; });
+
+    g_styleDialog = s;
+    ShowStyleDialog(g_styleDialog.dialog);
+
+    // Ask winapp which Style this is and what it would call the copy, the way Blend proposed "ButtonStyle1".
+    g_styleDialog.busy = true;
+    if (!PostStyleEdit(StyleRequest(wire, DevToolsStyleEdit::Action::Locate), StyleIntent::Preview, templ)) {
+        g_styleDialog.source.Text(L"Copies the Style this " + shortType + L" uses.");
+        StyleDialogBusy(false);
+    }
+}
+
+// Edit Current on a Style WinUI owns: there is no file of yours to open, so offer the copy instead.
+static void ShowBuiltInDialog(InstanceHandle wire, bool templ, const DevToolsStyleEdit::Outcome& o)
+{
+    const auto d = NewStyleDialog(templ ? L"Edit Template" : L"Edit Style");
+    DevToolsXC::TextBlock text;
+    text.TextWrapping(DevToolsX::TextWrapping::Wrap);
+    text.MaxWidth(420);
+    text.Text(L"This " + ShortType(StyleNodeType(wire)) + L" uses " + o.sourceName + L", which is built into WinUI, "
+              L"so there is no file of yours to open. Edit a copy to change it.");
+    d.Content(text);
+    d.PrimaryButtonText(L"Edit a Copy\u2026");
+    d.CloseButtonText(L"Cancel");
+    auto copy = std::make_shared<bool>(false);
+    d.PrimaryButtonClick([copy](auto&&, auto&&) { *copy = true; });
+    d.Closed([copy, wire, templ](auto&&, auto&&) { if (*copy) ShowCopyDialog(wire, templ); });
+    ShowStyleDialog(d);
+}
+
+// ---- answers --------------------------------------------------------------------------------------------------------
+
+static void StylePreviewArrived(const StyleEditDone& d)
+{
+    if (!g_styleDialog.dialog || g_styleDialog.wire != d.request.wire) return;
+    const auto& o = d.outcome;
+    if (o.ok) {
+        g_styleDialog.source.Text(L"Copies " + o.sourceName + (o.sourceInApp && !o.sourceFile.empty()
+                                  ? L" from " + DevToolsStyleEdit::FileName(o.sourceFile) : std::wstring()) + L".");
+        g_styleDialog.key.Text(o.key);
+    } else {
+        g_styleDialog.source.Text(L"");
+        StyleDialogError(o.message);
+    }
+    StyleDialogBusy(false);
+    if (o.ok && !StyleChecked(g_styleDialog.all)) {
+        g_styleDialog.key.SelectAll();
+        g_styleDialog.key.Focus(DevToolsX::FocusState::Programmatic);
+    }
+}
+
+static void StyleCopyArrived(const StyleEditDone& d)
+{
+    const auto& o = d.outcome;
+    const bool dialogOpen = g_styleDialog.dialog && g_styleDialog.wire == d.request.wire;
+    if (!o.ok) {
+        if (dialogOpen) { StyleDialogBusy(false); StyleDialogError(o.message); }
+        else SayStyle(d.request.wire, o.message);
+        return;
+    }
+    if (dialogOpen) {
+        g_styleDialog.busy = false;
+        g_styleDialog.dialog.Hide();
+    }
+    if (o.copyPath.empty()) { SayStyle(d.request.wire, o.message); return; }
+    const std::wstring key = o.implicit ? std::wstring() : o.key;
+    const auto found = StyleFind(o.copyPath, key, o.targetType);
+    const std::wstring opened = StyleEditOpenFile(o.copyPath, StyleOpenLine(found, o.copyLine, d.templ));
+    // A named copy is only on this element; an implicit one reaches every element of the type that had no Style.
+    StartStyleLive(d.request.wire, o.copyPath, key, o.targetType, o.implicit);
+    SayStyle(d.request.wire, o.message + L" " + opened);
+}
+
+static void StyleCurrentArrived(const StyleEditDone& d)
+{
+    const auto& o = d.outcome;
+    if (!o.ok) { SayStyle(d.request.wire, o.message); return; }
+    if (!o.sourceInApp) {
+        SayStyle(d.request.wire, o.message);
+        ShowBuiltInDialog(d.request.wire, d.templ, o);
+        return;
+    }
+    if (o.sourcePath.empty()) {
+        SayStyle(d.request.wire, o.message + L" Its file isn't on this machine, so it can't be opened.");
+        return;
+    }
+    const auto found = StyleFind(o.sourcePath, o.sourceKey, o.targetType);
+    std::wstring note;
+    if (d.templ && found.ok && !found.templateLine)
+        note = L" It doesn't set a Template; edit a copy of the template to change it.";
+    const std::wstring opened = StyleEditOpenFile(o.sourcePath, StyleOpenLine(found, o.sourceLine, d.templ));
+    StartStyleLive(d.request.wire, o.sourcePath, o.sourceKey, o.targetType, /*shared*/ true);
+    SayStyle(d.request.wire, o.message + L" " + opened + note);
 }
 
 static void CALLBACK StyleEditTimerProc(HWND, UINT, UINT_PTR id, DWORD)
@@ -64,78 +601,97 @@ static void CALLBACK StyleEditTimerProc(HWND, UINT, UINT_PTR id, DWORD)
         return;
     }
     for (const StyleEditDone& d : done) {
-        if (d.gen != g_route1Gen || d.request.wire != g_styleUi.wire) continue;
-        g_styleUi.busy = false;
-        g_styleUi.haveOutcome = true;
-        g_styleUi.outcome = d.outcome;
-        g_styleUi.opened.clear();
-        if (d.outcome.ok && d.request.action == DevToolsStyleEdit::Action::Copy) g_styleUi.formOpen = false;
-        // Blend put you straight into the Style it found or copied; the closest we can do is open the file.
-        if (d.outcome.ok && d.outcome.editable)
-            g_styleUi.opened = StyleEditOpenFile(d.outcome.openPath, d.outcome.openLine);
+        if (d.gen != g_route1Gen) continue;
+        try {
+            switch (d.intent) {
+            case StyleIntent::Preview: StylePreviewArrived(d); break;
+            case StyleIntent::Copy:    StyleCopyArrived(d); break;
+            case StyleIntent::Current: StyleCurrentArrived(d); break;
+            }
+        } catch (const winrt::hresult_error& e) {
+            DevToolsOverlayLog(L"route1.style answer failed: %s", e.message().c_str());
+        }
         redraw = true;
     }
-    if (redraw && g_selWire == g_styleUi.wire) ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+    if (redraw && g_selWire) ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
 }
 
-// Redraws the card from g_styleUi on the next timer tick, outside the Click that changed it.
-static void RequestStyleRedraw()
+// ---- the menu -------------------------------------------------------------------------------------------------------
+
+static void StyleEditCurrent(InstanceHandle wire, bool templ)
 {
-    g_styleEditRedraw = true;
-    if (!g_styleEditTimer) g_styleEditTimer = SetTimer(nullptr, 0, 100, &StyleEditTimerProc);
+    if (g_styleUi.wire == wire) { g_styleUi.busy = true; g_styleUi.message = L"Finding the Style\u2026"; }
+    if (!PostStyleEdit(StyleRequest(wire, DevToolsStyleEdit::Action::Locate), StyleIntent::Current, templ))
+        SayStyle(wire, L"winapp is still working on the last request.");
+    else RequestStyleRedraw();
 }
 
-static DWORD WINAPI StyleEditWorker(LPVOID param)
+static void AddStyleItems(const winrt::Windows::Foundation::Collections::IVector<DevToolsXC::MenuFlyoutItemBase>& items,
+                          InstanceHandle wire, bool templ)
 {
-    StyleEditAsk* ask = reinterpret_cast<StyleEditAsk*>(param);
-    std::wstring out;
-    const int code = ask->run
-        ? ask->run(DevToolsStyleEdit::Arguments(ask->request), ask->request.action == DevToolsStyleEdit::Action::Copy, &out)
-        : -1;
-    StyleEditDone d{ ask->request, ask->gen, DevToolsStyleEdit::Interpret(ask->request, code, out) };
-    AcquireSRWLockExclusive(&g_styleEditLock);
-    g_styleEditDone.push_back(std::move(d));
-    ReleaseSRWLockExclusive(&g_styleEditLock);
-    InterlockedExchange(&g_styleEditBusy, 0);
-    delete ask;
-    return 0;
+    const unsigned gen = g_route1Gen;
+    DevToolsXC::MenuFlyoutItem current;
+    current.Text(L"Edit Current");
+    current.Click([gen, wire, templ](auto&&, auto&&) { if (gen == g_route1Gen) StyleEditCurrent(wire, templ); });
+    DevToolsXC::MenuFlyoutItem copy;
+    copy.Text(L"Edit a Copy\u2026");
+    copy.Click([gen, wire, templ](auto&&, auto&&) { if (gen == g_route1Gen) ShowCopyDialog(wire, templ); });
+    items.Append(current);
+    items.Append(copy);
 }
 
-// Starts one copy-style run for the selected element. False when one is already running.
-static bool PostStyleEdit(DevToolsStyleEdit::Action action)
+static bool StyleIsControl(InstanceHandle wire)
 {
-    if (InterlockedCompareExchange(&g_styleEditBusy, 1, 0) != 0) return false;
-    DevToolsStyleEdit::Request request;
-    request.wire = static_cast<unsigned long long>(g_selWire);
-    request.pid = GetCurrentProcessId();
-    request.action = action;
-    if (action == DevToolsStyleEdit::Action::Copy) {
-        request.allOfType = g_styleUi.allOfType;
-        request.key = g_styleUi.allOfType ? std::wstring() : DevToolsStyleEdit::Trim(g_styleUi.key);
-        if (g_styleUi.inDocument) request.into = ResolveSourcePath(g_selSourceFile);
-    }
-    StyleEditAsk* ask = new StyleEditAsk{ request, g_route1Gen, g_cliFn };
-    g_styleUi.busy = true;
-    g_styleUi.haveOutcome = false;
-    g_styleUi.busyText = action == DevToolsStyleEdit::Action::Copy ? L"Copying the Style\u2026" : L"Finding the Style\u2026";
-    HANDLE h = CreateThread(nullptr, 0, DevToolsThreadEntry<StyleEditWorker>, ask, 0, nullptr);
-    if (!h) {
-        delete ask;
-        InterlockedExchange(&g_styleEditBusy, 0);
-        g_styleUi.busy = false;
-        g_styleUi.haveOutcome = true;
-        g_styleUi.outcome = DevToolsStyleEdit::Outcome{};
-        g_styleUi.outcome.message = DevToolsStyleEdit::RunnerFailure(-2);
-        RequestStyleRedraw();
-        return true;
-    }
-    CloseHandle(h);
-    RequestStyleRedraw();
-    return true;
+    const auto element = StyleElement(wire);
+    return element && element.try_as<DevToolsXC::Control>();
 }
 
-// WinUI's own control styles arrive through XamlControlsResources as implicit styles, so a
-// "Style" value source doesn't say whose Style it is; Edit current asks the CLI for that.
+// The tree row's context menu: Edit Style and Edit Template, each with Edit Current and Edit a Copy.
+static DevToolsXC::MenuFlyout BuildStyleMenu(InstanceHandle wire)
+{
+    DevToolsXC::MenuFlyout menu;
+    DevToolsXC::MenuFlyoutSubItem style;
+    style.Text(L"Edit Style");
+    AddStyleItems(style.Items(), wire, false);
+    DevToolsXC::MenuFlyoutSubItem templ;
+    templ.Text(L"Edit Template");
+    templ.IsEnabled(StyleIsControl(wire));
+    AddStyleItems(templ.Items(), wire, true);
+    menu.Items().Append(style);
+    menu.Items().Append(templ);
+    return menu;
+}
+
+// Gives a tree row the Edit Style / Edit Template context menu (right-click, Shift+F10 or the menu key).
+static void AttachStyleMenu(IInspectable* row, InstanceHandle wire)
+{
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, row);
+        const auto element = object.try_as<DevToolsX::UIElement>();
+        if (!element) return;
+        const unsigned gen = g_route1Gen;
+        element.ContextRequested([gen, wire](DevToolsX::UIElement const& sender, DevToolsXI::ContextRequestedEventArgs const& args) {
+            if (gen != g_route1Gen) return;
+            args.Handled(true);
+            try {
+                SelectNodeByWire(wire);
+                const auto menu = BuildStyleMenu(wire);
+                DevToolsXCP::FlyoutShowOptions options;
+                winrt::Windows::Foundation::Point at{};
+                if (args.TryGetPosition(sender, at)) options.Position(at);
+                menu.ShowAt(sender, options);
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.style menu failed: %s", e.message().c_str());
+            }
+        });
+    } catch (const winrt::hresult_error&) {}
+}
+
+// ---- the pane's STYLE card ------------------------------------------------------------------------------------------
+
+// WinUI's own control styles arrive through XamlControlsResources as implicit styles, so a "Style" value source
+// doesn't say whose Style it is; Edit Current asks the CLI for that.
 static bool StyleRowsMention(const std::vector<DevToolsCardRow>& rows)
 {
     for (const DevToolsCardRow& r : rows) {
@@ -145,72 +701,47 @@ static bool StyleRowsMention(const std::vector<DevToolsCardRow>& rows)
     return false;
 }
 
-// The STYLE card's markup; empty when the element shows no sign of having a Style to edit.
+// The STYLE card's markup; empty when the element has no Style to edit and nothing is being edited live.
 static std::wstring BuildStyleSection(const std::wstring& type, const std::vector<DevToolsCardRow>& rows)
 {
     if (g_styleUi.wire != g_selWire) g_styleUi = StyleEditUi{ g_selWire };
-    if (!g_selWire || type.empty() || !StyleRowsMention(rows)) return L"";
+    const bool control = g_selWire && StyleIsControl(g_selWire);
+    const bool editable = g_selWire && !type.empty() && (control || StyleRowsMention(rows));
+    if (!editable && !g_styleLive.active) return L"";
 
-    const std::wstring shortType = ShortType(type);
-    const std::wstring hint = L"Open the Style this " + shortType + L" uses, or edit a copy of it.";
-    const std::wstring documentPath = ResolveSourcePath(g_selSourceFile);
-    const std::wstring documentName = DevToolsStyleEdit::FileName(documentPath);
-    const bool offerDocument = !documentPath.empty() && _wcsicmp(documentName.c_str(), L"App.xaml") != 0;
-    if (!offerDocument) g_styleUi.inDocument = false;
     const auto collapsed = [](bool visible) { return visible ? L"" : L" Visibility=\"Collapsed\""; };
-    const auto checked = [](bool on) { return on ? L" IsChecked=\"True\"" : L""; };
     const wchar_t* caption = L" Style=\"{StaticResource CaptionTextBlockStyle}\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"";
-
-    std::wstring result;
-    if (g_styleUi.busy) result = g_styleUi.busyText;
-    else if (g_styleUi.haveOutcome) result = g_styleUi.outcome.message + (g_styleUi.opened.empty() ? L"" : L" " + g_styleUi.opened);
-    const bool showOpen = !g_styleUi.busy && g_styleUi.haveOutcome && !g_styleUi.outcome.openLabel.empty();
 
     std::wstring m;
     m += L"<Border Background=\"{ThemeResource ControlFillColorSecondaryBrush}\" CornerRadius=\"4\" Padding=\"10,8,10,10\""
          L" Margin=\"0,6,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsStyle\">";
     m += L"<StackPanel Spacing=\"6\">";
     m += L"<TextBlock Text=\"STYLE\" CharacterSpacing=\"60\"" + std::wstring(caption) + L"/>";
-    m += L"<TextBlock Text=\"" + DevToolsXmlEscape(hint) + L"\" TextWrapping=\"Wrap\""
-         L" Foreground=\"{ThemeResource TextFillColorPrimaryBrush}\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleHint\"/>";
-    m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"8\">";
-    m += L"<Button x:Name=\"StyleEditCurrent\" Content=\"Edit current\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleEditCurrent\""
-         L" ToolTipService.ToolTip=\"Find the Style this element uses and open it when it is in your app\"/>";
-    m += L"<Button x:Name=\"StyleEditCopy\" Content=\"Edit a copy\u2026\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleEditCopy\""
-         L" ToolTipService.ToolTip=\"Copy the Style into your XAML so you can change its setters and template\"/>";
+    m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"8\"" + std::wstring(collapsed(editable)) + L">";
+    m += L"<DropDownButton x:Name=\"StyleMenu\" Content=\"Edit Style\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleMenu\"" +
+         std::wstring(g_styleUi.busy ? L" IsEnabled=\"False\"" : L"") + L"/>";
+    m += L"<DropDownButton x:Name=\"TemplateMenu\" Content=\"Edit Template\" AutomationProperties.AutomationId=\"WinAppDevToolsTemplateMenu\"" +
+         std::wstring(g_styleUi.busy || !control ? L" IsEnabled=\"False\"" : L"") + L"/>";
     m += L"</StackPanel>";
-
-    m += L"<StackPanel x:Name=\"StyleForm\" Spacing=\"4\" Margin=\"0,4,0,0\"" + std::wstring(collapsed(g_styleUi.formOpen)) +
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleForm\">";
-    m += L"<TextBlock Text=\"Name (key)\"" + std::wstring(caption) + L"/>";
-    m += L"<RadioButton x:Name=\"StyleKeyed\" GroupName=\"WinAppStyleScope\"" + std::wstring(checked(!g_styleUi.allOfType)) +
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleKeyed\" AutomationProperties.Name=\"Name the copy\">";
-    m += L"<TextBox x:Name=\"StyleKey\" MinWidth=\"180\" PlaceholderText=\"" + DevToolsXmlEscape(shortType) + L"Style1\""
-         L" Text=\"" + DevToolsXmlEscape(g_styleUi.key) + L"\"" + std::wstring(g_styleUi.allOfType ? L" IsEnabled=\"False\"" : L"") +
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleKey\" AutomationProperties.Name=\"Style key\""
-         L" ToolTipService.ToolTip=\"Leave empty to use the next free " + DevToolsXmlEscape(shortType) + L"StyleN\"/>";
-    m += L"</RadioButton>";
-    m += L"<RadioButton x:Name=\"StyleAll\" GroupName=\"WinAppStyleScope\" Content=\"Apply to all " + DevToolsXmlEscape(shortType) + L"\"" +
-         std::wstring(checked(g_styleUi.allOfType)) + L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleAll\"/>";
-    m += L"<TextBlock Text=\"Define in\" Margin=\"0,4,0,0\"" + std::wstring(caption) + L"/>";
-    m += L"<RadioButton x:Name=\"StyleInApp\" GroupName=\"WinAppStyleWhere\" Content=\"Application (App.xaml)\"" +
-         std::wstring(checked(!g_styleUi.inDocument)) + L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleInApp\"/>";
-    if (offerDocument) {
-        m += L"<RadioButton x:Name=\"StyleInDoc\" GroupName=\"WinAppStyleWhere\" Content=\"This document (" + DevToolsXmlEscape(documentName) + L")\"" +
-             std::wstring(checked(g_styleUi.inDocument)) + L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleInDocument\"/>";
-    }
-    m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"8\" Margin=\"0,4,0,0\">";
-    m += L"<Button x:Name=\"StyleOk\" Content=\"OK\" MinWidth=\"72\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleOk\"/>";
-    m += L"<Button x:Name=\"StyleCancel\" Content=\"Cancel\" MinWidth=\"72\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleCancel\"/>";
-    m += L"</StackPanel>";
-    m += L"</StackPanel>";
-
-    m += L"<TextBlock x:Name=\"StyleResult\" Text=\"" + DevToolsXmlEscape(result) + L"\" TextWrapping=\"Wrap\" IsTextSelectionEnabled=\"True\""
-         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"" + std::wstring(collapsed(!result.empty())) +
+    m += L"<TextBlock Text=\"" + DevToolsXmlEscape(g_styleUi.message) + L"\" TextWrapping=\"Wrap\" IsTextSelectionEnabled=\"True\""
+         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"" + std::wstring(collapsed(editable && !g_styleUi.message.empty())) +
          L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleResult\"/>";
-    m += L"<HyperlinkButton x:Name=\"StyleOpen\" Padding=\"0\" Content=\"" +
-         DevToolsXmlEscape(showOpen ? g_styleUi.outcome.openLabel : std::wstring()) + L"\"" + std::wstring(collapsed(showOpen)) +
-         L" AutomationProperties.AutomationId=\"WinAppDevToolsStyleOpen\"/>";
+
+    if (g_styleLive.active) {
+        const std::wstring status = g_styleLive.status.empty() ? L"Save the file to see your changes here." : g_styleLive.status;
+        m += L"<Border BorderThickness=\"1\" BorderBrush=\"{ThemeResource AccentFillColorDefaultBrush}\" CornerRadius=\"4\" Padding=\"8,6\""
+             L" Margin=\"0,2,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleLive\"><StackPanel Spacing=\"2\">";
+        m += L"<TextBlock TextWrapping=\"Wrap\"><Run Text=\"Live \" Foreground=\"{ThemeResource AccentTextFillColorPrimaryBrush}\" FontWeight=\"SemiBold\"/>"
+             L"<Run Text=\"" + DevToolsXmlEscape(StyleLiveName() + L" \u00B7 " + DevToolsStyleEdit::FileName(g_styleLive.path)) + L"\"/></TextBlock>";
+        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(status) + L"\" TextWrapping=\"Wrap\" IsTextSelectionEnabled=\"True\" Foreground=\"" +
+             std::wstring(g_styleLive.failed ? L"{ThemeResource SystemFillColorCriticalBrush}" : L"{ThemeResource TextFillColorSecondaryBrush}") +
+             L"\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleLiveStatus\"/>";
+        m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"12\">";
+        m += L"<HyperlinkButton x:Name=\"StyleLiveOpen\" Padding=\"0\" Content=\"Open file\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleLiveOpen\"/>";
+        m += L"<HyperlinkButton x:Name=\"StyleLiveStop\" Padding=\"0\" Content=\"Stop\" AutomationProperties.AutomationId=\"WinAppDevToolsStyleLiveStop\""
+             L" ToolTipService.ToolTip=\"Stop applying saves to the app. What is already applied stays until the app restarts.\"/>";
+        m += L"</StackPanel></StackPanel></Border>";
+    }
     m += L"</StackPanel></Border>";
     return m;
 }
@@ -226,96 +757,36 @@ static T StyleEditFind(Find& findByName, const wchar_t* name)
     return object.try_as<T>();
 }
 
-// Wires the card BuildStyleSection emitted. Handlers hold weak references so the pane they live in can go away.
+// Wires the card BuildStyleSection emitted.
 template <class Find>
 static void WireStyleSection(Find& findByName)
 {
-    const auto editCurrent = StyleEditFind<DevToolsXC::Button>(findByName, L"StyleEditCurrent");
-    if (!editCurrent) return;
-    const auto editCopy = StyleEditFind<DevToolsXC::Button>(findByName, L"StyleEditCopy");
-    const auto form = StyleEditFind<DevToolsX::UIElement>(findByName, L"StyleForm");
-    const auto keyed = StyleEditFind<DevToolsXC::RadioButton>(findByName, L"StyleKeyed");
-    const auto all = StyleEditFind<DevToolsXC::RadioButton>(findByName, L"StyleAll");
-    const auto key = StyleEditFind<DevToolsXC::TextBox>(findByName, L"StyleKey");
-    const auto inApp = StyleEditFind<DevToolsXC::RadioButton>(findByName, L"StyleInApp");
-    const auto inDoc = StyleEditFind<DevToolsXC::RadioButton>(findByName, L"StyleInDoc");
-    const auto ok = StyleEditFind<DevToolsXC::Button>(findByName, L"StyleOk");
-    const auto cancel = StyleEditFind<DevToolsXC::Button>(findByName, L"StyleCancel");
-    const auto result = StyleEditFind<DevToolsXC::TextBlock>(findByName, L"StyleResult");
-    const auto open = StyleEditFind<DevToolsXC::HyperlinkButton>(findByName, L"StyleOpen");
-    if (!editCopy || !form || !keyed || !all || !key || !inApp || !ok || !cancel || !result || !open) {
-        DevToolsOverlayLog(L"route1.wire STYLE card MISS -- the markup and the wiring have drifted");
-        return;
+    const InstanceHandle wire = g_selWire;
+    if (const auto style = StyleEditFind<DevToolsXC::DropDownButton>(findByName, L"StyleMenu")) {
+        DevToolsXC::MenuFlyout menu;
+        menu.Placement(DevToolsXCP::FlyoutPlacementMode::BottomEdgeAlignedLeft);
+        AddStyleItems(menu.Items(), wire, false);
+        style.Flyout(menu);
+    }
+    if (const auto templ = StyleEditFind<DevToolsXC::DropDownButton>(findByName, L"TemplateMenu")) {
+        DevToolsXC::MenuFlyout menu;
+        menu.Placement(DevToolsXCP::FlyoutPlacementMode::BottomEdgeAlignedLeft);
+        AddStyleItems(menu.Items(), wire, true);
+        templ.Flyout(menu);
     }
     const unsigned gen = g_route1Gen;
-    const InstanceHandle wire = g_selWire;
-    const bool idle = !g_styleUi.busy;
-    editCurrent.IsEnabled(idle); editCopy.IsEnabled(idle); ok.IsEnabled(idle);
-
-    const winrt::weak_ref<DevToolsX::UIElement> formRef{ form };
-    const winrt::weak_ref<DevToolsXC::Button> currentRef{ editCurrent }, copyRef{ editCopy }, okRef{ ok };
-    const winrt::weak_ref<DevToolsXC::TextBox> keyRef{ key };
-    const auto live = [gen, wire] { return gen == g_route1Gen && wire == g_selWire && wire == g_styleUi.wire; };
-    // Buttons go disabled in place so a second click can't start another run; the busy line comes from the timer's
-    // redraw, since rebuilding the pane from inside its own button's Click would tear the button down.
-    const auto showBusy = [currentRef, copyRef, okRef] {
-        for (const auto& b : { currentRef.get(), copyRef.get(), okRef.get() }) if (b) b.IsEnabled(false);
-    };
-    // Kept in g_styleUi and redrawn from the timer: a TextBlock changed in place from inside a Click isn't shown.
-    const auto say = [](const std::wstring& text) {
-        g_styleUi.haveOutcome = true;
-        g_styleUi.outcome = DevToolsStyleEdit::Outcome{};
-        g_styleUi.outcome.message = text;
-        g_styleUi.opened.clear();
-        RequestStyleRedraw();
-    };
-
-    editCurrent.Click([live, showBusy, say](auto&&, auto&&) {
-        if (!live()) return;
-        if (PostStyleEdit(DevToolsStyleEdit::Action::Locate)) showBusy();
-        else say(L"winapp is still working on the last request.");
-    });
-    editCopy.Click([live, formRef, keyRef](auto&&, auto&&) {
-        if (!live()) return;
-        g_styleUi.formOpen = !g_styleUi.formOpen;
-        if (auto f = formRef.get()) f.Visibility(g_styleUi.formOpen ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed);
-        if (g_styleUi.formOpen && !g_styleUi.allOfType) {
-            if (auto k = keyRef.get()) k.Focus(DevToolsX::FocusState::Programmatic);
-        }
-    });
-    cancel.Click([live, formRef](auto&&, auto&&) {
-        if (!live()) return;
-        g_styleUi.formOpen = false;
-        if (auto f = formRef.get()) f.Visibility(DevToolsX::Visibility::Collapsed);
-    });
-    key.TextChanged([live](auto&& sender, auto&&) {
-        if (live()) g_styleUi.key = sender.template as<DevToolsXC::TextBox>().Text().c_str();
-    });
-    keyed.Checked([live, keyRef](auto&&, auto&&) {
-        if (!live()) return;
-        g_styleUi.allOfType = false;
-        if (auto k = keyRef.get()) k.IsEnabled(true);
-    });
-    all.Checked([live, keyRef](auto&&, auto&&) {
-        if (!live()) return;
-        g_styleUi.allOfType = true;
-        if (auto k = keyRef.get()) k.IsEnabled(false);
-    });
-    inApp.Checked([live](auto&&, auto&&) { if (live()) g_styleUi.inDocument = false; });
-    if (inDoc) inDoc.Checked([live](auto&&, auto&&) { if (live()) g_styleUi.inDocument = true; });
-    ok.Click([live, showBusy, say](auto&&, auto&&) {
-        if (!live()) return;
-        const std::wstring k = DevToolsStyleEdit::Trim(g_styleUi.key);
-        if (!g_styleUi.allOfType && !k.empty() && !DevToolsStyleEdit::ValidKey(k)) {
-            say(L"\"" + k + L"\" can't be used as a key. Use letters, digits, '_', '-' and '.', starting with a letter or '_'.");
-            return;
-        }
-        if (PostStyleEdit(DevToolsStyleEdit::Action::Copy)) showBusy();
-        else say(L"winapp is still working on the last request.");
-    });
-    open.Click([live](auto&&, auto&&) {
-        if (!live() || g_styleUi.outcome.openPath.empty()) return;
-        g_styleUi.opened = StyleEditOpenFile(g_styleUi.outcome.openPath, g_styleUi.outcome.openLine);
-        RequestStyleRedraw();
-    });
+    if (const auto open = StyleEditFind<DevToolsXC::HyperlinkButton>(findByName, L"StyleLiveOpen")) {
+        open.Click([gen](auto&&, auto&&) {
+            if (gen != g_route1Gen || !g_styleLive.active) return;
+            const auto found = StyleFind(g_styleLive.path, g_styleLive.key, g_styleLive.targetType);
+            StyleEditOpenFile(g_styleLive.path, found.ok ? found.line : 0);
+        });
+    }
+    if (const auto stop = StyleEditFind<DevToolsXC::HyperlinkButton>(findByName, L"StyleLiveStop")) {
+        stop.Click([gen](auto&&, auto&&) {
+            if (gen != g_route1Gen) return;
+            StopStyleLive();
+            RequestStyleRedraw();
+        });
+    }
 }
