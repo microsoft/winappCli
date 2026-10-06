@@ -886,7 +886,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             try { var v = SafeGetBstr(() => s_getCurrentBstr(comElement, UIA_PROPERTY_ID.UIA_AcceleratorKeyPropertyId), element.RequiresCurrentIdentity); if (v is not null) { props["AcceleratorKey"] = v; } } catch when (!element.RequiresCurrentIdentity) { }
             try { var v = SafeGetBstr(() => s_getCurrentBstr(comElement, UIA_PROPERTY_ID.UIA_AccessKeyPropertyId), element.RequiresCurrentIdentity); if (v is not null) { props["AccessKey"] = v; } } catch when (!element.RequiresCurrentIdentity) { }
             try { var v = SafeGetBstr(() => s_getCurrentBstr(comElement, UIA_PROPERTY_ID.UIA_HelpTextPropertyId), element.RequiresCurrentIdentity); if (v is not null) { props["HelpText"] = v; } } catch when (!element.RequiresCurrentIdentity) { }
-            try { props["IsPassword"] = comElement.get_CurrentIsContentElement() && comElement.get_CurrentControlType() == UIA_CONTROLTYPE_ID.UIA_EditControlTypeId; } catch when (!element.RequiresCurrentIdentity) { }
+            try { props["IsPassword"] = (bool)comElement.get_CurrentIsPassword(); } catch when (!element.RequiresCurrentIdentity) { }
 
             // Pattern-specific properties
             var patternAcquired = false;

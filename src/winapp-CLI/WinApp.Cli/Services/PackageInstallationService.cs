@@ -14,18 +14,6 @@ internal sealed class PackageInstallationService(
     ILogger<PackageInstallationService> logger) : IPackageInstallationService
 {
     /// <summary>
-    /// Initialize workspace and ensure required directories exist
-    /// </summary>
-    /// <param name="rootDirectory">The Root Directory path</param>
-    public void InitializeWorkspace(DirectoryInfo rootDirectory)
-    {
-        if (!rootDirectory.Exists)
-        {
-            rootDirectory.Create();
-        }
-    }
-
-    /// <summary>
     /// Install a single package if not already present
     /// </summary>
     /// <param name="rootDirectory">The Root Directory path</param>
@@ -170,8 +158,6 @@ internal sealed class PackageInstallationService(
     {
         try
         {
-            InitializeWorkspace(rootDirectory);
-
             await InstallPackageAsync(
                 rootDirectory,
                 packageName,

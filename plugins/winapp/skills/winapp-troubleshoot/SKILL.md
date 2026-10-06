@@ -27,6 +27,7 @@ Use this skill when:
 | `run` / `create-debug-identity` registration error `0x80073CFB` | Package already registered with a conflicting identity | Run `winapp unregister` (or `winapp unregister --force` if the package was registered from a different project tree), then retry |
 | App's Start menu entry launches nothing, silently | Package still registered after its files were deleted | Run `winapp unregister --prune` to remove every dev registration whose files are gone |
 | `run` reports access denied or a file in use during a rebuild | Permissions or a file held open; access denied alone does not identify a lock owner | Check the reported paths and permissions. Close the running app and retry. Nothing is stopped automatically. |
+| "winapp can't write the API index" / "can't install the Microsoft Store Developer CLI" | `%USERPROFILE%\.winapp` isn't writable (for example, an agent sandbox) | Set `WINAPP_CLI_CACHE_DIRECTORY` to a writable folder, such as one inside the project, and retry. Other commands keep working without it |
 
 ## Command selection guide
 

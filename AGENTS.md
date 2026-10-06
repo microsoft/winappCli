@@ -385,16 +385,33 @@ resolving the repo as a plugin; adding `$schema` there would make its nested
 `generate-llm-docs.ps1` keeps every manifest's `version` field in sync with the CLI version.
 
 `scripts/validate-plugin-package.ps1` enforces all of the above: the closed manifest
-schema, the plugin name constraints, `SKILL.md` presence and frontmatter for every
-immediate child of `skills/`, the Copilot agent's location, the Claude `agents` pointer
-resolving to a real file, and the repo-root shim staying legacy. It needs no build
-output, so run it directly while editing plugin files:
+schema, the plugin name constraints, the Copilot agent's location, the Claude `agents`
+pointer resolving to a real file, and the repo-root shim staying legacy. For every plugin
+root under `plugins/` (any folder holding `plugin.json` and a `skills/` folder, such as
+`plugins/winapp` or `plugins/winui/agent-plugin`) it also checks:
+
+- **Errors:** each `skills/<id>/SKILL.md` exists with `name` and `description`; `name`
+  equals the folder name and follows Agent Skills naming rules; description is at most
+  1024 characters; every `SKILL.md` under `plugins/` sits at `<plugin root>/skills/<id>/`;
+  relative links (and inline-code `references/`, `scripts/`, `assets/` paths) resolve to
+  files inside the same plugin — use a full `https://` URL for repo docs, and name the
+  owning skill for cross-skill paths (`` `winui-packaging`'s `references/x.md` ``);
+  `winapp …` lines in fenced code blocks of skills and agents (including host wrappers in
+  outer `agents/` folders) use command paths from `docs/cli-schema.json` or the npm
+  wrapper's `node` subcommands.
+- **Warnings:** descriptions over 300 characters (`$DescriptionWarnChars`).
+- **Report:** approximate token sizes per skill and agent, also written to the GitHub
+  Actions job summary.
+
+It needs no build output, so run it directly while editing plugin files:
 
 ```powershell
 .\scripts\validate-plugin-package.ps1
 ```
 
-`validate-llm-docs.ps1` also invokes it, so CI fails on any conformance regression.
+`validate-llm-docs.ps1` also invokes it, so CI fails on any conformance regression. The
+`Plugin Check` workflow (`.github/workflows/plugin-check.yml`) also runs it on every PR
+without waiting for a CLI build, skipping quickly when no plugin-related file changed.
 
 ## C# service architecture guidelines
 

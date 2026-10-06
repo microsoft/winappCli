@@ -348,9 +348,6 @@ internal sealed class FakeSignToolPackageInstallationService : IPackageInstallat
     public int EnsureCallCount { get; private set; }
     public Action? OnEnsure { get; set; }
 
-    public void InitializeWorkspace(DirectoryInfo rootDirectory)
-        => throw new NotImplementedException();
-
     public Task<Dictionary<string, string>> InstallPackagesAsync(
         DirectoryInfo rootDirectory,
         IEnumerable<string> packages,

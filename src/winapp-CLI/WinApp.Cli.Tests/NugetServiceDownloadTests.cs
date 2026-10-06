@@ -498,6 +498,143 @@ public class NugetServiceDownloadTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task GetLatestVersionAsync_WindowsAppSdk_SelectsReleaseAsSoonAsItsSubPackageIsPublished_DespiteCachedVersionList()
+    {
+        NugetSourceProvider.EnsureCredentialService();
+
+        // Mid-release: the 1.7.0 metapackage is listed but the .Runtime 1.7.0 it pins is not published yet.
+        using var feed = new BasicAuthNuGetFeed(
+            "winapp-user",
+            "s3cret-token!",
+            advertiseRegistration: true,
+            ("Microsoft.WindowsAppSDK", "1.6.0", true, [("Microsoft.WindowsAppSDK.Runtime", "[1.6.0]")]),
+            ("Microsoft.WindowsAppSDK.Runtime", "1.6.0", true, []),
+            ("Microsoft.WindowsAppSDK", "1.7.0", true, [("Microsoft.WindowsAppSDK.Runtime", "[1.7.0]")]));
+        var root = CreateFeedTestDirectory();
+        try
+        {
+            WriteNuGetConfig(root, $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="private" value="{feed.IndexUrl}" allowInsecureConnections="true" />
+                  </packageSources>
+                  <packageSourceCredentials>
+                    <private>
+                      <add key="Username" value="{feed.Username}" />
+                      <add key="ClearTextPassword" value="{feed.Password}" />
+                    </private>
+                  </packageSourceCredentials>
+                </configuration>
+                """);
+
+            var during = await CreateServiceRootedAt(root).GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, TestContext.CancellationToken);
+            Assert.AreEqual("1.6.0", during, "While .Runtime 1.7.0 is unpublished, 1.7.0 cannot be restored.");
+
+            // NuGet's HTTP cache now holds a .Runtime version list without 1.7.0. A new run (for example
+            // `winapp update` a few minutes later) must not trust that stale list once 1.7.0 is published.
+            feed.Publish("Microsoft.WindowsAppSDK.Runtime", "1.7.0");
+
+            var after = await CreateServiceRootedAt(root).GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, TestContext.CancellationToken);
+            Assert.AreEqual("1.7.0", after);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetLatestVersionAsync_WindowsAppSdkExperimental_KeepsNewestWhenItsSubPackagesArePublishedButUnlisted()
+    {
+        NugetSourceProvider.EnsureCredentialService();
+
+        // Experimental releases unlist their sub-packages on purpose. Unlisted still means published and
+        // restorable, so 1.7.0-experimental1 is complete and must be kept. 1.6.0-experimental1, whose
+        // sub-packages are listed, is what a check that ignored unlisted versions would wrongly fall back to.
+        using var feed = new BasicAuthNuGetFeed(
+            "winapp-user",
+            "s3cret-token!",
+            advertiseRegistration: true,
+            ("Microsoft.WindowsAppSDK", "1.6.0-experimental1", true, [("Microsoft.WindowsAppSDK.Runtime", "[1.6.0-experimental1]"), ("Microsoft.WindowsAppSDK.Foundation", "[1.6.0-experimental1]")]),
+            ("Microsoft.WindowsAppSDK.Runtime", "1.6.0-experimental1", true, []),
+            ("Microsoft.WindowsAppSDK.Foundation", "1.6.0-experimental1", true, []),
+            ("Microsoft.WindowsAppSDK", "1.7.0-experimental1", true, [("Microsoft.WindowsAppSDK.Runtime", "[1.7.0-experimental1]"), ("Microsoft.WindowsAppSDK.Foundation", "[1.7.0-experimental1]")]),
+            ("Microsoft.WindowsAppSDK.Runtime", "1.7.0-experimental1", false, []),
+            ("Microsoft.WindowsAppSDK.Foundation", "1.7.0-experimental1", false, []));
+        var root = CreateFeedTestDirectory();
+        try
+        {
+            WriteAuthenticatedFeedConfig(root, feed);
+
+            var experimental = await CreateServiceRootedAt(root).GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Experimental, TestContext.CancellationToken);
+
+            Assert.AreEqual("1.7.0-experimental1", experimental);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetLatestVersionAsync_WindowsAppSdk_CancelledWhileCheckingSubPackages_ThrowsOperationCanceled()
+    {
+        NugetSourceProvider.EnsureCredentialService();
+
+        using var feed = new BasicAuthNuGetFeed(
+            "winapp-user",
+            "s3cret-token!",
+            advertiseRegistration: false,
+            ("Microsoft.WindowsAppSDK", "1.6.0", true, [("Microsoft.WindowsAppSDK.Runtime", "[1.6.0]")]),
+            ("Microsoft.WindowsAppSDK.Runtime", "1.6.0", true, []),
+            ("Microsoft.WindowsAppSDK", "1.7.0", true, [("Microsoft.WindowsAppSDK.Runtime", "[1.7.0]")]));
+        var root = CreateFeedTestDirectory();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        try
+        {
+            WriteAuthenticatedFeedConfig(root, feed);
+
+            // Cancel (as Ctrl+C would) while the sub-package lookup is waiting on the feed.
+            var cancelled = 0;
+            feed.OnRequest = path =>
+            {
+                if (path.Contains("microsoft.windowsappsdk.runtime", StringComparison.Ordinal)
+                    && Interlocked.Exchange(ref cancelled, 1) == 0)
+                {
+                    cancellation.Cancel();
+                    Thread.Sleep(TimeSpan.FromSeconds(2));
+                }
+            };
+
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => CreateServiceRootedAt(root).GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, cancellation.Token));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    private static void WriteAuthenticatedFeedConfig(DirectoryInfo root, BasicAuthNuGetFeed feed) =>
+        WriteNuGetConfig(root, $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="{feed.IndexUrl}" allowInsecureConnections="true" />
+              </packageSources>
+              <packageSourceCredentials>
+                <private>
+                  <add key="Username" value="{feed.Username}" />
+                  <add key="ClearTextPassword" value="{feed.Password}" />
+                </private>
+              </packageSourceCredentials>
+            </configuration>
+            """);
+
+    [TestMethod]
     public async Task GetLatestVersionAsync_PlainHttpSourceWithoutOptIn_IsRejected()
     {
         // SDK packages are executable tools, so a plain-HTTP feed is a code-substitution vector. NuGet's
@@ -658,6 +795,9 @@ public class NugetServiceDownloadTests : BaseCommandTests
         // prove authentication actually happened rather than inferring it from a successful install.
         public bool ReceivedAuthenticatedRequest { get; private set; }
 
+        /// <summary>Runs on the feed's thread for each authenticated request, before it is answered.</summary>
+        public Action<string>? OnRequest { get; set; }
+
         public BasicAuthNuGetFeed(string username, string password, params (string Id, string Version)[] packages)
             : this(username, password, advertiseRegistration: false, [.. packages.Select(p => (p.Id, p.Version, Listed: true))])
         {
@@ -696,6 +836,21 @@ public class NugetServiceDownloadTests : BaseCommandTests
 
             (_listener, BaseUrl) = StartListener();
             _serveLoop = Task.Run(() => ServeAsync(_cts.Token));
+        }
+
+        /// <summary>
+        /// Publishes a package after the feed has started, so a test can observe a client that cached the feed's
+        /// earlier answer. Call only between requests.
+        /// </summary>
+        public void Publish(string id, string version, params (string Id, string Version)[] dependencies)
+        {
+            var lowerId = id.ToLowerInvariant();
+            var lowerVersion = version.ToLowerInvariant();
+            _nupkgsByPath[$"{lowerId}/{lowerVersion}"] = BuildNupkgBytes(id, version, dependencies);
+            _versionsById[lowerId] = _versionsById.TryGetValue(lowerId, out var existing)
+                ? [.. existing, version]
+                : [version];
+            _listedByPath[$"{lowerId}/{lowerVersion}"] = true;
         }
 
         private static (HttpListener Listener, string BaseUrl) StartListener()
@@ -776,6 +931,7 @@ public class NugetServiceDownloadTests : BaseCommandTests
             ReceivedAuthenticatedRequest = true;
 
             var path = request.Url!.AbsolutePath.TrimStart('/');
+            OnRequest?.Invoke(path);
             var (body, contentType) = Resolve(path);
             if (body is null)
             {
