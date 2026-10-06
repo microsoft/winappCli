@@ -44,3 +44,32 @@ jobs:
           $matched | ForEach-Object { Write-Host "  $_" }
           ./scripts/validate-plugin-package.ps1
           exit $LASTEXITCODE
+
+  winui-tests:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Run WinUI skill script tests
+        shell: pwsh
+        run: |
+          $relevant = '^(plugins/winui/|scripts/tests/Test-(SessionBuildClassification|WinuiUiTestingSandbox|SetupVersionDetection)\.ps1$|\.github/workflows/plugin-check\.yml$)'
+          $changed = @(git diff --name-only HEAD^1 HEAD)
+          if ($LASTEXITCODE -ne 0) { throw "Could not list the files this PR changes." }
+          if (@($changed | Where-Object { $_ -match $relevant }).Count -eq 0) {
+            $message = "No WinUI plugin changes; skipping."
+            Write-Host $message
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $message
+            exit 0
+          }
+          foreach ($test in 'Test-SessionBuildClassification', 'Test-WinuiUiTestingSandbox', 'Test-SetupVersionDetection') {
+            Write-Host "::group::$test"
+            pwsh -NoProfile -File "./scripts/tests/$test.ps1"
+            if ($LASTEXITCODE -ne 0) { throw "$test failed." }
+            Write-Host "::endgroup::"
+          }
