@@ -298,7 +298,7 @@ export async function createExternalCatalog(options: CreateExternalCatalogOption
 // ---------------------------------------------------------------------------
 
 export interface DevtoolsAttachOptions extends CommonOptions {
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** App PID, process name, or window title; use --on sandbox for a guest app. */
   app?: string;
@@ -335,7 +335,7 @@ export interface DevtoolsCallOptions extends CommonOptions {
   method?: string;
   /** Method parameters. name=value sends a string; name:=value sends raw JSON (e.g. appAuthoredOnly:=true, depth:=4). */
   params?: string | string[];
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -375,7 +375,7 @@ export async function devtoolsCall(options: DevtoolsCallOptions = {}): Promise<W
 // ---------------------------------------------------------------------------
 
 export interface DevtoolsCommentsAddOptions extends CommonOptions {
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Live capture and marker target: PID, process name, or window title. */
   app?: string;
@@ -434,7 +434,7 @@ export async function devtoolsCommentsAdd(options: DevtoolsCommentsAddOptions = 
 export interface DevtoolsCommentsDeleteOptions extends CommonOptions {
   /** The comment id. */
   id: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Optional marker refresh target: PID, process name, or window title. */
   app?: string;
@@ -531,7 +531,7 @@ export async function devtoolsCommentsList(options: DevtoolsCommentsListOptions 
 export interface DevtoolsCommentsUpdateOptions extends CommonOptions {
   /** The comment id. */
   id: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Optional marker refresh target: PID, process name, or window title. */
   app?: string;
@@ -574,7 +574,7 @@ export interface DevtoolsDiagnoseBindingOptions extends CommonOptions {
   selector?: string;
   /** The bound dependency property, e.g. IsEnabled or Text. */
   property?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -613,7 +613,7 @@ export async function devtoolsDiagnoseBinding(options: DevtoolsDiagnoseBindingOp
 export interface DevtoolsGetLayoutOptions extends CommonOptions {
   /** Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -651,7 +651,7 @@ export async function devtoolsGetLayout(options: DevtoolsGetLayoutOptions = {}):
 export interface DevtoolsGetPropertyOptions extends CommonOptions {
   /** Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Include default-valued properties, not only explicitly set ones. */
   all?: boolean;
@@ -704,7 +704,7 @@ export async function devtoolsGetProperty(options: DevtoolsGetPropertyOptions = 
 export interface DevtoolsGetSourceOptions extends CommonOptions {
   /** Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -742,7 +742,7 @@ export async function devtoolsGetSource(options: DevtoolsGetSourceOptions = {}):
 export interface DevtoolsInspectOptions extends CommonOptions {
   /** Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. Defaults to the whole tree. */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Include framework and control-template elements, not just the ones your XAML declares. */
   all?: boolean;
@@ -802,7 +802,7 @@ export async function devtoolsInspect(options: DevtoolsInspectOptions = {}): Pro
 // ---------------------------------------------------------------------------
 
 export interface DevtoolsListOptions extends CommonOptions {
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Include running WinUI apps that do not yet have DevTools attached. */
   includeAvailable?: boolean;
@@ -828,7 +828,7 @@ export async function devtoolsList(options: DevtoolsListOptions = {}): Promise<W
 export interface DevtoolsSearchOptions extends CommonOptions {
   /** Match text content, type, x:Name, or source file (case-insensitive). */
   query?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Include framework and control-template elements, not just the ones your XAML declares. */
   all?: boolean;
@@ -886,7 +886,7 @@ export interface DevtoolsSetPropertyOptions extends CommonOptions {
   selector?: string;
   /** The new value, e.g. 200, false, #FF0067C0, or "Save changes". */
   value?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1538,8 +1538,6 @@ export interface RunOptions extends CommonOptions {
   input?: string;
   /** @deprecated Use `input` instead. Retained for backward compatibility. */
   inputFolder?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
-  on?: string;
   /** Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. */
   aot?: boolean;
   /** Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. */
@@ -1572,6 +1570,8 @@ export interface RunOptions extends CommonOptions {
   noOverlay?: boolean;
   /** Project and single-file mode: skip restoring before build or Native AOT publish. Ignored in folder mode. */
   noRestore?: boolean;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. */
   outputAppxDirectory?: string;
   /** Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project. */
@@ -1599,7 +1599,6 @@ export async function run(options: RunOptions = {}): Promise<WinappResult> {
   const args: string[] = ['run'];
   const inputValue = options.input ?? options.inputFolder;
   if (inputValue !== undefined) args.push(inputValue);
-  if (options.on !== undefined) args.push('--on', options.on);
   if (options.aot) args.push('--aot');
   if (options.arch !== undefined) args.push('--arch', options.arch);
   if (options.args !== undefined) args.push('--args', options.args);
@@ -1616,6 +1615,7 @@ export async function run(options: RunOptions = {}): Promise<WinappResult> {
   if (options.noLaunch) args.push('--no-launch');
   if (options.noOverlay) args.push('--no-overlay');
   if (options.noRestore) args.push('--no-restore');
+  if (options.on !== undefined) args.push('--on', options.on);
   if (options.outputAppxDirectory !== undefined) args.push('--output-appx-directory', options.outputAppxDirectory);
   if (options.project !== undefined) args.push('--project', options.project);
   if (options.property) {
@@ -1881,7 +1881,7 @@ export async function tool(options: ToolOptions = {}): Promise<WinappResult> {
 export interface UiClickOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1930,7 +1930,7 @@ export interface UiDragOptions extends CommonOptions {
   from?: string;
   /** End point — an element selector (drops at its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-target-d746 or 300,400). */
   to?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -1972,7 +1972,7 @@ export async function uiDrag(options: UiDragOptions = {}): Promise<WinappResult>
 export interface UiFocusOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2011,7 +2011,7 @@ export async function uiFocus(options: UiFocusOptions): Promise<WinappResult> {
 // ---------------------------------------------------------------------------
 
 export interface UiGetFocusedOptions extends CommonOptions {
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2040,7 +2040,7 @@ export async function uiGetFocused(options: UiGetFocusedOptions = {}): Promise<W
 export interface UiGetPropertyOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2084,7 +2084,7 @@ export async function uiGetProperty(options: UiGetPropertyOptions = {}): Promise
 export interface UiGetValueOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2125,7 +2125,7 @@ export async function uiGetValue(options: UiGetValueOptions = {}): Promise<Winap
 export interface UiHoverOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2169,7 +2169,7 @@ export async function uiHover(options: UiHoverOptions = {}): Promise<WinappResul
 export interface UiInspectOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Walk up the tree from the specified element to the root */
   ancestors?: boolean;
@@ -2225,7 +2225,7 @@ export async function uiInspect(options: UiInspectOptions = {}): Promise<WinappR
 export interface UiInvokeOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Perform exactly this action on the selected element, without pattern or ancestor fallback: invoke, select, toggle, toggle-on, toggle-off, expand, collapse. */
   action?: string;
@@ -2267,7 +2267,7 @@ export async function uiInvoke(options: UiInvokeOptions = {}): Promise<WinappRes
 // ---------------------------------------------------------------------------
 
 export interface UiListWindowsOptions extends CommonOptions {
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2296,7 +2296,7 @@ export async function uiListWindows(options: UiListWindowsOptions = {}): Promise
 export interface UiPenOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2358,7 +2358,7 @@ export async function uiPen(options: UiPenOptions = {}): Promise<WinappResult> {
 export interface UiRecordOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2398,7 +2398,7 @@ export interface UiRecordOptions extends CommonOptions {
 export interface UiScreenshotOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2448,7 +2448,7 @@ export async function uiScreenshot(options: UiScreenshotOptions = {}): Promise<W
 export interface UiScrollOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2498,7 +2498,7 @@ export async function uiScroll(options: UiScrollOptions = {}): Promise<WinappRes
 export interface UiScrollIntoViewOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2539,7 +2539,7 @@ export async function uiScrollIntoView(options: UiScrollIntoViewOptions = {}): P
 export interface UiSearchOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2583,7 +2583,7 @@ export async function uiSearch(options: UiSearchOptions = {}): Promise<WinappRes
 export interface UiSendKeysOptions extends CommonOptions {
   /** Keys to send. Whitespace-separated tokens: named keys (down, enter, tab, esc, f5), modifier combos (ctrl+shift+t, alt+f4), raw virtual keys (vk=0x42), or literal text (hello). Hold capslock or insert for screen-reader commands (ctrl+capslock+f12 toggles Narrator developer mode); these require --via send-input. Use text=<literal> to type a single value verbatim when it would otherwise be read as a key name or combo (text=enter types "enter"; text=ctrl+a types "ctrl+a"); backslash escapes \s \t \n \r \\ are supported (text=a\s\sb types "a b"). To type the whole argument literally without escaping each token, pass --verbatim instead. Quote multi-token strings, e.g. "ctrl+a delete". */
   keys?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Allow synthesizing system-/shell-reserved combos (win+<key>, alt+f4, alt+tab, ctrl+esc, …) via --via send-input, which are refused by default because they act on the OS/shell beyond the target app. Opt in to drive global hotkeys (e.g. PowerToys' win+shift+v, win+r). No effect on --via post-message (already window-scoped; a warning is emitted if set without send-input). Note: win+l and ctrl+alt+del stay blocked even with this flag — win+l locks the workstation (LockWorkStation() via the shell hook), which is unrecoverable from automation, and ctrl+alt+del is a Secure Attention Sequence (SAS) that Windows drops from injected input regardless of this flag, so it can never take effect. */
   allowSystemKeys?: boolean;
@@ -2629,7 +2629,7 @@ export interface UiSetValueOptions extends CommonOptions {
   selector?: string;
   /** Value to set (text for TextBox/ComboBox, number for Slider) */
   value?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2669,7 +2669,7 @@ export async function uiSetValue(options: UiSetValueOptions = {}): Promise<Winap
 // ---------------------------------------------------------------------------
 
 export interface UiStatusOptions extends CommonOptions {
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2698,7 +2698,7 @@ export async function uiStatus(options: UiStatusOptions = {}): Promise<WinappRes
 export interface UiTouchOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2763,7 +2763,7 @@ export async function uiTouch(options: UiTouchOptions = {}): Promise<WinappResul
 export interface UiWaitForOptions extends CommonOptions {
   /** Visible label, AutomationId, or slug from inspect (see winapp ui --help) */
   selector?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Target app by process name, window title, or PID */
   app?: string;
@@ -2817,7 +2817,7 @@ export async function uiWaitFor(options: UiWaitForOptions = {}): Promise<WinappR
 // ---------------------------------------------------------------------------
 
 export interface UiYieldOptions extends CommonOptions {
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
   on?: string;
   /** Format output as JSON */
   json?: boolean;
@@ -2840,8 +2840,6 @@ export async function uiYield(options: UiYieldOptions = {}): Promise<WinappResul
 export interface UnregisterOptions extends CommonOptions {
   /** Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest. */
   input?: string;
-  /** Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. */
-  on?: string;
   /** Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input. */
   arch?: string;
   /** Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input. */
@@ -2852,6 +2850,8 @@ export interface UnregisterOptions extends CommonOptions {
   json?: boolean;
   /** Path to the Package.appxmanifest (default: auto-detect from current directory) */
   manifest?: string;
+  /** Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. */
+  on?: string;
   /** The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped. */
   outputAppxDirectory?: string;
   /** MSBuild property (Name=Value) used when resolving a .cs file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...), since a command-line property overrides the file's own #:property directives. Only applies to a .cs input. */
@@ -2869,12 +2869,12 @@ export async function unregister(options: UnregisterOptions = {}): Promise<Winap
   const args: string[] = ['unregister'];
   const positionals: string[] = [];
   if (options.input !== undefined) positionals.push(options.input);
-  if (options.on !== undefined) args.push('--on', options.on);
   if (options.arch !== undefined) args.push('--arch', options.arch);
   if (options.configuration !== undefined) args.push('--configuration', options.configuration);
   if (options.force) args.push('--force');
   if (options.json) args.push('--json');
   if (options.manifest !== undefined) args.push('--manifest', options.manifest);
+  if (options.on !== undefined) args.push('--on', options.on);
   if (options.outputAppxDirectory !== undefined) args.push('--output-appx-directory', options.outputAppxDirectory);
   if (options.property) {
     const propertyArr = Array.isArray(options.property) ? options.property : [options.property];

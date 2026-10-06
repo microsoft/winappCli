@@ -63,7 +63,7 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
     public int Height { get; }
 
     /// <remarks>
-    /// Coverage ceiling (issue #630): tests cover successful one-frame encoding on hosts with Media
+    /// Coverage ceiling (issue #630): tests cover successful encoding on hosts with Media
     /// Foundation and constructor cleanup via seams. Remaining uncovered lines are MFStartup/
     /// sink-writer/media-type native initialization and native failure cleanup arms that require
     /// faulting COM objects after creation.
@@ -208,7 +208,7 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
     /// exactly Width*Height*4 bytes.
     /// </summary>
     /// <remarks>
-    /// Coverage ceiling (issue #630): the validation and successful one-frame path are tested, but
+    /// Coverage ceiling (issue #630): the validation and successful frame-write path are tested, but
     /// the per-frame Media Foundation buffer/sample COM error cleanup arms require faulting native MF
     /// objects after creation and cannot be triggered safely with managed fakes.
     /// </remarks>

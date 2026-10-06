@@ -206,7 +206,7 @@ function devtoolsAttach(options?: DevtoolsAttachOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | App PID, process name, or window title; use --on sandbox for a guest app. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `overlay` | `boolean \| undefined` | No | Show the in-app DevTools overlay after attaching. |
@@ -231,7 +231,7 @@ function devtoolsCall(options?: DevtoolsCallOptions): Promise<WinappResult>
 |----------|------|----------|-------------|
 | `method` | `string \| undefined` | No | The DevTools method to call, e.g. DevTools.ping, Layout.get, Overlay.highlight. |
 | `params` | `string \| string[] \| undefined` | No | Method parameters. name=value sends a string; name:=value sends raw JSON (e.g. appAuthoredOnly:=true, depth:=4). |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -254,7 +254,7 @@ function devtoolsCommentsAdd(options?: DevtoolsCommentsAddOptions): Promise<Wina
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Live capture and marker target: PID, process name, or window title. |
 | `column` | `number \| undefined` | No | Source column (advisory). |
 | `confirmLikelySource` | `boolean \| undefined` | No | Confirm the displayed likely source declaration for this capture; its compiled identity is unverified. |
@@ -286,7 +286,7 @@ function devtoolsCommentsDelete(options: DevtoolsCommentsDeleteOptions): Promise
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | The comment id. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Optional marker refresh target: PID, process name, or window title. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `sourceRoot` | `string \| undefined` | No | Project directory (default: current directory); comments are stored at the repository root. |
@@ -353,7 +353,7 @@ function devtoolsCommentsUpdate(options: DevtoolsCommentsUpdateOptions): Promise
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | The comment id. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Optional marker refresh target: PID, process name, or window title. |
 | `by` | `string \| undefined` | No | Who made the update (default: current user). |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -379,7 +379,7 @@ function devtoolsDiagnoseBinding(options?: DevtoolsDiagnoseBindingOptions): Prom
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `property` | `string \| undefined` | No | The bound dependency property, e.g. IsEnabled or Text. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -403,7 +403,7 @@ function devtoolsGetLayout(options?: DevtoolsGetLayoutOptions): Promise<WinappRe
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -427,7 +427,7 @@ function devtoolsGetProperty(options?: DevtoolsGetPropertyOptions): Promise<Wina
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `all` | `boolean \| undefined` | No | Include default-valued properties, not only explicitly set ones. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
@@ -455,7 +455,7 @@ function devtoolsGetSource(options?: DevtoolsGetSourceOptions): Promise<WinappRe
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -479,7 +479,7 @@ function devtoolsInspect(options?: DevtoolsInspectOptions): Promise<WinappResult
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. Defaults to the whole tree. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `all` | `boolean \| undefined` | No | Include framework and control-template elements, not just the ones your XAML declares. |
 | `ancestors` | `boolean \| undefined` | No | Show the path from the selected element up to the tree root instead of its subtree. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
@@ -509,7 +509,7 @@ function devtoolsList(options?: DevtoolsListOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `includeAvailable` | `boolean \| undefined` | No | Include running WinUI apps that do not yet have DevTools attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 
@@ -530,7 +530,7 @@ function devtoolsSearch(options?: DevtoolsSearchOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `query` | `string \| undefined` | No | Match text content, type, x:Name, or source file (case-insensitive). |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `all` | `boolean \| undefined` | No | Include framework and control-template elements, not just the ones your XAML declares. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
@@ -560,7 +560,7 @@ function devtoolsSetProperty(options?: DevtoolsSetPropertyOptions): Promise<Wina
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to change: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `value` | `string \| undefined` | No | The new value, e.g. 200, false, #FF0067C0, or "Save changes". |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -977,7 +977,6 @@ function run(options?: RunOptions): Promise<WinappResult>
 |----------|------|----------|-------------|
 | `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
 | `inputFolder` | `string \| undefined` | No |  |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `aot` | `boolean \| undefined` | No | Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. |
 | `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. |
 | `args` | `string \| undefined` | No | Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value). |
@@ -994,6 +993,7 @@ function run(options?: RunOptions): Promise<WinappResult>
 | `noLaunch` | `boolean \| undefined` | No | Only create the debug identity and register the package without launching the application |
 | `noOverlay` | `boolean \| undefined` | No | Suppress the in-app DevTools overlay. Requires --devtools; independent of --json output. |
 | `noRestore` | `boolean \| undefined` | No | Project and single-file mode: skip restoring before build or Native AOT publish. Ignored in folder mode. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `outputAppxDirectory` | `string \| undefined` | No | Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. |
 | `project` | `string \| undefined` | No | Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project. |
 | `property` | `string \| string[] \| undefined` | No | Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. |
@@ -1180,7 +1180,7 @@ function uiClick(options?: UiClickOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `double` | `boolean \| undefined` | No | Perform a double-click instead of a single click |
@@ -1208,7 +1208,7 @@ function uiDrag(options?: UiDragOptions): Promise<WinappResult>
 |----------|------|----------|-------------|
 | `from` | `string \| undefined` | No | Start point — an element selector (drags from its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-list-d736 or 100,200). |
 | `to` | `string \| undefined` | No | End point — an element selector (drops at its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-target-d746 or 300,400). |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `dwellMs` | `number \| undefined` | No | Milliseconds to dwell at the destination after moving, before releasing (default: 0). Lets drop targets / merge overlays that arm from a sustained hover latch before release. |
 | `holdMs` | `number \| undefined` | No | Milliseconds to hold the button down at the start before moving (default: 0). With <from> == <to> (no movement) this performs a press-and-hold / long-press gesture. |
@@ -1233,7 +1233,7 @@ function uiFocus(options: UiFocusOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string` | Yes | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -1257,7 +1257,7 @@ function uiGetFocused(options?: UiGetFocusedOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
@@ -1279,7 +1279,7 @@ function uiGetProperty(options?: UiGetPropertyOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -1305,7 +1305,7 @@ function uiGetValue(options?: UiGetValueOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -1330,7 +1330,7 @@ function uiHover(options?: UiHoverOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `dwellTime` | `number \| undefined` | No | Time in milliseconds to wait after hovering for hover effects to appear (default: 800) |
@@ -1356,7 +1356,7 @@ function uiInspect(options?: UiInspectOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `ancestors` | `boolean \| undefined` | No | Walk up the tree from the specified element to the root |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
@@ -1386,7 +1386,7 @@ function uiInvoke(options?: UiInvokeOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `action` | `string \| undefined` | No | Perform exactly this action on the selected element, without pattern or ancestor fallback: invoke, select, toggle, toggle-on, toggle-off, expand, collapse. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
@@ -1411,7 +1411,7 @@ function uiListWindows(options?: UiListWindowsOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `showHidden` | `boolean \| undefined` | No | Include untitled zero-size windows that are hidden by default |
@@ -1433,7 +1433,7 @@ function uiPen(options?: UiPenOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `at` | `string \| undefined` | No | Pen contact point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. Ignored when --path is given. |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
@@ -1465,7 +1465,7 @@ function uiScreenshot(options?: UiScreenshotOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `captureScreen` | `boolean \| undefined` | No | Capture from screen DC via BitBlt (includes popups/overlays not owned by the target). |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
@@ -1493,7 +1493,7 @@ function uiScroll(options?: UiScrollOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `direction` | `string \| undefined` | No | Scroll direction: up, down, left, right |
@@ -1521,7 +1521,7 @@ function uiScrollIntoView(options?: UiScrollIntoViewOptions): Promise<WinappResu
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -1546,7 +1546,7 @@ function uiSearch(options?: UiSearchOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -1572,7 +1572,7 @@ function uiSendKeys(options?: UiSendKeysOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `keys` | `string \| undefined` | No | Keys to send. Whitespace-separated tokens: named keys (down, enter, tab, esc, f5), modifier combos (ctrl+shift+t, alt+f4), raw virtual keys (vk=0x42), or literal text (hello). Hold capslock or insert for screen-reader commands (ctrl+capslock+f12 toggles Narrator developer mode); these require --via send-input. Use text=<literal> to type a single value verbatim when it would otherwise be read as a key name or combo (text=enter types "enter"; text=ctrl+a types "ctrl+a"); backslash escapes \\s \\t \\n \\r \\\\ are supported (text=a\\s\\sb types "a b"). To type the whole argument literally without escaping each token, pass --verbatim instead. Quote multi-token strings, e.g. "ctrl+a delete". |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `allowSystemKeys` | `boolean \| undefined` | No | Allow synthesizing system-/shell-reserved combos (win+<key>, alt+f4, alt+tab, ctrl+esc, …) via --via send-input, which are refused by default because they act on the OS/shell beyond the target app. Opt in to drive global hotkeys (e.g. PowerToys' win+shift+v, win+r). No effect on --via post-message (already window-scoped; a warning is emitted if set without send-input). Note: win+l and ctrl+alt+del stay blocked even with this flag — win+l locks the workstation (LockWorkStation() via the shell hook), which is unrecoverable from automation, and ctrl+alt+del is a Secure Attention Sequence (SAS) that Windows drops from injected input regardless of this flag, so it can never take effect. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -1599,7 +1599,7 @@ function uiSetValue(options?: UiSetValueOptions): Promise<WinappResult>
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `value` | `string \| undefined` | No | Value to set (text for TextBox/ComboBox, number for Slider) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -1623,7 +1623,7 @@ function uiStatus(options?: UiStatusOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
@@ -1645,7 +1645,7 @@ function uiTouch(options?: UiTouchOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `at` | `string \| undefined` | No | Explicit start point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
@@ -1678,7 +1678,7 @@ function uiWaitFor(options?: UiWaitForOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `contains` | `boolean \| undefined` | No | Use substring matching for --value instead of exact match |
@@ -1707,7 +1707,7 @@ function uiYield(options?: UiYieldOptions): Promise<WinappResult>
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
@@ -1727,12 +1727,12 @@ function unregister(options?: UnregisterOptions): Promise<WinappResult>
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `input` | `string \| undefined` | No | Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `arch` | `string \| undefined` | No | Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input. |
 | `configuration` | `string \| undefined` | No | Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input. |
 | `force` | `boolean \| undefined` | No | Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `manifest` | `string \| undefined` | No | Path to the Package.appxmanifest (default: auto-detect from current directory) |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `outputAppxDirectory` | `string \| undefined` | No | The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped. |
 | `property` | `string \| string[] \| undefined` | No | MSBuild property (Name=Value) used when resolving a .cs file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...), since a command-line property overrides the file's own #:property directives. Only applies to a .cs input. |
 | `prune` | `boolean \| undefined` | No | Remove every development-mode registration whose files are gone. These can never launch — Windows keeps the identity and its Start menu entry, but activation silently does nothing. Lists what it found and asks before removing; pass --force to skip the prompt. Cannot be combined with an input or --manifest. |
@@ -2225,7 +2225,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | App PID, process name, or window title; use --on sandbox for a guest app. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `overlay` | `boolean \| undefined` | No | Show the in-app DevTools overlay after attaching. |
@@ -2243,7 +2243,7 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `method` | `string \| undefined` | No | The DevTools method to call, e.g. DevTools.ping, Layout.get, Overlay.highlight. |
 | `params` | `string \| string[] \| undefined` | No | Method parameters. name=value sends a string; name:=value sends raw JSON (e.g. appAuthoredOnly:=true, depth:=4). |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -2259,7 +2259,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Live capture and marker target: PID, process name, or window title. |
 | `column` | `number \| undefined` | No | Source column (advisory). |
 | `confirmLikelySource` | `boolean \| undefined` | No | Confirm the displayed likely source declaration for this capture; its compiled identity is unverified. |
@@ -2284,7 +2284,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | The comment id. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Optional marker refresh target: PID, process name, or window title. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `sourceRoot` | `string \| undefined` | No | Project directory (default: current directory); comments are stored at the repository root. |
@@ -2330,7 +2330,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `id` | `string` | Yes | The comment id. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Optional marker refresh target: PID, process name, or window title. |
 | `by` | `string \| undefined` | No | Who made the update (default: current user). |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -2349,7 +2349,7 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `property` | `string \| undefined` | No | The bound dependency property, e.g. IsEnabled or Text. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -2366,7 +2366,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -2383,7 +2383,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `all` | `boolean \| undefined` | No | Include default-valued properties, not only explicitly set ones. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
@@ -2404,7 +2404,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to read: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -2421,7 +2421,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. Defaults to the whole tree. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `all` | `boolean \| undefined` | No | Include framework and control-template elements, not just the ones your XAML declares. |
 | `ancestors` | `boolean \| undefined` | No | Show the path from the selected element up to the tree root instead of its subtree. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
@@ -2444,7 +2444,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `includeAvailable` | `boolean \| undefined` | No | Include running WinUI apps that do not yet have DevTools attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
@@ -2458,7 +2458,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `query` | `string \| undefined` | No | Match text content, type, x:Name, or source file (case-insensitive). |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `all` | `boolean \| undefined` | No | Include framework and control-template elements, not just the ones your XAML declares. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
@@ -2481,7 +2481,7 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Element to change: the selector printed in brackets, an x:Name, an AutomationId, or a handle. |
 | `value` | `string \| undefined` | No | The new value, e.g. 200, false, #FF0067C0, or "Save changes". |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `attach` | `boolean \| undefined` | No | Authorize attaching DevTools if the target is not already attached. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -2772,7 +2772,6 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `input` | `string \| undefined` | No | Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory). |
 | `inputFolder` | `string \| undefined` | No |  |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `aot` | `boolean \| undefined` | No | Project mode: run the project's configured .NET Native AOT publish. Requires effective PublishAot=true. |
 | `arch` | `string \| undefined` | No | Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture. |
 | `args` | `string \| undefined` | No | Command-line arguments to pass to the application. Alternatively, use -- followed by arguments to avoid escaping (e.g., winapp run . -- --flag value). |
@@ -2789,6 +2788,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `noLaunch` | `boolean \| undefined` | No | Only create the debug identity and register the package without launching the application |
 | `noOverlay` | `boolean \| undefined` | No | Suppress the in-app DevTools overlay. Requires --devtools; independent of --json output. |
 | `noRestore` | `boolean \| undefined` | No | Project and single-file mode: skip restoring before build or Native AOT publish. Ignored in folder mode. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `outputAppxDirectory` | `string \| undefined` | No | Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used. |
 | `project` | `string \| undefined` | No | Project mode: when the input is a solution (.sln/.slnx) or a directory with multiple runnable app projects, selects which project to launch (by name or path). Ignored in folder mode. Rejected for a .cs file-based app, which is itself the project. |
 | `property` | `string \| string[] \| undefined` | No | Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode. |
@@ -2912,7 +2912,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `double` | `boolean \| undefined` | No | Perform a double-click instead of a single click |
@@ -2933,7 +2933,7 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `from` | `string \| undefined` | No | Start point — an element selector (drags from its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-list-d736 or 100,200). |
 | `to` | `string \| undefined` | No | End point — an element selector (drops at its center) or screen coordinates x,y as reported by 'ui inspect' (e.g. pn-target-d746 or 300,400). |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `dwellMs` | `number \| undefined` | No | Milliseconds to dwell at the destination after moving, before releasing (default: 0). Lets drop targets / merge overlays that arm from a sustained hover latch before release. |
 | `holdMs` | `number \| undefined` | No | Milliseconds to hold the button down at the start before moving (default: 0). With <from> == <to> (no movement) this performs a press-and-hold / long-press gesture. |
@@ -2951,7 +2951,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string` | Yes | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -2968,7 +2968,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
@@ -2983,7 +2983,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -3002,7 +3002,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -3020,7 +3020,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `dwellTime` | `number \| undefined` | No | Time in milliseconds to wait after hovering for hover effects to appear (default: 800) |
@@ -3039,7 +3039,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `ancestors` | `boolean \| undefined` | No | Walk up the tree from the specified element to the root |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
@@ -3062,7 +3062,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `action` | `string \| undefined` | No | Perform exactly this action on the selected element, without pattern or ancestor fallback: invoke, select, toggle, toggle-on, toggle-off, expand, collapse. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
@@ -3080,7 +3080,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `showHidden` | `boolean \| undefined` | No | Include untitled zero-size windows that are hidden by default |
@@ -3095,7 +3095,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `at` | `string \| undefined` | No | Pen contact point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. Ignored when --path is given. |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
@@ -3120,7 +3120,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `captureScreen` | `boolean \| undefined` | No | Capture from screen DC via BitBlt (includes popups/overlays not owned by the target). |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
@@ -3141,7 +3141,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `direction` | `string \| undefined` | No | Scroll direction: up, down, left, right |
@@ -3162,7 +3162,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -3180,7 +3180,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -3199,7 +3199,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `keys` | `string \| undefined` | No | Keys to send. Whitespace-separated tokens: named keys (down, enter, tab, esc, f5), modifier combos (ctrl+shift+t, alt+f4), raw virtual keys (vk=0x42), or literal text (hello). Hold capslock or insert for screen-reader commands (ctrl+capslock+f12 toggles Narrator developer mode); these require --via send-input. Use text=<literal> to type a single value verbatim when it would otherwise be read as a key name or combo (text=enter types "enter"; text=ctrl+a types "ctrl+a"); backslash escapes \\s \\t \\n \\r \\\\ are supported (text=a\\s\\sb types "a b"). To type the whole argument literally without escaping each token, pass --verbatim instead. Quote multi-token strings, e.g. "ctrl+a delete". |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `allowSystemKeys` | `boolean \| undefined` | No | Allow synthesizing system-/shell-reserved combos (win+<key>, alt+f4, alt+tab, ctrl+esc, …) via --via send-input, which are refused by default because they act on the OS/shell beyond the target app. Opt in to drive global hotkeys (e.g. PowerToys' win+shift+v, win+r). No effect on --via post-message (already window-scoped; a warning is emitted if set without send-input). Note: win+l and ctrl+alt+del stay blocked even with this flag — win+l locks the workstation (LockWorkStation() via the shell hook), which is unrecoverable from automation, and ctrl+alt+del is a Secure Attention Sequence (SAS) that Windows drops from injected input regardless of this flag, so it can never take effect. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -3219,7 +3219,7 @@ type ManifestTemplates = "packaged" | "sparse"
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
 | `value` | `string \| undefined` | No | Value to set (text for TextBox/ComboBox, number for Slider) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
@@ -3236,7 +3236,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `window` | `number \| undefined` | No | Target window by handle (printed by -a and list-windows; overrides --app) |
@@ -3251,7 +3251,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `at` | `string \| undefined` | No | Explicit start point as screen coordinates x,y (as reported by 'ui inspect'). Defaults to the selector's element center. |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
@@ -3277,7 +3277,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `selector` | `string \| undefined` | No | Visible label, AutomationId, or slug from inspect (see winapp ui --help) |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `app` | `string \| undefined` | No | Target app by process name, window title, or PID |
 | `className` | `string \| undefined` | No | Only match this exact UIA ClassName (case-insensitive) |
 | `contains` | `boolean \| undefined` | No | Use substring matching for --value instead of exact match |
@@ -3299,7 +3299,7 @@ type ManifestTemplates = "packaged" | "sparse"
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
@@ -3312,12 +3312,12 @@ type ManifestTemplates = "packaged" | "sparse"
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `input` | `string \| undefined` | No | Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest. |
-| `on` | `string \| undefined` | No | Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local. |
 | `arch` | `string \| undefined` | No | Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input. |
 | `configuration` | `string \| undefined` | No | Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input. |
 | `force` | `boolean \| undefined` | No | Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `manifest` | `string \| undefined` | No | Path to the Package.appxmanifest (default: auto-detect from current directory) |
+| `on` | `string \| undefined` | No | Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here. |
 | `outputAppxDirectory` | `string \| undefined` | No | The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped. |
 | `property` | `string \| string[] \| undefined` | No | MSBuild property (Name=Value) used when resolving a .cs file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...), since a command-line property overrides the file's own #:property directives. Only applies to a .cs input. |
 | `prune` | `boolean \| undefined` | No | Remove every development-mode registration whose files are gone. These can never launch — Windows keeps the identity and its Start menu entry, but activation silently does nothing. Lists what it found and asks before removing; pass --force to skip the prompt. Cannot be combined with an input or --manifest. |

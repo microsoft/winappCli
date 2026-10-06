@@ -2,7 +2,7 @@
   "name": "winapp",
   "version": "0.7.2",
   "schemaVersion": "1.0",
-  "description": "CLI for Windows app development, including package identity, packaging, managing Package.appxmanifest, test certificates, Windows (App) SDK projections, and more. For use with any app framework targeting Windows",
+  "description": "Create, run, debug, test, and package Windows apps from the command line. Works with WinUI and any other (cross-platform) app framework targeting Windows, and manages Windows SDKs, package identity, manifests, and certificates.",
   "hidden": false,
   "options": {
     "--cli-schema": {
@@ -32,18 +32,6 @@
       "arity": {
         "minimum": 0,
         "maximum": 0
-      },
-      "required": false,
-      "recursive": true
-    },
-    "--on": {
-      "description": "Run on local (default) or managed Windows Sandbox (sandbox); never falls back to local.",
-      "hidden": false,
-      "valueType": "System.String",
-      "hasDefaultValue": false,
-      "arity": {
-        "minimum": 1,
-        "maximum": 1
       },
       "required": false,
       "recursive": true
@@ -725,6 +713,18 @@
           },
           "required": false,
           "recursive": false
+        },
+        "--on": {
+          "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": true
         }
       },
       "subcommands": {
@@ -4992,6 +4992,18 @@
           "required": false,
           "recursive": false
         },
+        "--on": {
+          "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": true
+        },
         "--output-appx-directory": {
           "description": "Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used.",
           "hidden": false,
@@ -5830,6 +5842,18 @@
           },
           "required": false,
           "recursive": false
+        },
+        "--on": {
+          "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": true
         }
       },
       "subcommands": {
@@ -9250,6 +9274,18 @@
           },
           "required": false,
           "recursive": false
+        },
+        "--on": {
+          "description": "Run this command on the named execution target instead of this machine. Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). There is no fallback: if the target cannot be prepared, the command fails rather than running here.",
+          "hidden": false,
+          "valueType": "System.String",
+          "hasDefaultValue": false,
+          "arity": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "required": false,
+          "recursive": true
         },
         "--output-appx-directory": {
           "description": "The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped.",
