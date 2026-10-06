@@ -62,7 +62,8 @@ Every command that takes one element selector accepts these optional filters:
 `invoke`, `set-value`, `click`, `focus`, `hover`, `scroll`, `scroll-into-view`,
 `screenshot`, `record`, `touch`, and `pen`. `drag` does not, because it takes two selectors.
 The selector and every supplied filter must match the **same element**. Filters narrow a
-selector, so passing them without one fails with `invalid_arguments`:
+selector, so `inspect`, `screenshot`, and `record`, whose selector is optional, fail with
+`invalid_arguments` when given filters without one:
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
   never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.
@@ -106,7 +107,9 @@ use an AutomationId or name root when you want polling to follow a replacement.
 
 When filters are present, every command except `search` fails with
 `ambiguous_selector` if more than one element remains; narrow the filters or use
-a unique slug. Exact AutomationId matches retain precedence over substring
+a unique slug. Commands that act on the element count matches in every window
+they search, so a matching control in an owned dialog also makes the selector
+ambiguous. Exact AutomationId matches retain precedence over substring
 matches, within the filtered scope. Omitting all three options preserves the
 existing query behavior.
 
@@ -627,8 +630,8 @@ match, so pass a slug from `inspect`/`search` when a name is ambiguous.
 `--root`, `--type`, and `--class-name` narrow the match as described in
 [Scoped and typed queries](#scoped-and-typed-queries), with or without `--action`.
 Use `-w <dialog-HWND>` to restrict an action to that dialog, or `-a <app>` to
-include the app's windows. A filtered invoke confirms the unique target inside its
-desktop turn, requires exactly one matching element, and never switches to
+include the app's windows. A filtered invoke confirms the unique target before
+acting, requires exactly one matching element, and never switches to
 another window or an invokable ancestor. Zero matches fail with `element_not_found`;
 duplicates fail with `ambiguous_selector`. A stale element or recycled window
 fails without acting; re-run `inspect` or `search` and choose a current selector.

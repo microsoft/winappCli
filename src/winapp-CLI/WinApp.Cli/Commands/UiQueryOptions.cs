@@ -55,6 +55,17 @@ internal static class UiQueryOptions
     internal static bool HasFilters(ParseResult result) =>
         result.GetValue(Root) is not null || result.GetValue(Type) is not null || result.GetValue(ClassName) is not null;
 
+    /// <summary>
+    /// Finds the one element a command acts on. With filters, the match must be unique across every
+    /// window searched, so a same-named control in an owned dialog fails as ambiguous instead of the
+    /// main window's match being used. Without filters, the existing main-window-first lookup applies.
+    /// </summary>
+    internal static Task<UiElement?> FindTargetAsync(
+        ParseResult result, IUiAutomation uiAutomation, UiTarget target, UiSelector selector, CancellationToken ct) =>
+        HasFilters(result)
+            ? uiAutomation.FindSingleElementAsync(target, selector, requireUnique: true, ct)
+            : uiAutomation.FindSingleElementAsync(target, selector, ct);
+
     /// <summary><see cref="Validate"/> for commands whose selector is optional: filters narrow a
     /// selector, so they are rejected when no selector was given.</summary>
     internal static int? ValidateWithOptionalSelector(ParseResult result, string? selector, ILogger logger, bool json)
@@ -99,7 +110,8 @@ internal static class UiQueryOptions
                 WindowHandle = target.WindowHandle,
                 IsExplicitWindow = true,
             };
-        var element = await uiAutomation.FindSingleElementAsync(scope, Parse(result, parser, selector), ct).ConfigureAwait(false);
+        var element = await uiAutomation.FindSingleElementAsync(
+            scope, Parse(result, parser, selector), requireUnique: true, ct).ConfigureAwait(false);
         if (element is null)
         {
             return null;

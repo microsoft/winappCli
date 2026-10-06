@@ -92,7 +92,7 @@ internal class UiFocusCommand : Command, IShortDescription
                 var errorOut = parseResult.InvocationConfiguration.Error;
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
                 var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+                var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {
@@ -103,7 +103,7 @@ internal class UiFocusCommand : Command, IShortDescription
                 long targetHwnd;
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+                    element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
                     if (element is null)
                     {
                         UiErrors.ElementNotFound(logger, selectorStr, json);

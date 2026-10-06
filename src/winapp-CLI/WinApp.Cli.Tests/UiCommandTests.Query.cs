@@ -214,6 +214,7 @@ public partial class UiCommandTests
         Assert.AreEqual(4242, scope.WindowHandle);
         Assert.IsTrue(scope.IsExplicitWindow);
         Assert.IsFalse(_fakeTargetResolver.TargetResult.IsExplicitWindow);
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.Single());
     }
 
     [TestMethod]
@@ -230,6 +231,7 @@ public partial class UiCommandTests
 
         Assert.AreEqual(0, exit);
         Assert.IsFalse(_fakeUia.QueryTargets.First().IsExplicitWindow);
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.First());
     }
 
     [TestMethod]
@@ -244,6 +246,106 @@ public partial class UiCommandTests
         Assert.AreEqual(1, exit);
         AssertJsonErrorCode("invalid_arguments");
         Assert.IsEmpty(_fakeUia.Queries);
+    }
+
+    private Task<int> RunElementActionAsync(string name, bool filtered)
+    {
+        Command command = name switch
+        {
+            "set-value" => GetRequiredService<UiSetValueCommand>(),
+            "click" => GetRequiredService<UiClickCommand>(),
+            "focus" => GetRequiredService<UiFocusCommand>(),
+            "hover" => GetRequiredService<UiHoverCommand>(),
+            "scroll" => GetRequiredService<UiScrollCommand>(),
+            "scroll-into-view" => GetRequiredService<UiScrollIntoViewCommand>(),
+            "touch" => GetRequiredService<UiTouchCommand>(),
+            _ => GetRequiredService<UiPenCommand>(),
+        };
+        List<string> args = name switch
+        {
+            "set-value" => ["Subject", "draft"],
+            "scroll" => ["Subject", "--wheel", "1"],
+            _ => ["Subject"],
+        };
+        args.AddRange(["-a", "TestApp", "--json"]);
+        if (filtered) { args.AddRange(["--type", "Edit"]); }
+        _fakeUia.PropertiesResult["HasKeyboardFocus"] = true;
+        return ParseAndInvokeWithCaptureAsync(command, [.. args]);
+    }
+
+    [TestMethod]
+    [DataRow("set-value")]
+    [DataRow("click")]
+    [DataRow("focus")]
+    [DataRow("hover")]
+    [DataRow("scroll")]
+    [DataRow("scroll-into-view")]
+    [DataRow("touch")]
+    [DataRow("pen")]
+    public async Task QueryOptions_FilteredAction_EveryLookupRequiresAUniqueMatch(string name)
+    {
+        // A filtered action must check every app window for a second match, including when a gesture
+        // re-reads the element just before injecting input.
+        _fakeUia.FindSingleResult = new UiElement
+        {
+            Id = "txt", Selector = "txt-subject-a1b2", Name = "Subject", Type = "Edit",
+            X = 10, Y = 20, Width = 40, Height = 30, WindowHandle = 4242,
+        };
+
+        var exit = await RunElementActionAsync(name, filtered: true);
+
+        Assert.AreEqual(0, exit, TestAnsiConsole.Output);
+        Assert.IsNotEmpty(_fakeUia.FindSingleRequireUniqueCalls);
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.All(unique => unique));
+        Assert.HasCount(_fakeUia.Queries.Count, _fakeUia.FindSingleRequireUniqueCalls,
+            "every lookup of a filtered selector must require a unique match");
+    }
+
+    [TestMethod]
+    [DataRow("set-value")]
+    [DataRow("click")]
+    [DataRow("focus")]
+    [DataRow("hover")]
+    [DataRow("scroll")]
+    [DataRow("scroll-into-view")]
+    [DataRow("touch")]
+    [DataRow("pen")]
+    public async Task QueryOptions_FilteredAction_AmbiguousAcrossWindowsFailsWithoutActing(string name)
+    {
+        // Same-named fields in the main window and an owned dialog: fail instead of using the main window's.
+        _fakeUia.FindSingleResult = new UiElement
+        {
+            Id = "txt", Selector = "txt-subject-a1b2", Name = "Subject", Type = "Edit",
+            X = 10, Y = 20, Width = 40, Height = 30, WindowHandle = 4242,
+        };
+        _fakeUia.FindUniqueThrow = new UiAmbiguousSelectorException("Selector matched 2 elements.");
+
+        var exit = await RunElementActionAsync(name, filtered: true);
+
+        Assert.AreEqual(1, exit);
+        AssertJsonErrorCode("ambiguous_selector");
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.Single(), "the command must stop at the ambiguous lookup");
+        Assert.IsEmpty(_fakeUia.Queries);
+        Assert.IsEmpty(_fakeDesktopForeground.ForegroundRequests);
+        Assert.IsEmpty(_fakeMouse.ClickCalls);
+    }
+
+    [TestMethod]
+    [DataRow("set-value")]
+    [DataRow("click")]
+    [DataRow("touch")]
+    public async Task QueryOptions_UnfilteredAction_KeepsMainWindowFirstLookup(string name)
+    {
+        _fakeUia.FindSingleResult = new UiElement
+        {
+            Id = "txt", Selector = "txt-subject-a1b2", Name = "Subject", Type = "Edit",
+            X = 10, Y = 20, Width = 40, Height = 30, WindowHandle = 4242,
+        };
+
+        var exit = await RunElementActionAsync(name, filtered: false);
+
+        Assert.AreEqual(0, exit, TestAnsiConsole.Output);
+        Assert.IsEmpty(_fakeUia.FindSingleRequireUniqueCalls);
     }
 
     [TestMethod]

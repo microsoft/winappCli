@@ -96,7 +96,7 @@ internal class UiHoverCommand : Command, IShortDescription
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
                 var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+                var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {
@@ -121,7 +121,8 @@ internal class UiHoverCommand : Command, IShortDescription
                     // Re-resolve just before hovering so the captured rect is current after any wait.
                     var stable = await GestureTargeting.ResolveStableAsync(
                         uiAutomation, uiTarget, selector, element,
-                        GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
+                        GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken,
+                        requireUnique: UiQueryOptions.HasFilters(parseResult));
                     if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, "hover"))
                     {
                         return 1;

@@ -81,7 +81,7 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
                 var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+                var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {
