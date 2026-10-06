@@ -21,6 +21,8 @@ internal class UiSendKeysCommand : Command, IShortDescription
     {
         Description = "Keys to send. Whitespace-separated tokens: named keys (down, enter, tab, esc, f5), " +
                       "modifier combos (ctrl+shift+t, alt+f4), raw virtual keys (vk=0x42), or literal text (hello). " +
+                      "Hold capslock or insert for screen-reader commands (ctrl+capslock+f12 toggles Narrator " +
+                      "developer mode); these require --via send-input. " +
                       "Use text=<literal> to type a single value verbatim when it would otherwise be read as a key " +
                       "name or combo (text=enter types \"enter\"; text=ctrl+a types \"ctrl+a\"); backslash escapes \\s \\t " +
                       "\\n \\r \\\\ are supported (text=a\\s\\sb types \"a  b\"). To type the whole argument literally " +
@@ -153,6 +155,18 @@ internal class UiSendKeysCommand : Command, IShortDescription
                 return 1;
             }
 
+            // Screen readers read the keyboard OS-wide, so a held screen-reader key posted to one window
+            // never reaches them and the command would report success while nothing happened.
+            if (transport == KeyTransport.PostMessage && KeyStringParser.HoldsScreenReaderKey(actions))
+            {
+                const string message =
+                    "Holding capslock or insert as a modifier (screen-reader commands such as ctrl+capslock+f12) " +
+                    "requires --via send-input; screen readers don't receive keys sent via post-message.";
+                logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
+                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, message);
+                return 1;
+            }
+
             if (transport == KeyTransport.SendInput)
             {
                 var neverBypassable = SystemKeyGuard.FindNeverBypassableCombos(actions);
@@ -245,6 +259,7 @@ internal class UiSendKeysCommand : Command, IShortDescription
 
                 var effectiveHwnd = targetHwnd;
                 bool targetLooksXaml;
+                var capsLockToggles = 0;
 
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
@@ -337,7 +352,25 @@ internal class UiSendKeysCommand : Command, IShortDescription
                         || (effectiveHwnd != 0 && effectiveHwnd != targetHwnd
                             && FrameworkHint.IsXamlClassName(systemQuery.GetWindowClassName(effectiveHwnd)));
 
-                    keyboardInput.Send(effectiveHwnd, actions, transport);
+                    if (transport == KeyTransport.SendInput && KeyStringParser.HoldsCapsLock(actions))
+                    {
+                        // A running screen reader consumes a held Caps Lock; if the toggle state changes, none did.
+                        // Check each chord on its own so two unconsumed chords can't cancel out.
+                        foreach (var segment in SplitAroundCapsLockChords(actions))
+                        {
+                            var isCapsLockChord = KeyStringParser.HoldsCapsLock(segment);
+                            var before = isCapsLockChord && s_isCapsLockOn();
+                            keyboardInput.Send(effectiveHwnd, segment, transport);
+                            if (isCapsLockChord && s_isCapsLockOn() != before)
+                            {
+                                capsLockToggles++;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        keyboardInput.Send(effectiveHwnd, actions, transport);
+                    }
                 }
 
                 if (ShouldWarnPostMessageMayNotDeliver(transport == KeyTransport.PostMessage, targetLooksXaml))
@@ -352,6 +385,15 @@ internal class UiSendKeysCommand : Command, IShortDescription
 
                 if (transport == KeyTransport.SendInput)
                 {
+                    if (capsLockToggles > 0)
+                    {
+                        var capsLockWarning =
+                            $"Holding capslock toggled Caps Lock ({capsLockToggles} time(s); it is now {(s_isCapsLockOn() ? "on" : "off")}), " +
+                            "so no screen reader received the command. Start the screen reader first, or hold insert instead.";
+                        logger.LogWarning("{Symbol} {Message}", UiSymbols.Warning, capsLockWarning);
+                        warnings.Add(capsLockWarning);
+                    }
+
                     var systemCombos = SystemKeyGuard.FindSystemCombos(actions);
                     if (systemCombos.Count > 0)
                     {
@@ -443,6 +485,46 @@ internal class UiSendKeysCommand : Command, IShortDescription
         /// </summary>
         internal static bool ShouldWarnPostMessageMayNotDeliver(bool isPostMessage, bool targetLooksXaml)
             => isPostMessage && targetLooksXaml;
+
+        /// <remarks>
+        /// Native seam: reads the Caps Lock toggle bit. Narrator doesn't set SPI_GETSCREENREADER, so
+        /// observing the toggle is the reliable way to tell whether a screen reader consumed the chord.
+        /// Tests replace it to exercise the warning deterministically.
+        /// </remarks>
+        internal static Func<bool> s_isCapsLockOn = NativeIsCapsLockOn;
+
+        /// <summary>
+        /// Splits actions into consecutive runs, isolating each chord that holds capslock in its own segment.
+        /// </summary>
+        internal static IEnumerable<IReadOnlyList<KeyAction>> SplitAroundCapsLockChords(IReadOnlyList<KeyAction> actions)
+        {
+            var run = new List<KeyAction>();
+            foreach (var action in actions)
+            {
+                if (action is KeyChord chord && KeyStringParser.HoldsCapsLock([chord]))
+                {
+                    if (run.Count > 0)
+                    {
+                        yield return run;
+                        run = [];
+                    }
+
+                    yield return [chord];
+                }
+                else
+                {
+                    run.Add(action);
+                }
+            }
+
+            if (run.Count > 0)
+            {
+                yield return run;
+            }
+        }
+
+        internal static bool NativeIsCapsLockOn()
+            => (global::Windows.Win32.PInvoke.GetKeyState(0x14) & 1) != 0;
 
         private static bool TryParseTransport(string via, out KeyTransport transport)
         {
