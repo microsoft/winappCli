@@ -206,7 +206,22 @@ internal class UiRecordCommand : Command, IShortDescription
                         UiErrors.ElementNotFound(logger, selector, json);
                         return 1;
                     }
-                    selector = exact;
+                    selector = exact.Selector!;
+
+                    // The recorder resolves this slug again, main window first. When the unique match is
+                    // in another window (an owned dialog or popup), a same-named main-window element would
+                    // fail that lookup as a changed slug, so record from the match's own window.
+                    if (exact.WindowHandle is long matchHwnd && matchHwnd != 0 && matchHwnd != uiTarget.WindowHandle)
+                    {
+                        uiTarget = new UiTarget
+                        {
+                            ProcessId = uiTarget.ProcessId,
+                            ProcessName = uiTarget.ProcessName,
+                            WindowTitle = uiTarget.WindowTitle,
+                            WindowHandle = matchHwnd,
+                            IsExplicitWindow = true,
+                        };
+                    }
                 }
 
                 var isStdinRedirected = s_isInputRedirectedOverride?.Invoke() ?? Console.IsInputRedirected;

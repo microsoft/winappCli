@@ -109,7 +109,7 @@ internal partial class UiInspectCommand : Command, IShortDescription
                         UiErrors.ElementNotFound(logger, selector, json);
                         return 1;
                     }
-                    selector = exact;
+                    selector = exact.Selector!;
                 }
 
                 UiElement[] elements;

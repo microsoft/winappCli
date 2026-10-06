@@ -342,7 +342,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
                     UiErrors.ElementNotFound(logger, selector, json);
                     return new CapturePass(1, singleTarget, selector, [], [], IsComposite: false);
                 }
-                selector = exact;
+                selector = exact.Selector!;
             }
 
             var (pixels, w, h) = await uiAutomation

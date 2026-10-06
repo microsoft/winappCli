@@ -235,6 +235,28 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    [DataRow(4242L)]
+    [DataRow(5555L)]
+    public async Task QueryOptions_FilteredRecord_RecordsFromTheMatchedWindow(long matchHwnd)
+    {
+        // The recorder resolves the slug again, main window first, so a unique match in an owned dialog
+        // must be recorded from that dialog rather than looked up where a same-named element may exist.
+        _fakeTargetResolver.TargetResult.WindowHandle = 4242;
+        _fakeUia.FindSingleResult = new UiElement { Type = "Edit", Selector = "edt-subject-a123", WindowHandle = matchHwnd };
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 30, Mode = "wgc" };
+
+        var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<UiRecordCommand>(),
+            ["Subject", "-a", "TestApp", "--type", "Edit", "--duration-sec", "1",
+             "-o", Path.Combine(_tempDirectory.FullName, "matched.mp4"), "--json"]);
+
+        Assert.AreEqual(0, exit, TestAnsiConsole.Output);
+        Assert.AreEqual("edt-subject-a123", _fakeRecording.LastElementId);
+        Assert.AreEqual(matchHwnd, _fakeRecording.LastTarget!.WindowHandle);
+        Assert.AreEqual(matchHwnd != 4242, _fakeRecording.LastTarget.IsExplicitWindow);
+        Assert.AreEqual(1234, _fakeRecording.LastTarget.ProcessId);
+    }
+
+    [TestMethod]
     [DataRow("touch", "--at", "5,5")]
     [DataRow("pen", "--at", "5,5")]
     [DataRow("pen", "--path", "5,5 10,10")]
