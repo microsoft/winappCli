@@ -239,6 +239,68 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow(-1073741189, "0xC000027B")]
+    [DataRow(42, "42")]
+    public async Task ProjectMode_Unpackaged_NonZeroExit_SuggestsDebugOutput(int appExitCode, string expectedCode)
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        SetUnpackagedOutcome(csproj, targetDir, selfContained: true);
+        _fakeAppLauncherService.FakeExitCode = appExitCode;
+        TestAnsiConsole.Profile.Width = 1000;
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(appExitCode, exitCode);
+        StringAssert.Contains(TestAnsiConsole.Output, $"App exited with code {expectedCode}. Rerun with --debug-output for exception details.");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Unpackaged_ZeroExit_DoesNotSuggestDebugOutput()
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        SetUnpackagedOutcome(csproj, targetDir, selfContained: true);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("--debug-output"), "No hint for a successful exit");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Unpackaged_NonZeroExitWithDebugOutput_DoesNotSuggestDebugOutput()
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        SetUnpackagedOutcome(csproj, targetDir, selfContained: true);
+        _fakeDebugOutputService.FakeExitCode = 42;
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--debug-output"]);
+
+        Assert.AreEqual(42, exitCode);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("Rerun with --debug-output"), "No rerun hint when --debug-output is already on");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Unpackaged_NonZeroExitWithJson_DoesNotSuggestDebugOutput()
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        SetUnpackagedOutcome(csproj, targetDir, selfContained: true);
+        _fakeAppLauncherService.FakeExitCode = 42;
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--json"]);
+
+        Assert.AreEqual(42, exitCode);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("Rerun with --debug-output"), "JSON output must stay machine-readable");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Unpackaged_RuntimePrepFailure_AbortsWithoutLaunching()
     {
         // Spec R2-M2: when runtime preparation throws (e.g. the version-specific gate can't confirm the
