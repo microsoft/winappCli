@@ -127,7 +127,9 @@ public class SandboxUxRegressionTests
                     TestContext.CancellationToken));
 
             Assert.AreEqual(ExecutionTargetErrorCodes.AgentIncompatible, failure.Error.Code);
-            StringAssert.Contains(failure.Error.UserAction, "Close Windows Sandbox");
+            StringAssert.Contains(failure.Error.UserAction, "wsb stop");
+            Assert.DoesNotContain("Close Windows Sandbox", failure.Error.UserAction!, StringComparison.Ordinal, "Closing the window does not stop a Sandbox winapp started, so its files stay in use.");
+            Assert.AreEqual("wsb stop --id sandbox-existing", failure.Error.NextCommand!.Command, "wsb stop needs --id.");
             Assert.IsInstanceOfType<UnauthorizedAccessException>(failure.InnerException);
         }
         finally

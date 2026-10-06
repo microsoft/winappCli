@@ -154,7 +154,8 @@ suppressed with `--quiet`/`--json`.
   is already running. Point the user to **Windows Sandbox** in the taskbar; if it has no
   window, `wsb list` then `wsb connect --id <id>`. Never stop it without consent.
 - Incompatible CLI: follow the error; upgrade the installed CLI through its install method,
-  **not `winapp update`**. Obtain consent before closing a Sandbox for a version change.
+  **not `winapp update`**. Obtain consent before stopping a Sandbox (`wsb stop --id <id>`)
+  for a version change; closing its window does not stop it.
 - Missing/unsupported runtime: use the named requirement and configuration in the error.
   Do not assume any newer same-major runtime is compatible or substitute architectures.
 - Incomplete deployment/transfer: retry. Busy: wait. Partial recording: keep reported evidence.

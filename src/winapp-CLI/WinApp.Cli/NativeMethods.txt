@@ -54,6 +54,8 @@ SetWindowPos
 AttachThreadInput
 BringWindowToTop
 IsWindow
+GetWindowLong
+WINDOW_EX_STYLE
 ShowWindow
 IsIconic
 GetSystemMetrics
