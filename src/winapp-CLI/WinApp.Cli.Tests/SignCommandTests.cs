@@ -281,7 +281,7 @@ public class SignCommandTests : BaseCommandTests
             var req = new CertificateRequest("CN=WinappEcdsaTest", ecdsa, HashAlgorithmName.SHA256);
             req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.3")], false));
             using var ecCert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(1));
-            certPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "ecdsa.pfx"));
+            certPath = new FileInfo(Path.Join(_tempDirectory.FullName, "ecdsa.pfx"));
             await File.WriteAllBytesAsync(certPath.FullName, ecCert.Export(X509ContentType.Pfx, "testpassword"), TestContext.CancellationToken);
         }
 
@@ -305,9 +305,9 @@ public class SignCommandTests : BaseCommandTests
 
     private static HashSet<string> SnapshotUserKeyContainers()
     {
-        var crypto = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Crypto");
+        var crypto = Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Crypto");
         var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var dir in new[] { Path.Combine(crypto, "Keys"), Path.Combine(crypto, "RSA") }.Where(Directory.Exists))
+        foreach (var dir in new[] { Path.Join(crypto, "Keys"), Path.Join(crypto, "RSA") }.Where(Directory.Exists))
         {
             files.UnionWith(Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories));
         }
