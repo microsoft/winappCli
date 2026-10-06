@@ -59,7 +59,7 @@ static void SetCommentsShown(bool on);
 static bool TryElementRootBounds(IXamlDiagnostics* diag, InstanceHandle root, InstanceHandle h,
                                  RECT* out, bool* noVisibleBox);
 static void SelDeleteComment(const std::wstring* requestedText = nullptr);
-enum class GuestCommentEditor { Selection, Composer, Delete, WindowResolve };
+enum class GuestCommentEditor { Selection, Composer, Delete, WindowResolve, Window };
 struct GuestCommentWrite {
     HANDLE process = nullptr;
     const GuestCommentAuthority* authority = nullptr;
@@ -127,6 +127,7 @@ static void SetSelCommentDeleteVisible(bool visible)
 }
 
 static bool CommentModeOn() { return g_commentMode; }
+static void SetCommentMode(bool on) { g_commentMode = on; }
 
 // Remove the composer from the Canvas (if shown) and release every ref it holds. Does NOT touch the oracle
 // freeze - callers pair g_cardFreeze(1)/(0) around the composer's lifetime, mirroring the card's ClearCard
@@ -162,7 +163,8 @@ static bool LaunchWinapp(const std::wstring& args, const wchar_t* what, GuestCom
 {
     if (!DevToolsTrust_MutationEnabled()) return false;
     const auto authority = g_guestCommentAuthority.load();
-    if (guest && g_guestCommentWrite.process && !authority && guest->editor == GuestCommentEditor::Selection &&
+    if (guest && g_guestCommentWrite.process && !authority &&
+        (guest->editor == GuestCommentEditor::Selection || guest->editor == GuestCommentEditor::Window) &&
         guest->id != g_guestCommentWrite.id) {
         for (auto it = g_guestCommentQueue.begin(); it != g_guestCommentQueue.end(); ++it)
             if (it->write.id == guest->id) {
@@ -183,7 +185,8 @@ static bool LaunchWinapp(const std::wstring& args, const wchar_t* what, GuestCom
         return false;
     }
     guest->authority = authority;
-    if ((guest->editor == GuestCommentEditor::Selection || guest->editor == GuestCommentEditor::Composer) &&
+    if ((guest->editor == GuestCommentEditor::Selection || guest->editor == GuestCommentEditor::Composer ||
+         guest->editor == GuestCommentEditor::Window) &&
         (!guest->wire || !g_wireOf || g_wireOf(guest->handle) != guest->wire)) {
         g_guestCommentWrite = std::move(*guest);
         GuestCommentComplete(0x57410102, false);
@@ -354,6 +357,28 @@ bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstr
     LaunchWinapp(L"devtools comments update --status resolved " + QuoteArg(id) + L" --app " + std::to_wstring(GetCurrentProcessId()),
         L"resolve", &guest);
     return g_guestCommentWrite.process != nullptr;
+}
+
+void DevToolsOverlay_AddComment(IInspectable* element, const std::wstring& text, std::function<void(int)> completed)
+{
+    GuestCommentWrite guest;
+    InstanceHandle raw = 0;
+    if (!element || !g_pickDiag || FAILED(g_pickDiag->GetHandleFromIInspectable(element, &raw)) || !raw ||
+        DevToolsCommentText::IsBlank(text)) {
+        if (completed) completed(1);
+        return;
+    }
+    guest.editor = GuestCommentEditor::Window;
+    guest.handle = raw; guest.root = g_pickRoot;
+    guest.wire = g_wireOf ? g_wireOf(raw) : 0;
+    guest.id = GenCommentId(); guest.submitted = guest.draft = text;
+    guest.linked = IsLinkedElement(raw);
+    if (g_anchorOf) g_anchorOf(raw, &guest.anchor);
+    TryElementRootBounds(g_pickDiag, g_pickRoot, raw, &guest.bounds);
+    guest.completed = std::move(completed);
+    const auto args = DevToolsCommentText::AddArguments(GetCurrentProcessId(), text, guest.id, std::to_wstring(guest.wire));
+    // A write refused before it reached the writer still owes its caller an answer.
+    if (!LaunchWinapp(args, L"add", &guest) && guest.completed) guest.completed(1);
 }
 
 static void CloseComposerRestoreBadge()
@@ -669,6 +694,20 @@ static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_
         else if (!GuestCommentMatchesEditor(false, false))
             ShowCommentToast(L"Comment not saved. Pick the element again to retry.", true);
     }
+    if (write.editor == GuestCommentEditor::Window) {
+        const bool ok = saved && !write.superseded;
+        if (ok) {
+            ShowCommentToast(CommentToastText(false, write.linked), false);
+            if (!write.authority && !g_commentSnapshotAuthoritative && write.handle)
+                UpsertPin(write.handle, write.id, write.submitted, write.bounds);
+            else if (!write.authority)
+                SetCommentsShown(true);
+        }
+        auto completed = std::move(write.completed);
+        write = {};
+        if (completed) completed(ok ? 0 : 1);
+        return;
+    }
     if (write.editor == GuestCommentEditor::WindowResolve) {
         auto completed = std::move(write.completed);
         if (write.authority == g_guestCommentAuthority.load() && write.root == g_pickRoot &&
@@ -754,8 +793,9 @@ static void GuestCommentStartQueued()
     while (!g_guestCommentWrite.process && !g_guestCommentQueue.empty()) {
         QueuedCommentWrite next = std::move(g_guestCommentQueue.front());
         g_guestCommentQueue.pop_front();
-        if (!LaunchWinapp(next.args, next.what.c_str(), &next.write))
-            ShowCommentToast(L"Comment not saved. Pick the element again to retry.", true);
+        if (LaunchWinapp(next.args, next.what.c_str(), &next.write)) continue;
+        if (next.write.editor != GuestCommentEditor::Window) ShowCommentToast(L"Comment not saved. Pick the element again to retry.", true);
+        else if (next.write.completed) next.write.completed(1);
     }
 }
 

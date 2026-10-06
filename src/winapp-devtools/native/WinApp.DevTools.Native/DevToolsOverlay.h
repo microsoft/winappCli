@@ -201,13 +201,16 @@ typedef InstanceHandle (*DevToolsResolveAnchorFn)(const wchar_t* anchor);
 typedef unsigned long long (*DevToolsWireOfFn)(InstanceHandle raw);
 void DevToolsOverlay_SetAnchorBridge(DevToolsAnchorOfFn anchorOf, DevToolsResolveAnchorFn resolve, DevToolsWireOfFn wireOf);
 
-// The composer shells out to the CLI so the CLI remains the only comment-store writer.
+// Comment editors shell out to the CLI so the CLI remains the only comment-store writer.
 void DevToolsOverlay_SetCliExe(const wchar_t* path);
 void DevToolsOverlay_SetGuestComments(const std::wstring& start, const std::wstring& binding, const std::wstring& epoch);
 std::wstring DevToolsOverlay_GuestCommentsJson();
 std::wstring DevToolsOverlay_GuestCommentToken(const std::wstring& operation, const std::wstring& revision);
 bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstring& revision,
     std::function<void(int)> completed);
+// Adds a comment on lement through the in-app comment writer, for the inspector. completed gets 0 once it is
+// saved, nonzero otherwise; it may run before this returns. UI thread only.
+void DevToolsOverlay_AddComment(IInspectable* element, const std::wstring& text, std::function<void(int)> completed);
 
 // Persisted comments are keyed by stable id and optional rebuild-stable anchor.
 struct DevToolsOverlayComment
@@ -227,8 +230,14 @@ HRESULT DevToolsOverlay_SetComments(IXamlDiagnostics* diag, InstanceHandle root,
 // False is logged locally; this callback never redirects to another host.
 typedef bool (*DevToolsInprocInspectFn)();
 void DevToolsOverlay_SetInprocInspect(DevToolsInprocInspectFn fn);
-// The element an inspector open request is for (0: the last pick). UI thread only.
-InstanceHandle DevToolsOverlay_InspectorTarget();
+// What an inspector open request asks for. UI thread only.
+struct DevToolsInspectRequest
+{
+    InstanceHandle element = 0;   // the element to select; 0 keeps the last pick
+    bool activate = true;         // false: an inspector already on screen is brought forward without focus
+    bool comments = false;        // show the Comments pane
+};
+const DevToolsInspectRequest& DevToolsOverlay_InspectRequest();
 
 
 // Precedence entries mirror DevToolsReadChainEntry without pulling wire-only fields into overlay ABI.

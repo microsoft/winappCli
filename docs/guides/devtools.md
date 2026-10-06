@@ -18,9 +18,8 @@ workflow and commands; each command's `--help` shows examples.
    The app opens with the DevTools toolbar in a corner. The command waits for the
    app; cancelling it stops the process it launched.
 
-2. Select **Select element** on the toolbar, then click an element in your app.
-   The comment panel opens next to it, showing where the element is declared, ready
-   for a comment.
+2. Select **Comments** on the toolbar, then click an element in your app. The comment
+   panel opens next to it, showing where the element is declared, ready for a comment.
 
    ![The DevTools toolbar and the comment panel on a selected button](../images/devtools-quick-edit.png)
 
@@ -33,10 +32,11 @@ workflow and commands; each command's `--help` shows examples.
    saved and the panel moves to the element you clicked. Esc also saves what you typed
    before it closes the panel.
 
-4. For the full element tree, properties and bindings, select **Open in DevTools**.
+4. To inspect an element, select **Select element** and click it. The DevTools window
+   opens beside your app with that element selected: the element tree, its properties,
+   bindings and layout. Each later click selects the element you click.
 
    ![The DevTools inspector window with the element tree and properties](../images/devtools-inspector.png)
-
 5. Ask your agent to read the comments and make the changes:
 
    ```powershell
@@ -47,16 +47,26 @@ workflow and commands; each command's `--help` shows examples.
 
 ### The overlay
 
-The comment panel shows the element, its XAML file and line (or **Not linked to source**),
-a **Comment** box, and any other comments already on the element. To change properties,
-bindings or colors, select **Open in DevTools**: the inspector window has every editor.
+The toolbar has two modes. Turning one on turns the other off, and Esc turns the
+current one off:
+
+- **Select element**: click an element to select it in the DevTools window, which opens
+  beside your app. An open window stays where it is and shows each element you click.
+- **Comments**: click an element to comment on it. The comment panel shows the element,
+  its XAML file and line (or **Not linked to source**), a **Comment** box, and any other
+  comments already on the element. **Open in DevTools** opens the window on that element,
+  where every property editor is. The arrow beside **Comments** has **Show all comments**,
+  which opens the window's Comments pane, and **Show markers** / **Hide markers**.
+
+In the DevTools window, **Comment** in the properties header adds a comment on the
+selected element: type it and press **Enter**.
 
 Hover picking pauses while the comment panel is open, preserving
 your selection and draft. Clicking the selected element keeps it selected; clicking
 another element saves what the panel holds and moves it there. Esc saves
-a comment you typed and closes the panel; the next Esc turns pick mode off. When your app has several windows, pick
-mode works in the one in front; bring another window forward to pick in it.
-
+a comment you typed and closes the panel; the next Esc turns comment mode off. When your
+app has several windows, both modes work in the one in front; bring another window forward
+to pick in it.
 Picking selects the element you declared: clicking a control's template part or its
 generated text, such as a TextBox's placeholder or a Button's string content, selects
 the control from your XAML. This includes parts of control templates your app restyles
@@ -76,11 +86,11 @@ The toolbar, highlight and markers draw above your app, including over open dial
 and flyouts, and stay out of your app's visual tree and layout. Menus and drop-downs
 that open in their own window, such as a `MenuFlyout` or a `ComboBox` list, draw over
 them; clicks there go to the menu, and the toolbar or marker underneath responds again
-once the menu closes. In pick mode, a click on a menu picks the menu item. The comment panel opens clear
+once the menu closes. In either mode, a click on a menu picks the menu item. The comment panel opens clear
 of the toolbar. Screen readers and `winapp ui` find the toolbar under a **DevTools** pane in the window.
 
 Press **Ctrl+Shift+F12** in your app to move keyboard focus to the toolbar. Tab moves
-between its actions, and Esc returns focus to where it was. If pick mode is on, the
+between its actions, and Esc returns focus to where it was. If a mode is on, the
 next Esc turns it off. The shortcut does nothing while the toolbar is hidden,
 for example after `winapp run --devtools --no-overlay`.
 

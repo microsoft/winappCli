@@ -18,9 +18,10 @@ handles) belong to one tool; copy a fresh one from that tool's `inspect` or
 winapp run . --devtools
 ```
 
-This opens the in-app overlay and waits for the app. Let the user inspect elements
-and leave comments there: pick an element, type, press Enter (Shift+Enter for a new
-line), or click the next element to save and move on. Ctrl+Shift+F12 moves keyboard
+This opens the in-app overlay and waits for the app. Let the user leave comments there:
+turn on **Comments** in the toolbar, click an element, type, press Enter (Shift+Enter for a
+new line), or click the next element to save and move on. **Select element** opens the
+DevTools window on the element the user clicks. Ctrl+Shift+F12 moves keyboard
 focus to the toolbar, and Esc returns it. Use a second terminal for commands, or add `--detach`
 to return to the terminal with the app still running and its PID printed.
 Use an exact PID with `-a` when multiple apps are attached.

@@ -10,7 +10,7 @@ static bool          g_pinned     = false;
 static double        g_protoW = 0.0;
 static double        g_protoH = 0.0;
 static double        g_chipW = 104.0;
-static EventSink g_protoSink[15];
+static EventSink g_protoSink[18];
 static int g_toolbarFocusWithin = 0;
 static EventSink g_resizeSink;
 static EventSink g_originSink;
@@ -192,12 +192,13 @@ static void WireAppEscapeOnce()
     else reinterpret_cast<IUnknown*>(ui)->Release();
     DevToolsOverlayLog(L"overlay.esc add_PreviewKeyDown hr=0x%08X", hr);
 }
-static void OnCommentsToggleClick(void*, void*);
+static void OnCommentModeClick(void*, void*);
+static void SetCommentMode(bool on);
+static void InspectElement(InstanceHandle element, bool activate = true);
 static void OnThemeToggleClick(void*, void*);
 // Swaps the two states authored in toolbar.xaml (DevToolsPickOff glyph / DevToolsPickOn accent chip).
 static void SetPickButtonOn(bool on);
 static bool CommentModeOn();
-static void CommentModeOpenComposer(InstanceHandle picked);
 static InstanceHandle PeekTopHandleAt(IXamlDiagnostics*, InstanceHandle, int, int, DevToolsIsOverlayFn, HRESULT* = nullptr);
 static bool IsInOpenPopup(IXamlDiagnostics* diag, InstanceHandle handle);
 static void ScreenToContentDip(int screenX, int screenY, long* dipX, long* dipY);
@@ -397,6 +398,22 @@ static void OnCatcherPointerPressed(void* sender, void*)
     g_pressValid = true;
 }
 
+// What a committed pick opens: the comment flyout in comment mode; in pick mode the inspector, selected on it.
+static void OpenPicked(InstanceHandle picked, bool claimedByWindow)
+{
+    if (CommentModeOn()) {
+        if (!g_cardRead) return;
+        // Focus leaving an open drop-down or flyout closes it, and the picked element with it, so the box takes
+        // focus only outside them.
+        g_selFocusCommentOnOpen = !IsInOpenPopup(g_pickDiag, picked);
+        DevToolsOverlay_ShowBadgeForHandle(g_pickDiag, picked, /*fromUserPick*/ true);
+        g_selFocusCommentOnOpen = false;
+    } else if (!claimedByWindow) {
+        DevToolsOverlay_ShowBadgeForHandle(g_pickDiag, picked, /*fromUserPick*/ false);
+        InspectElement(picked, /*activate*/ false);
+    }
+}
+
 // Pick mode stays armed, so The catcher sits at Canvas.ZIndex 0, below the toolbar (1000), pins (1900) and the
 // selection anchor (2000-2002), so staying armed never swallows clicks on our own chrome.
 static void OnCatcherClick(void* sender, void*)
@@ -477,19 +494,11 @@ static void OnCatcherClick(void* sender, void*)
             return;
         }
 
-// A pick armed from the DevTools window is claimed by that window, so the ordinary in-app panel must not open
-// over the app before focus returns.
+// A pick armed from the DevTools window is claimed by that window, which selects it and takes focus back.
         const bool claimedByWindow = picked && g_pickedSink && g_pickedSink(picked);
         if (picked) { g_selectedHandle = picked; g_selectedBounds = b; g_chromeHidden = false; WireSelScroller(b); }
-// Display-only badge, so no async TextBox parts realize on a plain pick.
-        if (picked && CommentModeOn()) {
-            CommentModeOpenComposer(picked);
-        } else if (picked && g_cardRead && !claimedByWindow) {
-            // Focus leaving an open drop-down or flyout closes it, and the picked element with it.
-            g_selFocusCommentOnOpen = !IsInOpenPopup(g_pickDiag, picked);
-            DevToolsOverlay_ShowBadgeForHandle(g_pickDiag, picked, /*fromUserPick*/ true);
-            g_selFocusCommentOnOpen = false;
-        }
+        if (picked) OpenPicked(picked, claimedByWindow);
+
         TrackingSync();
     }
 }
@@ -497,6 +506,7 @@ static void OnCatcherClick(void* sender, void*)
 // Otherwise insert a transparent, full-canvas catcher on top of the overlay so pointer input anywhere is
 // caught.
 static void OnPickClick(void* sender, void*);
+static void ArmInputMode(void* sender, bool commentMode);
 
 // Pick mode follows the app window the user is working in: the catcher lives in one window, so when another of the
 // app's windows comes to the front, the inspected surface moves there and pick mode is armed in it.
@@ -521,22 +531,29 @@ static void CALLBACK PickFollowTimerProc(HWND, UINT, UINT_PTR, DWORD)
     const DevToolsSurface* target = find();
     if (!target) { DevToolsOverlay_RefreshSurfaces(g_pickDiag, 0); target = find(); }
     if (!target || target->xamlRootKey == g_activeSurface.xamlRootKey) return;
+    const bool commentMode = CommentModeOn();
     const HRESULT hr = g_surfaceSwitch(target->xamlRootKey);
-    if (SUCCEEDED(hr) && !g_pickCatcher) OnPickClick(nullptr, nullptr);
+    if (SUCCEEDED(hr) && !g_pickCatcher) ArmInputMode(nullptr, commentMode);
     DevToolsOverlayLog(L"overlay.pickmode followed the front window '%s' hr=0x%08X armed=%d",
         g_activeSurface.displayName.c_str(), hr, (int)(g_pickCatcher != nullptr));
 }
 
-static void OnPickClick(void* sender, void*)
+// Pick mode (inspect) and comment mode share the catcher; turning one on turns the other off.
+static void ArmInputMode(void* sender, bool commentMode)
 {
     if (!DevToolsTrust_MutationEnabled()) {
         DevToolsOverlayLog(L"overlay.pick refused by process posture");
         if (g_pickCatcher) { ExitPickMode(); DeselectAll(); }
         return;
     }
-// Sticky pick was toggleable before, but toggling off left the rect, the edit affordance and the panel on
-// screen, so "how do I unselect this?" had no answer -- turning the mode off is the answer, and now it works.
-    if (g_pickCatcher) { ExitPickMode(); DeselectAll(); return; }
+    if (g_pickCatcher) {
+        // Leaving comment mode saves and closes the flyout first.
+        if (!commentMode && DevToolsSelPanelIsOpen() && !DismissSelectionPanel()) return;
+        SetCommentMode(commentMode);
+        SetPickButtonOn(true);
+        NotifyStateChanged();
+        return;
+    }
     if (sender && g_selectionHost && FAILED(g_selectionHost(g_toolbarSurface.rootHandle, true))) {
         DevToolsOverlayLog(L"overlay.pick could not establish the toolbar window's selection host");
         return;
@@ -600,12 +617,26 @@ static void OnPickClick(void* sender, void*)
         return;
     }
     g_pickCatcher = catcher;
+    SetCommentMode(commentMode);
     UpdateCatcherHole();
     SetPickButtonOn(true);
     WireAppEscapeOnce();
     if (!g_pickFollowTimer) g_pickFollowTimer = SetTimer(nullptr, 0, 250, &PickFollowTimerProc);
-    DevToolsOverlayLog(L"overlay.pickmode armed (%dx%d catcher, sticky)", w, h);
+    DevToolsOverlayLog(L"overlay.pickmode armed (%dx%d catcher, sticky, %s)", w, h, commentMode ? L"comments" : L"inspect");
     NotifyStateChanged();
+}
+
+// Each mode's toolbar button turns it on, switching from the other mode, or turns it off.
+static void OnPickClick(void* sender, void*)
+{
+    if (g_pickCatcher && !CommentModeOn()) { ExitPickMode(); DeselectAll(); return; }
+    ArmInputMode(sender, false);
+}
+
+static void OnCommentModeClick(void* sender, void*)
+{
+    if (g_pickCatcher && CommentModeOn()) { ExitPickMode(); DeselectAll(); return; }
+    ArmInputMode(sender, true);
 }
 
 void DevToolsOverlay_SetPickedSink(DevToolsPickedFn sink) { g_pickedSink = sink; }

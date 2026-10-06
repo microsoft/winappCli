@@ -94,7 +94,7 @@
       <Button x:Name="DevToolsProtoPick" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               IsEnabled="$PICKENABLED$"
-              ToolTipService.ToolTip="Select an element (Esc to exit)"
+              ToolTipService.ToolTip="Select an element to inspect (Esc to exit)"
               AutomationProperties.AutomationId="DevToolsProtoPick"
               AutomationProperties.Name="Select element">
         <Grid Width="30" Height="26">
@@ -107,23 +107,45 @@
           </Grid>
         </Grid>
       </Button>
-      <Button x:Name="DevToolsProtoComments" Style="{x:Null}" AllowFocusOnInteraction="False" Width="34" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <!-- Comment mode is a mode like Pick; the chevron beside it opens the comment actions. -->
+      <ToggleButton x:Name="DevToolsProtoComments" Style="{x:Null}" AllowFocusOnInteraction="False" Width="34" Height="26" Padding="0" BorderThickness="0" CornerRadius="6,0,0,6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
-              ToolTipService.ToolTip="Show comments"
+              IsEnabled="$PICKENABLED$"
+              ToolTipService.ToolTip="Comment on elements (Esc to exit)"
               AutomationProperties.AutomationId="DevToolsProtoComments"
-              AutomationProperties.Name="Comments">
+              AutomationProperties.Name="Comment mode">
+        <ToggleButton.Resources>
+          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+        </ToggleButton.Resources>
         <Grid Width="34" Height="26">
-          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15"
+          <FontIcon x:Name="DevToolsCommentsOff" FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15"
                     Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <Grid x:Name="DevToolsCommentsOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsCommentsOn">
+            <Border Width="34" Height="26" CornerRadius="6,0,0,6" Background="$ACCENT$" />
+            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15"
+                      Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Grid>
           <Border x:Name="DevToolsCommentBadge" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Top"
                   MinWidth="14" Height="14" CornerRadius="7" Padding="4,0" Background="$ACCENT$"
+                  BorderBrush="$SURFACE$" BorderThickness="1"
                   AutomationProperties.AutomationId="DevToolsCommentBadge">
             <TextBlock x:Name="DevToolsCommentBadgeText" Text="0" FontSize="9" FontWeight="SemiBold"
                        Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
         </Grid>
-      </Button>
-      <!-- Layout adorners are a mode: a ToggleButton exposes the on-state to UI Automation. -->
+      </ToggleButton>
+      <Button x:Name="DevToolsProtoCommentsMenu" Style="{x:Null}" AllowFocusOnInteraction="False" Width="16" Height="26" Padding="0" BorderThickness="0" CornerRadius="0,6,6,0"
+              Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center" Margin="-3,0,0,0"
+              ToolTipService.ToolTip="More comment actions"
+              AutomationProperties.AutomationId="DevToolsProtoCommentsMenu"
+              AutomationProperties.Name="More comment actions">
+        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE70D;" FontSize="8" Foreground="$TEXT$" />
+      </Button>      <!-- Layout adorners are a mode: a ToggleButton exposes the on-state to UI Automation. -->
       <ToggleButton x:Name="DevToolsProtoLayout" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               ToolTipService.ToolTip="Layout adorners (margin, padding, alignment)"
@@ -231,4 +253,25 @@
     <Border x:Name="DevToolsSnapNear5" Visibility="Collapsed" CornerRadius="16" BorderBrush="$ACCENT$"
             BorderThickness="2" Background="$SNAPFILL$" />
   </Grid>
+  <!-- Toolbar menus open beside the bar, in the same layer, so they stay out of the app's popups. They follow the snap
+       targets because those are found by their position among the canvas children. -->
+  <Border x:Name="DevToolsCommentsMenu" Visibility="Collapsed" Canvas.ZIndex="1002" Width="200"
+          RequestedTheme="$TOOLBARTHEME$"
+          Background="$SURFACE$" CornerRadius="8" BorderBrush="$RIM$" BorderThickness="1" Padding="4"
+          BackgroundSizing="InnerBorderEdge"
+          AutomationProperties.AutomationId="DevToolsCommentsMenu"
+          AutomationProperties.Name="Comment actions">
+    <StackPanel>
+      <Button x:Name="DevToolsShowAllComments" Style="{x:Null}" AllowFocusOnInteraction="False" Height="32" Padding="10,0" BorderThickness="0" CornerRadius="4"
+              HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="#00000000" Foreground="$TEXT$"
+              AutomationProperties.AutomationId="DevToolsShowAllComments">
+        <TextBlock Text="Show all comments" FontSize="12" Foreground="$TEXT$" VerticalAlignment="Center" />
+      </Button>
+      <Button x:Name="DevToolsToggleMarkers" Style="{x:Null}" AllowFocusOnInteraction="False" Height="32" Padding="10,0" BorderThickness="0" CornerRadius="4"
+              HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="#00000000" Foreground="$TEXT$"
+              AutomationProperties.AutomationId="DevToolsToggleMarkers">
+        <TextBlock x:Name="DevToolsToggleMarkersText" Text="Show markers" FontSize="12" Foreground="$TEXT$" VerticalAlignment="Center" />
+      </Button>
+    </StackPanel>
+  </Border>
 </Canvas>

@@ -343,6 +343,7 @@ static void ExitPickMode()
 {
     if (!g_pickCatcher) return;
     RemovePickCatcher();
+    SetCommentMode(false);
     SetPickButtonOn(false);
     ClearAdorner();
     g_hoverLastHandle = 0;

@@ -402,6 +402,10 @@ struct SwitchDiagnostics : GeometryDiagnostics
         if (!*out) return E_INVALIDARG;
         (*out)->AddRef(); return S_OK;
     }
+    HRESULT STDMETHODCALLTYPE GetHandleFromIInspectable(IInspectable* object, InstanceHandle* out) override {
+        *out = object == &mainTarget ? 11 : object == &secondTarget ? 21 : 0;
+        return *out ? S_OK : E_NOTIMPL;
+    }
 };
 static bool switchOpenedWithForeignPin = false;
 static unsigned switchOpens = 0;
@@ -741,6 +745,44 @@ int main()
         g_pickDiag=nullptr;g_pickRoot=g_selectedHandle=0;g_pickCatcher=nullptr;diag.hitHandle=0;
     }
     {
+        // Pick mode selects in the inspector and opens no flyout; comment mode opens the flyout. They share one catcher,
+        // and each toolbar button turns its mode on from the other mode and off from its own.
+        SwitchDiagnostics diag;
+        PickerHosts hosts(diag);
+        GeometryObject catcher;
+        SwitchObject canvas;
+        g_canvasChildren=&canvas;
+        static DevToolsInspectRequest seen;
+        static int opens = 0;
+        DevToolsOverlay_SetInprocInspect([]() { seen = DevToolsOverlay_InspectRequest(); ++opens; return false; });
+        g_pickDiag=&diag;g_pickRoot=10;g_pickCatcher=&catcher;catcher.AddRef();
+        g_cardRead=[](IInspectable*, std::wstring*, std::wstring*, std::vector<DevToolsCardRow>*, std::wstring*, std::wstring*) { return true; };
+        SetCommentMode(false);
+        OpenPicked(12, false);
+        check(opens==1 && seen.element==12 && !seen.activate && !seen.comments && !DevToolsSelPanelIsOpen() &&
+            DevToolsOverlay_InspectRequest().element==0,
+            "mode model", "a pick in pick mode selects the element in the inspector without stealing focus, and opens no flyout");
+        opens=0;
+        OpenPicked(12, true);
+        check(opens==0, "mode model", "a pick the inspector armed is left to the inspector");
+        SetCommentMode(true);
+        OpenPicked(13, false);
+        check(opens==0, "mode model", "a pick in comment mode opens the comment flyout, not the inspector");        OnPickClick(nullptr,nullptr);
+        check(g_pickCatcher==&catcher && !CommentModeOn(), "mode model", "Pick switches comment mode to pick mode on the same catcher");
+        OnCommentModeClick(nullptr,nullptr);
+        check(g_pickCatcher==&catcher && CommentModeOn(), "mode model", "Comments switches pick mode to comment mode");
+        OnCommentModeClick(nullptr,nullptr);
+        check(!g_pickCatcher && !CommentModeOn(), "mode model", "Comments again turns comment mode off");
+        check(catcher.refs==1, "mode model", "turning the mode off releases the catcher");
+        ShowAllComments();
+        check(opens==1 && seen.comments && seen.activate && DevToolsOverlay_InspectRequest().comments==false,
+            "comments menu", "Show all comments opens the inspector on its Comments pane");
+        DevToolsOverlay_SetInprocInspect(nullptr);
+        g_pickDiag=nullptr;g_pickRoot=g_selectedHandle=g_selPendingHandle=0;g_cardRead=nullptr;
+        DeselectAll();
+        g_canvasChildren=nullptr;
+    }
+    {
         // A point where two app windows overlap belongs to the one in front, never to the window it covers.
         auto make = [](int x) {
             return CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"", WS_POPUP | WS_VISIBLE,
@@ -905,15 +947,37 @@ int main()
             HideCommentToast();
             g_guestCommentWrite={};g_selComment=nullptr;
         }
+        // The inspector's Comment action saves through the flyout's writer and is confirmed the same way.
+        {
+            g_guestCommentWrite={};g_guestCommentQueue.clear();commentLaunches=0;g_pins.clear();g_commentSnapshotAuthoritative=false;
+            static int added = -1;
+            DevToolsOverlay_AddComment(&diagnostics.mainTarget, L"From the inspector", [](int code) { added = code; });
+            check(commentLaunches==1 && commentCommand.find(L"From the inspector")!=std::wstring::npos && added==-1,
+                "inspector comment", "the inspector's comment starts the comment writer and waits for it");
+            g_commentToastText.clear();
+            commentExitCode=0;SetEvent(commentProcess);GuestCommentTimerProc(nullptr,0,0,0);
+            check(added==0 && g_commentToastText.rfind(L"Comment saved",0)==0 && g_guestCommentWrite.id.empty() &&
+                g_pins.size()==1 && g_pins[0].handle==11,
+                "inspector comment", "a saved inspector comment is confirmed, marked on its element and frees the writer");
+            added=-1;
+            DevToolsOverlay_AddComment(&diagnostics.mainTarget, L"Not this time", [](int code) { added = code; });
+            commentExitCode=1;SetEvent(commentProcess);GuestCommentTimerProc(nullptr,0,0,0);
+            check(added>0 && !g_guestCommentWrite.failed,
+                "inspector comment", "a failed inspector comment says so and does not lock the comment flyout");
+            added=-1;
+            DevToolsOverlay_AddComment(nullptr, L"No element", [](int code) { added = code; });
+            check(added==1, "inspector comment", "a comment without an element is refused at once");
+            HideCommentToast();g_pins.clear();g_guestCommentWrite={};
+        }
         // "Open in DevTools" names the flyout's element, however it was opened (a marker opens it without a pick), so
         // the window can select it.
         {
             static InstanceHandle seenElement = 0;
-            DevToolsOverlay_SetInprocInspect([]() { seenElement = DevToolsOverlay_InspectorTarget(); return false; });
+            DevToolsOverlay_SetInprocInspect([]() { seenElement = DevToolsOverlay_InspectRequest().element; return false; });
             const InstanceHandle savedHandle = g_selHandle;
             g_selHandle = 77;
             OnSelOpenClick(nullptr, nullptr);
-            check(seenElement == 77 && DevToolsOverlay_InspectorTarget() == 0,
+            check(seenElement == 77 && DevToolsOverlay_InspectRequest().element == 0,
                 "open in DevTools", "the inspector is told which element to select, and the request is not left behind");
             g_selHandle = savedHandle;
             DevToolsOverlay_SetInprocInspect(nullptr);

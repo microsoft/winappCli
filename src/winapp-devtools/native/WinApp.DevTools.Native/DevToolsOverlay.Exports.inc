@@ -38,10 +38,12 @@ static size_t CommentCount() { return g_pins.size(); }
 // Two states authored in toolbar.xaml (a plain glyph and an accent chip carrying the same glyph); this swaps
 // their Visibility. The announcement runs before the rail parts are touched, because a missing toolbar fragment
 // must not silence the other surfaces.
-static void SetPickButtonOn(bool on)
+static void SetPickButtonOn(bool armed)
 {
+    const bool on = armed && !CommentModeOn();
     if (g_pickModeSink) g_pickModeSink(on);
-    DevToolsOverlayLog(L"overlay.pickmode button state=%s", on ? L"ON" : L"OFF");
+    DevToolsOverlayLog(L"overlay.pickmode button state=%s comments=%d", on ? L"ON" : L"OFF", (int)(armed && CommentModeOn()));
+    ProtoSetToggle(L"DevToolsProtoComments", L"DevToolsCommentsOn", L"DevToolsCommentsOff", armed && CommentModeOn());
     if (!g_protoRoot) return;
     auto setVis = [](const wchar_t* name, bool visible) {
         if (IInspectable* el = DevToolsSelFindName(g_protoRoot, name)) {
@@ -63,6 +65,7 @@ static void SetCommentsShown(bool on)
 {
     g_commentsShown = on;
     if (on) DrawAllPins(); else ClearAllPinsUi();
+    ProtoSetPartText(L"DevToolsToggleMarkersText", on ? L"Hide markers" : L"Show markers");
     UpdateCommentBadge();
     DevToolsOverlayLog(L"overlay.comments %s (pins=%zu)", on ? L"show" : L"hide", g_pins.size());
 }
@@ -166,22 +169,6 @@ HRESULT DevToolsOverlay_SetComments(IXamlDiagnostics* diag, InstanceHandle root,
                   count, g_pins.size(), placed);
     return S_OK;
 }
-
-// Retained because the composer/edit-in-place machinery is still reached via the panel's comment box.)
-static void CommentModeOpenComposer(InstanceHandle picked)
-{
-    if (!g_pickDiag || !picked) return;
-    IInspectable* el = nullptr;
-    if (SUCCEEDED(g_pickDiag->GetIInspectableFromHandle(picked, &el)) && el) { ShowComposerForElement(el, true); el->Release(); }
-}
-
-// It reveals or hides the markers for the WHOLE registry: the open set the CLI pushed out of
-// `.winapp/ui-comments.json` on attach (DevToolsOverlay_SetComments) plus anything composed since.
-static void OnCommentsToggleClick(void*, void*)
-{
-    SetCommentsShown(!g_commentsShown);
-}
-
 
 // IXamlDiagnostics2 is declared from the public WinAppSDK xamlom.winui.h ABI and queried from the live SetSite
 // diagnostics object. Screen-to-content conversion must use the active root's ContentCoordinateConverter, not a

@@ -125,10 +125,10 @@ static void TestToolbarContract()
                      overlay.find("FontFamily=\\\"Segoe MDL2 Assets\\\"") == std::string::npos,
                  "DevTools FontIcons inherit the platform icon font");
 
-    CheckToolbar(CountOf(xaml, "RequestedTheme=\"$TOOLBARTHEME$\"") == 2,
-                 "both toolbar surfaces request the inverse app theme");
-    CheckToolbar(CountOf(xaml, "BackgroundSizing=\"InnerBorderEdge\"") == 2,
-                 "both toolbar surfaces clip Acrylic inside their borders");
+    CheckToolbar(CountOf(xaml, "RequestedTheme=\"$TOOLBARTHEME$\"") == 3,
+                 "the toolbar surfaces and its menu request the inverse app theme");
+    CheckToolbar(CountOf(xaml, "BackgroundSizing=\"InnerBorderEdge\"") == 3,
+                 "the toolbar surfaces and its menu clip Acrylic inside their borders");
     CheckToolbar(overlay.find("static const DevToolsPalette& DevToolsInverseAcrylicPalette()") != std::string::npos &&
                      overlay.find("{ThemeResource AcrylicBackgroundFillColorDefaultBrush}") != std::string::npos &&
                      overlay.find("{ThemeResource SurfaceStrokeColorFlyoutBrush}") != std::string::npos,
@@ -440,12 +440,16 @@ static void TestToolbarContract()
                      window.find("AssocQueryStringW") != std::string::npos,
                  "no call site launches the shell without asking for the association first");
 
-    CheckToolbar(overlay.find("static EventSink g_protoSink[15];") != std::string::npos,
+    CheckToolbar(window.find("AutomationProperties.AutomationId=\\\"WinAppDevToolsAddComment\\\"") != std::string::npos &&
+                     window.find("DevToolsOverlay_AddComment(element, value") != std::string::npos,
+                 "the inspector's Comment action saves through the in-app comment writer");
+    CheckToolbar(overlay.find("static EventSink g_protoSink[18];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");
     CheckToolbar(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &OnPickClick);") != std::string::npos,
                  "Pick is wired by namescope identity");
-    CheckToolbar(overlay.find("wireNamedClick(L\"DevToolsProtoComments\", g_protoSink[3], &OnCommentsToggleClick);") != std::string::npos,
-                 "Comments is wired by namescope identity");
+    CheckToolbar(overlay.find("wireNamedClick(L\"DevToolsProtoComments\", g_protoSink[3], &OnCommentModeClick);") != std::string::npos &&
+                     overlay.find("wireNamedClick(L\"DevToolsProtoCommentsMenu\", g_protoSink[15], &OnCommentsMenuClick);") != std::string::npos,
+                 "Comments and its menu are wired by namescope identity");
     CheckToolbar(overlay.find("wireNamedClick(L\"DevToolsProtoInspect\", g_protoSink[4], &OnInspectClick);") != std::string::npos,
                  "Inspect is wired by namescope identity");
     CheckToolbar(overlay.find("wireNamedClick(L\"DevToolsProtoLayout\", g_protoSink[5], &OnLayoutToggleClick);") != std::string::npos,

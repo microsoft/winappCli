@@ -39,6 +39,21 @@ void DevToolsWindow_RefreshComments()
     else                UpdateCommentsButtonLabel();
 }
 
+void DevToolsWindow_ShowComments()
+{
+    if (DevToolsWindow_IsOpen()) SetCommentsView(true);
+}
+
+bool DevToolsWindow_RevealWithoutFocus()
+{
+    if (!g_route1WindowInsp || g_route1WindowHidden || !Route1WindowAlive()) return false;
+    const HWND hwnd = Route1WindowHwnd();
+    if (!hwnd) return false;
+    if (IsIconic(hwnd)) ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    return true;
+}
+
 HRESULT DevToolsWindow_Open(IXamlDiagnostics* diag,
                        const std::vector<DevToolsWindowNode>& nodes,
                        size_t censusTotal,

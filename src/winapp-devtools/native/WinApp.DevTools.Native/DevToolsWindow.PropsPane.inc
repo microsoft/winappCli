@@ -30,6 +30,8 @@ static bool CanRereadSelection(bool* filterFocused)
     return true;
 }
 
+static void WireAddComment(void* frameworkElement);
+
 static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, const std::wstring& breadcrumb,
                              bool force)
 {
@@ -295,6 +297,7 @@ g_propRows = rows;
         // Source "Open" button: wire its Click to an OpenSourceSink (present only when the node had resolvable
         // source under WINAPP_DEVTOOLS_SOURCE_ROOT). Independent of editable rows -- a read-only node can still
         // link to source. Leaked/gen-guarded like the other sinks.
+        WireAddComment(fe);
         if (IInspectable* ob = findByName(L"OpenSource")) {
             void* bb = nullptr;
             if (SUCCEEDED(ob->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {

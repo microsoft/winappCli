@@ -97,9 +97,12 @@ static void SnapTargetPos(int c, double* x, double* y)
 }
 
 static bool g_dragging = false;
+static const wchar_t* g_toolbarMenu = nullptr;
+static bool CloseToolbarMenu(bool focusAnchor = false);
 
 static void ShowARow(bool open)
 {
+    if (!open || !g_toolbarVisible) CloseToolbarMenu();
     g_aRowOpen = open;
     MoveOverlayElement(g_aRow, BarX(), BarY());
     MoveOverlayElement(g_railL, ChipX(), ChipY());
@@ -133,7 +136,8 @@ static bool ChromeRectOverride(IInspectable* element, winrt::Windows::Foundation
 }
 static void OnAExpand(void*, void*)  { if (g_dragging) return; ShowARow(true); }
 // Collapse when the pointer leaves the bar -- unless the toolbar is pinned open (the whole point of the pin).
-static void OnACollapse(void*, void*){ if (g_pinned || g_dragging || g_toolbarFocusWithin > 0) return; ShowARow(false); }
+// An open menu decides for itself, once the pointer has settled on neither the bar nor the menu.
+static void OnACollapse(void*, void*){ if (g_pinned || g_dragging || g_toolbarFocusWithin > 0 || g_toolbarMenu) return; ShowARow(false); }
 static void OnToolbarGotFocus(void*, void*) { ++g_toolbarFocusWithin; }
 static void OnToolbarLostFocus(void*, void*) { if (g_toolbarFocusWithin > 0) --g_toolbarFocusWithin; }
 static bool FocusToolbarFirstAction()
@@ -306,6 +310,111 @@ static void ProtoSetPartText(const wchar_t* name, const std::wstring& text)
 
 static bool CommentsShown();
 static size_t CommentCount();
+// Toolbar menus are canvas parts shown beside the bar, one at a time. They live in the toolbar's layer rather than
+// in a popup, so they never mix with the app's own popups.
+static const wchar_t* g_toolbarMenuAnchor = nullptr;
+static bool g_menuHover = false, g_barHover = false;
+static UINT_PTR g_menuLeaveTimer = 0;
+
+static winrt::Windows::Foundation::IInspectable ToolbarPart(const wchar_t* name)
+{
+    winrt::Windows::Foundation::IInspectable part{ nullptr };
+    if (IInspectable* element = g_protoRoot && name ? DevToolsSelFindName(g_protoRoot, name) : nullptr)
+        winrt::attach_abi(part, element);
+    return part;
+}
+
+static bool CloseToolbarMenu(bool focusAnchor)
+{
+    if (g_menuLeaveTimer) { KillTimer(nullptr, g_menuLeaveTimer); g_menuLeaveTimer = 0; }
+    if (!g_toolbarMenu) return false;
+    ProtoSetPartVisible(g_toolbarMenu, false);
+    if (focusAnchor) {
+        try {
+            if (auto anchor = ToolbarPart(g_toolbarMenuAnchor).try_as<DevToolsX::UIElement>())
+                anchor.Focus(DevToolsX::FocusState::Keyboard);
+        } catch (const winrt::hresult_error&) {}
+    }
+    g_toolbarMenu = g_toolbarMenuAnchor = nullptr;
+    g_menuHover = false;
+    return true;
+}
+
+static void CALLBACK ToolbarMenuLeaveProc(HWND, UINT, UINT_PTR, DWORD)
+{
+    if (g_menuLeaveTimer) { KillTimer(nullptr, g_menuLeaveTimer); g_menuLeaveTimer = 0; }
+    if (g_menuHover || g_barHover) return;
+    CloseToolbarMenu();
+    if (!g_pinned && !g_dragging && g_toolbarFocusWithin == 0) ShowARow(false);
+}
+
+// Opens `menu` under its `anchor` button, above the bar when the toolbar sits at the bottom. A menu opened from the
+// keyboard puts focus on its first action.
+static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, int items, const wchar_t* first)
+{
+    const bool wasOpen = g_toolbarMenu && wcscmp(g_toolbarMenu, menu) == 0;
+    CloseToolbarMenu();
+    if (wasOpen || !g_aRow) return;
+    bool keyboard = false;
+    try {
+        winrt::Windows::Foundation::IInspectable barObject{ nullptr };
+        winrt::copy_from_abi(barObject, g_aRow);
+        auto anchorElement = ToolbarPart(anchor).as<DevToolsX::UIElement>();
+        auto panel = ToolbarPart(menu).as<DevToolsX::FrameworkElement>();
+        keyboard = anchorElement.FocusState() != DevToolsX::FocusState::Unfocused;
+        const double width = panel.Width(), height = 10.0 + 32.0 * items;
+        const double offset = anchorElement.TransformToVisual(barObject.as<DevToolsX::UIElement>()).TransformPoint({ 0, 0 }).X;
+        const double x = (std::clamp)(BarX() + offset, 4.0, (std::max)(4.0, g_protoW - width - 4.0));
+        const double y = CornerIsTop(g_corner) ? BarY() + kBarH + 4.0 : BarY() - height - 4.0;
+        MoveOverlayElement(reinterpret_cast<IInspectable*>(winrt::get_abi(panel)), x, y);
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar menu placement failed hr=0x%08X", e.code().value);
+        return;
+    }
+    ProtoSetPartVisible(menu, true);
+    g_toolbarMenu = menu;
+    g_toolbarMenuAnchor = anchor;
+    if (keyboard) {
+        try { ToolbarPart(first).as<DevToolsX::UIElement>().Focus(DevToolsX::FocusState::Keyboard); }
+        catch (const winrt::hresult_error&) {}
+    }
+    DevToolsOverlayLog(L"overlay.toolbar menu %s open", menu);
+}
+
+// The bar and its menu track the pointer together: leaving both closes the menu and lets the bar collapse.
+static void WireToolbarMenu(const wchar_t* menu)
+{
+    try {
+        auto wireHover = [](const wchar_t* name, bool* flag) {
+            auto element = ToolbarPart(name).try_as<DevToolsX::UIElement>();
+            if (!element) return;
+            element.PointerEntered([flag](auto&&, auto&&) { *flag = true; });
+            element.PointerExited([flag](auto&&, auto&&) {
+                *flag = false;
+                if (g_toolbarMenu) g_menuLeaveTimer = SetTimer(nullptr, g_menuLeaveTimer, 300, &ToolbarMenuLeaveProc);
+            });
+        };
+        wireHover(menu, &g_menuHover);
+        if (auto element = ToolbarPart(menu).try_as<DevToolsX::UIElement>())
+            element.KeyDown([](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
+                if (args.Key() == winrt::Windows::System::VirtualKey::Escape && CloseToolbarMenu(true)) args.Handled(true);
+            });
+        static bool barWired = false;
+        if (!std::exchange(barWired, true)) wireHover(L"DevToolsBar", &g_barHover);
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"overlay.toolbar menu wiring failed hr=0x%08X", e.code().value);
+    }
+}
+
+static void SetCommentsShown(bool on);
+static void ShowAllComments();
+static void OnCommentsMenuClick(void*, void*)
+{
+    ToggleToolbarMenu(L"DevToolsCommentsMenu", L"DevToolsProtoCommentsMenu", 2, L"DevToolsShowAllComments");
+}
+static void OnShowAllCommentsClick(void*, void*) { CloseToolbarMenu(); ShowAllComments(); }
+static void OnToggleMarkersClick(void*, void*) { CloseToolbarMenu(); SetCommentsShown(!CommentsShown()); }
+
 static std::wstring ChipSurfaceLabel()
 {
     const std::vector<DevToolsSurface>& all = DevToolsOverlay_AllSurfaces();
@@ -332,7 +441,7 @@ static void UpdateChipLabel()
     const bool active = picking || comments;
     const std::wstring surface = ChipSurfaceLabel();
 
-    ProtoSetPartText(L"DevToolsChipLabel", picking ? L"Picking"
+    ProtoSetPartText(L"DevToolsChipLabel", picking ? (CommentModeOn() ? L"Commenting" : L"Picking")
                                              : (comments ? L"Comments"
                                                          : (surface.empty() ? std::wstring(L"DevTools") : surface)));
     if (!picking && comments) ProtoSetPartText(L"DevToolsChipCountText", (n > 99) ? std::wstring(L"99+") : std::to_wstring(n));
@@ -730,7 +839,11 @@ static void WirePrototype(IInspectable* canvas)
             handle->Release();
         }
         wireNamedClick(L"DevToolsProtoPick", g_protoSink[2], &OnPickClick);
-        wireNamedClick(L"DevToolsProtoComments", g_protoSink[3], &OnCommentsToggleClick);
+        wireNamedClick(L"DevToolsProtoComments", g_protoSink[3], &OnCommentModeClick);
+        wireNamedClick(L"DevToolsProtoCommentsMenu", g_protoSink[15], &OnCommentsMenuClick);
+        wireNamedClick(L"DevToolsShowAllComments", g_protoSink[16], &OnShowAllCommentsClick);
+        wireNamedClick(L"DevToolsToggleMarkers", g_protoSink[17], &OnToggleMarkersClick);
+        WireToolbarMenu(L"DevToolsCommentsMenu");
         wireNamedClick(L"DevToolsProtoInspect", g_protoSink[4], &OnInspectClick);
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &OnLayoutToggleClick);
         wireNamedClick(L"DevToolsProtoTheme", g_protoSink[6], &OnThemeToggleClick);

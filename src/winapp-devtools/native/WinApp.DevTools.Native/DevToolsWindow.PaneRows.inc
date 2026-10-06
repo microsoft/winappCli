@@ -91,6 +91,8 @@ static const wchar_t* OriginChip(const DevToolsCardRow& r)
     return L"BIND";
 }
 
+static const wchar_t* const kAddCommentHint = L"Enter to save \u00B7 Shift+Enter for a new line \u00B7 Esc to close";
+
 // Each property is its own named row so filtering, virtualization, and per-row actions can target one element.
 static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstring& name,
                                        const std::wstring& label, const std::wstring& breadcrumb,
@@ -108,8 +110,19 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
          L" AutomationProperties.AutomationId=\"WinAppDevToolsProps\">";
     m += L"<TextBlock Text=\"PROPERTIES\" Style=\"{StaticResource CaptionTextBlockStyle}\""
          L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" CharacterSpacing=\"60\"/>";
+    m += L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"*\"/><ColumnDefinition Width=\"Auto\"/>"
+         L"</Grid.ColumnDefinitions>";
     m += L"<TextBlock Text=\"" + DevToolsXmlEscape(badge) + L"\" Style=\"{StaticResource BodyStrongTextBlockStyle}\""
-         L" Foreground=\"{ThemeResource TextFillColorPrimaryBrush}\" TextTrimming=\"CharacterEllipsis\"/>";
+         L" Foreground=\"{ThemeResource TextFillColorPrimaryBrush}\" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\"/>";
+    // Comments on the selected element use the in-app writer; the box opens below the source line.
+    if (g_ctx.writeFn) {
+        m += L"<Button x:Name=\"AddCommentBtn\" Grid.Column=\"1\" Padding=\"8,3\" FontSize=\"12\" VerticalAlignment=\"Center\""
+             L" ToolTipService.ToolTip=\"Comment on this element\" AutomationProperties.Name=\"Add comment\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsAddComment\">"
+             L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\"><FontIcon Glyph=\"&#xE90A;\" FontSize=\"12\"/>"
+             L"<TextBlock Text=\"Comment\" FontSize=\"12\"/></StackPanel></Button>";
+    }
+    m += L"</Grid>";
     // Ancestor breadcrumb (root -> parent). Collapsed to one line by default: a real WinUI chain is 20+
     // levels, and rendering it expanded pushed the actual properties off the bottom of the pane. NOTE the
     // explicit TextWrapping="NoWrap" -- CaptionTextBlockStyle turns wrapping ON, and with wrapping enabled
@@ -157,6 +170,16 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
             }
             m += L"</StackPanel>";
         }
+    }
+    if (g_ctx.writeFn) {
+        m += L"<StackPanel x:Name=\"AddCommentBox\" Visibility=\"Collapsed\" Spacing=\"6\">"
+             L"<TextBox x:Name=\"AddCommentText\" AcceptsReturn=\"True\" TextWrapping=\"Wrap\" MinHeight=\"56\" MaxHeight=\"120\""
+             L" FontSize=\"12\" PlaceholderText=\"Comment on this element&#x2026;\" AutomationProperties.Name=\"Comment\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsAddCommentText\"/>"
+             L"<TextBlock x:Name=\"AddCommentStatus\" Text=\"" + DevToolsXmlEscape(kAddCommentHint) + L"\""
+             L" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\""
+             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.LiveSetting=\"Polite\""
+             L" AutomationProperties.AutomationId=\"WinAppDevToolsAddCommentStatus\"/></StackPanel>";
     }
     if (!authoredXaml.empty()) {
         const std::wstring note = authoredState == L"likely"

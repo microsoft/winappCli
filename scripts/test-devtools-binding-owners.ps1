@@ -163,6 +163,17 @@ function Wait-CommentStatus([string]$App, [string]$Expected) {
     throw "Comment status did not become '$Expected': $($status.properties.Name)"
 }
 function Nodes($Items) { foreach ($item in $Items) { $item; Nodes $item.children } }
+# Turns on the toolbar's comment mode. A collapsed toolbar opens under the pointer and collapses again once the next
+# click moves the pointer away.
+function Enter-CommentMode {
+    $shown = @((Invoke-Cli @('ui', 'search', 'DevToolsProtoComments', '-a', $app)).matches | Where-Object automationId -eq 'DevToolsProtoComments')
+    if ($shown.Count -eq 0) {
+        $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
+        $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoComments', '-a', $app, '-t', '5000')
+    }
+    $state = Invoke-Cli @('ui', 'get-property', 'DevToolsProtoComments', '-a', $app, '-p', 'ToggleState')
+    if ($state.properties.ToggleState -ne 'On') { $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoComments', '-a', $app) }
+}
 function Overlaps($A, $B) { $A.x -lt $B.x + $B.width -and $B.x -lt $A.x + $A.width -and $A.y -lt $B.y + $B.height -and $B.y -lt $A.y + $A.height }
 function Control([string]$Command) {
     Set-Content -LiteralPath ($report + '.pending') -Value $Command -NoNewline
@@ -225,7 +236,7 @@ try {
         Check (-not $tree.truncated -and $tree.depthLimitedElements -eq 0) 'overlay probe has a complete owned source tree'
         $heading = @(Nodes $tree.elements | Where-Object name -eq 'WindowHeading')
         Check ($heading.Count -eq 1) 'overlay probe selects one exact authored heading'
-        $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
+        Enter-CommentMode
         $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $selection = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
@@ -336,7 +347,7 @@ try {
         $stored = Get-Content -LiteralPath $blockedStore -Raw | ConvertFrom-Json
         $savedComment = @($stored.comments | Where-Object text -CEQ 'Owned comment failure probe')
         Check ($savedComment.Count -eq 1) 'retry through Save actually persists the retained draft to the owned store'
-        $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
+        Enter-CommentMode
         $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $null = Invoke-Cli @('ui', 'send-keys', '!', '-a', $app, '--via', 'send-input')
@@ -377,7 +388,7 @@ try {
         Check (@($stored.comments | Where-Object text -CEQ 'Owned newer draft').Count -eq 1) 'second explicit Save persists the newer draft'
 
         # Comment status also shows on a second element.
-        $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
+        Enter-CommentMode
         $null = Invoke-Cli @('ui', 'click', 'NarrowCommentProbe', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $null = Invoke-Cli @('ui', 'set-value', 'DevToolsSelComment', 'Owned unbound draft', '-a', $app)
@@ -406,6 +417,17 @@ try {
             Set-Content (Join-Path $evidence 'narrow-pin-observation.json')
         $null = Invoke-Cli @('ui', 'screenshot', '-w', $window, '--capture-screen', '-o', (Join-Path $evidence 'narrow-pin.png'))
         Check ($overlaps.Count -eq 2 -and @($overlaps | Where-Object intersectionArea -GT 0).Count -eq 0) 'both visible comment pins leave the narrow label unobscured'
+
+        # Pick mode selects the clicked element in the inspector and opens no comment flyout.
+        $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
+        $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
+        $null = Invoke-Cli @('ui', 'wait-for', 'WinAppDevToolsAddComment', '-a', $app, '-t', '10000')
+        $picked = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
+        Check ($picked.result.handle -eq [string]$heading[0].handle -and
+            @((Invoke-Cli @('ui', 'list-windows', '-a', $app)) | Where-Object title -like 'WinApp DevTools*').Count -eq 1) 'pick mode opens the inspector on the picked element'
+        Check (@((Invoke-Cli @('ui', 'search', 'DevToolsSelComment', '-a', $app)).matches).Count -eq 0) 'pick mode opens no comment flyout'
+        $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
+        $null = Invoke-Cli @('devtools', 'call', 'Window.close', '-a', $app)
 
         $null = Invoke-Cli @('devtools', 'call', 'Window.open', '-a', $app)
         try {
@@ -494,15 +516,15 @@ try {
         Check (@($afterMenu.windows | ForEach-Object { Nodes $_.elements } | Where-Object {
             $_.automationId -eq $toolbarHalf[0].automationId -and -not $_.isOffscreen }).Count -eq 1) 'the toolbar under the menu did not react to the click'
 
-        # Pick mode picks what is visible: a menu item in an open app menu, not the element beneath it.
+        # Comment mode picks what is visible: a menu item in an open app menu, not the element beneath it.
         $anchor = @((Invoke-Cli @('ui', 'search', 'WindowHeading', '-a', $app)).matches | Where-Object automationId -eq 'WindowHeading')[0]
+        Enter-CommentMode
         Control "menu:$([int]($anchor.x + 80)),$([int]($anchor.y + 60))"
         $null = Invoke-Cli @('ui', 'wait-for', 'FixtureMenuItem', '-a', $app, '-t', '5000')
-        $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
         $null = Invoke-Cli @('ui', 'click', 'FixtureMenuItem', '-a', $app)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
         $pickedTitle = Invoke-Cli @('ui', 'get-property', 'DevToolsSelTitle', '-a', $app, '-p', 'Name')
-        Check ($pickedTitle.properties.Name -like 'MenuFlyoutItem*') 'pick mode selects the menu item under the pointer in an open app menu'
+        Check ($pickedTitle.properties.Name -like 'MenuFlyoutItem*') 'comment mode selects the menu item under the pointer in an open app menu'
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsSelClose', '-a', $app)
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
         $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
@@ -510,9 +532,9 @@ try {
         # A pick inside an open light-dismiss popup must not close it: the popup and the selection both stay.
         foreach ($case in @(@{ Opener = 'PickCombo'; Target = 'PickComboBeta'; Title = 'ComboBoxItem*' },
                             @{ Opener = 'FlyoutOpener'; Target = 'FlyoutText'; Title = 'TextBlock*' })) {
+            Enter-CommentMode
             $null = Invoke-Cli @('ui', 'invoke', $case.Opener, '-a', $app)
             $null = Invoke-Cli @('ui', 'wait-for', $case.Target, '-a', $app, '-t', '5000')
-            $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
             $null = Invoke-Cli @('ui', 'click', $case.Target, '-a', $app)
             $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsSelComment', '-a', $app, '-t', '5000')
             Start-Sleep -Milliseconds 800

@@ -8,19 +8,34 @@ static bool IsLinkedElement(InstanceHandle handle);
 static std::vector<std::wstring> SelOtherComments(InstanceHandle handle);
 static void OnInspectClick(void*, void*);
 
-static InstanceHandle g_inspectTarget = 0;
-InstanceHandle DevToolsOverlay_InspectorTarget() { return g_inspectTarget; }
+static DevToolsInspectRequest g_inspectRequest;
+const DevToolsInspectRequest& DevToolsOverlay_InspectRequest() { return g_inspectRequest; }
 
-// Opens (or focuses) the inspector with lement selected.
-static void InspectElement(InstanceHandle element)
+static void Inspect(const DevToolsInspectRequest& request)
 {
-    g_inspectTarget = element;
+    g_inspectRequest = request;
     OnInspectClick(nullptr, nullptr);
-    g_inspectTarget = 0;
+    g_inspectRequest = {};
+}
+
+// Opens the inspector with `element` selected. Without `activate`, an inspector already on screen is only brought
+// forward, so picking in the app can go on.
+static void InspectElement(InstanceHandle element, bool activate)
+{
+    DevToolsInspectRequest request;
+    request.element = element;
+    request.activate = activate;
+    Inspect(request);
+}
+
+static void ShowAllComments()
+{
+    DevToolsInspectRequest request;
+    request.comments = true;
+    Inspect(request);
 }
 
 static void OnSelOpenClick(void*, void*) { InspectElement(g_selHandle); }
-
 // Tear down the morph anchor (idempotent): remove the subtree from the canvas, release the held parts, and
 // release the element-count oracle freeze (the panel's async TextBox parts are gone once the subtree leaves, so
 // the live count returns to the frozen baseline).

@@ -362,7 +362,7 @@ static const int kChipH         = 28;
 // Bar width must clear the StackPanel content so the last item keeps the same inset as the first. Content =
 // dragHandle(24)+margin(2) + Pick(30)+Comments(34)+Inspect(30)+Layout(30)+Theme(30) + sep(1)+margin(6) +
 // Pin(24) + 7*Spacing(3) = 232 DIP; chrome = 2*Border(1) + 2*Padding(6) = 14 DIP.
-static const int kBarW          = 252;
+static const int kBarW          = 266;
 static const int kBarH          = 36;
 static const int kSnapW         = 112;
 static const int kSnapH         = 32;

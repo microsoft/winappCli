@@ -2,9 +2,7 @@
 // Licensed under the MIT License.
 // Part of DevToolsOverlay.cpp; included into that translation unit, not compiled on its own.
 
-// ============================ Comment mode (authoring layer) ============================ A toolbar-toggled
-// layer for fluid UI review: while on, clicking any element opens the composer directly and a saved comment
-// drops a persistent 💬 pin at the element (so there's a visible indication a comment lives here), then pick r.
+// ============================ Comment markers and pick exports ============================
 
 // Fresh comment id: "cmt_" + 12 hex, matching the CLI's own id shape so the overlay owns the id up front (draw
 // the pin + re-open for edit without parsing CLI stdout).
@@ -63,8 +61,8 @@ bool DevToolsOverlay_ArmPick()
         return false;
     }
     if (!DevToolsPickExportOnUiThread(L"ArmPick")) return false;
-    if (!g_pickCatcher) OnPickClick(nullptr, nullptr);
-    return g_pickCatcher != nullptr;
+    if (!g_pickCatcher || CommentModeOn()) ArmInputMode(nullptr, false);
+    return g_pickCatcher != nullptr && !CommentModeOn();
 }
 
 // Idempotent and safe when nothing is armed: RemovePickCatcher no-ops when g_pickCatcher is null, so no
@@ -103,7 +101,7 @@ static void OnAppEscape(void* /*sender*/, void* args)
         return;
     }
     if (SUCCEEDED(hr) && ((IsToolbarShortcut(key) && FocusToolbarFromShortcut()) ||
-                          (key == VK_ESCAPE && ReturnFocusFromToolbar()))) {
+                          (key == VK_ESCAPE && (CloseToolbarMenu(true) || ReturnFocusFromToolbar())))) {
         DevToolsPutHandled(kr, true);
         reinterpret_cast<IUnknown*>(kr)->Release();
         return;

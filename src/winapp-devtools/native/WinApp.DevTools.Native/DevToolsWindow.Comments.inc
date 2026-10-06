@@ -505,3 +505,53 @@ static void UpdateCommentsButtonLabel()
     SetToggleLabel(g_commentsLbl, std::to_wstring(open).c_str());
     SetIconToggleState(g_commentsBadgeUi, open > 0);
 }
+
+// The properties header's Comment button opens a box under it. Enter saves through the in-app comment writer,
+// Shift+Enter starts a new line and Esc closes the box.
+static unsigned g_addCommentGen = 0;
+static void WireAddComment(void* frameworkElement)
+{
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, frameworkElement);
+        auto root = object.as<DevToolsX::FrameworkElement>();
+        auto button = root.FindName(L"AddCommentBtn").try_as<DevToolsXC::Button>();
+        auto box = root.FindName(L"AddCommentBox").try_as<DevToolsX::UIElement>();
+        auto text = root.FindName(L"AddCommentText").try_as<DevToolsXC::TextBox>();
+        auto status = root.FindName(L"AddCommentStatus").try_as<DevToolsXC::TextBlock>();
+        if (!button || !box || !text || !status) return;
+        const unsigned gen = ++g_addCommentGen;
+        button.Click([box, text](auto&&, auto&&) {
+            box.Visibility(DevToolsX::Visibility::Visible);
+            text.Focus(DevToolsX::FocusState::Programmatic);
+        });
+        text.PreviewKeyDown([box, text, status, gen](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
+            using winrt::Windows::System::VirtualKey;
+            if (args.Key() == VirtualKey::Escape) {
+                args.Handled(true);
+                text.Text(L"");
+                status.Text(kAddCommentHint);
+                box.Visibility(DevToolsX::Visibility::Collapsed);
+                return;
+            }
+            if (args.Key() != VirtualKey::Enter || (GetKeyState(VK_SHIFT) & 0x8000)) return;
+            args.Handled(true);
+            const std::wstring value(text.Text());
+            if (text.IsReadOnly() || value.find_first_not_of(L" \t\r\n") == std::wstring::npos) return;
+            IInspectable* element = g_elementFn ? g_elementFn(g_selWire) : nullptr;
+            text.IsReadOnly(true);
+            status.Text(L"Saving\u2026");
+            DevToolsOverlay_AddComment(element, value, [weakText = winrt::make_weak(text), weakStatus = winrt::make_weak(status), gen](int code) {
+                auto savedText = weakText.get();
+                auto savedStatus = weakStatus.get();
+                if (!savedText || !savedStatus || gen != g_addCommentGen) return;
+                savedText.IsReadOnly(false);
+                if (code == 0) savedText.Text(L"");
+                savedStatus.Text(code == 0 ? L"Comment saved." : L"Couldn't save the comment. Try again.");
+            });
+            if (element) element->Release();
+        });
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"route1.props comment box wiring failed hr=0x%08X", e.code().value);
+    }
+}
