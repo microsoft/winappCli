@@ -57,10 +57,10 @@ winapp ui invoke Open -w <dialog-HWND> --type Button
 winapp ui set-value "Text editor" "hello" -a notepad --type Document
 ```
 
-Every command that takes one element selector accepts these optional filters:
+These commands accept optional filters on their element selector:
 `inspect` (with a selector), `search`, `get-property`, `get-value`, `wait-for`,
 `invoke`, `set-value`, `click`, `focus`, `hover`, `scroll`, `scroll-into-view`,
-`screenshot`, `record`, `touch`, and `pen`. `drag` does not, because it takes two selectors.
+`screenshot`, `record`, `touch`, and `pen`. `drag` (two selectors) and `send-keys --target` do not.
 The selector and every supplied filter must match the **same element**. Filters narrow a
 selector, so `inspect`, `screenshot`, and `record`, whose selector is optional, fail with
 `invalid_arguments` when given filters without one:

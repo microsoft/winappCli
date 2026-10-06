@@ -26,12 +26,14 @@ type UiRecordArgSpec = {
   property: keyof UiRecordOptions;
   flag: string;
   kind: 'boolean' | 'value';
+  /** Forward an explicit empty string, which the CLI treats as a value rather than an absent option. */
+  keepEmpty?: true;
 };
 
 export const UI_RECORD_ARG_SPECS: readonly UiRecordArgSpec[] = [
   { property: 'app', flag: '--app', kind: 'value' },
   { property: 'captureScreen', flag: '--capture-screen', kind: 'boolean' },
-  { property: 'className', flag: '--class-name', kind: 'value' },
+  { property: 'className', flag: '--class-name', kind: 'value', keepEmpty: true },
   { property: 'durationSec', flag: '--duration-sec', kind: 'value' },
   { property: 'fps', flag: '--fps', kind: 'value' },
   { property: 'frames', flag: '--frames', kind: 'boolean' },
@@ -40,8 +42,8 @@ export const UI_RECORD_ARG_SPECS: readonly UiRecordArgSpec[] = [
   { property: 'output', flag: '--output', kind: 'value' },
   { property: 'overwrite', flag: '--overwrite', kind: 'boolean' },
   { property: 'on', flag: '--on', kind: 'value' },
-  { property: 'root', flag: '--root', kind: 'value' },
-  { property: 'type', flag: '--type', kind: 'value' },
+  { property: 'root', flag: '--root', kind: 'value', keepEmpty: true },
+  { property: 'type', flag: '--type', kind: 'value', keepEmpty: true },
   { property: 'window', flag: '--window', kind: 'value' },
   { property: 'quiet', flag: '--quiet', kind: 'boolean' },
   { property: 'verbose', flag: '--verbose', kind: 'boolean' },
@@ -62,7 +64,7 @@ export function buildUiRecordArgs(options: UiRecordOptions): string[] {
     const value = options[spec.property];
     if (spec.kind === 'boolean') {
       if (value) args.push(spec.flag);
-    } else if (value !== undefined && value !== '') {
+    } else if (value !== undefined && (value !== '' || spec.keepEmpty)) {
       args.push(spec.flag, value.toString());
     }
   }
