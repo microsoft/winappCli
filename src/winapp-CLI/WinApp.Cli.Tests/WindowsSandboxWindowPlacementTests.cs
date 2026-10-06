@@ -3,11 +3,14 @@
 
 extern alias winappcli;
 
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 using WinApp.Cli.Helpers;
 using CliHwnd = winappcli::Windows.Win32.Foundation.HWND;
+using PInvoke = winappcli::Windows.Win32.PInvoke;
+using SetWindowPosFlags = winappcli::Windows.Win32.UI.WindowsAndMessaging.SET_WINDOW_POS_FLAGS;
+using WindowExStyle = winappcli::Windows.Win32.UI.WindowsAndMessaging.WINDOW_EX_STYLE;
+using WindowLongIndex = winappcli::Windows.Win32.UI.WindowsAndMessaging.WINDOW_LONG_PTR_INDEX;
 
 namespace WinApp.Cli.Tests;
 
@@ -82,20 +85,19 @@ public class WindowsSandboxWindowPlacementTests
             "The Sandbox window must not become always-on-top just because the user's window is.");
     }
 
-    private const int GwlExStyle = -20;
-    private const int WsExTopmost = 0x8;
+    private static bool IsTopmost(nint hwnd) =>
+        ((WindowExStyle)PInvoke.GetWindowLong(new CliHwnd(hwnd), WindowLongIndex.GWL_EXSTYLE) & WindowExStyle.WS_EX_TOPMOST) != 0;
 
-    private static readonly nint HwndTopmost = -1;
-    private const uint SwpNoMoveNoSizeNoActivate = 0x0002 | 0x0001 | 0x0010;
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowPos(nint hwnd, nint insertAfter, int x, int y, int cx, int cy, uint flags);
-
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
-    private static extern int GetWindowLong(nint hwnd, int index);
-
-    private static bool IsTopmost(nint hwnd) => (GetWindowLong(hwnd, GwlExStyle) & WsExTopmost) != 0;
+    /// <summary>Pins a window the way PowerToys "Always On Top" does.</summary>
+    private static void Pin(nint hwnd) =>
+        PInvoke.SetWindowPos(
+            new CliHwnd(hwnd),
+            new CliHwnd(-1), // HWND_TOPMOST
+            0,
+            0,
+            0,
+            0,
+            SetWindowPosFlags.SWP_NOMOVE | SetWindowPosFlags.SWP_NOSIZE | SetWindowPosFlags.SWP_NOACTIVATE);
 
     /// <summary>
     /// Two small WinForms windows on their own STA thread: an always-on-top window the user is working
@@ -116,7 +118,7 @@ public class WindowsSandboxWindowPlacementTests
                 _pinned = new Form { Text = "winapp test: always on top", StartPosition = FormStartPosition.Manual, Left = 40, Top = 40, Width = 240, Height = 120 };
                 _client = new QuietForm { Text = "winapp test: Sandbox stand-in", Left = 80, Top = 80 };
                 _pinned.Show();
-                SetWindowPos(_pinned.Handle, HwndTopmost, 0, 0, 0, 0, SwpNoMoveNoSizeNoActivate);
+                Pin(_pinned.Handle);
                 _client.Show();
                 PinnedHandle = _pinned.Handle;
                 ClientHandle = _client.Handle;
