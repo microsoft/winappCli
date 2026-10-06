@@ -422,7 +422,114 @@ public class CertificateServiceTests : BaseCommandTests
         Assert.HasCount(1, bt.Invocations);
         Assert.AreEqual("signtool.exe", bt.Invocations[0].Tool);
         StringAssert.Contains(bt.Invocations[0].Arguments, "sign /f");
+        StringAssert.Contains(bt.Invocations[0].Arguments, ".sst");
         StringAssert.Contains(bt.Invocations[0].Arguments, "/fd SHA256");
+        Assert.DoesNotContain("/p ", bt.Invocations[0].Arguments, "the PFX password must not be passed to signtool");
+        Assert.DoesNotContain(cert.FullName, bt.Invocations[0].Arguments, "signtool must not import the PFX itself");
+    }
+
+    [TestMethod]
+    public async Task SignFileAsync_WrongPfxPassword_ReportsReadableError()
+    {
+        var (svc, bt, _) = NewService();
+        var file = new FileInfo(Path.Combine(_tempDirectory.FullName, "app-badpw.exe"));
+        await File.WriteAllTextAsync(file.FullName, "MZ");
+        var cert = CreatePfx(_tempDirectory.FullName, "sign-badpw.pfx", "CN=BadPw", "pw");
+        var signtoolRan = false;
+        bt.RunBuildToolHandler = (_, _, _) => { signtoolRan = true; return ("", ""); };
+
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            svc.SignFileAsync(file, cert, TestTaskContext, password: "wrong", cancellationToken: TestContext.CancellationToken));
+
+        // Asserting our own text, not .NET's: the published CLI replaces framework messages with resource keys.
+        Assert.AreEqual($"Failed to sign file: Could not open certificate '{cert.FullName}'. Check that the password is correct.", ex.Message);
+        Assert.IsFalse(signtoolRan, "signtool must not run when the PFX cannot be opened");
+    }
+
+    [TestMethod]
+    [DataRow(false, DisplayName = "signing succeeds")]
+    [DataRow(true, DisplayName = "signing fails")]
+    public async Task SignFileAsync_DeletesTemporaryKeyAndStore(bool signtoolFails)
+    {
+        var (svc, bt, _) = NewService();
+        var file = new FileInfo(Path.Combine(_tempDirectory.FullName, "app-key.exe"));
+        await File.WriteAllTextAsync(file.FullName, "MZ");
+        var cert = CreatePfx(_tempDirectory.FullName, "sign-key.pfx", "CN=SignKey", "pw");
+
+        string? storePath = null;
+        string? keyName = null;
+        bt.RunBuildToolHandler = (_, args, _) =>
+        {
+            storePath = WindowsCommandLine.SplitArguments(args)[2];
+            Assert.IsTrue(File.Exists(storePath), "the signing store must exist while signtool runs");
+
+            var signer = LoadSerializedStore(storePath).Single(c => c.HasPrivateKey);
+            using var key = (RSACng)signer.GetRSAPrivateKey()!;
+            keyName = key.Key.KeyName!;
+            Assert.IsTrue(CngKey.Exists(keyName), "the signing key must be persisted so signtool can open it");
+
+            if (signtoolFails)
+            {
+                throw new BuildToolsService.InvalidBuildToolException(4321, "signing failed", "", "signtool failed");
+            }
+            return ("", "");
+        };
+
+        var sign = svc.SignFileAsync(file, cert, TestTaskContext, password: "pw", cancellationToken: TestContext.CancellationToken);
+        if (signtoolFails)
+        {
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => sign);
+        }
+        else
+        {
+            await sign;
+        }
+
+        Assert.IsNotNull(storePath);
+        Assert.IsNotNull(keyName);
+        Assert.IsFalse(File.Exists(storePath), "the temporary signing store must be deleted");
+        Assert.IsFalse(CngKey.Exists(keyName), "the temporary signing key container must be deleted");
+    }
+
+    [TestMethod]
+    public async Task SignFileAsync_StoreIncludesBundledChainCertificates()
+    {
+        var (svc, bt, _) = NewService();
+        var file = new FileInfo(Path.Combine(_tempDirectory.FullName, "app-chain.exe"));
+        await File.WriteAllTextAsync(file.FullName, "MZ");
+
+        using var caKey = RSA.Create(2048);
+        var caReq = new CertificateRequest("CN=ChainCA", caKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        caReq.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        using var ca = caReq.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(5));
+        using var leafKey = RSA.Create(2048);
+        var leafReq = new CertificateRequest("CN=ChainLeaf", leafKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var leafPublic = leafReq.Create(ca, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(2), [1, 2, 3, 4]);
+        using var leaf = leafPublic.CopyWithPrivateKey(leafKey);
+        using var caPublic = X509CertificateLoader.LoadCertificate(ca.RawData);
+        var pfx = new FileInfo(Path.Combine(_tempDirectory.FullName, "chain.pfx"));
+        await File.WriteAllBytesAsync(pfx.FullName, new X509Certificate2Collection { leaf, caPublic }.Export(X509ContentType.Pfx, "pw")!);
+
+        string[]? subjects = null;
+        bt.RunBuildToolHandler = (_, args, _) =>
+        {
+            subjects = [.. LoadSerializedStore(WindowsCommandLine.SplitArguments(args)[2]).Select(c => c.Subject).Order()];
+            return ("", "");
+        };
+
+        await svc.SignFileAsync(file, pfx, TestTaskContext, password: "pw", cancellationToken: TestContext.CancellationToken);
+
+        Assert.IsNotNull(subjects);
+        Assert.AreEqual("CN=ChainCA|CN=ChainLeaf", string.Join("|", subjects));
+    }
+
+    private static X509Certificate2Collection LoadSerializedStore(string path)
+    {
+        var certificates = new X509Certificate2Collection();
+#pragma warning disable SYSLIB0057 // X509CertificateLoader has no serialized-store loader.
+        certificates.Import(path);
+#pragma warning restore SYSLIB0057
+        return certificates;
     }
 
     [TestMethod]
@@ -511,7 +618,7 @@ public class CertificateServiceTests : BaseCommandTests
             throw new BuildToolsService.InvalidBuildToolException(4321, "some non-appx failure", "", "tool failed");
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            svc.SignFileAsync(file, cert, TestTaskContext, cancellationToken: TestContext.CancellationToken));
+            svc.SignFileAsync(file, cert, TestTaskContext, password: "pw", cancellationToken: TestContext.CancellationToken));
         StringAssert.Contains(ex.Message, "Failed to sign file");
     }
 
@@ -530,7 +637,7 @@ public class CertificateServiceTests : BaseCommandTests
             Task.FromResult<string?>("error 0x80080204: certificate publisher mismatch");
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            svc.SignFileAsync(file, cert, ctx, cancellationToken: TestContext.CancellationToken));
+            svc.SignFileAsync(file, cert, ctx, password: "pw", cancellationToken: TestContext.CancellationToken));
 
         StringAssert.Contains(ex.Message, "certificate publisher mismatch");
         Assert.IsFalse(ex.Message.Contains("0x80080204"), "non-verbose output should strip the raw error code");
@@ -551,7 +658,7 @@ public class CertificateServiceTests : BaseCommandTests
             Task.FromResult<string?>("error 0x80080204: certificate publisher mismatch");
 
         var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            svc.SignFileAsync(file, cert, ctx, cancellationToken: TestContext.CancellationToken));
+            svc.SignFileAsync(file, cert, ctx, password: "pw", cancellationToken: TestContext.CancellationToken));
 
         StringAssert.Contains(ex.Message, "0x80080204");
     }
@@ -570,7 +677,7 @@ public class CertificateServiceTests : BaseCommandTests
         svc.ReadAppxPackagingSignErrorAsync = (_, _) => Task.FromResult<string?>(null);
 
         await Assert.ThrowsExactlyAsync<BuildToolsService.InvalidBuildToolException>(() =>
-            svc.SignFileAsync(file, cert, TestTaskContext, cancellationToken: TestContext.CancellationToken));
+            svc.SignFileAsync(file, cert, TestTaskContext, password: "pw", cancellationToken: TestContext.CancellationToken));
     }
 
     [TestMethod]
@@ -588,7 +695,7 @@ public class CertificateServiceTests : BaseCommandTests
             throw new BuildToolsService.InvalidBuildToolException(999999, "signtool 0x80080204 error", "", "signtool failed");
 
         await Assert.ThrowsExactlyAsync<BuildToolsService.InvalidBuildToolException>(() =>
-            svc.SignFileAsync(file, cert, TestTaskContext, cancellationToken: TestContext.CancellationToken));
+            svc.SignFileAsync(file, cert, TestTaskContext, password: "pw", cancellationToken: TestContext.CancellationToken));
     }
 
     // ── GenerateDevCertificateWithInferenceAsync ────────────────────────

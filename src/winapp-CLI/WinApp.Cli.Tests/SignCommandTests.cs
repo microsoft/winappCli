@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Services;
@@ -261,6 +262,59 @@ public class SignCommandTests : BaseCommandTests
         // The exception is guaranteed to be non-null and of the exact type
         // We could add additional assertions on the exception properties if needed
         // Assert.That.StringContains(exception.Message, "expected text");
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // Compares the user's key-container directories before and after, so no other test may add keys meanwhile.
+    [DataRow("rsa")]
+    [DataRow("ecdsa")]
+    public async Task SignCommandWithPfx_LeavesNoKeyContainerBehind(string keyType)
+    {
+        // A real PE file so signtool actually signs it.
+        var target = new FileInfo(Path.Combine(_tempDirectory.FullName, $"Signable-{keyType}.exe"));
+        File.Copy(Path.Combine(Environment.SystemDirectory, "where.exe"), target.FullName);
+
+        var certPath = _testCertificatePath;
+        if (keyType == "ecdsa")
+        {
+            using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var req = new CertificateRequest("CN=WinappEcdsaTest", ecdsa, HashAlgorithmName.SHA256);
+            req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.3")], false));
+            using var ecCert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(1));
+            certPath = new FileInfo(Path.Combine(_tempDirectory.FullName, "ecdsa.pfx"));
+            await File.WriteAllBytesAsync(certPath.FullName, ecCert.Export(X509ContentType.Pfx, "testpassword"), TestContext.CancellationToken);
+        }
+
+        // Make sure signtool is already downloaded so only the signing itself is measured.
+        await _buildToolsService.EnsureBuildToolAvailableAsync("signtool.exe", TestTaskContext, cancellationToken: TestContext.CancellationToken);
+        var before = SnapshotUserKeyContainers();
+
+        var command = GetRequiredService<SignCommand>();
+        var exitCode = await command.Parse([target.FullName, certPath.FullName, "--password", "testpassword"])
+            .InvokeAsync(cancellationToken: TestContext.CancellationToken);
+
+        Assert.AreEqual(0, exitCode, "Signing a real executable with a .pfx should succeed");
+#pragma warning disable SYSLIB0057
+        using var signer = X509Certificate.CreateFromSignedFile(target.FullName);
+#pragma warning restore SYSLIB0057
+        StringAssert.Contains(signer.Subject, keyType == "ecdsa" ? "CN=WinappEcdsaTest" : "CN=WinappTestPublisher");
+
+        var leaked = SnapshotUserKeyContainers().Except(before, StringComparer.OrdinalIgnoreCase).ToList();
+        Assert.IsEmpty(leaked, $"Signing left key containers behind: {string.Join(", ", leaked)}");
+    }
+
+    private static HashSet<string> SnapshotUserKeyContainers()
+    {
+        var crypto = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Crypto");
+        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in new[] { Path.Combine(crypto, "Keys"), Path.Combine(crypto, "RSA") })
+        {
+            if (Directory.Exists(dir))
+            {
+                files.UnionWith(Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories));
+            }
+        }
+        return files;
     }
 
     [TestMethod]

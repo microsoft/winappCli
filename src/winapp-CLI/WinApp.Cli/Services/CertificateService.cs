@@ -395,13 +395,7 @@ internal partial class CertificateService(
             throw new FileNotFoundException($"Certificate file not found: {certificatePath}");
         }
 
-        var tokens = new List<string>
-        {
-            "sign",
-            "/f", certificatePath.FullName,
-            "/p", password ?? "password",
-            "/fd", "SHA256",
-        };
+        var tokens = new List<string> { "/fd", "SHA256" };
 
         if (!string.IsNullOrWhiteSpace(timestampUrl))
         {
@@ -423,12 +417,43 @@ internal partial class CertificateService(
 
         tokens.Add(filePath.FullName);
 
-        var arguments = WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
-
         taskContext.AddDebugMessage($"Signing file: {filePath}");
 
+        X509Certificate2Collection? pfxCertificates = null;
+        string? signingStorePath = null;
         try
         {
+            if (X509Certificate2.GetCertContentType(certificatePath.FullName) == X509ContentType.Pfx)
+            {
+                // Passing the PFX to signtool (/f <pfx> /p <password>) makes signtool import its key
+                // into a new container that nothing ever deletes. Import it here instead, hand signtool
+                // a serialized store that references that key (plus any bundled chain certificates),
+                // and delete the key once signing finishes.
+                try
+                {
+                    pfxCertificates = X509CertificateLoader.LoadPkcs12CollectionFromFile(
+                        certificatePath.FullName,
+                        password ?? DefaultCertPassword,
+                        X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
+                }
+                catch (CryptographicException ex)
+                {
+                    // The published CLI strips .NET's exception text (UseSystemResourceKeys), so the
+                    // loader's own message would surface as a bare resource key.
+                    throw new InvalidOperationException(
+                        $"Could not open certificate '{certificatePath.FullName}'. Check that the password is correct.", ex);
+                }
+                signingStorePath = Path.Join(Path.GetTempPath(), $"winapp-sign-{Guid.NewGuid():N}.sst");
+                await File.WriteAllBytesAsync(signingStorePath, pfxCertificates.Export(X509ContentType.SerializedStore)!, cancellationToken);
+                tokens.InsertRange(0, ["sign", "/f", signingStorePath]);
+            }
+            else
+            {
+                tokens.InsertRange(0, ["sign", "/f", certificatePath.FullName, "/p", password ?? DefaultCertPassword]);
+            }
+
+            var arguments = WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+
             await buildToolsService.RunBuildToolAsync(new GenericTool("signtool.exe"), arguments, taskContext, cancellationToken: cancellationToken);
 
             taskContext.AddDebugMessage("File signed successfully");
@@ -454,6 +479,63 @@ internal partial class CertificateService(
         catch (Exception ex)
         {
             throw new InvalidOperationException($"Failed to sign file: {ex.Message}", ex);
+        }
+        finally
+        {
+            if (signingStorePath != null)
+            {
+                TryDeleteFile(signingStorePath, taskContext);
+            }
+
+            if (pfxCertificates != null)
+            {
+                foreach (var cert in pfxCertificates)
+                {
+                    DeletePersistedPrivateKey(cert, taskContext);
+                    cert.Dispose();
+                }
+            }
+        }
+    }
+
+    private static void TryDeleteFile(string path, TaskContext taskContext)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            taskContext.AddDebugMessage($"Could not delete temporary signing file '{path}': {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Deletes the key container that loading a PFX with <see cref="X509KeyStorageFlags.PersistKeySet"/> created.
+    /// </summary>
+    internal static void DeletePersistedPrivateKey(X509Certificate2 cert, TaskContext taskContext)
+    {
+        if (!cert.HasPrivateKey)
+        {
+            return;
+        }
+
+        try
+        {
+            using AsymmetricAlgorithm? key =
+                cert.GetRSAPrivateKey() ?? (AsymmetricAlgorithm?)cert.GetECDsaPrivateKey() ?? cert.GetDSAPrivateKey();
+            switch (key)
+            {
+                case RSACng rsa: rsa.Key.Delete(); break;
+                case ECDsaCng ecdsa: ecdsa.Key.Delete(); break;
+                case DSACng dsa: dsa.Key.Delete(); break;
+                case RSACryptoServiceProvider rsaCsp: rsaCsp.PersistKeyInCsp = false; break;
+                case DSACryptoServiceProvider dsaCsp: dsaCsp.PersistKeyInCsp = false; break;
+            }
+        }
+        catch (CryptographicException ex)
+        {
+            taskContext.AddDebugMessage($"Could not delete the temporary signing key for '{cert.Subject}': {ex.Message}");
         }
     }
 
