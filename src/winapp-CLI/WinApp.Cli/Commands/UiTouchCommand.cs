@@ -23,7 +23,7 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp ui touch <selector> -a <app>",
-        "winapp ui touch <selector> --type ListItem -a <app> --gesture swipe --direction left",
+        "winapp ui touch <selector> --type ListItem -a <app> --gesture swipe --direction left --distance 200",
     ];
 
     public string? Usage => "winapp ui touch [<selector>] (-a <app> | -w <hwnd>) [--at <x,y>] [options]";

@@ -154,7 +154,7 @@ public class UiHelpTests : BaseCommandTests
     [TestMethod]
     public void UnknownCommand_Text_ListsCommandsOnlyWithoutSuggestion_AndEscapesControlCharacters()
     {
-        var writer = new StringWriter();
+        using var writer = new StringWriter();
         UiUnknownCommand.WriteText(writer, "x\u001b]0;owned\u0007", []);
 
         var text = writer.ToString();
