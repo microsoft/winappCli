@@ -154,7 +154,7 @@ winapp new [options]
 
 **Templates:**
 
-The pack ships two styles of WinUI app. **XAML** templates define the UI in markup with a C# code-behind. **Reactor** templates are pure C# with no XAML, using an MVU (Model-View-Update) pattern. The template list is read live from the installed pack, so it always reflects the version you have — run `winapp new --list` to see the current set. Common templates:
+The pack ships two styles of WinUI app. **XAML** templates define the UI in markup with a C# code-behind. **Reactor** templates are pure C# with no XAML, using an MVU (Model-View-Update) pattern. The template list is read live from the installed pack, so it always reflects the version you have — run `winapp new --list` to see the current set. The interactive picker and `--list` show the WinUI templates first, then all others, each group in alphabetical order. Common templates:
 
 | Short name | Description |
 |------------|-------------|
@@ -731,7 +731,7 @@ winapp run [<input>] [options]
 - `--no-launch` - Only create the debug identity and register the package without launching the application
 - `--with-alias` - Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Rarely needed: an app with `OutputType=Exe` already launches this way by default. winapp adds the required `uap5:ExecutionAlias` to the manifest it stages in the AppX layout, so no change to your checked-in manifest is needed; an alias the app declares itself is used as-is. Cannot be combined with `--no-launch`, `--detach`, `--without-alias`, or `--json`.
 - `--without-alias` - Force AUMID activation for an app that would otherwise launch through an execution alias. A console app then runs without a console and prints nothing to this terminal. Cannot be combined with `--with-alias`.
-- `--debug-output` - Capture `OutputDebugString` messages and first-chance exceptions from the launched application. Framework noise (WinUI, COM, DirectX) is filtered from console output; the full log file captures everything. If the app crashes, automatically captures a minidump and analyzes it to show the exception type, message, and stack trace with source file:line numbers (resolved from PDBs in the build output folder). Managed (.NET) crashes are analyzed instantly with no external tools. Native (C++/WinRT) crashes show module names and offsets. When the crashed app is a WinUI 3 app (`Microsoft.UI.Xaml.dll` is loaded), an extra stowed-exception triage pass runs automatically to surface the originating HRESULT, its ErrorContext chain, and the full native XAML dispatch stack; the required debugger components are downloaded on first use (see [Debugging](debugging.md#winui-stowed-exception-triage), overridable via the `WINAPP_DBGTOOLS_DIR` environment variable). Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use `--no-launch` instead if you need to attach a different debugger. Cannot be combined with `--no-launch`. Cannot be combined with `--json`.
+- `--debug-output` - Capture `OutputDebugString` messages and first-chance exceptions from the launched application. Framework noise (WinUI, COM, DirectX) is filtered from console output; the full log file captures everything. If the app crashes, automatically captures a minidump and analyzes it to show the exception type, message, and stack trace with source file:line numbers (resolved from PDBs in the build output folder). Managed (.NET) crashes are analyzed instantly with no external tools. Native (C++/WinRT) crashes show module names and offsets. When the crashed app is a WinUI 3 app (`Microsoft.UI.Xaml.dll` is loaded), an extra stowed-exception triage pass runs automatically to surface the originating HRESULT, its ErrorContext chain, and the full native XAML dispatch stack; the required debugger components are downloaded on first use (see [Debugging](debugging.md#winui-stowed-exception-triage), overridable via the `WINAPP_DBGTOOLS_DIR` environment variable). Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use `--no-launch` instead if you need to attach a different debugger. Cannot be combined with `--no-launch`. Cannot be combined with `--json`. If you run without it and the app exits with a nonzero code, winapp prints a hint to rerun with `--debug-output`.
 - `--symbols` - Download PDB symbols from Microsoft Symbol Server for richer native crash analysis with resolved function names. Only used with `--debug-output`. If omitted and a native crash occurs, the output will suggest adding this flag. This flag also improves the WinUI stowed-exception triage stack for WinUI 3 apps. First run downloads symbols and caches them locally; subsequent runs use the cache.
 - `--unregister-on-exit` - Unregister the development package after the application exits. Only removes packages registered in development mode. Cannot be combined with `--no-launch`.
 - `--detach` - Launch the application and return immediately without waiting for it to exit. Useful for CI/automation where you need to interact with the app after launch. Local runs print the PID; target runs print the scoped UI target. JSON includes the PID and target scope. Cannot be combined with `--no-launch`, `--debug-output`, `--with-alias`, or `--unregister-on-exit`.
@@ -1380,16 +1380,30 @@ winapp cert generate [options]
   "subjectName": "CN=Contoso",
   "warnings": [
     "Protected with the default password ('password'), which is public. Treat this certificate as development-only: anyone who obtains the .pfx can sign as you. Pass --password to choose your own, and use a CA-issued certificate or Azure Trusted Signing to ship."
-  ]
+  ],
+  "skipped": false
 }
 ```
 
 `publisher` is the display name and `subjectName` the full distinguished name the certificate was
-issued to. `defaultPasswordIsPublic` is always present. When it is `true`, the `.pfx` is protected by
+issued to. `defaultPasswordIsPublic` is always present when a certificate is generated. When it is `true`, the `.pfx` is protected by
 a password anyone can guess, so the certificate must only sign builds that stay on your own machines
 — check it before a script hands the certificate to anything else. `warnings` carries the same
 disclosure as text and is omitted when there is nothing to report. `publicCertificatePath` appears
 only with `--export-cer`.
+
+With `--if-exists skip`, when the certificate file already exists, the command leaves it untouched
+and returns only its path:
+
+```json
+{
+  "certificatePath": "C:\\app\\devcert.pfx",
+  "skipped": true
+}
+```
+
+Check `skipped` before reading the other fields. To inspect the existing certificate, run
+[`winapp cert info`](#cert-info).
 
 #### cert info
 
@@ -2105,7 +2119,24 @@ In **PowerShell** and **pwsh**:
 $env:WINAPP_CLI_CACHE_DIRECTORY=d:\temp\.winapp
 ```
 
-Winapp will create this directory automatically when you run commands like `init` or `restore`.
+Winapp creates this directory when a command first needs it.
+
+#### When winapp can't write to the global cache directory
+
+Some environments, such as agent sandboxes that only allow writes to the current project, block access to `%USERPROFILE%\.winapp`. Most commands still work there, and the update check is skipped. If winapp hasn't completed its first run in that directory, each run also prints a one-line telemetry notice to stderr.
+
+These commands need to write to the cache directory and stop with an error that names the path:
+
+| Command | What it writes |
+|---------|----------------|
+| `find-api` | The API index, when it needs to be built or refreshed. An existing, up-to-date index is still read. |
+| `store` | The Microsoft Store Developer CLI, the first time it's installed. |
+
+To fix it, set `WINAPP_CLI_CACHE_DIRECTORY` to a folder winapp can write to (for example, one inside your project), then retry.
+
+`winapp ui` commands keep their turn-taking state in `%USERPROFILE%\.winapp\state\ui`. If they can't access it, they still run, but without waiting for other `winapp ui` commands on the same desktop, and print one warning (omitted with `--json` or `--quiet`). Avoid running other `winapp ui` commands on that desktop at the same time.
+
+Windows Sandbox commands keep their state in `%USERPROFILE%\.winapp\state`. If that folder isn't writable, they stop with `sandbox_state_unavailable` and name the variable to set.
 
 ### Update Checks
 
@@ -2216,10 +2247,5 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.m
 
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
 stop reason, optional `frameArtifacts`, and warnings.
-
-> **Known limitation:** recording a *specific element* inside a popup that renders in its own
-> top-level window (WinUI/XAML flyout, teaching tip, tooltip) may capture the underlying main
-> window instead. Record the whole window, or follow the [screenshot overlay workflow](ui-automation.md#screenshot)
-> for popup stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).

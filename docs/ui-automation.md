@@ -112,7 +112,10 @@ other, dismiss a menu the other just opened, or move a target out from under a p
 
 **Arbitration is always on.** Every `winapp ui` command that touches the physical desktop takes a
 turn, with no setup and no way to switch it off, so two agents can never type into each other's
-windows. Read-only commands keep running concurrently.
+windows. Read-only commands keep running concurrently. The one exception is a process that can't
+access winapp's coordination folder, such as an agent sandbox that blocks `%USERPROFILE%\.winapp`:
+its commands still run, but without taking turns, and print a warning (except with `--json` or
+`--quiet`).
 
 **Continuity between commands is opt-in.** By default each command is a self-contained one-shot: it
 waits its turn, does its work, and releases the desktop immediately. To keep the desktop across
@@ -497,7 +500,7 @@ winapp ui screenshot -w 131906 --capture-screen     # one screen region, with vi
 winapp ui screenshot -a myapp --focus               # bring window to foreground first, then capture (default WGC path)
 ```
 
-Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` by process name or PID includes the app's windows and their owned windows. A title-based `-a` match selects one matching window plus its owned windows; `-w` explicitly selects one window plus its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows.
+Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` by process name or PID includes the app's windows and their owned windows. A title-based `-a` match selects one matching window plus its owned windows; `-w` explicitly selects one window plus its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows. An element in a menu, flyout, tooltip, or teaching tip that opens in its own popup window is cropped from that popup, not from the window behind it.
 
 `--quiet` suppresses informational output for both single-window and composite captures, including the saved path. Warnings and capture-failure diagnostics remain visible. Use `--json` instead when you need the file path and dimensions as structured output.
 
@@ -586,7 +589,9 @@ recordings and whole-desktop capture.
 - `frame_output_failed` — Neither artifact could be preserved after frame output failed.
 - `partial_output` — Only one artifact completed; inspect `partialOutput` and `recoveryHint`.
 
-**Known limitation:** Recording an element inside a windowed popup may capture the underlying window. Record the whole window or follow the [screenshot overlay workflow](#screenshot) for a still image. See [#646](https://github.com/microsoft/winappCli/issues/646).
+An element selector records that element's region from the window it is drawn in. For an item in a
+menu, flyout, tooltip, or teaching tip that opens in its own popup window, the recording shows the
+popup rather than the window behind it.
 
 
 ### invoke
@@ -738,12 +743,14 @@ winapp ui send-keys "alt+f4" -a myapp                          # close window vi
 winapp ui send-keys "vk=0x5D" -a myapp                         # a key with no friendly name (Apps/Menu key)
 winapp ui send-keys "ctrl+shift+t" -a myapp --via send-input   # use OS-wide injection instead of PostMessage
 winapp ui send-keys "win+shift+v" -a myapp --via send-input --allow-system-keys  # opt in to drive a global hotkey
+winapp ui send-keys "ctrl+capslock+f12" -a myapp --via send-input  # Narrator command: toggle developer mode
 ```
 
 **Key grammar** (whitespace-separated tokens, quote multi-token strings):
 - **Named keys** — `enter`/`return`, `tab`, `esc`/`escape`, `space`, `backspace`, `delete`/`del`, `insert`, `home`, `end`, `pageup`/`pgup`, `pagedown`/`pgdn`, `up`/`down`/`left`/`right`, `f1`–`f16`, `apps`, `printscreen`, `capslock`.
 - **Sequences** — multiple tokens are pressed in order: `down down enter`.
-- **Modifier combos** — `ctrl`, `shift`, `alt`, `win` joined with `+`: `ctrl+shift+t`, `alt+f4`.
+- **Modifier combos** — `ctrl`, `shift`, `alt`, `win` joined with `+`: `ctrl+shift+t`, `alt+f4`. A token that starts with a modifier but has an unknown segment before the last one (`ctrl+a+b`) is an error; use `text=` or `--verbatim` to type it.
+- **Screen-reader commands** — hold `capslock` or `insert` (alias `ins`), the Narrator, NVDA, and JAWS key: `ctrl+capslock+f12` toggles Narrator developer mode. Requires `--via send-input`, because screen readers don't receive posted keys. If no screen reader is running, holding `capslock` turns Caps Lock on or off and the command warns; hold `insert` to avoid this.
 - **Literal text** — any token that isn't a known key is typed character by character: `hello`. Adjacent literal words keep the space between them, so a quoted phrase like `"Hello world"` is typed verbatim (the space is preserved); a literal that merely contains `+` such as `C++` or `a+b` is typed as text, not parsed as a combo.
 - **Explicit literal escape** — prefix a token with `text=` to type it verbatim even when it collides with a key or modifier name: `text=enter` types the word "enter" instead of pressing Enter, and `text=ctrl+a` types the literal string. Mirrors the `vk=` escape; the escaped value still coalesces with adjacent literal words (`text=down low` → "down low"). Because tokens are whitespace-split (and adjacent literals re-join with a single space), use **backslash escapes inside a `text=` value** to type whitespace that wouldn't otherwise survive: `\s` → space, `\t` → tab, `\n` → newline, `\r` → newline, `\\` → literal backslash. `\n`, `\r`, and `\r\n` each insert a single line break (an Enter / `VK_RETURN`), so `text=line1\nline2` and `text=line1\r\nline2` both type one newline. So `text=a\s\sb` types "a  b" (double space), and `text=\shi` keeps a leading space. An unrecognised escape (e.g. `\x`) is left verbatim.
 - **Whole-argument literal (`--verbatim`)** — when the *entire* payload is literal text, pass `--verbatim` instead of escaping every token with `text=`. It types the whole keys argument exactly as given — no named-key/combo/`vk=`/`text=` interpretation — and, unlike the normal path, preserves exact internal whitespace (no collapsing) without needing `\s`. So `send-keys "down down enter" --verbatim` types the words, and `send-keys "a  b" --verbatim` keeps the double space. Backslash escapes are **not** decoded in `--verbatim` mode (a `\s` is typed as a backslash and an "s"); use a `text=` token when you need an escaped control character.

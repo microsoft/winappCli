@@ -999,10 +999,11 @@ public class NewCommandHandlerTests : BaseCommandTests
     /// </summary>
     private void ScriptWithStandaloneReactorPack(string foreignAliases)
     {
+        // dotnet new list sorts alphabetically, so Reactor precedes WinUI here exactly as it does live.
         (string Name, string Short, string Lang, string Type, string Author, string Tags)[] templates =
         [
-            ("WinUI Blank App", "winui,winui3,wasdk-single", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
             ("Reactor Blank App (Experimental)", "reactor,reactor-blank,winui-reactor", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/Reactor/Experimental"),
+            ("WinUI Blank App", "winui,winui3,wasdk-single", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
         ];
         var list = BuildListTable(templates);
         var uninstall = "Currently installed items:\n"
@@ -1037,6 +1038,29 @@ public class NewCommandHandlerTests : BaseCommandTests
             }
             return (0, "The template was created successfully.", string.Empty);
         };
+    }
+
+    [TestMethod]
+    public async Task Handler_InteractivePrompt_ListsWinUiTemplatesBeforeReactor()
+    {
+        // dotnet new list sorts alphabetically, so Reactor arrives first; the menu must still lead
+        // with the WinUI templates, making Enter on the first choice the blank WinUI app.
+        ScriptWithStandaloneReactorPack("microsoft-ui-reactor");
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushTextWithEnter("PromptedApp");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, []);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        var output = TestAnsiConsole.Output;
+        var winuiIdx = output.IndexOf("WinUI Blank App (winui)", StringComparison.Ordinal);
+        var reactorIdx = output.IndexOf("Reactor Blank App (Experimental) (reactor)", StringComparison.Ordinal);
+        Assert.IsTrue(winuiIdx >= 0 && reactorIdx >= 0, output);
+        Assert.IsTrue(winuiIdx < reactorIdx, "WinUI templates must be listed before Reactor templates.");
+        var scaffold = ScaffoldInvocation();
+        Assert.IsNotNull(scaffold);
+        Assert.AreEqual("winui", scaffold[1], "The first menu choice must be the WinUI blank app.");
     }
 
     [TestMethod]

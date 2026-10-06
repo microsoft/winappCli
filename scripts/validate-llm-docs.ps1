@@ -8,7 +8,7 @@
     skills are hand-authored and are not generated or drift-checked.
 
     It also runs scripts/validate-plugin-package.ps1, which enforces Agent Plugins
-    1.0 conformance for plugins/winapp.
+    1.0 conformance for plugins/winapp and checks the skills of every plugin.
 .PARAMETER CliPath
     Path to the winapp.exe CLI binary (default: artifacts/cli/win-x64/winapp.exe)
 .PARAMETER FailOnDrift

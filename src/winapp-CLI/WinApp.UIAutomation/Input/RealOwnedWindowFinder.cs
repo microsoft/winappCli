@@ -88,17 +88,35 @@ internal sealed class RealOwnedWindowFinder : IOwnedWindowFinder
         s_getWindowText = NativeGetWindowText;
     }
 
+    /// <summary>Every top-level window on the desktop, in z-order, through the enumeration seam.</summary>
+    /// <remarks>
+    /// Shared with windowed-popup capture (<c>UiAutomationService.SelectWindowedPopupHost</c>), which
+    /// applies stricter rules to the same windows: same process only, any owner-chain depth, and the
+    /// popup must host the element.
+    /// </remarks>
+    internal static IEnumerable<global::Windows.Win32.Foundation.HWND> EnumerateTopLevelWindows()
+    {
+        var hwnd = global::Windows.Win32.Foundation.HWND.Null;
+        while (true)
+        {
+            hwnd = s_findNextTopLevelWindow(hwnd);
+            if (hwnd.IsNull)
+            {
+                yield break;
+            }
+
+            yield return hwnd;
+        }
+    }
+
     public List<(nint Hwnd, int Pid, string Title)> FindOwnedWindows(List<(nint Hwnd, int Pid, string Title)> appWindows)
     {
         var appHwnds = new HashSet<nint>(appWindows.Select(w => w.Hwnd));
         var owned = new List<(nint Hwnd, int Pid, string Title)>();
 
         // Enumerate all visible windows and check ownership
-        var hwnd = global::Windows.Win32.Foundation.HWND.Null;
-        while (true)
+        foreach (var hwnd in EnumerateTopLevelWindows())
         {
-            hwnd = s_findNextTopLevelWindow(hwnd);
-            if (hwnd.IsNull) { break; }
             if (!s_isWindowVisible(hwnd)) { continue; }
 
             // Skip windows already in the list

@@ -86,21 +86,32 @@ public class FirstRunServiceTests
     }
 
     [TestMethod]
-    public void CheckAndDisplayFirstRunNotice_MarkerPathBlockedByDirectory_LogsWarningButReportsFirstRun()
+    public void CheckAndDisplayFirstRunNotice_MarkerCannotBeSaved_WritesShortNoticeToStderrOnly()
     {
         // Create a *directory* where the marker *file* is expected. FileInfo.Exists is
         // false for a directory, so the first-run branch runs, but File.Create then
-        // fails — exercising the catch/LogWarning path without any real corruption.
+        // fails — the same outcome as a global winapp directory that denies writes.
         Directory.CreateDirectory(Path.Combine(_globalDir.FullName, ".first-run-complete"));
 
         var logger = new CapturingLogger<FirstRunService>();
         var service = CreateService(logger);
+        var stderr = new StringWriter();
+        service.UnsavedNoticeWriter = stderr;
 
         var result = service.CheckAndDisplayFirstRunNotice();
 
-        Assert.IsTrue(result, "Notice is still considered shown even if the marker can't be persisted.");
-        Assert.IsTrue(
-            logger.Has(LogLevel.Warning, "Failed to create first run marker"),
-            "Marker-write failure must be logged as a warning.");
+        Assert.IsFalse(result, "The banner was not shown, so the no-args path still shows it.");
+        StringAssert.Contains(stderr.ToString(), "anonymous usage data");
+        StringAssert.Contains(stderr.ToString(), "WINAPP_CLI_TELEMETRY_OPTOUT=1");
+        Assert.IsFalse(
+            logger.Has(LogLevel.Information, "anonymous usage data"),
+            "The full notice goes to stdout via the logger; it must not be shown when the marker can't be saved.");
+        Assert.IsFalse(logger.Has(LogLevel.Warning, ""), "An unwritable global directory is not worth a warning on every run.");
+
+        // Without the marker, the next run shows the short notice again.
+        var secondStderr = new StringWriter();
+        service.UnsavedNoticeWriter = secondStderr;
+        Assert.IsFalse(service.CheckAndDisplayFirstRunNotice());
+        StringAssert.Contains(secondStderr.ToString(), "anonymous usage data");
     }
 }

@@ -549,8 +549,7 @@ internal class NewCommand : Command, IShortDescription
             {
                 // Never let an experimental template become the silent default: the blank app is
                 // resolved by short name, and the fallbacks (for a pack that renamed it) prefer a
-                // stable project template over a prerelease one such as the Reactor templates, which
-                // sort ahead of the WinUI ones alphabetically.
+                // stable project template over a prerelease one such as the Reactor templates.
                 entry = templates.FirstOrDefault(t => t.MatchesShortName(DefaultTemplateShortName))
                     ?? templates.FirstOrDefault(t => t.IsProject && !t.IsExperimental)
                     ?? templates.FirstOrDefault(t => t.IsProject)
@@ -1151,7 +1150,8 @@ internal class NewCommand : Command, IShortDescription
             // the same aliases; dotnet new refuses a short name that matches templates from more than
             // one pack, so record which aliases are shared and scaffold with one that isn't.
             var owned = WinUiTemplateCatalog.RestrictToPack(parsed, packRows);
-            return (WinUiTemplateCatalog.MarkSharedAliases(owned, WinUiTemplateCatalog.ParseInstalledPacks(packOutput), TemplatePackageId), null);
+            var marked = WinUiTemplateCatalog.MarkSharedAliases(owned, WinUiTemplateCatalog.ParseInstalledPacks(packOutput), TemplatePackageId);
+            return (WinUiTemplateCatalog.OrderForDisplay(marked), null);
         }
 
         private async Task<WinUiTemplateEntry> PromptTemplateAsync(IReadOnlyList<WinUiTemplateEntry> templates, CancellationToken cancellationToken)
