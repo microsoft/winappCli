@@ -111,22 +111,15 @@ public class AtomicFileTests
         // The reader closes in response to the first refusal, on the writer's own thread. Closing it
         // from a timer instead needs a free thread-pool thread inside the retry window, which a
         // loaded parallel test run does not guarantee.
-        var reader = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var reader = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
         var refusals = 0;
-        try
+        AtomicFile.WriteAllText(dest, "new", onRenameRefused: () =>
         {
-            AtomicFile.WriteAllText(dest, "new", onRenameRefused: () =>
+            if (++refusals == 1)
             {
-                if (++refusals == 1)
-                {
-                    reader.Dispose();
-                }
-            });
-        }
-        finally
-        {
-            reader.Dispose();
-        }
+                reader.Dispose();
+            }
+        });
 
         Assert.IsGreaterThanOrEqualTo(1, refusals, "The open reader must refuse the first rename, or the retry was never exercised.");
         Assert.AreEqual("new", File.ReadAllText(dest));
