@@ -107,6 +107,7 @@ internal class DevToolsResourcesExplainCommand : DevToolsLiveCommand, IHelpExamp
             var theme = themeRow?.Value is { Length: > 0 } t && !t.Equals("Default", StringComparison.OrdinalIgnoreCase) ? t : null;
             var explanation = DevToolsResourceExplainer.Explain(raw!.Value, row, styleRow, theme, index);
             var notes = explanation.Notes.ToList();
+            notes.AddRange(OverrideNotes(target.Tap!, explanation, cancellationToken));
             if (index is { Truncated: true })
             {
                 notes.Add($"The project has more than {XamlResourceIndex.MaximumFiles} XAML files; only the first were read.");
@@ -131,6 +132,21 @@ internal class DevToolsResourcesExplainCommand : DevToolsLiveCommand, IHelpExamp
                 DevToolsRender.WriteMarkupLine(Console, line);
             }
             return Task.FromResult(0);
+        }
+    }
+
+    // A `resources set` override makes the live value differ from the file the trace points at; say so.
+    private static IEnumerable<string> OverrideNotes(VisualTreeTap tap, ResourceExplanation explanation, CancellationToken cancellationToken)
+    {
+        foreach (var resource in explanation.Resources.Where(r => !r.Framework))
+        {
+            var response = tap.RequestResourceList(resource.Key, null, cancellationToken);
+            if (response.Ok && DevToolsResourcesListCommand.Parse(response.ResultJson) is { } listing &&
+                listing.Entries.FirstOrDefault(e => e.Key == resource.Key && e.Overridden) is { } live)
+            {
+                yield return $"{resource.Key} was changed by `winapp devtools resources set` and is now {live.Value}; the file still has the old value. " +
+                    $"Run `winapp devtools resources reset {resource.Key}` to restore it.";
+            }
         }
     }
 

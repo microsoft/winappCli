@@ -620,6 +620,8 @@ int RunShellOpenTests();
 // Defined in ownedstate-tests.cpp: the compare-and-restore ownership contract for process-global DevTools
 // UI state, which decides what a disconnecting client may undo without stepping on a newer client.
 int RunOwnedStateTests();
+// Defined in resourceoverrides-tests.cpp: the undo record behind Resource.set / Resource.reset.
+int RunResourceOverrideTests();
 // Defined in batch-tests.cpp: the pure request/reply shaping behind VisualTree.getPreviews and
 // DevTools.releaseOwnedState, which is otherwise string assembly only a live client can observe.
 int RunBatchTests();
@@ -842,6 +844,9 @@ int main()
     const int ownedStateFailures = RunOwnedStateTests();
 
     std::printf("\n");
+    const int resourceOverrideFailures = RunResourceOverrideTests();
+
+    std::printf("\n");
     const int batchFailures = RunBatchTests();
     const int queryFailures = RunQueryTests();
 
@@ -862,7 +867,7 @@ int main()
                       selectionPlacementFailures + inspectorAcceptanceFailures + selectionTrackingFailures + relayFailures +
                       bindingRowFailures + pathWalkFailures + pathProbeFailures + pathSyntaxFailures + readFailures + pickRouteFailures + perfFailures + uiDispatchFailures +
                       focusSubscriptionFailures + overlayStateFailures + resourceInlineFailures +
-                      shellOpenFailures + ownedStateFailures + batchFailures + queryFailures + bindingAnswerFailures +
+                      shellOpenFailures + ownedStateFailures + resourceOverrideFailures + batchFailures + queryFailures + bindingAnswerFailures +
                       pipeAcceptFailures + framingFailures + eventsFailures;
     // Unregister BEFORE reading the count, not after: once the handler is gone no further fault can be
     // recorded, so the value read here is final. Reading first would leave a window in which a fault is

@@ -164,6 +164,14 @@ the file and line to edit. Edit the line named under **Change it** instead of
 searching for the color. Keys shown as **WinUI default resources** are not in the
 project; override them in `App.xaml` resources rather than editing a style.
 
+To try a different resource value across the whole app, use
+`winapp devtools resources set <key> <value>`; every `{ThemeResource}` and
+`{StaticResource}` use updates live. `resources list --key <pattern>` shows keys,
+values, and their file and line. Changes are in memory only: report the file and line
+`set` names so the user can make the change permanent, and run
+`winapp devtools resources reset` when done. WinUI default keys can't be set until
+the app defines them in `App.xaml` and restarts.
+
 Use `set-property <selector> <property> <value>` for an authorized in-memory
 change. Report its observed read-back, not the requested value as if it succeeded.
 If the result has `replacedBinding`, say so: the local value replaced a `{Binding}`

@@ -367,6 +367,51 @@ Limits:
 - Values with no text form, such as `CornerRadius`, print as `(no text form)`. The
   setter line still shows the authored value.
 
+## List and try resource values
+
+```powershell
+winapp devtools resources list --key "*Brush" -a 12345
+winapp devtools resources set AccentBrush "#FFD13438" -a 12345
+winapp devtools resources reset -a 12345
+```
+
+`list` shows the app's resources from `Application.Resources`, its merged
+dictionaries, and the active theme branch, each with its value and the file and line
+that defines it:
+
+```text
+3 resources matching *Brush (Light theme)
+  AccentBrush       #FF0078D4 SolidColorBrush · App.xaml:19
+  CardBrush         #FFFFFFFF SolidColorBrush · Styles/Tokens.xaml:7 [Light]
+  CardBorderBrush   #0F000000 SolidColorBrush · Styles/Tokens.xaml:8 [Light]
+12 WinUI default resources also match; add --defaults to list them.
+```
+
+`--key` takes a `*`/`?` pattern. `--theme Light|Dark|HighContrast` reads another
+theme branch. `--defaults` adds WinUI's own resources, marked **WinUI default**.
+
+`set` replaces the value of one key in memory, and every element that uses it
+through `{ThemeResource}` or `{StaticResource}` updates at once:
+
+```text
+✅ AccentBrush: #FF0078D4 -> #FFD13438
+   Elements that use AccentBrush through {ThemeResource} or {StaticResource} now show the new value.
+   The change lasts until `winapp devtools resources reset` or the app exits. To keep it, edit App.xaml:19.
+```
+
+- The value is parsed as the key's current type, such as a color for a brush, `8` or
+  `4,8` for a `Thickness`, or a number for a `Double`. Use `--type` to change it.
+- `--theme Dark` changes the Dark branch; it shows while the app uses that theme.
+- Changes are in memory and never written to source. `reset <key>` restores one key,
+  and `reset` restores every key DevTools changed. Changed keys show
+  **changed by DevTools** in `list`, and `explain` notes the override.
+- WinUI default resources can't be replaced while the app runs. To try one, define
+  the same key in `App.xaml` resources, restart, and then `set` it: WinUI's control
+  styles pick up your value, so this is how to try lightweight styling.
+- Elements update live only when the app was started with `winapp run --devtools`.
+  For an app attached later, `set` warns that existing elements may keep the old
+  value.
+
 ## Try a live property change
 
 ```powershell

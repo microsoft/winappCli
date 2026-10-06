@@ -191,6 +191,8 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
     if (m == L"Layout.get")        return BridgeJson(id, L"layout.get|" + p.GetString(L"handle"));
     if (m == L"Source.get")        return BridgeJson(id, L"element.source|" + p.GetString(L"handle"));
     if (m == L"Resource.resolve")  return BridgeJson(id, L"resource.resolve|" + p.GetString(L"handle") + L"|" + p.GetString(L"prop"));
+    if (m == L"Resource.list" || m == L"Resource.set" || m == L"Resource.reset")
+        return HandleResourceRpc(conn, id, m, p, ownerConn, req.hasId);
 
     if (m == L"Binding.walk") {
         const std::wstring handle = p.GetString(L"handle");

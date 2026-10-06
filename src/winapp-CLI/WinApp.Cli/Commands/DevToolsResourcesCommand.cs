@@ -8,22 +8,31 @@ namespace WinApp.Cli.Commands;
 /// <summary><c>winapp devtools resources</c>: where a running app's styles and resources come from.</summary>
 internal class DevToolsResourcesCommand : Command, IShortDescription, ICompactHelpGroup
 {
-    public string ShortDescription => "Trace a value to its Style setter and resource definition";
+    public string ShortDescription => "Trace, list, and live-edit styles and resources";
 
-    public DevToolsResourcesCommand(DevToolsResourcesExplainCommand explainCommand)
+    public DevToolsResourcesCommand(
+        DevToolsResourcesExplainCommand explainCommand,
+        DevToolsResourcesListCommand listCommand,
+        DevToolsResourcesSetCommand setCommand,
+        DevToolsResourcesResetCommand resetCommand)
         : base("resources", "Find which Style setter, resource key, and theme produced a live property value, " +
-            "and the XAML file and line to edit.\n" +
+            "and the XAML file and line to edit. List app resources and try new values live.\n" +
             "\n" +
-            "  winapp devtools resources explain <selector> Background")
+            "  winapp devtools resources explain <selector> Background\n" +
+            "  winapp devtools resources set <key> \"#FF0067C0\"")
     {
         Options.Add(WinAppRootCommand.JsonOption);
 
         Subcommands.Add(explainCommand);
+        Subcommands.Add(listCommand);
+        Subcommands.Add(setCommand);
+        Subcommands.Add(resetCommand);
     }
 
     IReadOnlyList<(string Category, Type[] CommandTypes)> ICompactHelpGroup.Categories { get; } =
     [
-        ("Read", [typeof(DevToolsResourcesExplainCommand)]),
+        ("Read", [typeof(DevToolsResourcesExplainCommand), typeof(DevToolsResourcesListCommand)]),
+        ("Change", [typeof(DevToolsResourcesSetCommand), typeof(DevToolsResourcesResetCommand)]),
     ];
 
     IReadOnlyList<(string Name, string Description)> ICompactHelpGroup.GroupOptions { get; } = [("-h, --help", "Show help")];
@@ -34,7 +43,12 @@ internal class DevToolsResourcesCommand : Command, IShortDescription, ICompactHe
     {
         ["why"] = "explain",
         ["trace"] = "explain",
+        ["ls"] = "list",
+        ["override"] = "set",
+        ["replace"] = "set",
+        ["restore"] = "reset",
+        ["undo"] = "reset",
     };
 
-    IReadOnlyList<string> ICompactHelpGroup.CommonCommands { get; } = ["explain"];
+    IReadOnlyList<string> ICompactHelpGroup.CommonCommands { get; } = ["explain", "set"];
 }

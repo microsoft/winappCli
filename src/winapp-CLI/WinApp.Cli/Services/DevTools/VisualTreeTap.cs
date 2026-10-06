@@ -303,4 +303,38 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
             w.WriteString("type", type);
             w.WriteString("value", value);
         }, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestResourceList(string? pattern, string? theme, CancellationToken cancellationToken = default) =>
+        Request("Resource.list", w =>
+        {
+            if (pattern is not null)
+            {
+                w.WriteString("pattern", pattern);
+            }
+            if (theme is not null)
+            {
+                w.WriteString("theme", theme);
+            }
+        }, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestResourceSet(string key, string value, string? theme, string? type, CancellationToken cancellationToken = default) =>
+        Request("Resource.set", w =>
+        {
+            w.WriteString("key", key);
+            w.WriteString("value", value);
+            if (theme is not null)
+            {
+                w.WriteString("theme", theme);
+            }
+            if (type is not null)
+            {
+                w.WriteString("type", type);
+            }
+        }, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestResourceReset(string? key, CancellationToken cancellationToken = default) =>
+        Request("Resource.reset", w =>
+        {
+            if (key is not null)
+            {
+                w.WriteString("key", key);
+            }
+        }, cancellationToken: cancellationToken);
 }

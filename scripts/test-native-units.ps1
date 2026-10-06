@@ -63,6 +63,7 @@ $testCpps = @(
     (Join-Path $testDir "focus-subscription-tests.cpp"),
     (Join-Path $testDir "overlaystate-tests.cpp"),
     (Join-Path $testDir "ownedstate-tests.cpp"),
+    (Join-Path $testDir "resourceoverrides-tests.cpp"),
     (Join-Path $testDir "batch-tests.cpp"),
     (Join-Path $testDir "query-tests.cpp"),
     (Join-Path $testDir "bindinganswer-tests.cpp"),
