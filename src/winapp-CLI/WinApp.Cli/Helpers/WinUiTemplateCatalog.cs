@@ -454,6 +454,26 @@ internal static class WinUiTemplateCatalog
     }
 
     /// <summary>
+    /// Orders templates for presentation: WinUI templates (display name or canonical short name
+    /// starting with "WinUI") first, then every other template; each group sorted case-insensitively
+    /// by display name. <c>dotnet new list</c> sorts purely alphabetically, which would put the
+    /// experimental Reactor templates ahead of the WinUI ones.
+    /// </summary>
+    internal static IReadOnlyList<WinUiTemplateEntry> OrderForDisplay(IEnumerable<WinUiTemplateEntry> entries)
+        => entries
+            .OrderBy(e => IsWinUiTemplate(e) ? 0 : 1)
+            .ThenBy(SortName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.ShortName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static bool IsWinUiTemplate(WinUiTemplateEntry entry)
+        => SortName(entry).StartsWith("WinUI", StringComparison.OrdinalIgnoreCase)
+            || entry.ShortName.StartsWith("winui", StringComparison.OrdinalIgnoreCase);
+
+    private static string SortName(WinUiTemplateEntry entry)
+        => string.IsNullOrEmpty(entry.DisplayName) ? entry.ShortName : entry.DisplayName;
+
+    /// <summary>
     /// Restricts <paramref name="listed"/> (parsed from <c>dotnet new list</c>) to the templates
     /// <paramref name="packRows"/> says the resolved Microsoft pack owns, and replaces each survivor's
     /// display name and aliases with the pack row's authoritative ones.
