@@ -526,14 +526,15 @@ if (g_route1WindowHidden) {
     return S_OK;
 }
 
-static void ResetAppVisibleModes()
+static void ResetAppVisibleModes(HWND h)
 {
-    if (HWND h = Route1WindowHwnd()) {
+    if (h) {
         KillTimer(h, kDisarmAfterWindowPickTimerId);
         KillTimer(h, kRefreshTimerId);
     }
     if (g_hoverRevertTimer) { KillTimer(nullptr, g_hoverRevertTimer); g_hoverRevertTimer = 0; }
-    if (g_ctx.highlightFn) g_ctx.highlightFn(0, true);
+    // The highlight and its tag belong to the window, except a selection the user made in the app, whose panel is open.
+    if (g_ctx.highlightFn && !DevToolsOverlay_IsQuickPanelOpen()) g_ctx.highlightFn(0, true);
     if (g_pickRoute.IsWindowPickArmed()) {
         DevToolsOverlay_DisarmPick();
         g_pickRoute.CancelWindowPick();
@@ -572,7 +573,7 @@ HRESULT DevToolsWindow_Close()
         DevToolsOverlayLog(L"route1.close ShowWindow(SW_HIDE) left the window visible");
         return E_FAIL;
     }
-    ResetAppVisibleModes();
+    ResetAppVisibleModes(hwnd);
     LiveUnwatch();
     g_route1WindowHidden = true;
     DevToolsOverlayLog(L"route1.close hidden (instance reused; gen=%u)", g_route1Gen);

@@ -154,6 +154,8 @@ HRESULT DevToolsOverlay_SetToolbarVisible(bool visible);
 
 // Returns the raw handle currently drawn, not merely the last requested target.
 InstanceHandle DevToolsOverlay_GetHighlightHandle();
+// Whether the in-app quick-edit panel is open: a selection the user made in the app, not one the inspector drew.
+bool DevToolsOverlay_IsQuickPanelOpen();
 
 // Reads the layout-toggle latch without recomputing geometry.
 bool DevToolsOverlay_IsLayoutAdornersOn();

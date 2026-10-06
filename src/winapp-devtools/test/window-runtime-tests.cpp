@@ -366,6 +366,19 @@ int main()
         "failed theme unsubscription cannot suppress actual native close");
     g_route1WindowInsp=nullptr;removeThemeResult=S_OK;
     {
+        // Closing the window with its title bar clears the highlight and tag it drew on the app.
+        static int clears=0;
+        const auto savedHighlight=g_ctx.highlightFn;
+        g_ctx.highlightFn=[](InstanceHandle wire, bool select) { if (!wire && select) ++clears; };
+        g_route1WindowInsp=&testRow;clears=0;
+        Route1MinSizeProc(nullptr,WM_CLOSE,0,0,1,g_route1Gen);
+        check(clears==1 && !DevToolsOverlay_IsQuickPanelOpen(),
+            "closing the inspector clears the selection it drew on the app");
+        Route1MinSizeProc(nullptr,WM_CLOSE,0,0,1,g_route1Gen-1);
+        check(clears==1, "a stale close does not touch the current window's selection");
+        g_route1WindowInsp=nullptr;g_ctx.highlightFn=savedHighlight;
+    }
+    {
         DevToolsWindowLayout stretched{};
         stretched.haveDesired=stretched.haveRender=true;
         stretched.desiredW=80;stretched.renderW=400;stretched.renderH=32;

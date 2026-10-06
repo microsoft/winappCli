@@ -10,11 +10,17 @@
 static const int kMinWindowWidthDip  = 640;
 static const int kMinWindowHeightDip = 400;
 
+static void ResetAppVisibleModes(HWND hwnd);
+static void LiveUnwatch();
+
 static LRESULT CALLBACK Route1MinSizeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
                                           UINT_PTR /*id*/, DWORD_PTR generation)
 {
     if (msg == WM_CLOSE && generation == g_route1Gen && g_route1WindowInsp) {
         ReleaseInspectorCaptionTheme();
+        // Closed by the user: what the window drew on the app goes with it, as when it is hidden.
+        ResetAppVisibleModes(hwnd);
+        LiveUnwatch();
     }
     if (msg == WM_GETMINMAXINFO) {
         UINT dpi = GetDpiForWindow(hwnd);

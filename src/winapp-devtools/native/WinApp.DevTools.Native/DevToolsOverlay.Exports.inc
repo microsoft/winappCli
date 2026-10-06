@@ -933,3 +933,5 @@ HRESULT DevToolsOverlay_SelectHandle(IXamlDiagnostics* diag, InstanceHandle root
     DevToolsOverlayLog(L"overlay.select from tree target=%llu", (unsigned long long)target);
     return hr;
 }
+
+bool DevToolsOverlay_IsQuickPanelOpen() { return DevToolsSelPanelIsOpen(); }
