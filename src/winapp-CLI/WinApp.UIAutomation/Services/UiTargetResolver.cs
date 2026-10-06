@@ -314,13 +314,18 @@ public sealed class UiTargetResolver(
 
         if (candidates.Count > 1)
         {
+            // A hosted packaged app (e.g. two Calculators) has no main window of its own; the
+            // ApplicationFrameHost frame hosting it counts as its window.
             var withWindow = candidates
-                .Where(p => p.MainWindowHandle != 0 && !string.IsNullOrEmpty(p.MainWindowTitle))
+                .Select(p => (Process: p, Title: p.MainWindowHandle != 0 && !string.IsNullOrEmpty(p.MainWindowTitle)
+                    ? p.MainWindowTitle
+                    : HostedAppFrameWindows(systemQuery, p.Id).Select(f => f.Title).FirstOrDefault()))
+                .Where(c => c.Title is not null)
                 .ToList();
 
             if (withWindow.Count == 1)
             {
-                var single = withWindow[0];
+                var single = withWindow[0].Process;
                 if (partial) { LogPartialMatch(app, single); }
                 return single;
             }
@@ -328,9 +333,9 @@ public sealed class UiTargetResolver(
             if (withWindow.Count > 1)
             {
                 var listing = string.Join("\n  ",
-                    withWindow.Select(p => partial
-                        ? $"PID {p.Id} ({p.ProcessName}): \"{p.MainWindowTitle}\""
-                        : $"PID {p.Id}: \"{p.MainWindowTitle}\""));
+                    withWindow.Select(c => partial
+                        ? $"PID {c.Process.Id} ({c.Process.ProcessName}): \"{c.Title}\""
+                        : $"PID {c.Process.Id}: \"{c.Title}\""));
                 var header = partial
                     ? $"Multiple processes matching '{app}' found:"
                     : $"Multiple '{app}' windows found:";

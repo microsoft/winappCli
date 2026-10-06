@@ -192,6 +192,43 @@ public class UiSessionServiceTests
     }
 
     [TestMethod]
+    public async Task ResolveByExactName_TwoHostedInstances_AsksToDisambiguate()
+    {
+        // Two Calculators: neither process has a main window, but each has its own hosting frame.
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys);
+        sys.HostedFramesByPid[881] = [0x304];
+        sys.WindowTextByHwnd[0x304] = "Calculatrice";
+        sys.ByNameResult =
+        [
+            new UiProcessInfo(880, "CalculatorApp", 0, ""),
+            new UiProcessInfo(881, "CalculatorApp", 0, ""),
+        ];
+        uia.WindowsByPidResult = [];
+
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => service.ResolveAsync(app: "CalculatorApp", hwnd: null, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "Multiple 'CalculatorApp' windows found");
+        StringAssert.Contains(ex.Message, "PID 880: \"Calculatrice\"");
+        StringAssert.Contains(ex.Message, "PID 881: \"Calculatrice\"");
+    }
+
+    [TestMethod]
+    public async Task ResolveByExactName_OneHostedInstanceAmongWindowless_UsesItsFrame()
+    {
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys).ByNameResult =
+        [
+            new UiProcessInfo(879, "CalculatorApp", 0, ""), // suspended/background: no frame
+            new UiProcessInfo(880, "CalculatorApp", 0, ""),
+        ];
+        uia.WindowsByPidResult = [];
+
+        AssertHostedFrameTarget(await service.ResolveAsync(app: "CalculatorApp", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task ResolveByPid_ProcessWithoutWindow_UsesHostingFrame()
     {
         var (service, uia, sys) = NewService();
