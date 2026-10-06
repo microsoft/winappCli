@@ -158,6 +158,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
             m += L"</StackPanel>";
         }
     }
+    m += BuildStyleSection(type, rows);
     if (!authoredXaml.empty()) {
         const std::wstring note = authoredState == L"likely"
             ? L"Likely source: unique line and identity match; compiled identity and line preservation are unverified."

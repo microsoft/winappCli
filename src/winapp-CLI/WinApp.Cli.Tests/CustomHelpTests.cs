@@ -40,7 +40,7 @@ public class CustomHelpTests : BaseCommandTests
             Assert.Contains("Usage:", output);
             if (command == devtools)
             {
-                Assert.IsLessThanOrEqualTo(56, output.Split('\n').Length,
+                Assert.IsLessThanOrEqualTo(57, output.Split('\n').Length,
                     "DevTools overview should fit a concise command list.");
             }
         }

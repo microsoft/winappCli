@@ -127,6 +127,11 @@ using DevToolsWindowWalkFn = std::function<bool(InstanceHandle wire, const std::
                                            const std::wstring& tryPath, std::wstring* outJson)>;
 void DevToolsWindow_SetPathWalk(DevToolsWindowWalkFn walkFn);
 
+// Runs winapp with `args` and returns its exit code (negative when it could not run) and stdout. `mutates` asks for
+// a connection that may change the app's source. Worker thread only: it blocks until winapp exits.
+using DevToolsWindowCliFn = std::function<int(const std::wstring& args, bool mutates, std::wstring* stdoutText)>;
+void DevToolsWindow_SetCliRunner(DevToolsWindowCliFn runFn);
+
 // The live element behind a wire handle (null when it is gone; the caller releases it), so the pane can follow its
 // property changes, and a read of just the named properties' values. UI thread only.
 using DevToolsWindowElementFn = IInspectable* (*)(InstanceHandle wire);

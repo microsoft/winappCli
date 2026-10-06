@@ -187,7 +187,7 @@ internal static class DevToolsJson
         }
     }
 
-    private static void WriteChainEntry(Utf8JsonWriter writer, JsonElement entry, string? sourceRoot)
+    internal static void WriteChainEntry(Utf8JsonWriter writer, JsonElement entry, string? sourceRoot)
     {
         if (entry.ValueKind != JsonValueKind.Object)
         {

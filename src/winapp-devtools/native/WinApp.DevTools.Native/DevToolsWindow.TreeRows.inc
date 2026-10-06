@@ -120,6 +120,8 @@ static void SetAutomationTextOn(IInspectable* el, const std::wstring& name, cons
     reinterpret_cast<IUnknown*>(dobj)->Release();
 }
 
+static void AttachStyleMenu(IInspectable* row, InstanceHandle wire); // DevToolsWindow.StyleEdit.inc
+
 // Build one AddRef'd tree row lazily. Model state exists for all rows; element arrays are sparse
 // until expand/filter/select makes a row visible. Consumers must tolerate null unrealized entries.
 static IInspectable* BuildOneTreeRow(size_t i,
@@ -438,6 +440,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                 DevToolsAddPointerExited(rowUi, hoverOut, &xtok);
                 reinterpret_cast<IUnknown*>(rowUi)->Release();
             }
+            AttachStyleMenu(nodeBtn, n.handle);
         }
         appendUi(rowChildren, nodeBtn);
         caption->Release();

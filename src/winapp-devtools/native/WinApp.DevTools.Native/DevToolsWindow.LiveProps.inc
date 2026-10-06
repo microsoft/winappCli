@@ -14,6 +14,9 @@ void DevToolsWindow_SetElementResolver(DevToolsWindowElementFn element, DevTools
     g_valuesFn = values;
 }
 
+// The app's element for a tree handle, AddRef'd; null when it is gone or the resolver isn't set.
+static IInspectable* ResolveLiveElement(InstanceHandle wire) { return g_elementFn ? g_elementFn(wire) : nullptr; }
+
 struct LiveWatch
 {
     InstanceHandle wire = 0;

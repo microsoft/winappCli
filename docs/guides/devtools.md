@@ -318,6 +318,174 @@ Without either, the command requires exactly one attached app. Live commands nev
 inject just because a target was selected. To authorize injection, use
 `winapp devtools attach --pid <pid>` first, or add `--attach` to the live command.
 
+## Find where a value comes from
+
+```powershell
+winapp devtools resources explain SaveButton Background -a 12345
+```
+
+The command reads the live value and traces it back to the XAML you would edit. For
+a `SelectorBarItem` in WinUI Gallery:
+
+```text
+Background = #B3FFFFFF  (Microsoft.UI.Xaml.Media.SolidColorBrush)
+  ← Style setter   TokenViewSelectorBarItemStyle (explicit)  Styles/SelectorBar.xaml:109
+                   Background = {ThemeResource TokenItemBackground}
+  ← ThemeResource  TokenItemBackground   element theme: Dark
+  ← defined in     Styles/SelectorBar.xaml:6 [Default]
+                   also in Styles/SelectorBar.xaml:27 (Light theme only)
+  ← alias of       ControlFillColorDefaultBrush
+  ← defined in     WinUI default resources
+
+Change it: edit Styles/SelectorBar.xaml:109 (affects elements that use this Style), or override ControlFillColorDefaultBrush in App.xaml's resources (affects every control that uses it)
+```
+
+Each line is one step:
+
+- **Origin:** the Style setter (explicit or implicit, with its `BasedOn` chain), the
+  local value, or the default style.
+- **Resource:** the `{ThemeResource}` or `{StaticResource}` key the origin uses.
+- **Definition:** where the key is defined, including its theme branch and any
+  alias it points to.
+
+**Change it** names the narrowest place to edit. Keys from WinUI's own resources
+show as **WinUI default resources** without a line. To change one of those, define
+the same key in your `App.xaml` resources.
+
+Definitions are read from the XAML files under the app's project folder, so the
+lines are as current as those files. Keep the source in sync with the running build.
+The value itself is read live. Add `--json` for the full chain: `origin`, `resources`
+with every definition and whether it applies, and `changeIt`.
+
+Limits:
+
+- A local value points at the element's start line, not the attribute's line.
+- A `HighContrast` branch is treated as applying only while high contrast is on.
+- Values set by Style setters can resolve `{ThemeResource}` keys under the app's
+  theme rather than the element's `RequestedTheme`, so the value can differ from
+  the branch shown.
+- Values with no text form, such as `CornerRadius`, print as `(no text form)`. The
+  setter line still shows the authored value.
+
+## List and try resource values
+
+```powershell
+winapp devtools resources list --key "*Brush" -a 12345
+winapp devtools resources set AccentBrush "#FFD13438" -a 12345
+winapp devtools resources reset -a 12345
+```
+
+`list` shows the app's resources from `Application.Resources`, its merged
+dictionaries, and the active theme branch, each with its value and the file and line
+that defines it:
+
+```text
+3 resources matching *Brush (Light theme)
+  AccentBrush       #FF0078D4 SolidColorBrush · App.xaml:19
+  CardBrush         #FFFFFFFF SolidColorBrush · Styles/Tokens.xaml:7 [Light]
+  CardBorderBrush   #0F000000 SolidColorBrush · Styles/Tokens.xaml:8 [Light]
+12 WinUI default resources also match; add --defaults to list them.
+```
+
+`--key` takes a `*`/`?` pattern. `--theme Light|Dark|HighContrast` reads another
+theme branch. `--defaults` adds WinUI's own resources, marked **WinUI default**.
+
+`set` replaces the value of one key in memory, and every element that uses it
+through `{ThemeResource}` or `{StaticResource}` updates at once:
+
+```text
+✅ AccentBrush: #FF0078D4 -> #FFD13438
+   Elements that use AccentBrush through {ThemeResource} or {StaticResource} now show the new value.
+   The change lasts until `winapp devtools resources reset` or the app exits. To keep it, edit App.xaml:19.
+```
+
+- The value is parsed as the key's current type, such as a color for a brush, `8` or
+  `4,8` for a `Thickness`, or a number for a `Double`. Use `--type` to change it.
+- `--theme Dark` changes the Dark branch; it shows while the app uses that theme.
+- Changes are in memory and never written to source. `reset <key>` restores one key,
+  and `reset` restores every key DevTools changed. Changed keys show
+  **changed by DevTools** in `list`, and `explain` notes the override.
+- WinUI default resources can't be replaced while the app runs. To try one, define
+  the same key in `App.xaml` resources, restart, and then `set` it: WinUI's control
+  styles pick up your value, so this is how to try lightweight styling.
+- Elements update live only when the app was started with `winapp run --devtools`.
+  For an app attached later, `set` warns that existing elements may keep the old
+  value.
+
+## Copy a control's Style to edit it
+
+When resources alone can't make the change, for example a new shape, layout, or
+visual state, copy the Style an element uses into your app and edit the copy:
+
+```powershell
+winapp devtools resources copy-style CounterButton -a 12345           # preview
+winapp devtools resources copy-style CounterButton --write -a 12345   # apply
+```
+
+```text
+[CounterButton] Button MainWindow.xaml
+Copies the WinUI default style for Button (DefaultButtonStyle), from Microsoft.WindowsAppSDK.WinUI 1.8.260224000 generic.xaml:27587
+  + App.xaml:11  ButtonStyle1 (94 lines)
+                  <Style x:Key="ButtonStyle1" TargetType="Button" xmlns:controls="using:Microsoft.UI.Xaml.Controls">
+                      <Setter Property="Background" Value="{ThemeResource ButtonBackground}" />
+      … 92 more lines
+  ~ MainWindow.xaml:46  Style="{StaticResource ButtonStyle1}" on the element
+
+Preview only; nothing was written. Run again with --write to apply.
+The copy uses 18 WinUI resources (brushes, sizes); they still come from WinUI. If you only need other colors or sizes, override those keys instead (`winapp devtools resources explain`), which keeps future WinUI fixes.
+```
+
+- The source is the Style the element uses: one it names, such as
+  `{StaticResource AccentButtonStyle}`, the app's implicit Style for its type, or
+  WinUI's default Style, read from the WinUI package the project restored.
+- The copy goes into the `App.xaml` resources with a new key, and the element's
+  `Style` points at it. `--key` picks the key, and `--into <file>` picks another
+  resource dictionary file, which must be merged where the element can find it.
+- `--all-of-type` makes the copy an implicit Style, so it applies to every control of
+  that exact type that doesn't set its own `Style`, and leaves the element unchanged.
+- Without `--write`, nothing is changed. With it, the files are written, and the copy
+  takes effect after you rebuild and restart the app.
+- The app must be started with `winapp run <project folder> --devtools`, so DevTools
+  knows where its XAML is. Elements inside a control's template can't be copied;
+  copy the Style of the control that owns them.
+
+### Edit a Style from the inspector
+
+Select an element in the inspector. The properties pane shows a **STYLE** section
+with two menus: **Edit Style** and **Edit Template**. Each has two commands:
+
+- **Edit Current** opens the file that defines the Style, at the Style (or at its
+  `Template` setter). If the element uses a Style built into WinUI, a dialog explains
+  that there's no file of yours to open and offers **Edit a Copy…**.
+- **Edit a Copy…** opens a **Create Style Resource** dialog. Enter a key, or choose
+  **Apply to all &lt;Type&gt; elements** to make the copy an implicit Style. Then
+  choose where to define it: **Application (App.xaml)** or **This document**. Select
+  **OK**. The copy is written, the element's `Style` is set to it, and the file opens
+  in your editor.
+
+While the Style is open, the running app shows your edits each time you save the
+file. No rebuild needed. A **Live** banner shows the Style and file, and when it last
+updated:
+
+```text
+Live BigButtonStyle · App.xaml
+Updated 17:42:04 · 1 element
+```
+
+If the saved XAML has an error, the banner shows its file line, and the app keeps the
+last good Style:
+
+```text
+App.xaml line 13: The property 'NotAProperty' was not found in type 'Microsoft.UI.Xaml.Controls.Button'.
+```
+
+If the Style uses an attached property the running app can't load from new XAML,
+such as `AnimatedIcon.State`, the banner adds `previewed without AnimatedIcon.State
+until the app is rebuilt`; the rest of your edits still show.
+
+Select **Stop** to stop applying saves. What's already applied stays until the app
+restarts. Your file already holds the edits, so rebuild to keep them.
+
 ## Try a live property change
 
 ```powershell

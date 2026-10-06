@@ -32,6 +32,8 @@ void DevToolsWindow_SetCommentBridge(DevToolsWindowCommentsFn commentsFn,
 
 void DevToolsWindow_SetPathWalk(DevToolsWindowWalkFn walkFn) { g_walkFn = walkFn; }
 
+void DevToolsWindow_SetCliRunner(DevToolsWindowCliFn runFn) { g_cliFn = std::move(runFn); }
+
 void DevToolsWindow_RefreshComments()
 {
     if (!DevToolsWindow_IsOpen()) return;

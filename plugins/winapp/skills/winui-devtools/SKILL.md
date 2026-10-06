@@ -157,6 +157,30 @@ For disk-matched source declarations and their limits, follow the guide's
 [source-coordinate guidance](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#find-and-inspect-an-element)
 before editing XAML or capturing a source-anchored comment.
 
+To change how something looks in source, start with
+`winapp devtools resources explain <selector> <property>`. It names the Style setter
+or local value, the resource key, the dictionary and theme branch that define it, and
+the file and line to edit. Edit the line named under **Change it** instead of
+searching for the color. Keys shown as **WinUI default resources** are not in the
+project; override them in `App.xaml` resources rather than editing a style.
+
+To try a different resource value across the whole app, use
+`winapp devtools resources set <key> <value>`; every `{ThemeResource}` and
+`{StaticResource}` use updates live. `resources list --key <pattern>` shows keys,
+values, and their file and line. Changes are in memory only: report the file and line
+`set` names so the user can make the change permanent, and run
+`winapp devtools resources reset` when done. WinUI default keys can't be set until
+the app defines them in `App.xaml` and restarts.
+
+When resource values can't make the change (template, layout, or visual states),
+run `winapp devtools resources copy-style <selector>` to preview a copy of the
+element's Style (the app's or WinUI's default) in `App.xaml`, then add `--write` to
+apply it; `--all-of-type` makes it an implicit Style instead. Prefer overriding
+resource keys when they are enough. After writing, edit the copy, then rebuild and
+restart the app. Users can do the same from the inspector's STYLE section
+(**Edit Style** or **Edit Template** ▸ **Edit Current** / **Edit a Copy…**); while
+the file is open there, each save updates the running app live.
+
 Use `set-property <selector> <property> <value>` for an authorized in-memory
 change. Report its observed read-back, not the requested value as if it succeeded.
 If the result has `replacedBinding`, say so: the local value replaced a `{Binding}`

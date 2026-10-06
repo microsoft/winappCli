@@ -46,7 +46,7 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
     internal static readonly (string Category, Type[] CommandTypes)[] HelpCategories =
     [
         ("Discover", [typeof(DevToolsListCommand), typeof(DevToolsAttachCommand), typeof(DevToolsInspectCommand), typeof(DevToolsSearchCommand)]),
-        ("Read", [typeof(DevToolsGetPropertyCommand), typeof(DevToolsGetLayoutCommand), typeof(DevToolsGetSourceCommand)]),
+        ("Read", [typeof(DevToolsGetPropertyCommand), typeof(DevToolsGetLayoutCommand), typeof(DevToolsGetSourceCommand), typeof(DevToolsResourcesCommand)]),
         ("Change live", [typeof(DevToolsSetPropertyCommand)]),
         ("Bindings", [typeof(DevToolsDiagnoseBindingCommand)]),
         ("Comments", [typeof(DevToolsCommentsCommand)]),
@@ -55,6 +55,7 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
 
     public DevToolsCommand(
         DevToolsCommentsCommand commentsCommand,
+        DevToolsResourcesCommand resourcesCommand,
         DevToolsListCommand listCommand,
         DevToolsAttachCommand attachCommand,
         DevToolsInspectCommand inspectCommand,
@@ -75,6 +76,7 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         Subcommands.Add(getPropertyCommand);
         Subcommands.Add(getLayoutCommand);
         Subcommands.Add(getSourceCommand);
+        Subcommands.Add(resourcesCommand);
         Subcommands.Add(diagnoseBindingCommand);
         Subcommands.Add(setPropertyCommand);
         Subcommands.Add(callCommand);
