@@ -16,6 +16,7 @@ namespace WinApp.Cli.Tests;
 public class ReactorFetcherTests
 {
     private static readonly string[] FlexKeywords = ["css layout", "flex", "flexbox"];
+    private static readonly string[] FlexUsings = ["Microsoft.UI.Reactor.Flex"];
     private static readonly string[] AcrylicKeywords = ["material", "blur"];
 
     private const string SampleIndex = """
@@ -85,7 +86,7 @@ public class ReactorFetcherTests
         // Carried as data, not prepended: the code is a class-body fragment, so a `using`
         // glued to the front of it lands where C# does not allow one.
         var flex = scenarios.Single(s => s.ControlId == "flex");
-        CollectionAssert.AreEqual(new[] { "Microsoft.UI.Reactor.Flex" }, flex.Usings);
+        CollectionAssert.AreEqual(FlexUsings, flex.Usings);
         Assert.AreEqual("new Flex()", flex.CSharp);
 
         // Controls without usings keep their code verbatim and carry no imports.

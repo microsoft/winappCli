@@ -28,6 +28,7 @@ public class SampleIndexTests
     private static readonly string[] FlexKeywords = ["css layout", "flexbox"];
     private static readonly string[] ButtonRelated = ["HyperlinkButton", "ToggleButton"];
     private static readonly string[] ButtonXmlns = ["xmlns:controls=\"using:CommunityToolkit.WinUI.Controls\""];
+    private static readonly string[] HelpersUsings = ["CommunityToolkit.WinUI.Helpers"];
 
     /// <summary>
     /// A control whose scenarios populate every field the contract models, including the
@@ -772,7 +773,7 @@ public class SampleIndexTests
         Assert.AreEqual(2, scenarios.Length);
         foreach (var s in scenarios)
         {
-            CollectionAssert.AreEqual(new[] { "CommunityToolkit.WinUI.Helpers" }, s.Usings);
+            CollectionAssert.AreEqual(HelpersUsings, s.Usings);
             Assert.IsFalse(s.CSharp!.Contains("using "), "usings must not be folded into code");
         }
         Assert.AreEqual("var a = 1;", scenarios[0].CSharp);
