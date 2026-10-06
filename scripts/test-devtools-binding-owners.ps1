@@ -171,6 +171,8 @@ function Enter-CommentMode {
     if ($shown.Count -eq 0) {
         $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
         $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoComments', '-a', $app, '-t', '5000')
+        # The bar opened under a still pointer; moving onto it lets the next click's move away collapse it.
+        $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoComments', '-a', $app)
     }
     $state = Invoke-Cli @('ui', 'get-property', 'DevToolsProtoComments', '-a', $app, '-p', 'ToggleState')
     if ($state.properties.ToggleState -ne 'On') { $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoComments', '-a', $app) }
