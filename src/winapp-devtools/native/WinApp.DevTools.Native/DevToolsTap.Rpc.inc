@@ -2,6 +2,61 @@
 // Licensed under the MIT License.
 // Part of DevToolsTap.cpp; included into that translation unit, not compiled on its own.
 
+// Parts of one comment push, keyed by the batch the CLI names, so pushes from two CLIs cannot mix. Bounded in batches
+// and in size: a part that is out of order, or a set past the limit, drops its batch.
+struct TapCommentPushStage { std::wstring batch; long long next = 0, parts = 0; std::wstring data; };
+static std::mutex g_commentPushMutex;
+static std::vector<TapCommentPushStage> g_commentPushStages;
+static constexpr size_t kCommentPushMaxBatches = 4;
+static constexpr size_t kCommentPushMaxChars = 32u * 1024u * 1024u;
+static constexpr long long kCommentPushMaxParts = 8192;
+
+// Stages one part. Returns how many parts are staged while more are due, or 0 when this part completed the set,
+// which is then parsed into `out`. `error` is set when the part cannot be used.
+static long long TapStageCommentPart(const DevToolsJson& p, DevToolsJson* out, std::wstring* error)
+{
+    const std::wstring batch = p.GetString(L"batch");
+    const long long part = p.GetInt(L"part", -1), parts = p.GetInt(L"parts", 0);
+    if (batch.empty() || parts < 1 || parts > kCommentPushMaxParts || part < 0 || part >= parts) {
+        *error = L"A comment push part needs batch, part and parts.";
+        return 0;
+    }
+    std::wstring data;
+    {
+        std::lock_guard<std::mutex> lock(g_commentPushMutex);
+        auto stage = std::find_if(g_commentPushStages.begin(), g_commentPushStages.end(),
+            [&](const TapCommentPushStage& s) { return s.batch == batch; });
+        if (part == 0) {
+            if (stage != g_commentPushStages.end()) g_commentPushStages.erase(stage);
+            if (g_commentPushStages.size() >= kCommentPushMaxBatches) g_commentPushStages.erase(g_commentPushStages.begin());
+            g_commentPushStages.push_back({ batch, 0, parts, L"" });
+            stage = g_commentPushStages.end() - 1;
+        } else if (stage == g_commentPushStages.end() || stage->next != part || stage->parts != parts) {
+            if (stage != g_commentPushStages.end()) g_commentPushStages.erase(stage);
+            *error = L"A comment push arrived incomplete or out of order. Push the comments again.";
+            return 0;
+        }
+        const std::wstring piece = p.GetString(L"data");
+        if (stage->data.size() + piece.size() > kCommentPushMaxChars) {
+            g_commentPushStages.erase(stage);
+            *error = L"The comment set is larger than DevTools accepts (32 MB).";
+            return 0;
+        }
+        stage->data += piece;
+        if (++stage->next < parts) return stage->next;
+        data = std::move(stage->data);
+        g_commentPushStages.erase(stage);
+    }
+    if (!DevToolsJsonParse(data, *out) || !out->IsObject()) *error = L"The comment push is not valid JSON.";
+    return 0;
+}
+
+// A push that cannot be applied leaves the markers and count stale, so the app says so.
+static void TapNoticeCommentPushFailed()
+{
+    Log(L"comments: a comment push could not be applied; markers may be stale");
+    RunOnUiThread([]() -> HRESULT { DevToolsOverlay_NoticeCommentsStale(); return S_OK; });
+}
 static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req) {
     const std::wstring& m = req.method;
     const DevToolsJson& p = req.params;
@@ -613,8 +668,21 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             L",\"uniquenessReason\":\"" + DevToolsJsonEscape(reason ? reason : L"unverified") + L"\"}");
     }
     if (m == L"Internal.setComments") {
+        // A comment set larger than one request line arrives as parts of its JSON text; the last part applies it.
+        DevToolsJson joined;
+        const DevToolsJson* set = &p;
+        if (p.Find(L"data")) {
+            std::wstring error;
+            const auto staged = TapStageCommentPart(p, &joined, &error);
+            if (!error.empty()) {
+                TapNoticeCommentPushFailed();
+                return DevToolsRpcError(id, DevToolsErr::InvalidParams, error, L"comment-push-incomplete");
+            }
+            if (staged) return DevToolsRpcResult(id, L"{\"staged\":" + std::to_wstring(staged) + L"}");
+            set = &joined;
+        }
         auto items = std::make_shared<std::vector<DevToolsWindowComment>>();
-        if (const DevToolsJson* arr = p.Find(L"comments")) {
+        if (const DevToolsJson* arr = set->Find(L"comments")) {
             if (arr->type == DevToolsJsonType::Array) {
                 for (const auto& e : arr->arr) {
                     if (!e.IsObject()) continue;
@@ -634,7 +702,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         }
 
         // Store generation orders snapshots from concurrent CLIs; -1 is an unversioned (legacy) push.
-        const long long generation = p.GetInt(L"generation", -1);
+        const long long generation = set->GetInt(L"generation", -1);
         auto placed = std::make_shared<size_t>(0);
         auto stale = std::make_shared<bool>(false);
         InstanceHandle root = RootVisual();
@@ -660,7 +728,10 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             DevToolsWindow_RefreshComments();
             return h;
         });
-        if (FAILED(hr)) return DevToolsRpcError(id, DevToolsErr::InternalError, L"could not push comments", L"overlay-push-failed");
+        if (FAILED(hr)) {
+            TapNoticeCommentPushFailed();
+            return DevToolsRpcError(id, DevToolsErr::InternalError, L"could not push comments", L"overlay-push-failed");
+        }
         return DevToolsRpcResult(id, L"{\"total\":" + std::to_wstring(items->size()) +
                                 L",\"placed\":" + std::to_wstring(*placed) +
                                 L",\"stale\":" + (*stale ? L"true" : L"false") + L"}");

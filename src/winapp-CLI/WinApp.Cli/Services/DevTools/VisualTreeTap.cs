@@ -241,10 +241,59 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
     public DevToolsProtocolResponse GetElementAnchor(string handle, CancellationToken cancellationToken = default) =>
         Request("Internal.elementAnchor", w => w.WriteString("handle", handle), 4000, cancellationToken);
 
+    /// <summary>The bytes one comment-push part may carry, leaving room for the request envelope under <see cref="MaxRequestBytes"/>.</summary>
+    internal const int CommentPartBudget = 56 * 1024;
+
     public DevToolsProtocolResponse SetComments(IReadOnlyList<TapComment> comments, long generation,
-        int timeoutMs = DefaultTimeoutMs, CancellationToken cancellationToken = default) => Request("Internal.setComments", w =>
+        int timeoutMs = DefaultTimeoutMs, CancellationToken cancellationToken = default)
     {
-        w.WriteNumber("generation", generation);
+        var payload = CommentSetJson(comments, generation);
+        var parts = SplitCommentPayload(payload);
+        if (parts.Count == 1)
+        {
+            return Request("Internal.setComments", w =>
+            {
+                w.WriteNumber("generation", generation);
+                WriteComments(w, comments);
+            }, timeoutMs, cancellationToken);
+        }
+
+        // A set larger than one request line goes as parts of its JSON text; the app applies it on the last part.
+        var batch = Guid.NewGuid().ToString("N");
+        DevToolsProtocolResponse response = DevToolsProtocolResponse.Failure(new(-32602, "bad-args", "No comment parts were sent."));
+        for (var part = 0; part < parts.Count; part++)
+        {
+            var index = part;
+            response = Request("Internal.setComments", w =>
+            {
+                w.WriteString("batch", batch);
+                w.WriteNumber("part", index);
+                w.WriteNumber("parts", parts.Count);
+                w.WriteString("data", parts[index]);
+            }, timeoutMs, cancellationToken);
+            if (!response.Ok)
+            {
+                break;
+            }
+        }
+        return response;
+    }
+
+    internal static string CommentSetJson(IReadOnlyList<TapComment> comments, long generation)
+    {
+        using var stream = new MemoryStream();
+        using (var w = new Utf8JsonWriter(stream))
+        {
+            w.WriteStartObject();
+            w.WriteNumber("generation", generation);
+            WriteComments(w, comments);
+            w.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static void WriteComments(Utf8JsonWriter w, IReadOnlyList<TapComment> comments)
+    {
         w.WriteStartArray("comments");
         foreach (var comment in comments)
         {
@@ -261,8 +310,35 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
             w.WriteEndObject();
         }
         w.WriteEndArray();
-    }, timeoutMs, cancellationToken);
-
+    }
+    /// <summary>
+    /// Splits the comment set's JSON text into parts that each fit one request once escaped as a JSON string. The text
+    /// is ASCII (the writer escapes everything else), and a character costs at most six bytes escaped.
+    /// </summary>
+    internal static List<string> SplitCommentPayload(string payload)
+    {
+        if (payload.Length + 512 <= MaxRequestBytes)
+        {
+            return [payload];
+        }
+        var parts = new List<string>();
+        var start = 0;
+        var cost = 0;
+        for (var i = 0; i < payload.Length; i++)
+        {
+            var c = payload[i];
+            var next = char.IsAsciiLetterOrDigit(c) || c is ' ' or ',' or '.' or ':' or '-' or '_' or '{' or '}' or '[' or ']' ? 1 : 6;
+            if (cost + next > CommentPartBudget)
+            {
+                parts.Add(payload[start..i]);
+                start = i;
+                cost = 0;
+            }
+            cost += next;
+        }
+        parts.Add(payload[start..]);
+        return parts;
+    }
     public DevToolsProtocolResponse RequestEnumerate(string? rootHandle, int? depth, bool authored = false, CancellationToken cancellationToken = default) =>
         Request("VisualTree.enumerate", w =>
         {

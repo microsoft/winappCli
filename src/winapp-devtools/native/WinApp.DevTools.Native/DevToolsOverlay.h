@@ -206,6 +206,8 @@ void DevToolsOverlay_SetCliExe(const wchar_t* path);
 void DevToolsOverlay_SetGuestComments(const std::wstring& start, const std::wstring& binding, const std::wstring& epoch);
 std::wstring DevToolsOverlay_GuestCommentsJson();
 std::wstring DevToolsOverlay_GuestCommentToken(const std::wstring& operation, const std::wstring& revision);
+// Tells the user the comment markers and count may be out of date. UI thread only.
+void DevToolsOverlay_NoticeCommentsStale();
 bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstring& revision,
     std::function<void(int)> completed);
 // Adds a comment on lement through the in-app comment writer, for the inspector. completed gets 0 once it is

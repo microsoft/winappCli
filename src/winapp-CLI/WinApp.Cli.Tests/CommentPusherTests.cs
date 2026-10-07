@@ -46,6 +46,58 @@ public class CommentPusherTests
     }
 
     [TestMethod]
+    public void Push_LargeCommentSet_ArrivesInPartsThatEachFitOnePipeLine()
+    {
+        var root = Directory.CreateTempSubdirectory("winapp-push-large-");
+        try
+        {
+            var doc = new CommentStoreDocument();
+            for (var i = 0; i < 1000; i++)
+            {
+                var comment = NewComment($"cmt_{i:D4}", CommentStatus.Open, $"Root/0/{i}");
+                comment.Text = $"Note {i}: \"quotes\", <tags> & ünïcödé 💬 " + new string('x', 1000);
+                comment.ProjectRoot = root.FullName;
+                doc.Comments.Add(comment);
+            }
+            var huge = NewComment("cmt_huge", CommentStatus.Open, "Root/1");
+            huge.Text = string.Concat(Enumerable.Repeat("\"<+>\" ", 30_000));
+            huge.ProjectRoot = root.FullName;
+            doc.Comments.Add(huge);
+            var store = new SnapshotStore(doc);
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("Internal.sourceRoot", JsonSerializer.Serialize(new { sourceRoot = root.FullName }))
+                .Answer("Internal.setComments", """{"total":1001,"placed":0}""", request =>
+                {
+                    using var parsed = JsonDocument.Parse(request);
+                    var p = parsed.RootElement.GetProperty("params");
+                    return p.GetProperty("part").GetInt32() + 1 == p.GetProperty("parts").GetInt32();
+                })
+                .Answer("Internal.setComments", """{"staged":1}""");
+
+            var log = new RecordingLogger();
+            Assert.AreEqual((1001, 0), new CommentPusher(store, log).Push((uint)agent.Pid, root.FullName), log.Last);
+
+            var parts = agent.ReceivedRequests.Where(r => r.Contains("Internal.setComments", StringComparison.Ordinal)).ToList();
+            Assert.IsGreaterThan(1, parts.Count);
+            var data = new System.Text.StringBuilder();
+            for (var i = 0; i < parts.Count; i++)
+            {
+                Assert.IsLessThanOrEqualTo(WinApp.Cli.Services.DevTools.VisualTreeTap.MaxRequestBytes, System.Text.Encoding.UTF8.GetByteCount(parts[i]) + 1);
+                using var parsed = JsonDocument.Parse(parts[i]);
+                var p = parsed.RootElement.GetProperty("params");
+                Assert.AreEqual(i, p.GetProperty("part").GetInt32());
+                Assert.AreEqual(parts.Count, p.GetProperty("parts").GetInt32());
+                data.Append(p.GetProperty("data").GetString());
+            }
+            using var set = JsonDocument.Parse(data.ToString());
+            var comments = set.RootElement.GetProperty("comments");
+            Assert.AreEqual(1001, comments.GetArrayLength());
+            Assert.AreEqual(huge.Text, comments[1000].GetProperty("text").GetString());
+            Assert.AreEqual(doc.Comments[999].Text, comments[999].GetProperty("text").GetString());
+        }
+        finally { root.Delete(recursive: true); }
+    }
+    [TestMethod]
     public void Correction_PushCancellation_PreservesSavedBytesAndLogsWarning()
     {
         var root = Directory.CreateTempSubdirectory("winapp-correction-push-cancel-");
@@ -149,9 +201,23 @@ public class CommentPusherTests
         }
     }
 
+    // The pusher only reads the store; a snapshot keeps a 1,000-comment set fast to build.
+    private sealed class SnapshotStore(CommentStoreDocument doc) : ICommentStore
+    {
+        public CommentStoreLocation Locate(string? startDirectory = null) => throw new NotSupportedException();
+        public string GetStorePath(DirectoryInfo? baseDirectory = null) => Path.Combine(baseDirectory?.FullName ?? "", "ui-comments.json");
+        public CommentStoreDocument Load(string storePath) => doc;
+        public Comment Add(string storePath, Comment comment) => throw new NotSupportedException();
+        public Comment AddOrReplace(string storePath, Comment comment, out bool replaced) => throw new NotSupportedException();
+        public Comment? Update(string storePath, string id, Action<Comment> mutate) => throw new NotSupportedException();
+        public Comment? Get(string storePath, string id) => throw new NotSupportedException();
+        public Comment? Delete(string storePath, string id) => throw new NotSupportedException();
+    }
+
     private sealed class RecordingLogger : ILogger<CommentPusher>
     {
         public int Warnings { get; private set; }
+        public string? Last { get; private set; }
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
@@ -159,6 +225,7 @@ public class CommentPusherTests
         {
             if (logLevel == LogLevel.Warning)
             {
+                Last = exception?.Message ?? formatter(state, exception);
                 Warnings++;
             }
         }

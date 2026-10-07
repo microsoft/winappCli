@@ -1118,6 +1118,62 @@ int wmain(int argc, wchar_t** argv)
         g_commentsGeneration = -1;
     }
     {
+        // A comment set larger than one pipe line arrives in parts and is applied once, from the last part.
+        auto part = [](const std::wstring& batch, int index, int count, const std::wstring& data) {
+            DevToolsJson params;
+            DevToolsJsonParse(L"{\"batch\":\"" + batch + L"\",\"part\":" + std::to_wstring(index) + L",\"parts\":" +
+                std::to_wstring(count) + L",\"data\":\"" + DevToolsJsonEscape(data) + L"\"}", params);
+            return params;
+        };
+        std::wstring set = L"{\"generation\":9,\"comments\":[";
+        for (int i = 0; i < 1000; ++i)
+            set += (i ? L"," : L"") + std::wstring(L"{\"id\":\"c") + std::to_wstring(i) + L"\",\"text\":\"note \\\"" + std::to_wstring(i) + L"\\\"\"}";
+        set += L"]}";
+        const std::wstring first = set.substr(0, set.size() / 3), second = set.substr(first.size(), set.size() / 3),
+            third = set.substr(first.size() + second.size());
+        DevToolsJson joined; std::wstring error;
+        const auto a = TapStageCommentPart(part(L"A", 0, 3, first), &joined, &error);
+        const auto other = TapStageCommentPart(part(L"B", 0, 2, L"{\"comments\":"), &joined, &error);
+        const auto b = TapStageCommentPart(part(L"A", 1, 3, second), &joined, &error);
+        const auto c = TapStageCommentPart(part(L"A", 2, 3, third), &joined, &error);
+        const DevToolsJson* comments = joined.Find(L"comments");
+        check(a == 1 && other == 1 && b == 2 && c == 0 && error.empty() && comments && comments->arr.size() == 1000 &&
+              joined.GetInt(L"generation", -1) == 9 && comments->arr[999].GetString(L"text") == L"note \"999\"",
+              "a 1,000-comment set arrives in parts, alongside another push, and is applied whole");
+        error.clear();
+        TapStageCommentPart(part(L"C", 0, 3, first), &joined, &error);
+        TapStageCommentPart(part(L"C", 2, 3, third), &joined, &error);
+        check(!error.empty(), "a part that skips one fails the push instead of applying a partial set");
+        error.clear();
+        TapStageCommentPart(part(L"D", 1, 2, second), &joined, &error);
+        check(!error.empty(), "a part without its batch's first part is refused");
+        std::lock_guard<std::mutex> lock(g_commentPushMutex);
+        g_commentPushStages.clear();
+    }
+    {
+        // A push the app cannot use is said in the app, not only in the reply.
+        const auto request = DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Internal.setComments\","
+            L"\"params\":{\"batch\":\"E\",\"part\":1,\"parts\":2,\"data\":\"x\"}}");
+        std::wstring reply;
+        std::thread caller([&] { reply = HandleRpc(nullptr, request); });
+        IUnknown* handler = nullptr;
+        {
+            std::unique_lock<std::mutex> lock(g_heldMutex);
+            if (g_heldReady.wait_for(lock, std::chrono::seconds(3), [] { return g_heldHandler != nullptr; })) {
+                handler = g_heldHandler;
+                g_heldHandler = nullptr;
+            }
+        }
+        if (handler) {
+            IDispatcherQueueHandler* callback = nullptr;
+            if (SUCCEEDED(handler->QueryInterface(IID_PPV_ARGS(&callback)))) { callback->Invoke(); callback->Release(); }
+            handler->Release();
+        }
+        caller.join();
+        check(handler && reply.find(L"comment-push-incomplete") != std::wstring::npos,
+              "an unusable comment push fails with a reason and raises a notice in the app");
+    }
+    {
         // TextBox (app) -> Grid (template) -> PlaceholderTextContentPresenter (template): a pick on the placeholder
         // selects the TextBox the developer wrote.
         g_parent.clear();

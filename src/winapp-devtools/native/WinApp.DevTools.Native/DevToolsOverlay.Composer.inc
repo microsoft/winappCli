@@ -650,6 +650,11 @@ static void ShowCommentToast(const std::wstring& text, bool problem)
     DevToolsOverlayLog(L"overlay.comment toast '%s'", text.c_str());
 }
 
+void DevToolsOverlay_NoticeCommentsStale()
+{
+    ShowCommentToast(L"Comments could not be refreshed. Run winapp devtools comments list to see them.", true);
+}
+
 static void GuestCommentComplete(DWORD exitCode, bool acknowledged, const wchar_t* stage)
 {
     auto& write = g_guestCommentWrite;
