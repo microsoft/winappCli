@@ -548,10 +548,11 @@ Write-Info "  Generated guides/index.md"
 # under the winapp-cli node — pages are only reachable via "Related topics". This
 # step emits the child TOC so every ported page appears in the left-hand nav.
 #
-# NOTE: The *parent* dev-tools TOC in MicrosoftDocs/windows-dev-docs-pr must branch
-# into this file, e.g.:
-#     - name: winapp CLI
-#       href: winapp-cli/toc.yml
+# NOTE: The parent Tools TOC in MicrosoftDocs/windows-dev-docs-pr
+# (hub/apps/tools/toc.yml) includes this file so the pages render inside the
+# existing Tools navigation instead of a separate, standalone TOC:
+#     - name: WinApp CLI
+#       href: ../dev-tools/winapp-cli/toc.yml
 # That one-time edit lives in the docs repo (outside the winapp-cli folder this
 # script writes) and is not something the port script can generate.
 
@@ -560,7 +561,7 @@ Write-Step "Generating toc.yml"
 # Curated left-nav labels keyed by output-relative path. Anything ported but not
 # listed here falls back to its H1 title (and is flagged so a maintainer can add it).
 $TocLabels = [ordered]@{
-    "index.md"                                   = "winapp CLI overview"
+    "index.md"                                   = "Overview"
     "usage.md"                                   = "Commands and usage"
     "debugging.md"                               = "Debugging with package identity"
     "ui-automation.md"                           = "UI Automation"
