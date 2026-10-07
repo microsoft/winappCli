@@ -685,15 +685,23 @@ internal partial class MsixService
     private static string? LocalRecipePackagePath(string location)
     {
         var normalized = PathSafety.NormalizeLocalPathWithoutProbing(location);
-        if (normalized is null || PathSafety.IsNetworkDriveRoot(normalized) || PathSafety.RedirectsToNetwork(normalized))
+        if (normalized is null)
         {
             return null;
         }
 
         // Drop the \\?\ prefix the normalizer adds to a drive path, for the package installer and messages.
-        return normalized.StartsWith(@"\\?\", StringComparison.Ordinal) && normalized.Length > 6 && normalized[5] == ':'
-            ? normalized[4..]
-            : normalized;
+        var isDrivePath = normalized.StartsWith(@"\\?\", StringComparison.Ordinal) && normalized.Length > 6 && normalized[5] == ':';
+        var local = isDrivePath ? normalized[4..] : normalized;
+
+        // Only the bare drive root (e.g. "Z:\") goes to the drive-type check: it recognizes plain drive letters, and
+        // a root has no 8.3 name to expand, so checking it can't touch a mapped share.
+        if ((isDrivePath && PathSafety.IsNetworkDriveRoot(local[..3])) || PathSafety.RedirectsToNetwork(normalized))
+        {
+            return null;
+        }
+
+        return local;
     }
 
     private static string NormalizeRecipeArchitecture(string? architecture) =>
