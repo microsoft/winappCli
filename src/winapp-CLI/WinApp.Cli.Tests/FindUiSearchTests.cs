@@ -79,7 +79,9 @@ public class FindUiSearchTests
         // search quietly returned fewer samples than it used to.
         var scenarios = new List<Scenario>();
         for (int i = 1; i <= 6; i++)
+        {
             scenarios.Add(Scn("gallery", "listview", "ListView", $"listview-{i}", $"ListView variant {i}"));
+        }
         scenarios.Add(Scn("gallery", "tabview", "TabView", "tabview-1", "Add, close, and rearrange tabs"));
 
         var engine = new SearchEngine(
