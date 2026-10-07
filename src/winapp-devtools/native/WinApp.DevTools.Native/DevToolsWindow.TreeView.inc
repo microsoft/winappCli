@@ -139,10 +139,32 @@ static void ApplyDefaultCollapse()
     }
 }
 
+// A tree that has not had its first layout has no viewport to scroll in: a pick that opens the inspector selects
+// its row before then. That reveal is kept and made when the tree first gets a size (RevealPendingRow).
+static InstanceHandle g_pendingRevealWire = 0;
+
+static bool TreeViewportReady()
+{
+    void* sv = nullptr;
+    if (!g_treeScrollUi ||
+        FAILED(reinterpret_cast<IUnknown*>(g_treeScrollUi)->QueryInterface(DevToolsIid<DevToolsXC::IScrollViewer>(), &sv)) || !sv)
+        return false;
+    double viewport = 0.0;
+    const bool ready = SUCCEEDED(DevToolsScrollGetViewportHeight(sv, &viewport)) && viewport > 0.0;
+    reinterpret_cast<IUnknown*>(sv)->Release();
+    return ready;
+}
+
 static void BringRowIntoView(size_t si)
 {
     const size_t n = g_treeRows.size();
     if (si >= n || !g_treeRows[si] || !g_treeScrollUi) return;
+    if (!TreeViewportReady()) {
+        g_pendingRevealWire = g_selectedWire;
+        DevToolsOverlayLog(L"tree.reveal row=%zu waits for the tree's first layout", si);
+        return;
+    }
+    g_pendingRevealWire = 0;
     DevToolsUpdateLayout(g_treeRows[si]);
 
     const int kContextRows = 3;
@@ -287,6 +309,18 @@ static void RevealSelectedRowAfterViewChange()
     BringRowIntoView(si);
     if (si < g_treeControls.size() && g_treeControls[si]) SelectRowVisual(g_treeControls[si]);
     DevToolsOverlayLog(L"route1.view-change re-revealed selected row %zu (jmx=%d)", si, (int)g_jmxActive);
+}
+
+// The tree got a size: make a reveal that had to wait for it, if that row is still the selection.
+static void RevealPendingRow()
+{
+    if (!g_pendingRevealWire || !TreeViewportReady()) return;
+    const InstanceHandle wire = std::exchange(g_pendingRevealWire, 0);
+    if (wire != g_selectedWire) return;
+    const auto it = g_nodeIdxByWire.find(wire);
+    if (it == g_nodeIdxByWire.end()) return;
+    BringRowIntoView(it->second);
+    DevToolsOverlayLog(L"tree.reveal made the waiting reveal of row %zu", it->second);
 }
 
 static bool RebuildTreeRows();

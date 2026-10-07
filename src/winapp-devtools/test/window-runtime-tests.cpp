@@ -20,6 +20,8 @@ static HRESULT TestGetAppWindow(void*, IInspectable**);
 static HRESULT TestGetCaption(void*, IInspectable**);
 static HRESULT TestAddTheme(void*, void*, __int64*);
 static LRESULT CALLBACK TestNativeClose(HWND, UINT, WPARAM, LPARAM);
+static double testViewport = 0.0;
+static HRESULT TestViewport(void*, double* value) { *value = testViewport; return S_OK; }
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsRepeaterTryGetElement GetTestElement
@@ -35,6 +37,7 @@ static LRESULT CALLBACK TestNativeClose(HWND, UINT, WPARAM, LPARAM);
 #define DevToolsAppWindowGetTitleBar TestGetCaption
 #define DevToolsAddActualThemeChanged TestAddTheme
 #define DefSubclassProc TestNativeClose
+#define DevToolsScrollGetViewportHeight TestViewport
 #include "../native/WinApp.DevTools.Native/DevToolsWindow.cpp"
 
 struct TestElement : IInspectable {
@@ -457,6 +460,48 @@ int main()
         check(!RereadTreeCaption(0, &before), "an unchanged caption is left alone");
         g_ctx.previewFn = nullptr; g_allTreeNodes.clear();
     }
-    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    {
+        // A pick that opens the inspector selects its row before the tree's first layout. That reveal must wait for
+        // the tree to get a size rather than be dropped.
+        TestElement scroll, rowElement;
+        g_treeScrollUi = &scroll;
+        g_treeRows.assign(117, nullptr); g_treeVisible.assign(117, 1);
+        g_treeRows[116] = &rowElement;
+        g_nodeIdxByWire = {{8120172924ull, 116}};
+        g_selectedWire = 8120172924ull;
+        testViewport = 0.0;
+        BringRowIntoView(116);
+        check(g_pendingRevealWire == 8120172924ull, "a reveal before the tree's first layout waits instead of being dropped");
+        RevealPendingRow();
+        check(g_pendingRevealWire == 8120172924ull, "it keeps waiting while the tree still has no viewport");
+        testViewport = 752.0;
+        g_treeRows[116] = nullptr;   // the reveal itself needs live XAML; reaching it is what is checked here
+        RevealPendingRow();
+        check(g_pendingRevealWire == 0, "the tree's first size makes the waiting reveal");
+        g_treeRows[116] = &rowElement; testViewport = 0.0;
+        BringRowIntoView(116);
+        g_selectedWire = 42; testViewport = 752.0;
+        RevealPendingRow();
+        check(g_pendingRevealWire == 0, "a selection that changed while waiting is not revealed");
+        g_treeScrollUi = nullptr; g_treeRows.clear(); g_treeVisible.clear(); g_nodeIdxByWire.clear(); g_selectedWire = 0;
+    }
+    {
+        // The inspector's comment box starts from the element's existing comment, found as the Comments pane finds it.
+        DevToolsWindowComment todays; todays.id = L"cmt_a0dbf8f331a8"; todays.text = L"hello\rThis is a new comment";
+        todays.status = L"open"; todays.anchor = L"source:today";
+        DevToolsWindowComment other = todays; other.id = L"cmt_other"; other.anchor = L"source:other";
+        DevToolsWindowComment resolved = todays; resolved.id = L"cmt_done"; resolved.status = L"resolved"; resolved.anchor = L"source:done";
+        g_commentsFn = [&](std::vector<DevToolsWindowComment>* out) { *out = { other, resolved, todays }; return true; };
+        g_anchorWireFn = [](const wchar_t* anchor) -> InstanceHandle {
+            const std::wstring a(anchor);
+            return a == L"source:today" ? 246 : a == L"source:other" ? 223 : a == L"source:done" ? 300 : 0;
+        };
+        DevToolsWindowComment found;
+        check(SelectedElementComment(246, &found) && found.id == L"cmt_a0dbf8f331a8" && found.text == todays.text,
+            "the inspector finds the selected element's existing comment");
+        check(!SelectedElementComment(300, &found), "a resolved comment does not refill the inspector's box");
+        check(!SelectedElementComment(999, &found), "an element without a comment starts with an empty box");
+        g_commentsFn = nullptr; g_anchorWireFn = nullptr;
+    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

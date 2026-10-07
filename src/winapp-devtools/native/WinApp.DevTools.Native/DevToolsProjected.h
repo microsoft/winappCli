@@ -332,6 +332,8 @@ inline HRESULT DevToolsScrollGetHorizontalOffset(void* sv, double* value) noexce
 { return DevToolsAbi<DevToolsXC::IScrollViewer>(sv)->get_HorizontalOffset(value); }
 inline HRESULT DevToolsScrollGetScrollableHeight(void* sv, double* value) noexcept
 { return DevToolsAbi<DevToolsXC::IScrollViewer>(sv)->get_ScrollableHeight(value); }
+inline HRESULT DevToolsScrollGetViewportHeight(void* sv, double* value) noexcept
+{ return DevToolsAbi<DevToolsXC::IScrollViewer>(sv)->get_ViewportHeight(value); }
 inline HRESULT DevToolsScrollGetScrollableWidth(void* sv, double* value) noexcept
 { return DevToolsAbi<DevToolsXC::IScrollViewer>(sv)->get_ScrollableWidth(value); }
 inline HRESULT DevToolsScrollChangeView(void* sv, void* horizontal, void* vertical, void* zoom,

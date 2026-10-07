@@ -210,9 +210,11 @@ std::wstring DevToolsOverlay_GuestCommentToken(const std::wstring& operation, co
 void DevToolsOverlay_NoticeCommentsStale();
 bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstring& revision,
     std::function<void(int)> completed);
-// Adds a comment on lement through the in-app comment writer, for the inspector. completed gets 0 once it is
-// saved, nonzero otherwise; it may run before this returns. UI thread only.
-void DevToolsOverlay_AddComment(IInspectable* element, const std::wstring& text, std::function<void(int)> completed);
+// Saves a comment on element through the in-app comment writer, for the inspector: id updates that comment, an
+// empty id adds a new one. Returns the id written. completed gets 0 once it is saved, nonzero otherwise; it may
+// run before this returns. UI thread only.
+std::wstring DevToolsOverlay_AddComment(IInspectable* element, const std::wstring& text, const std::wstring& id,
+    std::function<void(int)> completed);
 
 // Persisted comments are keyed by stable id and optional rebuild-stable anchor.
 struct DevToolsOverlayComment

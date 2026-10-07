@@ -311,26 +311,29 @@ bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstr
     return g_guestCommentWrite.process != nullptr;
 }
 
-void DevToolsOverlay_AddComment(IInspectable* element, const std::wstring& text, std::function<void(int)> completed)
+std::wstring DevToolsOverlay_AddComment(IInspectable* element, const std::wstring& text, const std::wstring& id,
+    std::function<void(int)> completed)
 {
     GuestCommentWrite guest;
     InstanceHandle raw = 0;
     if (!element || !g_pickDiag || FAILED(g_pickDiag->GetHandleFromIInspectable(element, &raw)) || !raw ||
         DevToolsCommentText::IsBlank(text)) {
         if (completed) completed(1);
-        return;
+        return id;
     }
     guest.editor = GuestCommentEditor::Window;
     guest.handle = raw; guest.root = g_pickRoot;
     guest.wire = g_wireOf ? g_wireOf(raw) : 0;
-    guest.id = GenCommentId(); guest.submitted = guest.draft = text;
+    guest.id = id.empty() ? GenCommentId() : id; guest.submitted = guest.draft = text;
     guest.linked = IsLinkedElement(raw);
     if (g_anchorOf) g_anchorOf(raw, &guest.anchor);
     TryElementRootBounds(g_pickDiag, g_pickRoot, raw, &guest.bounds);
     guest.completed = std::move(completed);
+    const std::wstring used = guest.id;
     const auto args = DevToolsCommentText::AddArguments(GetCurrentProcessId(), text, guest.id, std::to_wstring(guest.wire));
     // A write refused before it reached the writer still owes its caller an answer.
     if (!LaunchWinapp(args, L"add", &guest) && guest.completed) guest.completed(1);
+    return used;
 }
 
 // Keyed by the raw pick handle. A comment this panel just saved counts even before

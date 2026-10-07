@@ -546,8 +546,21 @@ static void UpdateCommentsButtonLabel()
     SetIconToggleState(g_commentsBadgeUi, open > 0);
 }
 
-// The properties header's Comment button opens a box under it. Enter saves through the in-app comment writer,
-// Shift+Enter starts a new line and Esc closes the box.
+// The element's open comment, found the way the Comments pane finds a comment's element, so the inspector edits
+// that comment rather than starting a second one.
+static bool SelectedElementComment(InstanceHandle wire, DevToolsWindowComment* out)
+{
+    std::vector<DevToolsWindowComment> all;
+    if (!wire || !out || !g_commentsFn || !g_anchorWireFn || !g_commentsFn(&all)) return false;
+    for (auto& c : all) {
+        if (c.status == L"resolved" || c.status == L"dismissed" || c.anchor.empty()) continue;
+        if (g_anchorWireFn(c.anchor.c_str()) == wire) { *out = std::move(c); return true; }
+    }
+    return false;
+}
+
+// The properties header's Comment button opens a box under it, already holding the element's comment if it has
+// one. Enter saves through the in-app comment writer, Shift+Enter starts a new line and Esc closes the box.
 static unsigned g_addCommentGen = 0;
 static void WireAddComment(void* frameworkElement)
 {
@@ -561,17 +574,26 @@ static void WireAddComment(void* frameworkElement)
         auto status = root.FindName(L"AddCommentStatus").try_as<DevToolsXC::TextBlock>();
         if (!button || !box || !text || !status) return;
         const unsigned gen = ++g_addCommentGen;
+        struct Saved { std::wstring id, text; };
+        auto saved = std::make_shared<Saved>();
+        DevToolsWindowComment existing;
+        if (SelectedElementComment(g_selWire, &existing)) {
+            saved->id = existing.id;
+            saved->text = existing.text;
+            text.Text(existing.text);
+            box.Visibility(DevToolsX::Visibility::Visible);
+        }
         button.Click([box, text](auto&&, auto&&) {
             box.Visibility(DevToolsX::Visibility::Visible);
             text.Focus(DevToolsX::FocusState::Programmatic);
         });
-        text.PreviewKeyDown([box, text, status, gen](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
+        text.PreviewKeyDown([box, text, status, gen, saved](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {
             using winrt::Windows::System::VirtualKey;
             if (args.Key() == VirtualKey::Escape) {
                 args.Handled(true);
-                text.Text(L"");
+                text.Text(saved->text);
                 status.Text(kAddCommentHint);
-                box.Visibility(DevToolsX::Visibility::Collapsed);
+                if (saved->id.empty()) box.Visibility(DevToolsX::Visibility::Collapsed);
                 return;
             }
             if (args.Key() != VirtualKey::Enter || (GetKeyState(VK_SHIFT) & 0x8000)) return;
@@ -581,12 +603,13 @@ static void WireAddComment(void* frameworkElement)
             IInspectable* element = g_elementFn ? g_elementFn(g_selWire) : nullptr;
             text.IsReadOnly(true);
             status.Text(L"Saving\u2026");
-            DevToolsOverlay_AddComment(element, value, [weakText = winrt::make_weak(text), weakStatus = winrt::make_weak(status), gen](int code) {
+            saved->id = DevToolsOverlay_AddComment(element, value, saved->id,
+                [weakText = winrt::make_weak(text), weakStatus = winrt::make_weak(status), gen, saved, value](int code) {
                 auto savedText = weakText.get();
                 auto savedStatus = weakStatus.get();
                 if (!savedText || !savedStatus || gen != g_addCommentGen) return;
                 savedText.IsReadOnly(false);
-                if (code == 0) savedText.Text(L"");
+                if (code == 0) saved->text = value;
                 savedStatus.Text(code == 0 ? L"Comment saved." : L"Couldn't save the comment. Try again.");
             });
             if (element) element->Release();

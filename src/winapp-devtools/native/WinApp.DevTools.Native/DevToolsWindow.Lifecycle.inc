@@ -246,6 +246,24 @@ if (g_route1WindowHidden) {
                 }
             };
             grabUi(L"TreeScroll", &g_treeScrollUi);
+            g_pendingRevealWire = 0;
+            if (g_treeScrollUi) {
+                try {
+                    winrt::Windows::Foundation::IInspectable scroll{ nullptr };
+                    winrt::copy_from_abi(scroll, g_treeScrollUi);
+                    // The tree's extent is measured after its first size, so the reveal runs once that layout is done.
+                    scroll.as<DevToolsX::FrameworkElement>().SizeChanged([gen = g_route1Gen](auto&&, auto&&) {
+                        if (gen != g_route1Gen || !g_pendingRevealWire) return;
+                        auto queue = DevToolsD::DispatcherQueue::GetForCurrentThread();
+                        if (!queue || !queue.TryEnqueue(DevToolsD::DispatcherQueuePriority::Low,
+                                [gen] { if (gen == g_route1Gen) RevealPendingRow(); }))
+                            RevealPendingRow();
+                    });
+                } catch (const winrt::hresult_error& e) {
+                    DevToolsOverlayLog(L"route1.wire tree SizeChanged failed hr=0x%08X -- a pick that opens the "
+                                  L"inspector will not scroll to its row", e.code().value);
+                }
+            }
             grabUi(L"CommentsScroll", &g_commentsScrollUi);
             grabUi(L"TreeControls", &g_treeControlsUi);
             grabUi(L"PickOn", &g_pickOnUi);

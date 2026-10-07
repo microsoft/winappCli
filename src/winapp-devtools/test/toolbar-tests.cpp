@@ -455,7 +455,7 @@ static void TestToolbarContract()
                  "no call site launches the shell without asking for the association first");
 
     CheckToolbar(window.find("AutomationProperties.AutomationId=\\\"WinAppDevToolsAddComment\\\"") != std::string::npos &&
-                     window.find("DevToolsOverlay_AddComment(element, value") != std::string::npos,
+                     window.find("DevToolsOverlay_AddComment(element, value, saved->id") != std::string::npos,
                  "the inspector's Comment action saves through the in-app comment writer");
     CheckToolbar(overlay.find("static EventSink g_protoSink[21];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");

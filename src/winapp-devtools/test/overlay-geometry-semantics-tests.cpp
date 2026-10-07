@@ -990,8 +990,9 @@ int main()
         {
             g_guestCommentWrite={};g_guestCommentQueue.clear();commentLaunches=0;g_pins.clear();g_commentSnapshotAuthoritative=false;
             static int added = -1;
-            DevToolsOverlay_AddComment(&diagnostics.mainTarget, L"From the inspector", [](int code) { added = code; });
-            check(commentLaunches==1 && commentCommand.find(L"From the inspector")!=std::wstring::npos && added==-1,
+            const std::wstring newId = DevToolsOverlay_AddComment(&diagnostics.mainTarget, L"From the inspector", L"", [](int code) { added = code; });
+            check(commentLaunches==1 && commentCommand.find(L"From the inspector")!=std::wstring::npos && added==-1 &&
+                !newId.empty() && commentCommand.find(L"--id \"" + newId + L"\"")!=std::wstring::npos,
                 "inspector comment", "the inspector's comment starts the comment writer and waits for it");
             g_commentToastText.clear();
             commentExitCode=0;SetEvent(commentProcess);GuestCommentTimerProc(nullptr,0,0,0);
@@ -999,12 +1000,17 @@ int main()
                 g_pins.size()==1 && g_pins[0].handle==11,
                 "inspector comment", "a saved inspector comment is confirmed, marked on its element and frees the writer");
             added=-1;
-            DevToolsOverlay_AddComment(&diagnostics.mainTarget, L"Not this time", [](int code) { added = code; });
+            const std::wstring editedId = DevToolsOverlay_AddComment(&diagnostics.mainTarget, L"hello\rEdited in the inspector", L"cmt_a0dbf8f331a8", [](int code) { added = code; });
+            check(editedId==L"cmt_a0dbf8f331a8" && commentCommand.find(L"--id \"cmt_a0dbf8f331a8\"")!=std::wstring::npos,
+                "inspector comment", "the inspector saves an element's existing comment under its id, so it is edited in place");
+            commentExitCode=0;SetEvent(commentProcess);GuestCommentTimerProc(nullptr,0,0,0);
+            added=-1;
+            DevToolsOverlay_AddComment(&diagnostics.mainTarget, L"Not this time", L"", [](int code) { added = code; });
             commentExitCode=1;SetEvent(commentProcess);GuestCommentTimerProc(nullptr,0,0,0);
             check(added>0 && !g_guestCommentWrite.failed,
                 "inspector comment", "a failed inspector comment says so and does not lock the comment flyout");
             added=-1;
-            DevToolsOverlay_AddComment(nullptr, L"No element", [](int code) { added = code; });
+            DevToolsOverlay_AddComment(nullptr, L"No element", L"", [](int code) { added = code; });
             check(added==1, "inspector comment", "a comment without an element is refused at once");
             HideCommentToast();g_pins.clear();g_guestCommentWrite={};
         }

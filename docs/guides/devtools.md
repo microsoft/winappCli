@@ -58,8 +58,9 @@ current one off:
   where every property editor is. The arrow beside **Comments** has **Show all comments**,
   which opens the window's Comments pane, and **Show markers** / **Hide markers**.
 
-In the DevTools window, **Comment** in the properties header adds a comment on the
-selected element: type it and press **Enter**.
+In the DevTools window, **Comment** in the properties header comments on the selected
+element: type it and press **Enter**. If the element already has a comment, the box shows
+it and **Enter** saves your edit to that comment.
 
 Hover picking pauses while the comment panel is open, preserving
 your selection and draft. Clicking the selected element keeps it selected; clicking
