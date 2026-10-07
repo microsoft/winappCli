@@ -84,7 +84,8 @@ winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value Ready --t
 
 Use `--root`, `--type`, and `--class-name` together or separately on `search`,
 `get-property`, `get-value`, `wait-for`, and the commands that act on one
-selected element (`invoke`, `set-value`, `click`, `focus`, and so on; not `send-keys --target`). The root must be unique; only its
+selected element (`invoke`, `set-value`, `click`, `focus`, and so on; not `send-keys --target`).
+For `touch` and `pen`, filters need a selector; they can't be combined with `--at` or `--path`. The root must be unique; only its
 descendants match. `wait-for` re-resolves it every poll, including when it is
 initially absent. Type names and literal whole ClassName values ignore case.
 The only type aliases are `TextBox` → `Edit` and `TextBlock` → `Text`.

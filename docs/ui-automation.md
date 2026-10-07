@@ -63,7 +63,8 @@ These commands accept optional filters on their element selector:
 `screenshot`, `record`, `touch`, and `pen`. `drag` (two selectors) and `send-keys --target` do not.
 The selector and every supplied filter must match the **same element**. Filters narrow a
 selector, so `inspect`, `screenshot`, and `record`, whose selector is optional, fail with
-`invalid_arguments` when given filters without one:
+`invalid_arguments` when given filters without one. For `touch` and `pen`, filters need a
+selector; they can't be combined with `--at` or `--path` (`invalid_arguments`):
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
   never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.
