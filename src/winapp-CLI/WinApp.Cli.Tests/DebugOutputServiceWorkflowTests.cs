@@ -34,7 +34,7 @@ namespace WinApp.Cli.Tests;
 ///   <item>174-175, 181-182 — the <c>OpenProcess</c> / <c>ReadProcessMemory</c> failure guards while reading
 ///   the debuggee's <c>OutputDebugString</c> buffer: cannot be provoked without corrupting the OS call
 ///   (TOCTOU/flaky).</item>
-///   <item>419-421 — the <c>GetThreadContext</c>-failure guard: reached only when <c>OpenThread</c> succeeds
+///   <item>519-521 — the <c>GetThreadContext</c>-failure guard: reached only when <c>OpenThread</c> succeeds
 ///   but the subsequent context read fails — genuine Win32 fault injection, undrivable without flakiness.</item>
 /// </list>
 /// </remarks>
@@ -477,47 +477,120 @@ public sealed class DebugOutputServiceWorkflowTests
         StringAssert.Contains(_console.Output, "Stack Overflow");
     }
 
-    // ---- Crash context selection across threads (issue #836) ----
-    // Real, blocked threads in this test process give OpenThread/GetThreadContext valid targets, so the
-    // saved-context bookkeeping runs for real while the dump boundary stays faked.
+    // ---- Crash context selection (issue #836) ----
+    // Real threads in this test process, parked in kernel waits, give OpenThread/GetThreadContext/
+    // ReadProcessMemory valid targets, so the saved-context bookkeeping runs for real while the dump
+    // boundary stays faked. Events carry this process's id so the stack fingerprint can be read.
 
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
 
-    private static (uint ThreadId, Thread Thread) StartBlockedThread(ManualResetEventSlim release)
+    private static readonly uint TestProcessId = (uint)Environment.ProcessId;
+
+    private static void WaitUntilBlocked(Thread thread)
+    {
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => (thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) != 0, TimeSpan.FromSeconds(10)),
+            "Test thread never entered its wait.");
+        // Let it finish entering the kernel wait so its stack is quiescent.
+        Thread.Sleep(50);
+    }
+
+    private static (uint ThreadId, Thread Thread) StartBlockedThread(ManualResetEvent release)
     {
         uint id = 0;
-        using var started = new ManualResetEventSlim();
+        using var started = new ManualResetEvent(false);
         var thread = new Thread(() =>
         {
             id = GetCurrentThreadId();
             started.Set();
-            release.Wait();
+            release.WaitOne();
         })
         { IsBackground = true };
         thread.Start();
-        started.Wait();
+        started.WaitOne();
+        WaitUntilBlocked(thread);
         return (id, thread);
+    }
+
+    // Parks first deep in a recursion, then (once released) back at the top of its stack. This
+    // models a thread that raised an exception, handled it, returned, and later crashed elsewhere.
+    private sealed class DeepThenShallowThread : IDisposable
+    {
+        private readonly ManualResetEvent _leaveDeep = new(false);
+        private readonly ManualResetEvent _release = new(false);
+        private readonly ManualResetEvent _parked = new(false);
+        private readonly Thread _thread;
+
+        public uint ThreadId { get; private set; }
+
+        public DeepThenShallowThread()
+        {
+            _thread = new Thread(() =>
+            {
+                ThreadId = GetCurrentThreadId();
+                Deep(16);
+                _parked.Set();
+                _release.WaitOne();
+            })
+            { IsBackground = true };
+            _thread.Start();
+            _parked.WaitOne();
+            _parked.Reset();
+            WaitUntilBlocked(_thread);
+        }
+
+        public void MoveToShallow()
+        {
+            _leaveDeep.Set();
+            _parked.WaitOne();
+            WaitUntilBlocked(_thread);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private int Deep(int depth)
+        {
+            Span<byte> pad = stackalloc byte[512];
+            pad[0] = (byte)depth;
+            if (depth == 0)
+            {
+                _parked.Set();
+                _leaveDeep.WaitOne();
+                return pad[0];
+            }
+            return pad[0] + Deep(depth - 1);
+        }
+
+        public void Dispose()
+        {
+            _leaveDeep.Set();
+            _release.Set();
+            _thread.Join();
+            _leaveDeep.Dispose();
+            _release.Dispose();
+            _parked.Dispose();
+        }
+    }
+
+    private void Raise(uint code, bool firstChance, uint threadId)
+    {
+        var initialBreakpointSeen = true;
+        var continueStatus = NTSTATUS.DBG_CONTINUE;
+        _service.HandleException(MakeExceptionEvent(code, firstChance, threadId, TestProcessId), ref initialBreakpointSeen, ref continueStatus);
     }
 
     [TestMethod]
     public void HandleException_HandledExceptionOnOtherThread_DoesNotReplaceCrashContext()
     {
-        using var release = new ManualResetEventSlim();
+        using var release = new ManualResetEvent(false);
         var (handledThread, t1) = StartBlockedThread(release);
         var (crashThread, t2) = StartBlockedThread(release);
         try
         {
-            var initialBreakpointSeen = true;
-            var continueStatus = NTSTATUS.DBG_CONTINUE;
-
-            // A handled C++ exception during startup on one thread...
-            var handled = MakeExceptionEvent(0xE06D7363, firstChance: true, threadId: handledThread);
-            _service.HandleException(handled, ref initialBreakpointSeen, ref continueStatus);
-
-            // ...then a fatal fail-fast (STATUS_STACK_BUFFER_OVERRUN) on a different thread.
-            var crash = MakeExceptionEvent(0xC0000409, firstChance: false, threadId: crashThread);
-            _service.HandleException(crash, ref initialBreakpointSeen, ref continueStatus);
+            // A handled C++ exception during startup on one thread, then a fail-fast
+            // (STATUS_STACK_BUFFER_OVERRUN) on a different thread.
+            Raise(0xE06D7363, firstChance: true, handledThread);
+            Raise(0xC0000409, firstChance: false, crashThread);
 
             Assert.AreEqual(1, _crashDump.WriteCalls.Count);
             Assert.AreEqual(crashThread, _crashDump.WriteCalls[0].ThreadId,
@@ -535,36 +608,83 @@ public sealed class DebugOutputServiceWorkflowTests
     }
 
     [TestMethod]
-    public void HandleException_FirstChanceOnCrashingThread_KeepsFirstChanceContext()
+    public void HandleException_NestedFirstChanceOnCrashingThread_KeepsFirstChanceContext()
     {
-        using var release = new ManualResetEventSlim();
-        var (otherThread, t1) = StartBlockedThread(release);
-        var (crashThread, t2) = StartBlockedThread(release);
+        using var release = new ManualResetEvent(false);
+        var (crashThread, t) = StartBlockedThread(release);
         try
         {
-            var initialBreakpointSeen = true;
-            var continueStatus = NTSTATUS.DBG_CONTINUE;
-
-            _service.HandleException(MakeExceptionEvent(0xE06D7363, firstChance: true, threadId: otherThread),
-                ref initialBreakpointSeen, ref continueStatus);
-            // The AV on the crashing thread is first seen at first-chance, then the CLR wraps it.
-            _service.HandleException(MakeExceptionEvent(0xC0000005, firstChance: true, threadId: crashThread),
-                ref initialBreakpointSeen, ref continueStatus);
-            _service.HandleException(MakeExceptionEvent(0xE0434352, firstChance: true, threadId: crashThread),
-                ref initialBreakpointSeen, ref continueStatus);
-            _service.HandleException(MakeExceptionEvent(0xE0434352, firstChance: false, threadId: crashThread),
-                ref initialBreakpointSeen, ref continueStatus);
+            // The AV is still live on the stack when the CLR wraps it and the process crashes.
+            Raise(0xC0000005, firstChance: true, crashThread);
+            Raise(0xE0434352, firstChance: true, crashThread);
+            Raise(0xE0434352, firstChance: false, crashThread);
 
             Assert.AreEqual(1, _crashDump.WriteCalls.Count);
             Assert.AreEqual(crashThread, _crashDump.WriteCalls[0].ThreadId);
             Assert.AreEqual(unchecked((int)0xC0000005), _crashDump.SavedRecords[0].Code,
-                "The crashing thread's first critical first-chance exception still drives the dump so managed user frames are recovered.");
+                "A first-chance exception whose frame is still live drives the dump so managed user frames are recovered.");
         }
         finally
         {
             release.Set();
-            t1.Join();
-            t2.Join();
+            t.Join();
         }
+    }
+
+    [TestMethod]
+    public void HandleException_UnwoundFirstChanceOnCrashingThread_UsesCrashContext()
+    {
+        using var thread = new DeepThenShallowThread();
+
+        // Handled deep in the stack, then the thread returns and crashes from a shallower frame.
+        Raise(0xE06D7363, firstChance: true, thread.ThreadId);
+        thread.MoveToShallow();
+        Raise(0xC0000409, firstChance: false, thread.ThreadId);
+
+        Assert.AreEqual(1, _crashDump.WriteCalls.Count);
+        Assert.AreEqual(thread.ThreadId, _crashDump.WriteCalls[0].ThreadId);
+        Assert.AreEqual(unchecked((int)0xC0000409), _crashDump.SavedRecords[0].Code,
+            "An earlier exception the thread already returned from must not replace the crash.");
+    }
+
+    [TestMethod]
+    public void HandleException_LaterFirstChanceAfterUnwind_ReplacesSavedContext()
+    {
+        using var thread = new DeepThenShallowThread();
+
+        Raise(0xE06D7363, firstChance: true, thread.ThreadId);
+        thread.MoveToShallow();
+        Raise(0xC0000005, firstChance: true, thread.ThreadId);
+        Raise(0xE0434352, firstChance: false, thread.ThreadId);
+
+        Assert.AreEqual(1, _crashDump.WriteCalls.Count);
+        Assert.AreEqual(unchecked((int)0xC0000005), _crashDump.SavedRecords[0].Code,
+            "A new exception raised after the earlier one was unwound must replace it.");
+    }
+
+    [TestMethod]
+    public void GetStackPointer_OffsetMatchesGeneratedContext()
+    {
+        var arch = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture;
+        var field = arch == System.Runtime.InteropServices.Architecture.Arm64 ? "Sp" : "Rsp";
+        var offset = (int)System.Runtime.InteropServices.Marshal.OffsetOf<CONTEXT>(field);
+
+        var context = new byte[offset + 16];
+        BitConverter.TryWriteBytes(context.AsSpan(offset), 0x0000_00AB_CDEF_1234UL);
+
+        Assert.AreEqual(0x0000_00AB_CDEF_1234UL, DebugOutputService.GetStackPointer(context, arch));
+    }
+
+    [TestMethod]
+    public void IsFrameLive_RequiresDeeperOrEqualStackAndUnchangedBytes()
+    {
+        byte[] bytes = [1, 2, 3, 4];
+
+        Assert.IsTrue(DebugOutputService.IsFrameLive(0x1000, bytes, 0x0F00, [1, 2, 3, 4]), "Nested deeper with intact frame is live.");
+        Assert.IsTrue(DebugOutputService.IsFrameLive(0x1000, bytes, 0x1000, [1, 2, 3, 4]), "Same stack pointer with intact frame is live.");
+        Assert.IsFalse(DebugOutputService.IsFrameLive(0x1000, bytes, 0x1100, [1, 2, 3, 4]), "A thread above the saved frame has returned past it.");
+        Assert.IsFalse(DebugOutputService.IsFrameLive(0x1000, bytes, 0x0F00, [9, 2, 3, 4]), "Overwritten frame bytes mean the frame was reused.");
+        Assert.IsFalse(DebugOutputService.IsFrameLive(0x1000, bytes, 0x0F00, null), "Unreadable stack is treated as gone.");
+        Assert.IsFalse(DebugOutputService.IsFrameLive(0x1000, null, 0x0F00, [1, 2, 3, 4]), "Missing fingerprint is treated as gone.");
     }
 }

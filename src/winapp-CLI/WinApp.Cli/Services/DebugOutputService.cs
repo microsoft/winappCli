@@ -45,7 +45,17 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
     // Keyed per thread so a handled exception on one thread never stands in for a crash on another.
     private readonly Dictionary<uint, SavedExceptionContext> _savedFirstChanceContexts = [];
 
-    internal sealed record SavedExceptionContext(byte[] Context, uint ThreadId, int ExceptionCode, nuint ExceptionAddress);
+    internal sealed record SavedExceptionContext(
+        byte[] Context, uint ThreadId, int ExceptionCode, nuint ExceptionAddress,
+        ulong StackPointer, byte[]? StackFingerprint);
+
+    // Bytes read at a saved exception's stack pointer. If they are unchanged (and the thread has not
+    // popped above that stack pointer), the throwing frame is still live on the stack.
+    internal const int StackFingerprintSize = 64;
+
+    // Offsets of the stack pointer inside CONTEXT: Rsp on x64, Sp on ARM64.
+    private const int ContextRspOffsetX64 = 0x98;
+    private const int ContextSpOffsetArm64 = 0x100;
 
     /// <inheritdoc/>
     public async Task<int> RunDebugLoopAsync(uint processId, CancellationToken cancellationToken, bool useSymbols = false, IReadOnlyList<string>? symbolSearchPaths = null)
@@ -246,13 +256,13 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
                 console.MarkupLine($"[yellow]First-chance exception:[/] {name} (0x{code:X8}) at 0x{address:X}");
             }
 
-            // Save each thread's context for its FIRST critical exception — at first-chance
-            // time, the context still points to user code. Later exceptions on the same thread
-            // (CLR wrapping the AV) have already unwound the stack.
-            if (code is 0xC0000005 or 0xC00000FD or 0xE0434352 or 0xE06D7363 &&
-                !_savedFirstChanceContexts.ContainsKey(debugEvent.dwThreadId))
+            // Save each thread's context for its critical exception — at first-chance time, the
+            // context still points to user code. A later exception nested inside that one (CLR
+            // wrapping the AV) keeps the original; one raised after the thread returned past the
+            // original frame (it was handled) replaces it.
+            if (code is 0xC0000005 or 0xC00000FD or 0xE0434352 or 0xE06D7363)
             {
-                SaveFirstChanceContext(debugEvent.dwThreadId, code, address);
+                SaveFirstChanceContext(debugEvent.dwProcessId, debugEvent.dwThreadId, code, address);
             }
 
             // Stack Overflow is always fatal in .NET — no second-chance will follow.
@@ -333,23 +343,32 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
     /// <summary>
     /// Writes the crash dump using the crashing thread as the primary crash context. When
     /// <paramref name="useEarlierFirstChanceContext"/> is set and that thread saved a first-chance
-    /// context, that context is used so ClrMD still recovers the managed user frames; otherwise the
-    /// crashing thread's current context and this exception's own record are used. First-chance
-    /// contexts saved on other threads never replace the crash; they are only logged as supplemental.
+    /// context whose frame is still live on the stack, that context is used so ClrMD still recovers
+    /// the managed user frames; otherwise the crashing thread's current context and this exception's
+    /// own record are used. Other saved first-chance contexts are only logged as supplemental.
     /// </summary>
     private void WriteCrashDump(in DEBUG_EVENT debugEvent, uint code, nuint address, nuint[]? parameters, bool useEarlierFirstChanceContext)
     {
+        var processId = debugEvent.dwProcessId;
         var crashThreadId = debugEvent.dwThreadId;
+        var current = CaptureExceptionContext(processId, crashThreadId, code, address);
 
-        SavedExceptionContext? primary = null;
+        SavedExceptionContext? primary = current;
         if (useEarlierFirstChanceContext && _savedFirstChanceContexts.TryGetValue(crashThreadId, out var saved))
         {
-            primary = saved;
-            _logWriter?.WriteLine($"[CrashDump] Using first-chance context saved on crashing thread {crashThreadId} (0x{(uint)saved.ExceptionCode:X8}) at 0x{saved.ExceptionAddress:X}");
+            if (IsSavedFrameLive(processId, saved, current))
+            {
+                primary = saved;
+                _logWriter?.WriteLine($"[CrashDump] Using first-chance context saved on crashing thread {crashThreadId} (0x{(uint)saved.ExceptionCode:X8}) at 0x{saved.ExceptionAddress:X}");
+            }
+            else
+            {
+                _logWriter?.WriteLine($"[CrashDump] Supplemental (not the crash): earlier first-chance 0x{(uint)saved.ExceptionCode:X8} on crashing thread {crashThreadId} at 0x{saved.ExceptionAddress:X} was already unwound");
+            }
         }
-        else if (CaptureThreadContext(crashThreadId) is { } context)
+
+        if (ReferenceEquals(primary, current) && current != null)
         {
-            primary = new SavedExceptionContext(context, crashThreadId, unchecked((int)code), address);
             _logWriter?.WriteLine($"[CrashDump] Using crashing thread {crashThreadId} context for 0x{code:X8} at 0x{address:X}");
         }
 
@@ -362,23 +381,104 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
         }
 
         _crashDumpPath = crashDumpService.WriteMiniDump(
-            debugEvent.dwProcessId,
+            processId,
             primary?.Context, primary?.ThreadId ?? 0,
             primary?.ExceptionCode ?? 0, primary?.ExceptionAddress ?? 0,
             unchecked((int)code), address, parameters);
     }
 
     /// <summary>
-    /// Captures the faulting thread's context at first-chance time, when it still
-    /// points to the user code that caused the exception.
+    /// Records a thread's critical first-chance exception. An already-saved exception on the same
+    /// thread is kept while its frame is still live (the new one is nested inside it), and replaced
+    /// once the thread has returned past it (it was handled).
     /// </summary>
-    private void SaveFirstChanceContext(uint threadId, uint code, nuint address)
+    private void SaveFirstChanceContext(uint processId, uint threadId, uint code, nuint address)
     {
-        if (CaptureThreadContext(threadId) is { } context)
+        var current = CaptureExceptionContext(processId, threadId, code, address);
+        if (current == null)
         {
-            _savedFirstChanceContexts[threadId] = new SavedExceptionContext(context, threadId, unchecked((int)code), address);
-            _logWriter?.WriteLine($"[CrashDump] Saved first-chance context for thread {threadId} (0x{code:X8}) at 0x{address:X}");
+            return;
         }
+
+        if (_savedFirstChanceContexts.TryGetValue(threadId, out var saved))
+        {
+            if (IsSavedFrameLive(processId, saved, current))
+            {
+                return;
+            }
+
+            _logWriter?.WriteLine($"[CrashDump] Earlier first-chance 0x{(uint)saved.ExceptionCode:X8} on thread {threadId} was unwound; replacing it");
+        }
+
+        _savedFirstChanceContexts[threadId] = current;
+        _logWriter?.WriteLine($"[CrashDump] Saved first-chance context for thread {threadId} (0x{code:X8}) at 0x{address:X}");
+    }
+
+    private SavedExceptionContext? CaptureExceptionContext(uint processId, uint threadId, uint code, nuint address)
+    {
+        if (CaptureThreadContext(threadId) is not { } context)
+        {
+            return null;
+        }
+
+        var stackPointer = GetStackPointer(context, RuntimeInformation.ProcessArchitecture);
+        return new SavedExceptionContext(context, threadId, unchecked((int)code), address,
+            stackPointer, ReadStackBytes(processId, stackPointer));
+    }
+
+    private bool IsSavedFrameLive(uint processId, SavedExceptionContext saved, SavedExceptionContext? current) =>
+        current != null &&
+        IsFrameLive(saved.StackPointer, saved.StackFingerprint, current.StackPointer, ReadStackBytes(processId, saved.StackPointer));
+
+    /// <summary>
+    /// Returns true when the frame that raised a saved exception is still on the thread's stack: the
+    /// thread is at or below the saved stack pointer (stacks grow down) and the bytes at that stack
+    /// pointer are unchanged. When either cannot be measured, the frame is treated as gone so the
+    /// crash's own context is preferred.
+    /// </summary>
+    internal static bool IsFrameLive(ulong savedStackPointer, byte[]? savedFingerprint, ulong currentStackPointer, byte[]? currentBytesAtSavedStackPointer)
+    {
+        if (savedStackPointer == 0 || currentStackPointer == 0 || currentStackPointer > savedStackPointer)
+        {
+            return false;
+        }
+
+        return savedFingerprint != null && currentBytesAtSavedStackPointer != null &&
+            savedFingerprint.AsSpan().SequenceEqual(currentBytesAtSavedStackPointer);
+    }
+
+    /// <summary>Reads the stack pointer from raw <c>CONTEXT</c> bytes for the given architecture.</summary>
+    internal static ulong GetStackPointer(ReadOnlySpan<byte> context, Architecture architecture)
+    {
+        var offset = architecture == Architecture.Arm64 ? ContextSpOffsetArm64 : ContextRspOffsetX64;
+        return context.Length >= offset + sizeof(ulong)
+            ? System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(context[offset..])
+            : 0;
+    }
+
+    private byte[]? ReadStackBytes(uint processId, ulong address)
+    {
+        if (address == 0)
+        {
+            return null;
+        }
+
+        using var processHandle = PInvoke.OpenProcess_SafeHandle(PROCESS_ACCESS_RIGHTS.PROCESS_VM_READ, false, processId);
+        if (processHandle.IsInvalid)
+        {
+            return null;
+        }
+
+        var buffer = new byte[StackFingerprintSize];
+        unsafe
+        {
+            if (!PInvoke.ReadProcessMemory(processHandle, (void*)address, buffer, out var bytesRead) || bytesRead != (nuint)buffer.Length)
+            {
+                _logWriter?.WriteLine($"[CrashDump] Could not read stack at 0x{address:X} in process {processId}");
+                return null;
+            }
+        }
+        return buffer;
     }
 
     /// <summary>
