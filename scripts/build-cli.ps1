@@ -19,7 +19,7 @@
 .PARAMETER SkipMsix
     Skip MSIX packages creation
 .PARAMETER SkipDocs
-    Skip documentation schema generation, plugin manifest version synchronization, and npm API docs
+    Skip artifact schema generation and plugin manifest version synchronization
 .PARAMETER SkipAll
     Skip NuGet, MSIX, npm, tests, and docs (only builds the CLI)
 .PARAMETER OnlyDocs
@@ -586,7 +586,8 @@ try
                 Write-Error "Node CLI command generation failed"
                 exit 1
             }
-            npm run compile
+            # Preserve the explicit live schema; standalone pre-hooks may find stale npm binaries.
+            npm run compile --ignore-scripts
             if ($LASTEXITCODE -ne 0) {
                 Write-Error "Node CLI compile failed"
                 exit 1
@@ -595,7 +596,7 @@ try
 
             if ($RunAuxiliaryTests) {
                 Write-Host "[TEST] Running npm unit tests..." -ForegroundColor Blue
-                npm test
+                npm test --ignore-scripts
                 if ($LASTEXITCODE -ne 0) {
                     Write-Warning "npm unit tests failed with exit code $LASTEXITCODE"
                     if ($FailOnTestFailure) {
@@ -774,21 +775,6 @@ try
             exit 1
         }
 
-        # Generate npm API documentation from TypeScript source (after npm build so codegen is fresh)
-        if (-not $SkipDocs) {
-            Write-Host "[NPM] Generating npm API documentation..." -ForegroundColor Blue
-            Push-Location (Join-Path $ProjectRoot "src\winapp-npm")
-            try {
-                npm run generate-docs
-                if ($LASTEXITCODE -ne 0) {
-                    throw 'npm API documentation generation failed'
-                } else {
-                    Write-Host "[NPM] npm API documentation generated successfully!" -ForegroundColor Green
-                }
-            } finally {
-                Pop-Location
-            }
-        }
     } else {
         Write-Host ""
         Write-Host "[NPM] Skipping npm package creation (use -SkipNpm:`$false to enable)" -ForegroundColor Gray

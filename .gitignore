@@ -207,6 +207,9 @@ CMakeCache.txt
 
 /artifacts
 
+# Retired generated documentation snapshot; schemas now live under artifacts.
+/docs/cli-schema.json
+
 # Development certificate
 devcert.pfx
 *.msix
@@ -220,3 +223,5 @@ devcert.pfx
 
 # Do not ignore the targets and props files in the build folder, which are needed for consuming the NuGet package
 !/src/winapp-NuGet/build/
+# Local agent benchmark results
+/benchmarks/agents/results/

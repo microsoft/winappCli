@@ -7,7 +7,7 @@ understandable to users?** Apply the shared output contract in
 `_shared-contract.md`. Set `Domain: dx-and-user-impact` on every finding.
 
 Verify conventions against the real CLI, not your assumptions — skim
-`docs/cli-schema.json` and `src/winapp-CLI/WinApp.Cli/Commands/` to see how
+`winapp --cli-schema` when built and `src/winapp-CLI/WinApp.Cli/Commands/` to see how
 existing commands and options actually look before judging the proposal.
 
 ## Conventions to check the proposal against

@@ -161,7 +161,7 @@ try
         if ($LASTEXITCODE -ne 0) { throw "Format check failed - run 'npm run format' to fix" }
         npm run lint
         if ($LASTEXITCODE -ne 0) { throw 'Lint failed' }
-        npm run compile
+        npm run compile --ignore-scripts
         if ($LASTEXITCODE -ne 0) { throw 'TypeScript compilation failed' }
 
         $PackageJson = Get-Content $PackageJsonPath -Raw | ConvertFrom-Json
