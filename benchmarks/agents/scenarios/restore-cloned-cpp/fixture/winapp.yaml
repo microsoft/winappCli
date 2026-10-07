@@ -1,0 +1,7 @@
+packages:
+  - name: Microsoft.Windows.CppWinRT
+    version: 2.0.240405.15
+  - name: Microsoft.Windows.SDK.BuildTools
+    version: 10.0.26100.1742
+  - name: Microsoft.WindowsAppSDK
+    version: 1.6.240923002

@@ -1,0 +1,19 @@
+{
+  "id": "sandbox-run-test",
+  "description": "Run an app in Windows Sandbox to check it starts on a clean machine.",
+  "prompt": "Run this app in Windows Sandbox and tell me whether it starts cleanly without the dependencies installed on my machine.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winapp-sandbox"
+    ],
+    "skillsForbid": [
+      "winui-wpf-migration",
+      "winui-session-report"
+    ]
+  }
+}

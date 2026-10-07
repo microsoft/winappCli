@@ -170,7 +170,7 @@ try
         exit 1
     }
 
-    npm run compile
+    npm run compile --ignore-scripts
     if ($LASTEXITCODE -ne 0) {
         Write-Error "TypeScript compilation failed"
         Pop-Location
