@@ -748,7 +748,11 @@ function Read-ComparisonRuns {
             $status = $rec.status
             $applied = $null
             $s = $byId[$rec.scenario]
-            if ($s -and $status -in 'pass', 'fail', 'n/a') {
+            if (-not $s -and $status -in 'pass', 'fail', 'n/a') {
+                # Without a current definition the run cannot be re-evaluated; never score a stale status.
+                $status = 'scenario_removed'
+            }
+            elseif ($s -and $status -in 'pass', 'fail', 'n/a') {
                 $pre = Get-RecordValue $rec 'preflight'
                 $installed = @(if ($pre) { $pre.expectedSkills })
                 $eval = Test-Expectations -Expect $s.Expect -LoadedSkills @($rec.skillsLoaded) -InstalledSkills $installed
@@ -877,7 +881,8 @@ function Get-ComparisonReport {
         "$(@($bCells.Keys | Where-Object { -not $cCells.ContainsKey($_) }).Count) baseline-only and " +
         "$(@($cCells.Keys | Where-Object { -not $bCells.ContainsKey($_) }).Count) candidate-only cells skipped")
     $md.Add('')
-    $md.Add('Pass/fail is re-evaluated against the current scenario expectations, so both sides use the same rules.')
+    $md.Add('Pass/fail is re-evaluated against the current scenario expectations, so both sides use the same rules. Runs of')
+    $md.Add('scenarios that no longer exist are excluded as `scenario_removed`.')
     $md.Add('Pass rates score only `pass` and `fail`; other runs (`n/a`, timeouts, errors) are listed as excluded. A cell')
     $md.Add('shows `check differs` when the installed skills its expectation checks differ between the sides, for example')
     $md.Add('when a candidate adds or removes an expected skill. Such cells, and cells with no scored runs on a side, are')

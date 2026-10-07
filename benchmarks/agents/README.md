@@ -149,7 +149,8 @@ pass rate, mean skill context, mean input tokens, and mean AI credits per run on
 change, and repeated deliveries. Only cells present on both sides are compared. Both sides are
 re-evaluated in memory against the current scenario expectations; the folders are not modified.
 
-- Pass rates use the same format as `summary.md`: only `pass` and `fail` are scored.
+- Pass rates use the same format as `summary.md`: only `pass` and `fail` are scored. Runs of a scenario that
+  no longer exists are excluded as `scenario_removed`.
 - A cell shows `check differs` when the installed skills that the expectation checks differ between
   the sides, for example when a candidate adds or removes an expected skill. It then tests something
   different on each side, so it is left out of the per-model pass rate.

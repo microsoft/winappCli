@@ -518,6 +518,16 @@ Describe 'Get-ComparisonReport' {
             Should -Match ([regex]::Escape('| m | wpf | both | 0/1 (0%) → 1/1 (100%) | check differs |'))
     }
 
+    It 'excludes runs of scenarios that no longer exist instead of scoring their stale status' {
+        $b5 = Join-Path $TestDrive 'base-removed'
+        $c5 = Join-Path $TestDrive 'cand-removed'
+        Write-Runs $b5 @(@{ scenario = 'gone'; status = 'fail'; skillsLoaded = @() })
+        Write-Runs $c5 @(@{ scenario = 'gone'; status = 'pass'; skillsLoaded = @() })
+        $removed = Get-ComparisonReport -Baseline $b5 -Candidate $c5 -Scenarios @($scenario)
+        $removed | Should -Match ([regex]::Escape('| m | gone | both | -; excluded: 1 scenario_removed → -; excluded: 1 scenario_removed | n/a |'))
+        $removed | Should -Match ([regex]::Escape('| m | 1 (1 not pooled) | - → - | n/a |'))
+    }
+
     It 'writes tables whose separator rows match their headers' {
         $lines = $report -split "`n"
         for ($i = 0; $i -lt $lines.Count - 1; $i++) {
