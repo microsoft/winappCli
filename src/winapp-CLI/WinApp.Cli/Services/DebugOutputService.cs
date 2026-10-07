@@ -40,12 +40,12 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
     private StreamWriter? _logWriter;
     private string? _logPath;
 
-    // Saved first-chance exception context — at first-chance time the thread context
-    // still points to user code. By second-chance, XAML's FailFast has replaced the stack.
-    private byte[]? _savedFirstChanceContext;
-    private uint _savedFirstChanceThreadId;
-    private int _savedFirstChanceExceptionCode;
-    private nuint _savedFirstChanceExceptionAddress;
+    // Saved first-chance exception contexts, keyed by thread — at first-chance time the thread
+    // context still points to user code. By second-chance, XAML's FailFast has replaced the stack.
+    // Keyed per thread so a handled exception on one thread never stands in for a crash on another.
+    private readonly Dictionary<uint, SavedExceptionContext> _savedFirstChanceContexts = [];
+
+    internal sealed record SavedExceptionContext(byte[] Context, uint ThreadId, int ExceptionCode, nuint ExceptionAddress);
 
     /// <inheritdoc/>
     public async Task<int> RunDebugLoopAsync(uint processId, CancellationToken cancellationToken, bool useSymbols = false, IReadOnlyList<string>? symbolSearchPaths = null)
@@ -246,24 +246,22 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
                 console.MarkupLine($"[yellow]First-chance exception:[/] {name} (0x{code:X8}) at 0x{address:X}");
             }
 
-            // Save thread context for the FIRST critical exception — at first-chance
-            // time, the context still points to user code. Later exceptions (CLR wrapping
-            // the AV) have already unwound the stack. Only save once per crash sequence.
-            if (_savedFirstChanceContext == null &&
-                code is 0xC0000005 or 0xC00000FD or 0xE0434352 or 0xE06D7363)
+            // Save each thread's context for its FIRST critical exception — at first-chance
+            // time, the context still points to user code. Later exceptions on the same thread
+            // (CLR wrapping the AV) have already unwound the stack.
+            if (code is 0xC0000005 or 0xC00000FD or 0xE0434352 or 0xE06D7363 &&
+                !_savedFirstChanceContexts.ContainsKey(debugEvent.dwThreadId))
             {
                 SaveFirstChanceContext(debugEvent.dwThreadId, code, address);
             }
 
             // Stack Overflow is always fatal in .NET — no second-chance will follow.
-            // Capture the dump immediately on first-chance.
+            // Capture the dump immediately on first-chance, describing this exception.
             if (code is 0xC00000FD && _crashDumpPath == null)
             {
                 console.MarkupLine($"[red]Crash:[/] {name} (0x{code:X8}) at 0x{address:X}");
-                _crashDumpPath = crashDumpService.WriteMiniDump(
-                    debugEvent.dwProcessId,
-                    _savedFirstChanceContext, _savedFirstChanceThreadId,
-                    _savedFirstChanceExceptionCode, _savedFirstChanceExceptionAddress);
+                WriteCrashDump(debugEvent, code, address, ReadExceptionParameters(exInfo.ExceptionRecord),
+                    useEarlierFirstChanceContext: false);
             }
         }
         else
@@ -279,15 +277,9 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
             if (_crashDumpPath == null)
             {
                 // Forward the terminating exception's parameters. For a stowed exception
-                // (0xC000027B) these point at the stowed-exception array that WinUI triage reads;
-                // the dump otherwise keeps the first-chance context for ClrMD's managed frames.
-                var crashParameters = ReadExceptionParameters(exInfo.ExceptionRecord);
-
-                _crashDumpPath = crashDumpService.WriteMiniDump(
-                    debugEvent.dwProcessId,
-                    _savedFirstChanceContext, _savedFirstChanceThreadId,
-                    _savedFirstChanceExceptionCode, _savedFirstChanceExceptionAddress,
-                    unchecked((int)code), address, crashParameters);
+                // (0xC000027B) these point at the stowed-exception array that WinUI triage reads.
+                WriteCrashDump(debugEvent, code, address, ReadExceptionParameters(exInfo.ExceptionRecord),
+                    useEarlierFirstChanceContext: true);
             }
         }
 
@@ -339,10 +331,61 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
     };
 
     /// <summary>
+    /// Writes the crash dump using the crashing thread as the primary crash context. When
+    /// <paramref name="useEarlierFirstChanceContext"/> is set and that thread saved a first-chance
+    /// context, that context is used so ClrMD still recovers the managed user frames; otherwise the
+    /// crashing thread's current context and this exception's own record are used. First-chance
+    /// contexts saved on other threads never replace the crash; they are only logged as supplemental.
+    /// </summary>
+    private void WriteCrashDump(in DEBUG_EVENT debugEvent, uint code, nuint address, nuint[]? parameters, bool useEarlierFirstChanceContext)
+    {
+        var crashThreadId = debugEvent.dwThreadId;
+
+        SavedExceptionContext? primary = null;
+        if (useEarlierFirstChanceContext && _savedFirstChanceContexts.TryGetValue(crashThreadId, out var saved))
+        {
+            primary = saved;
+            _logWriter?.WriteLine($"[CrashDump] Using first-chance context saved on crashing thread {crashThreadId} (0x{(uint)saved.ExceptionCode:X8}) at 0x{saved.ExceptionAddress:X}");
+        }
+        else if (CaptureThreadContext(crashThreadId) is { } context)
+        {
+            primary = new SavedExceptionContext(context, crashThreadId, unchecked((int)code), address);
+            _logWriter?.WriteLine($"[CrashDump] Using crashing thread {crashThreadId} context for 0x{code:X8} at 0x{address:X}");
+        }
+
+        foreach (var other in _savedFirstChanceContexts.Values)
+        {
+            if (other.ThreadId != crashThreadId)
+            {
+                _logWriter?.WriteLine($"[CrashDump] Supplemental (not the crash): earlier first-chance 0x{(uint)other.ExceptionCode:X8} on thread {other.ThreadId} at 0x{other.ExceptionAddress:X}");
+            }
+        }
+
+        _crashDumpPath = crashDumpService.WriteMiniDump(
+            debugEvent.dwProcessId,
+            primary?.Context, primary?.ThreadId ?? 0,
+            primary?.ExceptionCode ?? 0, primary?.ExceptionAddress ?? 0,
+            unchecked((int)code), address, parameters);
+    }
+
+    /// <summary>
     /// Captures the faulting thread's context at first-chance time, when it still
     /// points to the user code that caused the exception.
     /// </summary>
-    private unsafe void SaveFirstChanceContext(uint threadId, uint code, nuint address)
+    private void SaveFirstChanceContext(uint threadId, uint code, nuint address)
+    {
+        if (CaptureThreadContext(threadId) is { } context)
+        {
+            _savedFirstChanceContexts[threadId] = new SavedExceptionContext(context, threadId, unchecked((int)code), address);
+            _logWriter?.WriteLine($"[CrashDump] Saved first-chance context for thread {threadId} (0x{code:X8}) at 0x{address:X}");
+        }
+    }
+
+    /// <summary>
+    /// Reads a debuggee thread's current <c>CONTEXT</c>. The thread is suspended while its debug
+    /// event is being handled, so the context reflects the exception site.
+    /// </summary>
+    private unsafe byte[]? CaptureThreadContext(uint threadId)
     {
         using var threadHandle = PInvoke.OpenThread_SafeHandle(
             THREAD_ACCESS_RIGHTS.THREAD_GET_CONTEXT | THREAD_ACCESS_RIGHTS.THREAD_QUERY_INFORMATION,
@@ -352,7 +395,7 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
         {
             var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
             _logWriter?.WriteLine($"[CrashDump] OpenThread failed for thread {threadId}: error {err}");
-            return;
+            return null;
         }
 
         // CONTEXT must be 16-byte aligned on x64. Allocate on native heap to guarantee alignment.
@@ -365,22 +408,17 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
 
             if (PInvoke.GetThreadContext(new HANDLE(threadHandle.DangerousGetHandle()), pContext))
             {
-                _savedFirstChanceContext = new byte[contextSize];
-                fixed (byte* p = _savedFirstChanceContext)
+                var context = new byte[contextSize];
+                fixed (byte* p = context)
                 {
                     Buffer.MemoryCopy(pContext, p, contextSize, contextSize);
                 }
-                _savedFirstChanceThreadId = threadId;
-                _savedFirstChanceExceptionCode = unchecked((int)code);
-                _savedFirstChanceExceptionAddress = address;
+                return context;
+            }
 
-                _logWriter?.WriteLine($"[CrashDump] Saved first-chance context for thread {threadId} (0x{code:X8}) at 0x{address:X}");
-            }
-            else
-            {
-                var err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
-                _logWriter?.WriteLine($"[CrashDump] GetThreadContext failed for thread {threadId}: error {err}");
-            }
+            var error = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+            _logWriter?.WriteLine($"[CrashDump] GetThreadContext failed for thread {threadId}: error {error}");
+            return null;
         }
         finally
         {

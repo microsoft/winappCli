@@ -15,10 +15,13 @@ internal interface ICrashDumpService
     /// exception before continuing with <c>DBG_EXCEPTION_NOT_HANDLED</c>).
     /// </summary>
     /// <param name="processId">The ID of the process to dump.</param>
-    /// <param name="savedContext">Thread context bytes captured at first-chance time, or null.</param>
-    /// <param name="savedThreadId">Thread ID from the first-chance exception.</param>
-    /// <param name="savedExceptionCode">Exception code from the first-chance exception.</param>
-    /// <param name="savedExceptionAddress">Exception address from the first-chance exception.</param>
+    /// <param name="savedContext">
+    /// Context of the crashing thread — captured at its first critical first-chance exception, or at
+    /// the crash itself when that thread had none — or null.
+    /// </param>
+    /// <param name="savedThreadId">Thread ID of the crashing thread.</param>
+    /// <param name="savedExceptionCode">Exception code matching <paramref name="savedContext"/>.</param>
+    /// <param name="savedExceptionAddress">Exception address matching <paramref name="savedContext"/>.</param>
     /// <param name="crashExceptionCode">
     /// Exception code of the terminating (second-chance) exception, or 0. When this is a stowed
     /// exception (<c>0xC000027B</c>) and <paramref name="crashExceptionParameters"/> are supplied,

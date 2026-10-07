@@ -34,7 +34,7 @@ namespace WinApp.Cli.Tests;
 ///   <item>174-175, 181-182 — the <c>OpenProcess</c> / <c>ReadProcessMemory</c> failure guards while reading
 ///   the debuggee's <c>OutputDebugString</c> buffer: cannot be provoked without corrupting the OS call
 ///   (TOCTOU/flaky).</item>
-///   <item>380-383 — the <c>GetThreadContext</c>-failure guard: reached only when <c>OpenThread</c> succeeds
+///   <item>419-421 — the <c>GetThreadContext</c>-failure guard: reached only when <c>OpenThread</c> succeeds
 ///   but the subsequent context read fails — genuine Win32 fault injection, undrivable without flakiness.</item>
 /// </list>
 /// </remarks>
@@ -475,5 +475,96 @@ public sealed class DebugOutputServiceWorkflowTests
 
         Assert.AreEqual(1, _crashDump.WriteCalls.Count, "Stack overflow must capture a dump at first-chance.");
         StringAssert.Contains(_console.Output, "Stack Overflow");
+    }
+
+    // ---- Crash context selection across threads (issue #836) ----
+    // Real, blocked threads in this test process give OpenThread/GetThreadContext valid targets, so the
+    // saved-context bookkeeping runs for real while the dump boundary stays faked.
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    private static (uint ThreadId, Thread Thread) StartBlockedThread(ManualResetEventSlim release)
+    {
+        uint id = 0;
+        using var started = new ManualResetEventSlim();
+        var thread = new Thread(() =>
+        {
+            id = GetCurrentThreadId();
+            started.Set();
+            release.Wait();
+        })
+        { IsBackground = true };
+        thread.Start();
+        started.Wait();
+        return (id, thread);
+    }
+
+    [TestMethod]
+    public void HandleException_HandledExceptionOnOtherThread_DoesNotReplaceCrashContext()
+    {
+        using var release = new ManualResetEventSlim();
+        var (handledThread, t1) = StartBlockedThread(release);
+        var (crashThread, t2) = StartBlockedThread(release);
+        try
+        {
+            var initialBreakpointSeen = true;
+            var continueStatus = NTSTATUS.DBG_CONTINUE;
+
+            // A handled C++ exception during startup on one thread...
+            var handled = MakeExceptionEvent(0xE06D7363, firstChance: true, threadId: handledThread);
+            _service.HandleException(handled, ref initialBreakpointSeen, ref continueStatus);
+
+            // ...then a fatal fail-fast (STATUS_STACK_BUFFER_OVERRUN) on a different thread.
+            var crash = MakeExceptionEvent(0xC0000409, firstChance: false, threadId: crashThread);
+            _service.HandleException(crash, ref initialBreakpointSeen, ref continueStatus);
+
+            Assert.AreEqual(1, _crashDump.WriteCalls.Count);
+            Assert.AreEqual(crashThread, _crashDump.WriteCalls[0].ThreadId,
+                "The dump must describe the crashing thread, not an earlier handled exception's thread.");
+            Assert.AreEqual(unchecked((int)0xC0000409), _crashDump.SavedRecords[0].Code,
+                "The dump's exception record must be the fatal exception.");
+            Assert.IsTrue(_crashDump.SavedRecords[0].HasContext, "The crashing thread's context must be captured.");
+        }
+        finally
+        {
+            release.Set();
+            t1.Join();
+            t2.Join();
+        }
+    }
+
+    [TestMethod]
+    public void HandleException_FirstChanceOnCrashingThread_KeepsFirstChanceContext()
+    {
+        using var release = new ManualResetEventSlim();
+        var (otherThread, t1) = StartBlockedThread(release);
+        var (crashThread, t2) = StartBlockedThread(release);
+        try
+        {
+            var initialBreakpointSeen = true;
+            var continueStatus = NTSTATUS.DBG_CONTINUE;
+
+            _service.HandleException(MakeExceptionEvent(0xE06D7363, firstChance: true, threadId: otherThread),
+                ref initialBreakpointSeen, ref continueStatus);
+            // The AV on the crashing thread is first seen at first-chance, then the CLR wraps it.
+            _service.HandleException(MakeExceptionEvent(0xC0000005, firstChance: true, threadId: crashThread),
+                ref initialBreakpointSeen, ref continueStatus);
+            _service.HandleException(MakeExceptionEvent(0xE0434352, firstChance: true, threadId: crashThread),
+                ref initialBreakpointSeen, ref continueStatus);
+            _service.HandleException(MakeExceptionEvent(0xE0434352, firstChance: false, threadId: crashThread),
+                ref initialBreakpointSeen, ref continueStatus);
+
+            Assert.AreEqual(1, _crashDump.WriteCalls.Count);
+            Assert.AreEqual(crashThread, _crashDump.WriteCalls[0].ThreadId);
+            Assert.AreEqual(unchecked((int)0xC0000005), _crashDump.SavedRecords[0].Code,
+                "The crashing thread's first critical first-chance exception still drives the dump so managed user frames are recovered.");
+        }
+        finally
+        {
+            release.Set();
+            t1.Join();
+            t2.Join();
+        }
     }
 }
