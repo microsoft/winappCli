@@ -1,0 +1,26 @@
+# sourceInfoEnv=1; debugger=True; diagnosticsModules=Microsoft.VisualStudio.DesignTools.WinUITap.dll
+phase,round,churnMs,privateMB,navP50Ms,navMaxMs
+memory,1,3979,102.8,,
+memory,2,3714,120.7,,
+memory,3,3655,127.8,,
+memory,4,3635,127.3,,
+memory,5,3740,144.9,,
+memory,6,3632,143.8,,
+memory,7,3524,154.8,,
+memory,8,3618,193.9,,
+memory,9,3969,170.0,,
+memory,10,3607,157.5,,
+memory,11,3646,166.0,,
+memory,12,3674,159.3,,
+navigation,1,,,734,984
+navigation,2,,,938,1000
+navigation,3,,,1469,1812
+navigation,4,,,1344,2297
+navigation,5,,,1594,1797
+navigation,6,,,1891,2125
+navigation,7,,,1547,2500
+navigation,8,,,2234,2391
+navigation,9,,,1672,2828
+navigation,10,,,2484,3469
+navigation,11,,,2031,3141
+navigation,12,,,3031,3250

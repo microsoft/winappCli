@@ -1,0 +1,13 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ReproApp", "ReproApp\ReproApp.csproj", "{A020C30F-8207-4885-A7AD-BE6D88BED8B6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A020C30F-8207-4885-A7AD-BE6D88BED8B6}.Debug|x64.ActiveCfg = Debug|x64
+		{A020C30F-8207-4885-A7AD-BE6D88BED8B6}.Debug|x64.Build.0 = Debug|x64
+	EndGlobalSection
+EndGlobal
