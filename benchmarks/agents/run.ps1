@@ -56,6 +56,16 @@ $iterationCount = if ($PSBoundParameters.ContainsKey('Iterations')) { $Iteration
 
 $allScenarios = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot 'scenarios')
 
+$Compare = Split-ListArgument $Compare
+$Candidate = Split-ListArgument $Candidate
+$comparing = [bool]($Compare -or $Candidate)
+# -Compare checks -Scenario against the ids in the compared results instead, which can include
+# scenarios that have since been removed.
+if ($Scenario -and -not $comparing) {
+    $unknown = @($Scenario | Where-Object { $_ -notin $allScenarios.Id })
+    if ($unknown) { throw "Unknown scenario id(s): $($unknown -join ', '). Known: $($allScenarios.Id -join ', ')" }
+}
+
 if ($Rescore) {
     $r = Invoke-Rescore -ResultsDir (Resolve-Path $Rescore).Path -Scenarios $allScenarios
     Write-Host "Rescored $($r.Runs) runs against the current scenarios; $($r.Changed) changed status."
@@ -65,9 +75,7 @@ if ($Rescore) {
     return
 }
 
-$Compare = Split-ListArgument $Compare
-$Candidate = Split-ListArgument $Candidate
-if ($Compare -or $Candidate) {
+if ($comparing) {
     if (-not $Compare -or -not $Candidate) { throw 'Use -Compare <baselineDir[,...]> together with -Candidate <candidateDir[,...]>.' }
     $report = Get-ComparisonReport -Baseline @($Compare | ForEach-Object { (Resolve-Path $_).Path }) `
         -Candidate @($Candidate | ForEach-Object { (Resolve-Path $_).Path }) -Scenarios $allScenarios `
@@ -86,8 +94,6 @@ if ($Compare -or $Candidate) {
 
 $scenarios = $allScenarios
 if ($Scenario) {
-    $unknown = @($Scenario | Where-Object { $_ -notin $allScenarios.Id })
-    if ($unknown) { throw "Unknown scenario id(s): $($unknown -join ', '). Known: $($allScenarios.Id -join ', ')" }
     $scenarios = @($allScenarios | Where-Object { $_.Id -in $Scenario })
 }
 
@@ -458,10 +464,12 @@ function Invoke-BenchmarkRun {
 
 Write-Host "Copilot CLI $pinnedVersion | $($runList.Count) agent sessions | results: $OutDir"
 $index = 0
-$creditsSpent = 0.0
+$finished = [System.Collections.Generic.List[object]]::new()
+$spend = Get-CreditSpend @()
 foreach ($run in $runList) {
-    if ($MaxCredits -and $creditsSpent -ge $MaxCredits) {
-        Write-Warning "Stopping: spent $([Math]::Round($creditsSpent, 1)) AI credits (-MaxCredits $MaxCredits); $($runList.Count - $index) sessions not run."
+    if ($MaxCredits -and $spend.Spent -ge $MaxCredits) {
+        $estimated = if ($spend.Unknown) { " (including $($spend.Unknown) runs with no credit count, estimated at $([Math]::Round($spend.Estimate, 1)) each)" } else { '' }
+        Write-Warning "Stopping: spent $([Math]::Round($spend.Spent, 1)) AI credits$estimated (-MaxCredits $MaxCredits); $($runList.Count - $index) sessions not run."
         $header['Stopped early'] = "credit limit $MaxCredits reached after $index of $($runList.Count) sessions"
         break
     }
@@ -470,7 +478,8 @@ foreach ($run in $runList) {
     Write-Host "$label ..." -NoNewline
     $rec = Invoke-BenchmarkRun -Run $run -Index $index
     $rec | ConvertTo-Json -Depth 8 -Compress | Add-Content -Path $runsPath -Encoding utf8NoBOM
-    if ($null -ne $rec.aiCredits) { $creditsSpent += [double]$rec.aiCredits }
+    $finished.Add([pscustomobject]$rec)
+    $spend = Get-CreditSpend $finished
     $skills = if ($rec.skillsLoaded) { $rec.skillsLoaded -join ', ' } else { '(none)' }
     $tok = if ($rec.tokens) { "in $($rec.tokens.input) / out $($rec.tokens.output)" } else { 'tokens n/a' }
     if ($null -ne $rec.skillContextTokensApprox) { $tok += " / skill ctx ~$($rec.skillContextTokensApprox)" }

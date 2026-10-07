@@ -211,6 +211,25 @@ Describe 'Write-BenchmarkSummary' {
         $text | Should -Match '\| winapp \| m \| 1/2 \(1 n/a\) \|.*\| 2 \(~900\) \|'
         $text | Should -Match '\| winui \| m \| n/a \(1\) \|.*\| n/a \|'
     }
+
+    It 'shows repeat tokens as unknown or partial when their size was not measured, and counts runs without credits' {
+        $runs = Join-Path $TestDrive 'runs-unknown.jsonl'
+        $base = @{ scenario = 's1'; configuration = 'winapp'; model = 'm'; reason = ''; tokens = $null; skillContextTokensApprox = $null; durationMs = 1000; skillsLoaded = @('a') }
+        @(
+            @{ iteration = 1; status = 'pass'; aiCredits = 5; skillRepeatDeliveries = 1; skillRepeatContextTokensApprox = $null }
+            @{ iteration = 2; status = 'timeout'; aiCredits = $null; skillRepeatDeliveries = 0; skillRepeatContextTokensApprox = 0 }
+            @{ configuration = 'both'; iteration = 1; status = 'pass'; aiCredits = 5; skillRepeatDeliveries = 1; skillRepeatContextTokensApprox = 400 }
+            @{ configuration = 'both'; iteration = 2; status = 'pass'; aiCredits = 5; skillRepeatDeliveries = 2; skillRepeatContextTokensApprox = $null }
+        ) | ForEach-Object { $rec = $base.Clone(); foreach ($k in $_.Keys) { $rec[$k] = $_[$k] }; $rec | ConvertTo-Json -Compress -Depth 5 } | Set-Content $runs
+        $out = Join-Path $TestDrive 'summary-unknown.md'
+        Write-BenchmarkSummary -RunsPath $runs -SummaryPath $out -Header ([ordered]@{ Models = 'm' }) -ScenarioOrder 's1'
+        $text = Get-Content -Raw $out
+
+        $text | Should -Match 'AI credits: 15\.0 \(1 launched runs had no credit count\)'
+        $text | Should -Match '\| winapp \| m \|.*\| 1 \(unknown\) \|'
+        $text | Should -Match '\| both \| m \|.*\| 3 \(~400, partial: 1 of 2 runs measured\) \|'
+        $text | Should -Not -Match '\(~0\)'
+    }
 }
 
 Describe 'Invoke-Rescore' {
@@ -247,6 +266,43 @@ Describe 'Invoke-Rescore' {
         $rows[3].expectationNotes | Should -Contain 'scenario no longer defined; status not rescored'
         (Get-FileHash (Join-Path $dir 'runs.jsonl')).Hash | Should -Be $original.Hash
         Get-Content -Raw $r.SummaryPath | Should -Match 'Status changes\*\*: 2 of 5 runs \(pass -> fail 1, pass -> n/a 1\)'
+    }
+}
+
+Describe 'Get-CreditSpend' {
+    It 'counts launched runs without a credit count at the measured mean and ignores runs that never launched' {
+        $s = Get-CreditSpend @(
+            [pscustomobject]@{ durationMs = 1000; aiCredits = 10 }
+            [pscustomobject]@{ durationMs = 1000; aiCredits = 20 }
+            [pscustomobject]@{ durationMs = 300000; aiCredits = $null }
+            [pscustomobject]@{ durationMs = $null; aiCredits = $null }
+        )
+        $s.Measured | Should -Be 30
+        $s.Unknown | Should -Be 1
+        $s.Spent | Should -Be 45
+    }
+
+    It 'uses the default estimate when no run has a credit count yet' {
+        $s = Get-CreditSpend @([pscustomobject]@{ durationMs = 300000; aiCredits = $null }) -DefaultEstimate 35
+        $s.Spent | Should -Be 35
+        (Get-CreditSpend @()).Spent | Should -Be 0
+    }
+}
+
+Describe 'Filter validation' {
+    It 'rejects a mistyped -Scenario before -Rescore and -Compare' {
+        $run = Join-Path $PSScriptRoot '..\run.ps1'
+        $dir = Join-Path $TestDrive 'r'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        '{"scenario":"wpf-to-winui","configuration":"both","model":"m","status":"timeout"}' | Set-Content (Join-Path $dir 'runs.jsonl')
+
+        $out = & pwsh -NoProfile -File $run -Rescore $dir -Scenario 'wpf-to-winui-typo' 2>&1
+        $LASTEXITCODE | Should -Not -Be 0
+        ($out -join "`n") | Should -Match 'Unknown scenario id\(s\): wpf-to-winui-typo'
+
+        $out = & pwsh -NoProfile -File $run -Compare $dir -Candidate $dir -Scenario 'wpf-to-winui-typo' 2>&1
+        $LASTEXITCODE | Should -Not -Be 0
+        ($out -join "`n") | Should -Match 'Unknown scenario\(s\) in the compared results: wpf-to-winui-typo'
     }
 }
 
@@ -348,8 +404,26 @@ Describe 'Get-ComparisonReport' {
         $report | Should -Match ([regex]::Escape('| m2 | 2 | 1/1 → 1/1 | = |'))
     }
 
-    It 'filters by model' {
-        Get-ComparisonReport -Baseline $base -Candidate $cand -Scenarios @($scenario) -ModelFilter 'other' | Should -Match 'No cells are present on both sides'
+    It 'filters by model and rejects filter values that are not in the results' {
+        $m2 = Get-ComparisonReport -Baseline $base -Candidate $cand -Scenarios @($scenario) -ModelFilter 'm2'
+        $m2 | Should -Match '\| m2 \| s1 \| both \|'
+        $m2 | Should -Not -Match '\| m \| s1 \|'
+        { Get-ComparisonReport -Baseline $base -Candidate $cand -Scenarios @($scenario) -ModelFilter 'other' } | Should -Throw '*Unknown model(s) in the compared results: other*'
+        { Get-ComparisonReport -Baseline $base -Candidate $cand -Scenarios @($scenario) -ScenarioFilter 's1-typo' } | Should -Throw '*Unknown scenario(s) in the compared results: s1-typo*'
+    }
+
+    It 'flags a candidate that removes one of several expected skills instead of reporting an improvement' {
+        $multi = [pscustomobject]@{
+            Id = 'pkg'; Configurations = @('both')
+            Expect = [pscustomobject]@{ SkillsAny = @('winapp-package', 'winapp-manifest'); SkillsAll = @(); SkillsForbid = @(); MaxSkills = $null }
+        }
+        $b2 = Join-Path $TestDrive 'base-partial'
+        $c2 = Join-Path $TestDrive 'cand-partial'
+        Write-Runs $b2 @(@{ scenario = 'pkg'; status = 'fail'; skillsLoaded = @(); preflight = @{ expectedSkills = @('winapp-package', 'winapp-manifest') } })
+        Write-Runs $c2 @(@{ scenario = 'pkg'; status = 'pass'; skillsLoaded = @('winapp-package'); preflight = @{ expectedSkills = @('winapp-package') } })
+        $partial = Get-ComparisonReport -Baseline $b2 -Candidate $c2 -Scenarios @($multi)
+        $partial | Should -Match ([regex]::Escape('| m | pkg | both | 0/1 → 1/1 | check differs |'))
+        $partial | Should -Match ([regex]::Escape('| m | 1 | - → - | n/a |'))
     }
 
     It 'writes tables whose separator rows match their headers' {

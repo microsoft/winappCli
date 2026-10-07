@@ -56,7 +56,7 @@ pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\my-
 | `-WinAppPlugin <path>` | `plugins\winapp` | Any local plugin folder |
 | `-WinUIPlugin <path\|published>` | `plugins\winui\agent-plugin` | Any local plugin folder, or `published` for `win-dev-skills@v0.7.1:plugins/winui/agent-plugin` (fetched once into `results\.cache`) |
 | `-Agent <name>` | none | Runs every session with `--agent <name>`, e.g. `winappcli:winapp` or `winui:winui-dev` (plugin agents are namespaced) |
-| `-MaxCredits <n>` | none | Stops launching sessions once this invocation has spent `n` AI credits |
+| `-MaxCredits <n>` | none | Stops launching sessions once this invocation has spent `n` AI credits. A session that ran but reported no credits (for example a timeout) counts at the average of the measured sessions, or 35 before any is measured |
 | `-CopilotVersion <v>` | newest Copilot CLI build already on the machine | Pinned with `--prefer-version` for every call |
 | `-OutDir <path>` | `results\<timestamp>` | |
 | `-KeepArtifacts` | off | Keeps each run's Copilot home, workspace, and logs under `%TEMP%\winapp-agent-bench` |
@@ -109,7 +109,8 @@ How to read the token columns:
   approximation, not a tokenizer count, but it is the number that changes when a skill grows,
   shrinks, or stops loading.
 - **Repeated deliveries** count the times a skill already delivered in a session was delivered
-  again, and the skill context those repeats added. They show in the totals and in each row.
+  again, and the skill context those repeats added. They show in the totals and in each row. When a
+  repeated skill's size is unknown, the tokens show as `unknown` or `partial`.
 
 Run statuses:
 
@@ -148,9 +149,10 @@ change, and repeated deliveries. Only cells present on both sides are compared. 
 re-evaluated in memory against the current scenario expectations; the folders are not modified.
 
 - `n/a` runs are left out of pass rates.
-- A cell shows `check differs` when an expected skill is installed on one side only, for example
-  when a candidate adds a skill to a plugin. It then tests something different on each side, so
-  it is left out of the per-model pass rate.
+- A cell shows `check differs` when the installed skills that the expectation checks differ between
+  the sides, for example when a candidate adds or removes an expected skill. It then tests something
+  different on each side, so it is left out of the per-model pass rate.
+- `-Scenario` and `-Model` must name values present in the compared results.
 - Runs recorded before repeated deliveries were measured show `-` for them.
 
 ## Recommended workflow for a plugin change

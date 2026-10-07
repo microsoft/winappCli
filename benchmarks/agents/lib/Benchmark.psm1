@@ -429,17 +429,21 @@ function Test-Expectations {
     $patterns = @($Expect.SkillsAny) + @($Expect.SkillsAll) + @($Expect.SkillsForbid)
     $relevant = @($InstalledSkills | Where-Object { Test-SkillMatch $_ $patterns })
     $notApplicable = $relevant.Count -eq 0 -and $null -eq $Expect.MaxSkills
+    # What this run was actually checked against: the installed skills that could satisfy
+    # skillsAny/skillsAll, and the skillsForbid patterns that match an installed skill. Runs are
+    # only comparable when this is identical.
     $positive = @($Expect.SkillsAny) + @($Expect.SkillsAll)
-    $expectedInstalled = @($InstalledSkills | Where-Object { Test-SkillMatch $_ $positive }).Count -gt 0
+    $applied = @($InstalledSkills | Where-Object { Test-SkillMatch $_ $positive } | Sort-Object -Unique) +
+    @($Expect.SkillsForbid | Where-Object { $p = $_; @($InstalledSkills | Where-Object { $_ -like $p }).Count -gt 0 } | Sort-Object -Unique | ForEach-Object { "!$_" })
 
     $status = if ($failures.Count -gt 0) { 'fail' } elseif ($notApplicable) { 'n/a' } else { 'pass' }
     return [pscustomobject]@{
-        Status            = $status
-        Passed            = $failures.Count -eq 0
-        NotApplicable     = $notApplicable
-        ExpectedInstalled = $expectedInstalled
-        Failures          = @($failures)
-        Notes             = @($notes)
+        Status        = $status
+        Passed        = $failures.Count -eq 0
+        NotApplicable = $notApplicable
+        AppliedChecks = $applied -join ','
+        Failures      = @($failures)
+        Notes         = @($notes)
     }
 }
 
@@ -472,11 +476,43 @@ function Get-RepeatStats {
     # Totals of repeated skill deliveries over runs that measured them (older runs did not).
     param([AllowEmptyCollection()][object[]]$Runs)
     $measured = @($Runs | Where-Object { $null -ne (Get-RecordValue $_ 'skillRepeatDeliveries') })
+    $withRepeats = @($measured | Where-Object { $_.skillRepeatDeliveries -gt 0 })
+    $sized = @($withRepeats | Where-Object { $null -ne (Get-RecordValue $_ 'skillRepeatContextTokensApprox') })
     [pscustomobject]@{
         Measured   = $measured.Count
-        Runs       = @($measured | Where-Object { $_.skillRepeatDeliveries -gt 0 }).Count
+        Runs       = $withRepeats.Count
         Deliveries = [int](($measured | ForEach-Object { $_.skillRepeatDeliveries } | Measure-Object -Sum).Sum)
-        Tokens     = [int64](($measured | ForEach-Object { Get-RecordValue $_ 'skillRepeatContextTokensApprox' } | Where-Object { $null -ne $_ } | Measure-Object -Sum).Sum)
+        Tokens     = [int64](($sized | ForEach-Object { $_.skillRepeatContextTokensApprox } | Measure-Object -Sum).Sum)
+        # Runs with repeats whose size is known; the rest had a skill body of unknown length.
+        SizedRuns  = $sized.Count
+    }
+}
+
+function Format-RepeatTokens {
+    # Extra skill-context tokens from repeats; never shows ~0 for repeats of unknown size.
+    param([Parameter(Mandatory)]$Stats)
+    if ($Stats.Runs -eq 0) { return '~0' }
+    if ($Stats.SizedRuns -eq 0) { return 'unknown' }
+    $text = "~$(Format-Count $Stats.Tokens)"
+    if ($Stats.SizedRuns -lt $Stats.Runs) { $text += ", partial: $($Stats.SizedRuns) of $($Stats.Runs) runs measured" }
+    return $text
+}
+
+function Get-CreditSpend {
+    # AI credits spent by launched runs. A run that launched a model but has no credit count
+    # (timeout, crash) is counted at the mean of measured runs, or at $DefaultEstimate when none
+    # is measured yet. Runs that never launched a model (preflight failures) cost nothing.
+    param([AllowEmptyCollection()][object[]]$Records = @(), [double]$DefaultEstimate = 35)
+    $launched = @($Records | Where-Object { $null -ne (Get-RecordValue $_ 'durationMs') })
+    $measured = @($launched | Where-Object { $null -ne (Get-RecordValue $_ 'aiCredits') })
+    $known = [double](($measured | ForEach-Object { [double]$_.aiCredits } | Measure-Object -Sum).Sum)
+    $estimate = if ($measured) { $known / $measured.Count } else { $DefaultEstimate }
+    $unknown = $launched.Count - $measured.Count
+    [pscustomobject]@{
+        Spent    = $known + $unknown * $estimate
+        Measured = $known
+        Unknown  = $unknown
+        Estimate = $estimate
     }
 }
 
@@ -514,13 +550,14 @@ function Write-BenchmarkSummary {
     $tokIn = ($rows | Where-Object { $_.tokens } | ForEach-Object { $_.tokens.input } | Measure-Object -Sum).Sum
     $tokOut = ($rows | Where-Object { $_.tokens } | ForEach-Object { $_.tokens.output } | Measure-Object -Sum).Sum
     $credits = ($rows | Where-Object { $null -ne $_.aiCredits } | ForEach-Object { $_.aiCredits } | Measure-Object -Sum).Sum
-    [void]$sb.AppendLine("- Tokens: $(Format-Count $tokIn) input, $(Format-Count $tokOut) output; AI credits: $(if ($null -ne $credits) { '{0:N1}' -f $credits } else { 'n/a' })")
+    $noCredits = (Get-CreditSpend @($rows)).Unknown
+    [void]$sb.AppendLine("- Tokens: $(Format-Count $tokIn) input, $(Format-Count $tokOut) output; AI credits: $(if ($null -ne $credits) { '{0:N1}' -f $credits } else { 'n/a' })$(if ($noCredits) { " ($noCredits launched runs had no credit count)" })")
     $ctx = @($rows | Where-Object { $null -ne $_.skillContextTokensApprox })
     $ctxSum = ($ctx | ForEach-Object { $_.skillContextTokensApprox } | Measure-Object -Sum).Sum
     [void]$sb.AppendLine("- Skill context delivered: ~$(Format-Count $ctxSum) tokens (approximate, characters / 4; $($ctx.Count) of $($rows.Count) runs measured)")
     $rep = Get-RepeatStats $rows
     if ($rep.Measured) {
-        [void]$sb.AppendLine("- Repeated skill deliveries: $($rep.Deliveries) in $($rep.Runs) of $($rep.Measured) measured runs (~$(Format-Count $rep.Tokens) extra skill-context tokens)")
+        [void]$sb.AppendLine("- Repeated skill deliveries: $($rep.Deliveries) in $($rep.Runs) of $($rep.Measured) measured runs ($(Format-RepeatTokens $rep) extra skill-context tokens)")
     }
     [void]$sb.AppendLine()
     [void]$sb.AppendLine('Input tokens count the full prompt on every model turn, including cached tokens, so they are dominated by')
@@ -574,7 +611,7 @@ function Write-BenchmarkSummary {
             $medDur = Get-Median @($runs | Where-Object { $null -ne $_.durationMs } | ForEach-Object { [double]$_.durationMs })
             $durText = if ($null -ne $medDur) { '{0:N0}s' -f ($medDur / 1000) } else { 'n/a' }
             $cellRep = Get-RepeatStats $runs
-            $repText = if (-not $cellRep.Measured) { 'n/a' } elseif ($cellRep.Deliveries) { "$($cellRep.Deliveries) (~$(Format-Count $cellRep.Tokens))" } else { '0' }
+            $repText = if (-not $cellRep.Measured) { 'n/a' } elseif ($cellRep.Deliveries) { "$($cellRep.Deliveries) ($(Format-RepeatTokens $cellRep))" } else { '0' }
             [void]$sb.AppendLine("| $($first.configuration) | $($first.model) | $passText | $skillText | $(Format-Count $medIn) | $ctxText | $(Format-Count $medOut) | $(Format-Count $medCache) | $durText | $repText |")
         }
         $failed = @($sr | Where-Object { $_.status -ne 'pass' -and $_.reason })
@@ -671,14 +708,14 @@ function Read-ComparisonRuns {
             if (-not $line.Trim()) { continue }
             $rec = $line | ConvertFrom-Json -Depth 64
             $status = $rec.status
-            $expectedInstalled = $null
+            $applied = $null
             $s = $byId[$rec.scenario]
             if ($s -and $status -in 'pass', 'fail', 'n/a') {
                 $pre = Get-RecordValue $rec 'preflight'
                 $installed = @(if ($pre) { $pre.expectedSkills })
                 $eval = Test-Expectations -Expect $s.Expect -LoadedSkills @($rec.skillsLoaded) -InstalledSkills $installed
                 $status = $eval.Status
-                $expectedInstalled = $eval.ExpectedInstalled
+                $applied = $eval.AppliedChecks
             }
             $tokens = Get-RecordValue $rec 'tokens'
             [pscustomobject]@{
@@ -688,7 +725,7 @@ function Read-ComparisonRuns {
                 Model        = $rec.model
                 Agent        = Get-RecordValue $rec 'agent'
                 Status       = $status
-                ExpectedInstalled = $expectedInstalled
+                AppliedChecks = $applied
                 Ctx          = Get-RecordValue $rec 'skillContextTokensApprox'
                 Input        = if ($tokens) { $tokens.input } else { $null }
                 Credits      = Get-RecordValue $rec 'aiCredits'
@@ -713,8 +750,8 @@ function Get-ComparisonStats {
         Pass     = @($done | Where-Object Status -eq 'pass').Count
         Scored   = @($done | Where-Object Status -in 'pass', 'fail').Count
         NA       = @($done | Where-Object Status -eq 'n/a').Count
-        # Whether an expected skill was installed; differs when a candidate adds or removes one.
-        Checks   = @($done | Where-Object Status -in 'pass', 'fail' | ForEach-Object { $_.ExpectedInstalled } | Select-Object -Unique | Sort-Object) -join ','
+        # The expectation checks that applied; differs when a candidate adds or removes an expected skill.
+        Checks   = @($done | Where-Object Status -in 'pass', 'fail' | ForEach-Object { $_.AppliedChecks } | Select-Object -Unique | Sort-Object) -join ';'
         Ctx      = & $mean @($done | ForEach-Object { $_.Ctx })
         Input    = & $mean @($done | ForEach-Object { $_.Input })
         Credits  = & $mean @($done | ForEach-Object { $_.Credits })
@@ -742,8 +779,16 @@ function Get-ComparisonReport {
                 (-not $ModelFilter -or $_.Model -in $ModelFilter)
             })
     }
-    $b = & $filter (Read-ComparisonRuns -ResultsDirs $Baseline -Scenarios $Scenarios)
-    $c = & $filter (Read-ComparisonRuns -ResultsDirs $Candidate -Scenarios $Scenarios)
+    $bAll = @(Read-ComparisonRuns -ResultsDirs $Baseline -Scenarios $Scenarios)
+    $cAll = @(Read-ComparisonRuns -ResultsDirs $Candidate -Scenarios $Scenarios)
+    # A mistyped filter would otherwise produce an empty report that looks like "no data".
+    foreach ($f in @(@{ Name = 'scenario'; Values = $ScenarioFilter; Prop = 'Scenario' }, @{ Name = 'model'; Values = $ModelFilter; Prop = 'Model' })) {
+        $known = @(@($bAll) + @($cAll) | ForEach-Object { $_.($f.Prop) } | Select-Object -Unique | Sort-Object)
+        $unknownIds = @($f.Values | Where-Object { $_ -notin $known })
+        if ($unknownIds) { throw "Unknown $($f.Name)(s) in the compared results: $($unknownIds -join ', '). Known: $($known -join ', ')" }
+    }
+    $b = & $filter $bAll
+    $c = & $filter $cAll
     $bCells = @{}; foreach ($g in ($b | Group-Object Key)) { $bCells[$g.Name] = @($g.Group) }
     $cCells = @{}; foreach ($g in ($c | Group-Object Key)) { $cCells[$g.Name] = @($g.Group) }
     $shared = @($cCells.Keys | Where-Object { $bCells.ContainsKey($_) } | Sort-Object)
@@ -840,4 +885,5 @@ function Get-ComparisonReport {
 
 Export-ModuleMember -Function Get-ScenarioDefinitions, Get-PluginSkillNames, Get-ConfigurationPlugins, New-ChildEnvironment,
 Invoke-LoggedProcess, Get-FileTail, Read-SessionEvents, Get-DirectorySnapshot, Compare-DirectorySnapshot, Test-Expectations,
-Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands, Get-BareSkillName, Get-ComparisonReport
+Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands, Get-BareSkillName, Get-ComparisonReport,
+Get-CreditSpend
