@@ -877,6 +877,7 @@ static void OnSelCommentDeleteClick(void*, void*)
 
 static void OnSelCommentSaveClick(void*, void*)
 {
+    DevToolsOverlayLog(L"overlay.sel comment Save clicked");
     DevToolsSelCommitComment(true);
 }
 
@@ -890,6 +891,7 @@ static void OnSelCommentTextChanged(void*, void*)
         SetSelectionOperationError(L"Comment", L"Couldn't read your draft. Nothing was saved.");
         return;
     }
+    DevToolsOverlayLog(L"overlay.sel comment text changed: %zu chars", text.size());
     if (!DevToolsCommentText::Unchanged(text, g_selCommentSaved))
         GuestCommentSetStatus(g_selUi, L"DevToolsGuestCommentStatus", L"Unsaved changes.");
 }
