@@ -78,6 +78,25 @@ public class TargetSelectionParserTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void SelectorBeforeTheCommand_StillResolves()
+    {
+        var parsed = Parse(["--on", "sandbox", "run"]);
+
+        Assert.IsNull(ExecutionTargetSelection.Validate(parsed));
+        Assert.AreEqual(ExecutionTargetRef.SandboxKind, ExecutionTargetSelection.Resolve(parsed).Kind);
+    }
+
+    [TestMethod]
+    public void SelectorGivenBeforeAndAfterTheCommand_IsRefused()
+    {
+        var parsed = Parse(["--on", "local", "run", "--on", "sandbox"]);
+        var error = ExecutionTargetSelection.Validate(parsed);
+
+        Assert.IsNotNull(error);
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetInvalid, error.Code);
+    }
+
+    [TestMethod]
     public void OmittedSelector_MeansThisMachine()
     {
         var parsed = Parse(["ui", "inspect", "-a", "MyApp"]);

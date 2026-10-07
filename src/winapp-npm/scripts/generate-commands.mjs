@@ -9,9 +9,10 @@
  *   node scripts/generate-commands.mjs --check       # exit 1 if file would change
  *   node scripts/generate-commands.mjs --schema path  # use a specific schema JSON file
  */
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -21,7 +22,7 @@ const checkOnly = args.includes('--check');
 const schemaIdx = args.indexOf('--schema');
 const schemaOverride = schemaIdx !== -1 ? args[schemaIdx + 1] : null;
 
-const SCRIPT_DIR = import.meta.dirname;
+const SCRIPT_DIR = fileURLToPath(new URL('.', import.meta.url));
 const NPM_ROOT = resolve(SCRIPT_DIR, '..');
 const OUTPUT = resolve(NPM_ROOT, 'src/winapp-commands.ts');
 
@@ -42,20 +43,21 @@ function loadSchema() {
   const cliPath = candidates.find((p) => existsSync(p));
 
   if (cliPath) {
-    const raw = execSync(`"${cliPath}" --cli-schema`, { encoding: 'utf8' });
+    const raw = execFileSync(cliPath, ['--cli-schema'], { encoding: 'utf8' });
     return JSON.parse(raw);
   }
 
-  // Fallback: checked-in schema
-  const fallback = resolve(NPM_ROOT, '../../docs/cli-schema.json');
-  if (existsSync(fallback)) {
-    return JSON.parse(readFileSync(fallback, 'utf8'));
-  }
-
-  throw new Error(
-    'Cannot locate winapp CLI binary or docs/cli-schema.json.\n' +
-      'Build the CLI first (scripts/build-cli.ps1) or ensure docs/cli-schema.json exists.'
+  const project = resolve(NPM_ROOT, '../../src/winapp-CLI/WinApp.Cli/WinApp.Cli.csproj');
+  console.error('[generate-commands] No built CLI found. Building the Debug CLI with the .NET SDK.');
+  execFileSync('dotnet', ['build', project, '-c', 'Debug', '--nologo', '--verbosity', 'quiet'], {
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
+  const raw = execFileSync(
+    'dotnet',
+    ['run', '--project', project, '-c', 'Debug', '--no-build', '--', '--cli-schema'],
+    { encoding: 'utf8' }
   );
+  return JSON.parse(raw);
 }
 
 // ---------------------------------------------------------------------------
@@ -112,23 +114,6 @@ const DEPRECATED_ARG_ALIASES = {
 const OPTION_PROP_RENAMES = {
   'target exec': { '--cwd': 'targetCwd' },
 };
-
-/**
- * Command trees that honour `--on`.
- *
- * `--on` is registered recursively on the winapp root so that *every* command parses the token
- * consistently — that is a parser-safety property, not an API one: a command that did not declare
- * it would let System.CommandLine bind `--on sandbox` to a nearby positional argument and then run
- * on this machine while reporting success. Commands outside this list parse `--on` only to reject
- * it, so emitting an `on` property on their wrappers would advertise an option that always fails.
- *
- * Kept in step with `ITargetAwareCommand` in the CLI by
- * `ExecutionTargetSelectionTests.TargetAwareCommands_MatchTheGeneratorList`.
- */
-const TARGET_AWARE_COMMANDS = ['run', 'ui', 'unregister'];
-
-/** The recursive selector option, which only target-aware commands should expose. */
-const TARGET_SELECTOR_OPTION = '--on';
 
 /**
  * Nullable enum types — strip `System.Nullable<...>` wrapper.
@@ -233,18 +218,9 @@ function collectRecursiveOptions(cmd, inherited) {
   return { ...inherited, ...recursive };
 }
 
-function flattenCommands(node, parentPath = [], inherited = null) {
+function flattenCommands(node, parentPath = [], inherited = {}) {
   const results = [];
   const subs = node.subcommands || {};
-
-  // `--on` is declared once, on the root, so that every command parses it and a misspelling can
-  // never be absorbed by a positional argument. Groups have their recursive options collected on
-  // the way down; the root does not, so the selector is seeded here.
-  //
-  // Only the selector. The root's other recursive options (`--cli-schema`, `--caller`) describe
-  // winapp itself rather than the command, and putting them on every wrapper would offer callers a
-  // property that prints a schema instead of doing what they asked.
-  const inheritedOptions = inherited ?? rootSelectorOption(node);
 
   for (const [name, cmd] of Object.entries(subs)) {
     if (cmd.hidden) continue;
@@ -255,42 +231,14 @@ function flattenCommands(node, parentPath = [], inherited = null) {
       // e.g. `find-api <query>`) must be emitted as its own command in addition
       // to its subcommands, or the bare form gets no wrapper.
       if (cmd.arguments && Object.keys(cmd.arguments).length > 0) {
-        results.push({
-          path: cmdPath,
-          cmd: inheritRecursiveOptions(cmd, dropUnsupportedSelector(cmdPath, inheritedOptions)),
-        });
+        results.push({ path: cmdPath, cmd: inheritRecursiveOptions(cmd, inherited) });
       }
-      results.push(...flattenCommands(cmd, cmdPath, collectRecursiveOptions(cmd, inheritedOptions)));
+      results.push(...flattenCommands(cmd, cmdPath, collectRecursiveOptions(cmd, inherited)));
     } else {
-      results.push({
-        path: cmdPath,
-        cmd: inheritRecursiveOptions(cmd, dropUnsupportedSelector(cmdPath, inheritedOptions)),
-      });
+      results.push({ path: cmdPath, cmd: inheritRecursiveOptions(cmd, inherited) });
     }
   }
   return results;
-}
-
-function rootSelectorOption(root) {
-  const selector = (root.options || {})[TARGET_SELECTOR_OPTION];
-  return selector ? { [TARGET_SELECTOR_OPTION]: selector } : {};
-}
-
-/**
- * Removes `--on` from what a leaf inherits unless that leaf can actually honour it.
- *
- * See `TARGET_AWARE_COMMANDS`: the CLI parses the option everywhere so a misspelling cannot be
- * absorbed by a positional argument, but only these trees do anything with it. A wrapper that
- * offered `on` on, say, `certInfo` would be offering a property whose only possible outcome is a
- * non-zero exit.
- */
-function dropUnsupportedSelector(cmdPath, inherited) {
-  if (TARGET_AWARE_COMMANDS.includes(cmdPath[0]) || !(TARGET_SELECTOR_OPTION in inherited)) {
-    return inherited;
-  }
-
-  const { [TARGET_SELECTOR_OPTION]: _dropped, ...rest } = inherited;
-  return rest;
 }
 
 // ---------------------------------------------------------------------------
