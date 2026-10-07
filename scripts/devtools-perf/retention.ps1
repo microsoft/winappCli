@@ -19,6 +19,9 @@
       release       as advise-src, then after half the rounds unsubscribing and releasing every reference
                     the TAP holds to XAML diagnostics; three rounds later the TAP is injected again
       engine        winapp run --devtools --no-overlay (the real engine), for reference
+      src-only      no TAP, only ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO=1 (the source-info flag Visual Studio sets)
+      external      the harness does not launch the app: it runs -LaunchCommand (or waits up to 10 minutes for
+                    you to start it, for example with F5 in Visual Studio) and measures whatever started it
 
     The probe is built from devtools-perf\probe-tap with MSVC and loaded with winapp's injector. Writes retention.json and
     retention.md to -OutDir. -Page picks the navigation target: heavy (120 cards with templated controls,
@@ -30,13 +33,15 @@
 [CmdletBinding()]
 param(
     [string]$Winapp,
-    [ValidateSet('off', 'init', 'advise', 'advise-cb1', 'advise-src', 'cycle', 'unadvise', 'late', 'release', 'engine')]
+    [ValidateSet('off', 'init', 'advise', 'advise-cb1', 'advise-src', 'cycle', 'unadvise', 'late', 'release', 'engine', 'src-only', 'external')]
     [string[]]$Configs = @('off', 'init', 'advise', 'advise-cb1', 'advise-src', 'cycle', 'unadvise', 'late', 'engine'),
     [int]$Rounds = 12,
     [int]$NavCycles = 5,
     [ValidateSet('heavy', 'plain', 'resource', 'styled', 'button', 'checkbox')][string]$Page = 'heavy',
     [int]$ChurnElements = 2000,
     [int]$ChurnCycles = 10,
+    [string]$LaunchCommand,
+    [switch]$SkipPrepare,
     [string]$OutDir = (Join-Path $PSScriptRoot '..\..\artifacts\devtools-perf\retention')
 )
 $ErrorActionPreference = 'Stop'
@@ -59,14 +64,24 @@ $vcvars = Join-Path (& $vswhere -latest -products * -property installationPath) 
 & $env:ComSpec /c "call `"$vcvars`" >nul && cd /d `"$bin`" && cl /nologo /std:c++20 /O2 /MT /EHsc /W3 /WX /DUNICODE /D_UNICODE /LD `"$src\ProbeTap.cpp`" /Fe:ProbeTap.dll /link ole32.lib oleaut32.lib /DEF:`"$src\ProbeTap.def`" >nul"
 if ($LASTEXITCODE) { throw 'Probe build failed.' }
 
-Write-Step 'Preparing bench app'
-& (Join-Path $PSScriptRoot '..\devtools-perf.ps1') -Winapp $Winapp -Apps bench -PrepareOnly | Out-Null
+if (-not $SkipPrepare) {
+    Write-Step 'Preparing bench app'
+    & (Join-Path $PSScriptRoot '..\devtools-perf.ps1') -Winapp $Winapp -Apps bench -PrepareOnly | Out-Null
+}
 
 $script:benchId = 0
 function Wait-File([string]$Path, [int]$Seconds) {
     $deadline = (Get-Date).AddSeconds($Seconds)
-    while (-not (Test-Path $Path)) { if ((Get-Date) -gt $deadline) { throw "Timed out waiting for $Path" }; Start-Sleep -Milliseconds 50 }
-    Get-Content -Raw $Path | ConvertFrom-Json
+    while (-not (Test-Path $Path)) {
+        if ((Get-Date) -gt $deadline) { throw "Timed out waiting for $Path" }
+        if ($script:appPid -and -not (Get-Process -Id $script:appPid -ErrorAction SilentlyContinue)) { throw "The bench app (PID $script:appPid) exited while waiting for $Path." }
+        Start-Sleep -Milliseconds 50
+    }
+    # The app renames each result into place; a read can still race the rename, so retry briefly.
+    for ($i = 0; ; $i++) {
+        try { return Get-Content -Raw $Path -ErrorAction Stop | ConvertFrom-Json }
+        catch [IO.IOException] { if ($i -ge 20) { throw }; Start-Sleep -Milliseconds 50 }
+    }
 }
 function Invoke-Bench([hashtable]$Command) {
     $script:benchId++
@@ -91,20 +106,32 @@ function Invoke-Probe([int]$ProcessId, [string]$Command) {
 }
 
 function Start-Bench([string]$Config) {
+    $script:appPid = $null
     Get-ChildItem $control -File | Remove-Item -Force
-    $probe = $Config -notin 'off', 'engine'
-    $sourceInfo = $Config -in 'advise-src', 'cycle', 'unadvise', 'late', 'release'
+    $probe = $Config -notin 'off', 'engine', 'src-only', 'external'
+    $sourceInfo = $Config -in 'advise-src', 'cycle', 'unadvise', 'late', 'release', 'src-only'
     $arguments = if ($Config -eq 'engine') { @('run', $stage, '--no-build', '--devtools', '--no-overlay') } else { @('run', $stage, '--no-build', '--with-alias') }
+    $runner = $null
+    if ($Config -eq 'external') {
+        if ($LaunchCommand) { Invoke-Expression $LaunchCommand } else { Write-Step 'Start the bench app now (for example F5 in Visual Studio); waiting up to 10 minutes' }
+    }
+    else {
     if ($sourceInfo) { $env:ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO = '1' }
     try {
         $runner = Start-Process -FilePath $Winapp -ArgumentList $arguments -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput (Join-Path $work 'retention-run.out') -RedirectStandardError (Join-Path $work 'retention-run.err')
     }
     finally { Remove-Item env:ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO -ErrorAction SilentlyContinue }
-    $startup = Wait-File (Join-Path $control 'startup.json') 120
+    }
+    $startup = Wait-File (Join-Path $control 'startup.json') $(if ($Config -eq 'external') { 600 } else { 120 })
     $appPid = [int]$startup.pid
+    $script:appPid = $appPid
     Start-Sleep -Seconds 3
-    $launch = [ordered]@{ pid = $appPid; runner = $runner.Id; probe = $null }
+    # Evidence of what is attached: the app's own view of the source-info flag and debugger, and any
+    # XAML diagnostics modules loaded in it (DevTools, the probe, or Visual Studio's XamlDiagnostics TAP).
+    $modules = @((Get-Process -Id $appPid).Modules | Where-Object { $_.ModuleName -match '^(WinApp\.DevTools|ProbeTap)|Tap\.dll$' -or $_.FileName -match 'XamlDiagnostics|Visual Studio' } | ForEach-Object { $_.FileName })
+    $launch = [ordered]@{ pid = $appPid; runner = if ($runner) { $runner.Id } else { $null }; probe = $null
+        sourceInfoEnv = $startup.sourceInfoEnv; debuggerAttached = $startup.debuggerAttached; diagnosticsModules = $modules }
     if ($probe) {
         $advise = if ($Config -in 'init', 'late') { 0 } else { 1 }
         $cb2 = if ($Config -eq 'advise-cb1') { 0 } else { 1 }
@@ -125,7 +152,7 @@ function Add-Probe([int]$ProcessId, [string]$InitializationData) {
 
 function Stop-Bench($Launch) {
     try { Invoke-Bench @{ name = 'exit' } | Out-Null } catch { }
-    foreach ($id in @($Launch.pid, $Launch.runner)) {
+    foreach ($id in @($Launch.pid, $Launch.runner) | Where-Object { $_ }) {
         $p = Get-Process -Id $id -ErrorAction SilentlyContinue
         if ($p -and -not $p.WaitForExit(15000)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
     }
@@ -175,8 +202,13 @@ foreach ($config in $Configs) {
         }
         $status = if ($launch.probe) { Invoke-Probe $launch.pid 'status' } else { $null }
     }
+    catch {
+        Write-Step "$config failed: $_"
+        $events += [ordered]@{ round = $round; action = 'error'; message = "$_" }
+        $status = $null
+    }
     finally { Stop-Bench $launch }
-    $results.configs[$config] = [ordered]@{ rounds = $rows; events = $events; probe = $status }
+    $results.configs[$config] = [ordered]@{ launch = $launch; rounds = $rows; events = $events; probe = $status }
     Set-Content (Join-Path $OutDir 'retention.json') ($results | ConvertTo-Json -Depth 10)
 }
 

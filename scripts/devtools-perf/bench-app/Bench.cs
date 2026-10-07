@@ -69,6 +69,8 @@ internal static class Bench
                 ["loadedMs"] = loaded,
                 ["firstFrameMs"] = firstFrame,
                 ["refreshMs"] = s_refreshMs,
+                ["sourceInfoEnv"] = Environment.GetEnvironmentVariable("ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO"),
+                ["debuggerAttached"] = Debugger.IsAttached,
             });
             new Thread(PollCommands) { IsBackground = true, Name = "bench-commands" }.Start();
         };
