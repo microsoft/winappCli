@@ -95,6 +95,43 @@ DevToolsAppRuntime AppRuntime()
         ? DevToolsAppRuntime::NativeAot : DevToolsAppRuntime::None;
 }
 
+// winapp launched this app with the managed binding host as a startup hook, so its pipe is expected even when
+// it is momentarily absent (still starting, or between listener instances).
+bool HostExpected()
+{
+    if (AppRuntime() == DevToolsAppRuntime::NativeAot) return false;
+    std::wstring hooks(GetEnvironmentVariableW(L"DOTNET_STARTUP_HOOKS", nullptr, 0), L'\0');
+    if (hooks.empty() || !GetEnvironmentVariableW(L"DOTNET_STARTUP_HOOKS", hooks.data(), (DWORD)hooks.size())) return false;
+    CharLowerBuffW(hooks.data(), (DWORD)hooks.size());
+    return hooks.find(L"winapp.devtools.managed.dll") != std::wstring::npos;
+}
+
+// Waits for an instance of the host's pipe within the connect budget. A missing pipe is final only when no host
+// was configured; a configured host gets the same budget to (re)create its listener.
+bool WaitForHostPipe(const std::wstring& name, std::wstring* outJson)
+{
+    const ULONGLONG deadline = GetTickCount64() + kConnectTimeoutMs;
+    for (;;) {
+        const ULONGLONG now = GetTickCount64();
+        const DWORD remaining = now < deadline ? static_cast<DWORD>(deadline - now) : 1;
+        if (WaitNamedPipeW(name.c_str(), remaining)) return true;
+        if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+            *outJson = DevToolsBindingRelay_UnavailableJson(L"the managed DevTools agent did not accept a connection");
+            return false;
+        }
+        if (!HostExpected()) {
+            *outJson = DevToolsBindingRelay_UnavailableJson(DevToolsBindingRelay_NoAgentReason(AppRuntime()));
+            return false;
+        }
+        if (GetTickCount64() >= deadline) {
+            *outJson = DevToolsBindingRelay_UnavailableJson(
+                L"the managed binding host was configured at launch but is not accepting connections yet. Try again in a moment.");
+            return false;
+        }
+        Sleep(20);
+    }
+}
+
 bool TransferBefore(HANDLE pipe, void* buffer, DWORD size, DWORD& transferred,
                     bool writing, ULONGLONG deadline)
 {
@@ -194,13 +231,7 @@ bool DevToolsBindingRelay_Binding(const std::wstring& op, IAgileReference* eleme
     }
 
     std::wstring name = PipeName();
-    if (!WaitNamedPipeW(name.c_str(), kConnectTimeoutMs)) {
-        *outJson = DevToolsBindingRelay_UnavailableJson(
-            GetLastError() == ERROR_FILE_NOT_FOUND
-                ? DevToolsBindingRelay_NoAgentReason(AppRuntime())
-                : L"the managed DevTools agent did not accept a connection");
-        return false;
-    }
+    if (!WaitForHostPipe(name, outJson)) return false;
 
     // Identification-level pipe access plus same-process PID verification keeps the managed relay local.
     HANDLE h = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,

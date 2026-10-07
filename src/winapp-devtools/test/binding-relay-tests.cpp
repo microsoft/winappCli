@@ -476,6 +476,69 @@ static void Test_BoundsAndActualRevocation()
     CoUninitialize();
 }
 
+// A host launched by winapp may not be listening yet (startup) or for a moment (between listener instances). The
+// relay waits within its connect budget instead of reporting that no host was loaded.
+static void Test_ConfiguredHostIsAwaitedNotDeclaredAbsent()
+{
+    Check(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)), "late-host caller COM initialized");
+    BindingFixture* fixture = nullptr;
+    Microsoft::WRL::ComPtr<IAgileReference> owner;
+    if (FAILED(BindingFixtureCreate(&fixture)) || FAILED(BindingFixtureOwner(fixture, &owner))) {
+        Check(false, "late-host fixture created"); CoUninitialize(); return;
+    }
+    const auto name = L"\\\\.\\pipe\\winapp-devtools-binding-" + std::to_wstring(GetCurrentProcessId());
+    auto relay = [&](std::wstring& answer, ULONGLONG& elapsed) {
+        const auto start = GetTickCount64();
+        const bool ok = DevToolsBindingRelay_Binding(L"diagnose", owner.Get(), L"Text", L"", &answer);
+        elapsed = GetTickCount64() - start;
+        return ok;
+    };
+    std::wstring answer; ULONGLONG elapsed = 0;
+
+    SetEnvironmentVariableW(L"DOTNET_STARTUP_HOOKS", nullptr);
+    Check(!relay(answer, elapsed) && answer.find(L"no .NET runtime") != std::wstring::npos && elapsed < 500,
+        "without a configured host, a missing pipe is reported at once");
+
+    SetEnvironmentVariableW(L"DOTNET_STARTUP_HOOKS", L"C:\\stage\\WinApp.DevTools.Managed.dll");
+    std::thread host([&] {
+        Sleep(400);
+        HANDLE pipe = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, nullptr);
+        if (pipe == INVALID_HANDLE_VALUE) return;
+        OVERLAPPED connect{}; connect.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        const bool connected = ConnectNamedPipe(pipe, &connect) || GetLastError() == ERROR_PIPE_CONNECTED ||
+            (GetLastError() == ERROR_IO_PENDING && WaitForSingleObject(connect.hEvent, 3000) == WAIT_OBJECT_0);
+        if (!connected) CancelIoEx(pipe, &connect);
+        CloseHandle(connect.hEvent);
+        if (connected) {
+            char request[4096]; DWORD read = 0;
+            OVERLAPPED io{}; io.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (ReadFile(pipe, request, sizeof(request), nullptr, &io) || GetLastError() == ERROR_IO_PENDING)
+                GetOverlappedResult(pipe, &io, &read, TRUE);
+            const char reply[] = "BINDING2 {\"state\":\"none\"}\n";
+            ResetEvent(io.hEvent);
+            if (WriteFile(pipe, reply, sizeof(reply) - 1, nullptr, &io) || GetLastError() == ERROR_IO_PENDING)
+                GetOverlappedResult(pipe, &io, &read, TRUE);
+            CloseHandle(io.hEvent);
+            FlushFileBuffers(pipe);
+        }
+        DisconnectNamedPipe(pipe);
+        CloseHandle(pipe);
+    });
+    const bool late = relay(answer, elapsed);
+    host.join();
+    std::printf("  configured host listening after 400 ms: answered=%d elapsed=%llu ms\n", late, elapsed);
+    Check(late && answer == L"{\"state\":\"none\"}", "a configured host that starts listening late is waited for");
+
+    Check(!relay(answer, elapsed) && answer.find(L"not accepting connections yet") != std::wstring::npos &&
+        answer.find(L"no loaded managed binding host") == std::wstring::npos && elapsed >= 1400,
+        "a configured host that never listens is reported as not ready, not as absent");
+    SetEnvironmentVariableW(L"DOTNET_STARTUP_HOOKS", nullptr);
+    owner.Reset();
+    Check(SUCCEEDED(BindingFixtureDestroy(fixture)), "late-host relay releases its owner");
+    CoUninitialize();
+}
+
 int RunBindingRelayTests()
 {
     std::printf("DevToolsBindingRelay tests\n");
@@ -492,5 +555,6 @@ int RunBindingRelayTests()
     Test_ConnectedReplyDeadline(false);
     Test_ConnectedReplyDeadline(true);
     Test_ConnectedReplyDeadline(false, true);
+    Test_ConfiguredHostIsAwaitedNotDeclaredAbsent();
     return g_failures;
 }
