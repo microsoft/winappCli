@@ -5,7 +5,6 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
-using Spectre.Console;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services.InteractiveDesktop;
@@ -124,7 +123,7 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
     private readonly IProcessInspector _processInspector;
     private readonly IPollDelay _pollDelay;
     private readonly IParticipantSignals _signals;
-    private readonly IAnsiConsole _console;
+    private readonly TextWriter _statusWriter;
     private readonly ILogger<InteractiveDesktopLock> _logger;
     private readonly IMonotonicClock _clock;
     private readonly InteractiveDesktopScheduler _scheduler;
@@ -138,8 +137,8 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         IMonotonicClock clock,
         IPollDelay pollDelay,
         IParticipantSignals signals,
-        IAnsiConsole console,
-        ILogger<InteractiveDesktopLock> logger)
+        ILogger<InteractiveDesktopLock> logger,
+        TextWriter? statusWriter = null)
     {
         _store = store;
         _paths = paths;
@@ -148,7 +147,8 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         _processInspector = processInspector;
         _pollDelay = pollDelay;
         _signals = signals;
-        _console = console;
+        // The waiting notice is a side channel: stdout carries the command's result, so it goes to stderr.
+        _statusWriter = statusWriter ?? Console.Error;
         _logger = logger;
         _clock = clock;
         _scheduler = new InteractiveDesktopScheduler(clock);
@@ -614,7 +614,7 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
             }
 
             var reporter = new UiCoordinationWaitReporter(
-                coordinator._console, outputMode, participant.Operation);
+                coordinator._statusWriter, outputMode, participant.Operation);
 
             while (true)
             {
@@ -792,11 +792,56 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                 commandsAhead = state.OwnerCommands.Count;
             }
 
+            var waitersAhead = _ticket is { } myTicket
+                ? state.Waiters.Count(w => w.Ticket < myTicket)
+                : state.Waiters.Count;
+
+            var now = coordinator._clock.NowTicks64;
+            UiWaitReason reason;
+            string? blockingOperation = active?.Operation;
+            long? heldForMs = null;
+            long? graceRemainingMs = null;
+
+            if (ownEntry is { Ticket: { } myOwnTicket })
+            {
+                reason = UiWaitReason.OwnWorkflow;
+                blockingOperation = state.OwnerCommands
+                    .Where(c => (c.Ticket ?? long.MaxValue) < myOwnTicket)
+                    .OrderBy(c => c.Ticket)
+                    .FirstOrDefault()?.Operation;
+            }
+            else if (state.Owner is not null && state.OwnerCommands.Count > 0)
+            {
+                reason = UiWaitReason.OtherWorkflowActive;
+                blockingOperation ??= state.OwnerCommands
+                    .OrderBy(c => c.Ticket ?? long.MaxValue)
+                    .First().Operation;
+                if (TurnStartTick(state) is { } started && now > started)
+                {
+                    heldForMs = now - started;
+                }
+            }
+            else if (state.Owner is not null)
+            {
+                reason = UiWaitReason.OtherWorkflowGrace;
+                blockingOperation = null;
+                graceRemainingMs = Math.Max(0, state.IdleExpiresTick64 - now);
+            }
+            else
+            {
+                reason = UiWaitReason.Queued;
+                blockingOperation = null;
+            }
+
             return new UiWaitDiagnostics(
                 queueDepth,
                 commandsAhead,
                 active?.Pid,
-                active?.Operation);
+                blockingOperation,
+                reason,
+                heldForMs,
+                graceRemainingMs,
+                waitersAhead);
         }
 
         public async Task<IAsyncDisposable> EnterAsync(CancellationToken cancellationToken)

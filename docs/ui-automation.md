@@ -150,8 +150,18 @@ What you need to know:
   Continuous activity by one workflow can therefore delay others indefinitely.
 - **There is no hard cap.** A long script, an unbounded recording, or a failure loop can block other
   mutating workflows.
-- **Cancellation or process termination is the recovery** for a stuck live workflow. Waiting commands
-  print a status after one second and can be stopped with `Ctrl+C`, which exits `130`.
+- **Cancellation or process termination is the recovery** for a stuck live workflow. A waiting
+  command can be stopped with `Ctrl+C`, which exits `130`.
+- **A waiting command tells you why.** After one second it prints a notice to stderr, and repeats it
+  every five seconds:
+
+  ```text
+  'ui click' has waited 3s for the desktop: another workflow is using the desktop ('ui record') and has held it for 2m 14s. If both commands belong to the same task (for example, a recording and the input it captures), run them with the same WINAPP_UI_WORKFLOW_ID. Press Ctrl+C to cancel.
+  ```
+
+  The notice names only the command holding the desktop, never the other workflow's id or process.
+  `--verbose` adds the holder's PID and queue position. `--json` and `--quiet` print nothing while
+  waiting, so stderr carries only the final error, if any.
 - **Only compatible updated binaries cooperate.** Older `winapp` builds predate this feature and are
   not coordinated. Code calling the UI Automation NuGet packages directly is outside this guarantee
   entirely — coordination lives in the CLI, not in the packages.
