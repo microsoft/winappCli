@@ -3,5 +3,5 @@
   "version": "1.0.0",
   "main": "main.js",
   "scripts": { "start": "electron ." },
-  "devDependencies": { "electron": "^33.0.0" }
+  "devDependencies": { "electron": "^44.6.0" }
 }
