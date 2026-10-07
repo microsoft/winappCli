@@ -98,6 +98,50 @@ Describe 'Get-WinappCommands' {
     It 'returns an empty array when nothing matches' {
         @(Get-WinappCommands -Text @('no commands here', $null)).Count | Should -Be 0
     }
+
+    It 'records a find-api verb but not a search query' {
+        @(Get-WinappCommands -Text @('winapp find-api navigationview --json', 'winapp find-api members Microsoft.UI.Xaml.Controls.InfoBar')) |
+            Should -Be @('find-api', 'find-api members')
+    }
+}
+
+Describe 'Format-PassRate' {
+    It 'scores only pass and fail and lists every other status as excluded' {
+        Format-PassRate @('pass', 'timeout') | Should -Be '1/1 (100%); excluded: 1 timeout'
+        Format-PassRate @('pass', 'fail', 'n/a', 'harness_error', 'n/a') | Should -Be '1/2 (50%); excluded: 1 harness_error, 2 n/a'
+        Format-PassRate @('n/a') | Should -Be '-; excluded: 1 n/a'
+        Format-PassRate @() | Should -Be '-'
+    }
+}
+
+Describe 'Compare-PreflightSkills' {
+    BeforeAll {
+        $copilotHome = 'C:\bench\home'
+        function New-Skill($name, [bool]$enabled = $true, $source = 'plugin', $path = "$copilotHome\installed-plugins\x\SKILL.md") {
+            [pscustomobject]@{ name = $name; source = $source; enabled = $enabled; path = $path }
+        }
+    }
+
+    It 'passes when every plugin copy of a shared skill name is listed' {
+        $r = Compare-PreflightSkills -Expected @('winapp-find-api', 'winapp-setup', 'winapp-find-api') -CopilotHome $copilotHome -Listed @(
+            New-Skill 'winappcli:winapp-find-api'; New-Skill 'winui:winapp-find-api'; New-Skill 'winapp-setup'; New-Skill 'customize' -source 'builtin' -path 'x')
+        @($r.Missing).Count | Should -Be 0
+        @($r.Unexpected).Count | Should -Be 0
+    }
+
+    It 'fails when one plugin copy of a shared skill name is missing or disabled' {
+        $r = Compare-PreflightSkills -Expected @('winapp-find-api', 'winapp-find-api') -CopilotHome $copilotHome -Listed @(New-Skill 'winapp-find-api')
+        $r.Missing | Should -Be @('winapp-find-api (1 of 2 copies)')
+        $r = Compare-PreflightSkills -Expected @('winapp-find-api', 'winapp-find-api') -CopilotHome $copilotHome -Listed @(
+            New-Skill 'winappcli:winapp-find-api'; New-Skill 'winui:winapp-find-api' -enabled $false)
+        $r.Missing | Should -Be @('winapp-find-api (1 of 2 copies)')
+    }
+
+    It 'reports skills from outside the isolated home, unknown skills, and extra copies' {
+        $r = Compare-PreflightSkills -Expected @('winapp-setup') -CopilotHome $copilotHome -Listed @(
+            New-Skill 'winapp-setup'; New-Skill 'a:winapp-setup'; New-Skill 'other'; New-Skill 'winapp-setup' -source 'user' -path 'C:\Users\me\.copilot\skills\x')
+        $r.Unexpected | Should -Be @('other (plugin)', 'winapp-setup (user)', 'winapp-setup (2 copies, expected 1)')
+    }
 }
 
 Describe 'Get-BareSkillName' {
@@ -187,7 +231,8 @@ Describe 'Write-BenchmarkSummary' {
         Write-BenchmarkSummary -RunsPath $runs -SummaryPath $out -Header ([ordered]@{ Models = 'm' }) -ScenarioOrder 's1'
         $text = Get-Content -Raw $out
 
-        $text | Should -Match '\| winapp \| m \| 1/2 \(1 timeout\) \| winapp-setup \(1/1\) \| 100\.0k \| ~6\.0k \| 2\.0k \| 80\.0k \|'
+        $text | Should -Match '\| winapp \| m \| 1/1 \(100%\); excluded: 1 timeout \| winapp-setup \(1/1\) \| 100\.0k \| ~6\.0k \| 2\.0k \| 80\.0k \|'
+        $text | Should -Match 'Pass rate: 1/1 \(100%\); excluded: 1 timeout'
         $text | Should -Match 'Skill context delivered: ~6\.0k tokens'
         $text | Should -Not -Match ([regex]::Escape($userHome))
     }
@@ -205,11 +250,11 @@ Describe 'Write-BenchmarkSummary' {
         Write-BenchmarkSummary -RunsPath $runs -SummaryPath $out -Header ([ordered]@{ Models = 'm' }) -ScenarioOrder 's1'
         $text = Get-Content -Raw $out
 
-        $text | Should -Match 'Pass rate: 1/2 \(50%\); 2 n/a runs excluded'
+        $text | Should -Match 'Pass rate: 1/2 \(50%\); excluded: 2 n/a'
         $text | Should -Match 'Repeated skill deliveries: 2 in 1 of 3 measured runs \(~900 extra'
         $text | Should -Match '\| s1 \| winui \| 1 \|'
-        $text | Should -Match '\| winapp \| m \| 1/2 \(1 n/a\) \|.*\| 2 \(~900\) \|'
-        $text | Should -Match '\| winui \| m \| n/a \(1\) \|.*\| n/a \|'
+        $text | Should -Match '\| winapp \| m \| 1/2 \(50%\); excluded: 1 n/a \|.*\| 2 \(~900\) \|'
+        $text | Should -Match '\| winui \| m \| -; excluded: 1 n/a \|.*\| n/a \|'
     }
 
     It 'shows repeat tokens as unknown or partial when their size was not measured, and counts runs without credits' {
@@ -391,17 +436,17 @@ Describe 'Get-ComparisonReport' {
     }
 
     It 're-evaluates statuses and reports pass, context, input, credits, and repeat deltas per cell' {
-        $report | Should -Match ([regex]::Escape('| m | s1 | both | 1/2 → 2/2 | +50 pp | 1.0k → 1.5k | +50% | 100.0k → 100.0k | = | 10.0 → 8.0 | -20% | - → 1 |'))
+        $report | Should -Match ([regex]::Escape('| m | s1 | both | 1/2 (50%); excluded: 1 timeout → 2/2 (100%) | +50 pp | 1.0k → 1.5k | +50% | 100.0k → 100.0k | = | 10.0 → 8.0 | -20% | - → 1 |'))
     }
 
     It 'shows n/a cells and leaves them out of pooled pass rates' {
-        $report | Should -Match ([regex]::Escape('| m | s1 | winui | n/a → n/a | n/a |'))
-        $report | Should -Match ([regex]::Escape('| m | 2 | 1/2 → 2/2 | +50 pp |'))
+        $report | Should -Match ([regex]::Escape('| m | s1 | winui | -; excluded: 1 n/a → -; excluded: 1 n/a | n/a |'))
+        $report | Should -Match ([regex]::Escape('| m | 2 (1 not pooled) | 1/2 (50%); excluded: 1 timeout → 2/2 (100%) | +50 pp |'))
     }
 
     It 'flags cells where an expected skill is installed on one side only and leaves them out of pooled pass' {
-        $report | Should -Match ([regex]::Escape('| m2 | s1 | both | 1/1 → 1/1 | check differs |'))
-        $report | Should -Match ([regex]::Escape('| m2 | 2 | 1/1 → 1/1 | = |'))
+        $report | Should -Match ([regex]::Escape('| m2 | s1 | both | 1/1 (100%) → 1/1 (100%) | check differs |'))
+        $report | Should -Match ([regex]::Escape('| m2 | 2 (1 not pooled) | 1/1 (100%) → 1/1 (100%) | = |'))
     }
 
     It 'filters by model and rejects filter values that are not in the results' {
@@ -422,8 +467,8 @@ Describe 'Get-ComparisonReport' {
         Write-Runs $b2 @(@{ scenario = 'pkg'; status = 'fail'; skillsLoaded = @(); preflight = @{ expectedSkills = @('winapp-package', 'winapp-manifest') } })
         Write-Runs $c2 @(@{ scenario = 'pkg'; status = 'pass'; skillsLoaded = @('winapp-package'); preflight = @{ expectedSkills = @('winapp-package') } })
         $partial = Get-ComparisonReport -Baseline $b2 -Candidate $c2 -Scenarios @($multi)
-        $partial | Should -Match ([regex]::Escape('| m | pkg | both | 0/1 → 1/1 | check differs |'))
-        $partial | Should -Match ([regex]::Escape('| m | 1 | - → - | n/a |'))
+        $partial | Should -Match ([regex]::Escape('| m | pkg | both | 0/1 (0%) → 1/1 (100%) | check differs |'))
+        $partial | Should -Match ([regex]::Escape('| m | 1 (1 not pooled) | - → - | n/a |'))
     }
 
     It 'writes tables whose separator rows match their headers' {

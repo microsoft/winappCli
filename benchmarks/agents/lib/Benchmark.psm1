@@ -181,10 +181,39 @@ function Get-BareSkillName {
     return $Name
 }
 
+function Compare-PreflightSkills {
+    # Checks `copilot skill list --json` against the skills the configuration installed, counting
+    # copies: a skill name shipped by two plugins must be listed (as <plugin>:<name>) once per plugin.
+    param(
+        [AllowEmptyCollection()][string[]]$Expected = @(),
+        [AllowEmptyCollection()][object[]]$Listed = @(),
+        [Parameter(Mandatory)][string]$CopilotHome
+    )
+    $unexpected = [System.Collections.Generic.List[string]]::new()
+    $missing = [System.Collections.Generic.List[string]]::new()
+    $valid = foreach ($s in @($Listed | Where-Object { $_.source -ne 'builtin' })) {
+        if ((Get-BareSkillName $s.name) -notin $Expected -or $s.source -ne 'plugin' -or -not ([string]$s.path).StartsWith($CopilotHome, [StringComparison]::OrdinalIgnoreCase)) {
+            $unexpected.Add("$($s.name) ($($s.source))")
+        }
+        elseif ($s.enabled) { Get-BareSkillName $s.name }
+    }
+    $want = @{}; foreach ($n in $Expected) { $want[$n] = 1 + ($want.ContainsKey($n) ? $want[$n] : 0) }
+    $have = @{}; foreach ($n in @($valid)) { $have[$n] = 1 + ($have.ContainsKey($n) ? $have[$n] : 0) }
+    foreach ($n in @($want.Keys) + @($have.Keys) | Select-Object -Unique | Sort-Object) {
+        $w = $want.ContainsKey($n) ? $want[$n] : 0
+        $h = $have.ContainsKey($n) ? $have[$n] : 0
+        if ($h -lt $w) { $missing.Add($(if ($w -gt 1) { "$n ($h of $w copies)" } else { $n })) }
+        elseif ($h -gt $w) { $unexpected.Add("$n ($h copies, expected $w)") }
+    }
+    return [pscustomobject]@{ Unexpected = @($unexpected); Missing = @($missing) }
+}
+
 function Get-WinappCommands {
     # Unique 'winapp <command> [<subcommand>]' invocations named in shell commands or answer text.
     param([AllowEmptyCollection()][AllowNull()][string[]]$Text)
     $groups = 'cert', 'manifest', 'ui', 'find-api', 'target', 'store'
+    # `find-api <query>` is a search, so only its real verbs count as subcommands.
+    $findApiVerbs = 'members', 'check-property', 'types', 'enums', 'namespaces', 'packages', 'stats', 'projects', 'refresh'
     # Top-level commands only, so prose like "winapp is" or "winapp CLI" is not counted.
     $known = 'az-sign', 'cert', 'create-debug-identity', 'create-external-catalog', 'embed-identity', 'find-api', 'find-ui',
     'get-winapp-path', 'init', 'manifest', 'new', 'package', 'pack', 'restore', 'run', 'sign', 'store', 'target', 'tool',
@@ -195,7 +224,7 @@ function Get-WinappCommands {
         foreach ($m in [regex]::Matches($t, '(?<![\w./\\-])winapp(?:\.exe)?\s+([a-z][a-z-]*)(?:\s+([a-z][a-z-]*))?')) {
             $cmd = $m.Groups[1].Value
             if ($cmd -notin $known) { continue }
-            if ($cmd -in $groups -and $m.Groups[2].Success) { $cmd += " $($m.Groups[2].Value)" }
+            if ($cmd -in $groups -and $m.Groups[2].Success -and ($cmd -ne 'find-api' -or $m.Groups[2].Value -in $findApiVerbs)) { $cmd += " $($m.Groups[2].Value)" }
             if (-not $found.Contains($cmd)) { $found.Add($cmd) }
         }
     }
@@ -464,6 +493,19 @@ function Format-Count {
     return ('{0:N0}' -f $Value)
 }
 
+function Format-PassRate {
+    # The one pass-rate format used everywhere: only pass and fail are scored, and every other
+    # status is listed as excluded, e.g. "1/1 (100%); excluded: 1 timeout".
+    param([AllowEmptyCollection()][AllowNull()][string[]]$Statuses = @())
+    $s = @($Statuses)
+    $pass = @($s | Where-Object { $_ -eq 'pass' }).Count
+    $scored = $pass + @($s | Where-Object { $_ -eq 'fail' }).Count
+    $text = if ($scored) { '{0}/{1} ({2:N0}%)' -f $pass, $scored, (100 * $pass / $scored) } else { '-' }
+    $excluded = @($s | Where-Object { $_ -notin 'pass', 'fail' } | Group-Object | Sort-Object Name | ForEach-Object { "$($_.Count) $($_.Name)" })
+    if ($excluded) { $text += "; excluded: $($excluded -join ', ')" }
+    return $text
+}
+
 function Get-RecordValue {
     # Property value of a recorded run, or $null when an older run does not have the field.
     param($Record, [string]$Name)
@@ -542,11 +584,8 @@ function Write-BenchmarkSummary {
     [void]$sb.AppendLine("## Totals")
     [void]$sb.AppendLine()
     [void]$sb.AppendLine("- Runs: $($rows.Count) ($($statusCounts -join ', '))")
-    $passCount = @($rows | Where-Object status -eq 'pass').Count
-    $scored = $passCount + @($rows | Where-Object status -eq 'fail').Count
     $naRows = @($rows | Where-Object status -eq 'n/a')
-    $rate = if ($scored) { ' ({0:N0}%)' -f (100 * $passCount / $scored) } else { '' }
-    [void]$sb.AppendLine("- Pass rate: $passCount/$scored$rate; $($naRows.Count) n/a runs excluded (nothing in the expectation applies to the installed skills)")
+    [void]$sb.AppendLine("- Pass rate: $(Format-PassRate @($rows | ForEach-Object { $_.status }))")
     $tokIn = ($rows | Where-Object { $_.tokens } | ForEach-Object { $_.tokens.input } | Measure-Object -Sum).Sum
     $tokOut = ($rows | Where-Object { $_.tokens } | ForEach-Object { $_.tokens.output } | Measure-Object -Sum).Sum
     $credits = ($rows | Where-Object { $null -ne $_.aiCredits } | ForEach-Object { $_.aiCredits } | Measure-Object -Sum).Sum
@@ -589,12 +628,7 @@ function Write-BenchmarkSummary {
         foreach ($g in ($sr | Group-Object configuration, model)) {
             $runs = @($g.Group)
             $first = $runs[0]
-            $passed = @($runs | Where-Object status -eq 'pass').Count
-            $na = @($runs | Where-Object status -eq 'n/a').Count
-            $other = $runs | Where-Object { $_.status -notin 'pass', 'fail' } | Group-Object status | ForEach-Object { "$($_.Count) $($_.Name)" }
-            $passText = if ($na -eq $runs.Count) { "n/a ($na)" } else {
-                "$passed/$($runs.Count - $na)" + $(if ($other) { " ($($other -join ', '))" } else { '' })
-            }
+            $passText = Format-PassRate @($runs | ForEach-Object { $_.status })
             $evaluated = @($runs | Where-Object { $_.status -in 'pass', 'fail', 'n/a' })
             $skillText = 'n/a'
             if ($evaluated) {
@@ -747,6 +781,7 @@ function Get-ComparisonStats {
     $rep = @($done | Where-Object { $null -ne $_.Repeats })
     [pscustomobject]@{
         Done     = $done.Count
+        Statuses = @($Runs | ForEach-Object { $_.Status })
         Pass     = @($done | Where-Object Status -eq 'pass').Count
         Scored   = @($done | Where-Object Status -in 'pass', 'fail').Count
         NA       = @($done | Where-Object Status -eq 'n/a').Count
@@ -801,7 +836,7 @@ function Get-ComparisonReport {
         if ($d -eq 0) { '=' } else { '{0:+0;-0}%' -f $d }
     }
     $num = { param($v, [switch]$Credits) if ($null -eq $v) { 'n/a' } elseif ($Credits) { '{0:N1}' -f $v } else { Format-Count $v } }
-    $passText = { param($s) if ($s.Scored) { "$($s.Pass)/$($s.Scored)" } elseif ($s.NA) { 'n/a' } else { '-' } }
+    $passText = { param($s) Format-PassRate $s.Statuses }
     $passDelta = {
         param($bs, $cs)
         if (-not $bs.Scored -or -not $cs.Scored) { return 'n/a' }
@@ -838,11 +873,12 @@ function Get-ComparisonReport {
         "$(@($cCells.Keys | Where-Object { -not $bCells.ContainsKey($_) }).Count) candidate-only cells skipped")
     $md.Add('')
     $md.Add('Pass/fail is re-evaluated against the current scenario expectations, so both sides use the same rules.')
-    $md.Add('Pass rates leave out `n/a` runs (nothing in the expectation applies). A cell shows `check differs` when an')
-    $md.Add('expected skill is installed on one side only, for example when a candidate adds a skill to a plugin; such cells')
-    $md.Add('and `n/a` cells are left out of pooled pass rates. Means cover completed runs; timeouts and harness errors are')
-    $md.Add('left out. Skill context is characters / 4. Repeated deliveries are only measured by runs recorded with this')
-    $md.Add('version of the harness.')
+    $md.Add('Pass rates score only `pass` and `fail`; other runs (`n/a`, timeouts, errors) are listed as excluded. A cell')
+    $md.Add('shows `check differs` when the installed skills its expectation checks differ between the sides, for example')
+    $md.Add('when a candidate adds or removes an expected skill. Such cells, and cells with no scored runs on a side, are')
+    $md.Add('not pooled into the per-model pass rate. Means cover completed runs; timeouts and harness errors are left out.')
+    $md.Add('Skill context is characters / 4. Repeated deliveries are only measured by runs recorded with this version of')
+    $md.Add('the harness.')
 
     if (-not $shared) {
         $md.Add('')
@@ -867,8 +903,9 @@ function Get-ComparisonReport {
             })
         $bp = Get-ComparisonStats @($both | ForEach-Object { $bCells[$_] })
         $cp = Get-ComparisonStats @($both | ForEach-Object { $cCells[$_] })
-        foreach ($k in 'Pass', 'Scored', 'NA', 'Checks') { $bs.$k = $bp.$k; $cs.$k = $cp.$k }
-        $md.Add((& $row "$m | $($keys.Count)" $bs $cs))
+        foreach ($k in 'Statuses', 'Pass', 'Scored', 'NA', 'Checks') { $bs.$k = $bp.$k; $cs.$k = $cp.$k }
+        $notPooled = $keys.Count - $both.Count
+        $md.Add((& $row "$m | $($keys.Count)$(if ($notPooled) { " ($notPooled not pooled)" })" $bs $cs))
     }
 
     $md.Add('')
@@ -886,4 +923,4 @@ function Get-ComparisonReport {
 Export-ModuleMember -Function Get-ScenarioDefinitions, Get-PluginSkillNames, Get-ConfigurationPlugins, New-ChildEnvironment,
 Invoke-LoggedProcess, Get-FileTail, Read-SessionEvents, Get-DirectorySnapshot, Compare-DirectorySnapshot, Test-Expectations,
 Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands, Get-BareSkillName, Get-ComparisonReport,
-Get-CreditSpend
+Get-CreditSpend, Compare-PreflightSkills, Format-PassRate

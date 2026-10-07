@@ -112,7 +112,8 @@ How to read the token columns:
   again, and the skill context those repeats added. They show in the totals and in each row. When a
   repeated skill's size is unknown, the tokens show as `unknown` or `partial`.
 
-Run statuses:
+Run statuses (pass rates score only `pass` and `fail`; every other status is listed as excluded,
+for example `1/1 (100%); excluded: 1 timeout`):
 
 | Status | Meaning |
 |---|---|
@@ -148,7 +149,7 @@ pass rate, mean skill context, mean input tokens, and mean AI credits per run on
 change, and repeated deliveries. Only cells present on both sides are compared. Both sides are
 re-evaluated in memory against the current scenario expectations; the folders are not modified.
 
-- `n/a` runs are left out of pass rates.
+- Pass rates use the same format as `summary.md`: only `pass` and `fail` are scored.
 - A cell shows `check differs` when the installed skills that the expectation checks differ between
   the sides, for example when a candidate adds or removes an expected skill. It then tests something
   different on each side, so it is left out of the per-model pass rate.
