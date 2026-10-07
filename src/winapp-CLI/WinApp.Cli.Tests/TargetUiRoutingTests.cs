@@ -155,6 +155,17 @@ public partial class TargetUiRoutingTests
     }
 
     [TestMethod]
+    public void Rewrite_RemovesTheExpectedSandboxOption()
+    {
+        // The guest has no Sandbox to check, and a stranded ID would become an element selector.
+        var spaced = Rewrite(["ui", "inspect", "--on", "sandbox", "--expect-sandbox", "11111111-2222-4333-8444-555555555555", "-a", "MyApp"]);
+        var attached = Rewrite(["ui", "inspect", "--expect-sandbox=11111111-2222-4333-8444-555555555555", "--on", "sandbox", "-a", "MyApp"]);
+
+        CollectionAssert.AreEqual(InspectApp, spaced.Arguments);
+        CollectionAssert.AreEqual(InspectApp, attached.Arguments);
+    }
+
+    [TestMethod]
     public void Rewrite_NeverTouchesAnythingAfterASeparator()
     {
         var routed = Rewrite(["ui", "send-keys", "--on", "sandbox", "-a", "MyApp", "--", "--on", "sandbox"]);

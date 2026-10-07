@@ -125,7 +125,10 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         foreach (var targetAwareCommand in Subcommands.OfType<ITargetAwareCommand>().Cast<Command>())
         {
             targetAwareCommand.Options.Add(ExecutionTargetSelection.OnOption);
+            targetAwareCommand.Options.Add(ExecutionTargetSelection.ExpectSandboxOption);
         }
+
+        targetCommand.Options.Add(ExecutionTargetSelection.ExpectSandboxOption);
 
         // Reject unknown options/arguments so typos and removed flags fail loudly
         TreatUnmatchedTokensAsErrors = true;

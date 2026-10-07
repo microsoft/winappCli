@@ -204,6 +204,45 @@ public class TargetSelectionParserTests : BaseCommandTests
         Assert.IsNotNull(ExecutionTargetSelection.Validate(parsed));
     }
 
+    // ---- '--expect-sandbox' ---------------------------------------------------------
+
+    private const string SandboxId = "11111111-2222-4333-8444-555555555555";
+
+    [TestMethod]
+    [DataRow("run", ".", "--on", "sandbox", "--expect-sandbox", SandboxId)]
+    [DataRow("ui", "inspect", "--on", "sandbox", "--expect-sandbox", SandboxId)]
+    [DataRow("ui", "inspect", "--on", "sandbox", "--expect-sandbox", SandboxId + ":ABCDEF")]
+    [DataRow("target", "snapshot", "sandbox", "--expect-sandbox", SandboxId)]
+    [DataRow("target", "exec", "sandbox", "--expect-sandbox", SandboxId, "--", "cmd")]
+    public void ExpectSandbox_WithASandboxTarget_IsAccepted(params string[] args)
+    {
+        var parsed = Parse(args);
+
+        Assert.AreEqual(0, parsed.Errors.Count, string.Join("; ", parsed.Errors.Select(e => e.Message)));
+        Assert.IsNull(ExecutionTargetSelection.Validate(parsed));
+        Assert.AreEqual(args.SkipWhile(a => a != "--expect-sandbox").ElementAt(1), ExecutionTargetSelection.RawExpectation(parsed));
+    }
+
+    [TestMethod]
+    [DataRow("run", ".", "--expect-sandbox", SandboxId)]
+    [DataRow("ui", "inspect", "--on", "local", "--expect-sandbox", SandboxId)]
+    [DataRow("ui", "inspect", "--on", "sandbox", "--expect-sandbox", "sandbox")]
+    public void ExpectSandbox_WithoutASandboxTargetOrMalformed_IsRefused(params string[] args)
+    {
+        var error = ExecutionTargetSelection.Validate(Parse(args));
+
+        Assert.IsNotNull(error, string.Join(' ', args));
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetInvalid, error.Code);
+    }
+
+    [TestMethod]
+    public void ExpectSandbox_OnACommandThatNeverTargets_IsAParseError()
+    {
+        var parsed = Parse(["cert", "generate", "--expect-sandbox", SandboxId]);
+
+        Assert.AreNotEqual(0, parsed.Errors.Count);
+    }
+
     // ---- Misspelt options never become positional values ---------------------------
 
     /// <summary>

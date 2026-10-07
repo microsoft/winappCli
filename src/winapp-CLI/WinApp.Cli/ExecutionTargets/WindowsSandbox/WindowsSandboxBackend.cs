@@ -372,6 +372,14 @@ internal sealed class WindowsSandboxBackend(
     public async Task<TargetConnection?> TryReconnectAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+
+        // The shortcut trusts saved state without listing what is running, so it cannot tell the
+        // expected Sandbox from one that replaced it. The authoritative path still reconnects warm.
+        if (lifecycle.CurrentExpectation() is not null)
+        {
+            return null;
+        }
+
         var state = stateStore?.Read(Target);
         if (state?.InstanceId is not { } instanceId ||
             string.IsNullOrWhiteSpace(instanceId) ||

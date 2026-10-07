@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using System.Text;
 using WinApp.Cli.Commands;
+using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
@@ -249,6 +250,13 @@ internal static class Program
             {
                 return Task.FromResult(TargetOutput.RejectSelection(
                     serviceProvider.GetRequiredService<IAnsiConsole>(), effectiveJson, selectionError));
+            }
+
+            // The Sandbox lifecycle reads the expectation from the environment, so copying the
+            // option there makes it override WINAPP_EXPECT_SANDBOX.
+            if (ExecutionTargetSelection.RawExpectation(parsedArgs) is { } expectedSandbox)
+            {
+                Environment.SetEnvironmentVariable(SandboxExpectation.EnvironmentVariable, expectedSandbox.Trim());
             }
 
             // System.CommandLine binds an unrecognised option to a nearby optional positional rather

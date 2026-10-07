@@ -161,6 +161,7 @@ public class WindowsSandboxLifecycleTests
     private TargetStateStore _stateStore = null!;
     private WindowsSandboxLifecycle _lifecycle = null!;
     private DateTimeOffset _now;
+    private string? _expectedSandbox;
     private readonly RecordingProgress _progress = new();
 
     private sealed class RecordingProgress : ITargetProgress
@@ -194,6 +195,8 @@ public class WindowsSandboxLifecycleTests
         var lifecycle = new WindowsSandboxLifecycle(_cli, _stateStore, _progress)
         {
             UtcNow = () => _now,
+            GetEnvironmentVariable = name =>
+                name == SandboxExpectation.EnvironmentVariable ? _expectedSandbox : null,
         };
 
         lifecycle.Delay = (delay, _) =>
@@ -755,6 +758,209 @@ public class WindowsSandboxLifecycleTests
         var next = await NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token);
 
         Assert.IsFalse(next.IsWarm);
+    }
+
+    // ---- A caller-named Sandbox (--expect-sandbox / WINAPP_EXPECT_SANDBOX) ----------
+
+    private const string ExpectedId = "11111111-2222-4333-8444-555555555555";
+    private const string OtherId = "99999999-8888-4777-8666-555555555555";
+
+    [TestMethod]
+    public async Task Expected_RunningAndNotYetOwned_IsTakenOver()
+    {
+        _expectedSandbox = ExpectedId;
+        _cli.SetRunning(ExpectedId);
+
+        var lease = await NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token);
+
+        Assert.AreEqual(ExpectedId, lease.InstanceId);
+        Assert.AreEqual(SandboxInstanceOrigin.Adopted, lease.Origin);
+        Assert.AreEqual(0, _cli.StartCount);
+    }
+
+    [TestMethod]
+    public async Task Expected_DifferentSandboxRunning_FailsWithoutChangingAnything()
+    {
+        _expectedSandbox = ExpectedId;
+        _cli.SetRunning(OtherId);
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, ex.Error.Code);
+        Assert.AreEqual(ExpectedId, ex.Error.Context!["expectedSandboxId"]);
+        Assert.AreEqual(OtherId, ex.Error.Context["sandboxIds"]);
+        Assert.AreEqual(0, _cli.StartCount);
+        Assert.IsNull(_stateStore.Read(WindowsSandboxTarget.Default), "Nothing may be taken over.");
+    }
+
+    [TestMethod]
+    public async Task Expected_NothingRunning_FailsInsteadOfStarting()
+    {
+        _expectedSandbox = ExpectedId;
+        _cli.SetRunning();
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, ex.Error.Code);
+        Assert.AreEqual(0, _cli.StartCount);
+    }
+
+    [TestMethod]
+    public async Task Expected_RunningAlongsideAnother_Fails()
+    {
+        _expectedSandbox = ExpectedId;
+        _cli.SetRunning(ExpectedId, OtherId);
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, ex.Error.Code);
+    }
+
+    [TestMethod]
+    public async Task Expected_ReplacedWhileWinappOwnedTheOldOne_Fails()
+    {
+        // winapp owns the expected instance, the caller's harness closes it, and something else
+        // starts a new Sandbox. Unconstrained, that one would be taken over silently.
+        _cli.SetRunning(ExpectedId);
+        await NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token);
+
+        _expectedSandbox = ExpectedId;
+        _cli.SetRunning(OtherId);
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, ex.Error.Code);
+        Assert.AreEqual(ExpectedId, _stateStore.Read(WindowsSandboxTarget.Default)!.InstanceId);
+    }
+
+    [TestMethod]
+    public async Task Expected_MatchingEpoch_IsReusedWarm()
+    {
+        _cli.SetRunning(ExpectedId);
+        var adopted = await NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token);
+        var state = _stateStore.Read(WindowsSandboxTarget.Default)!;
+        _stateStore.Commit(
+            WindowsSandboxTarget.Default,
+            state with { BootstrappedEpoch = adopted.Epoch.Value },
+            state.Revision);
+
+        _expectedSandbox = adopted.Epoch.Value.ToLowerInvariant();
+        var lease = await NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token);
+
+        Assert.AreEqual(SandboxInstanceOrigin.Reused, lease.Origin);
+        Assert.AreEqual(adopted.Epoch, lease.Epoch);
+        Assert.IsTrue(lease.IsWarm);
+    }
+
+    [TestMethod]
+    public async Task Expected_EpochFromAnotherGeneration_Fails()
+    {
+        _cli.SetRunning(ExpectedId);
+        await NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token);
+
+        _expectedSandbox = $"{ExpectedId}:OLDNONCE";
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, ex.Error.Code);
+        Assert.AreEqual($"{ExpectedId}:OLDNONCE", ex.Error.Context!["expectedEpoch"]);
+    }
+
+    [TestMethod]
+    public async Task Expected_EpochButNotYetOwned_FailsInsteadOfMintingANewGeneration()
+    {
+        _expectedSandbox = $"{ExpectedId}:SOMENONCE";
+        _cli.SetRunning(ExpectedId);
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, ex.Error.Code);
+        Assert.IsNull(_stateStore.Read(WindowsSandboxTarget.Default));
+    }
+
+    [TestMethod]
+    public async Task Expected_PendingStartIsNotRecovered()
+    {
+        // A pending start names an instance winapp would create; with an expectation set, only the
+        // caller's instance may be used.
+        _stateStore.Commit(
+            WindowsSandboxTarget.Default,
+            new TargetState
+            {
+                SchemaVersion = 0,
+                Revision = 0,
+                TargetKind = WindowsSandboxTarget.Default.Kind,
+                TargetId = WindowsSandboxTarget.Default.Id,
+                PendingInstanceId = OtherId,
+            },
+            0);
+        _expectedSandbox = ExpectedId;
+        _cli.SetRunning(OtherId);
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, ex.Error.Code);
+    }
+
+    [TestMethod]
+    public async Task Expected_Reconcile_ReportsTheOwnedExpectedInstance()
+    {
+        _cli.SetRunning(ExpectedId);
+        var adopted = await NewLifecycle().EnsureInstanceAsync(TestContext.CancellationTokenSource.Token);
+
+        _expectedSandbox = ExpectedId;
+        var result = await NewLifecycle().ReconcileAsync(TestContext.CancellationTokenSource.Token);
+
+        Assert.AreEqual(TargetLifecycleState.Running, result.State);
+        Assert.AreEqual(adopted.Epoch, result.Epoch);
+    }
+
+    [TestMethod]
+    public async Task Expected_Reconcile_DifferentSandboxRunning_Fails()
+    {
+        _expectedSandbox = ExpectedId;
+        _cli.SetRunning(OtherId);
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => NewLifecycle().ReconcileAsync(TestContext.CancellationTokenSource.Token));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, ex.Error.Code);
+    }
+
+    [TestMethod]
+    public async Task Expected_Reconcile_RunningButNotOwned_ReportsNotRunning()
+    {
+        _expectedSandbox = ExpectedId;
+        _cli.SetRunning(ExpectedId);
+
+        var result = await NewLifecycle().ReconcileAsync(TestContext.CancellationTokenSource.Token);
+
+        Assert.AreEqual(TargetLifecycleState.Terminated, result.State);
+    }
+
+    [TestMethod]
+    [DataRow("sandbox")]
+    [DataRow("not-a-guid")]
+    [DataRow("11111111-2222-4333-8444-555555555555:")]
+    public void Expectation_MalformedValue_IsRejected(string value)
+    {
+        var ex = Assert.ThrowsExactly<ExecutionTargetException>(
+            () => SandboxExpectation.Parse(value, SandboxExpectation.OptionName));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetInvalid, ex.Error.Code);
+    }
+
+    [TestMethod]
+    public void Expectation_EmptyEnvironmentVariable_MeansNoExpectation()
+    {
+        Assert.IsNull(SandboxExpectation.FromEnvironment(_ => "  "));
     }
 
     [TestMethod]

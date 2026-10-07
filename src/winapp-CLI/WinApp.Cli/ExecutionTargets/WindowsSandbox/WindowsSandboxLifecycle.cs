@@ -130,6 +130,13 @@ internal sealed class WindowsSandboxLifecycle(
     /// <summary>Instance-ID generator seam; the default is cryptographically random.</summary>
     internal Func<string> NewInstanceId { get; set; } = GenerateInstanceId;
 
+    /// <summary>Environment seam for <see cref="SandboxExpectation.EnvironmentVariable"/>.</summary>
+    internal Func<string, string?> GetEnvironmentVariable { get; set; } = Environment.GetEnvironmentVariable;
+
+    /// <summary>The Sandbox the caller requires, or null when any Sandbox may be used.</summary>
+    /// <exception cref="ExecutionTargetException">The expectation is set but malformed.</exception>
+    public SandboxExpectation? CurrentExpectation() => SandboxExpectation.FromEnvironment(GetEnvironmentVariable);
+
     /// <summary>
     /// Classifies the managed instance by comparing persisted state against <c>wsb list</c>.
     /// </summary>
@@ -142,6 +149,11 @@ internal sealed class WindowsSandboxLifecycle(
     {
         var state = stateStore.Read(_target);
         var revision = state?.Revision ?? 0;
+
+        if (CurrentExpectation() is { } expectation)
+        {
+            return await ReconcileExpectedAsync(expectation, state, revision, cancellationToken).ConfigureAwait(false);
+        }
 
         if (state?.InstanceId is not { } managedId || string.IsNullOrWhiteSpace(state.BootNonce))
         {
@@ -177,8 +189,15 @@ internal sealed class WindowsSandboxLifecycle(
     /// <exception cref="ExecutionTargetException">No instance could be obtained or prepared.</exception>
     public async Task<SandboxInstanceLease> EnsureInstanceAsync(CancellationToken cancellationToken)
     {
+        var expectation = CurrentExpectation();
         var state = stateStore.Read(_target);
         var running = await cli.ListAsync(cancellationToken).ConfigureAwait(false);
+
+        if (expectation is not null)
+        {
+            return await EnsureExpectedInstanceAsync(expectation, state, running, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         // Pattern-matching both members at once removes the redundant re-test of `state` that a
         // separate null-conditional access would need, while keeping the compiler's null analysis
@@ -222,6 +241,81 @@ internal sealed class WindowsSandboxLifecycle(
         }
 
         return await StartOwnedInstanceAsync(state, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Uses exactly the Sandbox the caller named, or fails without changing anything.
+    /// </summary>
+    /// <remarks>
+    /// Never starts a Sandbox and never recovers a pending start: either would produce an instance
+    /// other than the one the caller is holding. The expected instance is taken over the same way an
+    /// unexpected one would be, so a caller that created it with <c>wsb start --id</c> can hand it
+    /// to winapp in one step.
+    /// </remarks>
+    private async Task<SandboxInstanceLease> EnsureExpectedInstanceAsync(
+        SandboxExpectation expectation,
+        TargetState? state,
+        IReadOnlyList<string> running,
+        CancellationToken cancellationToken)
+    {
+        expectation.RequireOnlyRunning(running);
+
+        if (state is { InstanceId: { } managedId, BootNonce: { Length: > 0 } bootNonce }
+            && expectation.IsInstance(managedId))
+        {
+            var epoch = ExecutionTargetEpoch.Create(managedId, bootNonce);
+
+            if (!expectation.Accepts(epoch))
+            {
+                throw expectation.GenerationMismatch(epoch);
+            }
+
+            return new SandboxInstanceLease(
+                managedId,
+                epoch,
+                SandboxInstanceOrigin.Reused,
+                IsWarm: string.Equals(state.BootstrappedEpoch, epoch.Value, StringComparison.Ordinal));
+        }
+
+        // An epoch names a generation winapp already recorded. Taking the instance over now would
+        // mint a new generation, which is exactly what the caller asked winapp not to use.
+        if (expectation.Epoch is not null)
+        {
+            throw expectation.GenerationMismatch(actual: null);
+        }
+
+        return await AdoptRunningInstanceAsync(state, running[0], cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Reconciles state when the caller requires a specific Sandbox.</summary>
+    /// <remarks>
+    /// Unlike the unconstrained path this lists even with no saved state: the caller asked for a
+    /// specific instance to be checked, so "not running" and "a different one is running" are
+    /// failures to report rather than an empty target.
+    /// </remarks>
+    private async Task<SandboxReconciliation> ReconcileExpectedAsync(
+        SandboxExpectation expectation,
+        TargetState? state,
+        long revision,
+        CancellationToken cancellationToken)
+    {
+        var running = await cli.ListAsync(cancellationToken).ConfigureAwait(false);
+        expectation.RequireOnlyRunning(running);
+
+        if (state is { InstanceId: { } managedId, BootNonce: { Length: > 0 } bootNonce }
+            && expectation.IsInstance(managedId))
+        {
+            var epoch = ExecutionTargetEpoch.Create(managedId, bootNonce);
+
+            return expectation.Accepts(epoch)
+                ? new SandboxReconciliation(TargetLifecycleState.Running, managedId, epoch, revision)
+                : throw expectation.GenerationMismatch(epoch);
+        }
+
+        // Running, but winapp has not taken it over yet, so there is no winapp state to report.
+        return expectation.Epoch is null
+            ? new SandboxReconciliation(TargetLifecycleState.Terminated, null, ExecutionTargetEpoch.None, revision)
+            : throw expectation.GenerationMismatch(actual: null);
     }
 
     /// <summary>

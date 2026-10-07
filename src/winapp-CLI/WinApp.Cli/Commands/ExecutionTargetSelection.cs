@@ -4,6 +4,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 
 namespace WinApp.Cli.Commands;
 
@@ -71,6 +72,19 @@ internal static class ExecutionTargetSelection
     /// <summary>Whether <paramref name="option"/> is either declaration of <c>--on</c>.</summary>
     public static bool IsSelectorOption(Option option) =>
         option == OnOption || option == UnsupportedOnOption;
+
+    /// <summary>
+    /// Requires a specific Windows Sandbox. Attached to each <see cref="ITargetAwareCommand"/> root
+    /// and to <c>winapp target</c>; it overrides <c>WINAPP_EXPECT_SANDBOX</c>.
+    /// </summary>
+    public static Option<string?> ExpectSandboxOption { get; } = new(SandboxExpectation.OptionName)
+    {
+        Description =
+            "Use only this Windows Sandbox: a Sandbox ID from 'wsb list', or an epoch from winapp's " +
+            "--json output. winapp fails instead of starting or taking over any other Sandbox. " +
+            "Overrides the WINAPP_EXPECT_SANDBOX environment variable.",
+        Recursive = true,
+    };
 
     /// <summary>The selector as typed, or null when <c>--on</c> was not supplied.</summary>
     public static string? RawSelector(ParseResult parseResult)
@@ -166,7 +180,7 @@ internal static class ExecutionTargetSelection
 
         if (!WasSupplied(parseResult))
         {
-            return null;
+            return ValidateExpectation(parseResult);
         }
 
         if (!IsTargetAware(parseResult))
@@ -196,8 +210,56 @@ internal static class ExecutionTargetSelection
         }
 
         return ExecutionTargetSelector.TryParse(RawSelector(parseResult), out _, out var error)
-            ? null
+            ? ValidateExpectation(parseResult)
             : error;
+    }
+
+    /// <summary>The value of <c>--expect-sandbox</c>, or null when it was not supplied.</summary>
+    public static string? RawExpectation(ParseResult parseResult)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+
+        return parseResult.GetResult(ExpectSandboxOption) is { Implicit: false }
+            ? parseResult.GetValue(ExpectSandboxOption)
+            : null;
+    }
+
+    /// <summary>
+    /// <c>--expect-sandbox</c> constrains which Sandbox is used, so it is only meaningful where a
+    /// Sandbox is the target. Accepting it with <c>--on local</c> would look like a safety check
+    /// that never runs.
+    /// </summary>
+    private static ExecutionTargetErrorInfo? ValidateExpectation(ParseResult parseResult)
+    {
+        if (RawExpectation(parseResult) is not { } raw)
+        {
+            return null;
+        }
+
+        try
+        {
+            SandboxExpectation.Parse(raw, SandboxExpectation.OptionName);
+        }
+        catch (ExecutionTargetException ex)
+        {
+            return ex.Error;
+        }
+
+        // Under `winapp target` the target is a positional argument the command itself validates.
+        if (!IsTargetAware(parseResult))
+        {
+            return null;
+        }
+
+        var target = Resolve(parseResult);
+
+        return target.Kind == ExecutionTargetRef.SandboxKind
+            ? null
+            : ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.TargetInvalid,
+                $"{SandboxExpectation.OptionName} only applies with --on sandbox.",
+                userAction: $"Add --on sandbox, or remove {SandboxExpectation.OptionName}.",
+                example: $"winapp run . --on sandbox {SandboxExpectation.OptionName} <sandbox-id>").Error;
     }
 
     /// <summary>The invoked command's path under <c>winapp</c>, for an error message.</summary>

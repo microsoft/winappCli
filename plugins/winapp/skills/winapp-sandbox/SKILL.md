@@ -25,6 +25,9 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
 - Connection or reconnect may briefly take focus; do not promise zero desktop interruption.
 - Existing Sandbox instances are reused and changed, not discarded. Never close one
   or run `wsb stop` without user consent.
+- When a script or user names a specific Sandbox, pass `--expect-sandbox <id>` so winapp
+  uses only that one. On `sandbox_instance_mismatch`, report the expected and running IDs;
+  do not remove the option or stop a Sandbox to make the command pass.
 
 ## Launch, inspect, act, verify
 
