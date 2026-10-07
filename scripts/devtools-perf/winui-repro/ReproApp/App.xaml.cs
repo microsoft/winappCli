@@ -30,7 +30,8 @@ public sealed partial class EmptyPage : Page
 // Phase 1 (memory): each round creates and removes --churn collapsed elements (Border + TextBlock,
 // never rendered) and records the settled private bytes. Phase 2 (navigation): each round navigates
 // --navs times to CheckBoxPage and back and records the median UI-thread CPU time of a navigation
-// (Frame.Navigate until the page's Loaded event).
+// (Frame.Navigate until the page's Loaded event) and the median wall-clock time (until Loaded plus
+// the next rendered frame).
 // Without --go it starts 5 s after launch (for F5 in Visual Studio); --out defaults to
 // %TEMP%\winui-diag-repro\run-<time>.csv.
 public partial class App : Application
@@ -78,7 +79,7 @@ public partial class App : Application
             .Select(m => m.ModuleName).Where(n => n.Contains("Tap", StringComparison.OrdinalIgnoreCase) ||
                 n.Contains("XamlDiagnostics", StringComparison.OrdinalIgnoreCase));
         csv.WriteLine($"# sourceInfoEnv={Environment.GetEnvironmentVariable("ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO")}; debugger={Debugger.IsAttached}; diagnosticsModules={string.Join(" ", modules)}");
-        csv.WriteLine("phase,round,churnMs,privateMB,navP50Ms,navMaxMs");
+        csv.WriteLine("phase,round,churnMs,privateMB,navP50Ms,navMaxMs,navWallP50Ms");
 
         // Phase 1, memory: only collapsed element churn, so nothing is rendered and the settled
         // private-bytes floor isolates per-element retention from renderer caches.
@@ -98,10 +99,16 @@ public partial class App : Application
         for (var i = 0; i < 2; i++) { await Navigate(typeof(CheckBoxPage)); await Navigate(typeof(EmptyPage)); }
         for (var round = 1; round <= rounds; round++)
         {
-            var times = new List<double>();
-            for (var n = 0; n < navs; n++) { times.Add(await Navigate(typeof(CheckBoxPage))); await Navigate(typeof(EmptyPage)); }
-            times.Sort();
-            csv.WriteLine($"navigation,{round},,,{times[times.Count / 2]:F0},{times[^1]:F0}");
+            var cpu = new List<double>();
+            var wall = new List<double>();
+            for (var n = 0; n < navs; n++)
+            {
+                var (c, w) = await Navigate(typeof(CheckBoxPage));
+                cpu.Add(c); wall.Add(w);
+                await Navigate(typeof(EmptyPage));
+            }
+            cpu.Sort(); wall.Sort();
+            csv.WriteLine($"navigation,{round},,,{cpu[cpu.Count / 2]:F0},{cpu[^1]:F0},{wall[wall.Count / 2]:F0}");
             // Collect between rounds so released pages do not pile up waiting for the GC: without
             // this, navigation slows down over time even with no diagnostics attached.
             await Task.Delay(500);
@@ -123,10 +130,12 @@ public partial class App : Application
         }
     }
 
-    // Returns the UI thread's CPU time from Frame.Navigate until the page's Loaded event, in ms.
-    // CPU time rather than wall time, so other load on the machine does not skew the comparison.
-    private async Task<double> Navigate(Type page)
+    // Returns, for one navigation, the UI thread's CPU time from Frame.Navigate until the page's
+    // Loaded event (unaffected by other load on the machine, but excluding render-thread work), and
+    // the wall-clock time until Loaded plus the next rendered frame, both in ms.
+    private async Task<(double Cpu, double Wall)> Navigate(Type page)
     {
+        var clock = Stopwatch.StartNew();
         var cpu0 = UiThreadCpuMs();
         var loaded = new TaskCompletionSource();
         void OnNavigated(object sender, Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
@@ -142,7 +151,7 @@ public partial class App : Application
         var cpu = UiThreadCpuMs() - cpu0;
         await NextFrame();
         _frame.BackStack.Clear();
-        return cpu;
+        return (cpu, clock.Elapsed.TotalMilliseconds);
     }
 
     private static double UiThreadCpuMs()

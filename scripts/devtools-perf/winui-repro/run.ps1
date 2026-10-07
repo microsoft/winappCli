@@ -33,6 +33,7 @@ param(
     [int]$Navs = 10,
     [int]$Churn = 40000,
     [string]$OutDir = (Join-Path $PSScriptRoot 'results'),
+    [ValidateSet('cpu', 'wall')][string]$Metric = 'cpu',
     [string[]]$Summarize
 )
 $ErrorActionPreference = 'Stop'
@@ -50,7 +51,9 @@ function Show-Summary([string[]]$Files) {
         $churnMs = @($mem | ForEach-Object { [double]$_.churnMs } | Sort-Object)
         # Navigation: least-squares slope across rounds (ms per round of navigations), plus the
         # first round and the mean of the last four. Individual rounds are bimodal, so single values mislead.
-        $ys = @($nav | ForEach-Object { [double]$_.navP50Ms })
+        $column = if ($Metric -eq 'wall') { 'navWallP50Ms' } else { 'navP50Ms' }
+        if (-not $nav[0].PSObject.Properties[$column]) { Write-Warning "$file has no $column column."; continue }
+        $ys = @($nav | ForEach-Object { [double]$_.$column })
         $mx = ($ys.Count - 1) / 2.0; $my = ($ys | Measure-Object -Average).Average
         $num = 0.0; $den = 0.0
         for ($k = 0; $k -lt $ys.Count; $k++) { $num += ($k - $mx) * ($ys[$k] - $my); $den += ($k - $mx) * ($k - $mx) }
@@ -60,8 +63,8 @@ function Show-Summary([string[]]$Files) {
             Run = [IO.Path]::GetFileNameWithoutExtension($file)
             'Churn ms' = $churnMs[[int][Math]::Floor(($churnMs.Count - 1) / 2)]
             'Retained B/element' = [Math]::Round($growth * 1MB / $Churn)
-            'Nav CPU ms, round 1' = $first
-            'Nav CPU ms, last 4 rounds' = $last
+            "Nav $Metric ms, round 1" = $first
+            "Nav $Metric ms, last 4 rounds" = $last
             'Nav slope, ms/round' = [Math]::Round($num / $den)
             Attached = $header -replace '^# ', ''
         }
@@ -89,6 +92,22 @@ $project = Join-Path $PSScriptRoot 'ReproApp\ReproApp.csproj'
 dotnet build $project -c Debug -p:Platform=x64 --nologo -v quiet | Out-Host
 if ($LASTEXITCODE) { throw 'Building ReproApp failed.' }
 $exe = Get-ChildItem (Join-Path $PSScriptRoot 'ReproApp\bin\x64\Debug') -Recurse -Filter ReproApp.exe | Select-Object -First 1 -ExpandProperty FullName
+
+# Record other load on the machine while measuring: total CPU and any build, test or app processes
+# that are not this run's, every 10 seconds, to activity.csv in -OutDir.
+$activity = Join-Path $OutDir 'activity.csv'
+$monitor = Start-Job -ArgumentList $activity, $PID -ScriptBlock {
+    param($path, $parent)
+    'time,cpuPercent,otherProcesses' | Set-Content $path
+    $watch = 'dotnet', 'MSBuild', 'cl', 'link', 'testhost', 'vstest.console', 'devenv', 'winapp', 'node'
+    while (Get-Process -Id $parent -ErrorAction SilentlyContinue) {
+        $cpu = [Math]::Round((Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 2 -MaxSamples 1).CounterSamples[0].CookedValue)
+        $others = Get-CimInstance Win32_Process | Where-Object { $_.Name -replace '\.exe$' -in $watch -and $_.CommandLine -notmatch 'winui-repro' } |
+            ForEach-Object { "$($_.Name -replace '\.exe$')#$($_.ProcessId)" }
+        "$((Get-Date).ToString('HH:mm:ss')),$cpu,$($others -join ' ')" | Add-Content $path
+        Start-Sleep -Seconds 8
+    }
+}
 
 $csvs = @()
 foreach ($config in $Configs) {
@@ -150,4 +169,6 @@ foreach ($config in $Configs) {
     }
     $csvs += $csv
 }
+Stop-Job $monitor; Remove-Job $monitor
 Show-Summary $csvs
+Write-Host "Machine activity during the run: $activity"
