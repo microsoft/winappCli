@@ -6,9 +6,10 @@
 > [!IMPORTANT]
 > The Windows App Development CLI is currently in **public preview**. Features and commands may change before the final release. Share your feedback by [creating an issue](https://github.com/microsoft/WinAppCli/issues).
 
-The Windows App Development CLI (winapp CLI) is a command-line tool for building Windows apps. Use it to create, run, debug, test, and package [WinUI](https://learn.microsoft.com/windows/apps/winui/winui3/) apps from a terminal, the editor you prefer, or an AI coding agent.
+The Windows App Development CLI (winapp CLI) is a command-line tool for building Windows apps with the framework you choose. It works from a terminal, the editor you prefer, or an AI coding agent.
 
-The same commands also bring the [Windows App SDK](https://learn.microsoft.com/windows/apps/windows-app-sdk/), package identity, and MSIX packaging to apps built with other frameworks, such as .NET, C++, Electron, Flutter, Rust, and Tauri.
+- **WinUI apps:** create, run, debug, test, and package [WinUI](https://learn.microsoft.com/windows/apps/winui/winui3/) apps without opening Visual Studio.
+- **Cross-platform and other frameworks:** bring Windows features to your existing Electron, Flutter, Tauri, Rust, .NET, or C++ app without changing frameworks. winapp CLI sets up the [Windows App SDK](https://learn.microsoft.com/windows/apps/windows-app-sdk/) and Windows SDK, gives your app package identity so you can call APIs like notifications and on-device AI, and packages it as MSIX for the Microsoft Store or your own distribution.
 
 ## Key benefits of winapp CLI
 
