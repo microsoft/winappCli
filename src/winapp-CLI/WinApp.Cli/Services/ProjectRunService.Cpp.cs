@@ -55,6 +55,25 @@ internal sealed partial class ProjectRunService
         }
     }
 
+    /// <summary>
+    /// True when a <c>.vcxproj</c> is a WinUI 3 / UWP project (<c>ApplicationType</c> <c>Windows Store</c>),
+    /// read from the project XML. These need an install with that application type, not just the C++ tools.
+    /// </summary>
+    internal static bool IsCppWindowsStoreProject(FileInfo project)
+    {
+        try
+        {
+            return XDocument.Load(project.FullName)
+                .Descendants()
+                .Any(e => e.Name.LocalName == "ApplicationType"
+                    && string.Equals(e.Value.Trim(), "Windows Store", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>The Visual Studio C++ <c>Platform</c> for a winapp architecture.</summary>
     internal static string ToCppPlatform(string architecture) => architecture.ToLowerInvariant() switch
     {
@@ -95,7 +114,7 @@ internal sealed partial class ProjectRunService
                 $"-p Platform targets {platformArch}, but --arch/--runtime selects {options.Architecture}. Pass only one of them.");
         }
 
-        var msbuild = await msBuildService.LocateCppMSBuildAsync(options.Architecture, cancellationToken);
+        var msbuild = await msBuildService.LocateCppMSBuildAsync(options.Architecture, IsCppWindowsStoreProject(project), cancellationToken);
         var properties = BuildCppPropertyTokens(options);
 
         if (!options.NoBuild)

@@ -20,8 +20,13 @@ internal sealed class FakeMSBuildService : IMSBuildService
 
     public ProjectRunException? LocateFailure { get; set; }
 
-    public Task<string> LocateCppMSBuildAsync(string architecture, CancellationToken cancellationToken)
-        => LocateFailure is null ? Task.FromResult(MSBuildPath) : throw LocateFailure;
+    public Task<string> LocateCppMSBuildAsync(string architecture, bool requiresWindowsStoreAppType, CancellationToken cancellationToken)
+    {
+        LocateRequestsWindowsStore.Add(requiresWindowsStoreAppType);
+        return LocateFailure is null ? Task.FromResult(MSBuildPath) : throw LocateFailure;
+    }
+
+    public List<bool> LocateRequestsWindowsStore { get; } = [];
 
     public Task<ProcessRunResult> RunAsync(
         string msbuildPath,

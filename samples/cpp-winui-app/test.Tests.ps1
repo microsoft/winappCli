@@ -20,23 +20,49 @@ param(
 )
 
 BeforeDiscovery {
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-    $script:skip = $null -eq (Get-Command npm -ErrorAction SilentlyContinue) -or
-        -not (Test-Path $vswhere) -or
-        -not (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)
+    # MSBuild from the newest Visual Studio/Build Tools that can build this sample for the current machine's
+    # architecture: the MSVC tools for that architecture plus the "Windows Store" (WinUI) C++ application type.
+    $script:findMSBuild = {
+        $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        if (-not (Test-Path $vswhere)) { return $null }
+        $component = if ($arch -eq 'arm64') { 'Microsoft.VisualStudio.Component.VC.Tools.ARM64' } else { 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' }
+        foreach ($install in & $vswhere -prerelease -products * -version '[17.8,' -requires $component -sort -property installationPath) {
+            $msbuild = Join-Path $install 'MSBuild\Current\Bin\MSBuild.exe'
+            $winUi = Get-ChildItem (Join-Path $install 'MSBuild\Microsoft\VC') -Directory -Filter 'v*' -ErrorAction SilentlyContinue |
+                Where-Object { Test-Path (Join-Path $_.FullName 'Application Type\Windows Store') }
+            if ((Test-Path $msbuild) -and $winUi) { return $msbuild }
+        }
+        return $null
+    }
+    $script:skip = $null -eq (Get-Command npm -ErrorAction SilentlyContinue) -or -not (& $script:findMSBuild)
 }
 
 Describe 'cpp-winui-app sample' {
 
     BeforeAll {
         Import-Module "$PSScriptRoot\..\SampleTestHelpers.psm1" -Force
-        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-        $script:skip = $null -eq (Get-Command npm -ErrorAction SilentlyContinue) -or
-            -not (Test-Path $vswhere) -or
-            -not (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)
+        # MSBuild from the newest Visual Studio/Build Tools that can build this sample for the current machine's
+        # architecture: the MSVC tools for that architecture plus the "Windows Store" (WinUI) C++ application type.
+        $script:findMSBuild = {
+            $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
+            $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+            if (-not (Test-Path $vswhere)) { return $null }
+            $component = if ($arch -eq 'arm64') { 'Microsoft.VisualStudio.Component.VC.Tools.ARM64' } else { 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' }
+            foreach ($install in & $vswhere -prerelease -products * -version '[17.8,' -requires $component -sort -property installationPath) {
+                $msbuild = Join-Path $install 'MSBuild\Current\Bin\MSBuild.exe'
+                $winUi = Get-ChildItem (Join-Path $install 'MSBuild\Microsoft\VC') -Directory -Filter 'v*' -ErrorAction SilentlyContinue |
+                    Where-Object { Test-Path (Join-Path $_.FullName 'Application Type\Windows Store') }
+                if ((Test-Path $msbuild) -and $winUi) { return $msbuild }
+            }
+            return $null
+        }
+        $script:msbuild = & $script:findMSBuild
+        $script:skip = $null -eq (Get-Command npm -ErrorAction SilentlyContinue) -or -not $script:msbuild
 
         $script:sampleDir = $PSScriptRoot
         $script:tempDir = $null
+        $script:buildCheckDir = $null
         $script:originalLocation = Get-Location
         $script:arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
 
@@ -54,9 +80,7 @@ Describe 'cpp-winui-app sample' {
         }
         if (-not $SkipCleanup) {
             if ($script:tempDir) { Remove-TempTestDirectory -Path $script:tempDir }
-            foreach ($dir in 'packages', 'x64', 'ARM64', 'CppWinUIApp', 'Generated Files') {
-                Remove-Item -Path (Join-Path $script:sampleDir $dir) -Recurse -Force -ErrorAction SilentlyContinue
-            }
+            if ($script:buildCheckDir) { Remove-TempTestDirectory -Path $script:buildCheckDir }
         }
     }
 
@@ -141,10 +165,12 @@ Describe 'cpp-winui-app sample' {
     Context 'Phase 2: Sample Build Check' {
 
         It 'Builds the existing sample with MSBuild' -Skip:$script:skip {
-            $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-            $msbuild = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+            # Build a copy in a short temp folder: restored NuGet packages under a deep checkout exceed MAX_PATH.
+            $script:buildCheckDir = New-TempTestDirectory -Prefix 'cpp-winui-build'
+            Get-ChildItem -Path $script:sampleDir -File | Where-Object Name -ne 'test.Tests.ps1' | Copy-Item -Destination $script:buildCheckDir
+            Copy-Item -Path (Join-Path $script:sampleDir 'Assets') -Destination $script:buildCheckDir -Recurse
             $platform = if ($script:arch -eq 'arm64') { 'ARM64' } else { 'x64' }
-            $output = & $msbuild (Join-Path $script:sampleDir 'CppWinUIApp.vcxproj') -nologo -restore -p:RestorePackagesConfig=true -p:Configuration=Debug "-p:Platform=$platform" -verbosity:minimal 2>&1
+            $output = & $script:msbuild (Join-Path $script:buildCheckDir 'CppWinUIApp.vcxproj') -nologo -restore -p:RestorePackagesConfig=true -p:Configuration=Debug "-p:Platform=$platform" -verbosity:minimal 2>&1
             $LASTEXITCODE | Should -Be 0 -Because "MSBuild failed: $($output | Select-Object -Last 20 | Out-String)"
         }
     }

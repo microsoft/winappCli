@@ -670,6 +670,9 @@ internal partial class MsixService
                 Location: Uri.UnescapeDataString(e.Element(msbuildNs + "AppxLocation")?.Value ?? string.Empty)))
             .Where(f => f.Name.Length > 0 && f.Version is not null && Path.IsPathFullyQualified(f.Location))
             .Select(f => (f.Name, f.Version!, Path.GetFullPath(f.Location)))
+            // The recipe is a build output that can be committed or crafted; probing a network location would
+            // send the user's credentials to that host, so only local package files are considered.
+            .Where(f => !PathSafety.IsNetworkPath(f.Item3) && !PathSafety.IsNetworkDriveRoot(f.Item3) && !PathSafety.RedirectsToNetwork(f.Item3))
             .DistinctBy(f => f.Item3, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }

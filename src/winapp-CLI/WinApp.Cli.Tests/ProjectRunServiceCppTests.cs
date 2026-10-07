@@ -596,11 +596,26 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         var runner = new ScriptedProcessRunner(_ => throw new AssertFailedException("vswhere must not run when it is absent"));
         var service = new MSBuildService(runner) { VsWherePath = Path.Join(_tempDir.FullName, "missing", "vswhere.exe") };
 
-        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.LocateCppMSBuildAsync("x64", CancellationToken.None));
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.LocateCppMSBuildAsync("x64", false, CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "no Visual Studio or Build Tools for Visual Studio installation was found");
         StringAssert.Contains(ex.Message, "winget install Microsoft.VisualStudio.BuildTools");
     }
+
+    // Creates a fake Visual Studio install with MSBuild.exe and, optionally, the "Windows Store" C++ application type.
+    private string FakeInstall(string name, bool windowsStore)
+    {
+        WriteFile($@"{name}\MSBuild\Current\Bin\MSBuild.exe", string.Empty);
+        if (windowsStore)
+        {
+            WriteFile($@"{name}\MSBuild\Microsoft\VC\v180\Application Type\Windows Store\10.0\Platforms.props", string.Empty);
+        }
+
+        return Path.Join(_tempDir.FullName, name);
+    }
+
+    private static string VsWhereJson(params (string Path, string Name)[] installs) =>
+        System.Text.Json.JsonSerializer.Serialize(installs.Select(i => new Dictionary<string, string> { ["installationPath"] = i.Path, ["displayName"] = i.Name }));
 
     [TestMethod]
     [DataRow("x64", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64")]
@@ -608,31 +623,95 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     public async Task LocateCppMSBuild_RequiresVcToolsForTargetArchitecture(string architecture, string component)
     {
         var vswhere = WriteFile(@"Installer\vswhere.exe", string.Empty);
-        var msbuild = WriteFile(@"VS\MSBuild\Current\Bin\MSBuild.exe", string.Empty);
-        var runner = new ScriptedProcessRunner(_ => new ProcessRunResult(0, msbuild.FullName + Environment.NewLine, string.Empty));
+        var install = FakeInstall("VS", windowsStore: false);
+        var runner = new ScriptedProcessRunner(_ => new ProcessRunResult(0, VsWhereJson((install, "Visual Studio Enterprise 2026")), string.Empty));
         var service = new MSBuildService(runner) { VsWherePath = vswhere.FullName };
 
-        var located = await service.LocateCppMSBuildAsync(architecture, CancellationToken.None);
+        var located = await service.LocateCppMSBuildAsync(architecture, false, CancellationToken.None);
 
-        Assert.AreEqual(msbuild.FullName, located);
+        Assert.AreEqual(Path.Join(install, @"MSBuild\Current\Bin\MSBuild.exe"), located);
         CollectionAssert.Contains(runner.Calls[0].ToArray(), component);
         CollectionAssert.Contains(runner.Calls[0].ToArray(), "[17.8,", "MSBuild must support -getProperty");
+        CollectionAssert.Contains(runner.Calls[0].ToArray(), "-sort", "installs are tried newest first");
+    }
+
+    [TestMethod]
+    public async Task LocateCppMSBuild_WinUiProject_SkipsNewerInstallWithoutWindowsStoreAppType()
+    {
+        // Review repro: Build Tools 2026 with only the C++ tools (newest) next to Visual Studio 2022 with WinUI C++.
+        var vswhere = WriteFile(@"Installer\vswhere.exe", string.Empty);
+        var buildTools = FakeInstall("BuildTools2026", windowsStore: false);
+        var visualStudio = FakeInstall("VS2022", windowsStore: true);
+        var runner = new ScriptedProcessRunner(_ => new ProcessRunResult(0,
+            VsWhereJson((buildTools, "Visual Studio Build Tools 2026"), (visualStudio, "Visual Studio Enterprise 2022")), string.Empty));
+        var service = new MSBuildService(runner) { VsWherePath = vswhere.FullName };
+
+        var winUi = await service.LocateCppMSBuildAsync("x64", requiresWindowsStoreAppType: true, CancellationToken.None);
+        var console = await service.LocateCppMSBuildAsync("x64", requiresWindowsStoreAppType: false, CancellationToken.None);
+
+        StringAssert.StartsWith(winUi, visualStudio);
+        StringAssert.StartsWith(console, buildTools, "a project that isn't WinUI keeps using the newest install");
+    }
+
+    [TestMethod]
+    public async Task LocateCppMSBuild_WinUiProject_NoInstallHasWindowsStoreAppType_NamesWhatToAdd()
+    {
+        var vswhere = WriteFile(@"Installer\vswhere.exe", string.Empty);
+        var buildTools = FakeInstall("BuildTools2026", windowsStore: false);
+        var runner = new ScriptedProcessRunner(_ => new ProcessRunResult(0, VsWhereJson((buildTools, "Visual Studio Build Tools 2026")), string.Empty));
+        var service = new MSBuildService(runner) { VsWherePath = vswhere.FullName };
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.LocateCppMSBuildAsync("x64", true, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "Visual Studio Build Tools 2026 does not have them");
+        StringAssert.Contains(ex.Message, "C++ WinUI app development tools");
+        StringAssert.Contains(ex.Message, "Microsoft.VisualStudio.ComponentGroup.UWP.VC.BuildTools");
     }
 
     [TestMethod]
     public async Task LocateCppMSBuild_VisualStudioWithoutCppTools_NamesTheInstall()
     {
         var vswhere = WriteFile(@"Installer\vswhere.exe", string.Empty);
-        var runner = new ScriptedProcessRunner(args => args.Contains("-find")
-            ? new ProcessRunResult(0, string.Empty, string.Empty)
-            : new ProcessRunResult(0, "Visual Studio Community 2026" + Environment.NewLine, string.Empty));
+        var runner = new ScriptedProcessRunner(args => args.Contains("-requires")
+            ? new ProcessRunResult(0, "[]", string.Empty)
+            : new ProcessRunResult(0, VsWhereJson((@"C:\VS", "Visual Studio Community 2026")), string.Empty));
         var service = new MSBuildService(runner) { VsWherePath = vswhere.FullName };
 
-        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.LocateCppMSBuildAsync("arm64", CancellationToken.None));
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(() => service.LocateCppMSBuildAsync("arm64", false, CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "Visual Studio Community 2026 does not have them installed");
         StringAssert.Contains(ex.Message, "modify Visual Studio Community 2026");
         StringAssert.Contains(ex.Message, "Microsoft.VisualStudio.Component.VC.Tools.ARM64");
+    }
+
+    [TestMethod]
+    public void IsCppWindowsStoreProject_ReadsApplicationType()
+    {
+        var winUi = WriteFile("WinUi.vcxproj", """
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <PropertyGroup Label="Globals"><ApplicationType>Windows Store</ApplicationType></PropertyGroup>
+            </Project>
+            """);
+
+        Assert.IsTrue(ProjectRunService.IsCppWindowsStoreProject(winUi));
+        Assert.IsFalse(ProjectRunService.IsCppWindowsStoreProject(WriteFile("Console.vcxproj", CppApp)));
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_WinUiVcxproj_AsksForWindowsStoreCapableMSBuild()
+    {
+        var project = WriteFile("App.vcxproj", """
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <PropertyGroup Label="Globals"><ApplicationType>Windows Store</ApplicationType></PropertyGroup>
+              <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType></PropertyGroup>
+            </Project>
+            """);
+        _msbuild.LocateFailure = new ProjectRunException("stop");
+
+        await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => _service.BuildAndResolveAsync(project, new ProjectRunOptions("Debug", "x64", null, false, false, []), CancellationToken.None));
+
+        Assert.IsTrue(_msbuild.LocateRequestsWindowsStore.Single(), "a WinUI project must ask for an install with the Windows Store app type");
     }
 
     #endregion
@@ -774,6 +853,34 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         Assert.AreEqual(new Version(14, 0, 33728, 0), x64[0].Version);
         Assert.AreEqual(Path.Join(_tempDir.FullName, @"Program Files (x86)\AppX\Debug\x64\VCLibs.appx"), x64[0].PackagePath);
         Assert.AreEqual("Microsoft.WindowsAppRuntime.2", x86.Single().Name, "Win32 maps to x86");
+    }
+
+    [TestMethod]
+    public void ReadRecipeFrameworkPackages_IgnoresNetworkLocations()
+    {
+        var recipe = WriteFile("Remote.build.appxrecipe", """
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <ItemGroup>
+                <ResolvedSDKReference Include="x">
+                  <Name>Microsoft.VCLibs.140.00.Debug.UWPDesktop</Name>
+                  <Version>14.0.33728.0</Version>
+                  <Architecture>x64</Architecture>
+                  <FrameworkIdentity>Name = Microsoft.VCLibs.140.00.Debug.UWPDesktop</FrameworkIdentity>
+                  <AppxLocation>\\attacker\share\x.msix</AppxLocation>
+                </ResolvedSDKReference>
+                <ResolvedSDKReference Include="y">
+                  <Name>Other.Framework</Name>
+                  <Version>1.0.0.0</Version>
+                  <Architecture>x64</Architecture>
+                  <FrameworkIdentity>Name = Other.Framework</FrameworkIdentity>
+                  <AppxLocation>\\?\UNC\attacker\share\y.msix</AppxLocation>
+                </ResolvedSDKReference>
+              </ItemGroup>
+            </Project>
+            """);
+
+        Assert.AreEqual(0, MsixService.ReadRecipeFrameworkPackages(recipe, "x64").Count,
+            "a recipe must not make winapp probe a network share, which would send the user's credentials");
     }
 
     [TestMethod]
