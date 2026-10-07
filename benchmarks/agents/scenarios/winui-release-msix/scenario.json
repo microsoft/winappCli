@@ -11,8 +11,7 @@
   "expect": {
     "skillsAny": [
       "winui-packaging",
-      "winapp-package",
-      "winapp-signing"
+      "winapp-package"
     ],
     "skillsForbid": [
       "winui-wpf-migration",

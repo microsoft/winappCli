@@ -10,8 +10,7 @@
   "fixture": "fixture",
   "expect": {
     "skillsAny": [
-      "winapp-package",
-      "winapp-signing"
+      "winapp-package"
     ],
     "skillsForbid": [
       "winui-design",

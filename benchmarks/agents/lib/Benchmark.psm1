@@ -463,11 +463,11 @@ function Test-Expectations {
     $relevant = @($InstalledSkills | Where-Object { Test-SkillMatch $_ $patterns })
     $notApplicable = $relevant.Count -eq 0 -and $null -eq $Expect.MaxSkills
     # What this run was actually checked against: the installed skills that could satisfy
-    # skillsAny/skillsAll, and the skillsForbid patterns that match an installed skill. Runs are
-    # only comparable when this is identical.
+    # skillsAny/skillsAll, and the installed skills that skillsForbid matches. Wildcards are
+    # expanded to names, so runs are only comparable when the concrete skills are identical.
     $positive = @($Expect.SkillsAny) + @($Expect.SkillsAll)
     $applied = @($InstalledSkills | Where-Object { Test-SkillMatch $_ $positive } | Sort-Object -Unique) +
-    @($Expect.SkillsForbid | Where-Object { $p = $_; @($InstalledSkills | Where-Object { $_ -like $p }).Count -gt 0 } | Sort-Object -Unique | ForEach-Object { "!$_" })
+    @($InstalledSkills | Where-Object { Test-SkillMatch $_ $Expect.SkillsForbid } | Sort-Object -Unique | ForEach-Object { "!$_" })
 
     $status = if ($failures.Count -gt 0) { 'fail' } elseif ($notApplicable) { 'n/a' } else { 'pass' }
     return [pscustomobject]@{
@@ -594,7 +594,7 @@ function Write-BenchmarkSummary {
     $tokOut = ($rows | Where-Object { $_.tokens } | ForEach-Object { $_.tokens.output } | Measure-Object -Sum).Sum
     $credits = ($rows | Where-Object { $null -ne $_.aiCredits } | ForEach-Object { $_.aiCredits } | Measure-Object -Sum).Sum
     $noCredits = (Get-CreditSpend @($rows)).Unknown
-    [void]$sb.AppendLine("- Tokens: $(Format-Count $tokIn) input, $(Format-Count $tokOut) output; AI credits: $(if ($null -ne $credits) { '{0:N1}' -f $credits } else { 'n/a' })$(if ($noCredits) { " ($noCredits launched runs had no credit count)" })")
+    [void]$sb.AppendLine("- Tokens: $(Format-Count $tokIn) input, $(Format-Count $tokOut) output; AI credits: $(if ($null -ne $credits) { '{0:N1}' -f $credits } else { 'n/a' })$(if ($noCredits) { " ($noCredits launched $(if ($noCredits -eq 1) { 'run' } else { 'runs' }) had no credit count)" })")
     $ctx = @($rows | Where-Object { $null -ne $_.skillContextTokensApprox })
     $ctxSum = ($ctx | ForEach-Object { $_.skillContextTokensApprox } | Measure-Object -Sum).Sum
     [void]$sb.AppendLine("- Skill context delivered: ~$(Format-Count $ctxSum) tokens (approximate, characters / 4; $($ctx.Count) of $($rows.Count) runs measured)")

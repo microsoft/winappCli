@@ -275,7 +275,7 @@ Describe 'Write-BenchmarkSummary' {
         Write-BenchmarkSummary -RunsPath $runs -SummaryPath $out -Header ([ordered]@{ Models = 'm' }) -ScenarioOrder 's1'
         $text = Get-Content -Raw $out
 
-        $text | Should -Match 'AI credits: 15\.0 \(1 launched runs had no credit count\)'
+        $text | Should -Match 'AI credits: 15\.0 \(1 launched run had no credit count\)'
         $text | Should -Match '\| winapp \| m \|.*\| 1 \(unknown\) \|'
         $text | Should -Match '\| both \| m \|.*\| 3 \(~400, partial: 1 of 2 runs measured\) \|'
         $text | Should -Not -Match '\(~0\)'
@@ -391,6 +391,16 @@ Describe 'Scenario definitions' {
         }
     }
 
+    It 'does not credit signing-only runs in packaging scenarios' {
+        $s = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot '..\scenarios')
+        $installed = @('winapp-package', 'winapp-signing', 'winui-packaging')
+        foreach ($id in 'explicit-winapp-cli-package', 'winui-release-msix', 'wpf-winappsdk-msix-trap', 'winforms-package-sign') {
+            $x = $s | Where-Object Id -eq $id
+            (Test-Expectations -Expect $x.Expect -LoadedSkills 'winapp-signing' -InstalledSkills $installed).Status | Should -Be 'fail' -Because $id
+            (Test-Expectations -Expect $x.Expect -LoadedSkills 'winapp-package', 'winapp-signing' -InstalledSkills $installed).Status | Should -Be 'pass' -Because $id
+        }
+    }
+
     It 'requires every scenario to include the both configuration' {
         $s = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot '..\scenarios')
         foreach ($x in $s) { $x.Configurations | Should -Contain 'both' -Because "scenario '$($x.Id)' must measure the setup users install" }
@@ -493,6 +503,19 @@ Describe 'Get-ComparisonReport' {
         Write-Runs $c3 @(@{ scenario = 'pkg'; status = 'pass'; skillsLoaded = @(); preflight = @{ expectedSkills = @('winapp-setup') } })
         $all = Get-ComparisonReport -Baseline $b3 -Candidate $c3 -Scenarios @($only)
         $all | Should -Match ([regex]::Escape('| m | pkg | both | 0/1 (0%) → -; excluded: 1 n/a | check differs |'))
+    }
+
+    It 'flags a candidate that removes a skill matched by a forbidden wildcard' {
+        $wild = [pscustomobject]@{
+            Id = 'wpf'; Configurations = @('both')
+            Expect = [pscustomobject]@{ SkillsAny = @('winapp-package'); SkillsAll = @(); SkillsForbid = @('winui-*'); MaxSkills = $null }
+        }
+        $b4 = Join-Path $TestDrive 'base-forbid'
+        $c4 = Join-Path $TestDrive 'cand-forbid'
+        Write-Runs $b4 @(@{ scenario = 'wpf'; status = 'fail'; skillsLoaded = @('winapp-package', 'winui-code-review'); preflight = @{ expectedSkills = @('winapp-package', 'winui-design', 'winui-code-review') } })
+        Write-Runs $c4 @(@{ scenario = 'wpf'; status = 'pass'; skillsLoaded = @('winapp-package'); preflight = @{ expectedSkills = @('winapp-package', 'winui-design') } })
+        Get-ComparisonReport -Baseline $b4 -Candidate $c4 -Scenarios @($wild) |
+            Should -Match ([regex]::Escape('| m | wpf | both | 0/1 (0%) → 1/1 (100%) | check differs |'))
     }
 
     It 'writes tables whose separator rows match their headers' {
