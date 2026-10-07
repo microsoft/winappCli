@@ -738,6 +738,7 @@ winapp run [<input>] [options]
 - `--clean` - Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments.
 - `--json` - Format output as JSON for programmatic consumption (e.g. CI/automation). Useful with `--detach` to capture the PID. Cannot be combined with `--with-alias` or `--debug-output`.
 - `--on <target>` - Build on the host, then register and run in the target. Currently supports `sandbox`, with no fallback to local execution. Use `--detach` before follow-up UI commands. Sandbox `--debug-output` requires a packaged app. See [Windows Sandbox execution](sandbox-execution.md#running-and-rebuilding) for setup, runtime support, and detached-app lifetime.
+- `--expect-sandbox <id|epoch>` - Use only this Sandbox, and fail instead of starting or taking over another one. Overrides `WINAPP_EXPECT_SANDBOX`. See [Using only a Sandbox you started](sandbox-execution.md#using-only-a-sandbox-you-started).
 
 **Application data persistence:**
 
@@ -1284,6 +1285,7 @@ winapp unregister [input] [options]
 - `--manifest <path>` - Path to Package.appxmanifest (default: auto-detect from current directory)
 - `--force` - For local unregister only, skip the install-location directory check and unregister even if the package was registered from a different project tree. It is rejected with `--on`; target ownership checks cannot be bypassed.
 - `--on <target>` - Remove the matching winapp-owned development registration from `sandbox`, not this machine. Requires a manifest and does not support `--force`. See [Sandbox app cleanup](sandbox-execution.md#removing-an-app-and-ending-the-sandbox).
+- `--expect-sandbox <id|epoch>` - Use only this Sandbox, and fail instead of starting or taking over another one. Overrides `WINAPP_EXPECT_SANDBOX`. See [Using only a Sandbox you started](sandbox-execution.md#using-only-a-sandbox-you-started).
 - `--prune` - Remove every development-mode registration whose files are gone. Cannot be combined with an input, `--manifest`, `--property`, `--configuration`, `--arch`, `--runtime`, or `--output-appx-directory`.
 - `-p, --property <Name=Value>` - MSBuild property used when resolving a `.cs` file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. `-p WinAppPackageName=...`), since a command-line property overrides the file's own `#:property` directives. Only applies to a `.cs` input.
 - `-c, --configuration <name>` - Build configuration used when resolving a `.cs` file-based app's identity. Default: `Debug`. Pass the same configuration the run used: a `Directory.Build.props` beside the `.cs` can set `WinAppPackageName` or `WinAppManifestPath` conditionally on `$(Configuration)`. Only applies to a `.cs` input.
@@ -2217,6 +2219,7 @@ winapp ui [command] [options]
 - `-a, --app <app>` - Target app (name, title, or PID)
 - `-w, --window <hwnd>` - Target window by HWND (stable)
 - `--on <target>` - Run any `ui` verb in `sandbox`; names, PIDs, and window handles refer to the guest. Outputs are delivered to the host. See [Sandbox UI automation](sandbox-execution.md#automating-the-ui) for setup, workflow coordination, and client requirements.
+- `--expect-sandbox <id|epoch>` - Use only this Sandbox, and fail instead of starting or taking over another one. Overrides `WINAPP_EXPECT_SANDBOX`. See [Using only a Sandbox you started](sandbox-execution.md#using-only-a-sandbox-you-started).
 
 #### ui record
 

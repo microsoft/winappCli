@@ -122,13 +122,15 @@ internal sealed record SandboxExpectation(string InstanceId, ExecutionTargetEpoc
             $"The expected Windows Sandbox {InstanceId} is running, but not in the generation that was expected.",
             "Rediscover the current epoch with 'winapp target snapshot sandbox --json', or pass only the Sandbox ID.",
             running: null,
-            actual);
+            actual,
+            new ExecutionTargetNextCommand { Command = "winapp target snapshot sandbox --json", Advisory = true });
 
     private ExecutionTargetException Mismatch(
         string message,
         string userAction,
         IReadOnlyList<string>? running,
-        ExecutionTargetEpoch? actualEpoch = null)
+        ExecutionTargetEpoch? actualEpoch = null,
+        ExecutionTargetNextCommand? nextCommand = null)
     {
         var context = new Dictionary<string, string>
         {
@@ -156,8 +158,8 @@ internal sealed record SandboxExpectation(string InstanceId, ExecutionTargetEpoc
             message,
             userAction: userAction,
             context: context,
-            nextCommand: running is { Count: > 0 }
+            nextCommand: nextCommand ?? (running is { Count: > 0 }
                 ? new ExecutionTargetNextCommand { Command = "wsb list", Advisory = true }
-                : null);
+                : null));
     }
 }
