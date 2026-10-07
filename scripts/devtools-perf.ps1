@@ -22,6 +22,7 @@
     scripts/devtools-perf/budgets.json (override with -Budgets). Windows show without taking focus where
     the app allows it; real input is never sent.
 
+    -PrepareOnly stages and builds the bench app without measuring (used by devtools-perf\retention.ps1).
     -StartupOnly launches and closes each mode (startup and build numbers only). -SoakOnly runs only the
     bench app's soak (-SoakMinutes per mode). Merge result files with devtools-perf\summarize.ps1 -Results a,b.
 .EXAMPLE
@@ -47,6 +48,7 @@ param(
     [int]$SoakMinutes = 0,
     [switch]$SoakOnly,
     [switch]$StartupOnly,
+    [switch]$PrepareOnly,
     [int]$BuildRepetitions = 2,
     [string]$GalleryPath,
     [string[]]$GalleryProperty = @(),
@@ -143,6 +145,31 @@ $($cards -join "`n")
     </ScrollViewer>
 </Page>
 "@
+    # Control pages for the retention experiments, each isolating one kind of XAML content:
+    # Plain (panels and text only), Resource (plain plus theme-resource references), Styled
+    # (text blocks with an explicit Style), Button and CheckBox (templated controls).
+    $variants = [ordered]@{
+        Plain    = { param($i) "<Border Padding=`"12`"><Grid><StackPanel><TextBlock Text=`"Row $i`" /><TextBlock Text=`"Detail $i`" /></StackPanel></Grid></Border>" }
+        Resource = { param($i) "<Border Padding=`"12`" Background=`"{ThemeResource CardBackgroundFillColorDefaultBrush}`" BorderBrush=`"{ThemeResource CardStrokeColorDefaultBrush}`"><Grid><StackPanel><TextBlock Text=`"Row $i`" Foreground=`"{ThemeResource TextFillColorSecondaryBrush}`" /><TextBlock Text=`"Detail $i`" Foreground=`"{ThemeResource TextFillColorSecondaryBrush}`" /></StackPanel></Grid></Border>" }
+        Styled   = { param($i) "<StackPanel><TextBlock Style=`"{StaticResource BodyStrongTextBlockStyle}`" Text=`"Row $i`" /><TextBlock Style=`"{StaticResource CaptionTextBlockStyle}`" Text=`"Detail $i`" /></StackPanel>" }
+        Button   = { param($i) "<Button Content=`"Action $i`" />" }
+        CheckBox = { param($i) "<CheckBox Content=`"Option $i`" />" }
+    }
+    foreach ($variant in $variants.Keys) {
+        $rows = foreach ($i in 1..240) { '            ' + (& $variants[$variant] $i) }
+        Set-Content (Join-Path $stage "${variant}Page.xaml") @"
+<?xml version="1.0" encoding="utf-8" ?>
+<Page x:Class="winui_app.${variant}Page"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer>
+        <StackPanel Padding="24" Spacing="8">
+$($rows -join "`n")
+        </StackPanel>
+    </ScrollViewer>
+</Page>
+"@
+    }
     $project = Join-Path $stage 'winui-app.csproj'
     $xml = [Xml.Linq.XDocument]::Load($project)
     $xml.Root.Element('PropertyGroup').Add([Xml.Linq.XElement]::new('AssemblyName', 'DevToolsPerfBench'))
@@ -658,6 +685,11 @@ function Save-Results { Set-Content $resultsPath ($results | ConvertTo-Json -Dep
 
 foreach ($appName in $Apps) {
     $app = if ($appName -eq 'bench') { New-BenchApp } else { Get-ExternalApp $appName }
+    if ($PrepareOnly) {
+        # Stage and build the bench app (one plain launch registers its package), then stop.
+        if ($app.Probe) { Stop-App $app (Start-App $app 'off' -Build) }
+        continue
+    }
     $state = if ($app.Root) { Save-WinappState $app } else { $null }
     $appResult = [ordered]@{ target = $app.Target; build = [ordered]@{}; runs = [ordered]@{}; stress = [ordered]@{}; errors = @() }
     foreach ($m in $Modes) { $appResult.runs[$m] = @() }
@@ -801,6 +833,7 @@ foreach ($appName in $Apps) {
         if ($state) { Restore-WinappState $app $state }
     }
 }
+if ($PrepareOnly) { return }
 $results.finishedUtc = [DateTime]::UtcNow.ToString('o')
 Save-Results
 

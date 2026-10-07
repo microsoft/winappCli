@@ -28,6 +28,23 @@ internal static class Bench
     private static Grid s_churnHost = null!;
     private static DispatcherQueue s_queue = null!;
     private static double s_refreshMs = 1000.0 / 60;
+    private static readonly List<WeakReference<Page>> s_heavyPages = new();
+    private static int s_heavyPagesCreated;
+
+    // Tracks every HeavyPage instance so "pages" can report how many are still alive after a GC:
+    // a page that outlives its navigation is held by something native (for example diagnostics).
+    public static void TrackHeavyPage(Page page)
+    {
+        s_heavyPagesCreated++;
+        s_heavyPages.Add(new WeakReference<Page>(page));
+    }
+
+    private static JsonObject PagesAlive()
+    {
+        for (var i = 0; i < 3; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
+        s_heavyPages.RemoveAll(w => !w.TryGetTarget(out _));
+        return new JsonObject { ["heavyPagesAlive"] = s_heavyPages.Count, ["heavyPagesCreated"] = s_heavyPagesCreated };
+    }
 
     public static void Start(Window window, Frame frame, Grid churnHost)
     {
@@ -99,13 +116,24 @@ internal static class Bench
                 return new JsonObject();
             case "mem":
                 return Memory();
+            case "pages":
+                return PagesAlive();
+            case "goto":
+                {
+                    // Navigate and stay, so an attach can be measured against a large live tree.
+                    var target = (string?)c["page"] ?? "heavy";
+                    var ms = target == "bigtree"
+                        ? await Navigate(typeof(BigTreePage), (int?)c["count"] ?? 5000)
+                        : await Navigate(target == "plain" ? typeof(PlainPage) : typeof(HeavyPage), null);
+                    return new JsonObject { ["navMs"] = ms, ["elements"] = Count((DependencyObject)s_frame.Content) };
+                }
             case "home":
                 await Navigate(typeof(HomePage), null);
                 return Memory();
             case "scroll":
                 return await Scroll((double?)c["seconds"] ?? 8, (double?)c["px"] ?? 12);
             case "nav":
-                return await NavLoop((int?)c["cycles"] ?? 30, (int?)c["warmup"] ?? 3);
+                return await NavLoop((int?)c["cycles"] ?? 30, (int?)c["warmup"] ?? 3, (string?)c["page"] ?? "heavy");
             case "bigtree":
                 return await BigTree((int?)c["count"] ?? 5000);
             case "churn":
@@ -151,15 +179,25 @@ internal static class Bench
         return result;
     }
 
-    private static async Task<JsonObject> NavLoop(int cycles, int warmup)
+    private static async Task<JsonObject> NavLoop(int cycles, int warmup, string pageName)
     {
+        var page = pageName switch
+        {
+            "heavy" => typeof(HeavyPage),
+            "plain" => typeof(PlainPage),
+            "resource" => typeof(ResourcePage),
+            "styled" => typeof(StyledPage),
+            "button" => typeof(ButtonPage),
+            "checkbox" => typeof(CheckBoxPage),
+            _ => throw new InvalidOperationException("Unknown page " + pageName),
+        };
         await Navigate(typeof(EmptyPage), null);
         for (var i = 0; i < warmup; i++)
         {
-            await Navigate(typeof(HeavyPage), null);
+            await Navigate(page, null);
             await Navigate(typeof(EmptyPage), null);
         }
-        await Navigate(typeof(HeavyPage), null);
+        await Navigate(page, null);
         var elements = Count((DependencyObject)s_frame.Content);
         await Navigate(typeof(EmptyPage), null);
         var before = Memory();
@@ -169,7 +207,7 @@ internal static class Bench
         {
             for (var i = 0; i < cycles; i++)
             {
-                navMs.Add(await Navigate(typeof(HeavyPage), null));
+                navMs.Add(await Navigate(page, null));
                 await Navigate(typeof(EmptyPage), null);
             }
             frames = recorder.Report();
@@ -178,6 +216,7 @@ internal static class Bench
         return new JsonObject
         {
             ["cycles"] = cycles,
+            ["page"] = pageName,
             ["elementsPerCycle"] = elements,
             ["navMs"] = Stats(navMs),
             ["frames"] = frames,
