@@ -3,6 +3,16 @@
 <!-- description: Complete command reference for the winapp CLI covering setup, packaging, identity, certificates, signing, and other utility commands. -->
 # CLI Documentation and Usage
 
+## Version
+
+Print the installed winapp version with `--version` or its short form `-V`:
+
+```powershell
+winapp -V
+```
+
+Lowercase `-v` is the short form of `--verbose` on commands (for example, `winapp restore -v`).
+
 ## Shell Completion
 
 Enable tab completion for commands, options, and values. See the [Shell Completion guide](guides/shell-completion.md) for setup instructions.
