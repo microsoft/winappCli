@@ -1,0 +1,26 @@
+# sourceInfoEnv=; debugger=False; diagnosticsModules=ReproTap.dll
+phase,round,churnMs,privateMB,navP50Ms,navMaxMs,navWallP50Ms
+memory,1,1026,40.1,,
+memory,2,999,40.8,,
+memory,3,943,42.2,,
+memory,4,950,41.1,,
+memory,5,1130,39.7,,
+memory,6,1002,40.7,,
+memory,7,973,41.2,,
+memory,8,959,42.7,,
+memory,9,956,44.0,,
+memory,10,977,43.1,,
+memory,11,951,41.6,,
+memory,12,949,43.9,,
+navigation,1,,,656,875,675
+navigation,2,,,719,1109,726
+navigation,3,,,1359,1625,1361
+navigation,4,,,1062,1750,1125
+navigation,5,,,1266,1531,1285
+navigation,6,,,1141,1406,1170
+navigation,7,,,1750,2203,1784
+navigation,8,,,1438,2172,1468
+navigation,9,,,2219,2594,2270
+navigation,10,,,1688,2516,1689
+navigation,11,,,2250,2547,2294
+navigation,12,,,1812,2875,1845

@@ -1,0 +1,26 @@
+# sourceInfoEnv=; debugger=False; diagnosticsModules=
+phase,round,churnMs,privateMB,navP50Ms,navMaxMs,navWallP50Ms
+memory,1,930,39.7,,
+memory,2,750,39.3,,
+memory,3,750,41.2,,
+memory,4,760,38.4,,
+memory,5,809,37.8,,
+memory,6,873,39.4,,
+memory,7,671,38.7,,
+memory,8,672,41.4,,
+memory,9,792,39.8,,
+memory,10,781,43.4,,
+memory,11,721,41.2,,
+memory,12,690,39.1,,
+navigation,1,,,531,781,559
+navigation,2,,,656,859,676
+navigation,3,,,984,1234,1003
+navigation,4,,,500,1375,493
+navigation,5,,,688,922,718
+navigation,6,,,984,1219,990
+navigation,7,,,453,1312,469
+navigation,8,,,1000,1250,1018
+navigation,9,,,484,1266,496
+navigation,10,,,1062,1250,1063
+navigation,11,,,453,1312,468
+navigation,12,,,1000,1312,1023
