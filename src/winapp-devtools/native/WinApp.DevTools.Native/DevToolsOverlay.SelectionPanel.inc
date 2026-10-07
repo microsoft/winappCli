@@ -51,7 +51,7 @@ static bool          g_selFocusedIsComment = false;
 static InstanceHandle g_selPendingHandle = 0;
 static InstanceHandle g_selHandle = 0;
 static unsigned long long g_selCommentWire = 0;
-static void SetCommentTarget(InstanceHandle raw, bool composer);
+static void SetCommentTarget(InstanceHandle raw);
 static std::wstring   g_selCommentId;
 static std::wstring   g_selCommentSaved;
 // Shown only when the anchor already carries a saved comment (there is nothing to delete otherwise), and hidden
@@ -432,8 +432,8 @@ static void SetSelectionOperationError(const std::wstring& prop, const std::wstr
     }
 }
 
-static void GuestCommentRememberDraft(bool composer);
-static void GuestCommentRestoreDraft(bool composer);
+static void GuestCommentRememberDraft();
+static void GuestCommentRestoreDraft();
 static bool GuestCommentCanEdit(InstanceHandle handle);
 
 static void DevToolsSelFlushCommits()

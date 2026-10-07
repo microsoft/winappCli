@@ -622,7 +622,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
     if (m == L"Internal.sourceRoot") {
         // The CLI asks the APP where its sources are rather than guessing from its own cwd, so the comment store the
         // overlay writes through and the one the CLI pushes back are the same file — `winapp run samples/foo` from a
-        // repo root would otherwise read a different.winapp than the composer wrote to.
+        // repo root would otherwise read a different.winapp than the in-app comment writer wrote to.
         wchar_t root[1024]{};
         DWORD n = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", root, (DWORD)_countof(root));
         std::wstring value = (n > 0 && n < _countof(root)) ? std::wstring(root, n) : std::wstring();

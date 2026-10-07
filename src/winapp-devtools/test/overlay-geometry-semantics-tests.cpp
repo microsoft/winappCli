@@ -864,7 +864,7 @@ int main()
             g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
             g_selComment=&input;input.AddRef();
             g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
-            SetCommentTarget(11,false);
+            SetCommentTarget(11);
             g_selCommentId=L"save-closes";g_selCommentSaved.clear();g_guestCommentWrite={};
             commentInput=L"Warmer color.";
             if (mode == 2) {
@@ -896,7 +896,7 @@ int main()
             g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
             g_selComment=&input;input.AddRef();
             g_selDismissCommitFailed=false;g_selDismissVisualClosed=false;
-            SetCommentTarget(11,false);
+            SetCommentTarget(11);
             g_selCommentId=L"esc-once";g_selCommentSaved=L"hello";g_guestCommentWrite={};
             commentInput=L"hello edited";
             check(DismissSelectionPanel(true) && !popup.popupOpen && g_guestCommentWrite.process,
@@ -915,7 +915,7 @@ int main()
             g_selPanel=&panel;panel.AddRef();g_selIcon=&icon;icon.AddRef();
             g_selPopup=&popup;popup.AddRef();popup.popupOpen=true;
             g_selComment=&input;input.AddRef();
-            SetCommentTarget(11,false);
+            SetCommentTarget(11);
             g_selCommentId=L"enter-saves";g_selCommentSaved.clear();g_guestCommentWrite={};commentLaunches=0;
             commentInput=L"Enter note";
             commentKey=VK_RETURN;commentShift=shift;commentControl=false;g_selFocusedIsComment=true;escapeHandled=false;
@@ -946,7 +946,7 @@ int main()
         {
             g_selComment=&input;input.AddRef();
             g_guestCommentWrite={};g_guestCommentQueue.clear();commentLaunches=0;
-            SetCommentTarget(11,false);g_selCommentId=L"first";g_selCommentSaved.clear();commentInput=L"first note";
+            SetCommentTarget(11);g_selCommentId=L"first";g_selCommentSaved.clear();commentInput=L"first note";
             DevToolsSelCommitComment();
             const HANDLE firstProcess = commentProcess;
             g_selGen++;g_selCommentId=L"second";g_selCommentSaved.clear();commentInput=L"second note";
@@ -970,7 +970,7 @@ int main()
             g_selComment=&input;input.AddRef();
             g_guestCommentWrite={};g_guestCommentQueue.clear();commentLaunches=0;g_pins.clear();
             g_commentSnapshotAuthoritative=false;
-            SetCommentTarget(11,false);g_selCommentId=L"saved-once";g_selCommentSaved.clear();commentInput=L"first";
+            SetCommentTarget(11);g_selCommentId=L"saved-once";g_selCommentSaved.clear();commentInput=L"first";
             DevToolsSelCommitComment();
             g_selGen++;g_commentToastText.clear();commentInput=L"first, then more";
             commentExitCode=0;SetEvent(commentProcess);GuestCommentTimerProc(nullptr,0,0,0);
@@ -1034,18 +1034,17 @@ int main()
         PickerHosts hosts(diag);
         g_pickDiag = &diag; g_pickRoot = 10; g_pickCatcher = &catcher;
         g_selectedHandle = g_lastHighlightHandle = 11;
-        for (bool composer : {false, true}) {
-            g_selPanel = composer ? nullptr : &editor;
-            g_composerUi = composer ? &editor : nullptr;
+        {
+            g_selPanel = &editor;
             g_hoverLastHandle = 11; g_hoverLastTick = 0; g_pressValid = false;
             const auto hits = diag.hits;
             OnCatcherPointerMoved(&catcher, nullptr);
             OnCatcherPointerPressed(&catcher, nullptr);
             OnCatcherPointerWheel(&catcher, nullptr);
             check(diag.hits == hits && g_selectedHandle == 11 && g_lastHighlightHandle == 11,
-                "picker editor pause", composer ? "composer prevents hit-testing and outline changes" : "the flyout prevents hit-testing and outline changes");
+                "picker editor pause", "the flyout prevents hit-testing and outline changes");
             check(!g_pressValid, "picker editor pause", "editor does not latch an underlying press");
-            g_selPanel = g_composerUi = nullptr;
+            g_selPanel = nullptr;
             g_hoverLastTick = 0;
             OnCatcherPointerMoved(&catcher, nullptr);
             check(diag.hits == hits + 1 && g_pickCatcher == &catcher,
@@ -1064,12 +1063,6 @@ int main()
         OnCatcherClick(&catcher, nullptr);
         check(!g_pressValid && diag.hits == canceledHits && g_selectedHandle == 11,
             "picker cancellation", "cancel clears press and trailing release does not commit");
-        g_composerUi = &editor;
-        OnCatcherPointerPressed(&catcher, nullptr);
-        OnCatcherClick(&catcher, nullptr);
-        check(!g_pressValid && diag.hits == canceledHits && g_composerUi == &editor,
-            "picker editor pause", "composer blocks commit without discarding editor");
-        g_composerUi = nullptr;
         diag.hitResult = E_FAIL;
         g_hoverLastTick = 0;
         OnCatcherPointerMoved(&catcher, nullptr);
@@ -1146,26 +1139,24 @@ int main()
         };
         g_cardRead = [](IInspectable*, std::wstring*, std::wstring*, std::vector<DevToolsCardRow>*,
             std::wstring* state, std::wstring* xaml) { *state = L"likely"; *xaml = L"<TextBlock/>"; return true; };
-        for (bool composer : {false, true}) {
-            SetCommentTarget(11, composer);
-            const auto before = commentLaunches;
-            check(!LaunchCommentAdd(L"retained draft", L"likely-note", composer) && before == commentLaunches &&
-                g_commentSourceError.find(L"Nothing was saved") != std::wstring::npos,
-                "source attribution", "each editor refuses likely capture without explicit confirmation before launching writer");
-        }
+        SetCommentTarget(11);
+        const auto before = commentLaunches;
+        check(!LaunchCommentAdd(L"retained draft", L"likely-note") && before == commentLaunches &&
+            g_commentSourceError.find(L"Nothing was saved") != std::wstring::npos,
+            "source attribution", "the flyout refuses likely capture without explicit confirmation before launching writer");
         g_pickDiag = nullptr; g_srcRead = nullptr; g_cardRead = nullptr;
-        ClearSelectionAnchor(); g_composerHandle = g_composerCommentWire = 0;
+        ClearSelectionAnchor();
     }
     {
         GeometryObject input;
         g_selComment = &input;
         g_cardReadInput = CommentReadInput;
-        g_selCommentId = L"composer-exact";
+        g_selCommentId = L"selection-exact";
         wchar_t fakeCli[] = L"never-executed.exe";
         g_cliExe.store(fakeCli);
         guestWriterTest = true;
         g_wireOf = [](InstanceHandle raw) { return raw + 1000ull; };
-        SetCommentTarget(11, false);
+        SetCommentTarget(11);
         g_guestCommentWrite = {};
         for (const auto& text : {std::wstring(L"  first\nsecond\n"), std::wstring(L"\tfirst\r\nsecond\r\n")}) {
             commentInput = text;
@@ -1222,7 +1213,7 @@ int main()
         wchar_t fakeCli[] = L"never-executed.exe";
         g_cliExe.store(fakeCli); guestWriterTest = true;
         g_wireOf = [](InstanceHandle raw) { return raw + 1000ull; };
-        SetCommentTarget(11, false);
+        SetCommentTarget(11);
         g_selCommentId = L"local-draft"; g_selCommentSaved = L"old";
         g_guestCommentWrite = {};
         commentInput = L"submitted";
@@ -1239,10 +1230,10 @@ int main()
         g_wireOf = [](InstanceHandle raw) { return raw + 2000ull; };
         commentExitCode = 0; SetEvent(commentProcess);
         GuestCommentTimerProc(nullptr, 0, 0, 0);
-        check(!GuestCommentMatchesEditor(false) && g_selCommentSaved == L"submitted" &&
+        check(!GuestCommentMatchesEditor() && g_selCommentSaved == L"submitted" &&
             commentInput == submitted, "local writer", "reused element lifetime rejects stale completion");
         g_guestCommentWrite = {};
-        SetCommentTarget(11, false);
+        SetCommentTarget(11);
         for (const DWORD outcome : {DWORD(1), DWORD(0)}) {
             g_selCommentId = L"local-delete"; g_selCommentSaved = commentInput = L"saved";
             g_guestCommentWrite = {};
@@ -1286,12 +1277,12 @@ int main()
                 GuestCommentTimerProc(nullptr, 0, 0, 0);
             }
             ++g_selGen; g_selCommentId = L"reopened-editor";
-            GuestCommentRestoreDraft(false);
+            GuestCommentRestoreDraft();
             check(g_selCommentId == L"discarded-draft" && g_guestCommentWrite.generation != g_selGen,
                 "local writer", "recovered draft retains original completion generation");
             DiscardSelectionCommentDraft();
             if (pending) {
-                GuestCommentRememberDraft(false);
+                GuestCommentRememberDraft();
                 check(g_guestCommentWrite.discarded && g_guestCommentWrite.draft.empty(),
                     "local writer", "explicit discard cannot recapture the discarded draft during teardown");
                 ++g_selGen;
@@ -1313,7 +1304,7 @@ int main()
             commentExitCode = outcome; SetEvent(commentProcess);
             GuestCommentTimerProc(nullptr, 0, 0, 0);
             ++g_selGen; g_selCommentId = L"reopened-noop";
-            GuestCommentRestoreDraft(false);
+            GuestCommentRestoreDraft();
             check(g_selCommentId == L"restored-text" && g_guestCommentWrite.generation != g_selGen,
                 "local writer", "no-op retirement uses the recovered draft rather than its old completion generation");
             commentInput = g_selCommentSaved;
@@ -1349,12 +1340,12 @@ int main()
         check(!g_selPanel && !g_guestCommentWrite.failed && GuestCommentCanEdit(999) &&
             commentLaunches == beforeEscape + 1 && escapePanel.refs == 1 && escapeArgs.refs == 1,
             "local writer", "Escape after a completed local failure discards without retrying persistence");
-        g_selComment = &input; SetCommentTarget(11, false);
+        g_selComment = &input; SetCommentTarget(11);
         g_selCommentId = L"reopened-pending"; g_selCommentSaved = L"old";
         g_guestCommentWrite = {}; commentLaunches = 0; commentInput = L"submitted";
         DevToolsSelCommitComment();
         ++g_selGen; g_selCommentId = L"new-editor";
-        GuestCommentRestoreDraft(false);
+        GuestCommentRestoreDraft();
         commentInput = L"old";
         OnSelCommentTextChanged(nullptr, nullptr);
         commentExitCode = 0; SetEvent(commentProcess);
@@ -1371,7 +1362,7 @@ int main()
         g_guestCommentWrite = {}; commentLaunches = 0;
         SelDeleteComment();
         ++g_selGen; g_selCommentId = L"new-delete-editor";
-        GuestCommentRestoreDraft(false);
+        GuestCommentRestoreDraft();
         commentExitCode = 0; SetEvent(commentProcess);
         GuestCommentTimerProc(nullptr, 0, 0, 0);
         check(g_selCommentSaved == L"saved" && commentInput == L"saved" && g_guestCommentWrite.persisted,
@@ -1383,7 +1374,7 @@ int main()
         GuestCommentTimerProc(nullptr, 0, 0, 0);
         for (const bool deleting : {false, true}) {
             g_pins.clear();
-            SetCommentTarget(11, false);
+            SetCommentTarget(11);
             g_selCommentId = L"snapshot-race"; g_selCommentSaved = L"old";
             g_guestCommentWrite = {}; commentLaunches = 0; commentInput = L"submitted";
             if (deleting) SelDeleteComment(); else DevToolsSelCommitComment();
@@ -1427,7 +1418,7 @@ int main()
             GeometryObject panel, keyArgs;
             keyArgs.keyArgs = true;
             g_selPanel = &panel; panel.AddRef(); input.AddRef(); g_selComment = &input;
-            SetCommentTarget(11, false);
+            SetCommentTarget(11);
             g_selCommentId = L"discard-superseded"; g_selCommentSaved = L"old";
             g_guestCommentWrite = {}; commentLaunches = 0; commentInput = L"submitted";
             OnSelCommentSaveClick(nullptr, nullptr);
@@ -1464,27 +1455,23 @@ int main()
         guestWriterTest = true;
         for (const bool host : {false, true}) {
           g_guestCommentAuthority.store(host ? &authority : nullptr);
-          for (const bool composer : {false, true}) {
+          {
             for (const DWORD outcome : {DWORD(1), DWORD(0), DWORD(0x57410001), DWORD(0x57410002), DWORD(STILL_ACTIVE)}) {
                 if (!host && (outcome == 0x57410001 || outcome == 0x57410002)) continue;
                 GeometryObject input;
                 input.AddRef();
                 g_pickRoot = 10;
-                SetCommentTarget(11, false);
-                SetCommentTarget(11, true);
-                g_selCommentId = g_composerId = L"guest-note";
-                g_selCommentSaved = g_composerInitText = L"old text";
-                g_selCommentRevision = g_composerRevision = std::wstring(64, L'A');
+                SetCommentTarget(11);
+                g_selCommentId = L"guest-note";
+                g_selCommentSaved = L"old text";
+                g_selCommentRevision = std::wstring(64, L'A');
                 g_guestCommentWrite = {};
-                if (composer) g_composerBox = &input;
-                else g_selComment = &input;
+                g_selComment = &input;
                 const std::wstring exact = L" \tfirst\r\n\r\nlast \n";
                 commentInput = exact;
                 commentLaunches = 0;
-                if (composer) OnComposerSaveClick(nullptr, nullptr);
-                else DevToolsSelCommitComment();
-                check(commentLaunches == 1 && g_guestCommentWrite.process && g_selCommentSaved == L"old text" &&
-                    (!composer || g_composerBox), "guest comment", "successful spawn is not persistence acknowledgement");
+                DevToolsSelCommitComment();
+                check(commentLaunches == 1 && g_guestCommentWrite.process && g_selCommentSaved == L"old text", "guest comment", "successful spawn is not persistence acknowledgement");
                 check((host
                         ? commentCommand.find(L"--guest-comments") != std::wstring::npos &&
                             commentCommand.find(authority.binding + L"." + authority.epoch) != std::wstring::npos
@@ -1498,28 +1485,25 @@ int main()
                 check(!g_guestCommentWrite.process && !g_guestCommentTimer, "guest comment", "completion releases owned writer and timer");
                 if (outcome == 1 || outcome == STILL_ACTIVE || outcome == 0x57410002) {
                     check(g_guestCommentWrite.failed && g_guestCommentWrite.draft == exact &&
-                        (composer ? g_composerBox != nullptr : g_selCommentSaved == L"old text"),
+                        g_selCommentSaved == L"old text",
                         "guest comment", "refusal, disconnect, timeout or later host edit retains exact draft without success state");
                     check(!g_guestCommentWrite.status.empty(), "guest comment", "save failure has explicit retained-draft status");
                     if (outcome == 1) {
                         commentInput = DevToolsCommentText::NormalizeLineEndings(exact);
-                        if (composer) OnComposerSaveClick(nullptr, nullptr);
-                        else DevToolsSelCommitComment();
+                        DevToolsSelCommitComment();
                         check(g_guestCommentWrite.operation == operation && g_guestCommentWrite.submitted == exact,
                             "guest comment", "retry retains operation and original exact text despite TextBox newline normalization");
                         commentExitCode = 1; SetEvent(commentProcess);
                         GuestCommentTimerProc(nullptr, 0, 0, 0);
                     }
                 } else {
-                    check(!g_guestCommentWrite.failed && (composer ? g_composerInitText == exact : g_selCommentSaved == exact),
+                    check(!g_guestCommentWrite.failed && g_selCommentSaved == exact,
                         "guest comment", "only confirmed host persistence advances saved editor state");
                     if (outcome == 0x57410001)
-                        check(g_guestCommentWrite.status.find(L"markers") != std::wstring::npos &&
-                            (!composer || g_composerBox), "guest comment", "persisted-but-refresh-failed remains distinct and visible");
+                        check(g_guestCommentWrite.status.find(L"markers") != std::wstring::npos, "guest comment", "persisted-but-refresh-failed remains distinct and visible");
                 }
-                if (composer && g_composerBox) ClearComposer();
-                if (!composer) ClearSelectionAnchor();
-                check(input.refs == 1, "guest comment", "composer and selection references balance after async completion");
+                ClearSelectionAnchor();
+                check(input.refs == 1, "guest comment", "selection references balance after async completion");
                 g_pins.clear();
             }
           }
@@ -1527,7 +1511,7 @@ int main()
         {
             GeometryObject input;
             input.AddRef(); g_selComment = &input;
-            SetCommentTarget(11, false); g_pickRoot = 10;
+            SetCommentTarget(11); g_pickRoot = 10;
             g_selCommentId = L"generation-note"; g_selCommentSaved = L"old";
             g_guestCommentWrite = {};
             commentInput = L"submitted old editor";
@@ -1543,33 +1527,33 @@ int main()
             ClearSelectionAnchor();
             check(input.refs == 1, "guest comment", "reused editor cleanup balances references");
         }
-        for (const bool composer : {false, true}) {
+        {
             g_wireOf = [](InstanceHandle raw) { return raw + 1000ull; };
-            SetCommentTarget(11, composer);
-            g_selCommentId = g_composerId = L"reused-raw";
-            g_selCommentSaved = g_composerInitText = L"original saved";
+            SetCommentTarget(11);
+            g_selCommentId = L"reused-raw";
+            g_selCommentSaved = L"original saved";
             g_guestCommentWrite = {};
-            LaunchCommentAdd(L"retained draft", L"reused-raw", composer);
+            LaunchCommentAdd(L"retained draft", L"reused-raw");
             check(g_guestCommentWrite.process != nullptr,
                 "guest comment", "lifetime control starts observed writer");
             const auto operation = g_guestCommentWrite.operation;
             g_wireOf = [](InstanceHandle raw) { return raw + 2000ull; };
             commentExitCode = 1; SetEvent(commentProcess);
             GuestCommentTimerProc(nullptr, 0, 0, 0);
-            check(!GuestCommentMatchesEditor(composer), "guest comment", "raw reuse rejects old completion despite matching anchor");
+            check(!GuestCommentMatchesEditor(), "guest comment", "raw reuse rejects old completion despite matching anchor");
             const auto failedWrite = g_guestCommentWrite;
             const auto launches = commentLaunches;
-            check(!LaunchCommentAdd(L"retained draft", L"reused-raw", composer) && commentLaunches == launches,
+            check(!LaunchCommentAdd(L"retained draft", L"reused-raw") && commentLaunches == launches,
                 "guest comment", "retry never repacks an expired editor into the reused raw handle");
             check(g_guestCommentWrite.failed && g_guestCommentWrite.draft == L"retained draft",
                 "guest comment", "pre-spawn refusal retains draft");
             g_guestCommentWrite = failedWrite;
-            SetCommentTarget(11, composer);
-            g_selCommentSaved = g_composerInitText = L"new object's saved text";
-            GuestCommentRestoreDraft(composer);
-            check((composer ? g_composerInitText : g_selCommentSaved) == L"new object's saved text" &&
-                !GuestCommentMatchesEditor(composer), "guest comment", "reopened new generation cannot recover old object's draft");
-            LaunchCommentAdd(L"retained draft", L"reused-raw", composer);
+            SetCommentTarget(11);
+            g_selCommentSaved = L"new object's saved text";
+            GuestCommentRestoreDraft();
+            check(g_selCommentSaved == L"new object's saved text" &&
+                !GuestCommentMatchesEditor(), "guest comment", "reopened new generation cannot recover old object's draft");
+            LaunchCommentAdd(L"retained draft", L"reused-raw");
             check(g_guestCommentWrite.process &&
                 g_guestCommentWrite.operation != operation,
                 "guest comment", "new witness never reuses the old object's acknowledgement operation");
@@ -1577,17 +1561,17 @@ int main()
             GuestCommentTimerProc(nullptr, 0, 0, 0);
             g_wireOf = nullptr;
             const auto beforeMissingBridge = commentLaunches;
-            check(!LaunchCommentAdd(L"retained draft", L"reused-raw", composer) &&
+            check(!LaunchCommentAdd(L"retained draft", L"reused-raw") &&
                 commentLaunches == beforeMissingBridge && !g_guestCommentWrite.process,
                 "guest comment", "missing census bridge refuses before spawning");
-            SetCommentTarget(11, composer);
-            LaunchCommentAdd(L"untracked draft", L"reused-raw", composer);
+            SetCommentTarget(11);
+            LaunchCommentAdd(L"untracked draft", L"reused-raw");
             g_wireOf = [](InstanceHandle raw) { return raw + 3000ull; };
-            SetCommentTarget(11, composer);
-            g_selCommentSaved = g_composerInitText = L"tracked object's saved text";
-            GuestCommentRestoreDraft(composer);
-            check((composer ? g_composerInitText : g_selCommentSaved) == L"tracked object's saved text" &&
-                !GuestCommentMatchesEditor(composer), "guest comment", "untracked editor cannot restore its draft onto a newly tracked object");
+            SetCommentTarget(11);
+            g_selCommentSaved = L"tracked object's saved text";
+            GuestCommentRestoreDraft();
+            check(g_selCommentSaved == L"tracked object's saved text" &&
+                !GuestCommentMatchesEditor(), "guest comment", "untracked editor cannot restore its draft onto a newly tracked object");
         }
         for (const DWORD outcome : {DWORD(0), DWORD(1), DWORD(0x57410001), DWORD(0x57410002)}) {
             g_guestCommentWrite = {};
@@ -1618,7 +1602,7 @@ int main()
         guestWriterTest = false;
         g_cliExe.store(nullptr); g_cardReadInput = nullptr; g_anchorOf = nullptr; g_wireOf = nullptr;
         g_selCommentSaved.clear(); g_selCommentId.clear();
-        g_pickRoot = g_selHandle = g_composerHandle = 0;
+        g_pickRoot = g_selHandle = 0;
     }
     {
         SwitchDiagnostics d;
@@ -1761,7 +1745,7 @@ int main()
             for (const bool moveBackBeforeAck : {false, true}) {
                 GeometryObject input;
                 input.AddRef(); g_selComment = &input;
-                SetCommentTarget(11, false); g_selCommentId = L"surface-note"; g_selCommentSaved = L"old";
+                SetCommentTarget(11); g_selCommentId = L"surface-note"; g_selCommentSaved = L"old";
                 g_guestCommentWrite = {};
                 commentInput = L"surface draft\r\n exact ";
                 DevToolsSelCommitComment();

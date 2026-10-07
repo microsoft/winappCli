@@ -431,9 +431,9 @@ public class DevToolsCommentsHumanOutputTests
     [DataRow("\tindented\r\nlast line\r\n", true)]
     [DataRow("\n\n  leading and trailing  \n", false)]
     [DataRow("\n\n  leading and trailing  \n", true)]
-    public void AddAndUpsert_PreserveExactComposerText(string text, bool existing)
+    public void AddAndUpsert_PreserveExactEditorText(string text, bool existing)
     {
-        const string id = "composer-exact";
+        const string id = "editor-exact";
         if (existing)
         {
             Success("add", "--id", id, "--text", "original");
@@ -445,7 +445,7 @@ public class DevToolsCommentsHumanOutputTests
             Assert.AreEqual(submitted, reply.RootElement.GetProperty("comment").GetProperty("text").GetString());
             var stored = _store.Load(StorePath).Comments.Single();
             Assert.AreEqual(submitted, stored.Text,
-                "The composer caches exactly its submitted text after save; persistence must agree.");
+                "The in-app editor caches exactly its submitted text after save; persistence must agree.");
             var bytes = File.ReadAllBytes(StorePath);
             var updatedAt = stored.UpdatedAt;
             using var readBack = JsonDocument.Parse(Success("get", id, "--json"));
@@ -456,7 +456,7 @@ public class DevToolsCommentsHumanOutputTests
     }
 
     [TestMethod]
-    public void WhitespaceOnlyComposerText_IsRejectedBeforeAddOrUpsert()
+    public void WhitespaceOnlyEditorText_IsRejectedBeforeAddOrUpsert()
     {
         Assert.AreEqual(1, Run("add", "--id", "blank", "--text", " \r\n\t").Exit);
         Assert.IsFalse(File.Exists(StorePath));

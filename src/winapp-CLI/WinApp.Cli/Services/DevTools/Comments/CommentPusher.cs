@@ -86,7 +86,7 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
 
             // Ask the APP where its sources are before falling back to our own cwd: `winapp run samples/foo`
             // from a repo root would otherwise push against a different .winapp than the one the in-app
-            // composer writes through, and the two views of "my comments" would silently disagree.
+            // comment writer uses, and the two views of "my comments" would silently disagree.
             var appRoot = sourceRootOverride ??
                 CommentSelectionCapture.ReadCommentRoot(tap.GetSourceRoot(cancellationToken));
             var project = string.IsNullOrWhiteSpace(appRoot) ? null : appRoot;

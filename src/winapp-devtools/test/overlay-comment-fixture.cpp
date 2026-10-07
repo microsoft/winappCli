@@ -84,13 +84,13 @@ bool OverlayFixtureDetachedDraftGuards()
     return refused && retained && !g_selRootLost;
 }
 
-void CommentFixtureOpen(unsigned long long raw, bool composer)
+void CommentFixtureOpen(unsigned long long raw)
 {
-    SetCommentTarget(raw, composer);
+    SetCommentTarget(raw);
 }
 
 std::wstring CommentFixtureLaunch(DWORD pid, const wchar_t* exe, const wchar_t* source,
-    const std::wstring& token, const std::wstring& text, bool composer, bool local, unsigned* spawns)
+    const std::wstring& token, const std::wstring& text, bool local, unsigned* spawns)
 {
     writerPid = pid;
     writerSpawns = 0;
@@ -105,7 +105,7 @@ std::wstring CommentFixtureLaunch(DWORD pid, const wchar_t* exe, const wchar_t* 
         const auto bindingEnd = token.find(L'.', begin);
         DevToolsOverlay_SetGuestComments(start, token.substr(begin, bindingEnd - begin), token.substr(bindingEnd + 1));
     }
-    LaunchCommentAdd(text, L"note", composer);
+    LaunchCommentAdd(text, L"note");
     *spawns = writerSpawns;
     return writerCommand;
 }

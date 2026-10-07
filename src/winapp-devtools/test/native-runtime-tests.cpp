@@ -29,9 +29,9 @@ static HRESULT ObserveBindingAgile(AgileReferenceOptions, REFIID, IUnknown*, IAg
 #include <iomanip>
 #include <sstream>
 
-void CommentFixtureOpen(unsigned long long raw, bool composer);
+void CommentFixtureOpen(unsigned long long raw);
 std::wstring CommentFixtureLaunch(DWORD pid, const wchar_t* exe, const wchar_t* source,
-    const std::wstring& token, const std::wstring& text, bool composer, bool local, unsigned* spawns);
+    const std::wstring& token, const std::wstring& text, bool local, unsigned* spawns);
 
 struct InputTextBox : IInspectable {
     ULONG refs = 1;
@@ -946,11 +946,10 @@ static void CheckCensusFollowsReparentsAndParentlessRemoves(const std::function<
 
 int wmain(int argc, wchar_t** argv)
 {
-    if (argc == 9 && std::wstring(argv[1]) == L"--overlay-comment-command") {
+    if (argc == 8 && std::wstring(argv[1]) == L"--overlay-comment-command") {
         DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
         const InstanceHandle raw = 0x12345678;
-        const bool composer = std::wstring(argv[4]) == L"composer";
-        const std::wstring outcome = argv[5];
+        const std::wstring outcome = argv[4];
         g_sessionNonce = 17;
         MintSlot_nolock(101);
         g_type[101] = L"Grid";
@@ -961,7 +960,7 @@ int wmain(int argc, wchar_t** argv)
         DevToolsOverlay_SetAnchorBridge(
             [](InstanceHandle h, std::wstring* anchor) { return TapAnchorOf(h, anchor); },
             &TapResolveAnchor, &TapWireOf);
-        CommentFixtureOpen(raw, composer);
+        CommentFixtureOpen(raw);
         auto retire = [&] {
             FreeSlot_nolock(raw);
             if (outcome == L"retired") g_type.erase(raw);
@@ -970,8 +969,8 @@ int wmain(int argc, wchar_t** argv)
         if (outcome == L"retired" || outcome == L"reused") retire();
         if (outcome == L"new-session") ++g_sessionNonce;
         unsigned spawns = 0;
-        const auto command = CommentFixtureLaunch(wcstoul(argv[3], nullptr, 10), argv[2], argv[8],
-            argv[7], argv[6], composer, outcome == L"local", &spawns);
+        const auto command = CommentFixtureLaunch(wcstoul(argv[3], nullptr, 10), argv[2], argv[7],
+            argv[6], argv[5], outcome == L"local", &spawns);
         if (outcome == L"retired-after-command" || outcome == L"reused-after-command") {
             FreeSlot_nolock(raw);
             if (outcome == L"retired-after-command") g_type.erase(raw);

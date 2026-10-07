@@ -28,16 +28,12 @@ public sealed class GuestCommentWriterInteropTests
     [DataRow("host-read-refused", GuestCommentContext.HostReadFailureExitCode)]
     [DataRow("ack-missing", GuestCommentContext.MissingAcknowledgementExitCode)]
     [DataRow("arguments-refused", 2)]
-    [DataRow("overlay", 0, false)]
-    [DataRow("overlay", 0, true)]
-    [DataRow("retired-after-command", GuestCommentContext.CaptureFailureExitCode, false)]
-    [DataRow("retired-after-command", GuestCommentContext.CaptureFailureExitCode, true)]
-    [DataRow("reused-after-command", GuestCommentContext.CaptureFailureExitCode, false)]
-    [DataRow("reused-after-command", GuestCommentContext.CaptureFailureExitCode, true)]
-    [DataRow("new-session-after-command", GuestCommentContext.CaptureFailureExitCode, false)]
-    [DataRow("new-session-after-command", GuestCommentContext.CaptureFailureExitCode, true)]
+    [DataRow("overlay", 0)]
+    [DataRow("retired-after-command", GuestCommentContext.CaptureFailureExitCode)]
+    [DataRow("reused-after-command", GuestCommentContext.CaptureFailureExitCode)]
+    [DataRow("new-session-after-command", GuestCommentContext.CaptureFailureExitCode)]
     public async Task NativeWriterArguments_ReachActualProgramCaptureAndAuthenticatedHostOwner(
-        string authoredState, int expectedExit, bool composer = false)
+        string authoredState, int expectedExit)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var root = Directory.CreateTempSubdirectory("guest-writer-interop-");
@@ -88,7 +84,7 @@ public sealed class GuestCommentWriterInteropTests
             if (nativeOverlay)
             {
                 using var native = await OverlayArgumentsAsync(process.ProcessId, text, token, guestRoot.FullName,
-                    composer, authoredState, timeout.Token);
+                    authoredState, timeout.Token);
                 var result = native.RootElement;
                 Assert.AreEqual(1, result.GetProperty("spawns").GetInt32());
                 args = result.GetProperty("args").EnumerateArray().Select(row => row.GetString()!).ToArray();
@@ -188,22 +184,17 @@ public sealed class GuestCommentWriterInteropTests
 
     [TestMethod]
     [TestCategory("NativeIntegration")]
-    [DataRow("untracked", false)]
-    [DataRow("untracked", true)]
-    [DataRow("retired", false)]
-    [DataRow("retired", true)]
-    [DataRow("reused", false)]
-    [DataRow("reused", true)]
-    [DataRow("new-session", false)]
-    [DataRow("new-session", true)]
-    [DataRow("local", false)]
-    [DataRow("local", true)]
-    public async Task OverlayEditorLifetime_RefusesInvalidWitnessBeforeSpawnAndPreservesLocalElement(string outcome, bool composer)
+    [DataRow("untracked")]
+    [DataRow("retired")]
+    [DataRow("reused")]
+    [DataRow("new-session")]
+    [DataRow("local")]
+    public async Task OverlayEditorLifetime_RefusesInvalidWitnessBeforeSpawnAndPreservesLocalElement(string outcome)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         using var result = await OverlayArgumentsAsync(Environment.ProcessId, "retained draft",
             $"{Environment.ProcessId}.638936747284321987.0123456789abcdef0123456789abcdef..0123456789abcdef0123456789abcdef.test-epoch",
-            @"C:\snapshot", composer, outcome, timeout.Token);
+            @"C:\snapshot", outcome, timeout.Token);
         var local = outcome == "local";
         Assert.AreEqual(local ? 1 : 0, result.RootElement.GetProperty("spawns").GetInt32());
         var args = result.RootElement.GetProperty("args").EnumerateArray().Select(row => row.GetString()!).ToArray();
@@ -245,9 +236,9 @@ public sealed class GuestCommentWriterInteropTests
                 "42", text, "note", token, sourceRoot], cancellationToken))!;
 
     private static async Task<JsonDocument> OverlayArgumentsAsync(int pid, string text, string token, string sourceRoot,
-        bool composer, string outcome, CancellationToken cancellationToken) =>
+        string outcome, CancellationToken cancellationToken) =>
         JsonDocument.Parse(await RunNativeAsync(["--overlay-comment-command", @"C:\verified bundle\winapp.exe",
-            pid.ToString(CultureInfo.InvariantCulture), composer ? "composer" : "inline", outcome, text, token, sourceRoot],
+            pid.ToString(CultureInfo.InvariantCulture), outcome, text, token, sourceRoot],
             cancellationToken));
 
     private static async Task<string> RunNativeAsync(string[] args, CancellationToken cancellationToken)

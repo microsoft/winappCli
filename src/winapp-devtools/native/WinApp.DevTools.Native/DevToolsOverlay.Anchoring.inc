@@ -315,12 +315,10 @@ static void ReanchorSelectionNow()
     DevToolsOverlayLog(L"overlay.sel re-anchored on layout change rect=%ld,%ld,%ld,%ld", nb.left, nb.top, nb.right, nb.bottom);
 }
 
-// Tear down EVERY piece of selection chrome together -- rect, morph anchor and any open composer -- and clear
-// the selection itself. Composer first, then the anchor (which owns the null-globals-before-RemoveAt teardown
-// discipline for its pointer/focus sinks), then the plain adorner.
+// Tear down EVERY piece of selection chrome together -- the flyout and rect -- and clear the selection itself. The
+// anchor owns the null-globals-before-RemoveAt teardown discipline for its pointer/focus sinks.
 static void DeselectAll(bool clearHighlight)
 {
-    ClearComposer();
     ClearSelectionAnchor();
     if (clearHighlight) ClearAdorner();
     // The hover highlight is gone too, so the element under the pointer must draw again on the next move.

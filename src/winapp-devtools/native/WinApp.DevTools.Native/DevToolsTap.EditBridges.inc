@@ -778,7 +778,7 @@ static bool Route1Layout(InstanceHandle wire, DevToolsWindowLayout& out)
 
 // The overlay works in RAW diagnostics handles (straight from HitTest), so this is a direct ReadElementSourceInfo —
 // no wire resolution (unlike Route1Source, which the window calls with wire tokens). UI thread only (the overlay's
-// pick + composer both run there).
+// pick and comment flyout both run there).
 static bool OverlaySourceBridge(InstanceHandle raw, std::wstring* outFile, unsigned int* outLine, unsigned int* outCol)
 {
     std::wstring f; unsigned int ln = 0, col = 0;

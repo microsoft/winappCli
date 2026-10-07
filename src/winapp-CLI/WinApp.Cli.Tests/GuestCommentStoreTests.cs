@@ -195,7 +195,7 @@ public sealed class GuestCommentStoreTests
     }
 
     [TestMethod]
-    public void ConcurrentHostEdit_AndStaleComposerRevision_AreNotOverwritten()
+    public void ConcurrentHostEdit_AndStaleEditorRevision_AreNotOverwritten()
     {
         using var fixture = new Fixture();
         var store = fixture.CreateStore();

@@ -727,8 +727,7 @@ bool DevToolsOverlay_SetExternalFocusTracking(bool enabled)
 
 
 // Written once by the CLI over the pipe (DevToolsOverlay_SetCliExe, pipe thread) and read on the UI thread by
-// the composer Save handler; held as an atomically-swapped heap string.
-// CLI path is a thread-safe handoff from pipe thread to UI thread; null path leaves the composer inert.
+// the comment writer; held as an atomically-swapped heap string. A null path leaves the writer inert.
 static std::atomic<wchar_t*> g_cliExe{nullptr};
 struct GuestCommentAuthority {
     std::wstring start, binding, epoch;

@@ -242,7 +242,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var storePath = store.GetStorePath(new DirectoryInfo(sourceRoot));
-                // Upsert when the caller supplied an id (the composer re-saving an element edits in place);
+                // Upsert when the caller supplied an id (the in-app editor re-saving an element edits in place);
                 // otherwise append a fresh comment.
                 var replaced = false;
                 if (providedId is not null)

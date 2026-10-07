@@ -114,12 +114,11 @@ static void OnAppEscape(void* /*sender*/, void* args)
     reinterpret_cast<IUnknown*>(kr)->Release();
     if (!acting) return;
     // Esc closes one layer at a time: an open panel first, then pick mode and the selection.
-    const bool panelOpen = DevToolsSelPanelIsOpen() || g_composerUi != nullptr;
+    const bool panelOpen = DevToolsSelPanelIsOpen();
     DevToolsOverlayLog(L"overlay.esc pick=%d selection=%llu panel=%d -> %s",
         (int)(g_pickCatcher != nullptr), (unsigned long long)g_selectedHandle, (int)panelOpen,
         panelOpen ? L"close the panel" : L"exit pick mode + deselect");
-    if (DevToolsSelPanelIsOpen()) DismissSelectionPanel(true);
-    else if (panelOpen) DeselectAll();
+    if (panelOpen) DismissSelectionPanel(true);
     else { ExitPickMode(); DeselectAll(); }
 }
 

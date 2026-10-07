@@ -473,7 +473,7 @@ static InstanceHandle PeekTopHandleAt(IXamlDiagnostics* diag, InstanceHandle roo
 // move). Debounced two ways to protect the app UI thread: (1) a ~16ms rate limit on the cheap peek hit-test,
 // and (2) a changed- handle short-circuit so the expensive edge-probe/adorner rebuild in DevToolsOverlay_Pick
 // r.
-static bool PickerEditorIsOpen() { return DevToolsSelPanelIsOpen() || g_composerUi != nullptr; }
+static bool PickerEditorIsOpen() { return DevToolsSelPanelIsOpen(); }
 
 static void OnCatcherPointerMoved(void* sender, void*)
 {

@@ -42,7 +42,7 @@ static void OnSelOpenClick(void*, void*) { InspectElement(g_selHandle); }
 static void ClearSelectionAnchor()
 {
     ResetPickPointer();
-    GuestCommentRememberDraft(false);
+    GuestCommentRememberDraft();
     // Whatever replaces or removes the flyout, focus inside it goes back to the app without keyboard visuals.
     SelReturnFocus();
     if (g_selDismissTimer) {
@@ -96,7 +96,7 @@ static void ClearSelectionAnchor()
     if (selTag)     selTag->Release();
     if (selUi)      selUi->Release();
     if (g_cardFreeze && g_selFrozen) { g_cardFreeze(0); g_selFrozen = false; }
-    SetCommentTarget(0, false);
+    SetCommentTarget(0);
     g_selCommentId.clear();
     g_selCommentSaved.clear();
 }
@@ -302,7 +302,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
 // DevToolsOverlay_ShowBadgeForHandle, look up any existing in-session comment so the box PREFILLS
 // (edit-in-place, same id -> the CLI upserts) rather than showing empty over a saved comment, and snapshot the
 // element bou.
-    SetCommentTarget(g_selPendingHandle, false); g_selPendingHandle = 0;
+    SetCommentTarget(g_selPendingHandle); g_selPendingHandle = 0;
     g_selBounds = g_lastPickBoundsDip;
     std::wstring initComment; g_selCommentId.clear();
     SelLookupComment(g_selHandle, &g_selCommentId, &initComment);
@@ -354,7 +354,7 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
 
     // A later teardown bumps the generation again, making any pending commit inert.
     ++g_selGen;
-    GuestCommentRestoreDraft(false);
+    GuestCommentRestoreDraft();
 
     if (g_selIcon) {
         void* bb = nullptr;
@@ -485,8 +485,6 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
 }
 
 
-static void ShowComposerForElement(IInspectable* el, bool fromCommentMode);
-static void ClearComposer();
 // Last segment of a dotted XAML type name ("Microsoft.UI.Xaml.Controls.TextBlock" -> "TextBlock").
 static std::wstring ShortTypeName(const std::wstring& full)
 {
