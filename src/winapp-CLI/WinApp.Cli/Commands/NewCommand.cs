@@ -869,13 +869,10 @@ internal class NewCommand : Command, IShortDescription
 
                     if (!checkSucceeded)
                     {
-                        if (!isJson)
-                        {
-                            logger.LogWarning(
-                                "{Warning}  Could not check the feed for a newer WinUI template pack; keeping installed version {Version}. Re-run with --verbose for details.",
-                                UiSymbols.Warning, installed);
-                        }
-                        return (true, installed, null);
+                        // Fail rather than keep the installed pack: the caller explicitly asked for the
+                        // latest, and a silent success would let automation build from stale templates.
+                        return (false, null,
+                            $"Could not check the feed for a newer WinUI template pack (installed: {installed}). Check your network and NuGet sources, or re-run with '--template-version {InstalledVersionKeyword}' to use the installed pack. Re-run with --verbose for details.");
                     }
 
                     templateUpdateThrottle.Record(installed, feedLatest);

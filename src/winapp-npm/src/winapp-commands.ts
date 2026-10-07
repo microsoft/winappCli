@@ -760,7 +760,7 @@ export interface NewOptions extends CommonOptions {
   output?: string;
   /** Template short name. XAML templates: winui, winui-navview, winui-tabview, winui-mvvm, winui-lib, winui-unittest. Experimental Reactor (C#-only, MVU) templates: reactor, reactor-mvu, reactor-navview, reactor-tabview. Run 'winapp new --list' to see all. */
   template?: string;
-  /** WinUI template pack version: 'latest' (install newest), 'installed' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack. */
+  /** WinUI template pack version: 'latest' (update to newest; never downgrades), 'installed' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack. */
   templateVersion?: string;
   /** Do not prompt; use defaults (blank template, name from --output/--name, keep installed templates). */
   useDefaults?: boolean;

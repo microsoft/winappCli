@@ -1589,7 +1589,7 @@ public class NewCommandHandlerTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task Handler_TemplateVersionLatest_UpdateCheckFails_KeepsInstalledPack()
+    public async Task Handler_TemplateVersionLatest_UpdateCheckFails_ReturnsTemplatePackFailed()
     {
         ScriptInstalledPackWithUpdateCheck("0.0.5-alpha", 1, string.Empty);
         var command = GetRequiredService<NewCommand>();
@@ -1597,10 +1597,14 @@ public class NewCommandHandlerTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(
             command, ["--use-defaults", "--json", "--template-version", "latest", "--list"]);
 
-        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        Assert.AreEqual(NewCommand.ExitTemplatePackFailed, exitCode,
+            "An explicit 'latest' that cannot reach the feed must fail rather than report the installed pack as latest.");
         Assert.IsFalse(
             _dotnet.ArgumentListInvocations.Any(a => a.Count >= 2 && a[0] == "new" && a[1] == "install"),
             "Without an authoritative feed check, 'latest' must not blindly reinstall over the installed pack.");
+        var error = ParseJson(TestAnsiConsole.Output).GetProperty("Error").GetString();
+        Assert.IsTrue(error is not null && error.Contains("--template-version installed", StringComparison.Ordinal),
+            $"The JSON error must point at the offline workaround. Got: {error}");
     }
 
     [TestMethod]

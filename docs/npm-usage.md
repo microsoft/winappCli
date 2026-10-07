@@ -519,7 +519,7 @@ function newCommand(options?: NewOptions): Promise<WinappResult>
 | `name` | `string \| undefined` | No | Name for the new app/project (default: derived from --output, else 'WinUIApp'). |
 | `output` | `string \| undefined` | No | Directory to create the app in (default: ./<name>). Created if it doesn't exist. |
 | `template` | `string \| undefined` | No | Template short name. XAML templates: winui, winui-navview, winui-tabview, winui-mvvm, winui-lib, winui-unittest. Experimental Reactor (C#-only, MVU) templates: reactor, reactor-mvu, reactor-navview, reactor-tabview. Run 'winapp new --list' to see all. |
-| `templateVersion` | `string \| undefined` | No | WinUI template pack version: 'latest' (install newest), 'installed' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack. |
+| `templateVersion` | `string \| undefined` | No | WinUI template pack version: 'latest' (update to newest; never downgrades), 'installed' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack. |
 | `useDefaults` | `boolean \| undefined` | No | Do not prompt; use defaults (blank template, name from --output/--name, keep installed templates). |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`, `signal`, `workflowId`).*
@@ -2023,7 +2023,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `name` | `string \| undefined` | No | Name for the new app/project (default: derived from --output, else 'WinUIApp'). |
 | `output` | `string \| undefined` | No | Directory to create the app in (default: ./<name>). Created if it doesn't exist. |
 | `template` | `string \| undefined` | No | Template short name. XAML templates: winui, winui-navview, winui-tabview, winui-mvvm, winui-lib, winui-unittest. Experimental Reactor (C#-only, MVU) templates: reactor, reactor-mvu, reactor-navview, reactor-tabview. Run 'winapp new --list' to see all. |
-| `templateVersion` | `string \| undefined` | No | WinUI template pack version: 'latest' (install newest), 'installed' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack. |
+| `templateVersion` | `string \| undefined` | No | WinUI template pack version: 'latest' (update to newest; never downgrades), 'installed' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack. |
 | `useDefaults` | `boolean \| undefined` | No | Do not prompt; use defaults (blank template, name from --output/--name, keep installed templates). |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
