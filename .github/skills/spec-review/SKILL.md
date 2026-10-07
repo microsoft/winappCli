@@ -79,13 +79,13 @@ report header — one line, not an analysis).
 ### 2. Map the impacted codebase areas
 
 The sub-agents need to know **where in the real repo to research.** Skim the
-spec, then use `grep` / `glob` / `view` (and `docs/cli-schema.json`) to locate
+spec, then use `grep` / `glob` / `view` (and `winapp --cli-schema` when built) to locate
 the actual files, commands, services, tools, and docs the proposal would touch.
 Build a short **area map** to include in every sub-agent prompt. Common buckets:
 
 | Area | Where to look |
 |------|---------------|
-| CLI commands / options | `src/winapp-CLI/WinApp.Cli/Commands/`, `docs/cli-schema.json` |
+| CLI commands / options | `src/winapp-CLI/WinApp.Cli/Commands/`, `winapp --cli-schema` when built |
 | Services & helpers | `src/winapp-CLI/WinApp.Cli/Services/`, `*Helper.cs`, `AppxManifestDocument` |
 | Packaging / MSIX / signing | `MsixService`, cert/signing services, `makeappx`/`signtool` usage |
 | Manifest handling | `AppxManifestDocument`, `ManifestHelper` |

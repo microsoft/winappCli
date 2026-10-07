@@ -32,6 +32,11 @@
       "homepage": "https://github.com/microsoft/WinAppCli",
       "repository": "https://github.com/microsoft/WinAppCli",
       "license": "MIT"
+    },
+    {
+      "name": "winui",
+      "description": "Agents and skills for WinUI 3 app development. Create new WinUI 3 desktop apps, convert from other frameworks to WinUI 3, or add features to existing WinUI 3 applications.",
+      "source": "./plugins/winui"
     }
   ]
 }

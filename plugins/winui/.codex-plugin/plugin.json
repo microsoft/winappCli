@@ -1,0 +1,47 @@
+{
+  "name": "winui",
+  "version": "0.7.1",
+  "description": "Agents and skills for WinUI 3 app development. Create new WinUI 3 desktop apps, convert from other frameworks to WinUI 3, or add features to existing WinUI 3 applications.",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://github.com/microsoft/win-dev-skills"
+  },
+  "homepage": "https://aka.ms/winui-skills",
+  "repository": "https://github.com/microsoft/win-dev-skills",
+  "license": "MIT",
+  "keywords": [
+    "windows",
+    "winui",
+    "winui3",
+    "xaml",
+    "windows app sdk",
+    "msix",
+    "packaging",
+    "code signing",
+    "microsoft store",
+    "wpf",
+    "dotnet",
+    "desktop app",
+    "fluent design",
+    "accessibility"
+  ],
+  "skills": "./agent-plugin/skills/",
+  "interface": {
+    "displayName": "WinUI",
+    "shortDescription": "Build, package, and ship WinUI 3 desktop apps.",
+    "longDescription": "End-to-end WinUI 3 development for AI agents — scaffold projects, design XAML with Fluent UI and accessibility, build and diagnose with a real toolchain, automate UI tests, run code reviews, migrate from WPF, and package signed MSIX installers. Each skill is paired with purpose-built tools so the agent fetches just what it needs.",
+    "developerName": "Microsoft",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://aka.ms/winui-skills",
+    "defaultPrompt": [
+      "Create a new WinUI 3 app with MVVM.",
+      "Build and run the WinUI 3 project in this folder and fix any errors.",
+      "Migrate this WPF app to WinUI 3.",
+      "Package this WinUI 3 app as a signed MSIX."
+    ],
+    "brandColor": "#1f7fd6",
+    "composerIcon": "./agent-plugin/assets/logo.svg",
+    "logo": "./agent-plugin/assets/logo-512.png"
+  }
+}
