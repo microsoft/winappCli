@@ -224,6 +224,8 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
     }
 
     public bool ShowOverlay(CancellationToken cancellationToken = default) => Request("Overlay.show", cancellationToken: cancellationToken).Ok;
+
+    public bool ArmToolbarShortcut(CancellationToken cancellationToken = default) => Request("Internal.armToolbarShortcut", cancellationToken: cancellationToken).Ok;
     public bool OpenWindow(CancellationToken cancellationToken = default) => ReadWindowState(Request("Window.open", cancellationToken: cancellationToken)) == true;
     public bool CloseWindow(CancellationToken cancellationToken = default) => ReadWindowState(Request("Window.close", cancellationToken: cancellationToken)) == false;
     public bool? GetWindowState(CancellationToken cancellationToken = default) => ReadWindowState(Request("Window.getState", cancellationToken: cancellationToken));

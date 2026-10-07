@@ -19,6 +19,12 @@ internal interface IDevToolsService
         bool showOverlay,
         DevToolsAccess requestedAccess,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// For a headless run: hands the app its comments and arms Ctrl+Shift+F12, which builds the toolbar on the first
+    /// press. Draws nothing in the app. Best effort.
+    /// </summary>
+    void PrepareHeadless(uint targetPid, CancellationToken cancellationToken) { }
 }
 
 internal enum DevToolsAccess

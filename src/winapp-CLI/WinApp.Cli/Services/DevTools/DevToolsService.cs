@@ -160,6 +160,23 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
         return CompleteConnection(target, targetPid, showOverlay, cancellationToken);
     }
 
+    public void PrepareHeadless(uint targetPid, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var target = Process.GetProcessById(unchecked((int)targetPid));
+            commentPusher.Push(targetPid, CommentStoreRootFor(target), cancellationToken: cancellationToken);
+        }
+        catch (ArgumentException)
+        {
+            return;
+        }
+        if (!new VisualTreeTap(targetPid).ArmToolbarShortcut(cancellationToken))
+        {
+            logger.LogDebug("Ctrl+Shift+F12 could not be armed in {Pid}.", targetPid);
+        }
+    }
+
     private DevToolsConnection CompleteConnection(Process target, uint targetPid, bool showOverlay, CancellationToken cancellationToken)
     {
         var tap = new VisualTreeTap(targetPid);

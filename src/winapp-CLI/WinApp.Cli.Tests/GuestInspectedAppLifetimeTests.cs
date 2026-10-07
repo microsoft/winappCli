@@ -284,7 +284,7 @@ public class GuestInspectedAppLifetimeTests
         {
             StringAssert.Contains(failure.Error!, "Protocol attached");
             StringAssert.Contains(failure.Error!, "overlay startup");
-            StringAssert.Contains(failure.Error!, "--no-overlay");
+            StringAssert.Contains(failure.Error!, "--devtools headless");
         }
     }
 

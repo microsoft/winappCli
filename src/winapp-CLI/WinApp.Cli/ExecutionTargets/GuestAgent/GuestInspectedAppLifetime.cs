@@ -107,7 +107,7 @@ internal static class GuestInspectedAppLifetime
                 {
                     stage = "overlay startup";
                     failure = $"Protocol attached, but the requested overlay did not open. {connection.OverlayError} " +
-                        "The owned guest application will be stopped; use --no-overlay for a headless launch.";
+                        "The owned guest application will be stopped; use --devtools headless for a headless launch.";
                 }
                 else
                 {

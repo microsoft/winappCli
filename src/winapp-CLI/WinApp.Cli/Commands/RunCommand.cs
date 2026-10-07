@@ -250,7 +250,6 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         Options.Add(DebugOutputOption);
         Options.Add(DevToolsOption);
         Options.Add(GuestInspectorApplicationOption);
-        Options.Add(NoOverlayOption);
         Options.Add(UnregisterOnExitOption);
         Options.Add(DetachOption);
         Options.Add(CleanOption);
@@ -352,7 +351,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             var aot = parseResult.GetValue(AotOption);
             var guestInspectorApplication = parseResult.GetValue(GuestInspectorApplicationOption);
             if (guestInspectorApplication is not null &&
-                (!noLaunch || !executionTarget.IsLocal || parseResult.GetValue(DevToolsOption) ||
+                (!noLaunch || !executionTarget.IsLocal || parseResult.GetValue(DevToolsOption) is DevToolsMode.On or DevToolsMode.Headless ||
                     string.IsNullOrWhiteSpace(guestInspectorApplication)))
             {
                 return Fail("Guest inspector alias preparation is only valid during local register-only execution.", isJson);
@@ -437,21 +436,20 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
             WarnIfNuGetCallerForwardedAWinAppOption(parseResult, passthroughArgs, isJson);
 
-            if (parseResult.GetValue(DevToolsOption) && !executionTarget.IsLocal &&
-                (withAlias || debugOutput || unregisterOnExit))
+            // Options DevTools can't work with fail only when DevTools was asked for; otherwise they turn the default off.
+            var requestedDevTools = parseResult.GetValue(DevToolsOption);
+            var explicitDevTools = requestedDevTools is DevToolsMode.On or DevToolsMode.Headless;
+            var sandboxDevToolsConflict = !executionTarget.IsLocal && (withAlias || debugOutput || unregisterOnExit);
+            if (explicitDevTools && sandboxDevToolsConflict)
             {
                 return Fail("Sandbox DevTools uses a retained private launch and does not support --with-alias, --debug-output or --unregister-on-exit. App standard streams are suppressed.", isJson);
             }
 
-            if (parseResult.GetValue(NoOverlayOption) && !parseResult.GetValue(DevToolsOption))
-            {
-                return Fail("--no-overlay requires --devtools.", isJson);
-            }
-            if (parseResult.GetValue(DevToolsOption) && noLaunch)
+            if (explicitDevTools && noLaunch)
             {
                 return Fail("--devtools and --no-launch cannot be used together.", isJson);
             }
-            if (parseResult.GetValue(DevToolsOption) && withoutAlias)
+            if (explicitDevTools && withoutAlias)
             {
                 return Fail("--devtools requires a private launch environment and cannot use --without-alias. " +
                     "Launch normally and use 'winapp devtools attach --pid <pid>' for limited late inspection.", isJson);
@@ -596,11 +594,22 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             {
                 return Fail("--guest-inspector-application requires a prebuilt registration layout, not a project or single-file app.", isJson);
             }
-            if (parseResult.GetValue(DevToolsOption) && !executionTarget.IsLocal && inputResolution.Mode != WinAppRunMode.Project)
+            if (explicitDevTools && !executionTarget.IsLocal && inputResolution.Mode != WinAppRunMode.Project)
             {
                 return Fail("Sandbox DevTools requires a project with evaluated XAML sources for persistent host comments. Output-only and single-file inputs cannot establish that source owner.", isJson);
             }
 
+            // A run DevTools could not start for (CI, --no-launch, --without-alias, a Sandbox run, a guest registration)
+            // stays plain unless DevTools was asked for, and only a WinUI project gets it by default.
+            var winUIProject = inputResolution.Mode == WinAppRunMode.Project &&
+                projectContextDetector.DetectProject(inputResolution.Csproj!).Framework == ProjectAppFramework.WinUI;
+            devToolsRun = DevToolsResolution.Resolve(requestedDevTools,
+                DevToolsResolution.IsCi(ReadCiVariable()),
+                noLaunch || withoutAlias || !executionTarget.IsLocal || guestInspectorApplication is not null,
+                winUIProject, requestedDevTools is null ? ReadDefaultMode() : null);
+            devToolsReported = requestedDevTools is not null || winUIProject;
+            DevToolsRunTelemetryScope.Set(devToolsRun);
+            AnnounceDefaultDevTools(isJson);
             ProjectContextEvent.Log("run", () =>
                 string.Equals(
                     parseResult.GetValue(WinAppRootCommand.CallerOption),
@@ -676,8 +685,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 inputFolder, manifest, layoutOutput, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: null, projectFile: null, framework: null, noRestore: false, selfContained: false,
-                folderAliasDecision, executionTarget, cancellationToken, devTools: parseResult.GetValue(DevToolsOption),
-                showOverlay: !parseResult.GetValue(NoOverlayOption), inspectorApplicationId: guestInspectorApplication);
+                folderAliasDecision, executionTarget, cancellationToken, devTools: devToolsRun.Enabled,
+                showOverlay: devToolsRun.ShowToolbar, inspectorApplicationId: guestInspectorApplication);
         }
 
         /// <summary>
@@ -799,6 +808,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             DirectoryInfo? resolvedOutputDir = null;
             InspectorAlias? inspectorAlias = null;
             int[] replaced = [];
+            int[] closedForDevTools = [];
+            string? devToolsStepAside = null;
             var statusMessage = noLaunch ? "Registering packaged application..." : "Launching packaged application...";
             var success = await statusService.ExecuteWithStatusAsync(statusMessage, async (taskContext, cancellationToken) =>
             {
@@ -899,6 +910,21 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // DevTools must start the app itself: a running instance would either keep the old
                     // files locked or receive this launch without DevTools, depending on the app.
                     var runningBefore = ProcessesRunningFromLayout(outputAppXDirectory);
+                    if (devTools && runningBefore.Count > 0 && devToolsRun.FailOpen)
+                    {
+                        // A default DevTools run would otherwise lose DevTools on every second run of an edit loop.
+                        if (runningBefore.All(CloseRunningProcess))
+                        {
+                            closedForDevTools = [.. runningBefore];
+                            runningBefore = [];
+                        }
+                        else
+                        {
+                            devToolsStepAside = $"the app is already running (PID {string.Join(", ", runningBefore)}) and could not be closed.";
+                            devTools = false;
+                            effectiveAlias = AliasLaunchDecision.Aumid;
+                        }
+                    }
                     if (devTools && runningBefore.Count > 0)
                     {
                         errorMessage = $"The app is already running (PID {string.Join(", ", runningBefore)}). " +
@@ -1006,6 +1032,15 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 ansiConsole.MarkupLineInterpolated(
                     $"{UiSymbols.Note} Closed the running instance (PID {string.Join(", ", replaced)}) to update its registration.");
             }
+            if (closedForDevTools.Length > 0 && !isJson)
+            {
+                ansiConsole.MarkupLineInterpolated(
+                    $"{UiSymbols.Note} Closed {closedForDevTools.Length} running instance(s) of this app (PID {string.Join(", ", closedForDevTools)}) so DevTools starts cold.");
+            }
+            if (devToolsStepAside is not null)
+            {
+                DevToolsStepsAside(devToolsStepAside, isJson);
+            }
 
             if (noLaunch)
             {
@@ -1018,9 +1053,29 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
             if (devTools)
             {
-                return await RunInspectorAliasAsync(inspectorAlias, inputFolder, projectFile, aumid, appArgs,
+                if (await RunInspectorAliasAsync(inspectorAlias, inputFolder, projectFile, aumid, appArgs,
                     debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName, cancellationToken,
-                    nativeAot, devToolsSources, devToolsCompilerArtifacts);
+                    nativeAot, devToolsSources, devToolsCompilerArtifacts) is int inspected)
+                {
+                    return inspected;
+                }
+
+                // DevTools stepped aside before launching anything: launch the registered app as a plain run does.
+                resolvedUseAlias = false;
+                try
+                {
+                    processId = appLauncherService.LaunchByAumid(aumid!, appArgs);
+                }
+                catch (Exception error)
+                {
+                    errorMessage = RunFailure.Describe(error);
+                    logger.LogError("{UISymbol} Failed to launch application: {Message}", UiSymbols.Error, errorMessage);
+                    if (isJson)
+                    {
+                        PrintJson(aumid, processId: null, errorMessage);
+                    }
+                    return 1;
+                }
             }
 
             return await LaunchRegisteredApplicationAsync(
@@ -1176,7 +1231,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 Error = errorMessage,
                 SourceWarnings = Services.DevTools.XamlSourceExclusion.Collapse(sourceWarnings),
                 SourceError = sourceError,
-                DevTools = devTools,
+                DevTools = WithDevToolsMode(devTools),
             };
 
             var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Default.RunCommandResult);

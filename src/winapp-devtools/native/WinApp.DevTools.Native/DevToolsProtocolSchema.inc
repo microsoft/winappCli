@@ -188,6 +188,7 @@ WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalPick,              L"Internal.pick",    
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalSourceRoot,        L"Internal.sourceRoot",           L"Internal",   DevToolsAccess::Read,     DevToolsVisibility::Internal, EmptyParams,                  InternalSourceRootResult)
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalElementAnchor,     L"Internal.elementAnchor",        L"Internal",   DevToolsAccess::Read,     DevToolsVisibility::Internal, HandleParams,                 InternalElementAnchorResult)
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalSetComments,       L"Internal.setComments",          L"Internal",   DevToolsAccess::Ui,       DevToolsVisibility::Internal, InternalSetCommentsParams,    InternalSetCommentsResult)
+WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalArmToolbarShortcut, L"Internal.armToolbarShortcut",   L"Internal",   DevToolsAccess::Ui,       DevToolsVisibility::Internal, EmptyParams,                  NullResult)
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalOverlayHost,       L"Internal.overlayHost",          L"Internal",   DevToolsAccess::Ui,       DevToolsVisibility::Internal, InternalOverlayHostParams,    InternalOverlayHostResult)
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalPerf,              L"Internal.perf",                 L"Internal",   DevToolsAccess::Mutation, DevToolsVisibility::Internal, InternalPerfParams,           InternalPerfResult)
 

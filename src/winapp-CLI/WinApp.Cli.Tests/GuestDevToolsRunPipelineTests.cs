@@ -96,7 +96,7 @@ public sealed class GuestDevToolsRunPipelineTests() : BaseCommandTests(logLevel:
         var project = new FileInfo(Path.Combine(_tempDirectory.FullName, "App.csproj"));
         File.WriteAllText(project.FullName, "<Project />");
         var parsed = GetRequiredService<WinAppRootCommand>().Parse(
-            ["run", project.FullName, "--devtools", "--on=sandbox", "--json", option]);
+            ["run", project.FullName, "--devtools", "on", "--on=sandbox", "--json", option]);
         Assert.AreEqual(1, await GetRequiredService<RunCommand.Handler>().InvokeAsync(parsed, TestContext.CancellationToken));
         Assert.AreEqual(0, _backend.ProbeCalls);
         Assert.AreEqual(0, _backend.ConnectionCalls);
@@ -129,7 +129,7 @@ public sealed class GuestDevToolsRunPipelineTests() : BaseCommandTests(logLevel:
         var handler = GetRequiredService<RunCommand.Handler>();
         handler.ReadGuestDevToolsCapabilities = _ => Task.FromResult<GuestDevToolsCapabilities?>(null);
         var parsed = GetRequiredService<WinAppRootCommand>().Parse(
-            ["run", csproj.FullName, "--devtools", "--on=sandbox", "--json", "--no-build"]);
+            ["run", csproj.FullName, "--devtools", "on", "--on=sandbox", "--json", "--no-build"]);
         Assert.AreEqual(1, await handler.InvokeAsync(parsed, TestContext.CancellationToken));
         Assert.AreEqual(1, _backend.ProbeCalls);
         Assert.AreEqual(0, _backend.ConnectionCalls);
@@ -226,14 +226,10 @@ public sealed class GuestDevToolsRunPipelineTests() : BaseCommandTests(logLevel:
             }
         }
 
-        List<string> args = ["run", csproj.FullName, "--devtools", "--on=sandbox", aot ? "--aot" : "--no-build", "--json"];
+        List<string> args = ["run", csproj.FullName, "--devtools", overlay ? "on" : "headless", "--on=sandbox", aot ? "--aot" : "--no-build", "--json"];
         if (packaged)
         {
             args.Add("--output-appx-directory=" + layout.FullName);
-        }
-        if (!overlay)
-        {
-            args.Add("--no-overlay");
         }
         if (detach)
         {

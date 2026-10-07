@@ -9,14 +9,15 @@ workflow and commands; each command's `--help` shows examples.
 
 ## Get started
 
-1. From your WinUI project directory, build and launch the app with DevTools:
+1. From your WinUI project directory, build and launch the app:
 
    ```powershell
-   winapp run . --devtools
+   winapp run .
    ```
 
-   The app opens with the DevTools toolbar in a corner. The command waits for the
-   app; cancelling it stops the process it launched.
+   DevTools is on for WinUI projects, so the app opens with the DevTools toolbar in a
+   corner. The command waits for the app; cancelling it stops the process it launched.
+   See [Turn DevTools on or off](#turn-devtools-on-or-off).
 
 2. Select **Comments** on the toolbar, then click an element in your app. The comment
    panel opens next to it, showing where the element is declared, ready for a comment.
@@ -44,6 +45,35 @@ workflow and commands; each command's `--help` shows examples.
    ```
 
    See [Review comments with an agent](#review-comments-with-an-agent).
+
+### Turn DevTools on or off
+
+`winapp run` starts DevTools for a WinUI project (`UseWinUI` in the `.csproj`). It
+prints one line saying so and how to turn it off. It doesn't start DevTools:
+
+- in CI (when the `CI` environment variable is set);
+- with `--no-launch`, `--without-alias` or `--on sandbox`;
+- for a build-output folder, a .NET file-based app or a project that isn't WinUI.
+
+To choose for one run, pass `--devtools on`, `--devtools headless` or `--devtools off`.
+`headless` starts DevTools without drawing anything in your app: `winapp devtools`
+commands work, and **Ctrl+Shift+F12** shows the toolbar.
+
+To change the default for your user account:
+
+```powershell
+winapp devtools default off       # or headless, or on
+winapp devtools default           # shows the current default
+```
+
+The toolbar's **⋯** menu changes the same setting.
+
+If DevTools can't start in a run where you didn't pass `--devtools`, the app runs
+without it and winapp says why. If the app is already running, `run` closes it so
+DevTools can start it. With `--devtools on` or `headless`, these are errors.
+
+DevTools adds about 3 seconds to launch, and the app uses more memory over a long
+session as it creates elements, as with Visual Studio's F5 with XAML Hot Reload.
 
 ### The overlay
 
@@ -99,12 +129,14 @@ The **More options** (**⋯**) menu at the end of the toolbar has:
 - **Hide toolbar**: hides it until you press **Ctrl+Shift+F12** or run
   `winapp devtools call Overlay.show`. Comments, the DevTools window and `winapp devtools`
   commands keep working.
-- **Show toolbar on launch**: turn it off to start later runs with the toolbar hidden.
-  The setting is per user and applies to every app.
+- **Show toolbar on launch**: turn it off to make your default `headless`: later runs
+  draw nothing in your app until you press **Ctrl+Shift+F12**.
+- **Turn off DevTools by default**: later runs start without DevTools. Turn it back on
+  with `winapp devtools default on`.
 - **Keep toolbar open**: keeps the toolbar expanded instead of collapsing to its pill.
 
-`winapp run --devtools --no-overlay` starts without any in-app chrome, so the shortcut
-has nothing to show.
+With `--devtools headless`, **Ctrl+Shift+F12** builds and shows the toolbar the first
+time you press it.
 Use a project, solution, build-output folder, or .NET file-based app as the `run`
 input. A DevTools launch prepares source diagnostics and, for managed apps, startup
 binding support before the app starts. It preserves unrelated startup hooks and
@@ -113,7 +145,7 @@ developer environment settings.
 For a project configured for Native AOT, use:
 
 ```powershell
-winapp run . --aot --devtools
+winapp run . --aot
 ```
 
 Native inspection and comments remain available. Managed binding diagnosis and
@@ -192,7 +224,7 @@ rather than guessing. Listing comments does not edit source automatically.
 
 `update --status` accepts `open`, `resolved`, `stale`, or `dismissed`. Every
 add/update/delete refreshes the markers of your running DevTools apps whose project
-uses the same store, including a Sandbox app launched with `winapp run --devtools`
+uses the same store, including a Sandbox app launched with `winapp run --devtools on`
 (within about a second). `--app <pid>` only names an extra target to refresh.
 
 ## Find and inspect an element
@@ -378,19 +410,20 @@ Use a second terminal for inspection commands while the app runs:
 winapp devtools inspect
 ```
 
-Alternatively, `winapp run . --devtools --detach` prints the PID and the next
-command, then returns to your terminal. Use that PID with `-a` when more than one
-app is attached.
+Alternatively, `winapp run . --detach` prints the PID and the next command, then
+returns to your terminal. Use that PID with `-a` when more than one app is attached.
 
 Add `--json` only when a script or structured consumer needs JSON output. It
 changes output formatting, not the overlay. For example:
 
 ```powershell
-winapp run . --devtools --detach --json --no-overlay
+winapp run . --devtools headless --detach --json
 ```
 
-`--no-overlay` explicitly suppresses the in-app overlay and requires `--devtools`.
-Both human-readable and JSON launches open the overlay unless you opt out.
+The JSON's `devTools` object has `mode` (`on`, `headless` or `off`) and `source`
+(`explicit`, `setting`, `default`, `ci`, `option` or `not-winui`). It's included for
+WinUI projects and when you pass `--devtools`. When DevTools stepped aside, its
+`unavailable` field says why.
 
 ## When a command fails
 
@@ -399,7 +432,7 @@ responses. Live-command JSON includes `ok`, `processId`, and an `error` object; 
 and comment commands use a string `error`. Check exit status and `ok`, not just
 whether JSON was printed.
 
-If `run --on sandbox --devtools` fails before readiness, it reports the startup
+If `run --on sandbox --devtools on` fails before readiness, it reports the startup
 failure and host-side launch diagnostics path. A negotiation error means the
 inspector did not return usable capabilities; a host-comment binding refusal means
 its reported authority could not be verified. Keep the error and diagnostics when
@@ -418,19 +451,20 @@ private prerelease, close inspected apps and restart them with the new CLI.
 For packaged apps, winapp automatically prepares the selected application's
 execution alias in the staged manifest. You do not need to author one manually. If
 a packaged alias is disabled or its target cannot be verified, launch fails. Enable
-its entry in Windows App execution aliases and retry. `--devtools` cannot be
+its entry in Windows App execution aliases and retry. `--devtools on` cannot be
 combined with `--no-launch` or `--without-alias`; the [other run-option restrictions](../usage.md#run)
 still apply.
 
-Use `winapp run --devtools` directly for this workflow. The NuGet `dotnet run`
-integration forwards a `false` alias preference as `--without-alias`, so adding
-`--devtools` through `WinAppRunArgs` can conflict with that forwarded option.
+Use `winapp run` directly for this workflow. The NuGet `dotnet run` integration runs
+a build-output folder, where DevTools is off unless you add `--devtools on`, and it
+forwards a `false` alias preference as `--without-alias`, which DevTools can't use.
 
-If the app is already running when you run `winapp run . --devtools`, `run` stops
+If the app is already running when you run `winapp run . --devtools on`, `run` stops
 and names its PID: DevTools needs to start the app itself. Close that instance and
 run again, or attach to its exact PID with the
 [late-attachment limitations](devtools-advanced.md#attach-to-an-app-that-is-already-running).
-When re-registering a changed package closes a running instance, `run` says so.
+Without `--devtools`, `run` closes the running instance instead. When re-registering a
+changed package closes a running instance, `run` says so.
 
 If attachment cannot find the target's Windows App Runtime, ensure the target is a
 running WinUI 3 app. For an explicit runtime override, set
@@ -441,7 +475,7 @@ substituting another DLL.
 
 If the overlay or inspector reports a missing XAML resource, ensure your app merges
 `XamlControlsResources` into `Application.Resources`, as standard WinUI templates
-do. Resource-less hosts can run without an overlay (`--no-overlay`), but the
+do. Resource-less hosts can run without an overlay (`--devtools headless`), but the
 overlay and inspector require those resources.
 
 A packaged CLI stages foreign-load engines in `%USERPROFILE%\.winapp\engine`,

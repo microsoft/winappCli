@@ -208,6 +208,8 @@ std::wstring DevToolsOverlay_GuestCommentsJson();
 std::wstring DevToolsOverlay_GuestCommentToken(const std::wstring& operation, const std::wstring& revision);
 // Tells the user the comment markers and count may be out of date. UI thread only.
 void DevToolsOverlay_NoticeCommentsStale();
+// Shows the toolbar and moves keyboard focus to it, as Ctrl+Shift+F12 does. UI thread only.
+bool DevToolsOverlay_FocusToolbar();
 bool DevToolsOverlay_ResolveGuestComment(const std::wstring& id, const std::wstring& revision,
     std::function<void(int)> completed);
 // Saves a comment on element through the in-app comment writer, for the inspector: id updates that comment, an

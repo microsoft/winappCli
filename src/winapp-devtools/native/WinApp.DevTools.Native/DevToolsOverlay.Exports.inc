@@ -922,3 +922,6 @@ HRESULT DevToolsOverlay_SelectHandle(IXamlDiagnostics* diag, InstanceHandle root
 }
 
 bool DevToolsOverlay_IsCommentFlyoutOpen() { return DevToolsSelPanelIsOpen(); }
+
+// Shows the toolbar and moves keyboard focus to it, as Ctrl+Shift+F12 does. UI thread only.
+bool DevToolsOverlay_FocusToolbar() { return FocusToolbarFromShortcut(); }

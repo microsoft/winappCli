@@ -158,7 +158,7 @@ internal partial class RunCommand
                     unpackaged, singleFile, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols,
                     executable, manifest, outputAppXDirectory, isJson,
-                    executionTarget, cancellationToken, devTools: parseResult.GetValue(DevToolsOption), showOverlay: !parseResult.GetValue(NoOverlayOption));
+                    executionTarget, cancellationToken, devTools: devToolsRun.Enabled, showOverlay: devToolsRun.ShowToolbar);
             }
 
             // Resolve the effective executable ONCE, before the manifest is generated. Generation writes a
@@ -245,7 +245,7 @@ internal partial class RunCommand
                         outputAppXDirectory,
                         effectiveLayout)),
                 packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier),
-                devTools: parseResult.GetValue(DevToolsOption), showOverlay: !parseResult.GetValue(NoOverlayOption));
+                devTools: devToolsRun.Enabled, showOverlay: devToolsRun.ShowToolbar);
         }
 
         /// <summary>

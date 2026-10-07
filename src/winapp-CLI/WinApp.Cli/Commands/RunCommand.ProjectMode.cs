@@ -221,7 +221,7 @@ internal partial class RunCommand
             // UX: it streams dotnet's output live and prints the exact invocation; in --json/--quiet mode it
             // routes both to stderr to keep stdout pure.
             var buildOptions = new ProjectRunOptions(configuration, architecture, framework, noBuild, noRestore, properties, isJson, solution,
-                CaptureDevToolsSources: parseResult.GetValue(DevToolsOption));
+                CaptureDevToolsSources: devToolsRun.Enabled);
 
             // Fail fast (issue #676): identity-only options like --no-launch are meaningless for an
             // unpackaged app but are only rejected authoritatively AFTER packaging is known (post-build).
@@ -268,11 +268,11 @@ internal partial class RunCommand
                 ? await RunPackagedProjectAsync(
                     resolution, csproj, manifest, layoutOutput, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, noBuild, isJson,
-                    executionTarget, cancellationToken, devTools: parseResult.GetValue(DevToolsOption), showOverlay: !parseResult.GetValue(NoOverlayOption))
+                    executionTarget, cancellationToken, devTools: devToolsRun.Enabled, showOverlay: devToolsRun.ShowToolbar)
                 : await RunUnpackagedProjectAsync(
                     resolution, csproj, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, manifest, outputAppXDirectory, isJson,
-                    executionTarget, cancellationToken, devTools: parseResult.GetValue(DevToolsOption), showOverlay: !parseResult.GetValue(NoOverlayOption));
+                    executionTarget, cancellationToken, devTools: devToolsRun.Enabled, showOverlay: devToolsRun.ShowToolbar);
         }
 
         /// <summary>
@@ -453,17 +453,32 @@ internal partial class RunCommand
             }
 
             ILaunchedProcess launched;
-            using var coordinates = devTools
-                ? await Services.DevTools.XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(csproj, resolution.DevToolsXamlSources,
-                    resolution.DevToolsCompilerArtifacts, cancellationToken,
-                    (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(exePath)!, token)) : null;
+            Services.DevTools.XamlSourceCoordinates.XamlCoordinateLaunch? coordinates = null;
+            IReadOnlyDictionary<string, string?>? environment = null;
+            if (devTools)
+            {
+                try
+                {
+                    coordinates = await Services.DevTools.XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(csproj, resolution.DevToolsXamlSources,
+                        resolution.DevToolsCompilerArtifacts, cancellationToken,
+                        (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(exePath)!, token));
+                    environment = CreateDevToolsEnvironment(csproj.DirectoryName, !resolution.IsAot);
+                }
+                catch (Exception ex) when (devToolsRun.FailOpen && ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    coordinates?.Dispose();
+                    coordinates = null;
+                    DevToolsStepsAside($"it could not be prepared: {RunFailure.Describe(ex)}", isJson);
+                    devTools = false;
+                }
+            }
+            using var ownedCoordinates = coordinates;
             try
             {
                 // For --detach and --json the child must not inherit winapp's standard handles: inheritance
                 // would keep the npm wrapper's captured stdout pipe open (blocking a detached launch) and let
                 // app output corrupt --json stdout. A foreground, non-JSON run streams inline like `dotnet run`.
                 var stdioMode = (detach || isJson) ? LaunchStdioMode.Suppress : LaunchStdioMode.Inherit;
-                var environment = devTools ? CreateDevToolsEnvironment(csproj.DirectoryName, !resolution.IsAot) : null;
                 if (coordinates is not null && environment is not null)
                 {
                     environment = coordinates.Apply(environment, Path.GetDirectoryName(exePath)!);

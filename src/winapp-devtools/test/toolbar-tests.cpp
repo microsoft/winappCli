@@ -457,7 +457,7 @@ static void TestToolbarContract()
     CheckToolbar(window.find("AutomationProperties.AutomationId=\\\"WinAppDevToolsAddComment\\\"") != std::string::npos &&
                      window.find("DevToolsOverlay_AddComment(element, value, saved->id") != std::string::npos,
                  "the inspector's Comment action saves through the in-app comment writer");
-    CheckToolbar(overlay.find("static EventSink g_protoSink[21];") != std::string::npos,
+    CheckToolbar(overlay.find("static EventSink g_protoSink[22];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");
     CheckToolbar(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &OnPickClick);") != std::string::npos,
                  "Pick is wired by namescope identity");

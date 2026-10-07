@@ -10,15 +10,16 @@ DevTools costs a running app.
 From your WinUI project directory:
 
 ```powershell
-$run = winapp run . --on sandbox --devtools --detach --json | ConvertFrom-Json
+$run = winapp run . --on sandbox --devtools on --detach --json | ConvertFrom-Json
 winapp devtools inspect --on sandbox --app $run.appSelector
 winapp devtools comments list --status open --json
 ```
 
 Complete the [Windows Sandbox prerequisites](../sandbox-execution.md#before-you-start)
 first. The project builds on your machine; the app, overlay, and inspector run
-inside Sandbox. Add `--no-overlay` to suppress the guest overlay, or omit
-`--detach` to wait for the app and stop the owned launch when you cancel.
+inside Sandbox. DevTools is off by default in Sandbox, so pass `--devtools on`, or
+`--devtools headless` to suppress the guest overlay. Omit `--detach` to wait for the
+app and stop the owned launch when you cancel.
 
 Guest DevTools requests a normal app close before forced cleanup. Save your app's
 work before cancelling the session.
@@ -91,13 +92,13 @@ the inspector window. The agent remains until the app exits.
 Late attachment cannot add a .NET startup hook or recover source information that
 was not recorded at launch. Native tree/property inspection is still available,
 but managed binding operations need an app launched with the hook. Source reporting
-also depends on the app providing XAML source information. Use `winapp run --devtools`
-when you need startup instrumentation.
+also depends on the app providing XAML source information. Use `winapp run`, which
+starts DevTools for a WinUI project, when you need startup instrumentation.
 
 ### Visual UI prerequisites
 
 ```powershell
-winapp run . --devtools --no-overlay
+winapp run . --devtools headless
 winapp devtools inspect -a 12345
 ```
 
@@ -109,8 +110,8 @@ prerequisites.
 If a requested overlay fails, the command returns nonzero and includes the XAML
 runtime diagnostic, such as a missing `AcrylicBackgroundFillColorDefaultBrush`.
 For a local app, the process remains attached and can still be inspected by PID. A
-failed Sandbox startup stops its owned guest app; relaunch with `--no-overlay` for
-headless inspection.
+failed Sandbox startup stops its owned guest app; relaunch with `--devtools headless`
+for headless inspection.
 
 For a custom C++/WinRT startup, delegate the application's `IXamlMetadataProvider`
 to `Microsoft.UI.Xaml.XamlTypeInfo.XamlControlsXamlMetaDataProvider` and merge
@@ -271,5 +272,5 @@ Measured on a small WinUI sample app:
 - While DevTools is attached, memory grows by about 130 bytes for every XAML element the app creates, and that memory is not
   released while the app runs. In an app that keeps rebuilding its pages, such as navigating between heavy pages, that is a few
   MB per cycle. This memory is held by WinUI's diagnostics while DevTools is subscribed to the visual tree, not by DevTools'
-  own element index, which shrinks as elements leave the tree. It is the same with `--no-overlay`. Restart the app without
-  `--devtools` when you measure memory.
+  own element index, which shrinks as elements leave the tree. It is the same with `--devtools headless`. Use
+  `--devtools off` when you measure memory.

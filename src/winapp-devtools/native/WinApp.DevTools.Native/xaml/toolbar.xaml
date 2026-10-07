@@ -274,6 +274,7 @@
       </Button>
       <ToggleButton x:Name="DevToolsShowOnLaunch" Style="{x:Null}" AllowFocusOnInteraction="False" Height="32" Padding="10,0" BorderThickness="0" CornerRadius="4"
               HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="#00000000" Foreground="$TEXT$"
+              ToolTipService.ToolTip="When off, winapp run starts DevTools headless: nothing is drawn in the app until you press Ctrl+Shift+F12."
               AutomationProperties.AutomationId="DevToolsShowOnLaunch"
               AutomationProperties.Name="Show toolbar on launch">
         <ToggleButton.Resources>
@@ -293,7 +294,13 @@
           <TextBlock Text="Show toolbar on launch" FontSize="12" Foreground="$TEXT$" VerticalAlignment="Center" />
         </StackPanel>
       </ToggleButton>
-      <ToggleButton x:Name="DevToolsProtoPin" Style="{x:Null}" AllowFocusOnInteraction="False" Height="32" Padding="10,0" BorderThickness="0" CornerRadius="4"
+      <Button x:Name="DevToolsTurnOffByDefault" Style="{x:Null}" AllowFocusOnInteraction="False" Height="32" Padding="32,0,10,0" BorderThickness="0" CornerRadius="4"
+              HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="#00000000" Foreground="$TEXT$"
+              ToolTipService.ToolTip="winapp run will start WinUI projects without DevTools. Turn it back on with: winapp devtools default on"
+              AutomationProperties.AutomationId="DevToolsTurnOffByDefault"
+              AutomationProperties.Name="Turn off DevTools by default">
+        <TextBlock Text="Turn off DevTools by default" FontSize="12" Foreground="$TEXT$" VerticalAlignment="Center" />
+      </Button>      <ToggleButton x:Name="DevToolsProtoPin" Style="{x:Null}" AllowFocusOnInteraction="False" Height="32" Padding="10,0" BorderThickness="0" CornerRadius="4"
               HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="#00000000" Foreground="$TEXT$"
               AutomationProperties.AutomationId="DevToolsProtoPin"
               AutomationProperties.Name="Keep toolbar open">

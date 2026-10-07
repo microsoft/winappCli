@@ -95,7 +95,7 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
             if (DevToolsSettingsGetBool(L"ToolbarPinned", false)) { ProtoSetPinned(true); ShowARow(true); }
 // the layout-adorner toggle is persisted the same way.
             if (DevToolsSettingsGetBool(L"LayoutAdorners", false)) SetLayoutAdornersOn(true);
-            SetShowOnLaunch(DevToolsSettingsGetBool(L"ToolbarOnLaunch", true));
+            SetShowOnLaunch(DefaultModeIsOn());
             UpdateChipLabel();
 
 // The toolbar content is hosted in the XAML diagnostics UI layer of the app panel's XamlRoot (HostAttach). Its
@@ -200,8 +200,8 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
         g_hostRootIdentity = std::move(identity);
         ++g_hostGeneration;
         g_failedRecoveryPanel = 0;
-        // DevTools attaches either way; the user may have chosen to start with the toolbar hidden.
-        g_toolbarVisible = DevToolsSettingsGetBool(L"ToolbarOnLaunch", true);
+        // A headless run builds no overlay; once it is built (Overlay.show or Ctrl+Shift+F12) the toolbar shows.
+        g_toolbarVisible = true;
         ShowARow(g_aRowOpen);
         NotifyStateChanged();
     }

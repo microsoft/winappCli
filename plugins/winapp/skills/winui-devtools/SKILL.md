@@ -15,10 +15,13 @@ handles) belong to one tool; copy a fresh one from that tool's `inspect` or
 `search`.
 
 ```powershell
-winapp run . --devtools
+winapp run .
 ```
 
-This opens the in-app overlay and waits for the app. Let the user leave comments there:
+For a WinUI project this starts DevTools with its in-app toolbar and waits for the app
+(it is off in CI, with `--no-launch`, `--without-alias` or `--on sandbox`, and for
+folders, .cs files and non-WinUI projects; pass `--devtools on` there). Let the user
+leave comments there:
 turn on **Comments** in the toolbar, click an element, type, press Enter (Shift+Enter for a
 new line), or click the next element to save and move on. **Select element** opens the
 DevTools window on the element the user clicks. Ctrl+Shift+F12 moves keyboard
@@ -28,9 +31,11 @@ Use an exact PID with `-a` when multiple apps are attached.
 Never stop another app automatically to make a rebuild succeed.
 
 `--json` is optional output formatting for structured consumers, not the default
-agent workflow. It does not hide the overlay. Use `--no-overlay` explicitly for
-an authorized headless inspection launch; it requires `--devtools`.
-For a script, capture `$run = winapp run . --devtools --detach --json | ConvertFrom-Json`,
+agent workflow. It does not hide the overlay. Use `--devtools headless` for an
+authorized headless inspection launch: nothing is drawn in the app, and
+Ctrl+Shift+F12 brings up the toolbar. `--devtools off` runs without DevTools; don't
+change the user's default (`winapp devtools default`) unless they ask.
+For a script, capture `$run = winapp run . --devtools on --detach --json | ConvertFrom-Json`,
 then use `winapp devtools inspect -a $run.ProcessId`. After the human leaves a comment, follow
 [the comment workflow below](#turn-the-users-comments-into-changes).
 If attachment succeeds but the overlay reports a missing XAML resource/type,
@@ -62,7 +67,7 @@ Choosing a PID or HWND alone never authorizes injection.
 ## Inspect inside Sandbox
 
 ```powershell
-$run = winapp run . --on sandbox --devtools --detach --json | ConvertFrom-Json
+$run = winapp run . --on sandbox --devtools on --detach --json | ConvertFrom-Json
 winapp devtools inspect --on sandbox --app $run.appSelector
 winapp devtools comments list --status open --json
 ```

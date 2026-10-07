@@ -480,7 +480,7 @@ public class RunCommandTests : BaseCommandTests
         await CreateTestManifestAsync();
         _fakeMsixService.ExceptionToThrow = new UnauthorizedAccessException("UnauthorizedAccess_IODenied_NoPathName");
         var args = new List<string> { _tempDirectory.FullName, "--detach" };
-        if (devTools) { args.Add("--devtools"); }
+        if (devTools) { args.AddRange(["--devtools", "on"]); }
         if (json) { args.Add("--json"); }
         var code = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(), args.ToArray());
         Assert.AreEqual(1, code);

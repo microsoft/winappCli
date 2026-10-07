@@ -10,7 +10,7 @@ static bool          g_pinned     = false;
 static double        g_protoW = 0.0;
 static double        g_protoH = 0.0;
 static double        g_chipW = 104.0;
-static EventSink g_protoSink[21];
+static EventSink g_protoSink[22];
 static int g_toolbarFocusWithin = 0;
 static EventSink g_resizeSink;
 static EventSink g_originSink;

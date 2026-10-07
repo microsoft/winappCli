@@ -73,31 +73,36 @@ test('comment status update keeps explicit marker refresh optional', async () =>
 
 test('run forwards AOT and Sandbox DevTools before application arguments', async () => {
   const state = captureSpawnArgs();
-  await run({ aot: true, devtools: true, on: 'sandbox', noOverlay: true, appArgs: ['--aot'] });
+  await run({ aot: true, devtools: 'headless', on: 'sandbox', appArgs: ['--aot'] });
   const argv = state.calls[0];
   const separator = argv.indexOf('--');
-  for (const flag of ['--aot', '--devtools', '--on', '--no-overlay']) {
+  for (const flag of ['--aot', '--devtools', '--on']) {
     assert.ok(argv.indexOf(flag) > 0 && argv.indexOf(flag) < separator);
   }
+  assert.equal(argv[argv.indexOf('--devtools') + 1], 'headless');
   assert.equal(argv[argv.indexOf('--on') + 1], 'sandbox');
   assert.deepEqual(argv.slice(separator + 1), ['--aot']);
 });
 
 for (const json of [false, true]) {
-  for (const noOverlay of [false, true]) {
-    test(`run keeps overlay choice independent of JSON (json=${json}, noOverlay=${noOverlay})`, async () => {
+  for (const mode of ['on', 'off', 'headless'] as const) {
+    test(`run forwards the DevTools mode independent of JSON (json=${json}, devtools=${mode})`, async () => {
       const state = captureSpawnArgs();
-      await run({ devtools: true, json, noOverlay, appArgs: ['--app-flag'] });
+      await run({ devtools: mode, json, appArgs: ['--app-flag'] });
       const argv = state.calls[0];
       assert.equal(argv.includes('--json'), json);
-      assert.equal(argv.includes('--no-overlay'), noOverlay);
+      assert.equal(argv[argv.indexOf('--devtools') + 1], mode);
       assert.ok(argv.indexOf('--devtools') < argv.indexOf('--'));
-      if (noOverlay) assert.ok(argv.indexOf('--no-overlay') < argv.indexOf('--'));
       assert.deepEqual(argv.slice(argv.indexOf('--') + 1), ['--app-flag']);
     });
   }
 }
 
+test('run without devtools leaves the mode to winapp', async () => {
+  const state = captureSpawnArgs();
+  await run({ appArgs: ['--app-flag'] });
+  assert.ok(!state.calls[0].includes('--devtools'));
+});
 test('uiInvoke forwards an explicitly empty action for native validation instead of automatic fallback', async () => {
   const state = captureSpawnArgs();
   await uiInvoke({ selector: 'AgreeCheckbox', app: 'myapp', action: '' });

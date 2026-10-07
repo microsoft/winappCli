@@ -200,7 +200,7 @@ function Diagnose([string]$Handle, [string]$Window, [string]$Expected) {
 try {
     $launchArguments = '"' + $report + '"' + $(if ($LargeCommentTree) { ' large' } elseif ($ProbeOverlay) { ' single' } else { '' })
     if ($ProbeOverlay) { $env:WINAPP_DEVTOOLS_LOG = '1' }
-    $launch = Invoke-Cli @('run', $project, '--devtools', '--no-overlay', '--detach', '--args', $launchArguments)
+    $launch = Invoke-Cli @('run', $project, '--devtools', 'headless', '--detach', '--args', $launchArguments)
     $candidate = Get-Process -Id $launch.processId -ErrorAction Stop
     $executable = $candidate.Path
     $started = $candidate.StartTime.ToUniversalTime()

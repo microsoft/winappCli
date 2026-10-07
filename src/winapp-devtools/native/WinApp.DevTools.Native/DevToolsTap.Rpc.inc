@@ -57,6 +57,47 @@ static void TapNoticeCommentPushFailed()
     Log(L"comments: a comment push could not be applied; markers may be stale");
     RunOnUiThread([]() -> HRESULT { DevToolsOverlay_NoticeCommentsStale(); return S_OK; });
 }
+// A headless run draws nothing in the app, but Ctrl+Shift+F12 still brings DevTools up: a key handler on the app's
+// root (which adds nothing to the app's tree) builds the overlay on the first press, with the comments the CLI
+// already pushed, and moves focus to the toolbar. Once the overlay exists its own handler owns the shortcut.
+static bool g_toolbarShortcutArmed = false; // UI thread only
+static HRESULT ArmToolbarShortcut_ui()
+{
+    if (g_toolbarShortcutArmed || g_overlayBuilt.load(std::memory_order_acquire)) return S_OK;
+    if (!g_diag || !g_overlayPanel) return E_NOT_VALID_STATE;
+    try {
+        winrt::com_ptr<IInspectable> panel;
+        winrt::check_hresult(g_diag->GetIInspectableFromHandle(g_overlayPanel, panel.put()));
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, panel.get());
+        object.as<DevToolsX::UIElement>().PreviewKeyDown([](auto&&, DevToolsXI::KeyRoutedEventArgs const& e) {
+            if (g_overlayBuilt.load(std::memory_order_acquire) || e.Key() != winrt::Windows::System::VirtualKey::F12 ||
+                !(GetKeyState(VK_CONTROL) & 0x8000) || !(GetKeyState(VK_SHIFT) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000))
+                return;
+            std::wstring error;
+            if (const wchar_t* failed = TryBuildOverlayOnUiThread(&error)) {
+                Log(L"overlay: Ctrl+Shift+F12 could not build the overlay: %s %s", failed, error.c_str());
+                return;
+            }
+            e.Handled(true);
+            std::vector<DevToolsWindowComment> comments;
+            TapComments(&comments);
+            std::vector<DevToolsOverlayComment> view;
+            for (const auto& it : comments)
+                view.push_back(DevToolsOverlayComment{ it.id.c_str(), it.text.c_str(), it.anchor.c_str(), it.revision.c_str() });
+            size_t placed = 0;
+            DevToolsOverlay_SetComments(g_diag, RootVisual(), view.empty() ? nullptr : view.data(), view.size(), &placed, true);
+            DevToolsOverlay_FocusToolbar();
+            Log(L"overlay: built by Ctrl+Shift+F12 (%zu comments)", comments.size());
+        });
+        g_toolbarShortcutArmed = true;
+        return S_OK;
+    } catch (const winrt::hresult_error& e) {
+        Log(L"overlay: Ctrl+Shift+F12 could not be armed hr=0x%08X", e.code().value);
+        return e.code();
+    }
+}
+
 static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req) {
     const std::wstring& m = req.method;
     const DevToolsJson& p = req.params;
@@ -667,8 +708,12 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             L"\",\"unique\":" + (unique ? L"true" : L"false") +
             L",\"uniquenessReason\":\"" + DevToolsJsonEscape(reason ? reason : L"unverified") + L"\"}");
     }
-    if (m == L"Internal.setComments") {
-        // A comment set larger than one request line arrives as parts of its JSON text; the last part applies it.
+    if (m == L"Internal.armToolbarShortcut") {
+        const HRESULT hr = RunOnUiThread([]() { return ArmToolbarShortcut_ui(); });
+        if (FAILED(hr)) return DevToolsRpcError(id, DevToolsErr::InternalError, L"could not arm Ctrl+Shift+F12", L"shortcut-unavailable");
+        return DevToolsRpcResult(id, L"null");
+    }
+    if (m == L"Internal.setComments") {        // A comment set larger than one request line arrives as parts of its JSON text; the last part applies it.
         DevToolsJson joined;
         const DevToolsJson* set = &p;
         if (p.Find(L"data")) {

@@ -126,7 +126,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         }, 0);
         _attach.Result = DevToolsConnection.Ok(3, true);
 
-        Assert.AreEqual(0, await Run(app.Input, "--aot", "--devtools", "--detach"), TestAnsiConsole.Output);
+        Assert.AreEqual(0, await Run(app.Input, "--aot", "--devtools", "on", "--detach"), TestAnsiConsole.Output);
         Assert.AreEqual((app.Source, false), _environments.Single());
         Assert.IsFalse(_launcher.LastEnvironment!.ContainsKey("DOTNET_STARTUP_HOOKS"));
         Assert.AreEqual("1", _launcher.LastEnvironment["ENABLE_XAML_DIAGNOSTICS_SOURCE_INFO"]);
@@ -148,7 +148,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         using var cancellation = new CancellationTokenSource();
         _attach.OnConnect = cancellation.Cancel;
         var exit = await GetRequiredService<RunCommand.Handler>().InvokeAsync(
-            GetRequiredService<RunCommand>().Parse([app.Input, "--devtools", "--detach", "--json"]), cancellation.Token);
+            GetRequiredService<RunCommand>().Parse([app.Input, "--devtools", "on", "--detach", "--json"]), cancellation.Token);
         Assert.AreNotEqual(0, exit);
         Assert.IsTrue(_process.Killed);
         Assert.IsTrue(_process.Disposed);
@@ -183,10 +183,10 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         _attach.Result = DevToolsConnection.Ok(3, !noOverlay);
         string[] manifest = mode == "single" && packaged ? ["--manifest", app.Manifest] : [];
         string[] format = json ? ["--json"] : [];
-        string[] overlay = noOverlay ? ["--no-overlay"] : [];
+        var devToolsMode = noOverlay ? "headless" : "on";
         string[] target = explicitLocal ? ["--on", "local"] : [];
         var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(),
-            ["run", app.Input, "--devtools", "--detach", .. target, .. format, .. overlay, .. manifest, "--", "space value", "tail"]);
+            ["run", app.Input, "--devtools", devToolsMode, "--detach", .. target, .. format, .. manifest, "--", "space value", "tail"]);
         Assert.AreEqual(0, exit, TestAnsiConsole.Output);
         Assert.AreEqual(0, _backend.Calls);
         CollectionAssert.AreEqual(new List<string> { "environment", "launch", "attach" }, _order);
@@ -246,7 +246,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         var app = Prepare(mode, packaged);
         string[] format = json ? ["--json"] : [];
         Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(),
-            ["run", app.Input, "--devtools", "--on", "sandbox", "--debug-output", .. format]));
+            ["run", app.Input, "--devtools", "on", "--on", "sandbox", "--debug-output", .. format]));
         Assert.AreEqual(0, _backend.Calls);
         Assert.IsEmpty(_projects.BuildAndResolveCalls);
         Assert.IsEmpty(_projects.BuildAndResolveSingleFileCalls);
@@ -292,21 +292,16 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     [DataRow("project", true)]
     [DataRow("single", false)]
     [DataRow("single", true)]
-    public async Task NoOverlayWithoutDevTools_FailsBeforeBuildOrRegistration(string mode, bool json)
+    public async Task BareDevTools_IsAParseErrorBeforeBuildOrRegistration(string mode, bool json)
     {
         var app = Prepare(mode, true);
         string[] format = json ? ["--json"] : [];
-        Assert.AreEqual(1, await Run(app.Input, ["--no-overlay", .. format]));
+        Assert.AreNotEqual(0, await Run(app.Input, [.. format, "--devtools"]));
         Assert.AreEqual(0, _projects.BuildAndResolveCalls.Count);
         Assert.AreEqual(0, _projects.BuildAndResolveSingleFileCalls.Count);
         Assert.AreEqual(0, _msix.AddLooseLayoutCalls.Count);
         Assert.AreEqual(0, _launcher.LaunchExecutableCalls.Count);
         Assert.AreEqual(0, _attach.Calls.Count);
-        if (json)
-        {
-            using var document = JsonDocument.Parse(TestAnsiConsole.Output);
-            StringAssert.Contains(document.RootElement.GetProperty("Error").GetString()!, "--no-overlay requires --devtools");
-        }
     }
 
     [TestMethod]
@@ -317,7 +312,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         var app = Prepare("folder", true);
         _attach.Result = DevToolsConnection.Ok(3, false, "Cannot find AcrylicBackgroundFillColorDefaultBrush.");
         string[] format = json ? ["--json"] : [];
-        Assert.AreEqual(1, await Run(app.Input, ["--devtools", "--detach", .. format]));
+        Assert.AreEqual(1, await Run(app.Input, ["--devtools", "on", "--detach", .. format]));
         Assert.IsTrue(_attach.Calls.Single().Overlay);
         Assert.IsTrue(_process.Disposed);
         Assert.IsFalse(_process.Killed);
@@ -330,14 +325,14 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         StringAssert.Contains(message, "DevTools attached to process 12345");
         StringAssert.Contains(message, "AcrylicBackgroundFillColorDefaultBrush");
         StringAssert.Contains(message, "winapp devtools inspect -a 12345");
-        StringAssert.Contains(message, "--no-overlay");
+        StringAssert.Contains(message, "--devtools headless");
     }
     [TestMethod]
     public async Task Folder_ManagedRuntimeConfig_ArmsBindingHostWithoutInventingSourceRoot()
     {
         var app = Prepare("folder", true);
         File.WriteAllText(Path.Combine(app.Output, "TestApp.runtimeconfig.json"), "{}");
-        Assert.AreEqual(0, await Run(app.Input, "--devtools", "--detach", "--json"));
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         Assert.AreEqual((null, true), _environments.Single());
         Assert.IsTrue(_launcher.LastEnvironment!.ContainsKey("DOTNET_STARTUP_HOOKS"));
         Assert.IsFalse(_launcher.LastEnvironment.ContainsKey("WINAPP_DEVTOOLS_SOURCE_ROOT"));
@@ -349,7 +344,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     public async Task IncompatibleOptions_FailBeforeBuildOrRegistration(string option)
     {
         var app = Prepare("project", true);
-        Assert.AreEqual(1, await Run(app.Input, "--devtools", option, "--json"));
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", option, "--json"));
         Assert.AreEqual(0, _projects.BuildAndResolveCalls.Count);
         Assert.AreEqual(0, _msix.AddLooseLayoutCalls.Count);
         Assert.AreEqual(0, _launcher.LaunchExecutableCalls.Count);
@@ -363,7 +358,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         {
             Resolution = _projects.BuildOutcome!.Resolution! with { PreferExecutionAlias = false },
         };
-        Assert.AreEqual(0, await Run(app.Input, "--devtools", "--detach", "--json"));
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         Assert.HasCount(1, _msix.AddLooseLayoutCalls);
         Assert.HasCount(1, _launcher.LaunchExecutableCalls);
         Assert.IsEmpty(_launcher.LaunchCalls);
@@ -383,7 +378,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         };
         string[] launch = withAlias ? ["--with-alias", "--debug-output"] : ["--detach", "--json"];
         _debug.FakeExitCode = 0;
-        Assert.AreEqual(0, await Run(app.Input, ["--devtools", .. launch]));
+        Assert.AreEqual(0, await Run(app.Input, ["--devtools", "on", .. launch]));
         Assert.HasCount(1, _msix.AddLooseLayoutCalls);
         Assert.HasCount(1, _launcher.LaunchExecutableCalls);
     }
@@ -399,7 +394,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         alias.ProxyExists = _ => failure != "missing";
         alias.ReadTarget = _ => failure == "owner" ? null :
             failure == "wrong" ? _target with { PackageFamilyName = "other" } : _target;
-        Assert.AreEqual(1, await Run(app.Input, "--devtools", "--detach", "--json"));
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         Assert.AreEqual(0, _launcher.LaunchCalls.Count);
         Assert.AreEqual(0, _launcher.LaunchExecutableCalls.Count);
         Assert.AreEqual(0, _attach.Calls.Count);
@@ -411,7 +406,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     {
         var app = Prepare("folder", true);
         _process.HasExited = true;
-        Assert.AreEqual(1, await Run(app.Input, "--devtools", "--detach", "--json"));
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         Assert.AreEqual(1, _launcher.LaunchExecutableCalls.Count);
         Assert.AreEqual(0, _launcher.LaunchCalls.Count);
         Assert.AreEqual(0, _attach.Calls.Count);
@@ -425,7 +420,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     {
         var app = Prepare("folder", true);
         GetRequiredService<RunCommand.Handler>().ProcessesRunningFromLayout = _ => [4242];
-        Assert.AreEqual(1, await Run(app.Input, "--devtools", "--detach"));
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach"));
         var output = TestAnsiConsole.Output + ConsoleStdErr + ConsoleStdOut;
         StringAssert.Contains(output, "The app is already running (PID 4242)");
         StringAssert.Contains(output, "close it, then run again");
@@ -440,7 +435,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         _process.HasExited = true;
         GetRequiredService<RunCommand.Handler>().ProcessesRunningFrom = image =>
             image == _target.TargetExecutable ? [4242] : [];
-        Assert.AreEqual(1, await Run(app.Input, "--devtools", "--detach", "--json"));
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         StringAssert.Contains(TestAnsiConsole.Output, "already running (PID 4242)");
         Assert.IsFalse(TestAnsiConsole.Output.Contains("exited", StringComparison.Ordinal), TestAnsiConsole.Output);
         using var json = JsonDocument.Parse(TestAnsiConsole.Output);
@@ -463,7 +458,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     {
         var app = Prepare("project", false);
         _attach.Result = DevToolsConnection.Fail("controlled attach failure");
-        Assert.AreEqual(1, await Run(app.Input, "--devtools", "--detach", "--json"));
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         Assert.IsFalse(_process.Killed);
         Assert.IsTrue(_process.Disposed);
         StringAssert.Contains(TestAnsiConsole.Output, "controlled attach failure");
@@ -477,7 +472,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         var app = Prepare("project", true);
         _attach.OnConnect = () => _process.HasExited = false;
         _debug.FakeExitCode = 7;
-        Assert.AreEqual(7, await Run(app.Input, "--devtools", "--with-alias", "--debug-output"));
+        Assert.AreEqual(7, await Run(app.Input, "--devtools", "on", "--with-alias", "--debug-output"));
         Assert.AreEqual(LaunchStdioMode.Inherit, _launcher.LastLaunchStdioMode);
         Assert.AreEqual(1, _launcher.LaunchExecutableCalls.Count);
         Assert.AreEqual(0, _launcher.LaunchCalls.Count);
@@ -502,9 +497,9 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     {
         var app = Prepare("folder", true);
         var first = _process;
-        Assert.AreEqual(0, await Run(app.Input, "--devtools", "--detach", "--json"));
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         ResetOwnedProcess(12346);
-        Assert.AreEqual(0, await Run(app.Input, "--devtools", "--detach", "--json"));
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         CollectionAssert.AreEqual(new List<uint> { 12345, 12346 }, _attach.Calls.Select(c => c.Pid).ToList());
         Assert.AreEqual(2, _launcher.LaunchExecutableCalls.Count);
         Assert.AreEqual(0, _launcher.LaunchCalls.Count);
@@ -519,7 +514,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     {
         var app = Prepare("folder", true);
         _process.PackageFamilyName = "another-app";
-        Assert.AreEqual(1, await Run(app.Input, "--devtools", "--detach", "--json"));
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         Assert.AreEqual(1, _launcher.LaunchExecutableCalls.Count);
         Assert.AreEqual(0, _attach.Calls.Count);
         Assert.IsTrue(_process.Disposed);
@@ -532,7 +527,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         var app = Prepare("folder", true);
         GetRequiredService<RunCommand.Handler>().CreateDevToolsEnvironment = (_, _) =>
             throw new IOException("controlled staging failure");
-        Assert.AreEqual(1, await Run(app.Input, "--devtools", "--detach", "--json"));
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"));
         Assert.AreEqual(0, _launcher.LaunchExecutableCalls.Count);
         Assert.AreEqual(0, _launcher.LaunchCalls.Count);
         Assert.AreEqual(0, _attach.Calls.Count);
@@ -550,7 +545,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
                 Properties = new Dictionary<string, string> { [RunCommand.Handler.UseExecutionAliasProperty] = "false" },
             },
         };
-        Assert.AreEqual(0, await Run(app.Input, "--devtools", "--detach", "--json", "--manifest", app.Manifest));
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "on", "--detach", "--json", "--manifest", app.Manifest));
         Assert.HasCount(1, _msix.AddLooseLayoutCalls);
         Assert.HasCount(1, _launcher.LaunchExecutableCalls);
         Assert.IsEmpty(_launcher.LaunchCalls);
@@ -573,7 +568,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         }
         string[] options = debug ? ["--debug-output"] : ["--json"];
         await GetRequiredService<RunCommand.Handler>().InvokeAsync(
-            GetRequiredService<RunCommand>().Parse([app.Input, "--devtools", .. options]), cancellation.Token);
+            GetRequiredService<RunCommand>().Parse([app.Input, "--devtools", "on", .. options]), cancellation.Token);
         Assert.IsTrue(_process.Killed);
         Assert.IsTrue(_process.Disposed);
         Assert.AreEqual(0, _launcher.TerminateCalls.Count, "Only the verified owned process should be killed.");
@@ -586,7 +581,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         using var process = new ExitOneProcess(_target);
         _launcher.LaunchOverride = () => process;
         _attach.OnConnect = () => process.AllowExit = true;
-        Assert.AreEqual(1, await Run(app.Input, "--devtools", "--unregister-on-exit", "--json"));
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--unregister-on-exit", "--json"));
         Assert.IsTrue(process.HasExited);
         Assert.AreEqual(1, _registration.UnregisterByFullNameCalls.Count);
         using var json = JsonDocument.Parse(TestAnsiConsole.Output);
@@ -637,5 +632,259 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
             OnConnect?.Invoke();
             return Task.FromResult(Result);
         }
+    }
+
+    // ---- DevTools on by default ----
+
+    private (string Input, string Output) WinUIProject(bool packaged, string? ci = null, DevToolsMode? setting = null)
+    {
+        var app = Prepare("project", packaged);
+        File.WriteAllText(app.Input, "<Project><PropertyGroup><UseWinUI>true</UseWinUI></PropertyGroup></Project>");
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ReadCiVariable = () => ci;
+        handler.ReadDefaultMode = () => setting;
+        DevToolsRunTelemetryScope.Begin();
+        return (app.Input, app.Output);
+    }
+
+    private static JsonElement? DevToolsJson(string output)
+    {
+        using var document = JsonDocument.Parse(output);
+        return document.RootElement.TryGetProperty("devTools", out var devTools) ? devTools.Clone() : null;
+    }
+
+    private static void AssertTelemetry(DevToolsMode mode, DevToolsModeSource source, DevToolsOutcome? outcome)
+    {
+        Assert.AreEqual(new DevToolsRunTelemetryScope.Summary(mode, source, outcome), DevToolsRunTelemetryScope.Current);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Default_WinUIProject_AttachesWithTheToolbar(bool packaged)
+    {
+        var app = WinUIProject(packaged);
+        Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.IsTrue(_attach.Calls.Single().Overlay);
+        Assert.IsTrue(_projects.BuildOptions.Single().CaptureDevToolsSources, "a default DevTools run builds with source capture");
+        var devTools = DevToolsJson(TestAnsiConsole.Output)!.Value;
+        Assert.AreEqual("on", devTools.GetProperty("mode").GetString());
+        Assert.AreEqual("default", devTools.GetProperty("source").GetString());
+        Assert.AreEqual(3, devTools.GetProperty("nodeCount").GetInt32());
+        AssertTelemetry(DevToolsMode.On, DevToolsModeSource.Default, DevToolsOutcome.Attached);
+    }
+
+    [TestMethod]
+    public void Default_AnnouncesHowToTurnItOff_OnlyWhenItWasNotAskedFor()
+    {
+        Assert.AreEqual("DevTools on (default) · turn off: --devtools off or winapp devtools default off",
+            RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.On, DevToolsModeSource.Default)));
+        Assert.AreEqual("DevTools headless (your default) · turn off: --devtools off or winapp devtools default off",
+            RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Headless, DevToolsModeSource.Setting)));
+        Assert.IsNull(RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.On, DevToolsModeSource.Explicit)));
+        Assert.IsNull(RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Off, DevToolsModeSource.Setting)));
+        Assert.IsNull(RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Off, DevToolsModeSource.NotWinUI)));
+    }
+
+    [TestMethod]
+    public async Task Setting_Headless_AttachesWithoutTheToolbar()
+    {
+        var app = WinUIProject(true, setting: DevToolsMode.Headless);
+        _attach.Result = DevToolsConnection.Ok(3, false);
+        Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.IsFalse(_attach.Calls.Single().Overlay);
+        var devTools = DevToolsJson(TestAnsiConsole.Output)!.Value;
+        Assert.AreEqual("headless", devTools.GetProperty("mode").GetString());
+        Assert.AreEqual("setting", devTools.GetProperty("source").GetString());
+        AssertTelemetry(DevToolsMode.Headless, DevToolsModeSource.Setting, DevToolsOutcome.Attached);
+    }
+
+    [TestMethod]
+    public async Task Setting_Off_RunsPlainly()
+    {
+        var app = WinUIProject(true, setting: DevToolsMode.Off);
+        Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.IsEmpty(_attach.Calls);
+        Assert.IsFalse(_projects.BuildOptions.Single().CaptureDevToolsSources);
+        Assert.AreEqual("setting", DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("source").GetString());
+        AssertTelemetry(DevToolsMode.Off, DevToolsModeSource.Setting, null);
+    }
+
+    [TestMethod]
+    public async Task Ci_TurnsTheDefaultOff()
+    {
+        var app = WinUIProject(true, ci: "true", setting: DevToolsMode.On);
+        Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.IsEmpty(_attach.Calls);
+        Assert.IsEmpty(_environments);
+        var devTools = DevToolsJson(TestAnsiConsole.Output)!.Value;
+        Assert.AreEqual("off", devTools.GetProperty("mode").GetString());
+        Assert.AreEqual("ci", devTools.GetProperty("source").GetString());
+        AssertTelemetry(DevToolsMode.Off, DevToolsModeSource.Ci, null);
+    }
+
+    [TestMethod]
+    public async Task Explicit_WinsOverCi()
+    {
+        var app = WinUIProject(true, ci: "true");
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", "on", "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.HasCount(1, _attach.Calls);
+        Assert.AreEqual("explicit", DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("source").GetString());
+        AssertTelemetry(DevToolsMode.On, DevToolsModeSource.Explicit, DevToolsOutcome.Attached);
+    }
+
+    [TestMethod]
+    [DataRow("--no-launch")]
+    [DataRow("--without-alias")]
+    public async Task OptionDevToolsCannotWorkWith_TurnsTheDefaultOffWithoutAnError(string option)
+    {
+        var app = WinUIProject(true);
+        Assert.AreEqual(0, await Run(app.Input, option, "--json"), TestAnsiConsole.Output);
+        Assert.IsEmpty(_attach.Calls);
+        Assert.AreEqual("option", DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("source").GetString());
+        AssertTelemetry(DevToolsMode.Off, DevToolsModeSource.IncompatibleOption, null);
+    }
+
+    [TestMethod]
+    [DataRow("project")]
+    [DataRow("folder")]
+    [DataRow("single")]
+    public async Task NotAWinUIProject_IsOffAndItsJsonAndOutputAreUnchanged(string mode)
+    {
+        var app = Prepare(mode, true);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ReadCiVariable = () => null;
+        handler.ReadDefaultMode = () => DevToolsMode.On;
+        DevToolsRunTelemetryScope.Begin();
+        Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.IsEmpty(_attach.Calls);
+        Assert.IsNull(DevToolsJson(TestAnsiConsole.Output));
+        AssertTelemetry(DevToolsMode.Off, DevToolsModeSource.NotWinUI, null);
+    }
+
+    [TestMethod]
+    public async Task NotAWinUIProject_HumanOutputHasNoDevToolsLine()
+    {
+        var app = Prepare("project", true);
+        GetRequiredService<RunCommand.Handler>().ReadCiVariable = () => null;
+        Assert.AreEqual(0, await Run(app.Input, "--detach"), TestAnsiConsole.Output);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("DevTools", StringComparison.Ordinal), TestAnsiConsole.Output);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Default_ConnectFailureAfterLaunch_KeepsTheSameProcessAndSucceeds(bool packaged)
+    {
+        var app = WinUIProject(packaged);
+        _attach.Result = DevToolsConnection.Fail("The agent did not answer.");
+        Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.HasCount(1, _launcher.LaunchExecutableCalls, "one process, never relaunched");
+        Assert.IsEmpty(_launcher.LaunchCalls);
+        Assert.IsFalse(_process.Killed);
+        using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.IsFalse(document.RootElement.TryGetProperty("Error", out _), TestAnsiConsole.Output);
+        Assert.AreEqual(12345u, document.RootElement.GetProperty("ProcessId").GetUInt32());
+        StringAssert.Contains(DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!, "The agent did not answer.");
+        AssertTelemetry(DevToolsMode.On, DevToolsModeSource.Default, DevToolsOutcome.FellBack);
+    }
+
+    [TestMethod]
+    public async Task Default_ConnectFailure_WaitsForTheAppAndReturnsItsExitCode()
+    {
+        var app = WinUIProject(false);
+        _attach.Result = DevToolsConnection.Fail("The agent did not answer.");
+        _process = new(12345, 7) { HasExited = false };
+        _attach.OnConnect = () => { };
+        var run = Run(app.Input, "--json");
+        await Task.Delay(200);
+        Assert.IsFalse(run.IsCompleted, "a plain run waits for the app");
+        _process.HasExited = true;
+        Assert.AreEqual(7, await run, TestAnsiConsole.Output);
+        Assert.HasCount(1, _launcher.LaunchExecutableCalls);
+    }
+
+    [TestMethod]
+    public async Task Explicit_ConnectFailure_StillFails()
+    {
+        var app = WinUIProject(true);
+        _attach.Result = DevToolsConnection.Fail("The agent did not answer.");
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"), TestAnsiConsole.Output);
+        AssertTelemetry(DevToolsMode.On, DevToolsModeSource.Explicit, DevToolsOutcome.Failed);
+    }
+
+    [TestMethod]
+    public async Task Default_FailureBeforeLaunch_RunsPlainly()
+    {
+        var app = WinUIProject(true);
+        _msix.FakeIdentityResult = _msix.FakeIdentityResult! with
+        {
+            InspectorAlias = new("winapp-inspector-unit.exe", null, false, "App execution aliases are turned off."),
+        };
+        Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.IsEmpty(_attach.Calls);
+        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+        Assert.HasCount(1, _launcher.LaunchCalls, "launched by AUMID, as a plain run");
+        using var document = JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.IsFalse(document.RootElement.TryGetProperty("Error", out _), TestAnsiConsole.Output);
+        StringAssert.Contains(DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!, "aliases are turned off");
+        AssertTelemetry(DevToolsMode.On, DevToolsModeSource.Default, DevToolsOutcome.FellBack);
+    }
+
+    [TestMethod]
+    public async Task Default_AppAlreadyRunning_IsClosedSoDevToolsStartsCold()
+    {
+        var app = WinUIProject(true);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        var closed = new List<int>();
+        handler.ProcessesRunningFromLayout = _ => closed.Count == 0 ? [4242] : [];
+        handler.CloseRunningProcess = pid => { closed.Add(pid); return true; };
+        Assert.AreEqual(0, await Run(app.Input, "--detach"), TestAnsiConsole.Output);
+        Assert.AreEqual(4242, closed.Single());
+        Assert.HasCount(1, _attach.Calls);
+        StringAssert.Contains(TestAnsiConsole.Output, "Closed 1 running instance(s) of this app (PID 4242) so DevTools starts cold.");
+    }
+
+    [TestMethod]
+    public async Task Default_AppAlreadyRunningAndCannotBeClosed_RunsPlainly()
+    {
+        var app = WinUIProject(true);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ProcessesRunningFromLayout = _ => [4242];
+        handler.CloseRunningProcess = _ => false;
+        Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.IsEmpty(_attach.Calls);
+        Assert.HasCount(1, _launcher.LaunchCalls);
+        StringAssert.Contains(DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!, "4242");
+    }
+
+    [TestMethod]
+    public async Task Explicit_AppAlreadyRunning_StillFails()
+    {
+        var app = WinUIProject(true);
+        GetRequiredService<RunCommand.Handler>().ProcessesRunningFromLayout = _ => [4242];
+        Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.IsEmpty(_attach.Calls);
+    }
+
+    [TestMethod]
+    public void DevToolsFlag_IsRecordedByValueNotRedacted()
+    {
+        var parsed = GetRequiredService<WinAppRootCommand>().Parse(["run", ".", "--devtools", "headless"], WinAppParserConfiguration.Default);
+        var context = new WinApp.Cli.Telemetry.Events.CommandInvokedEvent(parsed.CommandResult, DateTime.UnixEpoch).Context;
+        StringAssert.Contains(context, "Headless");
+        Assert.IsFalse(context.Contains("[string]", StringComparison.Ordinal), context);
+    }
+
+    [TestMethod]
+    public async Task CompletedEvent_CarriesTheResolvedModeSourceAndOutcome()
+    {
+        var app = WinUIProject(true);
+        Assert.AreEqual(0, await Run(app.Input, "--detach", "--json"), TestAnsiConsole.Output);
+        var parsed = GetRequiredService<WinAppRootCommand>().Parse(["run", app.Input], WinAppParserConfiguration.Default);
+        var completed = new WinApp.Cli.Telemetry.Events.CommandCompletedEvent(parsed.CommandResult, DateTime.UnixEpoch, 0);
+        Assert.AreEqual("On", completed.DevToolsMode);
+        Assert.AreEqual("Default", completed.DevToolsSource);
+        Assert.AreEqual("Attached", completed.DevToolsOutcome);
     }
 }

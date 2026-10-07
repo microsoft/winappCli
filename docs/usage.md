@@ -731,7 +731,7 @@ winapp run [<input>] [options]
 - `--output-appx-directory <path>` - Output directory for the loose layout (default: `AppX` inside the input folder). The default layout removes files no longer in the build; a custom directory keeps extra files. Use a fresh custom directory when you need a clean layout.
 - `--args <string>` - Command-line arguments to pass to the application. Alternatively, use `--` followed by arguments to avoid escaping (e.g., `winapp run . -- --flag value`).
 - `--no-launch` - Only create the debug identity and register the package without launching the application
-- `--devtools` - Launch with WinUI XAML inspection and startup instrumentation, locally or in Sandbox. See the [DevTools guide](guides/devtools.md) for supported inputs, alias requirements, binding support, and examples, and [Advanced DevTools](guides/devtools-advanced.md) for Sandbox and late-attach limitations.
+- `--devtools <on|off|headless>` - WinUI XAML inspection and startup instrumentation, locally or in Sandbox. `on` shows the in-app toolbar; `headless` draws nothing in the app. On by default for a WinUI project, except in CI, with `--no-launch`, `--without-alias` or `--on sandbox`; change the default with `winapp devtools default`. See the [DevTools guide](guides/devtools.md#turn-devtools-on-or-off) for supported inputs, alias requirements, binding support, and examples, and [Advanced DevTools](guides/devtools-advanced.md) for Sandbox and late-attach limitations.
 - `--with-alias` - Launch the app using its execution alias instead of AUMID activation. The app runs in the current terminal with inherited stdin/stdout/stderr. Rarely needed: an app with `OutputType=Exe` already launches this way by default. winapp adds the required `uap5:ExecutionAlias` to the manifest it stages in the AppX layout, so no change to your checked-in manifest is needed; an alias the app declares itself is used as-is. Cannot be combined with `--no-launch`, `--detach`, `--without-alias`, or `--json`.
 - `--without-alias` - Force AUMID activation for an app that would otherwise launch through an execution alias. A console app then runs without a console and prints nothing to this terminal. Cannot be combined with `--with-alias`.
 - `--debug-output` - Capture `OutputDebugString` messages and first-chance exceptions from the launched application. Framework noise (WinUI, COM, DirectX) is filtered from console output; the full log file captures everything. If the app crashes, automatically captures a minidump and analyzes it to show the exception type, message, and stack trace with source file:line numbers (resolved from PDBs in the build output folder). Managed (.NET) crashes are analyzed instantly with no external tools. Native (C++/WinRT) crashes show module names and offsets. When the crashed app is a WinUI 3 app (`Microsoft.UI.Xaml.dll` is loaded), an extra stowed-exception triage pass runs automatically to surface the originating HRESULT, its ErrorContext chain, and the full native XAML dispatch stack; the required debugger components are downloaded on first use (see [Debugging](debugging.md#winui-stowed-exception-triage), overridable via the `WINAPP_DBGTOOLS_DIR` environment variable). Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use `--no-launch` instead if you need to attach a different debugger. Cannot be combined with `--no-launch`. Cannot be combined with `--json`. If you run without it and the app exits with a nonzero code, winapp prints a hint to rerun with `--debug-output`.
@@ -1273,7 +1273,7 @@ is checked like any other, so `WinAppRunArgs="--detach"` still conflicts with `W
 ### devtools
 
 ```powershell
-winapp run . --devtools --detach
+winapp run . --detach
 winapp devtools inspect
 ```
 
@@ -1282,9 +1282,14 @@ bindings, and save source-anchored review comments. See the
 [DevTools guide](guides/devtools.md) for the workflow, [Advanced DevTools](guides/devtools-advanced.md) for Sandbox, late attach and the protocol, and
 `winapp devtools --help` for available commands.
 
-With `winapp run --devtools --json`, the run result also includes `devTools`
-with the inspected `nodeCount` and whether the requested overlay is shown
-(`overlayShown`). When source locations are unavailable, `sourceWarnings` lists
+`winapp run` starts DevTools for a WinUI project; see
+[Turn DevTools on or off](guides/devtools.md#turn-devtools-on-or-off). `winapp devtools default [on|off|headless]`
+shows or sets the default for your user account.
+
+For a WinUI project or an explicit `--devtools`, `winapp run --json` includes `devTools`
+with its `mode` and `source`, the inspected `nodeCount`, and whether the toolbar is
+shown (`overlayShown`). `unavailable` says why DevTools stepped aside in a run that
+didn't pass `--devtools`. When source locations are unavailable, `sourceWarnings` lists
 one entry per reason, with `count` when several XAML files share it.
 
 ---

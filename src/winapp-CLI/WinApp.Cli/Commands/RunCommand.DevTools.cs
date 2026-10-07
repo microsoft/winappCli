@@ -19,18 +19,14 @@ internal partial class RunCommand
         Hidden = true,
     };
 
-    public static Option<bool> DevToolsOption { get; } = new("--devtools")
+    public static Option<DevToolsMode?> DevToolsOption { get; } = new("--devtools")
     {
-        Description = "Launch with WinUI XAML inspection and managed binding support. Opens the in-app overlay; use --no-overlay to suppress it. " +
-            "Automatically prepares a staged execution alias for packaged apps; the alias must be enabled and verifiable. " +
-            "Native AOT apps support native inspection but not managed binding instrumentation. " +
-            "Cannot be combined with --no-launch or --without-alias. With --on sandbox, requires a project with XAML sources " +
-            "and does not support --with-alias, --debug-output or --unregister-on-exit.",
-    };
-
-    public static Option<bool> NoOverlayOption { get; } = new("--no-overlay")
-    {
-        Description = "Suppress the in-app DevTools overlay. Requires --devtools; independent of --json output.",
+        HelpName = "on|off|headless",
+        Description = "WinUI XAML inspection: on (the in-app toolbar), headless (nothing drawn in the app) or off. " +
+            "On by default for WinUI projects outside CI; change the default with 'winapp devtools default'. " +
+            "Packaged apps need App execution aliases enabled. Cannot be combined with --no-launch or --without-alias. " +
+            "With --on sandbox, requires a project with XAML sources and does not support --with-alias, --debug-output " +
+            "or --unregister-on-exit.",
     };
 
     public partial class Handler
@@ -77,6 +73,59 @@ internal partial class RunCommand
                 { PriHash = resources.PriHash, PayloadPaths = resources.Paths[file.Resource] }).ToArray() };
         }
 
+        internal Func<string?> ReadCiVariable { get; set; } = () => Environment.GetEnvironmentVariable("CI");
+
+        internal Func<DevToolsMode?> ReadDefaultMode { get; set; } = () => DevToolsDefaultSetting.Read();
+
+        // This run's DevTools mode, resolved once its input is known.
+        private DevToolsResolution devToolsRun = new(DevToolsMode.Off, DevToolsModeSource.NotWinUI);
+
+        // Whether --json reports the mode: a WinUI project run or an explicit --devtools. Other runs' JSON is unchanged.
+        private bool devToolsReported;
+
+        // Why DevTools the user didn't ask for on the command line stepped aside, for --json.
+        private string? devToolsUnavailable;
+
+        private static string JsonName(DevToolsModeSource source) => source switch
+        {
+            DevToolsModeSource.IncompatibleOption => "option",
+            DevToolsModeSource.NotWinUI => "not-winui",
+            _ => source.ToString().ToLowerInvariant(),
+        };
+
+        private GuestDevToolsRunInfo? WithDevToolsMode(GuestDevToolsRunInfo? info) => !devToolsReported ? info
+            : (info ?? new(null, null, null)) with
+            {
+                Mode = devToolsRun.Mode.ToString().ToLowerInvariant(),
+                Source = JsonName(devToolsRun.Source),
+                Unavailable = devToolsUnavailable,
+            };
+
+        // The one line a run prints when DevTools came from the default rather than the command line.
+        internal static string? DefaultDevToolsLine(DevToolsResolution run) => run is { Enabled: true, FailOpen: true }
+            ? $"DevTools {run.Mode.ToString().ToLowerInvariant()} ({(run.Source == DevToolsModeSource.Setting ? "your default" : "default")}) · " +
+              "turn off: --devtools off or winapp devtools default off"
+            : null;
+
+        private void AnnounceDefaultDevTools(bool isJson)
+        {
+            if (!isJson && DefaultDevToolsLine(devToolsRun) is { } line && logger.IsEnabled(LogLevel.Information))
+            {
+                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Note} {line}");
+            }
+        }
+
+        // DevTools the user didn't ask for on this command line steps aside rather than failing the run.
+        private void DevToolsStepsAside(string reason, bool isJson)
+        {
+            devToolsUnavailable = reason;
+            DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.FellBack);
+            if (!isJson)
+            {
+                logger.LogWarning("{UISymbol} DevTools is unavailable for this run: {Reason}", UiSymbols.Warning, reason);
+            }
+        }
+
         internal Func<string?, bool, IReadOnlyDictionary<string, string?>> CreateDevToolsEnvironment { get; set; } =
             DevToolsArtifacts.CreateLaunchEnvironment;
 
@@ -86,7 +135,27 @@ internal partial class RunCommand
 
         internal Func<int, bool> ProcessHasExited { get; set; } = RunFailure.HasExited;
 
-        private async Task<int> RunInspectorAliasAsync(
+        // Ends a running instance so a default DevTools run can start the app itself. False when it is still running.
+        internal Func<int, bool> CloseRunningProcess { get; set; } = pid =>
+        {
+            try
+            {
+                using var process = System.Diagnostics.Process.GetProcessById(pid);
+                process.Kill();
+                return process.WaitForExit(5000);
+            }
+            catch (ArgumentException)
+            {
+                return true;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                return RunFailure.HasExited(pid);
+            }
+        };
+
+        // Null when DevTools the user didn't ask for stepped aside before launching anything; the caller launches plainly.
+        private async Task<int?> RunInspectorAliasAsync(
             InspectorAlias? alias, DirectoryInfo inputFolder, FileInfo? projectFile, string? aumid, string? arguments,
             bool debugOutput, bool useSymbols, bool detach, bool isJson, bool showOverlay, bool unregisterOnExit,
             string? packageName, string? packageFullName, CancellationToken cancellationToken, bool nativeAot = false,
@@ -94,9 +163,17 @@ internal partial class RunCommand
         {
             if (alias?.Target is null || alias.Error is not null)
             {
-                return Fail(alias?.Error ?? "Registration did not provide a verified inspector execution alias.", isJson);
+                var error = alias?.Error ?? "Registration did not provide a verified inspector execution alias.";
+                if (devToolsRun.FailOpen)
+                {
+                    DevToolsStepsAside(error, isJson);
+                    return null;
+                }
+                DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.Failed);
+                return Fail(error, isJson);
             }
 
+            var launchedAny = false;
             try
             {
                 var managed = !nativeAot && (projectFile is not null ||
@@ -119,11 +196,29 @@ internal partial class RunCommand
                         ? ProcessesRunningFrom(image) : [];
                     if (running.Count > 0)
                     {
+                        if (devToolsRun.FailOpen)
+                        {
+                            // The app took over the launch: it is running, just without DevTools.
+                            DevToolsStepsAside($"the app is already running (PID {string.Join(", ", running)}) and took over this launch.", isJson);
+                            if (isJson) { PrintJson(aumid, (uint)running[0], null, coordinates?.Exclusions, coordinates?.Error); }
+                            return 0;
+                        }
                         return InspectorFailure(aumid, (uint)running[0],
                             $"The app is already running (PID {string.Join(", ", running)}) and took over this launch, " +
                             "so DevTools could not start it. Close it, then run again.", isJson, coordinates);
                     }
                     var error = result.Error ?? $"Inspector launch failed ({result.Status}).";
+                    if (devToolsRun.FailOpen && result.Status != InspectorAliasLaunchStatus.Exited)
+                    {
+                        DevToolsStepsAside(error, isJson);
+                        return null;
+                    }
+                    if (devToolsRun.FailOpen)
+                    {
+                        DevToolsStepsAside($"the app exited right after launch{(result.ExitCode is int exited ? $" (exit code {exited})" : "")}.", isJson);
+                        if (isJson) { PrintJson(aumid, null, null, coordinates?.Exclusions, coordinates?.Error); }
+                        return result.ExitCode ?? 0;
+                    }
                     if (result.ExitCode is int exitCode)
                     {
                         error += $" Exit code: {exitCode}.";
@@ -137,6 +232,7 @@ internal partial class RunCommand
                         error, isJson, coordinates);
                 }
 
+                launchedAny = true;
                 using var launched = result.Process;
                 var code = await RunInspectedProcessAsync(launched, aumid, inputFolder.FullName, debugOutput, useSymbols,
                     detach, isJson, showOverlay, cancellationToken, coordinates);
@@ -152,6 +248,11 @@ internal partial class RunCommand
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
             {
+                if (devToolsRun.FailOpen && !launchedAny)
+                {
+                    DevToolsStepsAside($"it could not be prepared: {RunFailure.Describe(ex)}", isJson);
+                    return null;
+                }
                 return InspectorFailure(aumid, null, $"Could not prepare or launch DevTools: {RunFailure.Describe(ex)}", isJson);
             }
         }
@@ -164,40 +265,66 @@ internal partial class RunCommand
             var pid = launched.ProcessId;
             try
             {
+                // A failure after launch never relaunches: DevTools the user didn't ask for on the command line
+                // reports it and the run carries on with the same process, exit code and wait.
+                DevToolsConnection? connection = null;
+                string? unavailable = null;
                 if (launched.HasExited)
                 {
-                    return InspectorFailure(aumid, pid, $"The app exited right after launch (exit code {launched.ExitCode}), " +
-                        "before DevTools could inspect it.", isJson, coordinates);
+                    unavailable = $"The app exited right after launch (exit code {launched.ExitCode}), before DevTools could inspect it.";
                 }
-                var connection = await devToolsService.ConnectAsync(pid, showOverlay, DevToolsAccess.Mutation, cancellationToken);
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!connection.Connected || launched.HasExited)
+                else
                 {
-                    var reason = launched.HasExited
-                        ? $"The launched process exited before inspection completed (exit code {launched.ExitCode})."
-                        : connection.Error ?? "The requested DevTools overlay did not open.";
-                    return InspectorFailure(aumid, pid, $"{reason} " +
-                        $"If process {pid} is still running, inspect it with 'winapp devtools attach --pid {pid}'.", isJson, coordinates);
+                    connection = await devToolsService.ConnectAsync(pid, showOverlay, DevToolsAccess.Mutation, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!connection.Connected || launched.HasExited)
+                    {
+                        unavailable = (launched.HasExited
+                            ? $"The launched process exited before inspection completed (exit code {launched.ExitCode})."
+                            : connection.Error ?? "The requested DevTools overlay did not open.") +
+                            $" If process {pid} is still running, inspect it with 'winapp devtools attach --pid {pid}'.";
+                        connection = null;
+                    }
+                    else if (showOverlay && !connection.OverlayShown)
+                    {
+                        unavailable = $"DevTools attached to process {pid}, but the requested overlay did not open. {connection.OverlayError} " +
+                            $"Headless inspection remains available: winapp devtools inspect -a {pid}. " +
+                            "For a headless launch, use winapp run --devtools headless.";
+                    }
                 }
-                if (showOverlay && !connection.OverlayShown)
+                if (unavailable is not null)
                 {
-                    return InspectorFailure(aumid, pid,
-                        $"DevTools attached to process {pid}, but the requested overlay did not open. {connection.OverlayError} " +
-                        $"Headless inspection remains available: winapp devtools inspect -a {pid}. " +
-                        "For a headless launch, use winapp run --devtools --no-overlay.", isJson, coordinates);
+                    if (!devToolsRun.FailOpen)
+                    {
+                        return InspectorFailure(aumid, pid, unavailable, isJson, coordinates);
+                    }
+                    DevToolsStepsAside(unavailable, isJson);
+                }
+                else
+                {
+                    DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.Attached);
+                    if (!showOverlay)
+                    {
+                        devToolsService.PrepareHeadless(pid, cancellationToken);
+                    }
+                }
+                if (launched.HasExited && connection is null)
+                {
+                    if (isJson) { PrintJson(aumid, pid, null, coordinates?.Exclusions, coordinates?.Error); }
+                    return launched.ExitCode;
                 }
 
                 if (isJson)
                 {
                     PrintJson(aumid, pid, null, coordinates?.Exclusions, coordinates?.Error,
-                        new(connection.NodeCount, connection.OverlayShown, "local"));
+                        connection is null ? null : new(connection.NodeCount, connection.OverlayShown, "local"));
                 }
                 else if (detach)
                 {
                     ansiConsole.WriteLine(pid.ToString());
-                    ansiConsole.WriteLine($"Next: winapp devtools inspect -a {pid}");
+                    if (connection is not null) { ansiConsole.WriteLine($"Next: winapp devtools inspect -a {pid}"); }
                 }
-                else
+                else if (connection is not null)
                 {
                     logger.LogInformation("DevTools connected to process {Pid}: {Count} nodes.", pid, connection.NodeCount);
                 }
@@ -225,11 +352,16 @@ internal partial class RunCommand
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
             {
-                return InspectorFailure(aumid, pid, $"DevTools initialization failed: {RunFailure.Describe(ex)}",
-                    isJson, coordinates);
+                if (!devToolsRun.FailOpen)
+                {
+                    return InspectorFailure(aumid, pid, $"DevTools initialization failed: {RunFailure.Describe(ex)}",
+                        isJson, coordinates);
+                }
+                DevToolsStepsAside($"DevTools initialization failed: {RunFailure.Describe(ex)}", isJson);
+                if (isJson) { PrintJson(aumid, pid, null, coordinates?.Exclusions, coordinates?.Error); }
+                return detach ? 0 : await WaitForLaunchedProcessAsync(launched, cancellationToken);
             }
         }
-
         private void LogSourceExclusions(IReadOnlyList<XamlSourceExclusion>? exclusions)
         {
             foreach (var exclusion in XamlSourceExclusion.Collapse(exclusions) ?? [])
@@ -248,6 +380,7 @@ internal partial class RunCommand
         private int InspectorFailure(string? aumid, uint? pid, string message, bool isJson,
             XamlSourceCoordinates.XamlCoordinateLaunch? coordinates = null)
         {
+            DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.Failed);
             if (isJson)
             {
                 PrintJson(aumid, pid, message, coordinates?.Exclusions, coordinates?.Error);

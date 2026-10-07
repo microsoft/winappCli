@@ -521,6 +521,7 @@ internal static class Program
             // command sets its cooperative-turn summary from deep inside invoke(), and
             // CommandCompletedEvent picks it up here (issue #764).
             Services.InteractiveDesktop.UiCoordinationTelemetryScope.Begin();
+            Services.DevTools.DevToolsRunTelemetryScope.Begin();
 
             if (!isCompleteMode)
             {

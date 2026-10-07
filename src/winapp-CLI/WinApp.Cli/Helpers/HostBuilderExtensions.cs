@@ -144,6 +144,7 @@ internal static class StoreHostBuilderExtensions
                 .ConfigureCommand<DevToolsCommand>()
                 .UseCommandHandler<DevToolsAttachCommand, DevToolsAttachCommand.Handler>()
                 .UseCommandHandler<DevToolsListCommand, DevToolsListCommand.Handler>()
+                .UseCommandHandler<DevToolsDefaultCommand, DevToolsDefaultCommand.Handler>()
                 .UseCommandHandler<DevToolsInspectCommand, DevToolsInspectCommand.Handler>()
                 .UseCommandHandler<DevToolsSearchCommand, DevToolsSearchCommand.Handler>()
                 .UseCommandHandler<DevToolsGetPropertyCommand, DevToolsGetPropertyCommand.Handler>()

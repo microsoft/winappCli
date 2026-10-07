@@ -447,7 +447,15 @@ static void OnHideToolbarClick(void*, void*)
     DevToolsOverlayLog(L"overlay.toolbar hidden from its menu");
 }
 
-// Whether a later launch starts with the toolbar shown. Per user, like the pin and the corner.
+// The mode winapp run starts a WinUI project in when --devtools isn't given: on, headless or off. One per-user
+// setting, shared with winapp devtools default; unset means on.
+static bool DefaultModeIsOn()
+{
+    const std::wstring mode = DevToolsSettingsGetText(L"DefaultMode");
+    return mode.empty() || mode == L"on";
+}
+
+// "Show toolbar on launch" is a view of that setting: checked is on, unchecked is headless.
 static void SetShowOnLaunch(bool on)
 {
     ProtoSetToggle(L"DevToolsShowOnLaunch", L"DevToolsShowOnLaunchCheck", L"", on);
@@ -455,10 +463,17 @@ static void SetShowOnLaunch(bool on)
 static void OnShowOnLaunchClick(void*, void*)
 {
     CloseToolbarMenu();
-    const bool now = !DevToolsSettingsGetBool(L"ToolbarOnLaunch", true);
-    DevToolsSettingsSetBool(L"ToolbarOnLaunch", now);
+    const bool now = !DefaultModeIsOn();
+    DevToolsSettingsSetText(L"DefaultMode", now ? "on" : "headless");
     SetShowOnLaunch(now);
-    DevToolsOverlayLog(L"overlay.toolbar show on launch -> %s (persisted)", now ? L"on" : L"off");
+    DevToolsOverlayLog(L"overlay.toolbar default mode -> %s (persisted)", now ? L"on" : L"headless");
+}
+static void OnTurnOffByDefaultClick(void*, void*)
+{
+    CloseToolbarMenu();
+    DevToolsSettingsSetText(L"DefaultMode", "off");
+    SetShowOnLaunch(false);
+    DevToolsOverlayLog(L"overlay.toolbar default mode -> off (persisted)");
 }
 
 static std::wstring ChipSurfaceLabel()
@@ -893,6 +908,7 @@ static void WirePrototype(IInspectable* canvas)
         wireNamedClick(L"DevToolsProtoMore", g_protoSink[18], &OnMoreMenuClick);
         wireNamedClick(L"DevToolsHideToolbar", g_protoSink[19], &OnHideToolbarClick);
         wireNamedClick(L"DevToolsShowOnLaunch", g_protoSink[20], &OnShowOnLaunchClick);
+        wireNamedClick(L"DevToolsTurnOffByDefault", g_protoSink[21], &OnTurnOffByDefaultClick);
         WireToolbarMenu(L"DevToolsMoreMenu");
         wireNamedClick(L"DevToolsProtoInspect", g_protoSink[4], &OnInspectClick);
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &OnLayoutToggleClick);

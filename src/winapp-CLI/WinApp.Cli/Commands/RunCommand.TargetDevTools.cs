@@ -9,14 +9,18 @@ using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Commands;
 
-// A local launch reports only the connection; the source fields describe a Sandbox launch's snapshot.
+// A local launch reports only the connection; the source fields describe a Sandbox launch's snapshot. Mode and
+// source say how the run got DevTools; unavailable says why a run DevTools wasn't asked for went without it.
 internal sealed record GuestDevToolsRunInfo(
-    [property: JsonPropertyName("nodeCount")] int NodeCount,
-    [property: JsonPropertyName("overlayShown")] bool OverlayShown,
-    [property: JsonPropertyName("comments")] string Comments,
+    [property: JsonPropertyName("nodeCount")] int? NodeCount,
+    [property: JsonPropertyName("overlayShown")] bool? OverlayShown,
+    [property: JsonPropertyName("comments")] string? Comments,
     [property: JsonPropertyName("hostProject")] string? HostProject = null,
     [property: JsonPropertyName("sourceSnapshot")] string? SourceSnapshot = null,
-    [property: JsonPropertyName("sourceHash")] string? SourceHash = null);
+    [property: JsonPropertyName("sourceHash")] string? SourceHash = null,
+    [property: JsonPropertyName("mode")] string? Mode = null,
+    [property: JsonPropertyName("source")] string? Source = null,
+    [property: JsonPropertyName("unavailable")] string? Unavailable = null);
 
 internal partial class RunCommand
 {
@@ -79,8 +83,9 @@ internal partial class RunCommand
                     output.AppSelector = selector;
                     output.SourceWarnings = Services.DevTools.XamlSourceExclusion.Collapse(prepared.Sources.CoordinateExclusions);
                     output.SourceError = prepared.Sources.CoordinateError;
-                    output.DevTools = new(frame.NodeCount!.Value, frame.OverlayShown == true, "host",
-                        prepared.Sources.ProjectPath, prepared.Sources.GuestRoot!, prepared.Sources.ManifestHash!);
+                    output.DevTools = WithDevToolsMode(new(frame.NodeCount!.Value, frame.OverlayShown == true, "host",
+                        prepared.Sources.ProjectPath, prepared.Sources.GuestRoot!, prepared.Sources.ManifestHash!));
+                    Services.DevTools.DevToolsRunTelemetryScope.SetOutcome(Services.DevTools.DevToolsOutcome.Attached);
                     if (json)
                     {
                         ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(output, RunCommandJsonContext.Default.RunCommandResult));

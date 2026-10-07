@@ -24,7 +24,7 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
     internal static readonly string GoldenPath =
         "Inspect and change a running WinUI 3 app's XAML live. Changes are not written to source.\n" +
         "\n" +
-        "  winapp run . --devtools --detach                         launch your app with DevTools\n" +
+        "  winapp run . --detach                                    launch your app with DevTools\n" +
         "  winapp devtools attach --pid <pid>                       or attach to a running app\n" +
         "  winapp devtools list                                     apps with DevTools attached\n" +
         "  winapp devtools search <text>                            find by text or x:Name\n" +
@@ -46,11 +46,10 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
     internal static readonly (string Category, Type[] CommandTypes)[] HelpCategories =
     [
         ("Discover", [typeof(DevToolsListCommand), typeof(DevToolsAttachCommand), typeof(DevToolsInspectCommand), typeof(DevToolsSearchCommand)]),
-        ("Read", [typeof(DevToolsGetPropertyCommand), typeof(DevToolsGetLayoutCommand), typeof(DevToolsGetSourceCommand)]),
+        ("Read", [typeof(DevToolsGetPropertyCommand), typeof(DevToolsGetLayoutCommand), typeof(DevToolsGetSourceCommand), typeof(DevToolsDiagnoseBindingCommand)]),
         ("Change live", [typeof(DevToolsSetPropertyCommand)]),
-        ("Bindings", [typeof(DevToolsDiagnoseBindingCommand)]),
         ("Comments", [typeof(DevToolsCommentsCommand)]),
-        ("Protocol", [typeof(DevToolsCallCommand)]),
+        ("More", [typeof(DevToolsDefaultCommand), typeof(DevToolsCallCommand)]),
     ];
 
     public DevToolsCommand(
@@ -64,7 +63,8 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         DevToolsGetSourceCommand getSourceCommand,
         DevToolsDiagnoseBindingCommand diagnoseBindingCommand,
         DevToolsSetPropertyCommand setPropertyCommand,
-        DevToolsCallCommand callCommand)
+        DevToolsCallCommand callCommand,
+        DevToolsDefaultCommand defaultCommand)
         : base("devtools", GoldenPath)
     {
         // Lets an unknown command ('winapp devtools set-text --json') report its error as JSON.
@@ -81,6 +81,7 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         Subcommands.Add(commentsCommand);
         Subcommands.Add(listCommand);
         Subcommands.Add(attachCommand);
+        Subcommands.Add(defaultCommand);
     }
 
     IReadOnlyList<(string Category, Type[] CommandTypes)> ICompactHelpGroup.Categories => HelpCategories;

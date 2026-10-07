@@ -3,6 +3,7 @@
 #pragma once
 #include <windows.h>
 #include <shlobj.h>
+#include <cstring>
 #include <string>
 
 // Per-user UI preferences (toolbar pin and corner, layout adorners, inspector sections), one file per setting,
@@ -73,5 +74,37 @@ inline void DevToolsSettingsSetIndex(const wchar_t* name, int value)
     if (h == INVALID_HANDLE_VALUE) return;
     const char c = (char)('0' + value); DWORD wrote = 0;
     WriteFile(h, &c, 1, &wrote, nullptr);
+    CloseHandle(h);
+}
+
+// A short ASCII word, such as the default DevTools mode the CLI and the toolbar share ("on", "off", "headless").
+inline std::wstring DevToolsSettingsGetText(const wchar_t* name)
+{
+    std::wstring path = DevToolsSettingsFile(name);
+    if (path.empty()) return std::wstring();
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return std::wstring();
+    char buf[32] = { 0 }; DWORD got = 0;
+    const BOOL ok = ReadFile(h, buf, sizeof(buf), &got, nullptr);
+    CloseHandle(h);
+    std::wstring text;
+    for (DWORD i = 0; ok && i < got; ++i) {
+        const char c = buf[i];
+        if (c == ' ' || c == '\r' || c == '\n' || c == '\t') continue;
+        text += static_cast<wchar_t>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    }
+    return text;
+}
+
+inline void DevToolsSettingsSetText(const wchar_t* name, const char* value)
+{
+    std::wstring path = DevToolsSettingsFile(name);
+    if (path.empty()) return;
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    DWORD wrote = 0;
+    WriteFile(h, value, static_cast<DWORD>(strlen(value)), &wrote, nullptr);
     CloseHandle(h);
 }
