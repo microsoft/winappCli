@@ -266,7 +266,7 @@ See also: [Security guidance](./docs/security.md) — what development certifica
 - [`node clear-electron-debug-identity`](./docs/usage.md#node-clear-electron-debug-identity) - Remove identity from Electron processes
 
 The full CLI usage can be found here: [Documentation](/docs/usage.md)
-The full NPM usage can be found here: [NPM Programmatic API Reference](/docs/npm-usage.md)
+Use winapp from JavaScript or TypeScript: [NPM programmatic guide](/docs/npm-usage.md)
 
 ## 🧾 Samples
 

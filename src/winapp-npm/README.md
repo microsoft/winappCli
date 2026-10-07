@@ -71,7 +71,7 @@ The full CLI usage can be found here: [Documentation](https://github.com/microso
 
 ### Programmatic API
 
-The package also exports typed async functions for all CLI commands and utility helpers, so you can use them directly from TypeScript/JavaScript without spawning a CLI process:
+The package also exports typed async functions for all CLI commands and utility helpers, so you can use them directly from TypeScript/JavaScript without managing child processes yourself:
 
 ```typescript
 import { init, packageApp, certGenerate } from '@microsoft/winappcli';
@@ -81,58 +81,12 @@ await certGenerate({ install: true });
 await packageApp({ inputFolder: './dist', cert: './devcert.pfx' });
 ```
 
-Full programmatic API reference: [NPM API Documentation](https://github.com/microsoft/WinAppCli/blob/main/docs/npm-usage.md)
+For results, errors, cancellation, and UI workflows, see the [NPM programmatic guide](https://github.com/microsoft/WinAppCli/blob/main/docs/npm-usage.md). Your editor's completion and the installed TypeScript declarations provide the full API for your package version.
 
-> **Note — the programmatic API runs the CLI non-interactively.** The wrapper functions capture output and give the native process piped stdin, so commands that would normally prompt cannot do so. For `azSign` in particular this means you must pass either a `metadataFile` or a fully specified identity (`subscription`, `resourceGroup`, `account`, and `profile`), and a non-interactive Azure credential must already be available (for example `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`, OIDC, a managed identity, or an existing `az login` session). Calls that would otherwise require a selection prompt or an interactive `az login` fail instead of prompting.
-
-#### Cancelling a call
-
-Every command option object accepts a `signal`. It cancels the whole native invocation and rejects
-with an `AbortError`:
-
-```typescript
-const controller = new AbortController();
-setTimeout(() => controller.abort(), 30_000);
-
-await uiClick({ app: 'notepad', selector: 'btn-save-c3d4', signal: controller.signal });
-```
-
-On Windows the child is force-terminated, so the CLI's own cleanup may not run. That is safe —
-Windows releases the process's coordination handles and other `winapp ui` processes reclaim its queue
-entry — but if the abort lands after the command already had the desktop, UI side effects may already
-have happened, and aborting an active recording can leave partial output with no graceful MP4
-finalization.
-
-#### Driving UI from several workflows
-
-`winapp ui` commands that touch the physical desktop always arbitrate for it — that is on by default
-and cannot be turned off, so two agents can never type into each other's windows.
-
-What is opt-in is *continuity*. Pass the same `workflowId` to every call that belongs to one logical
-workflow and they keep the desktop reserved between invocations for a short idle grace, may overlap
-with each other (a recording and the clicks it is recording), and are never interleaved with another
-workflow's input:
-
-```typescript
-const workflowId = crypto.randomUUID();
-
-await uiClick({ app: 'notepad', selector: 'btn-file-a1b2', workflowId });
-await uiSendKeys({ app: 'notepad', keys: 'hello', workflowId });
-```
-
-`workflowId` is applied to the spawned child only — the wrapper never mutates `process.env`, so it
-cannot leak into unrelated concurrent calls. Setting `WINAPP_UI_WORKFLOW_ID` in the environment works
-too and is inherited by every child.
-
-Without a `workflowId` each call is a self-contained one-shot: it still waits its turn, but releases
-the desktop the moment it finishes. That also means a no-`workflowId` `uiRecord` blocks every other
-workflow for its whole duration — to record and click at the same time, give both calls the same
-`workflowId`.
-
-See [UI Automation → Coordinating concurrent UI workflows](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#coordinating-concurrent-ui-workflows).
-
-`uiRecord` still requires a finite positive `durationSec`: `signal` can only stop a recording by
-killing it, which does not produce a valid MP4.
+Command wrappers run non-interactively. See the guide for
+[required inputs](https://github.com/microsoft/WinAppCli/blob/main/docs/npm-usage.md#calls-are-non-interactive),
+[cancellation](https://github.com/microsoft/WinAppCli/blob/main/docs/npm-usage.md#cancel-a-call), and
+[coordinated UI calls and bounded recordings](https://github.com/microsoft/WinAppCli/blob/main/docs/npm-usage.md#coordinate-ui-calls-and-record-a-bounded-video).
 
 ## 🔧 Feedback
 

@@ -12,5 +12,8 @@ bin/
 # Ignore TypeScript compiled output
 dist/
 
+# Command wrappers are regenerated from the CLI schema before compilation, tests, and docs.
+/src/winapp-commands.ts
+
 # Node modules
 node_modules/

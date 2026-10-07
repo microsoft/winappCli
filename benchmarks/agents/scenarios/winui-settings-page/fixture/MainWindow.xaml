@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window x:Class="ContosoReader.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Contoso Reader">
+    <NavigationView x:Name="Nav" IsSettingsVisible="False" SelectionChanged="Nav_SelectionChanged">
+        <NavigationView.MenuItems>
+            <NavigationViewItem Content="Library" Tag="Library" Icon="Library" />
+            <NavigationViewItem Content="Downloads" Tag="Downloads" Icon="Download" />
+        </NavigationView.MenuItems>
+        <Frame x:Name="ContentFrame" />
+    </NavigationView>
+</Window>

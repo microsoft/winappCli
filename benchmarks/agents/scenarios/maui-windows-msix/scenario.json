@@ -1,0 +1,20 @@
+{
+  "id": "maui-windows-msix",
+  "description": "Produce a signed MSIX of a .NET MAUI app for sideloading.",
+  "prompt": "Produce a signed MSIX of this .NET MAUI app that I can sideload on our test machines, using commands I can also run in CI.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winapp-maui",
+      "winapp-package"
+    ],
+    "skillsForbid": [
+      "winui-wpf-migration",
+      "winui-session-report"
+    ]
+  }
+}
