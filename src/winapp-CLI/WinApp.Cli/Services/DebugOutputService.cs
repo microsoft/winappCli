@@ -153,6 +153,10 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
                     PInvoke.ContinueDebugEvent(debugEvent.dwProcessId, debugEvent.dwThreadId, continueStatus);
                     return exitCode;
 
+                case DEBUG_EVENT_CODE.EXIT_THREAD_DEBUG_EVENT:
+                    HandleThreadExit(debugEvent.dwThreadId);
+                    break;
+
                 case DEBUG_EVENT_CODE.CREATE_PROCESS_DEBUG_EVENT:
                     CloseHandleSafe(debugEvent.u.CreateProcessInfo.hFile);
                     break;
@@ -413,6 +417,9 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
         _savedFirstChanceContexts[threadId] = current;
         _logWriter?.WriteLine($"[CrashDump] Saved first-chance context for thread {threadId} (0x{code:X8}) at 0x{address:X}");
     }
+
+    // Windows can reuse a thread id, so an exited thread's saved context must not outlive it.
+    internal void HandleThreadExit(uint threadId) => _savedFirstChanceContexts.Remove(threadId);
 
     private SavedExceptionContext? CaptureExceptionContext(uint processId, uint threadId, uint code, nuint address)
     {

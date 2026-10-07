@@ -34,7 +34,7 @@ namespace WinApp.Cli.Tests;
 ///   <item>174-175, 181-182 — the <c>OpenProcess</c> / <c>ReadProcessMemory</c> failure guards while reading
 ///   the debuggee's <c>OutputDebugString</c> buffer: cannot be provoked without corrupting the OS call
 ///   (TOCTOU/flaky).</item>
-///   <item>519-521 — the <c>GetThreadContext</c>-failure guard: reached only when <c>OpenThread</c> succeeds
+///   <item>526-528 — the <c>GetThreadContext</c>-failure guard: reached only when <c>OpenThread</c> succeeds
 ///   but the subsequent context read fails — genuine Win32 fault injection, undrivable without flakiness.</item>
 /// </list>
 /// </remarks>
@@ -702,6 +702,29 @@ public sealed class DebugOutputServiceWorkflowTests
             release.Set();
             t1.Join();
             t2.Join();
+        }
+    }
+
+    [TestMethod]
+    public void HandleException_SavedContextFromExitedThread_IsNotReusedForRecycledThreadId()
+    {
+        using var release = new ManualResetEvent(false);
+        var (threadId, t) = StartBlockedThread(release);
+        try
+        {
+            // The first thread saved a live context and exited; a new thread then got the same id and crashed.
+            Raise(0xC0000005, firstChance: true, threadId);
+            _service.HandleThreadExit(threadId);
+            Raise(0xC0000409, firstChance: false, threadId);
+
+            Assert.AreEqual(1, _crashDump.WriteCalls.Count);
+            Assert.AreEqual(unchecked((int)0xC0000409), _crashDump.SavedRecords[0].Code,
+                "A context saved by an exited thread must not describe a later thread that reuses its id.");
+        }
+        finally
+        {
+            release.Set();
+            t.Join();
         }
     }
 
