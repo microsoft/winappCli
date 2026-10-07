@@ -9,8 +9,7 @@
   "fixture": "fixture",
   "expect": {
     "skillsAny": [
-      "winapp-maui",
-      "winapp-package"
+      "winapp-maui"
     ],
     "skillsForbid": [
       "winui-wpf-migration",

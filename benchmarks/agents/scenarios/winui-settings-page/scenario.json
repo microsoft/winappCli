@@ -3,6 +3,7 @@
   "description": "WinUI design change: add a settings page with a theme toggle.",
   "prompt": "Add a Settings page with a light/dark theme toggle to the NavigationView. It should look like a standard Windows 11 settings page.",
   "configurations": [
+    "winapp",
     "winui",
     "both"
   ],
