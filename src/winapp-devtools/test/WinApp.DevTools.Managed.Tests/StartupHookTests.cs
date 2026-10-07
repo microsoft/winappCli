@@ -40,6 +40,8 @@ public sealed class StartupHookTests
             using System.Runtime.InteropServices;
             NativeLibrary.SetDllImportResolver(typeof(Native).Assembly, (name, _, _) =>
                 name == "binding-transfer-fixture" ? NativeLibrary.Load(Environment.GetEnvironmentVariable("WINAPP_BINDING_TEST_FIXTURE")) : IntPtr.Zero);
+            System.Diagnostics.Trace.Listeners.Add(new System.Diagnostics.ConsoleTraceListener(true));
+            System.Diagnostics.Trace.Listeners.Add(new System.Diagnostics.ConsoleTraceListener(true));
             Console.WriteLine("ready");
             string input;
             while (!string.IsNullOrEmpty(input = Console.ReadLine()))
@@ -183,6 +185,33 @@ public sealed class StartupHookTests
             }
         }
         return frame.ToArray();
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern bool WaitNamedPipeW(string name, uint timeout);
+
+    [TestMethod]
+    public async Task BackToBackConnectionsAlwaysFindAListener()
+    {
+        await WithHost(async child =>
+        {
+            var name = $@"\\.\pipe\winapp-devtools-binding-{child.Id}";
+            int missing = 0;
+            var started = DateTime.UtcNow;
+            while (!WaitNamedPipeW(name, 100) && DateTime.UtcNow - started < TimeSpan.FromSeconds(10)) await Task.Delay(50);
+            for (int i = 0; i < 400; i++)
+            {
+                // WaitNamedPipe reports a pipe with no instance at all as missing at once, as the native relay sees it.
+                if (!WaitNamedPipeW(name, 2000))
+                {
+                    if (System.Runtime.InteropServices.Marshal.GetLastWin32Error() == 2) missing++;
+                    continue;
+                }
+                using var pipe = new NamedPipeClientStream(".", $"winapp-devtools-binding-{child.Id}", PipeDirection.InOut);
+                try { pipe.Connect(2000); } catch (TimeoutException) { }
+            }
+            Assert.AreEqual(0, missing, "the host's pipe disappeared between back-to-back connections");
+        });
     }
 
     [TestMethod]

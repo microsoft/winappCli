@@ -16,17 +16,34 @@ internal sealed class StartupHook
 
     public static void Initialize() => _ = Task.Run(ServeAsync);
 
+    // The relay treats a missing pipe name as a missing host, so a listening instance always exists: the next one is
+    // created before the current one is handed off or dropped. Instances are uncapped because one lives until both
+    // ends close, and a refused listener would leave the name missing.
+    private static NamedPipeServerStream Listen(string pipeName) =>
+        new(pipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+
     private static async Task ServeAsync()
     {
         string pipeName = $"winapp-devtools-binding-{Environment.ProcessId}";
+        NamedPipeServerStream? next = null;
         while (true)
         {
-            NamedPipeServerStream? pipe = null;
+            NamedPipeServerStream? pipe = next;
+            next = null;
             try
             {
-                pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4,
-                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-                await pipe.WaitForConnectionAsync();
+                pipe ??= Listen(pipeName);
+                try { await pipe.WaitForConnectionAsync(); }
+                catch (IOException ex)
+                {
+                    // A client that left before the connection completed ("the pipe is being closed").
+                    System.Diagnostics.Trace.TraceWarning("Binding connection dropped: {0}", ex.Message);
+                    next = Listen(pipeName);
+                    pipe.Dispose();
+                    continue;
+                }
+                next = Listen(pipeName);
                 var connected = pipe;
                 pipe = null;
                 _ = Task.Run(async () =>
