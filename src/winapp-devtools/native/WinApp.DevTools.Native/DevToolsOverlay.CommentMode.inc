@@ -148,7 +148,7 @@ static std::wstring DipText(double value)
     return text;
 }
 
-// A solid disc with a one-pixel rim and a vector glyph, all on whole device pixels (SnapPin), with no template
+// A solid disc with a one-pixel white rim and a vector glyph, all on whole device pixels (SnapPin), with no template
 // chrome, shadow or animation that could soften its edge.
 static std::wstring BuildPinMarkup(const DevToolsSelection::PinPixels& pin, const std::wstring& tip)
 {
@@ -167,9 +167,12 @@ static std::wstring BuildPinMarkup(const DevToolsSelection::PinPixels& pin, cons
     m += L"<VisualState x:Name=\"PointerOver\"><VisualState.Setters><Setter Target=\"Disc.Stroke\" Value=\"" + pal.accentText + L"\"/></VisualState.Setters></VisualState>";
     m += L"<VisualState x:Name=\"Pressed\"><VisualState.Setters><Setter Target=\"Disc.Stroke\" Value=\"" + pal.accentText + L"\"/></VisualState.Setters></VisualState>";
     m += L"</VisualStateGroup></VisualStateManager.VisualStateGroups>";
-    m += L"<Ellipse x:Name=\"Disc\" Fill=\"" + pal.accent + L"\" Stroke=\"" + pal.border + L"\" StrokeThickness=\"" + DipText(pin.rim) + L"\"/>";
+    m += L"<Ellipse x:Name=\"Disc\" Fill=\"" + pal.accent + L"\" Stroke=\"#FFFFFFFF\" StrokeThickness=\"" + DipText(pin.rim) + L"\"/>";
     m += L"<FontIcon Glyph=\"&#xE90A;\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\" FontSize=\"" + DipText(pin.glyph) + L"\"";
-    m += L" Foreground=\"" + pal.accentText + L"\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\"/>";
+    m += L" Margin=\"" + DipText((pin.size - pin.glyph) / 2) + L",0,0,0\"";
+    // Text puts this glyph half a device pixel right of its layout slot, which splits each 1 px stem over two pixels.
+    m += L" RenderTransform=\"1,0,0,1," + DipText(-pin.rim / 2) + L",0\"";
+    m += L" Foreground=\"" + pal.accentText + L"\" HorizontalAlignment=\"Left\" VerticalAlignment=\"Center\"/>";
     m += L"</Grid></ControlTemplate></Button.Template>";
     m += L"</Button>";
     return m;
