@@ -39,7 +39,7 @@ confidently, and do not stop at "the code looks like it does X"; where you can
    - API existence/shape/requirements → prefer authoritative vendor docs; where
      feasible, a tiny throwaway call.
    Keep experiments cheap and confined to temp dirs; never touch the repo tree.
-   Reading the repo's own code (`Commands/`, `Services/`, `docs/cli-schema.json`,
+   Reading the repo's own code (`Commands/`, `Services/`,
    `AppxManifestDocument`, `scripts/build-cli.ps1`) is still valuable for
    *repo-internal* behavior — but it is not a substitute for an experiment on an
    external tool/API/build mechanic.
