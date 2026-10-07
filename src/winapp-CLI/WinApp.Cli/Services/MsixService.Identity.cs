@@ -669,12 +669,31 @@ internal partial class MsixService
                 Version: Version.TryParse(e.Element(msbuildNs + "Version")?.Value, out var v) ? v : null,
                 Location: Uri.UnescapeDataString(e.Element(msbuildNs + "AppxLocation")?.Value ?? string.Empty)))
             .Where(f => f.Name.Length > 0 && f.Version is not null && Path.IsPathFullyQualified(f.Location))
-            .Select(f => (f.Name, f.Version!, Path.GetFullPath(f.Location)))
-            // The recipe is a build output that can be committed or crafted; probing a network location would
-            // send the user's credentials to that host, so only local package files are considered.
-            .Where(f => !PathSafety.IsNetworkPath(f.Item3) && !PathSafety.IsNetworkDriveRoot(f.Item3) && !PathSafety.RedirectsToNetwork(f.Item3))
+            .Select(f => (f.Name, f.Version!, Path: LocalRecipePackagePath(f.Location)))
+            .Where(f => f.Path is not null)
+            .Select(f => (f.Name, f.Item2, f.Path!))
             .DistinctBy(f => f.Item3, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>
+    /// The recipe is a build output that can be committed or crafted, and probing a network location would send
+    /// the user's credentials to that host. Returns the normalized local path, or null for anything on a network
+    /// share, a mapped network drive, or behind a link to one. Normalizes without <see cref="Path.GetFullPath(string)"/>,
+    /// which expands 8.3 names (<c>A~1</c>) by querying the target and would reach a UNC host before any check.
+    /// </summary>
+    private static string? LocalRecipePackagePath(string location)
+    {
+        var normalized = PathSafety.NormalizeLocalPathWithoutProbing(location);
+        if (normalized is null || PathSafety.IsNetworkDriveRoot(normalized) || PathSafety.RedirectsToNetwork(normalized))
+        {
+            return null;
+        }
+
+        // Drop the \\?\ prefix the normalizer adds to a drive path, for the package installer and messages.
+        return normalized.StartsWith(@"\\?\", StringComparison.Ordinal) && normalized.Length > 6 && normalized[5] == ':'
+            ? normalized[4..]
+            : normalized;
     }
 
     private static string NormalizeRecipeArchitecture(string? architecture) =>

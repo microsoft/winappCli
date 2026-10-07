@@ -875,6 +875,13 @@ public sealed class ProjectRunServiceCppTests : IDisposable
                   <FrameworkIdentity>Name = Other.Framework</FrameworkIdentity>
                   <AppxLocation>\\?\UNC\attacker\share\y.msix</AppxLocation>
                 </ResolvedSDKReference>
+                <ResolvedSDKReference Include="z">
+                  <Name>ShortName.Framework</Name>
+                  <Version>1.0.0.0</Version>
+                  <Architecture>x64</Architecture>
+                  <FrameworkIdentity>Name = ShortName.Framework</FrameworkIdentity>
+                  <AppxLocation>\\attacker\share\A~1\z.msix</AppxLocation>
+                </ResolvedSDKReference>
               </ItemGroup>
             </Project>
             """);
