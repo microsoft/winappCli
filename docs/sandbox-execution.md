@@ -360,6 +360,7 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_unmanaged_instance`, `sandbox_target_ambiguous` | Inspect the reported instances/windows; do not stop unrelated work to resolve ambiguity |
 | `sandbox_input_not_ready`, `sandbox_no_interactive_session` | Restore the existing client or reconnect as directed, then retry |
 | `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested. If it asks you to stop the Sandbox, save any work you need, then run `wsb stop --id <id>` (with consent) and retry; closing its window does not stop it |
+| `sandbox_transport_failed` | Follow the error's `userAction`. If a folder share failed with `0x80070005`, Windows Sandbox (which shares folders as the SYSTEM account) can't read the reported folder; grant access, then retry: `icacls "<folder>" /grant "*S-1-5-18:(OI)(CI)F"` (`S-1-5-18` is SYSTEM) |
 | `sandbox_agent_busy` | Wait for another command to finish, then retry |
 | `sandbox_terminated`, `sandbox_target_stale`, `sandbox_stale_handle` | Rerun the app and rediscover guest PIDs/windows |
 | `sandbox_state_unavailable` | Ensure `%USERPROFILE%\.winapp\state` is writable, or correct `WINAPP_TARGET_STATE_ROOT` if set |

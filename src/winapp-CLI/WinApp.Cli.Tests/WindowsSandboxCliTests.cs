@@ -90,6 +90,7 @@ public class WindowsSandboxCliTests
         StringAssert.Contains(error.Error.Message, HostPath);
         StringAssert.Contains(error.Error.UserAction, "SYSTEM");
         StringAssert.Contains(error.Error.UserAction, HostPath);
+        StringAssert.Contains(error.Error.UserAction, $"icacls \"{HostPath}\" /grant \"*S-1-5-18:(OI)(CI)F\"", "The message must show how to grant SYSTEM access.");
         Assert.DoesNotContain("restart the host", error.Error.UserAction!, StringComparison.OrdinalIgnoreCase);
         Assert.AreEqual("0x80070005", error.Error.Context![WsbHResult.ContextKey]);
         Assert.AreEqual(HostPath, error.Error.Context["hostPath"]);

@@ -158,6 +158,8 @@ suppressed with `--quiet`/`--json`.
   for a version change; closing its window does not stop it.
 - Missing/unsupported runtime: use the named requirement and configuration in the error.
   Do not assume any newer same-major runtime is compatible or substitute architectures.
+- Folder share refused (`sandbox_transport_failed`, `0x80070005`): Sandbox shares as SYSTEM.
+  Grant it access to the reported folder with the error's `icacls` command, then retry.
 - Incomplete deployment/transfer: retry. Busy: wait. Partial recording: keep reported evidence.
 - Package conflict: do not remove external or inbox packages to force registration.
 

@@ -978,7 +978,7 @@ internal sealed class WindowsSandboxBackend(
                 "is still using its files, so this version could not replace them.",
                 // Stopped, not closed: closing the window leaves a Sandbox winapp started running, so
                 // its files stay in use.
-                userAction: "Save anything you need from the Sandbox, stop it with `wsb stop`, then run the command again to start a fresh agent.",
+                userAction: $"Save anything you need from the Sandbox, stop it with `wsb stop --id {instanceId}`, then run the command again to start a fresh agent.",
                 context: new Dictionary<string, string> { ["sandboxId"] = instanceId },
                 nextCommand: new ExecutionTargetNextCommand
                 {

@@ -205,7 +205,7 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
         }
 
         var userAction = hresult == WsbHResult.AccessDenied
-            ? $"Windows Sandbox shares host folders as the SYSTEM account. Grant SYSTEM access to '{hostPath}', then retry."
+            ? $"Windows Sandbox shares host folders as the SYSTEM account. Grant SYSTEM access to '{hostPath}' with `icacls \"{hostPath}\" /grant \"*S-1-5-18:(OI)(CI)F\"`, then retry."
             : "Retry the command. If it keeps failing, close the Sandbox and try again.";
 
         return ExecutionTargetException.Create(
