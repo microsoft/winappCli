@@ -432,10 +432,20 @@ static void TestToolbarContract()
                          recompute.find("LoadMarkupWin") == std::string::npos &&
                          recompute.find("RefreshCommentsPane") == std::string::npos,
                      "the recompute parses no markup -- it writes properties on rows that already exist");
-        CheckToolbar(recompute.find("DevToolsSetAutomationName(g_apStatics, r.body") != std::string::npos,
+        CheckToolbar(recompute.find("DevToolsSetAutomationName(g_apStatics, body") != std::string::npos,
                      "and it moves the row's ACCESSIBLE name too, not just the dot and the chip");
     }
-    // part 3: ONE shell hand-off, and neither call site may keep its own ShellExecute.
+    // The Comments pane is a virtualizing list: rows are built by the list's factory, only while on screen.
+    CheckToolbar(window.find("<ItemsRepeater x:Name=\\\"CommentRepeater\\\"") != std::string::npos &&
+                     window.find("DevToolsRepeaterPutItemTemplate(g_commentRepeater") != std::string::npos,
+                 "the Comments pane builds rows on demand in a virtualizing list");
+    {
+        const size_t fragAt = window.find("static std::wstring BuildCommentsFragment(");
+        const size_t fragEnd = (fragAt == std::string::npos) ? std::string::npos : window.find("\n}", fragAt);
+        const std::string fragment = (fragAt == std::string::npos) ? std::string() : window.substr(fragAt, fragEnd - fragAt);
+        CheckToolbar(!fragment.empty() && fragment.find("BuildCommentRowMarkup") == std::string::npos,
+                     "the pane's markup holds no rows, so its cost does not grow with the comment count");
+    }    // part 3: ONE shell hand-off, and neither call site may keep its own ShellExecute.
     CheckToolbar(window.find("DevToolsShellOpen::Decide(") != std::string::npos &&
                      CountOf(window, "static std::wstring HandOffSource(") == 1 &&
                      CountOf(window, "HandOffSource(") == 3,

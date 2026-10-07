@@ -14,35 +14,25 @@ static void*         g_commentsBadgeUi = nullptr;
 static void*         g_treeTabBtn = nullptr;
 static void*         g_commentsTabBtn = nullptr;
 static std::vector<DevToolsWindowComment> g_commentRows;
-struct CommentRowUi
-{
-    void* actions = nullptr;
-    void* dotLive = nullptr;
-    void* dotDead = nullptr;
-    void* chip    = nullptr;
-    void* body    = nullptr;
-    bool  done    = false;
-    bool  live    = false;
-};
-static std::vector<CommentRowUi> g_commentRowUi;
+// The pane is a virtualizing list: one item per file caption or comment row, built only while it is on screen.
+enum class CommentItemKind { Caption, Row };
+struct CommentPaneItem { CommentItemKind kind = CommentItemKind::Row; size_t row = 0; std::wstring caption; };
+static std::vector<CommentPaneItem> g_commentItems;
+static std::vector<int> g_commentRowItem;   // row index -> item index
 static std::vector<char> g_commentRowLive;
+static void* g_commentRepeater = nullptr;
 static void* g_commentsOffNoteTb = nullptr;
 static void* g_commentsOffNoteUi = nullptr;
 static bool g_xamlHandlerPresent = false;
-
 static void RefreshCommentsPane();
 
 static void ReleaseCommentRowUi()
 {
     auto drop = [](void*& p) { if (p) { reinterpret_cast<IUnknown*>(p)->Release(); p = nullptr; } };
-    for (CommentRowUi& r : g_commentRowUi) {
-        drop(r.actions); drop(r.dotLive); drop(r.dotDead); drop(r.chip); drop(r.body);
-    }
-    g_commentRowUi.clear();
+    drop(g_commentRepeater);
     drop(g_commentsOffNoteTb);
     drop(g_commentsOffNoteUi);
 }
-
 // Always select the comment row; additionally select its element when realized. Resolve the
 // comment identity at click time rather than reuse stale handles or file positions.
 static void GoToComment(size_t idx)
@@ -176,7 +166,8 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
     const std::wstring subject = DevToolsXmlEscape(c.text.size() > 40 ? c.text.substr(0, 40) + L"\u2026" : c.text);
 
     std::wstring m;
-    m += L"<Border x:Name=\"H" + i + L"\" Margin=\"0,0,0,2\" CornerRadius=\"4\" Background=\"Transparent\">";
+    m += L"<Border xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
+         L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" x:Name=\"H" + i + L"\" Margin=\"0,0,0,2\" CornerRadius=\"4\" Background=\"Transparent\">";
     m += L"<StackPanel>";
 
     m += L"<Button x:Name=\"K" + i + L"\" HorizontalAlignment=\"Stretch\""
@@ -251,22 +242,26 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
     return m;
 }
 
+static std::wstring CommentCaptionMarkup(const std::wstring& text)
+{
+    return L"<TextBlock xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Text=\"" + DevToolsXmlEscape(text) +
+        L"\" Style=\"{StaticResource CaptionTextBlockStyle}\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
+        L" CharacterSpacing=\"60\" Margin=\"4,10,4,6\" AutomationProperties.HeadingLevel=\"Level2\"/>";
+}
+
+// Fills the list model (captions grouped by file, then resolved comments) and returns the pane around it.
 static std::wstring BuildCommentsFragment(const std::vector<DevToolsWindowComment>& all, size_t& outOpen)
 {
     std::wstring m;
     m += L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
          L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Margin=\"4\">";
 
-    auto caption = [&](const std::wstring& text) {
-        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(text) + L"\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" CharacterSpacing=\"60\""
-             L" Margin=\"4,10,4,6\"/>";
-    };
-
     g_commentRows.clear();
     g_commentRowLive.clear();
+    g_commentRowItem.clear();
+    g_commentItems.clear();
     g_xamlHandlerPresent = !ShellAssocFor(L".xaml").empty();
-    size_t open = 0, offscreen = 0;
+    size_t open = 0;
     for (const auto& c : all) if (c.status != L"resolved") ++open;
 
     if (all.empty()) {
@@ -282,47 +277,108 @@ static std::wstring BuildCommentsFragment(const std::vector<DevToolsWindowCommen
         return m;
     }
 
+    auto addRow = [&](const DevToolsWindowComment& c) {
+        const bool live = c.status != L"resolved" && g_anchorWireFn && !c.anchor.empty() &&
+            g_anchorWireFn(c.anchor.c_str()) != 0;
+        g_commentRowItem.push_back(static_cast<int>(g_commentItems.size()));
+        g_commentItems.push_back({ CommentItemKind::Row, g_commentRows.size(), L"" });
+        g_commentRows.push_back(c);
+        g_commentRowLive.push_back(live ? 1 : 0);
+    };
     std::vector<std::wstring> files;
     for (const auto& c : all) {
         if (c.status == L"resolved") continue;
         const std::wstring key = c.file.empty() ? std::wstring(L"(source not resolved)") : c.file;
         if (std::find(files.begin(), files.end(), key) == files.end()) files.push_back(key);
     }
-
     for (const auto& f : files) {
-        caption(f);
+        g_commentItems.push_back({ CommentItemKind::Caption, 0, f });
         for (const auto& c : all) {
             if (c.status == L"resolved") continue;
-            const std::wstring key = c.file.empty() ? std::wstring(L"(source not resolved)") : c.file;
-            if (key != f) continue;
-            const bool live = g_anchorWireFn && !c.anchor.empty() && g_anchorWireFn(c.anchor.c_str()) != 0;
-            if (!live && !c.anchor.empty()) ++offscreen;
-            m += BuildCommentRowMarkup(g_commentRows.size(), c, live);
-            g_commentRows.push_back(c);
-            g_commentRowLive.push_back(live ? 1 : 0);
+            if ((c.file.empty() ? std::wstring(L"(source not resolved)") : c.file) == f) addRow(c);
         }
     }
-
     size_t resolved = 0;
     for (const auto& c : all) if (c.status == L"resolved") ++resolved;
     if (resolved) {
-        caption(L"RESOLVED (" + std::to_wstring(resolved) + L")");
-        for (const auto& c : all) {
-            if (c.status != L"resolved") continue;
-            m += BuildCommentRowMarkup(g_commentRows.size(), c, false);
-            g_commentRows.push_back(c);
-            g_commentRowLive.push_back(0);
-        }
+        g_commentItems.push_back({ CommentItemKind::Caption, 0, L"RESOLVED (" + std::to_wstring(resolved) + L")" });
+        for (const auto& c : all) if (c.status == L"resolved") addRow(c);
     }
 
+    m += L"<ItemsRepeater x:Name=\"CommentRepeater\" TabFocusNavigation=\"Local\""
+         L" AutomationProperties.AutomationId=\"WinAppDevToolsCommentList\" AutomationProperties.Name=\"Comments\">"
+         L"<ItemsRepeater.Layout><StackLayout/></ItemsRepeater.Layout></ItemsRepeater>";
     m += L"<TextBlock x:Name=\"OffNote\" FontSize=\"11\" TextWrapping=\"Wrap\" Margin=\"4,12,4,0\""
          L" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\" Visibility=\"Collapsed\"/>";
-
     m += L"</StackPanel>";
     outOpen = open;
     return m;
 }
 
+// Each row's actions, created once per refresh and reused whenever the list builds the row again.
+struct CommentRowSinks { DevToolsSinkBase* sinks[5] = {}; };
+static std::vector<CommentRowSinks> g_commentRowSinks;
+
+static void WireCommentRow(void* rowFe, size_t row)
+{
+    if (row >= g_commentRowSinks.size()) g_commentRowSinks.resize(g_commentRows.size());
+    CommentRowSinks& s = g_commentRowSinks[row];
+    if (!s.sinks[0]) {
+        auto* select = new CommentRowSink();        select->Init(row);  s.sinks[0] = select;
+        auto* resolve = new CommentResolveSink();   resolve->Init(row); s.sinks[1] = resolve;
+        auto* open = new CommentOpenSourceSink();   open->Init(row);    s.sinks[2] = open;
+        auto* reveal = new CommentRevealSink();     reveal->Init(row);  s.sinks[3] = reveal;
+        auto* copy = new CommentCopyPathSink();     copy->Init(row);    s.sinks[4] = copy;
+    }
+    const std::wstring n = std::to_wstring(row);
+    const wchar_t* names[5] = { L"K", L"R", L"O", L"E", L"C" };
+    for (int k = 0; k < 5; ++k) {
+        IInspectable* found = FindInRow(rowFe, (names[k] + n).c_str());
+        if (!found) continue;
+        void* bb = nullptr;
+        if (SUCCEEDED(found->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+            __int64 tok = 0; DevToolsAddClick(bb, s.sinks[k], &tok);
+            reinterpret_cast<IUnknown*>(bb)->Release();
+        }
+        found->Release();
+    }
+}
+
+struct CommentItemFactory : DevToolsElementFactoryBase
+{
+    // Rows are not pooled: each is built for its own comment and its sinks know that comment's index.
+    HRESULT STDMETHODCALLTYPE GetElement(void* args, void** element) noexcept override
+    {
+        if (element) *element = nullptr;
+        if (!args || !element) return E_POINTER;
+        IInspectable* data = nullptr;
+        if (FAILED(DevToolsGetArgsData(args, &data)) || !data) return E_FAIL;
+        int idx = -1;
+        const HRESULT hrU = DevToolsUnboxInt32(data, &idx);
+        data->Release();
+        if (FAILED(hrU) || idx < 0 || static_cast<size_t>(idx) >= g_commentItems.size()) return E_FAIL;
+        const CommentPaneItem& item = g_commentItems[static_cast<size_t>(idx)];
+        const bool row = item.kind == CommentItemKind::Row && item.row < g_commentRows.size();
+        IInspectable* built = nullptr;
+        if (FAILED(LoadMarkupWin(row ? BuildCommentRowMarkup(item.row, g_commentRows[item.row], g_commentRowLive[item.row] != 0)
+                                     : CommentCaptionMarkup(item.caption), &built)) || !built) {
+            DevToolsOverlayLog(L"route1.comments item %d did not build", idx);
+            return E_FAIL;
+        }
+        if (row) {
+            void* fe = nullptr;
+            if (SUCCEEDED(built->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+                WireCommentRow(fe, item.row);
+                reinterpret_cast<IUnknown*>(fe)->Release();
+            }
+        }
+        const HRESULT hr = built->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), element);
+        built->Release();
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE RecycleElement(void*) noexcept override { return S_OK; }
+};
+static CommentItemFactory g_commentItemFactory;
 // The footnote's text for a given off-screen count. One writer, used by the initial render and by every
 // recompute, so the two cannot drift.
 static std::wstring CommentsOffscreenNote(size_t offscreen)
@@ -330,32 +386,51 @@ static std::wstring CommentsOffscreenNote(size_t offscreen)
     return DevToolsCommentText::OffscreenNote(offscreen);
 }
 
-// Recompute anchor liveness after coalesced tree changes and update only changed row state.
-// Run on the later UI dispatcher turn, not inside OnVisualTreeChange; do not reparse the list.
+// Recompute anchor liveness after coalesced tree changes. Rows on screen are updated in place; rows the list has not
+// built pick up the new state when it builds them. Run on the later UI dispatcher turn, not inside OnVisualTreeChange.
 static void RecomputeCommentLiveness()
 {
-    if (!g_commentsView || g_commentRowUi.empty()) return;
+    if (!g_commentsView || g_commentRows.empty()) return;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinCommentLive);
     size_t offscreen = 0, changed = 0;
-    for (size_t i = 0; i < g_commentRowUi.size() && i < g_commentRows.size(); ++i) {
-        CommentRowUi& r = g_commentRowUi[i];
-        if (r.done) continue;
+    for (size_t i = 0; i < g_commentRows.size() && i < g_commentRowLive.size(); ++i) {
         const DevToolsWindowComment& c = g_commentRows[i];
+        if (c.status == L"resolved") continue;
         // Ask. A handle that resolved a moment ago says nothing about now, which is the whole reason the
         // tree-change notification exists.
         const bool live = g_anchorWireFn && !c.anchor.empty() && g_anchorWireFn(c.anchor.c_str()) != 0;
         if (!live && !c.anchor.empty()) ++offscreen;
-        if (live == r.live) continue;
-        r.live = live;
+        if (live == (g_commentRowLive[i] != 0)) continue;
+        g_commentRowLive[i] = live ? 1 : 0;
         ++changed;
-        if (r.dotLive) DevToolsPutVisibility(r.dotLive, live ? 0 : 1);
-        if (r.dotDead) DevToolsPutVisibility(r.dotDead, live ? 1 : 0);
-        if (r.chip)    DevToolsPutVisibility(r.chip,    live ? 1 : 0);
-        if (r.body) {
-            HSTRING h = MakeStr(CommentRowAccessibleName(c, live, false));
-            DevToolsSetAutomationName(g_apStatics, r.body, h);
-            WindowsDeleteString(h);
+        IInspectable* element = nullptr;
+        if (!g_commentRepeater || i >= g_commentRowItem.size() ||
+            FAILED(DevToolsRepeaterTryGetElement(g_commentRepeater, g_commentRowItem[i], &element)) || !element) continue;
+        void* row = nullptr;
+        if (SUCCEEDED(element->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &row)) && row) {
+            const std::wstring n = std::to_wstring(i);
+            auto show = [&](const wchar_t* name, bool visible) {
+                if (IInspectable* part = FindInRow(row, (name + n).c_str())) {
+                    void* ui = nullptr;
+                    if (SUCCEEDED(part->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
+                        DevToolsPutVisibility(ui, visible ? 0 : 1);
+                        reinterpret_cast<IUnknown*>(ui)->Release();
+                    }
+                    part->Release();
+                }
+            };
+            show(L"D", live);
+            show(L"N", !live);
+            show(L"P", !live);
+            if (IInspectable* body = FindInRow(row, (L"K" + n).c_str())) {
+                HSTRING h = MakeStr(CommentRowAccessibleName(c, live, false));
+                DevToolsSetAutomationName(g_apStatics, body, h);
+                WindowsDeleteString(h);
+                body->Release();
+            }
+            reinterpret_cast<IUnknown*>(row)->Release();
         }
+        element->Release();
     }
     if (g_commentsOffNoteTb && g_commentsOffNoteUi) {
         const std::wstring note = CommentsOffscreenNote(offscreen);
@@ -372,6 +447,7 @@ static void RefreshCommentsPane()
 {
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinComments);
     if (!g_commentsHostChildren) return;
+    const ULONGLONG began = GetTickCount64();
 
     std::vector<DevToolsWindowComment> all;
     if (g_commentsFn) g_commentsFn(&all);
@@ -379,74 +455,39 @@ static void RefreshCommentsPane()
     size_t open = 0;
     IInspectable* frag = nullptr;
     ReleaseCommentRowUi();
+    g_commentRowSinks.clear();
     if (FAILED(LoadMarkupWin(BuildCommentsFragment(all, open), &frag)) || !frag) {
         DevToolsOverlayLog(L"route1.comments fragment load failed");
         DevToolsVecClear(g_commentsHostChildren);
         g_commentRows.clear();
         g_commentRowLive.clear();
+        g_commentItems.clear();
+        g_commentRowItem.clear();
         return;
     }
 
-    // Wire each row in the fragment's own namescope: the row body (K<i>), its always-on actions (O/E/C/R<i>)
-    // and the four elements a tree change has to be able to rewrite without a re-parse -- the two dots
-    // (D/N<i>), the chip (P<i>) and the row body's automation name.
-    g_commentRowUi.assign(g_commentRows.size(), CommentRowUi{});
     void* fe = nullptr;
     if (SUCCEEDED(frag->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
-        auto find = [&](const std::wstring& name) -> IInspectable* {
-            HSTRING nm = MakeStr(name);
-            IInspectable* found = nullptr;
-            DevToolsFindName(fe, nm, &found);
-            WindowsDeleteString(nm);
-            return found;
+        auto hold = [&](const wchar_t* name, const GUID& iid, void** out) {
+            if (IInspectable* found = FindInRow(fe, name)) { found->QueryInterface(iid, out); found->Release(); }
         };
-        // Hold one element by the interface the later writes need. Returns AddRef'd; released in
-        // ReleaseCommentRowUi.
-        auto hold = [&](const std::wstring& name, const GUID& iid, void** out) {
-            IInspectable* found = find(name);
-            if (!found) return;
-            found->QueryInterface(iid, out);
-            found->Release();
-        };
-        for (size_t i = 0; i < g_commentRows.size(); ++i) {
-            const std::wstring n = std::to_wstring(i);
-            CommentRowUi& r = g_commentRowUi[i];
-            r.done = (g_commentRows[i].status == L"resolved");
-            r.live = (i < g_commentRowLive.size() && g_commentRowLive[i] != 0);
-            auto wireClick = [&](const std::wstring& name, DevToolsSinkBase* sink) {
-                // Sinks are leaked for the process lifetime, exactly like every other sink here: they are COM
-                // objects whose refcount the AddClick below owns, and a row that is absent from this fragment
-                // (Resolve on a resolved row, Open source with no URI) just leaves an inert one behind.
-                IInspectable* found = find(name);
-                if (!found) return;
-                void* bb = nullptr;
-                if (SUCCEEDED(found->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    __int64 tok = 0; DevToolsAddClick(bb, sink, &tok);
-                    reinterpret_cast<IUnknown*>(bb)->Release();
-                }
-                found->Release();
-            };
-            { auto* s = new CommentRowSink();        s->Init(i); wireClick(L"K" + n, s); }
-            { auto* s = new CommentResolveSink();    s->Init(i); wireClick(L"R" + n, s); }
-            { auto* s = new CommentOpenSourceSink(); s->Init(i); wireClick(L"O" + n, s); }
-            { auto* s = new CommentRevealSink();     s->Init(i); wireClick(L"E" + n, s); }
-            { auto* s = new CommentCopyPathSink();   s->Init(i); wireClick(L"C" + n, s); }
-
-            hold(L"A" + n, DevToolsIid<DevToolsX::IUIElement>(),        &r.actions);
-            hold(L"D" + n, DevToolsIid<DevToolsX::IUIElement>(),        &r.dotLive);
-            hold(L"N" + n, DevToolsIid<DevToolsX::IUIElement>(),        &r.dotDead);
-            hold(L"P" + n, DevToolsIid<DevToolsX::IUIElement>(),        &r.chip);
-            hold(L"K" + n, DevToolsIid<DevToolsX::IDependencyObject>(), &r.body);
-            // A row whose liveness elements went missing can never be corrected by a tree change, and would
-            // sit there looking authoritative. Say so rather than fail silently ('s shape).
-            if (!r.done && (!r.dotLive || !r.dotDead || !r.chip || !r.body))
-                DevToolsOverlayLog(L"route1.comments row %zu MISS: dotLive=%p dotDead=%p chip=%p body=%p"
-                              L" -- this row's on-screen state will not follow the app's tree",
-                              i, r.dotLive, r.dotDead, r.chip, r.body);
-        }
+        hold(L"CommentRepeater", DevToolsIid<DevToolsXC::IItemsRepeater>(), &g_commentRepeater);
         hold(L"OffNote", DevToolsIid<DevToolsXC::ITextBlock>(), &g_commentsOffNoteTb);
         hold(L"OffNote", DevToolsIid<DevToolsX::IUIElement>(),  &g_commentsOffNoteUi);
         reinterpret_cast<IUnknown*>(fe)->Release();
+    }
+    if (g_commentRepeater) {
+        HRESULT hr = DevToolsRepeaterPutItemTemplate(g_commentRepeater, static_cast<DevToolsElementFactoryBase*>(&g_commentItemFactory));
+        if (SUCCEEDED(hr)) {
+            try {
+                auto items = winrt::single_threaded_vector<winrt::Windows::Foundation::IInspectable>();
+                for (size_t i = 0; i < g_commentItems.size(); ++i) items.Append(winrt::box_value(static_cast<int32_t>(i)));
+                hr = DevToolsRepeaterPutItemsSource(g_commentRepeater, reinterpret_cast<IInspectable*>(winrt::get_abi(items)));
+            } catch (const winrt::hresult_error& e) { hr = e.code(); }
+        }
+        if (FAILED(hr)) DevToolsOverlayLog(L"route1.comments list setup FAILED hr=0x%08X -- the pane will show no comments", hr);
+    } else if (!g_commentItems.empty()) {
+        DevToolsOverlayLog(L"route1.comments CommentRepeater not found -- the pane will show no comments");
     }
 
     void* ui = nullptr;
@@ -461,9 +502,8 @@ static void RefreshCommentsPane()
 
     SetToggleLabel(g_commentsLbl, std::to_wstring(open).c_str());
     SetIconToggleState(g_commentsBadgeUi, open > 0);
-    DevToolsOverlayLog(L"route1.comments rendered rows=%zu open=%zu", g_commentRows.size(), open);
+    DevToolsOverlayLog(L"route1.comments rendered rows=%zu open=%zu ms=%llu", g_commentRows.size(), open, GetTickCount64() - began);
 }
-
 // Tree-scoped controls collapse with the tree; comments view must not leave filters/toggles acting on nothing.
 static void SetCommentsView(bool on)
 {
