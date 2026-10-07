@@ -465,7 +465,12 @@ internal sealed class SearchEngine
         // control name exactly (e.g. "combobox", "togglesswitch"), the user already
         // knows what they want — don't pad the result list with weak siblings.
         // Show ONE control with more of its scenarios instead.
-        if (queryWords.Length == 1 && longestCompactMatch != null && longestCompactMatch == queryCompact)
+        //
+        // Count the user's own tokens, not queryWords: queryWords is built from the
+        // CamelCase-expanded query, and expanding a query that has no CamelCase to
+        // split appends a copy of it ("listview" -> "listview listview"), so every
+        // single-token query would otherwise read as two and never auto-tighten.
+        if (rawQueryTokens.Length == 1 && longestCompactMatch != null && longestCompactMatch == queryCompact)
         {
             maxControls = 1;
             maxScenariosPerControl = Math.Max(maxScenariosPerControl, 5);

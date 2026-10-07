@@ -66,6 +66,34 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
+    public void SearchGrouped_ExactControlName_ShowsThatControlAloneWithMoreSamples()
+    {
+        // Typing a control's exact name is the most common query there is, and find-ui
+        // answers it by dropping the weaker sibling controls and showing more samples
+        // from the one the user named — five instead of the default three.
+        //
+        // Regression guard: the query is CamelCase-expanded before it is tokenized, and
+        // expanding a query with nothing to split appends a copy of itself
+        // ("listview" -> "listview listview"). That made every single-token query count
+        // as two, so this widening silently stopped firing and a bare control-name
+        // search quietly returned fewer samples than it used to.
+        var scenarios = new List<Scenario>();
+        for (int i = 1; i <= 6; i++)
+            scenarios.Add(Scn("gallery", "listview", "ListView", $"listview-{i}", $"ListView variant {i}"));
+        scenarios.Add(Scn("gallery", "tabview", "TabView", "tabview-1", "Add, close, and rearrange tabs"));
+
+        var engine = new SearchEngine(
+            [.. scenarios], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var groups = engine.SearchGrouped("listview", maxControls: 3);
+
+        Assert.AreEqual(1, groups.Count,
+            "an exact single-token control name should return that control alone, not padded with siblings");
+        Assert.AreEqual(5, groups[0].Scenarios.Count,
+            "an exact control-name query should widen the sample list from three to five");
+    }
+
+    [TestMethod]
     public void HasSource_LoadedSource_True()
     {
         var engine = BuildEngine();
