@@ -211,12 +211,16 @@ function Compare-PreflightSkills {
 function Get-WinappCommands {
     # Unique 'winapp <command> [<subcommand>]' invocations named in shell commands or answer text.
     param([AllowEmptyCollection()][AllowNull()][string[]]$Text)
-    $groups = 'cert', 'manifest', 'ui', 'find-api', 'target', 'store'
-    # `find-api <query>` is a search, so only its real verbs count as subcommands.
-    $findApiVerbs = 'members', 'check-property', 'types', 'enums', 'namespaces', 'packages', 'stats', 'projects', 'refresh'
+    $groups = 'cert', 'manifest', 'ui', 'find-api', 'target', 'store', 'node'
+    # Groups whose second token can be free text record it only when it is a real subcommand:
+    # `find-api <query>` is a search. `node` comes from the npm package (`npx winapp node ...`).
+    $verbs = @{
+        'find-api' = 'members', 'check-property', 'types', 'enums', 'namespaces', 'packages', 'stats', 'projects', 'refresh'
+        'node'     = 'create-addon', 'add-electron-debug-identity', 'clear-electron-debug-identity', 'generate-bindings'
+    }
     # Top-level commands only, so prose like "winapp is" or "winapp CLI" is not counted.
     $known = 'az-sign', 'cert', 'create-debug-identity', 'create-external-catalog', 'embed-identity', 'find-api', 'find-ui',
-    'get-winapp-path', 'init', 'manifest', 'new', 'package', 'pack', 'restore', 'run', 'sign', 'store', 'target', 'tool',
+    'get-winapp-path', 'init', 'manifest', 'new', 'node', 'package', 'pack', 'restore', 'run', 'sign', 'store', 'target', 'tool',
     'ui', 'unregister', 'update'
     $found = [System.Collections.Generic.List[string]]::new()
     foreach ($t in $Text) {
@@ -224,7 +228,7 @@ function Get-WinappCommands {
         foreach ($m in [regex]::Matches($t, '(?<![\w./\\-])winapp(?:\.exe)?\s+([a-z][a-z-]*)(?:\s+([a-z][a-z-]*))?')) {
             $cmd = $m.Groups[1].Value
             if ($cmd -notin $known) { continue }
-            if ($cmd -in $groups -and $m.Groups[2].Success -and ($cmd -ne 'find-api' -or $m.Groups[2].Value -in $findApiVerbs)) { $cmd += " $($m.Groups[2].Value)" }
+            if ($cmd -in $groups -and $m.Groups[2].Success -and (-not $verbs.ContainsKey($cmd) -or $m.Groups[2].Value -in $verbs[$cmd])) { $cmd += " $($m.Groups[2].Value)" }
             if (-not $found.Contains($cmd)) { $found.Add($cmd) }
         }
     }
@@ -785,8 +789,8 @@ function Get-ComparisonStats {
         Pass     = @($done | Where-Object Status -eq 'pass').Count
         Scored   = @($done | Where-Object Status -in 'pass', 'fail').Count
         NA       = @($done | Where-Object Status -eq 'n/a').Count
-        # The expectation checks that applied; differs when a candidate adds or removes an expected skill.
-        Checks   = @($done | Where-Object Status -in 'pass', 'fail' | ForEach-Object { $_.AppliedChecks } | Select-Object -Unique | Sort-Object) -join ';'
+        # The expectation checks that applied (empty for n/a runs); differs when a candidate adds or removes an expected skill.
+        Checks   = @($done | ForEach-Object { $_.AppliedChecks } | Select-Object -Unique | Sort-Object) -join ';'
         Ctx      = & $mean @($done | ForEach-Object { $_.Ctx })
         Input    = & $mean @($done | ForEach-Object { $_.Input })
         Credits  = & $mean @($done | ForEach-Object { $_.Credits })
@@ -839,8 +843,9 @@ function Get-ComparisonReport {
     $passText = { param($s) Format-PassRate $s.Statuses }
     $passDelta = {
         param($bs, $cs)
-        if (-not $bs.Scored -or -not $cs.Scored) { return 'n/a' }
+        # Checked first: a candidate that removes every expected skill leaves no scored runs.
         if ($bs.Checks -ne $cs.Checks) { return 'check differs' }
+        if (-not $bs.Scored -or -not $cs.Scored) { return 'n/a' }
         $d = [Math]::Round(100 * ($cs.Pass / $cs.Scored - $bs.Pass / $bs.Scored))
         if ($d -eq 0) { '=' } else { '{0:+0;-0} pp' -f $d }
     }

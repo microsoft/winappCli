@@ -103,6 +103,11 @@ Describe 'Get-WinappCommands' {
         @(Get-WinappCommands -Text @('winapp find-api navigationview --json', 'winapp find-api members Microsoft.UI.Xaml.Controls.InfoBar')) |
             Should -Be @('find-api', 'find-api members')
     }
+
+    It 'records npm wrapper node subcommands' {
+        @(Get-WinappCommands -Text @('npx winapp node create-addon --name myAddon; winapp node add-electron-debug-identity', 'winapp node something-else')) |
+            Should -Be @('node create-addon', 'node add-electron-debug-identity', 'node')
+    }
 }
 
 Describe 'Format-PassRate' {
@@ -380,6 +385,12 @@ Describe 'Scenario definitions' {
         foreach ($x in $s) { $x.Prompt | Should -Not -Match '\b(winapp|winui)-[a-z-]+\b' -Because "scenario '$($x.Id)' prompt must not name a skill" }
     }
 
+    It 'ships XAML fixtures that parse as XML' {
+        foreach ($f in Get-ChildItem -Path (Join-Path $PSScriptRoot '..\scenarios') -Recurse -Filter *.xaml -File) {
+            { [xml](Get-Content -Raw $f.FullName) } | Should -Not -Throw -Because $f.FullName
+        }
+    }
+
     It 'requires every scenario to include the both configuration' {
         $s = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot '..\scenarios')
         foreach ($x in $s) { $x.Configurations | Should -Contain 'both' -Because "scenario '$($x.Id)' must measure the setup users install" }
@@ -469,6 +480,19 @@ Describe 'Get-ComparisonReport' {
         $partial = Get-ComparisonReport -Baseline $b2 -Candidate $c2 -Scenarios @($multi)
         $partial | Should -Match ([regex]::Escape('| m | pkg | both | 0/1 (0%) → 1/1 (100%) | check differs |'))
         $partial | Should -Match ([regex]::Escape('| m | 1 (1 not pooled) | - → - | n/a |'))
+    }
+
+    It 'flags a candidate that removes every expected skill instead of reporting n/a' {
+        $only = [pscustomobject]@{
+            Id = 'pkg'; Configurations = @('both')
+            Expect = [pscustomobject]@{ SkillsAny = @('winapp-package'); SkillsAll = @(); SkillsForbid = @(); MaxSkills = $null }
+        }
+        $b3 = Join-Path $TestDrive 'base-all'
+        $c3 = Join-Path $TestDrive 'cand-all'
+        Write-Runs $b3 @(@{ scenario = 'pkg'; status = 'fail'; skillsLoaded = @(); preflight = @{ expectedSkills = @('winapp-package') } })
+        Write-Runs $c3 @(@{ scenario = 'pkg'; status = 'pass'; skillsLoaded = @(); preflight = @{ expectedSkills = @('winapp-setup') } })
+        $all = Get-ComparisonReport -Baseline $b3 -Candidate $c3 -Scenarios @($only)
+        $all | Should -Match ([regex]::Escape('| m | pkg | both | 0/1 (0%) → -; excluded: 1 n/a | check differs |'))
     }
 
     It 'writes tables whose separator rows match their headers' {
