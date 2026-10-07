@@ -5,6 +5,7 @@
 
 #include "DevToolsSelectionPlacement.h"
 
+#include <cmath>
 #include <cstdio>
 
 using namespace DevToolsSelection;
@@ -153,6 +154,24 @@ static void TestPanelKeepsClearOfTheToolbar()
           "panel stays beside the element and ends above the toolbar");
 }
 
+// A marker drawn between device pixels is blurred by the rasterizer, so every edge must land on one.
+static void TestPinsSitOnWholeDevicePixels()
+{
+    auto whole = [](double dip, double scale) { const double px = dip * scale; return std::fabs(px - std::round(px)) < 1e-9; };
+    for (const double scale : { 1.0, 1.25, 1.5, 1.75, 2.0, 2.25 }) {
+        const PinPixels pin = SnapPin(PinPlacement{ 1663, 717 }, scale);
+        const double diameter = pin.size * scale, glyph = pin.glyph * scale;
+        char what[160];
+        std::snprintf(what, sizeof what, "at %.0f%% the marker is on the pixel grid, an even %.0f px across, with a 1 px rim",
+                      scale * 100, diameter);
+        Check(whole(pin.x, scale) && whole(pin.y, scale) && whole(pin.size, scale) &&
+              static_cast<long long>(std::round(diameter)) % 2 == 0 && std::fabs(pin.rim * scale - 1.0) < 1e-9 &&
+              whole(pin.glyph, scale) && static_cast<long long>(std::round(glyph)) % 2 == 0 && glyph < diameter, what);
+        Check(std::fabs(pin.x - 1663) * scale <= 0.5 + 1e-9 && std::fabs(pin.y - 717) * scale <= 0.5 + 1e-9 &&
+              std::fabs(pin.size - 20.0) * scale <= 1.0 + 1e-9, "snapping moves the marker by at most half a pixel and sizes it within one");
+    }
+    Check(SnapPin(PinPlacement{ 3, 4 }, 0.0).x == 3.0, "an unknown scale draws at 100%");
+}
 int RunSelectionPlacementTests()
 {
     std::printf("\nDevToolsSelectionPlacement tests\n");
@@ -161,5 +180,6 @@ int RunSelectionPlacementTests()
     TestTallPanelIsShiftedAndCapped();
     TestPanelKeepsClearOfTheToolbar();
     TestPinsAvoidTheirElementWhenThereIsRoom();
+    TestPinsSitOnWholeDevicePixels();
     return g_selectionPlacementFailures;
 }

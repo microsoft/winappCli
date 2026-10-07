@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <cstdlib>
 
 namespace DevToolsSelection
@@ -69,6 +70,22 @@ inline PinPlacement PlacePin(const Rect& element, const Rect& viewport)
 inline bool Overlaps(const Rect& a, const Rect& b)
 {
     return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+// A comment marker in whole device pixels at the display's scale: its position on the pixel grid, an even
+// diameter so the glyph has a pixel centre, a one-pixel rim and a whole-pixel glyph. Every value is in DIPs.
+struct PinPixels
+{
+    double x, y, size, rim, glyph;
+};
+
+inline PinPixels SnapPin(PinPlacement at, double scale)
+{
+    if (!(scale > 0.0)) scale = 1.0;
+    const double diameter = 2.0 * std::round(10.0 * scale);
+    const double glyph = 2.0 * std::round(diameter * 0.25);
+    return PinPixels{ std::round(at.x * scale) / scale, std::round(at.y * scale) / scale,
+                      diameter / scale, 1.0 / scale, glyph / scale };
 }
 
 // `avoid` (the DevTools toolbar) is kept clear with the smallest change: move the panel above or below it, move it

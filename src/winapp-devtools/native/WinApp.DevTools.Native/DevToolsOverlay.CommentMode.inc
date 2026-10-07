@@ -132,29 +132,45 @@ struct PinClickSink : EventSink
     HRESULT STDMETHODCALLTYPE Invoke(void*, void*) override { OnPinClicked(handle); return S_OK; }
 };
 
-static std::wstring BuildPinMarkup(int cx, int cy, const std::wstring& tip)
+// The display scale of the surface the markers are drawn on, so they can be laid on its pixel grid.
+static double PinScale()
+{
+    HWND hwnd = DevToolsOverlay_ActiveSurface().hostHwnd;
+    if (!hwnd) { HWND island = nullptr; ResolveAppWindowCached(&hwnd, &island); }
+    const UINT dpi = hwnd ? GetDpiForWindow(hwnd) : 0;
+    return dpi ? dpi / 96.0 : 1.0;
+}
+
+static std::wstring DipText(double value)
+{
+    wchar_t text[32];
+    swprintf_s(text, L"%.4f", value);
+    return text;
+}
+
+// A solid disc with a one-pixel rim and a vector glyph, all on whole device pixels (SnapPin), with no template
+// chrome, shadow or animation that could soften its edge.
+static std::wstring BuildPinMarkup(const DevToolsSelection::PinPixels& pin, const std::wstring& tip)
 {
     const DevToolsPalette& pal = DevToolsBuildPalette();
     std::wstring m;
     m += L"<Button xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"";
-    m += L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Style=\"{x:Null}\"";
+    m += L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"";
     m += L" AutomationProperties.AutomationId=\"WinAppDevToolsCommentPin\"";
     m += L" AutomationProperties.Name=\"Comment on this element\"";
     m += L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(tip) + L"\"";
-    m += L" Canvas.Left=\"" + std::to_wstring(cx) + L"\" Canvas.Top=\"" + std::to_wstring(cy) + L"\" Canvas.ZIndex=\"1900\"";
-    m += L" Width=\"20\" Height=\"20\" Padding=\"0\" CornerRadius=\"10\" Background=\"" + pal.accent + L"\"";
-    m += L" BorderBrush=\"" + pal.border + L"\" BorderThickness=\"1\">";
-// Opaque hover/press fills, same reason as the selection panel: the app theme's Button state brushes are
-// low-alpha and would make this marker see-through over app content.
-    m += L"<Button.Resources>";
-    m += L"<SolidColorBrush x:Key=\"ButtonBackground\" Color=\"" + pal.accent + L"\"/>";
-    m += L"<SolidColorBrush x:Key=\"ButtonBackgroundPointerOver\" Color=\"" + pal.accent + L"\"/>";
-    m += L"<SolidColorBrush x:Key=\"ButtonBackgroundPressed\" Color=\"" + pal.accent + L"\"/>";
-    m += L"<SolidColorBrush x:Key=\"ButtonBorderBrushPointerOver\" Color=\"" + pal.accentText + L"\"/>";
-    m += L"<SolidColorBrush x:Key=\"ButtonBorderBrushPressed\" Color=\"" + pal.accentText + L"\"/>";
-    m += L"</Button.Resources>";
-    m += L"<FontIcon Glyph=\"&#xE90A;\" FontSize=\"10\"";
+    m += L" Canvas.Left=\"" + DipText(pin.x) + L"\" Canvas.Top=\"" + DipText(pin.y) + L"\" Canvas.ZIndex=\"1900\"";
+    m += L" Width=\"" + DipText(pin.size) + L"\" Height=\"" + DipText(pin.size) + L"\" Padding=\"0\" UseLayoutRounding=\"True\">";
+    m += L"<Button.Template><ControlTemplate TargetType=\"Button\"><Grid Background=\"Transparent\">";
+    m += L"<VisualStateManager.VisualStateGroups><VisualStateGroup x:Name=\"CommonStates\">";
+    m += L"<VisualState x:Name=\"Normal\"/>";
+    m += L"<VisualState x:Name=\"PointerOver\"><VisualState.Setters><Setter Target=\"Disc.Stroke\" Value=\"" + pal.accentText + L"\"/></VisualState.Setters></VisualState>";
+    m += L"<VisualState x:Name=\"Pressed\"><VisualState.Setters><Setter Target=\"Disc.Stroke\" Value=\"" + pal.accentText + L"\"/></VisualState.Setters></VisualState>";
+    m += L"</VisualStateGroup></VisualStateManager.VisualStateGroups>";
+    m += L"<Ellipse x:Name=\"Disc\" Fill=\"" + pal.accent + L"\" Stroke=\"" + pal.border + L"\" StrokeThickness=\"" + DipText(pin.rim) + L"\"/>";
+    m += L"<FontIcon Glyph=\"&#xE90A;\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\" FontSize=\"" + DipText(pin.glyph) + L"\"";
     m += L" Foreground=\"" + pal.accentText + L"\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\"/>";
+    m += L"</Grid></ControlTemplate></Button.Template>";
     m += L"</Button>";
     return m;
 }
@@ -173,7 +189,7 @@ static void DrawPinUi(PinnedComment& p)
     std::wstring tip = p.text.size() > 120 ? (p.text.substr(0, 117) + L"\u2026") : p.text;
     if (tip.empty()) tip = L"Comment";
     IInspectable* insp = nullptr;
-    if (FAILED(LoadMarkup(BuildPinMarkup(pin.x, pin.y, tip), &insp)) || !insp) return;
+    if (FAILED(LoadMarkup(BuildPinMarkup(DevToolsSelection::SnapPin(pin, PinScale()), tip), &insp)) || !insp) return;
     if (g_pickDiag && g_pickSeed) { InstanceHandle ph = 0; if (SUCCEEDED(g_pickDiag->GetHandleFromIInspectable(insp, &ph)) && ph) g_pickSeed(ph); }
     void* bb = nullptr;
     if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
