@@ -1,6 +1,8 @@
 {
   "id": "rust-cli-alias-msix",
   "description": "Multi-skill: package a Rust CLI as MSIX and add a terminal alias (package + manifest).",
+  "set": "dev",
+  "cohort": "implicit",
   "prompt": "Package this Rust command-line tool as an MSIX so people can install it and run it as ctrim from any terminal.",
   "configurations": [
     "winapp",
@@ -8,17 +10,24 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winapp-package",
-      "winapp-manifest"
-    ],
-    "skillsAll": [
-      "winapp-package",
-      "winapp-manifest"
-    ],
-    "skillsForbid": [
-      "winui-*",
-      "winapp-ui-automation"
-    ]
+    "capabilities": {
+      "primary": [
+        [
+          "msix.package",
+          "msix.manifest"
+        ]
+      ],
+      "acceptable": [
+        "msix.package",
+        "msix.manifest",
+        "framework.guidance"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report",
+        "ui.automate"
+      ]
+    }
   }
 }

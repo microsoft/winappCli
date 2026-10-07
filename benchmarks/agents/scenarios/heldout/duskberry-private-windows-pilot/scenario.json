@@ -1,0 +1,45 @@
+{
+  "id": "duskberry-private-windows-pilot",
+  "description": "Routes an internal MAUI Windows install-and-trust workflow to MAUI packaging.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "9",
+  "framework": ".NET MAUI / Android, iOS, Windows",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/dotnet/maui/windows/deployment/publish-cli?view=net-maui-9.0"
+  ],
+  "prompt": "I need a .msix of Duskberry Trails for five coworkers' Windows laptops. It's MAUI; can we make a cert for this pilot and get their machines to accept the app?",
+  "paraphrases": {
+    "novice": "Five colleagues need to install Duskberry Trails on Windows for a private MAUI trial. How do I make and sign the .msix with a certificate we create, and get their computers to accept it?",
+    "terse": "Duskberry MAUI: .msix for five laptops with our own cert. How do we get it accepted?"
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The running MAUI application and future installable package are represented by project metadata; recipient machines and credentials are not supplied.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "maui.package"
+        ]
+      ],
+      "acceptable": [
+        "msix.package",
+        "msix.sign",
+        "troubleshoot"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "store.publish",
+        "session.report"
+      ]
+    }
+  }
+}

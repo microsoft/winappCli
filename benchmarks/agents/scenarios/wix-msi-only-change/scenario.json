@@ -1,0 +1,22 @@
+{
+  "id": "wix-msi-only-change",
+  "description": "Trap: WiX MSI change that must stay an MSI.",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "In Product.wxs, add a desktop shortcut and make the install per-machine. Keep it an MSI, we're not switching installer tech.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

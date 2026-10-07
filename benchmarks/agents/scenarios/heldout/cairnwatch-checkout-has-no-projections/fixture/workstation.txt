@@ -1,0 +1,4 @@
+MSVC 19.40 detected.
+Windows kit 10.0.26100.0 detected.
+NuGet cache contains neither recorded package.
+Projection directory is absent in this checkout.
