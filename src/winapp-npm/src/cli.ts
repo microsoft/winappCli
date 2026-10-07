@@ -55,7 +55,7 @@ export async function main(): Promise<void> {
       return;
     }
 
-    if (['version', '--version', '-v'].includes(command)) {
+    if (['version', '--version', '-v', '-V'].includes(command)) {
       await showVersion();
       return;
     }
