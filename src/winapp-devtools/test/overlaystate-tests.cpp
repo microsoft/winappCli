@@ -153,6 +153,8 @@ void TestOverlayDomainBitAndLifecycle()
           "the first Overlay enable reports the activation edge");
     Check(DevToolsEvents_DomainEnabled(first, DevToolsDomain_Overlay), "the connection now reports itself subscribed");
     Check(DevToolsEvents_DomainSubscriberCount(DevToolsDomain_Overlay) == 1, "the Overlay subscriber count becomes one");
+    Check(DevToolsEvents_AnySubscribed(DevToolsDomain_Overlay) && !DevToolsEvents_AnySubscribed(DevToolsDomain_VisualTree),
+          "the lock-free subscription check sees the subscribed domain only");
 
     // Unlike Focus, Overlay owns no separate target hook to start/stop: toolbar/highlight/layout state is
     // always tracked regardless of subscriber count (see DevToolsTap.cpp's HandleRpc, which folds Overlay.enable/
@@ -170,12 +172,14 @@ void TestOverlayDomainBitAndLifecycle()
     Check(DevToolsEvents_SetDomain(first, DevToolsDomain_Overlay, false) == DevToolsDomain_NoChange,
           "one disable leaves the domain active for the other connection");
     Check(DevToolsEvents_DomainSubscriberCount(DevToolsDomain_Overlay) == 1, "the remaining connection keeps one reference");
+    Check(DevToolsEvents_AnySubscribed(DevToolsDomain_Overlay), "the lock-free check stays on while one subscriber remains");
 
     Check((DevToolsEvents_Unregister(first) & DevToolsDomain_Overlay) == 0,
           "disconnecting an already-disabled connection has no Overlay lifecycle edge");
     Check((DevToolsEvents_Unregister(second) & DevToolsDomain_Overlay) != 0,
           "disconnecting the final subscribed connection owns the Overlay cleanup edge");
     Check(DevToolsEvents_DomainSubscriberCount(DevToolsDomain_Overlay) == 0, "disconnect cleanup releases the final reference");
+    Check(!DevToolsEvents_AnySubscribed(DevToolsDomain_Overlay), "the lock-free check turns off with the last subscriber");
 }
 
 } // namespace

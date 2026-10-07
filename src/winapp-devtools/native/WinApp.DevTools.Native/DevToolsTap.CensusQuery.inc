@@ -583,8 +583,8 @@ static std::wstring CmdEnumerate(const std::vector<std::wstring>& p)
     {
         CensusSharedLock lock;
         cs.type = g_type;
-        cs.children = g_children;
-        cs.parent = g_parent;
+        cs.children = { g_children.begin(), g_children.end() };
+        cs.parent = { g_parent.begin(), g_parent.end() };
         cs.name = g_nameOf;
         // Bank each node's XAML source URI alongside the census maps: the tree subscription already delivered
         // it, so carrying it here keeps enumerate a pipe-thread read (no UI-thread hop) while still telling a

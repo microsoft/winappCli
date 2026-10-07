@@ -59,6 +59,9 @@ void DevToolsEvents_Broadcast(uint32_t domainBit, const std::wstring& eventLine,
                          DevToolsCoalesce policy, const std::wstring& coalesceKey);
 
 void DevToolsEvents_BroadcastTreeDelta(const std::wstring& deltaLine);
+// Whether any connection subscribes to it, without taking the connection lock. A subscription made before a
+// census snapshot is visible to tree changes made after it.
+bool DevToolsEvents_AnySubscribed(uint32_t bit);
 
 #ifdef WINAPP_DEVTOOLS_EVENTS_FAULT_INJECTION
 enum class DevToolsEventsStage { OwnerToken, RegistryInsert, BroadcastEnqueue };

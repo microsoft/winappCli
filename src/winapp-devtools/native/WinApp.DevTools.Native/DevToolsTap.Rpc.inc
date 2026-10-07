@@ -648,7 +648,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         CensusSnapshot census;
         {
             CensusSharedLock lock;
-            census.type = g_type; census.children = g_children; census.parent = g_parent;
+            census.type = g_type; census.children = { g_children.begin(), g_children.end() }; census.parent = { g_parent.begin(), g_parent.end() };
             for (const auto& entry : g_type) census.wire[entry.first] = PackWire_nolock(entry.first);
             SourceInfo_Snapshot(census.sourceUri);
         }

@@ -9,10 +9,10 @@
 
 namespace DevToolsCommentAnchor {
 
-template<typename Handle>
+template<typename Handle, typename Parents, typename Children>
 std::wstring Capture(Handle handle, const std::map<Handle, std::wstring>& names,
     const std::map<Handle, std::wstring>& types, const std::map<Handle, std::wstring>& sources,
-    const std::map<Handle, Handle>& parents, const std::map<Handle, std::vector<Handle>>& children)
+    const Parents& parents, const Children& children)
 {
     const auto source = sources.find(handle);
     if (source == sources.end() || source->second.empty()) return L"";
@@ -47,10 +47,10 @@ std::wstring Capture(Handle handle, const std::map<Handle, std::wstring>& names,
     return L""; // a cyclic or incomplete census is not a source identity
 }
 
-template<typename Handle>
+template<typename Handle, typename Parents, typename Children>
 bool IsUnique(Handle selected, const std::wstring& anchor, const std::map<Handle, std::wstring>& names,
     const std::map<Handle, std::wstring>& types, const std::map<Handle, std::wstring>& sources,
-    const std::map<Handle, Handle>& parents, const std::map<Handle, std::vector<Handle>>& children,
+    const Parents& parents, const Children& children,
     const wchar_t** reason = nullptr)
 {
     const auto unavailable = [reason](const wchar_t* value) { if (reason) *reason = value; return false; };
@@ -84,10 +84,10 @@ bool IsUnique(Handle selected, const std::wstring& anchor, const std::map<Handle
     return matches == 1 || unavailable(L"missing-source-identity");
 }
 
-template<typename Handle>
+template<typename Handle, typename Parents, typename Children>
 Handle Resolve(const std::wstring& anchor, const std::map<Handle, std::wstring>& names,
     const std::map<Handle, std::wstring>& types, const std::map<Handle, std::wstring>& sources,
-    const std::map<Handle, Handle>& parents, const std::map<Handle, std::vector<Handle>>& children)
+    const Parents& parents, const Children& children)
 {
     if (anchor.rfind(L"source:", 0) != 0) return 0;
     for (const auto& entry : sources) {

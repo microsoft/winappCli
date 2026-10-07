@@ -67,8 +67,8 @@ static void SourceInfo_Snapshot(std::map<InstanceHandle, std::wstring>& out)
     ReleaseSRWLockShared(&g_sourceUriLock);
 }
 
-static std::map<InstanceHandle, std::vector<InstanceHandle>> g_children;
-static std::map<InstanceHandle, InstanceHandle> g_parent;
+static std::unordered_map<InstanceHandle, std::vector<InstanceHandle>> g_children;
+static std::unordered_map<InstanceHandle, InstanceHandle> g_parent;
 static InstanceHandle g_firstPanel = 0;
 static InstanceHandle g_overlayPanel = 0;
 // Guard census maps with a shared/exclusive SRW lock and keep it leaf-scoped, never across dispatch or blocking calls,
@@ -99,7 +99,7 @@ static const uint32_t kGenMax = (uint32_t)GEN_MASK;           // generation ceil
 struct HandleSlot { InstanceHandle ih; uint32_t gen; bool alive; };
 static std::vector<HandleSlot> g_slots;
 static std::vector<uint32_t>   g_freeSlots;
-static std::map<InstanceHandle, uint32_t> g_ihToSlot;
+static std::unordered_map<InstanceHandle, uint32_t> g_ihToSlot;
 static uint64_t g_sessionNonce = 0;
 
 // All five helpers run UNDER g_censusLock (EXCLUSIVE for the mutators MintSlot/FreeSlot, SHARED ok for the
@@ -532,16 +532,19 @@ struct TreeCb : IVisualTreeServiceCallback2
                 }
             }
             if (rel.Parent) {
-                // A reparent can arrive as an Add under the new parent with no Remove from the old one.
+                // A reparent can arrive as an Add under the new parent with no Remove from the old one. An element
+                // seen for the first time is in no child list, so only a known one is looked for.
                 const auto previous = g_parent.find(e.Handle);
-                if (previous != g_parent.end() && previous->second != rel.Parent) DetachChild_nolock(previous->second, e.Handle);
+                const bool known = previous != g_parent.end();
+                if (known) DetachChild_nolock(previous->second, e.Handle);
                 g_parent[e.Handle] = rel.Parent;
                 auto& kids = g_children[rel.Parent];
-                kids.erase(std::remove(kids.begin(), kids.end(), e.Handle), kids.end());
                 if (rel.ChildIndex <= kids.size()) kids.insert(kids.begin() + rel.ChildIndex, e.Handle);
                 else kids.push_back(e.Handle);
             }
-            if (e.Type) {
+            // The delta is built only for a client listening to VisualTree; checked under the census lock, so a
+            // client that enabled the domain before its snapshot sees every later change.
+            if (e.Type && DevToolsEvents_AnySubscribed(DevToolsDomain_VisualTree)) {
                 // Wire handles are resolved under the same held lock; overlay and inspector elements returned early
                 // above, so they never produce a delta. Built here, broadcast (enqueue-only) after the lock is
                 // released so a slow client can never stall this worker thread.
@@ -581,7 +584,7 @@ struct TreeCb : IVisualTreeServiceCallback2
                 // Reactive delta: resolve the wire handle BEFORE FreeSlot_nolock retires the slot (afterwards
                 // PackWire would mint a fresh generation and the client couldn't match its snapshot node). Only a
                 // real census shrink emits `removed`; broadcast after every lock is released (enqueue-only).
-                treeDelta = BuildTreeRemoved(PackWire_nolock(e.Handle));
+                if (DevToolsEvents_AnySubscribed(DevToolsDomain_VisualTree)) treeDelta = BuildTreeRemoved(PackWire_nolock(e.Handle));
                 FreeSlot_nolock(e.Handle);
                 SourceUri_Evict_nolock(e.Handle);
             }

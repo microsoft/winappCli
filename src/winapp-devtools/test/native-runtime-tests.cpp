@@ -931,6 +931,9 @@ static void CheckCensusFollowsReparentsAndParentlessRemoves(const std::function<
     event(7005, 7001, 0, nullptr, Remove);
     check(kids(7002).empty() && kids(7004) == std::vector<InstanceHandle>{7003, 7005} && kids(7001) == std::vector<InstanceHandle>{7002, 7004},
         "a reparent lists the element once, under its new parent, and a stale remove from the old parent keeps it");
+    event(7003, 7004, 1, L"Microsoft.UI.Xaml.Controls.Primitives.CarouselPanel", Add);
+    check(kids(7004) == std::vector<InstanceHandle>{7005, 7003},
+        "an element added again under the same parent moves to its new index and is listed once");
     event(7003, 0, 0, nullptr, Remove);
     event(7005, 0, 0, nullptr, Remove);
     bool known = true;
@@ -942,6 +945,53 @@ static void CheckCensusFollowsReparentsAndParentlessRemoves(const std::function<
     }
     check(known && kids(7004).empty(), "a remove without a parent detaches the element from the parent it was added under");
     for (const InstanceHandle handle : {7004ull, 7002ull, 7001ull}) event(handle, 0, 0, nullptr, Remove);
+}
+
+// The tree callback builds a VisualTree.changed delta only while a client subscribes, and a subscriber gets every one.
+static void CheckTreeDeltasFollowSubscription(const std::function<void(bool,const char*)>& check)
+{
+    const auto name = L"\\\\.\\pipe\\winapp-devtools-delta-test-" + std::to_wstring(GetCurrentProcessId());
+    HANDLE server = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 65536, 65536, 0, nullptr);
+    HANDLE client = server == INVALID_HANDLE_VALUE ? INVALID_HANDLE_VALUE
+        : CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    DevToolsConn* conn = client == INVALID_HANDLE_VALUE ? nullptr : DevToolsEvents_Register(server);
+    if (!conn) { check(false, "tree delta test pipe"); return; }
+    auto add = [](InstanceHandle handle) {
+        ParentChildRelation relation{}; relation.Child = handle;
+        VisualElement element{}; element.Handle = handle; element.Type = const_cast<BSTR>(L"Microsoft.UI.Xaml.Controls.Grid");
+        g_treeCb.OnVisualTreeChange(relation, element, Add);
+    };
+    // Everything the writer sent up to a marker response; the queue is FIFO, so it holds every earlier delta.
+    auto readThrough = [&](const char* marker) {
+        DevToolsEvents_EnqueueResponse(conn, std::wstring(L"{\"marker\":\"") + std::wstring(marker, marker + strlen(marker)) + L"\"}");
+        std::string text;
+        for (int i = 0; i < 300 && text.find(marker) == std::string::npos; ++i) {
+            DWORD available = 0;
+            if (PeekNamedPipe(client, nullptr, 0, nullptr, &available, nullptr) && available) {
+                std::string chunk(available, '\0');
+                DWORD read = 0;
+                if (ReadFile(client, chunk.data(), available, &read, nullptr)) text.append(chunk.data(), read);
+            } else Sleep(10);
+        }
+        return text;
+    };
+    add(7101);
+    const auto unsubscribed = readThrough("first");
+    DevToolsEvents_SetDomain(conn, DevToolsDomain_VisualTree, true);
+    add(7102);
+    const auto subscribed = readThrough("second");
+    check(unsubscribed.find("first") != std::string::npos && unsubscribed.find("VisualTree.changed") == std::string::npos,
+        "no tree delta is sent while nobody subscribes to VisualTree");
+    check(subscribed.find("VisualTree.changed") != std::string::npos && subscribed.find("second") != std::string::npos,
+        "a VisualTree subscriber receives the delta for an element added after it subscribed");
+    DevToolsEvents_Unregister(conn);
+    CloseHandle(client);
+    CloseHandle(server);
+    for (const InstanceHandle handle : {7101ull, 7102ull}) {
+        ParentChildRelation relation{}; VisualElement element{}; element.Handle = handle;
+        g_treeCb.OnVisualTreeChange(relation, element, Remove);
+    }
 }
 
 int wmain(int argc, wchar_t** argv)
@@ -1066,6 +1116,7 @@ int wmain(int argc, wchar_t** argv)
     CheckEmptyString(check);
     CheckEffectiveValues(check);
     CheckCensusFollowsReparentsAndParentlessRemoves(check);
+    CheckTreeDeltasFollowSubscription(check);
     CheckQueries(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
     auto call = [&](const wchar_t* method) {
@@ -1253,7 +1304,7 @@ int wmain(int argc, wchar_t** argv)
         // After a navigation, several hundred new elements lack source info: one request classifies all of them.
         for (InstanceHandle h = 5001; h <= 5350; ++h) { MintSlot_nolock(h); g_type[h] = L"TextBlock"; }
         CensusSnapshot cs;
-        cs.type = g_type; cs.children = g_children; cs.parent = g_parent;
+        cs.type = g_type; cs.children = { g_children.begin(), g_children.end() }; cs.parent = { g_parent.begin(), g_parent.end() };
         for (auto& kv : g_type) cs.wire[kv.first] = PackWire_nolock(kv.first);
         SourceInfo_Snapshot(cs.sourceUri);
         const AuthoredVerdicts verdicts = ClassifyAuthored(cs, true);

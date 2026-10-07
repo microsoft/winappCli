@@ -141,6 +141,12 @@ struct DevToolsConnLockShared {
     DevToolsConnLockShared& operator=(const DevToolsConnLockShared&) = delete;
 };
 static uint32_t g_domainSubscribers[32]{};
+// Domains with at least one subscriber, readable without the connection lock.
+static std::atomic<uint32_t> g_subscribedDomains{0};
+static void PublishSubscribed(uint32_t bit, uint32_t count) {
+    if (count) g_subscribedDomains.fetch_or(bit, std::memory_order_release);
+    else g_subscribedDomains.fetch_and(~bit, std::memory_order_release);
+}
 static std::atomic<uint64_t> g_nextConnId{1};
 
 #ifdef WINAPP_DEVTOOLS_EVENTS_FAULT_INJECTION
@@ -232,6 +238,7 @@ uint32_t DevToolsEvents_Unregister(DevToolsConn* c) {
                 if ((domains & bit) == 0) continue;
                 uint32_t& count = g_domainSubscribers[DomainIndex(bit)];
                 if (count > 0 && --count == 0) lastDisabled |= bit;
+                PublishSubscribed(bit, count);
             }
             g_conns.erase(found);
         }
@@ -307,6 +314,7 @@ DevToolsDomainChange DevToolsEvents_SetDomain(DevToolsConn* c, uint32_t bit, boo
                 c->domains.store(domains & ~bit, std::memory_order_relaxed);
                 if (count > 0 && --count == 0) change = DevToolsDomain_LastDisabled;
             }
+            PublishSubscribed(bit, count);
         }
     }
     return change;
@@ -321,6 +329,10 @@ uint32_t DevToolsEvents_DomainSubscriberCount(uint32_t bit) {
     DevToolsConnLockShared lk;
     const uint32_t count = g_domainSubscribers[DomainIndex(bit)];
     return count;
+}
+
+bool DevToolsEvents_AnySubscribed(uint32_t bit) {
+    return (g_subscribedDomains.load(std::memory_order_acquire) & bit) != 0;
 }
 
 uint64_t DevToolsEvents_ConnId(DevToolsConn* c) {

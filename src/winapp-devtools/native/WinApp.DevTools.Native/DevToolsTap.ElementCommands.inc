@@ -486,7 +486,7 @@ static std::wstring CmdAppAuthored()
     CensusSnapshot cs;
     {
         CensusSharedLock lock;
-        cs.type = g_type; cs.children = g_children; cs.parent = g_parent;
+        cs.type = g_type; cs.children = { g_children.begin(), g_children.end() }; cs.parent = { g_parent.begin(), g_parent.end() };
         for (auto& kv : g_type) cs.wire[kv.first] = PackWire_nolock(kv.first);
         SourceInfo_Snapshot(cs.sourceUri);
     }

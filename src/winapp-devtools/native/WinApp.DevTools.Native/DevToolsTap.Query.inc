@@ -157,10 +157,21 @@ static std::wstring QueryDiagnosticsJson(const std::vector<TapQueryDiagnostic>& 
         L",\"truncated\":" + (omitted ? L"true" : L"false") + L"}";
 }
 
+template<typename Value>
+static bool SameEntries(const std::map<InstanceHandle, Value>& snapshot, const std::unordered_map<InstanceHandle, Value>& live)
+{
+    if (snapshot.size() != live.size()) return false;
+    for (const auto& entry : snapshot) {
+        const auto found = live.find(entry.first);
+        if (found == live.end() || found->second != entry.second) return false;
+    }
+    return true;
+}
+
 static bool QuerySnapshotCurrent(const CensusSnapshot& cs)
 {
     CensusSharedLock lock;
-    if (cs.type != g_type || cs.name != g_nameOf || cs.parent != g_parent || cs.children != g_children) return false;
+    if (cs.type != g_type || cs.name != g_nameOf || !SameEntries(cs.parent, g_parent) || !SameEntries(cs.children, g_children)) return false;
     for (const auto& entry : cs.wire) if (PackWire_nolock(entry.first) != entry.second) return false;
     return true;
 }
