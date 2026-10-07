@@ -311,6 +311,104 @@ public sealed class DebugOutputServiceWorkflowTests
         exit 0
         """;
 
+    // Raises and handles a C++-style exception (0xE06D7363) deep in the stack, returns, then makes
+    // the same stowed fail-fast (0xC000027B) that WinUI raises for an unhandled XAML exception.
+    private const string StowedFailFastScript = """
+        $null = [Console]::In.ReadLine()
+        Add-Type -TypeDefinition @'
+        using System;
+        using System.Runtime.CompilerServices;
+        using System.Runtime.InteropServices;
+        public static class Stowed
+        {
+            [DllImport("kernel32.dll")] static extern void RaiseException(uint code, uint flags, uint count, IntPtr args);
+            [DllImport("combase.dll")] static extern int RoOriginateError(int hr, IntPtr message);
+            [DllImport("combase.dll")] static extern void RoFailFastWithErrorContext(int hr);
+
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            public static long HandledDeep(int depth)
+            {
+                long a = depth, b = depth * 2, c = depth * 3, d = depth * 4;
+                if (depth == 0)
+                {
+                    try { RaiseException(0xE06D7363, 0, 0, IntPtr.Zero); } catch (SEHException) { }
+                    return a;
+                }
+                return HandledDeep(depth - 1) + a + b + c + d;
+            }
+
+            public static void FailFast()
+            {
+                RoOriginateError(unchecked((int)0x80004005), IntPtr.Zero);
+                RoFailFastWithErrorContext(unchecked((int)0x80004005));
+            }
+        }
+        '@
+        $null = [Stowed]::HandledDeep(200)
+        [Stowed]::FailFast()
+        Start-Sleep -Seconds 5
+        exit 0
+        """;
+
+    [TestMethod]
+    public async Task RunDebugLoopAsync_ChildStowedFailFastAfterHandledException_DumpsStowedCrash()
+    {
+        _crashDump.FakeDumpPath = Path.Combine(_logDir, $"fake-stowed-{Guid.NewGuid():N}.dmp");
+
+        Process? child = TryStartPowerShellChild(StowedFailFastScript, out var startError);
+        if (child == null)
+        {
+            Assert.Inconclusive($"Could not start a PowerShell child: {startError}");
+            return;
+        }
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        try
+        {
+            var loopTask = _service.RunDebugLoopAsync((uint)child.Id, cts.Token);
+
+            await Task.Delay(1500, cts.Token);
+            if (!TrySignalChild(child))
+            {
+                await cts.CancelAsync();
+                try { await loopTask; } catch { /* ignore */ }
+                Assert.Inconclusive("Child exited before it could be signalled.");
+                return;
+            }
+
+            try
+            {
+                await loopTask.WaitAsync(TimeSpan.FromSeconds(55));
+            }
+            catch (TimeoutException)
+            {
+                Assert.Inconclusive("Debug loop did not observe the stowed fail-fast in time on this machine.");
+                return;
+            }
+
+            var logs = SafeGetLogs((uint)child.Id);
+            var log = logs.Length > 0 ? await File.ReadAllTextAsync(logs[0]) : string.Empty;
+
+            Assert.AreEqual(1, _crashDump.WriteCalls.Count, $"The stowed fail-fast must capture exactly one dump. Log:\n{log}");
+            var crash = _crashDump.CrashRecords[0];
+            Assert.AreEqual(unchecked((int)0xC000027B), crash.Code, $"The crash must be the stowed exception. Log:\n{log}");
+            Assert.IsTrue(crash.Parameters is { Length: >= 2 } && crash.Parameters[0] != 0 && crash.Parameters[1] != 0,
+                "The stowed exception's parameters (array pointer and count) must be forwarded for WinUI triage.");
+
+            var saved = _crashDump.SavedRecords[0];
+            Assert.IsTrue(saved.HasContext, "The crashing thread's context must be in the dump.");
+            Assert.AreEqual(unchecked((int)0xC000027B), saved.Code,
+                $"Every earlier handled exception on the crashing thread was already unwound, so the crash's own context must be used. Log:\n{log}");
+            StringAssert.Contains(log, "was already unwound");
+
+            CleanupLogs(logs);
+        }
+        finally
+        {
+            KillQuietly(child);
+        }
+    }
+
     private static Process? TryStartPowerShellChild(string script, out string? error)
     {
         error = null;
