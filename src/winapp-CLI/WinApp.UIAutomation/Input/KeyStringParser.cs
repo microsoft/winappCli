@@ -39,7 +39,8 @@ public sealed record TextInput(string Text) : KeyAction;
 /// <see cref="KeyAction"/>s. Tokens are whitespace separated:
 /// <list type="bullet">
 /// <item>Named keys: <c>down</c>, <c>enter</c>, <c>tab</c>, <c>esc</c>, <c>f5</c> …</item>
-/// <item>Modifier combos: <c>ctrl+shift+t</c>, <c>alt+f4</c></item>
+/// <item>Modifier combos: <c>ctrl+shift+t</c>, <c>alt+f4</c>, and screen-reader commands such as
+/// <c>ctrl+capslock+f12</c></item>
 /// <item>Raw virtual keys: <c>vk=0x42</c> or <c>vk=66</c></item>
 /// <item>Explicit literal text: <c>text=enter</c> types the word "enter" instead of pressing Enter.</item>
 /// <item>Anything else is treated as literal text and typed character by character.</item>
@@ -56,7 +57,14 @@ public static class KeyStringParser
         ["shift"] = 0x10,
         ["alt"] = 0x12, ["menu"] = 0x12,
         ["win"] = 0x5B, ["cmd"] = 0x5B, ["super"] = 0x5B, ["meta"] = 0x5B,
+        // Screen-reader keys (Narrator, NVDA, JAWS): held to issue screen-reader commands,
+        // e.g. ctrl+capslock+f12 toggles Narrator developer mode.
+        ["capslock"] = VkCapsLock,
+        ["insert"] = VkInsert, ["ins"] = VkInsert,
     };
+
+    private const ushort VkCapsLock = 0x14;
+    private const ushort VkInsert = 0x2D;
 
     // Named key -> (virtual-key code, is-extended-key).
     private static readonly Dictionary<string, (ushort Vk, bool Extended)> NamedKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -141,6 +149,17 @@ public static class KeyStringParser
     }
 
     /// <summary>
+    /// Whether any chord holds a screen-reader key (<c>capslock</c> or <c>insert</c>) as a modifier, as in
+    /// <c>ctrl+capslock+f12</c>. A lone <c>capslock</c> or <c>ctrl+insert</c> does not count.
+    /// </summary>
+    public static bool HoldsScreenReaderKey(IEnumerable<KeyAction> actions)
+        => actions.OfType<KeyChord>().Any(c => c.Modifiers.Any(m => m is VkCapsLock or VkInsert));
+
+    /// <summary>Whether any chord holds <c>capslock</c> as a modifier.</summary>
+    public static bool HoldsCapsLock(IEnumerable<KeyAction> actions)
+        => actions.OfType<KeyChord>().Any(c => c.Modifiers.Contains(VkCapsLock));
+
+    /// <summary>
     /// Treats the entire key string as one literal to type verbatim: no whitespace tokenizing, no
     /// named-key / combo / <c>vk=</c> / <c>text=</c> interpretation, no whitespace collapsing, and no
     /// backslash-escape decoding. The command-level counterpart to the per-token <c>text=</c> escape
@@ -220,8 +239,9 @@ public static class KeyStringParser
 
     /// <summary>
     /// Parses a modifier combo (e.g. <c>ctrl+shift+t</c>). Returns <see langword="false"/> when the token
-    /// is not a modifier-led combo (so the caller can fall back to literal text), and throws only when the
-    /// token clearly *is* a modifier combo but names an unknown main key (e.g. <c>ctrl+bogus</c>).
+    /// is not a modifier-led combo (so the caller can fall back to literal text), and throws when the
+    /// token clearly *is* a modifier combo but is malformed or names an unknown modifier or main key
+    /// (e.g. <c>ctrl++a</c>, <c>ctrl+a+b</c>, <c>ctrl+bogus</c>).
     /// </summary>
     private static bool TryParseChord(string token, out KeyChord chord)
     {
@@ -252,13 +272,15 @@ public static class KeyStringParser
                 $"To type a literal '+', use text={token} or pass --verbatim.");
         }
 
-        // Every segment except the last must be a known modifier; otherwise it's literal ("ctrl+a+b",
-        // where 'a' isn't a modifier).
+        // Every segment except the last must be a known modifier. The token is modifier-led, so an unknown
+        // middle segment ("ctrl+a+b") is an error rather than text typed into the target.
         for (int i = 0; i < parts.Length - 1; i++)
         {
             if (!Modifiers.ContainsKey(parts[i]))
             {
-                return false;
+                throw new FormatException(
+                    $"Unknown modifier '{parts[i]}' in '{token}'. Modifiers are ctrl, shift, alt, win, capslock, and insert; " +
+                    $"only the last segment can be a regular key. To type it literally, use text={token} or pass --verbatim.");
             }
         }
 

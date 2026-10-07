@@ -1,0 +1,18 @@
+{
+  "id": "manifest-alias-icons",
+  "description": "Edit an existing Package.appxmanifest: add an execution alias and regenerate icons.",
+  "prompt": "Add a contoso alias so I can launch the app from the terminal, and replace all the app icons and tiles with Assets\\logo-new.png.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winapp-manifest"
+    ],
+    "skillsForbid": [
+      "winui-session-report"
+    ]
+  }
+}

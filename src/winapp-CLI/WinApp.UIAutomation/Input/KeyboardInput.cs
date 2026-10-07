@@ -540,5 +540,9 @@ public static class KeyboardInput
         if (needsShift) { inputs.Add(KeyEvent(0x10, extended: false, keyUp: true)); }  // Shift up
     }
 
-    internal static bool IsExtended(ushort vk) => vk is 0x5B or 0x5C or 0x5D;
+    /// <summary>
+    /// Whether a held modifier needs the extended-key flag: Win keys, Apps, and Insert (so a held
+    /// <c>insert</c> is the dedicated Insert key, not numeric-keypad 0).
+    /// </summary>
+    internal static bool IsExtended(ushort vk) => vk is 0x5B or 0x5C or 0x5D or 0x2D;
 }

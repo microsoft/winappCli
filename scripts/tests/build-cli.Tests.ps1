@@ -163,6 +163,9 @@ function npm {
             throw 'Codegen used a stale schema'
         }
     }
+    if ($step -in @('compile', 'test', 'generate-docs') -and $arguments -notcontains '--ignore-scripts') {
+        throw 'Standalone generation hooks would replace the explicitly generated commands'
+    }
     $global:LASTEXITCODE = if ($fixture.Fail -eq "npm-$step") { 13 } else { 0 }
 }
 function Get-Module {
@@ -259,8 +262,8 @@ Describe 'build-cli.ps1 control flow' {
         $result.Trace | Should -Match 'WinApp.Cli.csproj -c Debug --no-build --cli-schema'
         $result.Trace | Should -Match 'npm ci --ignore-scripts'
         $result.Trace | Should -Match 'npm run generate-commands --schema .*artifacts\\TestResults\\cli-schema-All.json'
-        $result.Trace | Should -Match 'npm run compile'
-        $result.Trace | Should -Match 'npm test'
+        $result.Trace | Should -Match 'npm run compile --ignore-scripts'
+        $result.Trace | Should -Match 'npm test --ignore-scripts'
         $result.Trace | Should -Match 'WinApp.Cli.Tests.csproj -c Debug --no-build'
         $result.Trace | Should -Match 'WinApp.UIAutomation.Tests.csproj -c Debug --no-build'
         $result.Trace | Should -Match 'dotnet test .*Microsoft.WindowsAppSDK.Analyzers.Tests.csproj -c Debug'
@@ -485,7 +488,7 @@ Describe 'build-cli.ps1 control flow' {
         foreach ($name in @('build-number', 'prerelease-label', 'stand-down', 'generate-llm-docs', 'package-npm', 'package-nuget', 'nuget-pester', 'scripts-pester', 'package-msix')) {
             $result.Calls.Name | Should -Contain $name
         }
-        $result.Trace | Should -Match 'npm run generate-docs'
+        $result.Trace | Should -Not -Match 'npm run generate-docs'
         $result.Output | Should -Match 'Ready for distribution'
         Join-Path $root 'artifacts\keep.txt' | Should -Not -Exist
         Join-Path $root 'artifacts\setup-winapprun.ps1' | Should -Exist
@@ -500,6 +503,12 @@ Describe 'build-cli.ps1 control flow' {
         $result.Trace | Should -Match 'package-npm 1.2.3 Stable=True'
         $result.Trace | Should -Match 'package-nuget 1.2.3 Stable=True'
         $result.Trace | Should -Match 'package-msix 1.2.3.17 Stable=True'
+    }
+
+    It 'fails the build when live schema generation fails instead of reporting success' {
+        $result = Invoke-BuildFixture $root -Flags @{ SkipTests = $true } -Fail 'generate-llm-docs'
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Not -Match '\[SUCCESS\]'
     }
 
     It 'keeps legacy OnlyTests publishing without packaging or NuGet tests' {

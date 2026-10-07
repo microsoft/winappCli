@@ -14,7 +14,7 @@
     It also checks the skills of every plugin root under -PluginsRoot (any folder holding
     plugin.json and a skills/ folder): SKILL.md frontmatter and placement, description
     length, relative links staying inside the plugin, and `winapp` command examples in
-    skills and agents matching docs/cli-schema.json. It then prints an approximate size report.
+    skills and agents matching an explicitly supplied CLI schema. It then prints an approximate size report.
 
     Requires no build output and can be run standalone:
         .\scripts\validate-plugin-package.ps1
@@ -24,11 +24,14 @@
     Path to the winapp plugin package root (default: <PluginsRoot>/winapp)
 .PARAMETER FailOnError
     Exit with code 1 when a conformance error is found (default: true)
+.PARAMETER CliSchemaPath
+    Current CLI schema for command-example validation. Without it, only structural checks run.
 #>
 
 param(
     [string]$PluginsRoot = "",
     [string]$PluginRoot = "",
+    [string]$CliSchemaPath = "",
     [switch]$FailOnError = $true
 )
 
@@ -309,14 +312,22 @@ function New-CommandNode($Schema) {
 }
 
 $CommandTree = $null
-$CliSchemaPath = Join-Path $ProjectRoot "docs/cli-schema.json"
 $NpmCliPath = Join-Path $ProjectRoot "src/winapp-npm/src/cli.ts"
-if (-not (Test-Path $CliSchemaPath -PathType Leaf)) {
-    Add-Failure "docs/cli-schema.json not found; it is needed to check winapp command examples in skills. Run scripts/build-cli.ps1 to regenerate it."
+if (-not $CliSchemaPath) {
+    Write-Host "[VALIDATE] Command examples are not checked without -CliSchemaPath; the post-build validation checks them against the current CLI." -ForegroundColor Yellow
+}
+elseif (-not (Test-Path $CliSchemaPath -PathType Leaf)) {
+    Add-Failure "CLI schema not found at $CliSchemaPath."
 }
 else {
-    $cliSchema = Read-JsonFile $CliSchemaPath "docs/cli-schema.json"
-    if ($cliSchema) {
+    $cliSchema = Read-JsonFile $CliSchemaPath "CLI schema"
+    if ($cliSchema -and ($cliSchema.name -ne 'winapp' -or
+            $cliSchema.subcommands -isnot [System.Management.Automation.PSCustomObject] -or
+            @($cliSchema.subcommands.PSObject.Properties).Count -eq 0)) {
+        Add-Failure "CLI schema is invalid: expected the winapp command tree with at least one subcommand."
+    }
+    elseif ($cliSchema) {
+        Write-Host "[VALIDATE] Checking command examples against $CliSchemaPath" -ForegroundColor Blue
         $CommandTree = New-CommandNode $cliSchema
         $npmCli = if (Test-Path $NpmCliPath -PathType Leaf) { [System.IO.File]::ReadAllText($NpmCliPath, $Utf8) } else { "" }
         if ($npmCli -match 'const NODE_SUBCOMMANDS = \[([^\]]*)\]') {
@@ -363,7 +374,7 @@ function Test-CommandExample([string]$Line, [string]$Where) {
             }
             # Only a command that has subcommands and no positional arguments makes this an error.
             if ($node.Subcommands.Count -gt 0 -and -not $node.TakesArguments) {
-                Add-Failure "$Where uses unknown command '$path $token'. Use a command listed in docs/cli-schema.json (or an npm wrapper command from src/winapp-npm/src/cli.ts)."
+                Add-Failure "$Where uses unknown command '$path $token'. Use a command listed by 'winapp --cli-schema' (or an npm wrapper command from src/winapp-npm/src/cli.ts)."
             }
             break
         }

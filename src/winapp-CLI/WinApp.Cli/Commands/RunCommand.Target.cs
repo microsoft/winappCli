@@ -112,7 +112,8 @@ internal partial class RunCommand
 
                 var options = new GuestLaunchOptions(
                     aliasDecision.UseAlias, debugOutput, detach, isJson, appArgs,
-                    AliasIsExplicit: aliasDecision.Explicit, Symbols: useSymbols);
+                    AliasIsExplicit: aliasDecision.Explicit, Symbols: useSymbols,
+                    Quiet: !logger.IsEnabled(LogLevel.Information));
 
                 // Registration and exit cleanup own mutation leases; this launch-only request does not.
                 return await RunInGuestAsync(

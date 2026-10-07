@@ -75,12 +75,82 @@ public static class DesktopTestHelpers
 
     public static nint DesktopWindow() => GetDesktopWindow();
 
+    /// <summary>
+    /// The color the desktop currently shows at the center of <paramref name="hwnd"/>, read from the
+    /// composed screen, or <see langword="null"/> when the window or the screen cannot be read.
+    /// </summary>
+    public static System.Drawing.Color? ScreenColorAtWindowCenter(nint hwnd)
+    {
+        // Physical pixels for both the window rectangle and the screen read, whatever the process's
+        // own DPI awareness is.
+        var previousContext = SetThreadDpiAwarenessContext(DpiAwarenessContextPerMonitorAwareV2);
+        try
+        {
+            if (!GetWindowRect(hwnd, out var rect))
+            {
+                return null;
+            }
+
+            var screen = GetDC(0);
+            if (screen == 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                var colorRef = GetPixel(screen, (rect.Left + rect.Right) / 2, (rect.Top + rect.Bottom) / 2);
+                return colorRef == ClrInvalid
+                    ? null
+                    : System.Drawing.Color.FromArgb((int)(colorRef & 0xFF), (int)((colorRef >> 8) & 0xFF), (int)((colorRef >> 16) & 0xFF));
+            }
+            finally
+            {
+                _ = ReleaseDC(0, screen);
+            }
+        }
+        finally
+        {
+            if (previousContext != 0)
+            {
+                _ = SetThreadDpiAwarenessContext(previousContext);
+            }
+        }
+    }
+
+    private const uint ClrInvalid = 0xFFFFFFFF;
+    private const nint DpiAwarenessContextPerMonitorAwareV2 = -4;
+
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
     {
         public int X;
         public int Y;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(nint hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetDC(nint hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(nint hWnd, nint hDC);
+
+    [DllImport("gdi32.dll")]
+    private static extern uint GetPixel(nint hdc, int x, int y);
+
+    [DllImport("user32.dll")]
+    private static extern nint SetThreadDpiAwarenessContext(nint dpiContext);
 
     [DllImport("user32.dll")]
     private static extern nint GetForegroundWindow();

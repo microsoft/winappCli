@@ -173,6 +173,20 @@ public class SandboxRunTests
     }
 
     [TestMethod]
+    public void BuildLaunchArguments_ForwardsQuietOnlyWhenRequested()
+    {
+        var quiet = GuestLaunchPlanner.BuildLaunchArguments(
+            "Contoso.MyApp", "CN=Contoso", "App", @"C:\layout", @"C:\payload", "sandbox",
+            new GuestLaunchOptions(Quiet: true));
+        var normal = GuestLaunchPlanner.BuildLaunchArguments(
+            "Contoso.MyApp", "CN=Contoso", "App", @"C:\layout", @"C:\payload", "sandbox",
+            new GuestLaunchOptions());
+
+        CollectionAssert.Contains(quiet, "--quiet");
+        CollectionAssert.DoesNotContain(normal, "--quiet");
+    }
+
+    [TestMethod]
     public void EnsureSupportedForUnpackaged_DebugOutput_IsRefusedUpFront()
     {
         var failure = Assert.ThrowsExactly<ExecutionTargetException>(() =>

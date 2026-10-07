@@ -1,0 +1,18 @@
+{
+  "id": "win32-registry-read",
+  "description": "Near-miss: classic Win32 C++ registry code; no skill needed.",
+  "prompt": "At startup, read InstallPath from HKLM\\SOFTWARE\\Contoso\\Viewer in this C++ desktop app. Our installer is 32-bit, so make sure the 64-bit build still finds the value.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsForbid": [
+      "winapp-*",
+      "winui-*"
+    ],
+    "maxSkills": 0
+  }
+}

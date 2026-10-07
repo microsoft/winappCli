@@ -120,6 +120,6 @@ public class CustomHelpTests : BaseCommandTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(output), "Subcommand help output should not be empty");
 
         // Subcommand help should NOT contain category headers (those are root-only)
-        Assert.DoesNotContain("Packaging & Signing", output, "Subcommand help should not contain root-level categories");
+        Assert.DoesNotContain("Package, Sign & Publish", output, "Subcommand help should not contain root-level categories");
     }
 }
