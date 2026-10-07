@@ -1258,6 +1258,52 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task ConstrainedQuery_ClosedExplicitWindow_IsAbsentButOtherFailuresSurface(bool closedBeforeQuery, bool windowStillOpen)
+    {
+        // `wait-for Seven --type Button --gone -a <pid>` must report the element gone when the frame
+        // closes: either before the poll or while the query runs against the dead provider.
+        var svc = NewService();
+        var uiTarget = new UiTarget
+        {
+            ProcessId = Environment.ProcessId, ProcessName = "ApplicationFrameHost", WindowHandle = 456, IsExplicitWindow = true,
+        };
+        var windowOpen = !closedBeforeQuery;
+        var failure = new COMException("Provider is gone.", unchecked((int)0x8000FFFF));
+        var root = ComProxy<IUIAutomationElement>((method, _) =>
+        {
+            if (method.Name is "FindAll" or "FindFirst")
+            {
+                windowOpen = windowStillOpen;
+                throw failure;
+            }
+            return ThrowCom();
+        });
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
+        UiAutomationService.s_elementFromHandle = (_, _) => root;
+        SystemUiQuery.s_getProcessIdForWindow = hwnd => hwnd == 456 && windowOpen ? (uint)Environment.ProcessId : 0;
+        try
+        {
+            var selector = new UiSelector { Query = "Seven", ControlType = "Button" };
+            if (windowStillOpen)
+            {
+                Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<COMException>(
+                    () => svc.FindSingleElementAsync(uiTarget, selector, CancellationToken.None)));
+            }
+            else
+            {
+                Assert.IsNull(await svc.FindSingleElementAsync(uiTarget, selector, CancellationToken.None));
+            }
+        }
+        finally
+        {
+            SystemUiQuery.ResetNativeSeams();
+        }
+    }
+
+    [TestMethod]
     [DataRow(false, true)]
     [DataRow(true, null)]
     public async Task FaultInjectedComProxies_EditableDoesNotDependOnReadingTheValue(bool readOnly, bool? expected)
