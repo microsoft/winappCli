@@ -95,7 +95,7 @@ BeforeAll {
         $global:LASTEXITCODE = 0
         if (($mode -eq 'CleanFail' -and $command -eq 'run clean') -or
             ($mode -eq 'CodegenFail' -and $command -like 'run generate-commands*') -or
-            ($mode -eq 'CompileFail' -and $command -eq 'run compile') -or
+            ($mode -eq 'CompileFail' -and $command -like 'run compile*') -or
             ($mode -eq 'PackFail' -and $args[0] -eq 'pack')) {
             $global:LASTEXITCODE = 19
             return
@@ -150,7 +150,7 @@ Describe 'Npm freshness and restoration with controlled stubs' -Tag 'DevToolsShi
     It 'stops after <Mode> and preserves original package bytes' -ForEach @(
         @{ Mode = 'CleanFail'; Message = '*clean failed*'; Last = 'npm run clean' }
         @{ Mode = 'CodegenFail'; Message = '*generation failed*'; Last = 'npm run generate-commands' }
-        @{ Mode = 'CompileFail'; Message = '*compilation failed*'; Last = 'npm run compile' }
+        @{ Mode = 'CompileFail'; Message = '*compilation failed*'; Last = 'npm run compile --ignore-scripts' }
         @{ Mode = 'PackFail'; Message = '*create npm package*'; Last = 'npm pack --json*' }
         @{ Mode = 'InvalidJson'; Message = '*JSON*'; Last = 'npm pack --json*' }
         @{ Mode = 'MultipleResults'; Message = '*exactly one*'; Last = 'npm pack --json*' }
@@ -239,7 +239,7 @@ Describe 'Root and npm orchestration boundaries' -Tag 'DevToolsShipping' {
         $actions = @(Get-Content "$npmRoot\.external-actions")
         $actions | Should -Contain 'npm run build-copy-only'
         $actions[-1] | Should -Match '^npm run generate-commands (?:-- )?--schema '
-        $actions | Should -Not -Contain 'npm run compile'
+        $actions -like 'npm run compile*' | Should -BeNullOrEmpty
     }
     It 'executes the actual serial engine stage with <Mode> stub outputs' -ForEach @(
         @{ Mode = 'Success' }; @{ Mode = 'BuildFail' }; @{ Mode = 'MissingTap' }
