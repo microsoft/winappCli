@@ -296,6 +296,16 @@ Describe 'Rescore and summaries with capabilities' {
         $report = Get-ComparisonReport -Baseline $base -Candidate $removed -Scenarios @($scenario)
         $report | Should -Match ([regex]::Escape('| m | s1 | both | 1/1 (100%) → -; excluded: 1 n/a | check differs |'))
     }
+    It 'excludes runs recorded with a different prompt from comparisons' {
+        $d = Join-Path $TestDrive 'pc'
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        @(
+            @{ scenario = 's1'; configuration = 'both'; model = 'm'; status = 'pass'; skillsLoaded = @('winapp-signing'); promptHash = 'stale'; preflight = @{ expectedSkills = $installed } }
+            @{ scenario = 's1'; configuration = 'both'; model = 'm'; status = 'pass'; skillsLoaded = @('winapp-signing'); promptHash = (Get-ShortHash 'current prompt'); preflight = @{ expectedSkills = $installed } }
+        ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 5 } | Set-Content (Join-Path $d 'runs.jsonl')
+        $report = Get-ComparisonReport -Baseline $d -Candidate $d -Scenarios @($scenario)
+        $report | Should -Match ([regex]::Escape('| m | s1 | both | 1/1 (100%); excluded: 1 prompt_changed →'))
+    }
     It 'compares by set and cohort and counts partial runs as scored' {
         $b = Join-Path $TestDrive 'cb'; $c = Join-Path $TestDrive 'cc'
         foreach ($d in $b, $c) { New-Item -ItemType Directory -Path $d -Force | Out-Null }

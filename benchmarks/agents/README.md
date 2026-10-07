@@ -228,7 +228,8 @@ re-evaluated in memory against the current scenario expectations; the folders ar
 
 - Pass rates use the same format as `summary.md`: `pass`, `partial`, and `fail` are scored (`partial`
   counts against the rate); every other status is listed as excluded. Runs of a scenario that no
-  longer exists are excluded as `scenario_removed`.
+  longer exists are excluded as `scenario_removed`, and runs recorded with a different prompt than the
+  scenario has now as `prompt_changed`.
 - The per-model rows leave out the `none` control and explicit-command scenarios. **By set and
   cohort** and **By primary capability** tables follow.
 - A cell shows `check differs` when what its expectation checks differs between the sides: the
@@ -321,7 +322,8 @@ with the few files the prompt needs:
 - `paraphrases` (optional): `{ "novice": "...", "terse": "..." }`. Each runs as `<id>.<name>` with the
   same fixture and expectations.
 - `routingSnapshot: true` marks a scenario whose prompt refers to things the fixture cannot contain
-  (a built MSIX, a running app). It only measures routing.
+  (a built MSIX, a running app). The agent cannot complete the task there, so the run measures which
+  skills load and what the answer names, not whether the task would succeed.
 - `leakAllow`: phrases a prompt may share with a skill description because they are quoted from a
   real error message.
 - The older `skillsAny` / `skillsAll` / `skillsForbid` format still loads and scores, so old result

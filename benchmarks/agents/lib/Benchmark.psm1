@@ -1239,9 +1239,15 @@ function Read-ComparisonRuns {
             $answer = Get-RecordValue $rec 'answer'
             $applied = $null
             $s = $byId[$rec.scenario]
+            $hash = Get-RecordValue $rec 'promptHash'
             if (-not $s -and $status -in 'pass', 'fail', 'n/a', 'partial') {
                 # Without a current definition the run cannot be re-evaluated; never score a stale status.
                 $status = 'scenario_removed'
+                $answer = $null
+            }
+            elseif ($s -and $hash -and $hash -ne (Get-ShortHash $s.Prompt) -and $status -in 'pass', 'fail', 'n/a', 'partial') {
+                # The model saw a different prompt than the current scenario has, so the run is not comparable.
+                $status = 'prompt_changed'
                 $answer = $null
             }
             elseif ($s -and $status -in 'pass', 'fail', 'n/a', 'partial') {
@@ -1396,7 +1402,8 @@ function Get-ComparisonReport {
         "$(@($cCells.Keys | Where-Object { -not $bCells.ContainsKey($_) }).Count) candidate-only cells skipped")
     $md.Add('')
     $md.Add('Pass/fail is re-evaluated against the current scenario expectations, so both sides use the same rules. Runs of')
-    $md.Add('scenarios that no longer exist are excluded as `scenario_removed`.')
+    $md.Add('scenarios that no longer exist are excluded as `scenario_removed`, and runs recorded with a different prompt as')
+    $md.Add('`prompt_changed`.')
     $md.Add('Pass rates score `pass`, `partial`, and `fail`; other runs (`n/a`, timeouts, errors) are listed as excluded. A')
     $md.Add('cell shows `check differs` when what its expectation checks differs between the sides (the installed primary,')
     $md.Add('acceptable, and forbidden capabilities, or for skill-name expectations the installed expected and forbidden')
