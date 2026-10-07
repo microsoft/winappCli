@@ -309,12 +309,30 @@ internal sealed class CommentStore : ICommentStore
         try
         {
             File.WriteAllText(tmp, json);
-            File.Move(tmp, storePath, overwrite: true);
+            ReplaceStore(tmp, storePath);
         }
         catch
         {
             TryDelete(tmp);
             throw;
+        }
+    }
+
+    // Readers (CLI reads, the Sandbox relay's poll, editors, indexers) open the store without the store mutex, and
+    // Windows can't replace a file that is open, so a brief overlap is retried rather than failing the write.
+    private static void ReplaceStore(string tmp, string storePath)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(tmp, storePath, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (attempt < 50 && ex is UnauthorizedAccessException or IOException)
+            {
+                Thread.Sleep(10);
+            }
         }
     }
 

@@ -121,6 +121,23 @@ public class CommentStoreTests
     }
 
     [TestMethod]
+    public async Task Add_WhileAReaderBrieflyHoldsTheStore_StillSaves()
+    {
+        var store = NewStore();
+        store.Add(StorePath, NewComment("first"));
+        Task added;
+        using (new FileStream(StorePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        {
+            added = Task.Run(() => store.Add(StorePath, NewComment("second")));
+            await Task.Delay(100);
+        }
+
+        await added;
+        Assert.AreEqual(2, store.Load(StorePath).Comments.Count);
+        Assert.AreEqual(0, Directory.GetFiles(_dir, "ui-comments.json.tmp-*").Length);
+    }
+
+    [TestMethod]
     public void Update_ExistingId_MutatesAndBumpsUpdatedAt()
     {
         var store = NewStore();
