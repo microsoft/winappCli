@@ -376,12 +376,9 @@ internal sealed class DebugOutputService(IAnsiConsole console, ICrashDumpService
             _logWriter?.WriteLine($"[CrashDump] Using crashing thread {crashThreadId} context for 0x{code:X8} at 0x{address:X}");
         }
 
-        foreach (var other in _savedFirstChanceContexts.Values)
+        foreach (var other in _savedFirstChanceContexts.Values.Where(c => c.ThreadId != crashThreadId))
         {
-            if (other.ThreadId != crashThreadId)
-            {
-                _logWriter?.WriteLine($"[CrashDump] Supplemental (not the crash): earlier first-chance 0x{(uint)other.ExceptionCode:X8} on thread {other.ThreadId} at 0x{other.ExceptionAddress:X}");
-            }
+            _logWriter?.WriteLine($"[CrashDump] Supplemental (not the crash): earlier first-chance 0x{(uint)other.ExceptionCode:X8} on thread {other.ThreadId} at 0x{other.ExceptionAddress:X}");
         }
 
         _crashDumpPath = crashDumpService.WriteMiniDump(

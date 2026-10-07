@@ -84,10 +84,10 @@ internal sealed class CrashDumpService(IAnsiConsole console, ILogger<CrashDumpSe
             {
                 // Prefer the terminating stowed exception (0xC000027B) for the dump's exception
                 // record: its parameters point at the stowed-exception array that WinUI triage
-                // (!xamlstowed) reads via $exr_param0/$exr_param1. The thread CONTEXT, however,
-                // stays the first-chance one — it points to the user code that originally threw,
-                // before XAML's error handling replaced the stack with FailFastWithStowedExceptions,
-                // so ClrMD still recovers the managed user frames.
+                // (!xamlstowed) reads via $exr_param0/$exr_param1. The thread CONTEXT is whatever
+                // the caller supplied: the crashing thread's first-chance context when that frame is
+                // still live (so ClrMD recovers the managed user frames that originally threw), or
+                // the crash's own context when it is not.
                 var (recordCode, recordAddress, useCrashParameters) = SelectExceptionRecord(
                     savedExceptionCode, savedExceptionAddress,
                     crashExceptionCode, crashExceptionAddress, crashExceptionParameters);

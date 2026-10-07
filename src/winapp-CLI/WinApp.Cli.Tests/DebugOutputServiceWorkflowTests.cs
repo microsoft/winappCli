@@ -34,7 +34,7 @@ namespace WinApp.Cli.Tests;
 ///   <item>174-175, 181-182 — the <c>OpenProcess</c> / <c>ReadProcessMemory</c> failure guards while reading
 ///   the debuggee's <c>OutputDebugString</c> buffer: cannot be provoked without corrupting the OS call
 ///   (TOCTOU/flaky).</item>
-///   <item>526-528 — the <c>GetThreadContext</c>-failure guard: reached only when <c>OpenThread</c> succeeds
+///   <item>523-525 — the <c>GetThreadContext</c>-failure guard: reached only when <c>OpenThread</c> succeeds
 ///   but the subsequent context read fails — genuine Win32 fault injection, undrivable without flakiness.</item>
 /// </list>
 /// </remarks>
