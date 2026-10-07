@@ -120,6 +120,20 @@ namespace WinApp.Cli.Services.Controls;
 ///          bump an existing cache still matches on "24" and keeps serving that name,
 ///          and the offline fallback ignores the TTL, so a filtered or offline machine
 ///          would never pick up the fix.
+///   "26" — Control-level `usings` are carried on the scenario and rendered as the
+///          "Namespace:" line instead of being prepended to each sample's C#. The
+///          published code is a class-body fragment, so `using` lines glued to its
+///          front land where C# forbids them: the emitted blob failed both as its own
+///          file (CS0106) and pasted inside a class (CS1529), which between them are
+///          every placement a reader has. Rule 1 — Scenario gains a `usings` field —
+///          and Rule 3, because the same upstream sample now yields C# without the
+///          prefix. Without the bump an existing cache still matches on "25" and keeps
+///          serving the glued-on form, and the offline fallback ignores the TTL, so a
+///          filtered or offline machine would never stop pasting a snippet that cannot
+///          compile wherever it is put.
+///          This change also re-bakes the snapshot. CommunityToolkit/Windows now
+///          publishes catalog/toolkit-samples.json, so the baked corpus carries the
+///          Toolkit again instead of the reduced floor it held while that index 404'd.
 ///
 /// Note: adding the embedded snapshot floor did NOT bump this. The cached payload's
 /// schema and extraction logic are unchanged, and a bump would have forced every
@@ -127,5 +141,5 @@ namespace WinApp.Cli.Services.Controls;
 /// </summary>
 internal static class CacheVersion
 {
-    public const string Current = "25";
+    public const string Current = "26";
 }

@@ -35,39 +35,30 @@ public class EmbeddedSnapshotTests
     private const double MinCodeRetention = 0.90;
 
     /// <summary>
-    /// Serving floors for the Gallery corpus, measured at 327 scenarios / 115 controls /
-    /// 290 XAML / 116 C# after sanitizing on the bake that introduced the published index.
-    /// Set roughly 10% below that so ordinary upstream churn doesn't fail the build, while
-    /// a partial or broken upstream publish does.
+    /// Serving floors for the Gallery corpus, measured at 344 scenarios / 118 controls /
+    /// 309 XAML / 133 C# after sanitizing. Set roughly 10% below that so ordinary upstream
+    /// churn doesn't fail the next bake, while a partial or broken upstream publish does.
+    /// These read the committed snapshot, so they only move when someone re-bakes.
     /// </summary>
-    private const int MinGalleryScenarios = 295;
-    private const int MinGalleryControls = 105;
-    private const int MinGalleryXaml = 260;
-    private const int MinGalleryCSharp = 100;
+    private const int MinGalleryScenarios = 309;
+    private const int MinGalleryControls = 106;
+    private const int MinGalleryXaml = 278;
+    private const int MinGalleryCSharp = 119;
 
     /// <summary>
-    /// Serving floors for the Toolkit corpus, measured at 48 scenarios / 26 controls /
-    /// 48 XAML / 34 C# after sanitizing. Set roughly 10% below that, on the same reasoning
-    /// as the Gallery floors above. The Toolkit corpus is an order of magnitude smaller, so
-    /// these are tighter in absolute terms — losing one component here is a visible loss of
-    /// coverage, not churn.
+    /// Serving floors for the Toolkit corpus, measured at 125 scenarios / 53 controls /
+    /// 125 XAML / 37 C# after sanitizing. Set roughly 10% below that, on the same reasoning
+    /// as the Gallery floors above. The Toolkit corpus is smaller, so these are tighter in
+    /// absolute terms — losing one component here is a visible loss of coverage, not churn.
     ///
-    /// Those measurements describe the scraped corpus, and the snapshot these guard has not
-    /// been re-baked since the Toolkit switched to reading its published index — which carries
-    /// substantially more samples. Until that bake happens these floors sit correctly against
-    /// the committed snapshot; afterwards they will sit far below it and stop catching a
-    /// collapse. Re-measure all four against the sanitized corpus at that point and reset them
-    /// to roughly 90% of what is observed. Take the numbers from the sanitized snapshot rather
-    /// than the index's raw sample count: sanitizing can strip a scenario's code, which is why
-    /// the C# figure above is well under the scenario count.
-    ///
-    /// Raising them before the bake would fail the gate, since the snapshot they read is still
-    /// the scraped one.
+    /// Take the numbers from the sanitized snapshot rather than the index's raw sample
+    /// count: sanitizing can strip a scenario's code, which is why the C# figure is well
+    /// under the scenario count.
     /// </summary>
-    private const int MinToolkitScenarios = 43;
-    private const int MinToolkitControls = 23;
-    private const int MinToolkitXaml = 43;
-    private const int MinToolkitCSharp = 30;
+    private const int MinToolkitScenarios = 112;
+    private const int MinToolkitControls = 47;
+    private const int MinToolkitXaml = 112;
+    private const int MinToolkitCSharp = 33;
 
     // ------------------------------------------------------------------
     // Build gates: the committed snapshot must match the code that reads it
