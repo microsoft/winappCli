@@ -723,10 +723,12 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
-    [DataRow("-p", "Platform=ARM64", "-p Platform=x64", DisplayName = "-p Platform")]
-    [DataRow("--arch", "arm64", "--arch x64", DisplayName = "--arch")]
-    [DataRow("-r", "win-arm64", "-r win-x64", DisplayName = "--runtime")]
-    public async Task ProjectMode_Cpp_PlatformThisMachineCannotRun_FailsBeforeBuilding(string option, string value, string suggestion)
+    [DataRow("-p Platform=ARM64", "-p Platform=x64", DisplayName = "-p Platform")]
+    [DataRow("--arch arm64", "--arch x64", DisplayName = "--arch")]
+    [DataRow("-r win-arm64", "-r win-x64", DisplayName = "--runtime")]
+    [DataRow("--arch arm64 -p Platform=ARM64", "--arch x64 -p Platform=x64", DisplayName = "--arch with matching -p Platform")]
+    [DataRow("-r win-arm64 -p Platform=ARM64", "-r win-x64 -p Platform=x64", DisplayName = "--runtime with matching -p Platform")]
+    public async Task ProjectMode_Cpp_PlatformThisMachineCannotRun_FailsBeforeBuilding(string archArgs, string suggestion)
     {
         var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
         File.WriteAllText(vcxproj.FullName, "<Project />");
@@ -734,7 +736,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.X64;
         var command = GetRequiredService<RunCommand>();
 
-        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, option, value, "--detach"]);
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, .. archArgs.Split(' '), "--detach"]);
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "an app this machine can't run must not be built first");

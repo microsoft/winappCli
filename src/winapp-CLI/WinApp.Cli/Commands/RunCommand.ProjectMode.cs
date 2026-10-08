@@ -209,6 +209,12 @@ internal partial class RunCommand
                 var buildForHost = runtimeOption is not null ? $"-r win-{host}"
                     : archOption is not null || !isCpp ? $"--arch {host}"
                     : $"-p Platform={ProjectRunService.ToCppPlatform(host)}";
+                if (isCpp && (runtimeOption is not null || archOption is not null)
+                    && ProjectRunService.CppArchitectureFromProperties(properties) is not null)
+                {
+                    // A matching -p Platform must change too, or the build rejects the pair as conflicting.
+                    buildForHost += $" -p Platform={ProjectRunService.ToCppPlatform(host)}";
+                }
                 return Fail(
                     $"{csproj.Name} targets {architecture}, which this {host} machine can't run. " +
                     $"Run it on an {architecture} machine, or build for this machine ({buildForHost}).",
