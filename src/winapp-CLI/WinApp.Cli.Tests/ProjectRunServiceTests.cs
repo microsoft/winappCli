@@ -2735,19 +2735,24 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public async Task RunBuild_ConflictingProjectRidWithRidSplitGraph_KeepsRid()
+    [DataRow("win-x86", "", true, DisplayName = "Conflicting project RID keeps the RID despite the split graph")]
+    [DataRow("", "true", false, DisplayName = "Dynamic platform resolution keeps the split graph's RID-free build")]
+    public async Task RunBuild_RidFallbackWithRidSplitGraph(string projectRid, string edpr, bool expectRid)
     {
-        // The graph removes RuntimeIdentifier on one edge, which makes the legacy resolution drop the RID.
-        // A project that sets its own RID must still get -r win-<arch>, or its RID wins (NETSDK1032).
+        // The graph removes RuntimeIdentifier on one edge, which makes the existing resolution drop the RID.
+        // Only a project that sets its own conflicting RID must still get -r win-<arch> (else NETSDK1032);
+        // forcing it back for dynamic platform resolution builds the shared project twice (MSB3030).
         var app = WriteRidSplitGraph(stripRidOnMiddleEdge: true);
-        var dotnet = ArchitectureProbeDotnet("""
-            "RuntimeIdentifier":"win-x86","EnableDynamicPlatformResolution":""
+        var dotnet = ArchitectureProbeDotnet($$"""
+            "RuntimeIdentifier":"{{projectRid}}","EnableDynamicPlatformResolution":"{{edpr}}"
             """);
         var service = NewServiceWith(dotnet, out _);
 
         await service.BuildAndResolveAsync(app, PlatformOptions("arm64"), CancellationToken.None);
 
-        StringAssert.Contains(BuildPass(dotnet), "-r win-arm64");
+        var build = BuildPass(dotnet);
+        Assert.AreEqual(expectRid, build.Contains("-r win-arm64", StringComparison.Ordinal), build);
+        StringAssert.Contains(build, "-p:Platform=ARM64");
     }
 
     [TestMethod]

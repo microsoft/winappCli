@@ -172,12 +172,16 @@ internal sealed partial class ProjectRunService
         if (RequiresRuntimeIdentifier(props, options.Architecture))
         {
             logger.LogDebug(
-                "{UISymbol} The project sets RuntimeIdentifier '{Rid}' or EnableDynamicPlatformResolution '{Edpr}'; conveying the architecture with the RID.",
+                "{UISymbol} The project sets RuntimeIdentifier '{Rid}' or EnableDynamicPlatformResolution '{Edpr}'; using the existing RID-based resolution.",
                 UiSymbols.Note, GetProp(props, "RuntimeIdentifier"), GetProp(props, "EnableDynamicPlatformResolution"));
 
-            // The legacy resolution drops the RID for a reference graph that removes it, but this project's
-            // own RuntimeIdentifier would then win and build the wrong architecture (NETSDK1032).
-            return ResolvePlatformInjection(csproj, options) with { OmitRuntimeIdentifier = false };
+            // The existing resolution drops the RID for a reference graph that removes it. Keep that for
+            // dynamic platform resolution, but a project's own conflicting RuntimeIdentifier would then win
+            // and build the wrong architecture (NETSDK1032), so it must always get the RID.
+            var resolved = ResolvePlatformInjection(csproj, options);
+            return HasConflictingRuntimeIdentifier(props, options.Architecture)
+                ? resolved with { OmitRuntimeIdentifier = false }
+                : resolved;
         }
 
         return platformOnly;
@@ -229,12 +233,18 @@ internal sealed partial class ProjectRunService
     /// A RID the project sets to exactly <c>win-&lt;arch&gt;</c> (e.g. from a <c>win-$(Platform)</c> publish
     /// profile) agrees with the Platform and needs no global RID.
     /// </summary>
-    internal static bool RequiresRuntimeIdentifier(IReadOnlyDictionary<string, string> properties, string architecture)
+    internal static bool RequiresRuntimeIdentifier(IReadOnlyDictionary<string, string> properties, string architecture) =>
+        HasConflictingRuntimeIdentifier(properties, architecture) || IsTrue(GetProp(properties, "EnableDynamicPlatformResolution"));
+
+    /// <summary>
+    /// True when the project sets its own <c>RuntimeIdentifier</c> other than <c>win-&lt;arch&gt;</c>; only a
+    /// global RID overrides it.
+    /// </summary>
+    private static bool HasConflictingRuntimeIdentifier(IReadOnlyDictionary<string, string> properties, string architecture)
     {
         var projectRid = GetProp(properties, "RuntimeIdentifier");
-        var conflictingRid = !string.IsNullOrEmpty(projectRid)
+        return !string.IsNullOrEmpty(projectRid)
             && !string.Equals(projectRid, RunArchHelper.ToRuntimeIdentifier(architecture), StringComparison.Ordinal);
-        return conflictingRid || IsTrue(GetProp(properties, "EnableDynamicPlatformResolution"));
     }
 
     /// <summary>

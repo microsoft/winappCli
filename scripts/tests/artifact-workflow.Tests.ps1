@@ -71,7 +71,7 @@ Describe 'Artifact-first workflow dependencies' {
 
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
-        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics, project-arch\]'
+        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics, project-arch-changes, project-arch\]'
     }
 
     It 'builds both architectures in one producer without intermediate publish artifacts' {
@@ -94,7 +94,7 @@ Describe 'Artifact-first workflow dependencies' {
     }
 
     It 'starts validation, docs, UI E2E, samples and the architecture matrix from early artifacts, not the final gate' {
-        foreach ($job in @('validate-tests', 'validate-docs', 'e2e-test-ui', 'samples', 'project-arch')) {
+        foreach ($job in @('validate-tests', 'validate-docs', 'e2e-test-ui', 'samples')) {
             $text = Get-JobText $buildWorkflow $job
             $text | Should -Match '(?m)^\s+needs: build-artifacts\r?$'
             $text | Should -Not -Match 'dotnet publish|needs: build-and-package'
@@ -104,9 +104,16 @@ Describe 'Artifact-first workflow dependencies' {
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-e2e-winui-ui\.ps1'
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-ui-coordination\.ps1'
         $matrix = Get-JobText $buildWorkflow 'project-arch'
+        $matrix | Should -Match '(?m)^\s+needs: \[build-artifacts, project-arch-changes\]\r?$'
+        $matrix | Should -Match ([regex]::Escape("if: needs.project-arch-changes.outputs.run == 'true'"))
+        $matrix | Should -Not -Match 'needs: build-and-package'
         $matrix | Should -Match 'tests/project-arch/ProjectArch\.Tests\.ps1'
         $matrix | Should -Match 'fail-fast: false'
         $matrix | Should -Match 'timeout-minutes:'
+        $changes = Get-JobText $buildWorkflow 'project-arch-changes'
+        $changes | Should -Not -Match '(?m)^\s+needs:'
+        $changes | Should -Match 'fetch-depth: 2'
+        $changes | Should -Match "IS_PR -ne 'true'"
     }
 
     It 'runs both CLI shards, auxiliary suites once, and UI Automation on isolated runners' {
@@ -261,11 +268,12 @@ Describe 'Required build check outcomes' {
         foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'e2e-test-ui', 'samples', 'metrics', 'project-arch')) {
             $results[$job] = @{ result = 'success' }
         }
+        $results['project-arch-changes'] = @{ result = 'success'; outputs = @{ run = 'true' } }
         $env:IS_PR = 'true'
     }
 
     It 'passes a PR only when every dependency succeeds' {
-        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 4
         { & $buildGate } | Should -Not -Throw
     }
 
@@ -273,7 +281,7 @@ Describe 'Required build check outcomes' {
         foreach ($job in @($results.Keys)) {
             foreach ($outcome in @('failure', 'cancelled', 'skipped')) {
                 $results[$job].result = $outcome
-                $env:NEEDS_JSON = $results | ConvertTo-Json -Compress
+                $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 4
                 { & $buildGate } | Should -Throw -ExpectedMessage "*$job did not meet*"
             }
             $results[$job].result = 'success'
@@ -283,11 +291,27 @@ Describe 'Required build check outcomes' {
     It 'allows only the deliberate sample skip on main and manual runs' {
         $env:IS_PR = 'false'
         $results.samples.result = 'skipped'
-        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 4
         { & $buildGate } | Should -Not -Throw
         $results.'validate-tests'.result = 'skipped'
-        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 4
         { & $buildGate } | Should -Throw
+    }
+
+    It 'requires the architecture matrix exactly when the change check asks for it' {
+        $results['project-arch-changes'].outputs.run = 'false'
+        $results['project-arch'].result = 'skipped'
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 4
+        { & $buildGate } | Should -Not -Throw
+
+        $results['project-arch'].result = 'success'
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 4
+        { & $buildGate } | Should -Throw -ExpectedMessage '*project-arch did not meet*'
+
+        $results['project-arch-changes'].outputs.run = 'true'
+        $results['project-arch'].result = 'skipped'
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 4
+        { & $buildGate } | Should -Throw -ExpectedMessage '*project-arch did not meet*'
     }
 }
 

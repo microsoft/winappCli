@@ -71,6 +71,9 @@ function Get-ProjectArchFixtures {
         @{ Id = 'R15-unpackaged-msix-lib'; Sdk = '1.8'; App = (New-AppSpec @{ Packaged = $false; Refs = @('LibW') }); Libs = @(@{ Name = 'LibW'; Kind = 'winui'; Extra = $msixLib }); Why = 'Unpackaged app with MSIX-tooling library' }
         @{ Id = 'R15-unpackaged-msix-lib-wasdk16'; Sdk = '1.6'; App = (New-AppSpec @{ Packaged = $false; Refs = @('LibW') }); Libs = @(@{ Name = 'LibW'; Kind = 'winui' }); Why = 'Unpackaged app with MSIX-tooling library (1.6)' }
         @{ Id = 'R16-dynamic-platform-resolution'; Sdk = '1.8'; App = (New-AppSpec @{ Refs = @('LibW'); Extra = @{ EnableDynamicPlatformResolution = 'true' } }); Libs = @(@{ Name = 'LibW'; Kind = 'winui'; Rids = $script:AllRids; Extra = @{ EnableDynamicPlatformResolution = 'true' } }); ExpectRid = $true; Why = 'EnableDynamicPlatformResolution (needs the RID)' }
+        @{ Id = 'R17-edpr-rid-split'; Sdk = '1.8'; App = (New-AppSpec @{ Refs = @(@{ Name = 'LibW'; Meta = @{ GlobalPropertiesToRemove = 'RuntimeIdentifier' } }, 'LibP'); Extra = @{ EnableDynamicPlatformResolution = 'true' } }); Libs = @(
+                @{ Name = 'LibW'; Kind = 'winui'; Platforms = $script:AllPlatforms; Refs = @('LibP') },
+                @{ Name = 'LibP'; Kind = 'plain'; Platforms = $script:AllPlatforms }); Why = 'EnableDynamicPlatformResolution with a reference that removes RuntimeIdentifier (must not get the RID back)' }
 
         # Project settings that interact with Platform/RID
         @{ Id = 'P01-platforms-lack-arch'; Sdk = '1.8'; App = (New-AppSpec @{ Platforms = 'x86;x64' }); Why = '<Platforms> without the target arch' }

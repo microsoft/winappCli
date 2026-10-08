@@ -285,8 +285,12 @@ The `project-arch` job runs `tests\project-arch\ProjectArch.Tests.ps1` in four
 shards with the same-run x64 CLI. It generates .NET projects covering how
 `winapp run` conveys the target architecture (Platform vs. RuntimeIdentifier,
 reference graphs, packaging, Windows App SDK versions) and launches each app.
-Add a fixture there when changing project-mode architecture handling; see
-`tests\project-arch\README.md` to run it locally.
+It runs on every push to main and manual build, and on PRs whose changes match
+the path list in the `project-arch-changes` job; `build-and-package` accepts it
+as skipped only when that job says it isn't needed. Add a fixture there when
+changing project-mode architecture handling, and extend the path list when that
+handling moves to new files; see `tests\project-arch\README.md` to run it
+locally.
 
 Keep `build-and-package` and `test-samples-result` as top-level aggregate check
 names for branch protection. They must fail on failures, cancellations, and
