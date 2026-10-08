@@ -444,6 +444,50 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
+    public async Task BuildAndResolve_Vcxproj_MissingHeadersWithVcpkgNotIntegrated_SuggestsIntegrateInstall()
+    {
+        var project = WriteFile(@"App\App.vcxproj", CppApp);
+        WriteFile("vcpkg.json", "{}");
+        string[] missingHeader = [@"App.cpp(4,10): error C1083: Cannot open include file: 'boost/container/static_vector.hpp': No such file or directory"];
+        _msbuild.Replies.Add((new ProcessRunResult(1, string.Empty, string.Empty), missingHeader));
+        _msbuild.Replies.Add((new ProcessRunResult(0, string.Empty, string.Empty), []));
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: true);
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => _service.BuildAndResolveAsync(project, options, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "vcpkg integrate install");
+        CollectionAssert.Contains(_msbuild.Calls[1].ToArray(), "-getProperty:_ZVcpkgRoot");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_Vcxproj_MissingHeadersWithVcpkgIntegrated_ReturnsExitCode()
+    {
+        var project = WriteFile(@"App\App.vcxproj", CppApp);
+        WriteFile("vcpkg.json", "{}");
+        _msbuild.Replies.Add((new ProcessRunResult(1, string.Empty, string.Empty), ["App.cpp(4,10): error C1083: Cannot open include file: 'x.h': No such file or directory"]));
+        _msbuild.Replies.Add((new ProcessRunResult(0, @"C:\vcpkg\", string.Empty), []));
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: true);
+
+        var outcome = await _service.BuildAndResolveAsync(project, options, CancellationToken.None);
+
+        Assert.AreEqual(1, outcome.ExitCode, "an integrated vcpkg is not the cause, so the build's own errors stand");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_Vcxproj_MissingHeadersWithoutVcpkgManifest_DoesNotProbeVcpkg()
+    {
+        var project = WriteFile(@"App\App.vcxproj", CppApp);
+        _msbuild.Replies.Add((new ProcessRunResult(1, string.Empty, string.Empty), ["App.cpp(4,10): error C1083: Cannot open include file: 'x.h': No such file or directory"]));
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: true);
+
+        var outcome = await _service.BuildAndResolveAsync(project, options, CancellationToken.None);
+
+        Assert.AreEqual(1, outcome.ExitCode);
+        Assert.AreEqual(1, _msbuild.Calls.Count);
+    }
+
+    [TestMethod]
     public async Task BuildAndResolve_Vcxproj_OtherBuildFailure_ReturnsExitCode()
     {
         var project = WriteFile("App.vcxproj", CppApp);
