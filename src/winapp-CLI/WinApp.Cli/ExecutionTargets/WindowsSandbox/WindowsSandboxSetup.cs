@@ -58,7 +58,7 @@ internal sealed class WindowsSandboxSetup(IWindowsSandboxHostProbe probe) : IWin
 
         if (!facts.IsWindows)
         {
-            const string notWindows = "Not checked: this host is not Windows.";
+            const string notWindows = "This host is not Windows.";
             return new TargetHostReadiness
             {
                 Ready = false,
@@ -74,20 +74,50 @@ internal sealed class WindowsSandboxSetup(IWindowsSandboxHostProbe probe) : IWin
         }
 
         var osVersion = OsVersion();
-        var osCheck = ready || SupportsSandboxCli()
+        var osSupported = ready || SupportsSandboxCli();
+        var osCheck = osSupported
             ? Passed("osVersion", $"Windows {osVersion}")
             : Failed("osVersion", $"Windows {osVersion}. Windows Sandbox execution requires Windows 11 24H2 (build 26100) or newer.", OsFix);
 
-        var featureCheck = facts.FeaturePayloadPresent
-            ? Passed("sandboxFeature", $"Windows Sandbox feature ({WindowsSandboxReadiness.FeatureName}) is enabled.")
-            : Failed(
+        // Match run: on an unsupported build, Sandbox setup advice cannot help, so only the OS fix is shown.
+        if (!osSupported)
+        {
+            const string waitingOnOs = "Update Windows first.";
+            return new TargetHostReadiness
+            {
+                Ready = false,
+                Checks =
+                [
+                    osCheck,
+                    NotChecked("sandboxFeature", waitingOnOs),
+                    NotChecked("sandboxClient", waitingOnOs),
+                    NotChecked("wsb", waitingOnOs),
+                    RestartCheck(facts.RestartPending, ready),
+                ],
+            };
+        }
+
+        TargetHostCheck featureCheck;
+        if (facts.FeaturePayloadPresent)
+        {
+            featureCheck = Passed("sandboxFeature", $"Windows Sandbox feature ({WindowsSandboxReadiness.FeatureName}) is enabled.");
+        }
+        else if (ready)
+        {
+            // A healthy client that answers proves the feature works even when its files are not visible.
+            featureCheck = Passed("sandboxFeature", "Windows Sandbox is available.");
+        }
+        else
+        {
+            featureCheck = Failed(
                 "sandboxFeature",
                 $"Windows Sandbox feature ({WindowsSandboxReadiness.FeatureName}) is not enabled.",
                 EnableFeatureFix,
                 new ExecutionTargetNextCommand { Command = EnableFeatureCommand, Advisory = true });
+        }
 
         // The client and wsb.exe come from the feature, so their failures mean nothing until it is enabled.
-        const string waitingOnFeature = "Not checked: enable the Windows Sandbox feature first.";
+        const string waitingOnFeature = "Enable the Windows Sandbox feature first.";
 
         TargetHostCheck clientCheck;
         if (facts.PackageRegistered)
@@ -126,20 +156,20 @@ internal sealed class WindowsSandboxSetup(IWindowsSandboxHostProbe probe) : IWin
                 ClientFix);
         }
 
-        TargetHostCheck restartCheck = facts.RestartPending switch
-        {
-            false => Passed("restartPending", "No Windows restart is pending."),
-            _ when ready => NotChecked("restartPending", "Not checked: Windows Sandbox is ready."),
-            true => Failed("restartPending", "Windows reports a pending restart.", RestartFix),
-            null => NotChecked("restartPending", "Could not read Windows restart state."),
-        };
-
         return new TargetHostReadiness
         {
             Ready = ready,
-            Checks = [osCheck, featureCheck, clientCheck, wsbCheck, restartCheck],
+            Checks = [osCheck, featureCheck, clientCheck, wsbCheck, RestartCheck(facts.RestartPending, ready)],
         };
     }
+
+    private static TargetHostCheck RestartCheck(bool? restartPending, bool ready) => restartPending switch
+    {
+        false => Passed("restartPending", "No Windows restart is pending."),
+        _ when ready => NotChecked("restartPending", "Windows Sandbox is ready."),
+        true => Failed("restartPending", "Windows reports a pending restart.", RestartFix),
+        null => NotChecked("restartPending", "Could not read Windows restart state."),
+    };
 
     private static TargetHostCheck Passed(string name, string detail) =>
         new() { Name = name, Status = TargetHostCheckStatus.Passed, Detail = detail };

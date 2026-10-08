@@ -264,6 +264,30 @@ public class WindowsSandboxSetupTests
         Assert.AreEqual(TargetHostCheckStatus.Failed, os.Status);
         StringAssert.Contains(os.Detail!, "10.0.22631.0");
         StringAssert.Contains(os.Detail!, "24H2");
+
+        foreach (var name in new[] { "sandboxFeature", "sandboxClient", "wsb" })
+        {
+            var check = Check(host, name);
+            Assert.AreEqual(TargetHostCheckStatus.NotChecked, check.Status, name);
+            Assert.IsNull(check.Fix, name);
+            Assert.IsNull(check.NextCommand, name);
+        }
+    }
+
+    [TestMethod]
+    public async Task DescribeHost_ReadyWithoutVisiblePayload_DoesNotAskToEnableTheFeature()
+    {
+        var host = await new WindowsSandboxSetup(new FixedProbe(Facts() with
+        {
+            PackageRegistered = true,
+            PackageStatus = "Ok",
+            AliasPresent = true,
+            Version = "0.8.107.0",
+        })).DescribeHostAsync(TestContext.CancellationToken);
+
+        Assert.IsTrue(host.Ready);
+        Assert.IsTrue(host.Checks.All(c => c.Status != TargetHostCheckStatus.Failed));
+        Assert.IsNull(Check(host, "sandboxFeature").NextCommand);
     }
 
     [TestMethod]
