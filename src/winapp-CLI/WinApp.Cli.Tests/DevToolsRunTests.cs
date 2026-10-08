@@ -887,4 +887,31 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual("Default", completed.DevToolsSource);
         Assert.AreEqual("Attached", completed.DevToolsOutcome);
     }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task CppProject_DevToolsIsOnByDefaultOnlyForWinUI(bool winUI)
+    {
+        var app = Prepare("project", true);
+        var vcxproj = Path.Combine(app.Source!, "App.vcxproj");
+        File.WriteAllText(vcxproj, winUI
+            ? """<Project><PropertyGroup><UseWinUI>true</UseWinUI></PropertyGroup><ItemGroup><ApplicationDefinition Include="App.xaml" /></ItemGroup></Project>"""
+            : """<Project><PropertyGroup><ConfigurationType>Application</ConfigurationType></PropertyGroup><ItemGroup><ClCompile Include="main.cpp" /></ItemGroup></Project>""");
+        _projects.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, new FileInfo(vcxproj), new DirectoryInfo(app.Source!));
+        _projects.BuildOutcome = _projects.BuildOutcome! with
+        {
+            Resolution = _projects.BuildOutcome.Resolution! with { Csproj = new FileInfo(vcxproj) },
+        };
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ReadCiVariable = () => null;
+        handler.ReadDefaultMode = () => null;
+        DevToolsRunTelemetryScope.Begin();
+
+        Assert.AreEqual(0, await Run(vcxproj, "--detach", "--json"), TestAnsiConsole.Output);
+
+        Assert.AreEqual(winUI ? 1 : 0, _attach.Calls.Count);
+        AssertTelemetry(winUI ? DevToolsMode.On : DevToolsMode.Off,
+            winUI ? DevToolsModeSource.Default : DevToolsModeSource.NotWinUI, winUI ? DevToolsOutcome.Attached : null);
+    }
 }

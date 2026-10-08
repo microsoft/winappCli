@@ -262,6 +262,14 @@ internal partial class MsixService
                 await EnsureWindowsAppRuntimeInstalledAsync(msbuildPackageList, runtimeArch, taskContext, cancellationToken);
             }
 
+            // Install any other framework package the build resolved and the manifest depends on (e.g. the
+            // Debug VCLibs a C++ app needs), as Visual Studio's deploy does. Without it, registration fails
+            // with 0x80073CF3.
+            if (recipeFile is not null)
+            {
+                await InstallRecipeFrameworkPackagesAsync(recipeFile, registrationManifest, runtimeArch, taskContext, cancellationToken);
+            }
+
             var preparedAlias = inspectorAlias is null ? null : PrepareInspectorAlias(registrationManifest, inspectorAlias);
             if (preparedAlias?.Target?.ApplicationUserModelId is { } targetAumid)
             {
@@ -694,6 +702,123 @@ internal partial class MsixService
     /// winapp never put there and cannot recognize, so it is only ever copied into.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Framework packages (<c>ResolvedSDKReference</c> items with a <c>FrameworkIdentity</c>) the build
+    /// recipe lists for <paramref name="architecture"/>, with the package file MSBuild resolved for each.
+    /// </summary>
+    internal static List<(string Name, Version Version, string PackagePath)> ReadRecipeFrameworkPackages(FileInfo recipeFile, string architecture)
+    {
+        System.Xml.Linq.XDocument recipe;
+        try
+        {
+            recipe = System.Xml.Linq.XDocument.Load(recipeFile.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return [];
+        }
+
+        System.Xml.Linq.XNamespace msbuildNs = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var arch = NormalizeRecipeArchitecture(architecture);
+        return recipe.Descendants(msbuildNs + "ResolvedSDKReference")
+            .Where(e => e.Element(msbuildNs + "FrameworkIdentity") is not null
+                && NormalizeRecipeArchitecture(e.Element(msbuildNs + "Architecture")?.Value) == arch)
+            .Select(e => (
+                Name: e.Element(msbuildNs + "Name")?.Value.Trim() ?? string.Empty,
+                Version: Version.TryParse(e.Element(msbuildNs + "Version")?.Value, out var v) ? v : null,
+                Location: Uri.UnescapeDataString(e.Element(msbuildNs + "AppxLocation")?.Value ?? string.Empty)))
+            .Where(f => f.Name.Length > 0 && f.Version is not null && Path.IsPathFullyQualified(f.Location))
+            .Select(f => (f.Name, f.Version!, Path: LocalRecipePackagePath(f.Location)))
+            .Where(f => f.Path is not null)
+            .Select(f => (f.Name, f.Item2, f.Path!))
+            .DistinctBy(f => f.Item3, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// The recipe is a build output that can be committed or crafted, and probing a network location would send
+    /// the user's credentials to that host. Returns the normalized local path, or null for anything on a network
+    /// share, a mapped network drive, or behind a link to one. Normalizes without <see cref="Path.GetFullPath(string)"/>,
+    /// which expands 8.3 names (<c>A~1</c>) by querying the target and would reach a UNC host before any check.
+    /// </summary>
+    private static string? LocalRecipePackagePath(string location)
+    {
+        var normalized = PathSafety.NormalizeLocalPathWithoutProbing(location);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        // Drop the \\?\ prefix the normalizer adds to a drive path, for the package installer and messages.
+        var isDrivePath = normalized.StartsWith(@"\\?\", StringComparison.Ordinal) && normalized.Length > 6 && normalized[5] == ':';
+        var local = isDrivePath ? normalized[4..] : normalized;
+
+        // Only the bare drive root (e.g. "Z:\") goes to the drive-type check: it recognizes plain drive letters, and
+        // a root has no 8.3 name to expand, so checking it can't touch a mapped share.
+        if ((isDrivePath && PathSafety.IsNetworkDriveRoot(local[..3])) || PathSafety.RedirectsToNetwork(normalized))
+        {
+            return null;
+        }
+
+        return local;
+    }
+
+    private static string NormalizeRecipeArchitecture(string? architecture) =>
+        architecture?.Trim().ToLowerInvariant() switch
+        {
+            "win32" => "x86",
+            var a => a ?? string.Empty,
+        };
+
+    private async Task InstallRecipeFrameworkPackagesAsync(FileInfo recipeFile, FileInfo registrationManifest, string? runtimeArch, TaskContext taskContext, CancellationToken cancellationToken)
+    {
+        // Read the staged manifest that will be registered: the recipe can replace the input manifest.
+        AppxManifestDocument manifest;
+        try
+        {
+            manifest = AppxManifestDocument.Parse(await File.ReadAllTextAsync(registrationManifest.FullName, Encoding.UTF8, cancellationToken));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return;
+        }
+
+        var architecture = manifest.IdentityProcessorArchitecture ?? runtimeArch;
+        if (string.IsNullOrWhiteSpace(architecture))
+        {
+            return;
+        }
+
+        // Only frameworks the app actually depends on: a self-contained app's recipe still lists the
+        // Windows App Runtime, but its manifest doesn't reference it.
+        foreach (var (name, version, packagePath) in ReadRecipeFrameworkPackages(recipeFile, architecture)
+                     .Where(f => manifest.HasPackageDependency(f.Name)))
+        {
+            if (Version.TryParse(packageRegistrationService.GetInstalledVersion(name, NormalizeRecipeArchitecture(architecture)), out var installed)
+                && installed >= version)
+            {
+                continue;
+            }
+
+            if (!File.Exists(packagePath))
+            {
+                taskContext.AddDebugMessage($"{UiSymbols.Warning} Framework package {name} {version} was not found at '{packagePath}'.");
+                continue;
+            }
+
+            taskContext.AddStatusMessage($"{UiSymbols.Package} Installing framework package {name} {version}...");
+            try
+            {
+                await packageRegistrationService.InstallPackageAsync(packagePath, forceApplicationShutdown: false, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Registration reports the missing dependency itself; keep the install failure visible.
+                taskContext.AddStatusMessage($"{UiSymbols.Warning} Could not install framework package {name}: {ex.Message}");
+            }
+        }
+    }
+
     private static async Task CopyFilesFromRecipeAsync(
         FileInfo recipeFile,
         DirectoryInfo outputDir,

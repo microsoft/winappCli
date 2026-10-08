@@ -17,11 +17,7 @@ internal class DevToolsCommentsCommand : Command, IShortDescription, ICompactHel
         DevToolsCommentsUpdateCommand updateCommand,
         DevToolsCommentsDeleteCommand deleteCommand)
         : base("comments", "Read and resolve the review comments people leave on a running app's elements. " +
-            "Comments are saved in .winapp/ui-comments.json with the XAML file and line they point at.\n" +
-            "\n" +
-            "  winapp devtools comments list\n" +
-            "  winapp devtools comments get <id>\n" +
-            "  winapp devtools comments update <id> --status resolved --note \"<text>\"")
+            "Comments are saved in .winapp/ui-comments.json with the XAML file and line they point at.")
     {
         Options.Add(WinAppRootCommand.JsonOption);
 
@@ -31,6 +27,12 @@ internal class DevToolsCommentsCommand : Command, IShortDescription, ICompactHel
         Subcommands.Add(updateCommand);
         Subcommands.Add(deleteCommand);
     }
+
+    string ICompactHelpGroup.GoldenPath =>
+        "\n" +
+        "  winapp devtools comments list\n" +
+        "  winapp devtools comments get <id>\n" +
+        "  winapp devtools comments update <id> --status resolved --note \"<text>\"";
 
     IReadOnlyList<(string Category, Type[] CommandTypes)> ICompactHelpGroup.Categories { get; } =
     [

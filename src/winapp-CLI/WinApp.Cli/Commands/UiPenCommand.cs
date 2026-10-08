@@ -20,18 +20,11 @@ internal class UiPenCommand : Command, IShortDescription, IHelpExamples
 
     public string ShortDescription => "Inject pen input (taps and ink strokes)";
 
-
     public IReadOnlyList<string> Examples { get; } =
-
     [
-
         "winapp ui pen <selector> -a <app>",
-
         "winapp ui pen -w <hwnd> --path \"100,100 150,140 200,120\"",
-
     ];
-
-
 
     public string? Usage => "winapp ui pen [<selector>] (-a <app> | -w <hwnd>) [--at <x,y> | --path <points>] [options]";
 
@@ -199,6 +192,11 @@ internal class UiPenCommand : Command, IShortDescription, IHelpExamples
                 logger.LogError("{Symbol} Provide a target: a selector, --at x,y, or --path.", UiSymbols.Error);
                 UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, "Provide a target: a selector, --at x,y, or --path.");
                 return 1;
+            }
+
+            if ((path is not null || at is not null) && UiQueryOptions.HasFilters(parseResult))
+            {
+                return RejectInvalidArguments(parseResult, json, "--type, --root, and --class-name narrow a selector and cannot be combined with --at or --path.");
             }
 
             // Missing-app check runs after all argument validation so invalid arg values return

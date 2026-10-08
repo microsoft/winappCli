@@ -1,0 +1,6 @@
+<Window x:Class="ContosoScanner.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Contoso Scanner">
+  <DockPanel>
+    <Button x:Name="ScanButton" DockPanel.Dock="Top" Content="Scan" Click="ScanButton_Click" />
+    <ListBox x:Name="Devices" />
+  </DockPanel>
+</Window>

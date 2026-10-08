@@ -25,7 +25,6 @@ internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamp
         "winapp ui inspect <selector> -w <hwnd> --ancestors",
     ];
 
-
     public string? Usage => "winapp ui inspect [<selector>] (-a <app> | -w <hwnd>) [options]";
 
     public static Option<bool> AncestorsOption { get; }
@@ -42,7 +41,6 @@ internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamp
         : base("inspect", "View the UI element tree with semantic slugs, element types, names, and bounds. " +
                "With a selector, shows that element's subtree; --type, --root, and --class-name narrow the selector.")
     {
-        Aliases.Add("tree");
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
         Options.Add(SharedUiOptions.WindowOption);
@@ -114,13 +112,13 @@ internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamp
                 if (selector is not null)
                 {
                     var exact = await UiQueryOptions.ResolveExactSelectorAsync(
-                        parseResult, selectorParser, uiAutomation, uiTarget, selector, cancellationToken);
+                        parseResult, selectorParser, uiAutomation, uiTarget, selector, searchOtherWindows: false, cancellationToken);
                     if (exact is null)
                     {
                         UiErrors.ElementNotFound(logger, selector, json);
                         return 1;
                     }
-                    selector = exact;
+                    selector = exact.Selector!;
                 }
 
                 UiElement[] elements;
@@ -297,9 +295,12 @@ internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamp
                         ?? realElements.FirstOrDefault(IsInteractive)
                         ?? realElements.FirstOrDefault();
                     var exampleSelector = example?.Selector ?? example?.Id;
-                    var exampleCommand = example is { IsInvokable: false, IsEditable: true }
-                        ? $"set-value {exampleSelector} \"<text>\" -a <app>"
-                        : $"invoke {exampleSelector} -a <app>";
+                    var exampleCommand = example switch
+                    {
+                        { IsInvokable: true } => $"invoke {exampleSelector} -a <app>",
+                        { IsEditable: true } => $"set-value {exampleSelector} \"<text>\" -a <app>",
+                        _ => $"click {exampleSelector} -a <app>",
+                    };
                     var exampleHint = exampleSelector is not null
                         ? $" Use the [bold cyan]first token[/] as selector, e.g.: [grey]{EscapeMarkup(UiCommandAdvice.Command(exampleCommand))}[/]"
                         : "";
@@ -362,7 +363,7 @@ internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamp
         // these types are conventionally interactive.
         private static readonly HashSet<string> InteractiveTypes = new(StringComparer.OrdinalIgnoreCase)
         {
-            "Button", "CheckBox", "ComboBox", "Edit", "TextBox", "Document", "Hyperlink",
+            "Button", "CheckBox", "ComboBox", "Edit", "TextBox", "Hyperlink",
             "ListItem", "MenuItem", "RadioButton", "Tab", "TabItem", "SplitButton",
             "TreeItem", "DataItem", "Slider"
         };

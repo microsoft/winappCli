@@ -291,6 +291,10 @@ internal sealed class WindowsSandboxBackend(
         // start that guest and cannot assume it is unattended, so only a confirmed missing session
         // creates a client -- and a genuinely closed client is recovered later, from the agent's own
         // evidence rather than from a guess.
+        //
+        // Measured, not assumed: connecting a closed window here, before the privileged steps
+        // below, made recovery slower (median 58 s against 34 s). The guest re-attaching its session
+        // slowed the firewall step by about 16 s, far more than the one agent launch it saved.
         var session = await cli
             .ProbeInteractiveSessionAsync(lease.InstanceId, cancellationToken)
             .ConfigureAwait(false);
@@ -764,7 +768,7 @@ internal sealed class WindowsSandboxBackend(
     /// Never fatal: losing it only means the next command treats the single open window as adopted,
     /// and failing a connection over a contended state file would be worse. Adopted/manual clients
     /// are deliberately never written here: remembering one would later make it look winapp-owned
-    /// and allow minimized restore to move the user's window off-screen.
+    /// and allow minimized restore to move the user's own window.
     /// </remarks>
     private void RememberClientWindow(SandboxClientWindow client)
     {
@@ -866,6 +870,10 @@ internal sealed class WindowsSandboxBackend(
         Directory.CreateDirectory(bootstrap);
         Directory.CreateDirectory(result);
         ClearDirectoryContents(result);
+
+        // Both are mapped into the guest by `wsb share`, which needs SYSTEM to be able to open them.
+        SandboxShareAccess.EnsureHostServiceAccess(bootstrap);
+        SandboxShareAccess.EnsureHostServiceAccess(result);
 
         PruneOldGenerations(root, token);
 

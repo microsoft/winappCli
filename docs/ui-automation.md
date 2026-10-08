@@ -19,9 +19,9 @@ Most commands drive the app through UIA patterns (no input injection). The excep
 
 Run `winapp ui --help` for the core loop: `inspect -a <app> --interactive` to see what you
 can act on, `invoke` or `set-value` to act, and `get-value` to check the result. Every
-command's `--help` shows examples. `find` and `tree` are aliases for `search` and `inspect`.
-An unknown command, such as `winapp ui dump`, exits with code 1 and suggests the closest
-commands (as a JSON error with `suggestions` when you pass `--json`).
+command's `--help` shows examples. An unknown command, such as `winapp ui dump`, exits with
+code 1 and suggests the closest commands (as a JSON error with `suggestions` when you pass
+`--json`).
 
 To change a WinUI 3 app's text or properties live without editing its source, use
 [DevTools](guides/devtools.md) (`winapp devtools --help`). When the app you target already has
@@ -68,12 +68,14 @@ winapp ui invoke Open -w <dialog-HWND> --type Button
 winapp ui set-value "Text editor" "hello" -a notepad --type Document
 ```
 
-Every command that takes one element selector accepts these optional filters:
+These commands accept optional filters on their element selector:
 `inspect` (with a selector), `search`, `get-property`, `get-value`, `wait-for`,
 `invoke`, `set-value`, `click`, `focus`, `hover`, `scroll`, `scroll-into-view`,
-`screenshot`, `record`, `touch`, and `pen`. `drag` does not, because it takes two selectors.
+`screenshot`, `record`, `touch`, and `pen`. `drag` (two selectors) and `send-keys --target` do not.
 The selector and every supplied filter must match the **same element**. Filters narrow a
-selector, so passing them without one fails with `invalid_arguments`:
+selector, so `inspect`, `screenshot`, and `record`, whose selector is optional, fail with
+`invalid_arguments` when given filters without one. For `touch` and `pen`, filters need a
+selector; they can't be combined with `--at` or `--path` (`invalid_arguments`):
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
   never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.
@@ -117,7 +119,9 @@ use an AutomationId or name root when you want polling to follow a replacement.
 
 When filters are present, every command except `search` fails with
 `ambiguous_selector` if more than one element remains; narrow the filters or use
-a unique slug. Exact AutomationId matches retain precedence over substring
+a unique slug. Commands that act on the element count matches in every window
+they search, so a matching control in an owned dialog also makes the selector
+ambiguous. Exact AutomationId matches retain precedence over substring
 matches, within the filtered scope. Omitting all three options preserves the
 existing query behavior.
 
@@ -271,13 +275,13 @@ which cannot run before the head does anyway — every few seconds.
 winapp ui inspect -a notepad
 winapp ui inspect -a slack            # auto-picks visible window for multi-process apps
 winapp ui inspect -a imageresizer     # partial match: finds PowerToys.ImageResizer
-winapp ui search Seven -a calculator  # hosted app: uses its "Calculator" frame window
+winapp ui search Seven -a calculator  # hosted app: uses the frame window that hosts it
 ```
 
 Some packaged apps (for example Calculator) have no window of their own; another process
-hosts their frame. When the matched process has no visible window, `-a` uses the app frame
-whose title matches instead. If there is none (for example, the app is still starting),
-`-a` targets the process, so `wait-for` keeps looking until its window appears.
+hosts their frame. When the matched process (by name or PID) has no visible window, `-a`
+uses the frame that hosts its content instead. If there is none (for example, the app is
+still starting), `-a` targets the process, so `wait-for` keeps looking until its window appears.
 
 ### By window title
 ```bash
@@ -400,7 +404,7 @@ winapp ui inspect -a notepad                    # full window tree, depth 3
 winapp ui inspect -a notepad --depth 5          # deeper tree
 winapp ui inspect txt-searchbox-e5f6 -a notepad # subtree rooted at element
 winapp ui inspect --ancestors btn-close-d1a2 -a notepad  # walk up from element to root
-winapp ui inspect -a myapp --interactive        # invokable elements only, auto-depth 8
+winapp ui inspect -a myapp --interactive        # elements you can invoke, click, or set-value; auto-depth 8
 winapp ui inspect -a myapp --hide-disabled      # hide disabled elements
 winapp ui inspect -a myapp --hide-offscreen     # hide offscreen elements
 ```
@@ -414,7 +418,7 @@ win-aidevgalleryp-f1a3 "AI Dev Gallery Preview" (94,206 1280x1023)
     itm-samples-3f2c "Samples" (102,330 72x62)
 ```
 
-Example output (`--interactive` — invokable elements only, flat list):
+Example output (`--interactive` — actionable elements only, flat list):
 ```
 btn-minimize-d1a0 "Minimize" (1222,206 48x48)
 btn-maximize-e2b1 "Maximize" (1270,206 48x48)
@@ -638,8 +642,8 @@ match, so pass a slug from `inspect`/`search` when a name is ambiguous.
 `--root`, `--type`, and `--class-name` narrow the match as described in
 [Scoped and typed queries](#scoped-and-typed-queries), with or without `--action`.
 Use `-w <dialog-HWND>` to restrict an action to that dialog, or `-a <app>` to
-include the app's windows. A filtered invoke confirms the unique target inside its
-desktop turn, requires exactly one matching element, and never switches to
+include the app's windows. A filtered invoke confirms the unique target before
+acting, requires exactly one matching element, and never switches to
 another window or an invokable ancestor. Zero matches fail with `element_not_found`;
 duplicates fail with `ambiguous_selector`. A stale element or recycled window
 fails without acting; re-run `inspect` or `search` and choose a current selector.

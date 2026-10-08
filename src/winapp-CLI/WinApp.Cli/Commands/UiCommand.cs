@@ -9,8 +9,12 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
 {
     public string ShortDescription => "Inspect and interact with running Windows app UIs";
 
+    internal const string Summary =
+        "Drive any running Windows app through UI Automation (WinUI 3, WPF, WinForms, Win32, UWP, Electron).";
+
+    /// <summary>Preformatted block shown under <see cref="Summary"/> in <c>winapp ui --help</c> only, so
+    /// it stays out of the command's description (and the CLI schema).</summary>
     internal const string GoldenPath =
-        "Drive any running Windows app through UI Automation (WinUI 3, WPF, WinForms, Win32, UWP, Electron).\n" +
         "\n" +
         "  winapp ui inspect -a <app> --interactive           see what you can act on\n" +
         "  winapp ui invoke <selector> -a <app>               press buttons, menu items, tabs, toggles\n" +
@@ -61,7 +65,7 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
         UiListWindowsCommand listWindowsCommand,
         UiGetFocusedCommand getFocusedCommand,
         UiYieldCommand yieldCommand)
-        : base("ui", GoldenPath)
+        : base("ui", Summary)
     {
         // Not recursive: every verb adds its own --json. The group accepts it so that an unknown
         // command ('winapp ui dump --json') can still report its error as JSON.
@@ -91,6 +95,8 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
         Subcommands.Add(yieldCommand);
     }
 
+    string ICompactHelpGroup.GoldenPath => GoldenPath;
+
     IReadOnlyList<(string Category, Type[] CommandTypes)> ICompactHelpGroup.Categories => HelpCategories;
 
     IReadOnlyList<(string Name, string Description)> ICompactHelpGroup.GroupOptions { get; } =
@@ -104,8 +110,10 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
     IReadOnlyDictionary<string, string> ICompactHelpGroup.Synonyms { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["dump"] = "inspect",
+        ["tree"] = "inspect",
         ["snapshot"] = "inspect",
         ["elements"] = "inspect",
+        ["find"] = "search",
         ["query"] = "search",
         ["locate"] = "search",
         ["type"] = "send-keys",

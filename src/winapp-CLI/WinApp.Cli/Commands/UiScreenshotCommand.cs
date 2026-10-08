@@ -25,7 +25,6 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
         "winapp ui screenshot <selector> -w <hwnd> -o element.png",
     ];
 
-
     public string? Usage => "winapp ui screenshot [<selector>] (-a <app> | -w <hwnd>) [options]";
 
     public UiScreenshotCommand()
@@ -345,13 +344,13 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
             if (selector is not null)
             {
                 var exact = await UiQueryOptions.ResolveExactSelectorAsync(
-                    parseResult, selectorParser, uiAutomation, singleTarget, selector, ct).ConfigureAwait(false);
+                    parseResult, selectorParser, uiAutomation, singleTarget, selector, searchOtherWindows: false, ct).ConfigureAwait(false);
                 if (exact is null)
                 {
                     UiErrors.ElementNotFound(logger, selector, json);
                     return new CapturePass(1, singleTarget, selector, [], [], IsComposite: false);
                 }
-                selector = exact;
+                selector = exact.Selector!;
             }
 
             var (pixels, w, h) = await uiAutomation

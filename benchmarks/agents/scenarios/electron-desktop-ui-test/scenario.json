@@ -1,0 +1,31 @@
+{
+  "id": "electron-desktop-ui-test",
+  "description": "Drive a running Electron desktop window and verify state (UIA, not WinUI design or browser tests).",
+  "prompt": "Contoso Exporter is already running as an Electron desktop app. Enter report.csv in the file name box, click Export, wait for Finished, and tell me what the status area shows. Drive the desktop window, not a browser page, and do not rebuild the app.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winapp-ui-automation",
+      "winui-ui-testing"
+    ],
+    "skillsForbid": [
+      "winapp-find-ui",
+      "winapp-package",
+      "winapp-signing",
+      "winapp-setup",
+      "winui-design",
+      "winui-dev-workflow",
+      "winui-setup",
+      "winui-packaging",
+      "winui-code-review",
+      "winui-wpf-migration",
+      "winui-session-report"
+    ],
+    "maxSkills": 2
+  }
+}

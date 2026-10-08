@@ -86,7 +86,7 @@ internal class UiListWindowsCommand : Command, IShortDescription, IHelpExamples
                     // Try as PID first
                     if (int.TryParse(app, out var pid))
                     {
-                        windows = uiAutomation.FindWindowsByPid(pid);
+                        windows = WindowsOrHostedFrames(pid);
                     }
                     else
                     {
@@ -97,7 +97,7 @@ internal class UiListWindowsCommand : Command, IShortDescription, IHelpExamples
                             windows = [];
                             foreach (var process in byName)
                             {
-                                windows.AddRange(uiAutomation.FindWindowsByPid(process.Id));
+                                windows.AddRange(WindowsOrHostedFrames(process.Id));
                             }
                         }
                         else
@@ -116,7 +116,7 @@ internal class UiListWindowsCommand : Command, IShortDescription, IHelpExamples
                                 windows = [];
                                 foreach (var p in partial)
                                 {
-                                    windows.AddRange(uiAutomation.FindWindowsByPid(p.Id));
+                                    windows.AddRange(WindowsOrHostedFrames(p.Id));
                                 }
                             }
                             else
@@ -124,13 +124,6 @@ internal class UiListWindowsCommand : Command, IShortDescription, IHelpExamples
                                 // Fall back to title search
                                 windows = uiAutomation.FindWindowsByTitle(app);
                             }
-                        }
-
-                        // A packaged app's window can belong to ApplicationFrameHost rather than
-                        // the app's process, so a matched process may own no window at all.
-                        if (windows.Count == 0)
-                        {
-                            windows = uiAutomation.FindWindowsByTitle(app);
                         }
                     }
                 }
@@ -199,6 +192,16 @@ internal class UiListWindowsCommand : Command, IShortDescription, IHelpExamples
                 UiErrors.GenericError(logger, ex, json);
                 return 1;
             }
+        }
+
+        /// <summary>
+        /// The process's own top-level windows or, when it has none, the ApplicationFrameHost frame
+        /// hosting it (packaged apps such as Calculator draw inside a frame owned by another process).
+        /// </summary>
+        private List<(nint Hwnd, int Pid, string Title)> WindowsOrHostedFrames(int pid)
+        {
+            var windows = uiAutomation.FindWindowsByPid(pid);
+            return windows.Count > 0 ? windows : UiTargetResolver.FindHostedAppFrameWindows(pid);
         }
 
         private static string GetProcessNameSafe(int pid)

@@ -25,7 +25,7 @@ internal class UiGetPropertyCommand : Command, IShortDescription, IHelpExamples
     ];
 
     public UiGetPropertyCommand()
-        : base("get-property", "Read UIA property values from an element. Specify --property for a single property or omit for all. " +
+        : base("get-property", "Read UIA properties from an element. Specify --property for a single property or omit for all. " +
             "Includes whole-document TextPattern formatting: FontWeight, FontName, FontSize, ForegroundColor, IsItalic, StrikethroughStyle.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);

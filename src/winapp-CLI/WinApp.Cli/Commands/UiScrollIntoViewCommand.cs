@@ -25,7 +25,7 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription, IHelpExampl
     ];
 
     public UiScrollIntoViewCommand()
-        : base("scroll-into-view", "Scroll the specified element into the visible area using UIA ScrollItemPattern.")
+        : base("scroll-into-view", "Scroll an element into the visible area.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -87,7 +87,7 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription, IHelpExampl
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
                 var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+                var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {

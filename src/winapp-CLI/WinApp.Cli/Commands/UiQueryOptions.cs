@@ -57,6 +57,17 @@ internal static class UiQueryOptions
     internal static bool HasFilters(ParseResult result) =>
         result.GetValue(Root) is not null || result.GetValue(Type) is not null || result.GetValue(ClassName) is not null;
 
+    /// <summary>
+    /// Finds the one element a command acts on. With filters, the match must be unique across every
+    /// window searched, so a same-named control in an owned dialog fails as ambiguous instead of the
+    /// main window's match being used. Without filters, the existing main-window-first lookup applies.
+    /// </summary>
+    internal static Task<UiElement?> FindTargetAsync(
+        ParseResult result, IUiAutomation uiAutomation, UiTarget target, UiSelector selector, CancellationToken ct) =>
+        HasFilters(result)
+            ? uiAutomation.FindSingleElementAsync(target, selector, requireUnique: true, ct)
+            : uiAutomation.FindSingleElementAsync(target, selector, ct);
+
     /// <summary><see cref="Validate"/> for commands whose selector is optional: filters narrow a
     /// selector, so they are rejected when no selector was given.</summary>
     internal static int? ValidateWithOptionalSelector(ParseResult result, string? selector, ILogger logger, bool json)
@@ -74,27 +85,44 @@ internal static class UiQueryOptions
 
     /// <summary>
     /// For commands whose engine call takes a selector string (inspect, screenshot, record): when
-    /// filters are present, resolves the filtered selector to one element and returns its slug, which
-    /// identifies that exact element. Without filters the selector is returned unchanged.
+    /// filters are present, resolves the filtered selector to one element, whose
+    /// <see cref="UiElement.Selector"/> is a slug that identifies that exact element. Without filters
+    /// the selector is returned unchanged in an element with no window handle.
     /// </summary>
-    /// <returns>The selector to pass on, or <see langword="null"/> when no element matched.</returns>
+    /// <param name="searchOtherWindows">True when the caller can find the slug in the app's other
+    /// top-level windows too (record). Inspect and screenshot look only in the target window, so a match
+    /// elsewhere would be lost and they would silently fall back to the whole window.</param>
+    /// <returns>The element whose selector to pass on, or <see langword="null"/> when no element matched.</returns>
     /// <exception cref="UiAmbiguousSelectorException">The filtered selector matched several elements.</exception>
-    internal static async Task<string?> ResolveExactSelectorAsync(
-        ParseResult result, IUiSelectorParser parser, IUiAutomation uiAutomation, UiTarget target, string selector, CancellationToken ct)
+    internal static async Task<UiElement?> ResolveExactSelectorAsync(
+        ParseResult result, IUiSelectorParser parser, IUiAutomation uiAutomation, UiTarget target, string selector,
+        bool searchOtherWindows, CancellationToken ct)
     {
         if (!HasFilters(result))
         {
-            return selector;
+            return new UiElement { Selector = selector };
         }
 
-        var element = await uiAutomation.FindSingleElementAsync(target, Parse(result, parser, selector), ct).ConfigureAwait(false);
+        var scope = searchOtherWindows || target.WindowHandle == 0 || target.IsExplicitWindow
+            ? target
+            : new UiTarget
+            {
+                ProcessId = target.ProcessId,
+                ProcessName = target.ProcessName,
+                WindowTitle = target.WindowTitle,
+                WindowHandle = target.WindowHandle,
+                IsExplicitWindow = true,
+            };
+        var element = await uiAutomation.FindSingleElementAsync(
+            scope, Parse(result, parser, selector), requireUnique: true, ct).ConfigureAwait(false);
         if (element is null)
         {
             return null;
         }
 
-        return element.Selector
-            ?? throw new InvalidOperationException(
+        return element.Selector is not null
+            ? element
+            : throw new InvalidOperationException(
                 $"The element matched by '{selector}' has no stable selector. Run 'winapp ui inspect' and pass its slug instead.");
     }
 }

@@ -95,7 +95,7 @@ internal static class SharedUiOptions
 
         InteractiveOption = new Option<bool>("--interactive", "-i")
         {
-            Description = "Show only interactive/invokable elements (buttons, links, inputs, list items). Increases default depth to 8."
+            Description = "Show only elements you can invoke, click, or edit. Increases default depth to 8."
         };
 
         HideDisabledOption = new Option<bool>("--hide-disabled")

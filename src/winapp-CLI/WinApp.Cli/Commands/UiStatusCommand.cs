@@ -25,7 +25,7 @@ internal class UiStatusCommand : Command, IShortDescription, IHelpExamples
     ];
 
     public UiStatusCommand()
-        : base("status", "Connect to a target app and display connection info.")
+        : base("status", "Check that winapp can connect to an app. Shows the connected process and window.")
     {
         Options.Add(SharedUiOptions.AppOption);
         Options.Add(SharedUiOptions.WindowOption);

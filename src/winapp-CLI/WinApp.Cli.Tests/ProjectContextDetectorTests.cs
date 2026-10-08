@@ -30,6 +30,43 @@ public sealed class ProjectContextDetectorTests
     }
 
     [TestMethod]
+    [DataRow("winui-template", """
+        <PropertyGroup><UseWinUI>true</UseWinUI><ApplicationType>Windows Store</ApplicationType></PropertyGroup>
+        <ItemGroup><ApplicationDefinition Include="App.xaml" /></ItemGroup>
+        """, "WinUI")]
+    [DataRow("winui-without-usewinui", """
+        <Import Project="packages\Microsoft.WindowsAppSDK.2.3.1\build\native\Microsoft.WindowsAppSDK.props" />
+        <ItemGroup><ApplicationDefinition Include="App.xaml" /><Page Include="MainWindow.xaml" /></ItemGroup>
+        """, "WinUI")]
+    [DataRow("windows-app-sdk-console", """
+        <Import Project="packages\Microsoft.WindowsAppSDK.2.3.1\build\native\Microsoft.WindowsAppSDK.props" />
+        <ItemGroup><ClCompile Include="main.cpp" /></ItemGroup>
+        """, "WindowsAppSdk")]
+    [DataRow("console", """
+        <PropertyGroup><ConfigurationType>Application</ConfigurationType></PropertyGroup>
+        <ItemGroup><ClCompile Include="main.cpp" /></ItemGroup>
+        """, "Unknown")]
+    public void DetectProject_ClassifiesCppProjects(string name, string body, string expected)
+    {
+        var project = new FileInfo(Path.Join(_root.FullName, name + ".vcxproj"));
+        File.WriteAllText(project.FullName, $"""<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">{body}</Project>""");
+
+        var context = _detector.DetectProject(project);
+
+        Assert.AreEqual(ProjectFamily.Cpp, context.Family);
+        Assert.AreEqual(expected, context.Framework.ToString());
+    }
+
+    [TestMethod]
+    public void DetectProject_ClassifiesTheCppWinUISample()
+    {
+        var sample = new FileInfo(Path.Join(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..",
+            "samples", "cpp-winui-app", "CppWinUIApp.vcxproj"));
+        Assert.IsTrue(sample.Exists, sample.FullName);
+        Assert.AreEqual(ProjectAppFramework.WinUI, _detector.DetectProject(sample).Framework);
+    }
+
+    [TestMethod]
     public void DetectProject_ClassifiesKnownDotnetFrameworkProperties()
     {
         AssertDotnetFramework("winui", "<UseWinUI>true</UseWinUI>", ProjectAppFramework.WinUI);

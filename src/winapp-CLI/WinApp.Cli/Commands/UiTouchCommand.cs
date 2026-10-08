@@ -20,18 +20,11 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
 
     public string ShortDescription => "Inject touch gestures (tap, swipe, pinch)";
 
-
     public IReadOnlyList<string> Examples { get; } =
-
     [
-
         "winapp ui touch <selector> -a <app>",
-
-        "winapp ui touch <selector> --type ListItem -a <app> --gesture swipe --direction left",
-
+        "winapp ui touch <selector> --type ListItem -a <app> --gesture swipe --direction left --distance 200",
     ];
-
-
 
     public string? Usage => "winapp ui touch [<selector>] (-a <app> | -w <hwnd>) [--at <x,y>] [options]";
 
@@ -292,6 +285,11 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
                 logger.LogError("{Symbol} swipe requires --to-point x,y or --distance (combined with optional --direction).", UiSymbols.Error);
                 UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, "swipe requires --to-point x,y or --distance (combined with optional --direction).");
                 return 1;
+            }
+
+            if (at is not null && UiQueryOptions.HasFilters(parseResult))
+            {
+                return RejectInvalidArguments(parseResult, json, "--type, --root, and --class-name narrow a selector and cannot be combined with --at.");
             }
 
             // Missing-app check runs after all argument validation so invalid arg values return

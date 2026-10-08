@@ -21,8 +21,9 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         "winapp devtools diagnose-binding <selector> Text",
     ];
 
+    internal const string Summary = "Inspect and change a running WinUI 3 app's XAML live. Changes are not written to source.";
+
     internal static readonly string GoldenPath =
-        "Inspect and change a running WinUI 3 app's XAML live. Changes are not written to source.\n" +
         "\n" +
         "  winapp run . --detach                                    launch your app with DevTools\n" +
         "  winapp devtools attach --pid <pid>                       or attach to a running app\n" +
@@ -65,7 +66,7 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         DevToolsSetPropertyCommand setPropertyCommand,
         DevToolsCallCommand callCommand,
         DevToolsDefaultCommand defaultCommand)
-        : base("devtools", GoldenPath)
+        : base("devtools", Summary)
     {
         // Lets an unknown command ('winapp devtools set-text --json') report its error as JSON.
         Options.Add(WinAppRootCommand.JsonOption);
@@ -83,6 +84,8 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         Subcommands.Add(attachCommand);
         Subcommands.Add(defaultCommand);
     }
+
+    string ICompactHelpGroup.GoldenPath => GoldenPath;
 
     IReadOnlyList<(string Category, Type[] CommandTypes)> ICompactHelpGroup.Categories => HelpCategories;
 

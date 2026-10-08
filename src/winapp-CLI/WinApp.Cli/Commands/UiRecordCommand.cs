@@ -26,18 +26,11 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
 
     public string ShortDescription => "Record a window or element region to MP4";
 
-
     public IReadOnlyList<string> Examples { get; } =
-
     [
-
         "winapp ui record -a <app> --duration-sec 10 -o demo.mp4",
-
         "winapp ui record <selector> -w <hwnd> --duration-sec 5",
-
     ];
-
-
 
     public string? Usage => "winapp ui record [<selector>] (-a <app> | -w <hwnd>) [options]";
 
@@ -215,13 +208,28 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 if (uiTarget is not null && selector is not null)
                 {
                     var exact = await UiQueryOptions.ResolveExactSelectorAsync(
-                        parseResult, selectorParser, uiAutomation, uiTarget, selector, cancellationToken);
+                        parseResult, selectorParser, uiAutomation, uiTarget, selector, searchOtherWindows: true, cancellationToken);
                     if (exact is null)
                     {
                         UiErrors.ElementNotFound(logger, selector, json);
                         return 1;
                     }
-                    selector = exact;
+                    selector = exact.Selector!;
+
+                    // The recorder resolves this slug again, main window first. When the unique match is
+                    // in another window (an owned dialog or popup), a same-named main-window element would
+                    // fail that lookup as a changed slug, so record from the match's own window.
+                    if (exact.WindowHandle is long matchHwnd && matchHwnd != 0 && matchHwnd != uiTarget.WindowHandle)
+                    {
+                        uiTarget = new UiTarget
+                        {
+                            ProcessId = uiTarget.ProcessId,
+                            ProcessName = uiTarget.ProcessName,
+                            WindowTitle = uiTarget.WindowTitle,
+                            WindowHandle = matchHwnd,
+                            IsExplicitWindow = true,
+                        };
+                    }
                 }
 
                 var isStdinRedirected = s_isInputRedirectedOverride?.Invoke() ?? Console.IsInputRedirected;

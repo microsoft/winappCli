@@ -28,11 +28,15 @@ internal interface IHelpExamples
 
 /// <summary>
 /// A command group (<c>winapp ui</c>, <c>winapp devtools</c>) whose help is the compact plain-text
-/// layout agents read. Its description holds the golden path; its commands implement
+/// layout agents read. Its description is a one-line summary; its commands implement
 /// <see cref="IHelpExamples"/>.
 /// </summary>
 internal interface ICompactHelpGroup
 {
+    /// <summary>The workflow block shown under the summary in the group's help only, so it stays out of the
+    /// command's description (and the CLI schema).</summary>
+    string GoldenPath { get; }
+
     /// <summary>Command-list categories, in display order.</summary>
     IReadOnlyList<(string Category, Type[] CommandTypes)> Categories { get; }
 

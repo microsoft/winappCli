@@ -1270,6 +1270,136 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task NativeSeams_ExplicitWindowGone_DoesNotFallBackToOtherWindowsOfItsProcess(bool throws)
+    {
+        // ApplicationFrameHost owns every packaged app's frame. When the selected frame closes,
+        // a PID search would bind to another app's frame (e.g. a second Calculator).
+        var svc = NewService();
+        var uiTarget = new UiTarget
+        {
+            ProcessId = Environment.ProcessId, ProcessName = "ApplicationFrameHost", WindowHandle = 456, IsExplicitWindow = true,
+        };
+        var otherFrame = ComProxy<IUIAutomationElement>((method, _) => method.Name switch
+        {
+            "get_CurrentBoundingRectangle" => new RECT { left = 1, top = 2, right = 101, bottom = 82 },
+            "get_CurrentName" => StringBstr("Other Calculator"),
+            "get_CurrentControlType" => UIA_CONTROLTYPE_ID.UIA_WindowControlTypeId,
+            "get_CurrentIsEnabled" => new BOOL(true),
+            "get_CurrentIsOffscreen" => new BOOL(false),
+            _ => ThrowCom(),
+        });
+        var one = ComProxy<IUIAutomationElementArray>((method, _) => method.Name switch
+        {
+            "get_Length" => 1,
+            "GetElement" => otherFrame,
+            _ => ThrowCom(),
+        });
+        UiAutomationService.s_elementFromHandle = (_, hwnd) => hwnd == 456 && throws ? throw new COMException("gone") : null;
+        UiAutomationService.s_getDesktopRootElement = _ =>
+            ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindAll" ? one : ThrowCom());
+        UiAutomationService.s_getMainWindowHandleForProcessId = _ => 789;
+
+        var elements = await svc.InspectAsync(uiTarget, null, 0, CancellationToken.None);
+
+        Assert.AreEqual(0, elements.Length, "A closed explicit window must not resolve to another window of its process.");
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task ConstrainedQuery_ClosedExplicitWindow_IsAbsentButOtherFailuresSurface(bool closedBeforeQuery, bool windowStillOpen)
+    {
+        // `wait-for Seven --type Button --gone -a <pid>` must report the element gone when the frame
+        // closes: either before the poll or while the query runs against the dead provider.
+        var svc = NewService();
+        var uiTarget = new UiTarget
+        {
+            ProcessId = Environment.ProcessId, ProcessName = "ApplicationFrameHost", WindowHandle = 456, IsExplicitWindow = true,
+        };
+        var windowOpen = !closedBeforeQuery;
+        var failure = new COMException("Provider is gone.", unchecked((int)0x8000FFFF));
+        var root = ComProxy<IUIAutomationElement>((method, _) =>
+        {
+            if (method.Name is "FindAll" or "FindFirst")
+            {
+                windowOpen = windowStillOpen;
+                throw failure;
+            }
+            return ThrowCom();
+        });
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
+        UiAutomationService.s_elementFromHandle = (_, _) => root;
+        SystemUiQuery.s_getProcessIdForWindow = hwnd => hwnd == 456 && windowOpen ? (uint)Environment.ProcessId : 0;
+        try
+        {
+            var selector = new UiSelector { Query = "Seven", ControlType = "Button" };
+            if (windowStillOpen)
+            {
+                Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<COMException>(
+                    () => svc.FindSingleElementAsync(uiTarget, selector, CancellationToken.None)));
+            }
+            else
+            {
+                Assert.IsNull(await svc.FindSingleElementAsync(uiTarget, selector, CancellationToken.None));
+            }
+        }
+        finally
+        {
+            SystemUiQuery.ResetNativeSeams();
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false, true)]
+    [DataRow(true, null)]
+    public async Task FaultInjectedComProxies_EditableDoesNotDependOnReadingTheValue(bool readOnly, bool? expected)
+    {
+        var svc = NewService();
+        var uiTarget = new UiTarget { ProcessId = Environment.ProcessId, ProcessName = "fake", WindowHandle = 333 };
+        var valuePattern = ComProxy<IUIAutomationValuePattern>((method, _) => method.Name switch
+        {
+            "get_CurrentValue" => ThrowCom(),
+            "get_CurrentIsReadOnly" => new BOOL(readOnly),
+            _ => ThrowCom(),
+        });
+        var target = ComProxy<IUIAutomationElement>((method, args) =>
+        {
+            if (method.Name == "GetCurrentPattern")
+            {
+                return (UIA_PATTERN_ID)args![0]! == UIA_PATTERN_ID.UIA_ValuePatternId ? valuePattern : ThrowCom();
+            }
+            return method.Name switch
+            {
+                "get_CurrentBoundingRectangle" => new RECT { left = 1, top = 2, right = 31, bottom = 42 },
+                "get_CurrentName" => StringBstr("Editor"),
+                "get_CurrentAutomationId" => StringBstr("editorAid"),
+                "get_CurrentClassName" => EmptyBstr(),
+                "get_CurrentControlType" => UIA_CONTROLTYPE_ID.UIA_DocumentControlTypeId,
+                "get_CurrentIsEnabled" => new BOOL(true),
+                "get_CurrentIsOffscreen" => new BOOL(false),
+                _ => ThrowCom(),
+            };
+        });
+        var array = ComProxy<IUIAutomationElementArray>((method, _) => method.Name switch
+        {
+            "get_Length" => 1,
+            "GetElement" => target,
+            _ => ThrowCom(),
+        });
+        var root = ComProxy<IUIAutomationElement>((method, _) => method.Name == "FindAll" ? array : ThrowCom());
+        UiAutomationService.s_getRootElement = (_, _, _) => root;
+        UiAutomationService.s_findInvokableAncestor = (_, _, _) => null;
+
+        var result = (await svc.SearchAsync(uiTarget, new UiSelector { Query = "editorAid" }, 1, CancellationToken.None)).Single();
+
+        Assert.AreEqual(expected, result.IsEditable);
+        Assert.IsNull(result.Value);
+    }
+
+    [TestMethod]
     public async Task NativeSeams_CoverRootElementFallbacks()
     {
         var logger = new CapturingLogger<UiAutomationService>();

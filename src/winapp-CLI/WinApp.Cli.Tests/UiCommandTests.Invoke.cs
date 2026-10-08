@@ -362,7 +362,7 @@ public partial class UiCommandTests
         string[] args = ["ui", "invoke", "Open", "-w", "1234", "--on", "sandbox",
             option, "Button", "--json"];
         var parsed = GetRequiredService<WinAppRootCommand>().Parse(args);
-        Assert.IsEmpty(parsed.Errors, "The golden path teaches 'invoke \"Save\" --type Button' without --action.");
+        Assert.IsEmpty(parsed.Errors, "Filters narrow automatic invoke too; they do not require --action.");
     }
 
     [TestMethod]

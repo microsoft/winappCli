@@ -57,25 +57,6 @@ public class UiHelpTests : BaseCommandTests
     }
 
     [TestMethod]
-    public void EverySelectorCommand_AcceptsElementFilters()
-    {
-        var offenders = new List<string>();
-        foreach (var command in Enumerate(UiGroup))
-        {
-            if (command.Arguments.Any(a => a.Name == "selector")
-                && !(command.Options.Contains(UiQueryOptions.Type)
-                     && command.Options.Contains(UiQueryOptions.Root)
-                     && command.Options.Contains(UiQueryOptions.ClassName)))
-            {
-                offenders.Add(command.Name);
-            }
-        }
-
-        Assert.IsEmpty(offenders,
-            $"Commands that take a selector must accept --type, --root, and --class-name (UiQueryOptions.AddTo): {string.Join(", ", offenders)}");
-    }
-
-    [TestMethod]
     public async Task UiGroupHelp_IsCompactPlainTextWithGoldenPathFirst()
     {
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["ui", "--help"]);
@@ -93,7 +74,6 @@ public class UiHelpTests : BaseCommandTests
             StringAssert.Contains(output, "\n" + category + "\n");
         }
 
-        Assert.DoesNotMatchRegex(new Regex(@"^\s+(find|tree)\s", RegexOptions.Multiline), output, "Aliases stay out of ui help.");
         Assert.DoesNotContain("--json", output);
     }
 
@@ -119,21 +99,6 @@ public class UiHelpTests : BaseCommandTests
     }
 
     [TestMethod]
-    // Command names rather than Type arguments: MSTest cannot serialize a Type for discovery, so a Type
-    // DataRow folds into one discovered case and runs as two, which breaks CI's shard accounting.
-    [DataRow("tree", "inspect")]
-    [DataRow("find", "search")]
-    public async Task Aliases_RunTheTargetCommandIncludingHelp(string alias, string name)
-    {
-        var root = GetRequiredService<WinAppRootCommand>();
-        Assert.AreEqual(name, root.Parse(["ui", alias, "Save", "-a", "app"]).CommandResult.Command.Name);
-
-        var exitCode = await ParseAndInvokeWithCaptureAsync(root, ["ui", alias, "--help"]);
-        Assert.AreEqual(0, exitCode);
-        StringAssert.StartsWith(TestAnsiConsole.Output, $"winapp ui {name} - ");
-    }
-
-    [TestMethod]
     public async Task RootHelp_PointsToUiAndDevToolsHelp()
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["--help"]);
@@ -153,7 +118,9 @@ public class UiHelpTests : BaseCommandTests
 
     [TestMethod]
     [DataRow("dump", new[] { "inspect" })]
+    [DataRow("tree", new[] { "inspect" })]
     [DataRow("snapshot", new[] { "inspect" })]
+    [DataRow("find", new[] { "search" })]
     [DataRow("query", new[] { "search" })]
     [DataRow("type", new[] { "send-keys" })]
     [DataRow("read", new[] { "get-value" })]
@@ -184,7 +151,20 @@ public class UiHelpTests : BaseCommandTests
         Assert.IsTrue(string.IsNullOrWhiteSpace(stdout), stdout);
         StringAssert.StartsWith(stderr, "Unknown command 'dump'. Did you mean 'inspect'?");
         StringAssert.Contains(stderr, "Run 'winapp ui --help' for the full list.");
+        Assert.DoesNotContain("Commands:", stderr, "A suggestion replaces the command list.");
         Assert.DoesNotContain("Discover", stderr, "The full help must not be printed.");
+    }
+
+    [TestMethod]
+    public void UnknownCommand_Text_ListsCommandsOnlyWithoutSuggestion_AndEscapesControlCharacters()
+    {
+        using var writer = new StringWriter();
+        UnknownGroupCommand.WriteText(writer, "x\u001b]0;owned\u0007", [], GetRequiredService<UiCommand>());
+
+        var text = writer.ToString();
+        StringAssert.StartsWith(text, "Unknown command 'x\\u001b]0;owned\\u0007'.");
+        StringAssert.Contains(text, "Commands: ");
+        Assert.IsFalse(text.Any(c => c is '\u001b' or '\u0007'), "Control characters must not reach the terminal.");
     }
 
     [TestMethod]
@@ -273,17 +253,5 @@ public class UiHelpTests : BaseCommandTests
             tokens.Add(match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value);
         }
         return tokens;
-    }
-
-    private static IEnumerable<Command> Enumerate(Command command)
-    {
-        foreach (var child in command.Subcommands)
-        {
-            yield return child;
-            foreach (var descendant in Enumerate(child))
-            {
-                yield return descendant;
-            }
-        }
     }
 }

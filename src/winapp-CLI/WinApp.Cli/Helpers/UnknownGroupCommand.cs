@@ -38,8 +38,7 @@ internal static class UnknownGroupCommand
             return null;
         }
 
-        var isKnown = parseResult.CommandResult.Command.Subcommands
-            .Any(c => c.Name == token || c.Aliases.Contains(token));
+        var isKnown = parseResult.CommandResult.Command.Subcommands.Any(c => c.Name == token);
         return isKnown ? null : token;
     }
 
@@ -66,7 +65,7 @@ internal static class UnknownGroupCommand
         return suggestions.Take(MaxSuggestions).ToArray();
     }
 
-    public static string Message(string token) => $"Unknown command '{token}'.";
+    public static string Message(string token) => $"Unknown command '{Printable(token)}'.";
 
     public static string DidYouMean(string[] suggestions) => suggestions.Length switch
     {
@@ -78,9 +77,18 @@ internal static class UnknownGroupCommand
     public static void WriteText(TextWriter error, string token, string[] suggestions, Command group)
     {
         error.WriteLine(Message(token) + DidYouMean(suggestions));
-        error.WriteLine($"Commands: {string.Join(", ", ((ICompactHelpGroup)group).CommonCommands)}, ...");
+        if (suggestions.Length == 0)
+        {
+            error.WriteLine($"Commands: {string.Join(", ", ((ICompactHelpGroup)group).CommonCommands)}, ...");
+        }
         error.WriteLine($"Run '{Path(group)} --help' for the full list.");
     }
+
+    /// <summary>Escapes control characters so a pasted token cannot drive the terminal.</summary>
+    private static string Printable(string token) =>
+        token.Any(char.IsControl)
+            ? string.Concat(token.Select(c => char.IsControl(c) ? $"\\u{(int)c:x4}" : c.ToString()))
+            : token;
 
     internal static int Distance(string a, string b)
     {
