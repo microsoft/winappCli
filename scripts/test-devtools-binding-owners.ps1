@@ -251,6 +251,11 @@ try {
         $all = @($peek.windows | ForEach-Object { Nodes $_.elements })
         Check (@($all | Where-Object hasMoreChildren -eq $true).Count -eq 0) 'flyout UIA observation is not depth-limited'
         Check (@($all | Where-Object { $_.automationId -eq 'DevToolsSelComment' -and -not $_.isOffscreen }).Count -gt 0) 'flyout comment editor is visible'
+        $headingBox = @($all | Where-Object { $_.automationId -eq 'WindowHeading' })
+        $highlight = @($all | Where-Object { $_.automationId -eq 'WinAppDevToolsHighlight' -and -not $_.isOffscreen })
+        # The fixture's content has a margin, so content and window origins differ.
+        Check ($headingBox.Count -eq 1 -and $highlight.Count -eq 1 -and
+            [Math]::Abs($highlight[0].x - $headingBox[0].x) -le 2 -and [Math]::Abs($highlight[0].y - $headingBox[0].y) -le 2) 'the selection highlight sits on the picked element'
         $sourceLine = @($all | Where-Object { $_.automationId -eq 'DevToolsSelSource' -and -not $_.isOffscreen })
         Check ($sourceLine.Count -eq 1 -and $sourceLine[0].name -match 'MainWindow\.xaml:\d+') 'the comment flyout names the picked element''s source line'
         Check (@($all | Where-Object { $_.automationId -match '^DevToolsSel(Row|Edit|Status|Reveal)' }).Count -eq 0) 'the comment flyout has no property rows'

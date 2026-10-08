@@ -642,8 +642,8 @@ static bool TryElementRootBounds(IXamlDiagnostics* diag, InstanceHandle rootHand
         SUCCEEDED(tInsp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &tUi)) && tUi &&
         SUCCEEDED(rInsp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &rUi)) && rUi)
     {
-// A surface handle identifies a root but need not itself be XamlRoot.Content. Bounds, the corrected popup, and
-// HitTestForXamlRoot all use content DIPs.
+// A surface handle identifies a root but need not itself be XamlRoot.Content. Bounds, overlay canvases and
+// HitTestForXamlRoot all use XamlRoot DIPs, which differ from content DIPs when the content is not at the origin.
         void* content = nullptr;
         if (!TrySharedRootContent(tUi, rUi, &content)) {
             reinterpret_cast<IUnknown*>(rUi)->Release();
@@ -668,7 +668,7 @@ static bool TryElementRootBounds(IXamlDiagnostics* diag, InstanceHandle rootHand
         if (std::isfinite(w) && std::isfinite(h) &&
             w > 0.5 && h > 0.5 && w < 100000.0 && h < 100000.0)
         {
-            HRESULT ht = DevToolsTransformToVisual(tUi, rUi, &gt);
+            HRESULT ht = DevToolsTransformToVisual(tUi, nullptr, &gt);
             if (SUCCEEDED(ht) && gt)
             {
                 DevToolsAbiPoint p0{}, p1{};
@@ -754,7 +754,7 @@ static bool TryElementLayoutBox(IXamlDiagnostics* diag, InstanceHandle rootHandl
             float rw = 0, rh = 0;
             if (SUCCEEDED(DevToolsGetRenderSize(tUi, &rw, &rh)) &&
                 std::isfinite(rw) && std::isfinite(rh) && rw > 0.5f && rh > 0.5f && rw < 100000.0f && rh < 100000.0f &&
-                SUCCEEDED(DevToolsTransformToVisual(tUi, rUi, &gt)) && gt)
+                SUCCEEDED(DevToolsTransformToVisual(tUi, nullptr, &gt)) && gt)
             {
                 auto mapRect = [&](double x0, double y0, double x1, double y1, RECT* dst) -> bool {
                     float ax = 0, ay = 0, bx = 0, by = 0;

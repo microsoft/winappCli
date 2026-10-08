@@ -382,7 +382,7 @@ static void AlignPopupOrigin(IInspectable* child, IInspectable* host)
         auto popup = popupObject.as<DevToolsXCP::Popup>();
         auto root = canvas.XamlRoot();
         if (root && popup.IsOpen() && root.Content()) {
-            const auto origin = canvas.TransformToVisual(root.Content()).TransformPoint({0, 0});
+            const auto origin = canvas.TransformToVisual(nullptr).TransformPoint({0, 0});
             if (std::isfinite(origin.X) && std::isfinite(origin.Y)) {
                 if (std::abs(origin.X) > 0.01f) popup.HorizontalOffset(popup.HorizontalOffset() - origin.X);
                 if (std::abs(origin.Y) > 0.01f) popup.VerticalOffset(popup.VerticalOffset() - origin.Y);

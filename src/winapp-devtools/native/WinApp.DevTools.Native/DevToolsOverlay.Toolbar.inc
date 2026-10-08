@@ -689,9 +689,9 @@ static void AlignOverlayOrigin(void*, void*)
         auto popup = popupObject.as<DevToolsXCP::Popup>();
         auto root = canvas.XamlRoot();
         if (root && popup.IsOpen() && root.Content()) {
-// Every overlay child is positioned in XamlRoot content DIPs, just like HitTestForXamlRoot. Measure the actual
+// Every overlay child is positioned in XamlRoot DIPs, just like HitTestForXamlRoot. Measure the actual
 // Popup child, not its padded parent.
-            auto origin = canvas.TransformToVisual(root.Content()).TransformPoint({ 0, 0 });
+            auto origin = canvas.TransformToVisual(nullptr).TransformPoint({ 0, 0 });
             if (std::isfinite(origin.X) && std::isfinite(origin.Y)) {
                 if (std::abs(origin.X) > 0.01f)
                     popup.HorizontalOffset(DevToolsInspector::PopupOffset(popup.HorizontalOffset(), origin.X));
