@@ -34,9 +34,10 @@ internal partial class UnregisterCommand
                     PrepareTargetOptions.Mutating with { RequireInteractiveDesktop = false },
                     cancellationToken);
 
-                // A --unique-identity run deployed under a derived name instead of the manifest's.
+                // Derived names first: they belong to this input alone. The manifest's own name is shared by
+                // every checkout of the app, so it is tried only when no unique registration exists.
                 GuestPackageRegistration? unregistered = null;
-                foreach (var name in uniqueNames.Prepend(identity.PackageName))
+                foreach (var name in uniqueNames.Append(identity.PackageName))
                 {
                     unregistered = await guestApplicationRunner.UnregisterOwnedPackageAsync(
                         target,

@@ -209,6 +209,25 @@ public class UniqueIdentityTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task UniqueRun_UnchangedRerunStillReportsTheIdentity()
+    {
+        var output = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "bin"));
+        var manifest = WriteBuildOutput(output, Manifest());
+        var layout = new DirectoryInfo(Path.Join(output.FullName, "AppX"));
+        var first = await RunAsync(manifest, layout, _tempDirectory.FullName, unique: true);
+        _registration.FakeDevPackages =
+        [
+            new DevPackageInfo($"{first.PackageName}_1.0.0.0_x64__abc", first.PackageName, "1.0.0.0", layout.FullName, IsDevelopmentMode: true, Publisher),
+        ];
+
+        var second = await RunAsync(manifest, layout, _tempDirectory.FullName, unique: true);
+
+        Assert.HasCount(1, _registration.RegisterLooseLayoutCalls, "The unchanged rerun should skip registration");
+        Assert.AreEqual(first.Identity!.PackageFamilyName, second.Identity!.PackageFamilyName);
+        Assert.AreEqual(first.Identity.OwnerPath, second.Identity.OwnerPath);
+    }
+
+    [TestMethod]
     public async Task UniqueRun_RerunKeepsTheSameName()
     {
         var output = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "bin"));

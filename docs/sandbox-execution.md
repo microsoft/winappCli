@@ -328,7 +328,8 @@ winapp unregister . --on sandbox
 
 Pass the project or folder you passed to `run`, with or without `--unique-identity`, or a
 manifest. This removes only the matching development package registered by winapp in the
-current Sandbox.
+current Sandbox: the input's `--unique-identity` registration if it has one, otherwise the
+registration under the manifest's own name, which every checkout of the app shares.
 An externally installed package is left alone, even if its identity matches.
 `--force` is not supported with `--on`; it cannot bypass ownership checks.
 A `.cs` input isn't supported with `--on`; pass its manifest instead. Unpackaged apps have no

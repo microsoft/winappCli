@@ -239,6 +239,7 @@ internal partial class MsixService
                 var staged = AppxManifestDocument.Load(registrationManifest.FullName);
                 uniqueIdentity = staged.ApplyDevelopmentIdentity(uniqueIdentity);
                 staged.Save(registrationManifest.FullName);
+                registrationManifest.Refresh();
                 await priService.ReindexIdentityAsync(outputAppXDirectory, uniqueIdentity.PackageName, taskContext, cancellationToken);
                 identity = identity with { PackageName = uniqueIdentity.PackageName };
             }
@@ -291,7 +292,7 @@ internal partial class MsixService
                 clean, taskContext, cancellationToken);
             if (skipResult is not null)
             {
-                return skipResult;
+                return skipResult with { Identity = uniqueIdentity };
             }
 
             // Unregister any existing package first (preserving app data by default)
@@ -462,7 +463,7 @@ internal partial class MsixService
                 clean, taskContext, cancellationToken);
             if (skipResult is not null)
             {
-                return skipResult;
+                return skipResult with { Identity = uniqueIdentity };
             }
 
             // Unregister any existing package first (preserving app data by default)
