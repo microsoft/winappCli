@@ -92,7 +92,7 @@ internal sealed class WindowsSandboxSetup(IWindowsSandboxHostProbe probe) : IWin
                     NotChecked("sandboxFeature", waitingOnOs),
                     NotChecked("sandboxClient", waitingOnOs),
                     NotChecked("wsb", waitingOnOs),
-                    RestartCheck(facts.RestartPending, ready),
+                    NotChecked("restartPending", waitingOnOs),
                 ],
             };
         }

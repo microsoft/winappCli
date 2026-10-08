@@ -256,7 +256,7 @@ public class WindowsSandboxSetupTests
     [TestMethod]
     public async Task DescribeHost_OldWindows_FailsOsVersion()
     {
-        var host = await new WindowsSandboxSetup(new FixedProbe(Facts()))
+        var host = await new WindowsSandboxSetup(new FixedProbe(Facts() with { RestartPending = true }))
             { SupportsSandboxCli = () => false, OsVersion = () => "10.0.22631.0" }
             .DescribeHostAsync(TestContext.CancellationToken);
 
@@ -265,7 +265,7 @@ public class WindowsSandboxSetupTests
         StringAssert.Contains(os.Detail!, "10.0.22631.0");
         StringAssert.Contains(os.Detail!, "24H2");
 
-        foreach (var name in new[] { "sandboxFeature", "sandboxClient", "wsb" })
+        foreach (var name in new[] { "sandboxFeature", "sandboxClient", "wsb", "restartPending" })
         {
             var check = Check(host, name);
             Assert.AreEqual(TargetHostCheckStatus.NotChecked, check.Status, name);
