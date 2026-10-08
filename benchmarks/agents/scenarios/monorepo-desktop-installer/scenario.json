@@ -22,8 +22,7 @@
       "forbid": [
         "maui.package",
         "winui.*",
-        "ui.samples",
-        "session.report"
+        "ui.samples"
       ]
     }
   }

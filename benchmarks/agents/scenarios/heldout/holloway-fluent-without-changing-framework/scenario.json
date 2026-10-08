@@ -28,8 +28,7 @@
       "forbid": [
         "winui.*",
         "ui.samples",
-        "project.scaffold",
-        "session.report"
+        "project.scaffold"
       ]
     }
   }

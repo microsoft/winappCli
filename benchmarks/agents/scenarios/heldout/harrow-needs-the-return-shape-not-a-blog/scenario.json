@@ -31,8 +31,7 @@
         "project.setup",
         "toolchain.prereqs",
         "winui.*",
-        "identity",
-        "session.report"
+        "identity"
       ]
     }
   }

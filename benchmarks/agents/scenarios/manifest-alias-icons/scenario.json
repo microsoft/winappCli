@@ -16,7 +16,6 @@
         "msix.manifest"
       ],
       "forbid": [
-        "session.report"
       ]
     }
   }
