@@ -228,6 +228,60 @@ public partial class UiCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Inspect_Interactive_IncludesEditableElementsButNotPlainDocuments()
+    {
+        // Notepad's text area is an editable Document; hiding it pushed agents toward send-keys even
+        // though set-value works on it. A read-only Document (e.g. a viewer) is not actionable.
+        _fakeUia.InspectResult = [
+            new UiElement { Id = "e0", Type = "Window", Name = "App", Depth = 0 },
+            new UiElement { Id = "e1", Type = "Document", Name = "Text editor", Depth = 1, Selector = "doc-texteditor-1", IsEditable = true },
+            new UiElement { Id = "e2", Type = "Custom", Name = "Amount", Depth = 1, Selector = "custom-amount-2", IsEditable = true },
+            new UiElement { Id = "e3", Type = "Text", Name = "Label", Depth = 1, Selector = "txt-label-3" },
+            new UiElement { Id = "e4", Type = "Document", Name = "Preview", Depth = 1, Selector = "doc-preview-4" },
+        ];
+
+        var command = GetRequiredService<UiInspectCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--interactive", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        var output = TestAnsiConsole.Output;
+        StringAssert.Contains(output, "doc-texteditor-1");
+        StringAssert.Contains(output, "custom-amount-2");
+        Assert.IsFalse(output.Contains("txt-label-3"), "Static text is not interactive.");
+        Assert.IsFalse(output.Contains("doc-preview-4"), "A read-only Document is not interactive.");
+    }
+
+    [TestMethod]
+    [DataRow("invokable", "invoke btn-save-2 -a <app>")]
+    [DataRow("editable", "set-value doc-texteditor-1 \"<text>\" -a <app>")]
+    [DataRow("neither", "click li-row-3 -a <app>")]
+    public async Task Inspect_Interactive_FooterExampleMatchesTheElement(string available, string expected)
+    {
+        // The first interactive element in tree order may not support invoke; the footer's verb
+        // must match what the example element can do.
+        List<UiElement> elements = [new UiElement { Id = "e0", Type = "Window", Name = "App", Depth = 0 }];
+        if (available != "neither")
+        {
+            elements.Add(new UiElement { Id = "e1", Type = "Document", Name = "Text editor", Depth = 1, Selector = "doc-texteditor-1", IsEditable = true });
+        }
+        if (available == "invokable")
+        {
+            elements.Add(new UiElement { Id = "e2", Type = "Button", Name = "Save", Depth = 1, Selector = "btn-save-2", IsInvokable = true });
+        }
+        if (available == "neither")
+        {
+            elements.Add(new UiElement { Id = "e3", Type = "ListItem", Name = "Row", Depth = 1, Selector = "li-row-3" });
+        }
+        _fakeUia.InspectResult = [.. elements];
+
+        var command = GetRequiredService<UiInspectCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp", "--interactive"]);
+
+        Assert.AreEqual(0, exitCode);
+        StringAssert.Contains(TestAnsiConsole.Output.Replace("\r\n", " ").Replace("\n", " "), expected);
+    }
+
+    [TestMethod]
     public async Task Inspect_Json_HasMoreChildrenHint()
     {
         // When WalkTree hits the depth limit but more children exist, it sets HasMoreChildren=true.

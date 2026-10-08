@@ -1,0 +1,19 @@
+{
+  "id": "file-type-and-protocol",
+  "description": "Register a file association and a protocol handler for a packaged WPF app.",
+  "prompt": "Double-clicking a .cnote file should open it in Contoso Notes, and contoso-notes:// links from the browser should open the app too. Register both, and in App.xaml.cs open the note that was passed in.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winapp-manifest",
+      "winapp-identity"
+    ],
+    "skillsForbid": [
+      "winui-*"
+    ]
+  }
+}

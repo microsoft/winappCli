@@ -1,0 +1,20 @@
+{
+  "id": "tauri-ci-msix",
+  "description": "Tauri app: build an MSIX in GitHub Actions (Tauri + CI packaging).",
+  "prompt": "Add a GitHub Actions workflow that builds this Tauri app on every push to main and uploads an MSIX as a build artifact.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winapp-package",
+      "winapp-frameworks"
+    ],
+    "skillsForbid": [
+      "winui-*",
+      "winapp-maui"
+    ]
+  }
+}

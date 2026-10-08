@@ -1,0 +1,25 @@
+{
+  "id": "winui-control-sample-request",
+  "description": "WinUI: user explicitly wants a real Gallery/Toolkit sample for inline feedback (find-ui route).",
+  "prompt": "This WinUI 3 app needs a non-modal success or error message above the editor, with an optional action button and a dismiss button. Which control fits? Show me a real WinUI Gallery or Community Toolkit example before changing EditorPage.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "skillsAny": [
+      "winapp-find-ui",
+      "winui-design"
+    ],
+    "skillsForbid": [
+      "winapp-ui-automation",
+      "winui-ui-testing",
+      "winapp-package",
+      "winapp-signing",
+      "winui-wpf-migration",
+      "winui-session-report"
+    ]
+  }
+}
