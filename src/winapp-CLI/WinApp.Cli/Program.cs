@@ -260,6 +260,13 @@ internal static class Program
 
         return await RunWithTelemetryAsync(parsedArgs, isCompleteMode, () =>
         {
+            // --help and --cli-schema describe the command; they never execute it, so they run here
+            // regardless of --on rather than validating or preparing a target just to print text.
+            if (IsDescriptiveAction(parsedArgs))
+            {
+                return parsedArgs.InvokeAsync();
+            }
+
             // Target selection is settled before anything else, and settled for every command.
             // A command that cannot honour --on says so, and a selector that names nothing usable
             // fails here — never silently on this desktop, which is the one outcome the option
@@ -315,6 +322,11 @@ internal static class Program
             return parsedArgs.InvokeAsync();
         });
     }
+
+    internal static bool IsDescriptiveAction(System.CommandLine.ParseResult parsedArgs) =>
+        parsedArgs.Errors.Count == 0 &&
+        parsedArgs.Action is { Terminating: true } action &&
+        action != parsedArgs.CommandResult.Command.Action;
 
     private static async Task<int> InvokeWithHelpPointerAsync(System.CommandLine.ParseResult parsedArgs)
     {
