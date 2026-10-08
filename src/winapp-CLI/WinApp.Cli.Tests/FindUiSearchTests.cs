@@ -196,6 +196,36 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
+    public void GetPattern_StaleSourcePrefixedId_SuggestsHowToFindTheCurrentId()
+    {
+        // Sample ids are rebuilt from the upstream corpus, so an id an agent saved from an
+        // earlier search can stop resolving. The failure has to say where to look.
+        var engine = BuildEngine();
+
+        var (formatted, found, canonicalId) = engine.GetPattern("toolkit-colorpickerbutton-1");
+
+        Assert.IsFalse(found);
+        Assert.IsNull(canonicalId);
+        StringAssert.Contains(formatted, "not found.");
+        StringAssert.Contains(formatted, "winapp find-ui colorpickerbutton",
+            "the suggested search drops the scenario number, which is the part that changed");
+        StringAssert.Contains(formatted, "--list");
+    }
+
+    [TestMethod]
+    public void GetPattern_UnknownBareId_StaysTerse()
+    {
+        // No source prefix means this reads as a typo rather than a stale id, and the
+        // generic message already covers that — don't bury every miss in advice.
+        var engine = BuildEngine();
+
+        var (formatted, found, _) = engine.GetPattern("nonsense");
+
+        Assert.IsFalse(found);
+        Assert.AreEqual("Pattern 'nonsense' not found.", formatted);
+    }
+
+    [TestMethod]
     public void GetPattern_GalleryScenario_KeepsApiNamespaceWhenUsingsAreAllAmbient()
     {
         // Regression: 49 Gallery controls publish BOTH usings and apiNamespace, and they

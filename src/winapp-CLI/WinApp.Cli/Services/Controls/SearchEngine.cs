@@ -753,7 +753,25 @@ internal sealed class SearchEngine
         }
 
         if (scenario != null) return (FormatScenario(scenario), true, $"{scenario.Source}-{scenario.Id}");
-        return ($"Pattern '{id}' not found.", false, null);
+
+        // Sample ids are derived from the upstream index, so one saved from an earlier
+        // search can stop resolving when a control is renamed or its samples renumbered.
+        // Only source-prefixed ids get the hint: a bare word is more likely a typo than a
+        // stale id, and the generic message already covers that.
+        var hint = expectedSource == null
+            ? ""
+            : $" Sample ids can change when the corpus is refreshed — run `winapp find-ui {SearchTermForStaleId(bareId)}` or `winapp find-ui --list` to find the current one.";
+        return ($"Pattern '{id}' not found.{hint}", false, null);
+    }
+
+    /// <summary>Turn the bare part of a stale id into a search term by dropping its
+    /// trailing scenario number (<c>colorpickerbutton-1</c> → <c>colorpickerbutton</c>),
+    /// so the suggested command searches the control rather than a number that no
+    /// longer exists.</summary>
+    private static string SearchTermForStaleId(string bareId)
+    {
+        int dash = bareId.LastIndexOf('-');
+        return dash > 0 && int.TryParse(bareId.AsSpan(dash + 1), out _) ? bareId[..dash] : bareId;
     }
 
     /// <summary>Parse the integer after the last <c>-</c> in <paramref name="id"/>,

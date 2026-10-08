@@ -109,7 +109,8 @@ Driving a UI while other workflows may be running?
 Building a WinUI 3 UI and need to find the right control or a working sample?
 └─ winapp find-ui "<what you want>"   (agent-first: fetch real gallery code instead of inventing XAML)
    ├─ Then fetch full code for a match → winapp find-ui --id <scenario-id>
-   ├─ Searches WinUI 3 Gallery + Community Toolkit; Reactor is opt-in via --source reactor
+   ├─ Searches WinUI 3 Gallery + Community Toolkit (controls, plus Toolkit helpers,
+   │  converters, and behaviors); Reactor is opt-in via --source reactor
    └─ WinUI-only (not WPF/WinForms); distinct from `ui search`, which inspects a *running* app
 
 Need to know whether a Windows/WinRT API exists, or what a type/enum actually offers?
@@ -359,7 +360,7 @@ rebuild per symbol. A single subject keeps the original payload shape; a batch r
 
 ### `winapp find-ui "<query>"` — WinUI control & sample search (agent-first)
 **Agent-first:** this command exists for *you*. Before hand-writing XAML for a control you have not just looked at, fetch a real scenario here — the code comes from the shipping WinUI 3 Gallery and Windows Community Toolkit, so it compiles. Prefer it over recall or a blog post, and use `--json` for a parseable result on every path.
-**Purpose:** Lexically search **WinUI** controls and samples (WinUI 3 Gallery + Windows Community Toolkit, plus curated core patterns) for a working code example. The microsoft-ui-reactor ReactorGallery is an **opt-in** source, excluded from a normal search and searched only via `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app — Reactor/MVU projects only). WinUI-only — not WPF/WinForms.
+**Purpose:** Lexically search **WinUI** controls and samples (WinUI 3 Gallery + Windows Community Toolkit, plus curated core patterns) for a working code example. The Toolkit side covers more than controls — its helpers, converters, behaviors, and extensions are searchable and fetchable the same way, indexed by the words in their type names (`converters`, `FileSizeToFriendlyStringConverter`, `convert bool to visibility`), so reach for it before hand-writing one. A description sharing no words with the type name misses (`check internet connection` does not find `NetworkHelper`) — fall back to the type name or `--list`. The microsoft-ui-reactor ReactorGallery is an **opt-in** source, excluded from a normal search and searched only via `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app — Reactor/MVU projects only). WinUI-only — not WPF/WinForms.
 **When to use:** When building a WinUI 3 UI and you need to discover which control fits an intent and get a real code example (XAML and/or C# for Gallery/Toolkit; C#-only for Reactor), without leaving the CLI. Distinct from `winapp ui search`, which searches a *running app's* UI tree.
 **Workflow:** search compactly to find the control and its scenario ids, then fetch full code with `--id`.
 **Key options:**
