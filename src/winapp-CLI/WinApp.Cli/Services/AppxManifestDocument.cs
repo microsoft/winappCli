@@ -263,7 +263,7 @@ internal class AppxManifestDocument
     public void ValidateUniqueIdentitySupport()
     {
         var root = _document.Root;
-        if (root?.Name != DefaultNs + "Package")
+        if (root is null || root.Name != DefaultNs + "Package")
         {
             throw UnsupportedIdentity("only a package manifest is supported, not a bundle");
         }
@@ -296,14 +296,17 @@ internal class AppxManifestDocument
     {
         IdentityName = identity.PackageName;
         var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var alias in _document.Descendants().Where(e => e.Name.LocalName == "ExecutionAlias"))
+        var aliasAttributes = _document.Descendants()
+            .Where(e => e.Name.LocalName == "ExecutionAlias")
+            .Select(e => e.Attribute("Alias"))
+            .OfType<XAttribute>()
+            .Where(a => a.Value.Length > 0)
+            .ToList();
+        foreach (var alias in aliasAttributes)
         {
-            if (alias.Attribute("Alias")?.Value is { Length: > 0 } name)
-            {
-                var renamed = DevelopmentIdentityHelper.RenameAlias(name, identity.PackageName);
-                aliases[name] = renamed;
-                alias.SetAttributeValue("Alias", renamed);
-            }
+            var renamed = DevelopmentIdentityHelper.RenameAlias(alias.Value, identity.PackageName);
+            aliases[alias.Value] = renamed;
+            alias.Value = renamed;
         }
         return identity with { Aliases = aliases };
     }

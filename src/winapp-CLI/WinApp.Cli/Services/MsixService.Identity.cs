@@ -1421,15 +1421,14 @@ internal partial class MsixService
         }
 
         var layoutPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(layout.FullName));
-        foreach (var package in packageRegistrationService.FindDevPackages(previousName))
+        var registeredHere = packageRegistrationService.FindDevPackages(previousName).Where(package =>
+            package.IsDevelopmentMode && package.InstallLocation is { Length: > 0 } location
+            && string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(location)), layoutPath, StringComparison.OrdinalIgnoreCase)
+            && (package.Publisher is null || string.Equals(package.Publisher, publisher, StringComparison.OrdinalIgnoreCase)));
+        foreach (var package in registeredHere)
         {
-            if (package.IsDevelopmentMode && package.InstallLocation is { Length: > 0 } location
-                && string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(location)), layoutPath, StringComparison.OrdinalIgnoreCase)
-                && (package.Publisher is null || string.Equals(package.Publisher, publisher, StringComparison.OrdinalIgnoreCase)))
-            {
-                taskContext.AddDebugMessage($"{UiSymbols.Trash} Removing {package.FullName}, which this layout was registered as before");
-                await packageRegistrationService.UnregisterByFullNameAsync(package.FullName, preserveAppData: !clean, cancellationToken);
-            }
+            taskContext.AddDebugMessage($"{UiSymbols.Trash} Removing {package.FullName}, which this layout was registered as before");
+            await packageRegistrationService.UnregisterByFullNameAsync(package.FullName, preserveAppData: !clean, cancellationToken);
         }
     }
 
