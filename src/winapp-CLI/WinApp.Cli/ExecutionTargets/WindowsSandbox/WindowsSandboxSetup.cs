@@ -24,7 +24,8 @@ internal sealed class WindowsSandboxSetup(IWindowsSandboxHostProbe probe) : IWin
 
     private const string OsFix = "Use a supported Windows edition with hardware virtualization enabled.";
 
-    private const string RestartFix = "Save your work and restart Windows when you are ready, then retry.";
+    private const string RestartFix = "Save your work and restart Windows when you are ready, then retry. " +
+        "If Sandbox is still unavailable, enable Windows Sandbox in 'Turn Windows features on or off'.";
 
     private const string EnableFeatureFix =
         "Enable Windows Sandbox in 'Turn Windows features on or off', or run the suggested " +
@@ -163,13 +164,22 @@ internal sealed class WindowsSandboxSetup(IWindowsSandboxHostProbe probe) : IWin
         };
     }
 
-    private static TargetHostCheck RestartCheck(bool? restartPending, bool ready) => restartPending switch
+    private static TargetHostCheck RestartCheck(bool? restartPending, bool ready)
     {
-        false => Passed("restartPending", "No Windows restart is pending."),
-        _ when ready => NotChecked("restartPending", "Windows Sandbox is ready."),
-        true => Failed("restartPending", "Windows reports a pending restart.", RestartFix),
-        null => NotChecked("restartPending", "Could not read Windows restart state."),
-    };
+        if (restartPending == false)
+        {
+            return Passed("restartPending", "No Windows restart is pending.");
+        }
+
+        if (ready)
+        {
+            return NotChecked("restartPending", "Windows Sandbox is ready.");
+        }
+
+        return restartPending == true
+            ? Failed("restartPending", "Windows reports a pending restart.", RestartFix)
+            : NotChecked("restartPending", "Could not read Windows restart state.");
+    }
 
     private static TargetHostCheck Passed(string name, string detail) =>
         new() { Name = name, Status = TargetHostCheckStatus.Passed, Detail = detail };
@@ -203,8 +213,7 @@ internal sealed class WindowsSandboxSetup(IWindowsSandboxHostProbe probe) : IWin
             throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.SetupRequiresRestart,
                 "Windows reports a pending restart, and Windows Sandbox is not ready.",
-                userAction: RestartFix + " " +
-                    "If Sandbox is still unavailable, enable Windows Sandbox in 'Turn Windows features on or off'.",
+                userAction: RestartFix,
                 context: Details(facts));
         }
 

@@ -144,7 +144,7 @@ public class WindowsSandboxSetupTests
 
         Assert.IsFalse(host.Ready);
         CollectionAssert.AreEqual(
-            new[] { "osVersion", "sandboxFeature", "sandboxClient", "wsb", "restartPending" },
+            AllCheckNames,
             host.Checks.Select(c => c.Name).ToArray());
         Assert.AreEqual(TargetHostCheckStatus.Passed, Check(host, "osVersion").Status);
         var feature = Check(host, "sandboxFeature");
@@ -254,6 +254,19 @@ public class WindowsSandboxSetupTests
     }
 
     [TestMethod]
+    public async Task DescribeHost_PendingRestart_GivesTheSameFixAsRun()
+    {
+        var setup = new WindowsSandboxSetup(new FixedProbe(Facts() with { RestartPending = true }))
+            { SupportsSandboxCli = () => true };
+
+        var host = await setup.DescribeHostAsync(TestContext.CancellationToken);
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            setup.EnsureReadyAsync(TestContext.CancellationToken));
+
+        Assert.AreEqual(error.Error.UserAction, Check(host, "restartPending").Fix);
+    }
+
+    [TestMethod]
     public async Task DescribeHost_OldWindows_FailsOsVersion()
     {
         var host = await new WindowsSandboxSetup(new FixedProbe(Facts() with { RestartPending = true }))
@@ -337,6 +350,8 @@ public class WindowsSandboxSetupTests
         Assert.AreEqual(WindowsSandboxSetupState.Ready, facts.State);
         Assert.AreEqual("--version", runner.Requests.Single().Arguments.Single());
     }
+
+    private static readonly string[] AllCheckNames = ["osVersion", "sandboxFeature", "sandboxClient", "wsb", "restartPending"];
 
     private static WindowsSandboxHostFacts Facts() => new()
     {

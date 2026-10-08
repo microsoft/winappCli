@@ -154,9 +154,12 @@ internal class TargetSnapshotCommand : Command, IShortDescription
             catch (ExecutionTargetException ex)
             {
                 // A broken host is often why inspection failed, so the prerequisites still matter.
+                // They go to stderr with the error, so error-only logging keeps the fixes.
                 if (!json && host is not null)
                 {
-                    RenderHost(console, host);
+                    RenderHost(
+                        AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(Console.Error) }),
+                        host);
                 }
 
                 return TargetOutput.Fail(console, json, ex.Error, host);

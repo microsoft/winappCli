@@ -227,7 +227,7 @@ public partial class TargetCaptureCommandTests
         await using var harness = new Harness(GuestWindows());
         harness.Backend.Running = false;
         harness.Backend.Host = NotReadyHost();
-        var console = new TestConsole();
+        using var console = new TestConsole();
         console.Profile.Width = 400;
 
         Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox"));
@@ -246,7 +246,7 @@ public partial class TargetCaptureCommandTests
         await using var harness = new Harness(GuestWindows());
         harness.Backend.Running = false;
         harness.Backend.Host = NotReadyHost();
-        var console = new TestConsole();
+        using var console = new TestConsole();
 
         Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox", "--json"));
 
@@ -264,7 +264,7 @@ public partial class TargetCaptureCommandTests
     {
         await using var harness = new Harness(GuestWindows());
         harness.Backend.Running = false;
-        var console = new TestConsole();
+        using var console = new TestConsole();
 
         Assert.AreEqual(0, await RunSnapshotAsync(harness, console, "sandbox", "--json"));
 
@@ -282,7 +282,7 @@ public partial class TargetCaptureCommandTests
             Code = ExecutionTargetErrorCodes.Unsupported,
             Message = "wsb.exe is not available.",
         };
-        var console = new TestConsole();
+        using var console = new TestConsole();
 
         var (exitCode, stderr) = await CaptureStandardErrorAsync(() =>
             RunSnapshotAsync(harness, console, "sandbox", "--json"));
@@ -291,6 +291,27 @@ public partial class TargetCaptureCommandTests
         using var json = JsonDocument.Parse(stderr);
         Assert.AreEqual(ExecutionTargetErrorCodes.Unsupported, json.RootElement.GetProperty("error").GetProperty("code").GetString());
         Assert.IsFalse(json.RootElement.GetProperty("host").GetProperty("ready").GetBoolean());
+    }
+
+    [TestMethod]
+    public async Task Snapshot_InspectionFails_WritesHostChecksToStderrWithTheError()
+    {
+        await using var harness = new Harness(GuestWindows());
+        harness.Backend.Host = NotReadyHost();
+        harness.Backend.AttachError = new ExecutionTargetErrorInfo
+        {
+            Code = ExecutionTargetErrorCodes.Unsupported,
+            Message = "wsb.exe is not available.",
+        };
+        using var console = new TestConsole();
+
+        var (exitCode, stderr) = await CaptureStandardErrorAsync(() =>
+            RunSnapshotAsync(harness, console, "sandbox"));
+
+        Assert.AreEqual(TargetOutput.TargetInfrastructureExitCode, exitCode);
+        StringAssert.Contains(stderr, "Fix: Open Windows Sandbox from the Start menu.");
+        StringAssert.Contains(stderr, "wsb.exe is not available.");
+        Assert.IsFalse(console.Output.Contains("Host:", StringComparison.Ordinal));
     }
 
     private static TargetHostReadiness NotReadyHost() => new()
