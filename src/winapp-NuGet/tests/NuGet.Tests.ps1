@@ -127,6 +127,7 @@ $extraProps  </PropertyGroup>
                 [switch]$WinAppRunSymbols,
                 [string]$WinAppRunExecutable = "",
                 [string]$WinAppRunUseExecutionAlias = "",
+                [string]$WinAppRunDevTools = "",
                 [string]$OutputType = "WinExe",
                 [switch]$UseWinUI,
                 [switch]$UseWPF,
@@ -154,6 +155,7 @@ $extraProps  </PropertyGroup>
             if ($WinAppRunSymbols) { $extraProps += "    <WinAppRunSymbols>true</WinAppRunSymbols>`n" }
             if ($WinAppRunExecutable) { $extraProps += "    <WinAppRunExecutable>$WinAppRunExecutable</WinAppRunExecutable>`n" }
             if ($WinAppRunUseExecutionAlias) { $extraProps += "    <WinAppRunUseExecutionAlias>$WinAppRunUseExecutionAlias</WinAppRunUseExecutionAlias>`n" }
+            if ($WinAppRunDevTools) { $extraProps += "    <WinAppRunDevTools>$WinAppRunDevTools</WinAppRunDevTools>`n" }
             if ($UseWinUI) { $extraProps += "    <UseWinUI>true</UseWinUI>`n" }
             if ($UseWPF) { $extraProps += "    <UseWPF>true</UseWPF>`n" }
             if ($UseWindowsForms) { $extraProps += "    <UseWindowsForms>true</UseWindowsForms>`n" }
@@ -613,6 +615,39 @@ $preCompiledItem  <Import Project="$($script:propsPath)" />
 
             $args | Should -Match ' --no-launch'
             $args | Should -Not -Match ' --with-alias'
+        }
+
+        It "Forwards no DevTools switch when WinAppRunDevTools is unset" {
+            Get-ComputedRunArgs -CaseName 'run-devtools-unset' -UseWinUI | Should -Not -Match '--devtools'
+        }
+
+        It "Forwards WinAppRunDevTools=<value> as --devtools <value>" -ForEach @(
+            @{ Value = 'on'; Expected = 'on' }, @{ Value = 'off'; Expected = 'off' },
+            @{ Value = 'headless'; Expected = 'headless' }, @{ Value = 'Headless'; Expected = 'headless' }
+        ) {
+            Get-ComputedRunArgs -CaseName "run-devtools-$Value" -UseWinUI -WinAppRunDevTools $Value |
+                Should -Match " --devtools $Expected "
+        }
+
+        It "Rejects an unknown WinAppRunDevTools value" {
+            { Get-ComputedRunArgs -CaseName 'run-devtools-bad' -WinAppRunDevTools 'yes' } |
+                Should -Throw '*WinAppRunDevTools must be on, off or headless*'
+        }
+
+        It "Explains a DevTools run that conflicts with <Property>" -ForEach @(
+            @{ Property = 'WinAppRunNoLaunch'; Case = 'nolaunch' }, @{ Property = 'WinAppRunUseExecutionAlias'; Case = 'noalias' }
+        ) {
+            $run = if ($Case -eq 'nolaunch') {
+                { Get-ComputedRunArgs -CaseName 'run-devtools-nolaunch' -WinAppRunDevTools 'on' -WinAppRunNoLaunch }
+            } else {
+                { Get-ComputedRunArgs -CaseName 'run-devtools-noalias' -WinAppRunDevTools 'headless' -WinAppRunUseExecutionAlias 'false' }
+            }
+            $run | Should -Throw "*WinAppRunDevTools=* $Property=*"
+        }
+
+        It "Allows WinAppRunDevTools=off with either conflicting property" {
+            Get-ComputedRunArgs -CaseName 'run-devtools-off-nolaunch' -WinAppRunDevTools 'off' -WinAppRunNoLaunch |
+                Should -Match ' --devtools off '
         }
     }
 

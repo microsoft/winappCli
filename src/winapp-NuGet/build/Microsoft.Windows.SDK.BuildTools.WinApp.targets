@@ -311,6 +311,22 @@
            Text="[WinAppRunSupport] AppxManifest not found at '$(WinAppManifestPath)'. Ensure Package.appxmanifest or appxmanifest.xml exists at the resolved manifest path, in your project directory, or in the build output directory, as applicable." />
     <Error Condition="'$(_WinAppFileBasedApp)' != 'true' And '$(WinAppManifestPath)' == ''"
            Text="[WinAppRunSupport] No AppxManifest found. Ensure Package.appxmanifest or appxmanifest.xml exists in your project or build output directory. Run 'winapp init' to generate one." />
+
+    <!--
+      DevTools runs inside the app it launches through its execution alias. MSBuild compares 'on', 'off',
+      'yes' and 'no' as booleans, so the value is matched as text.
+    -->
+    <PropertyGroup>
+      <_WinAppRunDevTools>$(WinAppRunDevTools.Trim().ToLowerInvariant())</_WinAppRunDevTools>
+      <_WinAppRunDevToolsValid>$([System.Text.RegularExpressions.Regex]::IsMatch('$(_WinAppRunDevTools)', '^(|on|off|headless)$'))</_WinAppRunDevToolsValid>
+      <_WinAppRunDevToolsLaunches>$([System.Text.RegularExpressions.Regex]::IsMatch('$(_WinAppRunDevTools)', '^(on|headless)$'))</_WinAppRunDevToolsLaunches>
+    </PropertyGroup>
+    <Error Condition="!$(_WinAppRunDevToolsValid)"
+           Text="[WinAppRunSupport] WinAppRunDevTools must be on, off or headless, not '$(WinAppRunDevTools)'." />
+    <Error Condition="$(_WinAppRunDevToolsLaunches) And '$(WinAppRunNoLaunch)' == 'true'"
+           Text="[WinAppRunSupport] WinAppRunDevTools=$(_WinAppRunDevTools) needs the app to launch, but WinAppRunNoLaunch=true. Remove one of them." />
+    <Error Condition="$(_WinAppRunDevToolsLaunches) And '$(WinAppRunUseExecutionAlias)' == 'false'"
+           Text="[WinAppRunSupport] WinAppRunDevTools=$(_WinAppRunDevTools) launches the app through its execution alias, but WinAppRunUseExecutionAlias=false. Remove one of them." />
     
     <Message Text="[WinAppRunSupport] Using CLI: $(WinAppCliPath)" Importance="normal" />
     <Message Text="[WinAppRunSupport] Loose layout path: $(WinAppLooseLayoutPath)" Importance="normal" />
@@ -556,6 +572,7 @@
       <_WinAppRunArgs Condition="'$(WinAppRunClean)' == 'true'">$(_WinAppRunArgs) --clean</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppRunSymbols)' == 'true'">$(_WinAppRunArgs) --symbols</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppRunExecutable)' != ''">$(_WinAppRunArgs) --executable "$(WinAppRunExecutable)"</_WinAppRunArgs>
+      <_WinAppRunArgs Condition="'$(_WinAppRunDevTools)' != ''">$(_WinAppRunArgs) --devtools $(_WinAppRunDevTools)</_WinAppRunArgs>
       <_WinAppRunArgs>$(_WinAppRunArgs) --project-framework $(_WinAppProjectFramework)</_WinAppRunArgs>
       <_WinAppRunArgs>$(_WinAppRunArgs) --caller nuget-package</_WinAppRunArgs>
       <!--
