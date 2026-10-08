@@ -386,8 +386,9 @@ public sealed class DebugOutputServiceWorkflowTests
                 return;
             }
 
-            var logs = SafeGetLogs((uint)child.Id);
-            var log = logs.Length > 0 ? await File.ReadAllTextAsync(logs[0]) : string.Empty;
+            // The log folder is shared across runs, so a reused PID can match an older log; take this run's.
+            var newestLog = SafeGetLogs((uint)child.Id).OrderByDescending(File.GetLastWriteTimeUtc).FirstOrDefault();
+            var log = newestLog != null ? await File.ReadAllTextAsync(newestLog) : string.Empty;
 
             Assert.AreEqual(1, _crashDump.WriteCalls.Count, $"The stowed fail-fast must capture exactly one dump. Log:\n{log}");
             var crash = _crashDump.CrashRecords[0];
@@ -401,7 +402,7 @@ public sealed class DebugOutputServiceWorkflowTests
                 $"Every earlier handled exception on the crashing thread was already unwound, so the crash's own context must be used. Log:\n{log}");
             StringAssert.Contains(log, "was already unwound");
 
-            CleanupLogs(logs);
+            CleanupLogs(SafeGetLogs((uint)child.Id));
         }
         finally
         {
