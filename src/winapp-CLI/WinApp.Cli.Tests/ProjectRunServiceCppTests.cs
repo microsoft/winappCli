@@ -300,6 +300,25 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
+    public async Task ResolveInput_MixedSolutionWithoutDotnetSdk_ProjectSelectorPicksVcxproj()
+    {
+        // The reviewer's unexercised case: a machine with only Visual Studio's C++ tools and no .NET SDK.
+        var solution = WriteFile("App.slnx", Slnx("App/App.csproj", "Native/Native.vcxproj"));
+        WriteFile(@"App\App.csproj", CsharpApp);
+        var native = WriteFile(@"Native\Native.vcxproj", CppApp);
+        var noSdk = new FakeDotNetService { RunDotnetCommandHandler = _ => throw new System.ComponentModel.Win32Exception("dotnet not found") };
+        var service = new ProjectRunService(
+            noSdk, new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, noSdk), new FakeCsWinRTMetadataShimService(),
+            _console, NullLogger<ProjectRunService>.Instance, _msbuild);
+
+        var resolution = await service.ResolveInputAsync(solution, CancellationToken.None, projectSelector: "Native");
+
+        Assert.AreEqual(native.FullName, resolution.Csproj!.FullName);
+        Assert.AreEqual(solution.FullName, resolution.Solution!.FullName);
+        Assert.AreEqual(0, noSdk.StringInvocations.Count, "dotnet must not be needed to select a C++ project by name");
+    }
+
+    [TestMethod]
     public async Task ResolveInput_SolutionProjectSelector_MatchesVcxproj()
     {
         var solution = WriteFile("App.slnx", Slnx("App/App.csproj", "Helper/Helper.vcxproj"));

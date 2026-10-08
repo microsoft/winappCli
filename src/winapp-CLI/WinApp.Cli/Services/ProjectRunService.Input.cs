@@ -602,6 +602,18 @@ internal sealed partial class ProjectRunService
         }
 
         var cppProjects = listed.Where(IsCppProject).ToList();
+
+        // A --project naming a C++ project resolves from the solution text, so it never needs the .NET SDK (or
+        // even a working one) to inspect the solution's C# projects.
+        if (!string.IsNullOrWhiteSpace(projectSelector)
+            && MatchCsOrCppProjectSelector(
+                listed.Where(p => string.Equals(p.Extension, ".csproj", StringComparison.OrdinalIgnoreCase)).ToList(),
+                cppProjects, projectSelector, solutionDir) is { } textSelected
+            && IsCppProject(textSelected))
+        {
+            return new RunInputResolution(WinAppRunMode.Project, textSelected, textSelected.Directory ?? solutionDir, solution, "matched --project");
+        }
+
         var projects = cppProjects.Count == 0 || listed.Any(p => string.Equals(p.Extension, ".csproj", StringComparison.OrdinalIgnoreCase))
             ? await GetSolutionProjectsAsync(solution, solutionDir, cancellationToken)
             : [];
