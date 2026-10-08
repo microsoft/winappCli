@@ -215,12 +215,17 @@ internal sealed partial class ProjectRunService
         }
 
         ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} Building {project.Name} ({options.Configuration} | {ToCppPlatform(options.Architecture)})...");
-        ansiConsole.MarkupLineInterpolated($"[dim]   {BuildCppCommandDisplay(project, options, Directory.GetCurrentDirectory())}[/]");
+        var commandDisplay = BuildCppCommandDisplay(project, options, Directory.GetCurrentDirectory());
+        var verbose = logger.IsEnabled(LogLevel.Debug);
+        if (verbose)
+        {
+            ansiConsole.MarkupLineInterpolated($"[dim]   {commandDisplay}[/]");
+        }
         var writeLine = CreateSynchronizedRedactedLineWriter();
 
         int exitCode;
         var liveSpinner = (NativeTerminalGateOverrideForTests?.Invoke() ?? ProgressDisplay.ShouldUseLiveSpinner(ansiConsole, logger))
-            && !logger.IsEnabled(LogLevel.Debug);
+            && !verbose;
         if (liveSpinner)
         {
             // Real terminal: a spinner with elapsed time instead of a silent minute-long first build. Output is
@@ -260,6 +265,11 @@ internal sealed partial class ProjectRunService
                 failures.Observe(line);
                 writeLine(line);
             }, cancellationToken)).ExitCode;
+        }
+
+        if (exitCode != 0 && !verbose)
+        {
+            PrintFailedCommand(commandDisplay);
         }
 
         exitCode = await ExplainBuildFailureAsync(msbuild, project, properties, exitCode, failures, cancellationToken);

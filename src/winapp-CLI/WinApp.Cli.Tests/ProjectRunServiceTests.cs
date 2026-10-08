@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Spectre.Console.Testing;
@@ -145,6 +146,16 @@ public class ProjectRunServiceTests
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, content);
         return new FileInfo(path);
+    }
+
+    // Puts each listed solution project on disk (a minimal SDK project), as restore planning only restores
+    // projects that exist.
+    private void WriteProjectsAt(params string[] relativePaths)
+    {
+        foreach (var relative in relativePaths)
+        {
+            WriteFileAt(relative.Replace('/', Path.DirectorySeparatorChar), LibraryCsproj);
+        }
     }
 
     // Minimal classic .sln listing the given project paths (relative to the solution dir, backslashes).
@@ -2122,6 +2133,7 @@ public class ProjectRunServiceTests
     public async Task PublishPreparation_SolutionRestoreDoesNotCoverSelectedProjectConfiguration(bool noBuild, bool noRestore)
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var selectedProjectRestored = false;
         var dotnet = new FakeDotNetService
@@ -2565,6 +2577,21 @@ public class ProjectRunServiceTests
         var args = ProjectRunService.BuildRestorePassArguments(csproj, options, "quiet");
 
         StringAssert.Contains(args, "-v quiet");
+    }
+
+    [TestMethod]
+    public void BuildRestorePassArguments_ProjectWithRid_SetsRuntimeIdentifierLikeDotnetBuild()
+    {
+        // `dotnet restore -r` only fills RuntimeIdentifiers, while `dotnet build -r` restores with
+        // RuntimeIdentifier set. A separate restore must match the --no-restore build that follows it.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj"));
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        StringAssert.Contains(ProjectRunService.BuildRestorePassArguments(csproj, options), "-r win-x64 -p:RuntimeIdentifier=win-x64");
+        Assert.IsFalse(ProjectRunService.BuildRestorePassArguments(solution, options).Contains("-p:RuntimeIdentifier=", StringComparison.Ordinal),
+            "a solution restore keeps -r alone");
+        Assert.IsFalse(ProjectRunService.BuildRestorePassArguments(csproj, options with { OmitRuntimeIdentifier = true }).Contains("RuntimeIdentifier", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -3381,9 +3408,11 @@ public class ProjectRunServiceTests
         // though it's only a <BuildDependency> — not a ProjectReference — of the target. It must land in
         // the restore set; the target itself must not.
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
+        WriteProjectsAt("src/Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("src/App/App.csproj", "src/Server/Server.csproj"));
 
-        var (allManaged, siblings) = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
 
         Assert.IsTrue(allManaged, "every listed project is a managed .csproj");
         Assert.AreEqual(1, siblings.Count);
@@ -3406,9 +3435,11 @@ public class ProjectRunServiceTests
             "  </Project>" + Environment.NewLine +
             "  <Project Path=\"src/Server/Server.csproj\" />" + Environment.NewLine +
             "</Solution>";
+        WriteProjectsAt("src/Server/Server.csproj");
         var solution = WriteFile("App.slnx", slnx);
 
-        var (allManaged, siblings) = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
 
         Assert.IsTrue(allManaged);
         Assert.AreEqual(1, siblings.Count, "the BuildDependency element must not add a second Server entry");
@@ -3419,9 +3450,11 @@ public class ProjectRunServiceTests
     public void ComputeSolutionRestorePlan_ClassicSlnListedSibling_Included()
     {
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
+        WriteProjectsAt("src/Server/Server.csproj");
         var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", @"src\Server\Server.csproj"));
 
-        var (allManaged, siblings) = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
 
         Assert.IsTrue(allManaged);
         Assert.AreEqual(1, siblings.Count);
@@ -3434,10 +3467,12 @@ public class ProjectRunServiceTests
         // A native .vcxproj can't be `dotnet restore`d on a VS-less box, so it's excluded from the set and
         // flips AllManaged to false (the caller then restores managed siblings individually).
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
+        WriteProjectsAt("src/Managed/Managed.csproj", "src/Native/Native.vcxproj");
         var solution = WriteFile("App.slnx",
             SlnxListing("src/App/App.csproj", "src/Managed/Managed.csproj", "src/Native/Native.vcxproj"));
 
-        var (allManaged, siblings) = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
 
         Assert.IsFalse(allManaged, "a native .vcxproj must flip AllManaged to false");
         Assert.AreEqual(1, siblings.Count, "only the managed sibling is restorable");
@@ -3452,7 +3487,8 @@ public class ProjectRunServiceTests
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
         var solution = WriteFile("App.slnx", SlnxListing("src/App/App.csproj"));
 
-        var (allManaged, siblings) = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
 
         Assert.IsTrue(allManaged);
         Assert.AreEqual(0, siblings.Count, "a solution that lists only the target has no extra siblings to restore");
@@ -3464,10 +3500,12 @@ public class ProjectRunServiceTests
         // .vbproj/.fsproj are dotnet-restorable managed types too, so they stay in the set and keep
         // AllManaged true.
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
+        WriteProjectsAt("src/Vb/Vb.vbproj", "src/Fs/Fs.fsproj");
         var solution = WriteFile("App.slnx",
             SlnxListing("src/App/App.csproj", "src/Vb/Vb.vbproj", "src/Fs/Fs.fsproj"));
 
-        var (allManaged, siblings) = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
 
         Assert.IsTrue(allManaged);
         Assert.AreEqual(2, siblings.Count);
@@ -3486,13 +3524,86 @@ public class ProjectRunServiceTests
         // A classic .sln solution-folder entry has a "path" equal to its name (no ...proj extension). It
         // must not be counted as a project — otherwise it would spuriously flip AllManaged.
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
+        WriteProjectsAt("src/Server/Server.csproj");
         var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", "Solution Items", @"src\Server\Server.csproj"));
 
-        var (allManaged, siblings) = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
 
         Assert.IsTrue(allManaged, "the solution-folder entry is not a project and must not flip AllManaged");
         Assert.AreEqual(1, siblings.Count);
         Assert.AreEqual(Path.Combine(_tempDir.FullName, "src", "Server", "Server.csproj"), siblings[0].FullName);
+    }
+
+    [TestMethod]
+    public void ComputeSolutionRestorePlan_ProjectsNotOnDisk_ReportedAsMissingAndNotRestored()
+    {
+        // An uninitialized git submodule leaves solution entries without files. Restoring them only fails
+        // (MSB3202 for the solution, MSB1009 per project), so they're reported once and left out.
+        var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
+        WriteProjectsAt("src/Server/Server.csproj");
+        var solution = WriteFile("App.slnx",
+            SlnxListing("src/App/App.csproj", "src/Server/Server.csproj", "external/Sub/Sub.csproj", "external/Sub/Native.vcxproj"));
+
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+
+        CollectionAssert.AreEqual(new List<string> { "external/Sub/Sub.csproj", "external/Sub/Native.vcxproj" }, plan.MissingProjects.ToList());
+        CollectionAssert.AreEqual(new List<string> { "src/Server/Server.csproj" }, plan.ManagedSiblingEntries.ToList(),
+            "a solution filter must repeat entries exactly as the solution spells them");
+        Assert.AreEqual(1, plan.ManagedSiblings.Count);
+        Assert.IsFalse(plan.CanRestoreWholeSolution, "a missing project fails a whole-solution restore");
+    }
+
+    [TestMethod]
+    public void WriteSolutionFilter_SelectsEntriesFromTheSolution()
+    {
+        var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", @"src\Server\Server.csproj"));
+
+        var filter = ProjectRunService.WriteSolutionFilter(solution, [@"src\Server\Server.csproj"]);
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(filter.FullName));
+            var root = document.RootElement.GetProperty("solution");
+            Assert.AreEqual(".slnf", filter.Extension);
+            Assert.AreEqual(solution.FullName, root.GetProperty("path").GetString());
+            CollectionAssert.AreEqual(
+                new List<string> { @"src\Server\Server.csproj" },
+                root.GetProperty("projects").EnumerateArray().Select(p => p.GetString()).ToList());
+        }
+        finally
+        {
+            filter.Delete();
+        }
+    }
+
+    [TestMethod]
+    public void ExtractRestoreWarnings_DropsEntryProjectSuffixAndDuplicates()
+    {
+        // NuGet repeats a warning once per entry project, differing only in the trailing [project].
+        string[] output =
+        [
+            "  Determining projects to restore...",
+            @"C:\src\Sdk\Sdk.csproj : warning NU1901: Package 'A' 1.0.0 has a known low severity vulnerability [C:\src\App\App.csproj]",
+            @"C:\src\Sdk\Sdk.csproj : warning NU1901: Package 'A' 1.0.0 has a known low severity vulnerability [C:\temp\x.slnf]",
+            "  All projects are up-to-date for restore.",
+        ];
+
+        var warnings = ProjectRunService.ExtractRestoreWarnings(output);
+
+        CollectionAssert.AreEqual(
+            new List<string> { @"C:\src\Sdk\Sdk.csproj : warning NU1901: Package 'A' 1.0.0 has a known low severity vulnerability" },
+            warnings);
+    }
+
+    [TestMethod]
+    [DataRow(@"C:\a\A.csproj : error NU1101: Unable to find package X.", true)]
+    [DataRow(@"C:\a\A.csproj : error NU1901: Warning As Error: Package 'X' has a vulnerability", true)]
+    [DataRow(@"C:\sdk\NuGet.targets(521,5): error MSB3202: The project file ""B.csproj"" was not found.", false)]
+    [DataRow("MSBUILD : error MSB1009: Project file does not exist.", false)]
+    [DataRow("  Determining projects to restore...", false)]
+    public void FailedOnlyWithPackageErrors_DistinguishesPackageErrorsFromLoadFailures(string line, bool expected)
+    {
+        Assert.AreEqual(expected, ProjectRunService.FailedOnlyWithPackageErrors([line]));
     }
 
     [TestMethod]
@@ -3501,6 +3612,7 @@ public class ProjectRunServiceTests
         // ISSUE-1: when the owning solution is all-managed, one `dotnet restore <sln>` restores the target
         // and every build-dependency sibling before the build, and the build pass skips its own restore.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var longRestoreLine = "RESTORE-PROGRESS-" + new string('X', 120);
         var restoreOutput = $"{longRestoreLine}{Environment.NewLine}{Environment.NewLine}AFTER-BLANK";
@@ -3523,7 +3635,7 @@ public class ProjectRunServiceTests
         Assert.IsNotNull(outcome.Resolution);
         Assert.IsTrue(commandArgs.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
             "the whole solution should be restored up front for build-dependency parity");
-        StringAssert.Contains(console.Output, "Restoring App.slnx dependencies",
+        StringAssert.Contains(console.Output, "Restoring App and 1 solution project...",
             "the restore phase should be announced before dotnet starts");
         StringAssert.Contains(console.Output, longRestoreLine,
             "restore output should stream live without Spectre wrapping the subprocess line");
@@ -3539,6 +3651,7 @@ public class ProjectRunServiceTests
     public async Task BuildAndResolveAsync_PlatformSpecificSolutionRestore_LetsProjectBuildRestoreAgain()
     {
         var csproj = WriteFile("App.csproj", PlatformAwareExeCsproj);
+        WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var dotnet = new FakeDotNetService
         {
@@ -3567,6 +3680,7 @@ public class ProjectRunServiceTests
     public async Task BuildAndResolveAsync_UserPlatformSolutionRestore_LetsProjectBuildRestoreAgain()
     {
         var csproj = WriteFile("App.csproj", PlatformAwareExeCsproj);
+        WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var dotnet = new FakeDotNetService
         {
@@ -3593,16 +3707,21 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public async Task BuildAndResolveAsync_SolutionRestoreInRealTerminal_StreamsRedactedOutput()
+    public async Task BuildAndResolveAsync_RealTerminal_RestoresSeparatelyThenBuildsWithNativeTerminalLogger()
     {
+        // Interactive terminal: restore runs through winapp (which redacts feed credentials) behind a
+        // spinner and is summarized as one line plus its warnings, once each. The build then runs with
+        // --no-restore on inherited stdio so dotnet's terminal logger renders it like `dotnet build`.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var dotnet = new FakeDotNetService
         {
             RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
-            RunDotnetStreamingHandler = (_, onOut, _) =>
+            RunDotnetStreamingHandler = (args, onOut, _) =>
             {
-                onOut?.Invoke("NU1301 https://feed.example/v3/index.json?sig=RESTORE_SECRET");
+                onOut?.Invoke("  Determining projects to restore...");
+                onOut?.Invoke($"C:\\src\\Server.csproj : warning NU1803: source https://feed.example/v3/index.json?sig=RESTORE_SECRET uses http [{args.Split(' ')[1]}]");
                 return 0;
             },
         };
@@ -3617,18 +3736,86 @@ public class ProjectRunServiceTests
         Assert.IsTrue(
             dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
             "interactive restore must stream through winapp so output can be redacted");
+        Assert.IsTrue(
+            dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal)),
+            "the target restores on its own so the build can skip restore");
         Assert.IsFalse(
             dotnet.InheritedCalls.Any(a => a.StartsWith("restore ", StringComparison.Ordinal)),
             "restore output must never bypass winapp's redaction through inherited stdio");
-        StringAssert.Contains(console.Output, "Restoring App.slnx dependencies");
-        StringAssert.Contains(console.Output, "https://feed.example/v3/index.json?<redacted>");
-        Assert.IsFalse(console.Output.Contains("RESTORE_SECRET", StringComparison.Ordinal));
+        var build = dotnet.InheritedCalls.Single();
+        StringAssert.StartsWith(build, $"build {csproj.FullName}");
+        StringAssert.Contains(build, "--no-restore", "the native-terminal build must not restore (it can't redact)");
+
+        var output = console.Output;
+        StringAssert.Contains(output, "Restored App and 1 solution project with 1 warning(s)");
+        Assert.AreEqual(1, Regex.Count(output, "warning NU1803"), "each restore warning is shown once");
+        StringAssert.Contains(output, "https://feed.example/v3/index.json?<redacted>");
+        Assert.IsFalse(output.Contains("RESTORE_SECRET", StringComparison.Ordinal));
+        Assert.IsFalse(output.Contains("Determining projects", StringComparison.Ordinal),
+            "a successful restore's progress chatter stays hidden");
+        Assert.IsFalse(output.Contains("dotnet restore", StringComparison.Ordinal),
+            "commands are shown only with --verbose or on failure");
+        Assert.IsFalse(output.Contains("dotnet build", StringComparison.Ordinal),
+            "commands are shown only with --verbose or on failure");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_RealTerminal_ProjectNameWithBrackets_DoesNotBreakTheSpinner()
+    {
+        // The restore spinner's status text is markup; a bracketed project name must be shown literally.
+        var csproj = WriteFile("App[1].csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out var console);
+        service.NativeTerminalGateOverrideForTests = () => true;
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        StringAssert.Contains(console.Output, "Restored App[1] in");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_RealTerminalRestoreFails_ShowsOutputAndCommandAndSkipsBuild()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetStreamingHandler = (_, _, onErr) =>
+            {
+                onErr?.Invoke("App.csproj : error NU1301: Unable to load https://feed.example/v3/index.json?sig=FAIL_SECRET");
+                return 1;
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out var console);
+        service.NativeTerminalGateOverrideForTests = () => true;
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: ["NuGetApiKey=top-secret"]);
+
+        var ex = await Assert.ThrowsAsync<ProjectRunException>(
+            () => service.BuildAndResolveAsync(csproj, options, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "Restore failed for 'App.csproj'");
+        Assert.IsEmpty(dotnet.InheritedCalls, "the build must not run after a failed restore");
+        var output = console.Output;
+        StringAssert.Contains(output, "error NU1301");
+        StringAssert.Contains(output, "?<redacted>");
+        Assert.IsFalse(output.Contains("FAIL_SECRET", StringComparison.Ordinal));
+        StringAssert.Contains(output, "Command:");
+        StringAssert.Contains(output, "dotnet restore");
+        StringAssert.Contains(output, "NuGetApiKey=***");
+        Assert.IsFalse(output.Contains("top-secret", StringComparison.Ordinal));
     }
 
     [TestMethod]
     [DoNotParallelize] // redirects the process-wide Console.Error
     public async Task RunRestoreCommandAsync_Json_KeepsStdoutClean_RoutesInvocationAndOutputToStderr()
     {
+        WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var options = new ProjectRunOptions(
             "Debug", "x64", null, NoBuild: false, NoRestore: false,
@@ -3652,7 +3839,7 @@ public class ProjectRunServiceTests
         try
         {
             exit = await service.RunRestoreCommandAsync(
-                args, "Restoring App.slnx dependencies...", options, _tempDir, CancellationToken.None);
+                args, "App.slnx", options, _tempDir, CancellationToken.None);
         }
         finally
         {
@@ -3696,7 +3883,7 @@ public class ProjectRunServiceTests
         try
         {
             exit = await service.RunRestoreCommandAsync(
-                args, "Restoring App.csproj dependencies...", options, _tempDir, CancellationToken.None);
+                args, "App", options, _tempDir, CancellationToken.None);
         }
         finally
         {
@@ -3716,6 +3903,7 @@ public class ProjectRunServiceTests
     public async Task BuildAndResolveAsync_SolutionRestore_QuietUsesQuietVerbosity()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var dotnet = new FakeDotNetService
         {
@@ -3739,6 +3927,7 @@ public class ProjectRunServiceTests
     public async Task BuildAndResolveAsync_SolutionRestore_JsonPreservesDefaultVerbosity()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var dotnet = new FakeDotNetService
         {
@@ -3769,30 +3958,103 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public async Task BuildAndResolveAsync_SolutionWithNativeSibling_RestoresManagedSiblingNotVcxproj()
+    public async Task BuildAndResolveAsync_SolutionWithNativeSibling_RestoresManagedSiblingsThroughOneFilteredRestore()
     {
-        // ISSUE-1: with a native sibling present, `dotnet restore <sln>` would fail on a VS-less box, so
-        // the managed sibling is restored individually and the .vcxproj is never handed to dotnet restore.
+        // ISSUE-1: with a native sibling present, `dotnet restore <sln>` would fail on a VS-less box, so the
+        // managed siblings restore together through a temporary solution filter that leaves the .vcxproj out.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Managed/Managed.csproj", "Other/Other.csproj", "Native/Native.vcxproj");
         var solution = WriteFile("App.slnx",
-            SlnxListing("App.csproj", "Managed/Managed.csproj", "Native/Native.vcxproj"));
-        var managedSibling = Path.Combine(_tempDir.FullName, "Managed", "Managed.csproj");
-        var commandArgs = new List<string>();
+            SlnxListing("App.csproj", "Managed/Managed.csproj", "Other/Other.csproj", "Native/Native.vcxproj"));
         var dotnet = new FakeDotNetService
         {
-            RunDotnetCommandHandler = a => { commandArgs.Add(a); return (0, PackagedPropertiesJson(), string.Empty); },
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
         };
         var service = NewServiceWith(dotnet, out _);
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        Assert.IsTrue(commandArgs.Any(a => a.StartsWith("restore ", StringComparison.Ordinal) && a.Contains(managedSibling)),
-            "the managed sibling must be restored individually when a native project is present");
-        Assert.IsFalse(commandArgs.Any(a => a.Contains("Native.vcxproj", StringComparison.OrdinalIgnoreCase)),
+        var restores = dotnet.StreamingCalls.Where(a => a.StartsWith("restore ", StringComparison.Ordinal)).ToList();
+        Assert.AreEqual(1, restores.Count, "all managed siblings restore in one invocation");
+        StringAssert.Contains(restores[0], ".slnf");
+        Assert.IsFalse(restores[0].Contains("-p:Platform=", StringComparison.Ordinal),
+            "a solution-filter restore is solution-scoped, so it must omit Platform");
+        var filter = dotnet.SolutionFilterContents.Single();
+        StringAssert.Contains(filter, "Managed/Managed.csproj");
+        StringAssert.Contains(filter, "Other/Other.csproj");
+        Assert.IsFalse(filter.Contains("Native.vcxproj", StringComparison.OrdinalIgnoreCase),
             "a native .vcxproj must never be handed to dotnet restore");
-        Assert.IsFalse(commandArgs.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
-            "the whole-solution restore must not run (the solution must not be the restore target) when a native project is present");
+        Assert.IsFalse(restores.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
+            "the whole-solution restore must not run when a native project is present");
+        Assert.IsFalse(File.Exists(WindowsCommandLine.SplitArguments(restores[0])[1]),
+            "the temporary solution filter is deleted after the restore");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_SolutionWithMissingProjects_NotesThemOnceAndRestoresTheRest()
+    {
+        // FluentStore-style: the solution lists projects from an uninitialized submodule. One note, and one
+        // restore over the projects that exist — not a failing whole-solution restore plus one per project.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Lib/Lib.csproj");
+        var solution = WriteFile("App.sln", SlnListing("App.csproj", @"Lib\Lib.csproj", @"external\A\A.csproj", @"external\B\B.csproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        using var console = new TestConsole();
+        var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = new ProjectRunService(
+            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger, new FakeMSBuildService());
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        var restores = dotnet.StreamingCalls.Where(a => a.StartsWith("restore ", StringComparison.Ordinal)).ToList();
+        Assert.AreEqual(1, restores.Count);
+        StringAssert.Contains(dotnet.SolutionFilterContents.Single(), @"Lib\\Lib.csproj");
+        var note = logger.Entries.Single(e => e.Message.Contains("aren't on disk", StringComparison.Ordinal));
+        StringAssert.Contains(note.Message, "Skipping 2 projects listed in App.sln");
+        StringAssert.Contains(note.Message, @"external\A\A.csproj and 1 more");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_SolutionRestoreFailsWithPackageErrors_DoesNotRetryEachProject()
+    {
+        // NuGet restores every project it can, so a package error (here a vulnerability promoted to an error)
+        // leaves the others restored. Retrying each project would only repeat the error N times.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("A/A.csproj", "B/B.csproj", "Native/Native.vcxproj");
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "A/A.csproj", "B/B.csproj", "Native/Native.vcxproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetStreamingHandler = (args, onOut, _) =>
+            {
+                if (!args.Contains(".slnf", StringComparison.Ordinal))
+                {
+                    return 0;
+                }
+
+                onOut?.Invoke(@"C:\src\A\A.csproj : error NU1901: Warning As Error: Package 'X' 1.0.0 has a known vulnerability");
+                return 1;
+            },
+        };
+        using var console = new TestConsole();
+        var logger = new LevelLogger<ProjectRunService>(LogLevel.Information);
+        var service = new ProjectRunService(
+            dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, logger, new FakeMSBuildService());
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution, "sibling restores are best-effort; the build decides");
+        Assert.AreEqual(1, dotnet.StreamingCalls.Count(a => a.StartsWith("restore ", StringComparison.Ordinal)),
+            "a package-only failure must not fan out into one restore per project");
+        StringAssert.Contains(console.Output, "error NU1901", "the real error stays visible");
+        StringAssert.Contains(console.Output, "Command: dotnet restore", "the failed command is shown");
+        Assert.IsTrue(logger.Entries.Any(e => e.Level == LogLevel.Warning && e.Message.Contains("continuing with the build", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -3802,6 +4064,7 @@ public class ProjectRunServiceTests
         // the managed siblings must still be restored individually (the NETSDK1004 case this pre-step exists
         // to prevent) rather than silently deferring to the target-only build restore.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var serverSibling = Path.Combine(_tempDir.FullName, "Server", "Server.csproj");
         var commandArgs = new List<string>();
@@ -3833,7 +4096,7 @@ public class ProjectRunServiceTests
             "after the whole-solution restore fails, the managed sibling must be restored individually (NETSDK1004 guard)");
         Assert.IsTrue(logger.Entries.Any(entry =>
                 entry.Level == LogLevel.Warning
-                && entry.Message.Contains("retrying managed dependencies individually", StringComparison.Ordinal)),
+                && entry.Message.Contains("retrying 1 project(s) individually", StringComparison.Ordinal)),
             "the visible solution restore error must explain that winapp is falling back");
     }
 
@@ -3841,6 +4104,7 @@ public class ProjectRunServiceTests
     public async Task BuildAndResolveAsync_SiblingRestoreFails_ExplainsThatBuildContinues()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Managed/Managed.csproj", "Native/Native.vcxproj");
         var solution = WriteFile(
             "App.slnx",
             SlnxListing("App.csproj", "Managed/Managed.csproj", "Native/Native.vcxproj"));
@@ -3872,6 +4136,7 @@ public class ProjectRunServiceTests
     public async Task BuildAndResolveAsync_QuietSiblingRestoreFails_WritesExplanationToStderr()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Managed/Managed.csproj", "Native/Native.vcxproj");
         var solution = WriteFile(
             "App.slnx",
             SlnxListing("App.csproj", "Managed/Managed.csproj", "Native/Native.vcxproj"));
@@ -3936,6 +4201,7 @@ public class ProjectRunServiceTests
     {
         // Negative control: --no-restore opts out of the up-front solution-sibling restore entirely.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var commandArgs = new List<string>();
         var dotnet = new FakeDotNetService
@@ -4319,7 +4585,7 @@ public class ProjectRunServiceTests
 
         Assert.AreEqual(0, exit);
         StringAssert.Contains(console.Output, "Building", "the build header should be shown");
-        StringAssert.Contains(console.Output, "dotnet build", "the exact dotnet invocation must be surfaced");
+        Assert.IsFalse(console.Output.Contains("dotnet build", StringComparison.Ordinal), "a successful build shows its command only with --verbose");
         StringAssert.Contains(console.Output, "warning CS1998", "success-path warnings must stay visible (not swallowed)");
         StringAssert.Contains(console.Output, "Built", "a persistent Built line should follow a successful build");
         Assert.AreEqual(1, dotnet.StreamingCalls.Count, "the non-TTY path must use the redirected streaming launcher");
@@ -4357,7 +4623,7 @@ public class ProjectRunServiceTests
         Assert.AreEqual(0, dotnet.StreamingCalls.Count, "the real-TTY path must NOT use the redirected streaming launcher");
         Assert.IsFalse(dotnet.InheritedCalls[0].Contains("-tl:"), "the native-terminal build args must omit any -tl token (default auto → on)");
         StringAssert.Contains(console.Output, "Building", "the build header should still be shown above dotnet's output");
-        StringAssert.Contains(console.Output, "dotnet build", "the exact dotnet invocation must still be surfaced");
+        Assert.IsFalse(console.Output.Contains("dotnet build", StringComparison.Ordinal), "a successful build shows its command only with --verbose");
         StringAssert.Contains(console.Output, "Built", "a persistent Built line should still follow a successful build");
         Assert.IsFalse(console.Output.Contains("STREAMING-LAUNCHER-WRONGLY-USED"), "the streaming launcher must not be used on a real TTY");
     }
@@ -4501,6 +4767,31 @@ public class ProjectRunServiceTests
             "the live stream must reveal build diagnostics on failure");
         Assert.IsFalse(console.Output.Contains("Built"),
             "a failed build must not print the persistent Built line");
+        StringAssert.Contains(console.Output, "Command: dotnet build",
+            "a failed build must show the exact command so it can be reproduced");
+    }
+
+    [TestMethod]
+    public async Task RunBuildPassAsync_Verbose_PrintsCommandBeforeBuilding()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var console = new TestConsole();
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetStreamingHandler = (_, onOut, _) => { onOut?.Invoke("BUILD-OUTPUT"); return 0; },
+        };
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Debug), new FakeMSBuildService())
+        {
+            NativeTerminalGateOverrideForTests = () => false,
+        };
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: true, Properties: [], Json: false);
+
+        await service.RunBuildPassAsync(csproj, options, _tempDir, csWinRTMetadataFolder: null, CancellationToken.None);
+
+        var output = console.Output;
+        Assert.IsTrue(output.IndexOf("dotnet build", StringComparison.Ordinal) is >= 0 and var command
+            && command < output.IndexOf("BUILD-OUTPUT", StringComparison.Ordinal),
+            "--verbose shows the exact command before dotnet's output");
     }
 
     #endregion

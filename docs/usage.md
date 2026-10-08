@@ -901,15 +901,17 @@ For apps that use package identity without a generated MSIX layout, include `Pac
 - `--aot` - Run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`. Rejected in folder and single-file modes.
 - `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value. *(Also honored in single-file mode, where it is the only way to set `TargetFramework`.)*
 
-**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. Restore and build output stream live, with credentials from authenticated feed URLs redacted. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
+**Build output & verbosity:** an ordinary project run restores, runs `dotnet build`, then evaluates the built output. In an interactive terminal the output looks like `dotnet build`: restore reports one line, plus any warnings, and the build shows one line per project with each warning once. Agents, CI, and redirected output get plain text that streams as it arrives. Credentials in authenticated feed URLs are redacted. When a restore or build fails, winapp shows its full output and the exact `dotnet` command. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
 | *(default)* | `minimal` | — |
-| `--verbose` | `minimal` | winapp's build decision traces |
+| `--verbose` | `minimal` | the exact `dotnet` commands, full restore output, and winapp's build decision traces |
 | `--quiet` | `quiet` | — |
 
 Native AOT publish output streams as it arrives. Under `--json`, restore/build invocations and child output go to stderr so stdout stays pure JSON. Under `--quiet`, invocations are suppressed and dotnet's quiet restore/build output is routed to stderr so stdout stays clean. Native AOT publish output also goes to stderr under either option.
+
+**Solutions:** when the project belongs to a solution, winapp also restores the solution's other .NET projects, as Visual Studio does, so build dependencies that aren't project references are ready. Projects the solution lists that aren't on disk, such as ones in an uninitialized git submodule, are skipped with a note.
 
 **Option applicability:** the identity/loose-layout options (`--manifest`, `--output-appx-directory`, `--unique-identity`, `--no-launch`, `--with-alias`, `--unregister-on-exit`, `--clean`, `--executable`) apply to packaged apps only. They are rejected with a clear error for unpackaged apps (which have no MSIX package). Launch/debug options (`--args`/`--`, `--detach`, `--debug-output`, `--symbols`, `--json`) work in both.
 
@@ -961,7 +963,7 @@ winapp run . --no-build --detach --json
 - Builds `Debug` for the current architecture by default. `--arch x64|arm64|x86` or `-p Platform=x64|ARM64|Win32` selects the architecture (passing both with different architectures is an error); a custom `-p Platform` name is passed through.
 - Restores the `packages.config` NuGet packages first (skip with `--no-restore`) and installs the Windows App Runtime version they pin. Packaged apps also get the framework packages the build references, such as the Debug VC++ runtime, installed when missing.
 - `--framework` and `--aot` apply only to .NET projects.
-- Build output shows MSBuild's warnings and errors only, with a spinner while it builds; `--verbose` shows MSBuild's full output and exact command.
+- Build output shows MSBuild's warnings and errors only, with a spinner while it builds; a failed build also shows the command. `--verbose` shows MSBuild's full output and exact command.
 - In a folder or solution that also has a runnable C# app, the C# app is selected; use `--project <name>` to run the C++ app. C# libraries and test projects next to a C++ app don't get in the way.
 - A C# app that references a C++ project (for example a native DLL) can't be built with `dotnet`. Build it with Visual Studio or `MSBuild.exe`, then run `winapp run <app>.csproj --no-build`, or package its output folder with `winapp package <folder>`.
 

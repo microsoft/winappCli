@@ -599,8 +599,13 @@ internal sealed partial class ProjectRunService
         var nativeTerminal = NativeTerminalGateOverrideForTests?.Invoke()
             ?? ProgressDisplay.ShouldUseLiveSpinner(ansiConsole, logger);
         var buildArgs = BuildSingleFileBuildPassArguments(singleFile, options, verbosity, nativeTerminal);
+        var command = $"dotnet {RedactSecretsForDisplay(buildArgs)}";
+        var verbose = logger.IsEnabled(LogLevel.Debug);
         ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} {banner}");
-        ansiConsole.MarkupLineInterpolated($"[dim]   dotnet {Markup.Escape(RedactSecretsForDisplay(buildArgs))}[/]");
+        if (verbose)
+        {
+            ansiConsole.MarkupLineInterpolated($"[dim]   {command}[/]");
+        }
 
         int streamedExit;
         if (nativeTerminal)
@@ -626,6 +631,10 @@ internal sealed partial class ProjectRunService
         {
             ansiConsole.MarkupLineInterpolated(
                 $"{UiSymbols.Check} Built {Path.GetFileNameWithoutExtension(singleFile.Name)} in {stopwatch.Elapsed.TotalSeconds:0.0}s");
+        }
+        else if (!verbose)
+        {
+            PrintFailedCommand(command);
         }
 
         return streamedExit;

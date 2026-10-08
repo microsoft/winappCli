@@ -209,7 +209,7 @@ Project mode supports both **packaged** and **unpackaged** WinUI apps — it det
 
 **Multi-project apps** (an app referencing class libraries) build correctly: winapp keeps `AnyCPU`/`netstandard2.0` references on their compatible platform instead of forcing the app's architecture across the graph. RID-only remains the default; when the effective configuration requires a self-contained profile (for example, a trimmed Release build), winapp selects the matching profile without changing referenced libraries' platforms.
 
-The `dotnet build` output streams live, with the exact invocation printed first. Add `--verbose` for winapp's own build decision traces. Requires .NET SDK 8.0.100 or newer. See [`winapp run` in the usage reference](../usage.md#project-mode-net-sdk-projects) for the full option list.
+The build output looks like `dotnet build`'s, and a failed restore or build shows its full output and the exact `dotnet` command. Add `--verbose` to see every command and winapp's own build decision traces. Requires .NET SDK 8.0.100 or newer. See [`winapp run` in the usage reference](../usage.md#project-mode-net-sdk-projects) for the full option list.
 
 For two worktrees of the same packaged project, use the CLI explicitly:
 

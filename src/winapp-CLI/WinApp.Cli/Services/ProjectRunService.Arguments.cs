@@ -29,7 +29,9 @@ internal sealed partial class ProjectRunService
         bool pinFramework = false)
     {
         var rid = options.EffectiveRuntimeIdentifier;
-        var isSolution = IsSolutionFile(csproj);
+        // A solution filter (.slnf) restores through the same solution machinery, so it shares its rules.
+        var isSolution = IsSolutionFile(csproj)
+            || string.Equals(csproj.Extension, ".slnf", StringComparison.OrdinalIgnoreCase);
         var tokens = new List<string>
         {
             "restore",
@@ -40,6 +42,14 @@ internal sealed partial class ProjectRunService
         {
             tokens.Add("-r");
             tokens.Add(rid);
+
+            // `dotnet restore -r` only adds the RID to RuntimeIdentifiers; `dotnet build -r` restores with
+            // RuntimeIdentifier set. Mirror the build so RuntimeIdentifier-conditioned PackageReferences reach
+            // the project.assets.json its --no-restore build reads. A solution restore keeps -r alone.
+            if (!isSolution)
+            {
+                tokens.Add($"-p:RuntimeIdentifier={rid}");
+            }
         }
 
         // 'dotnet restore' has no -c switch; Configuration flows as a property so config-conditional
