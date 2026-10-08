@@ -422,6 +422,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     {
         var app = Prepare("folder", true);
         GetRequiredService<RunCommand.Handler>().ProcessesRunningFromLayout = _ => [4242];
+        GetRequiredService<RunCommand.Handler>().CloseRunningProcess = _ => false;
         Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach"));
         var output = TestAnsiConsole.Output + ConsoleStdErr + ConsoleStdOut;
         StringAssert.Contains(output, "The app is already running (PID 4242)");
@@ -887,12 +888,32 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
-    public async Task Explicit_AppAlreadyRunning_StillFails()
+    [DataRow("on")]
+    [DataRow("headless")]
+    public async Task Explicit_AppAlreadyRunning_IsClosedLikeTheDefault(string mode)
     {
         var app = WinUIProject(true);
-        GetRequiredService<RunCommand.Handler>().ProcessesRunningFromLayout = _ => [4242];
+        var handler = GetRequiredService<RunCommand.Handler>();
+        var closed = new List<int>();
+        handler.ProcessesRunningFromLayout = _ => closed.Count == 0 ? [4242] : [];
+        handler.CloseRunningProcess = pid => { closed.Add(pid); return true; };
+        _attach.Result = DevToolsConnection.Ok(3, mode == "on");
+        Assert.AreEqual(0, await Run(app.Input, "--devtools", mode, "--detach"), TestAnsiConsole.Output);
+        Assert.AreEqual(4242, closed.Single());
+        Assert.HasCount(1, _attach.Calls);
+        StringAssert.Contains(TestAnsiConsole.Output, "Closed 1 running instance(s) of this app (PID 4242) so DevTools starts cold.");
+    }
+
+    [TestMethod]
+    public async Task Explicit_AppAlreadyRunningAndCannotBeClosed_Fails()
+    {
+        var app = WinUIProject(true);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ProcessesRunningFromLayout = _ => [4242];
+        handler.CloseRunningProcess = _ => false;
         Assert.AreEqual(1, await Run(app.Input, "--devtools", "on", "--detach", "--json"), TestAnsiConsole.Output);
         Assert.IsEmpty(_attach.Calls);
+        StringAssert.Contains(TestAnsiConsole.Output, "already running (PID 4242) and could not be closed");
     }
 
     [TestMethod]

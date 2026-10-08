@@ -929,15 +929,15 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // DevTools must start the app itself: a running instance would either keep the old
                     // files locked or receive this launch without DevTools, depending on the app.
                     var runningBefore = ProcessesRunningFromLayout(outputAppXDirectory);
-                    if (devTools && runningBefore.Count > 0 && devToolsRun.FailOpen)
+                    if (devTools && runningBefore.Count > 0)
                     {
-                        // A default DevTools run would otherwise lose DevTools on every second run of an edit loop.
+                        // Otherwise every second run of an edit loop would lose DevTools.
                         if (runningBefore.All(CloseRunningProcess))
                         {
                             closedForDevTools = [.. runningBefore];
                             runningBefore = [];
                         }
-                        else
+                        else if (devToolsRun.FailOpen)
                         {
                             devToolsStepAside = $"the app is already running (PID {string.Join(", ", runningBefore)}) and could not be closed.";
                             devTools = false;
@@ -946,7 +946,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     }
                     if (devTools && runningBefore.Count > 0)
                     {
-                        errorMessage = $"The app is already running (PID {string.Join(", ", runningBefore)}). " +
+                        errorMessage = $"The app is already running (PID {string.Join(", ", runningBefore)}) and could not be closed. " +
                             "DevTools needs to start it, so close it, then run again.";
                         return (1, $"{UiSymbols.Error} {errorMessage}");
                     }

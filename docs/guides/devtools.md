@@ -77,8 +77,8 @@ winapp devtools default           # shows the current default
 The toolbar's **⋯** menu changes the same setting.
 
 If DevTools can't start in a run where you didn't pass `--devtools`, the app runs
-without it and winapp says why. If the app is already running, `run` closes it so
-DevTools can start it. With `--devtools on` or `headless`, these are errors.
+without it and winapp says why; with `--devtools on` or `headless`, that's an error.
+If the app is already running, `run` closes it so DevTools can start it.
 
 DevTools adds about 3 seconds to launch, and the app uses more memory over a long
 session as it creates elements, as with Visual Studio's F5 with XAML Hot Reload.
@@ -466,12 +466,11 @@ still apply.
 With `dotnet run`, `WinAppRunNoLaunch=true` or `WinAppRunUseExecutionAlias=false` turns
 DevTools off, and fails the build when `WinAppRunDevTools` is `on` or `headless`.
 
-If the app is already running when you run `winapp run . --devtools on`, `run` stops
-and names its PID: DevTools needs to start the app itself. Close that instance and
-run again, or attach to its exact PID with the
+If the app is already running, `run` closes it and says so: DevTools needs to start
+the app itself. If it can't be closed, `run` names its PID; close it and run again, or
+attach to its exact PID with the
 [late-attachment limitations](devtools-advanced.md#attach-to-an-app-that-is-already-running).
-Without `--devtools`, `run` closes the running instance instead. When re-registering a
-changed package closes a running instance, `run` says so.
+When re-registering a changed package closes a running instance, `run` says so.
 
 If attachment cannot find the target's Windows App Runtime, ensure the target is a
 running WinUI 3 app. For an explicit runtime override, set
