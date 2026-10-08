@@ -576,8 +576,8 @@ int main()
         std::printf("%s %s: %s\n", ok ? "PASS" : "FAIL", entry, name);
     };
     {
-        // Stored comments pushed at launch draw their markers without a trip to the comments menu. "Hide markers"
-        // is remembered for the user; Comment mode shows them anyway; "Show markers" turns them back on. The test
+        // Stored comments pushed at launch draw their markers without a trip to the comments menu. Unchecking "Show
+        // comment markers" is remembered for the user; Comment mode shows them anyway; checking it shows them again. The test
         // restores the user's real setting file.
         check(g_commentsShown, "comment markers", "a fresh launch shows the markers of stored comments");
         const std::wstring hiddenFile = DevToolsSettingsFile(L"CommentMarkersHidden");
@@ -585,7 +585,7 @@ int main()
         const bool savedHidden = DevToolsSettingsGetBool(L"CommentMarkersHidden", false);
         OnToggleMarkersClick(nullptr, nullptr);
         check(!g_commentsShown && DevToolsSettingsGetBool(L"CommentMarkersHidden", false),
-            "comment markers", "Hide markers hides them and is remembered");
+            "comment markers", "unchecking Show comment markers hides them and is remembered");
         SetCommentMode(true);
         check(g_commentsShown && DevToolsSettingsGetBool(L"CommentMarkersHidden", false),
             "comment markers", "Comment mode shows hidden markers for this run");
@@ -593,7 +593,7 @@ int main()
         OnToggleMarkersClick(nullptr, nullptr);
         OnToggleMarkersClick(nullptr, nullptr);
         check(g_commentsShown && !DevToolsSettingsGetBool(L"CommentMarkersHidden", true),
-            "comment markers", "Show markers turns them back on for later launches");
+            "comment markers", "checking it shows them again for later launches");
         if (hadHidden) DevToolsSettingsSetBool(L"CommentMarkersHidden", savedHidden); else DeleteFileW(hiddenFile.c_str());
     }
     {
@@ -644,8 +644,8 @@ int main()
         g_toolbarVisible = false;
     }
     {
-        // Hide toolbar lasts for this run; Ctrl+Shift+F12 brings a hidden toolbar back. "Show toolbar on launch" and
-        // "Turn off DevTools by default" write the default mode `winapp run` and `winapp devtools default` read. The
+        // Hide toolbar lasts for this run; Ctrl+Shift+F12 brings a hidden toolbar back. The "When the app starts" items
+        // write the default mode `winapp run` and `winapp devtools default` read. The
         // test restores the user's real setting file.
         const std::wstring modeFile = DevToolsSettingsFile(L"DefaultMode");
         const bool hadMode = GetFileAttributesW(modeFile.c_str()) != INVALID_FILE_ATTRIBUTES;
@@ -664,21 +664,19 @@ int main()
         FocusToolbarFromShortcut();
         check(g_toolbarVisible && bar.visibility == 0, "toolbar hide", "Ctrl+Shift+F12 shows a hidden toolbar");
         g_protoRoot = savedRoot;
-        OnShowOnLaunchClick(nullptr, nullptr);
-        check(DevToolsSettingsGetText(L"DefaultMode") == L"headless" && !DefaultModeIsOn(),
-            "default mode", "unchecking Show toolbar on launch makes the default headless");
-        OnShowOnLaunchClick(nullptr, nullptr);
-        check(DevToolsSettingsGetText(L"DefaultMode") == L"on" && DefaultModeIsOn(),
-            "default mode", "checking it makes the default on");
-        OnTurnOffByDefaultClick(nullptr, nullptr);
-        check(DevToolsSettingsGetText(L"DefaultMode") == L"off" && !DefaultModeIsOn(),
-            "default mode", "Turn off DevTools by default makes the default off");
-        OnShowOnLaunchClick(nullptr, nullptr);
-        check(DevToolsSettingsGetText(L"DefaultMode") == L"on", "default mode", "checking Show toolbar on launch after off turns it on");
+        OnStartHiddenClick(nullptr, nullptr);
+        check(DevToolsSettingsGetText(L"DefaultMode") == L"headless" && DefaultMode() == "headless",
+            "default mode", "When the app starts > Hide toolbar makes the default headless");
+        OnStartOffClick(nullptr, nullptr);
+        check(DevToolsSettingsGetText(L"DefaultMode") == L"off" && DefaultMode() == "off",
+            "default mode", "Don't start DevTools makes the default off");
+        OnStartShownClick(nullptr, nullptr);
+        check(DevToolsSettingsGetText(L"DefaultMode") == L"on" && DefaultMode() == "on",
+            "default mode", "Show toolbar makes the default on");
         DevToolsSettingsSetText(L"DefaultMode", "HEADLESS\r\n");
         check(DevToolsSettingsGetText(L"DefaultMode") == L"headless", "default mode", "the setting is read as a lowercase word");
         DeleteFileW(modeFile.c_str());
-        check(DefaultModeIsOn(), "default mode", "no setting means on");
+        check(DefaultMode() == "on", "default mode", "no setting means on");
         if (hadMode) {
             std::string narrow;
             for (const wchar_t c : savedMode) narrow += static_cast<char>(c);
@@ -850,7 +848,7 @@ int main()
         check(catcher.refs==1, "mode model", "turning the mode off releases the catcher");
         ShowAllComments();
         check(opens==1 && seen.comments && seen.activate && DevToolsOverlay_InspectRequest().comments==false,
-            "comments menu", "Show all comments opens the inspector on its Comments pane");
+            "comments menu", "Open comments list opens the inspector on its Comments pane");
         DevToolsOverlay_SetInprocInspect(nullptr);
         g_pickDiag=nullptr;g_pickRoot=g_selectedHandle=g_selPendingHandle=0;g_cardRead=nullptr;
         DeselectAll();

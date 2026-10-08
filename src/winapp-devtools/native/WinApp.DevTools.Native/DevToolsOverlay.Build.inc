@@ -96,7 +96,7 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
 // the layout-adorner toggle is persisted the same way.
             if (DevToolsSettingsGetBool(L"LayoutAdorners", false)) SetLayoutAdornersOn(true);
             SetCommentsShown(!DevToolsSettingsGetBool(L"CommentMarkersHidden", false));
-            SetShowOnLaunch(DefaultModeIsOn());
+            SetStartModeUi(DefaultMode());
             UpdateChipLabel();
 
 // The toolbar content is hosted in the XAML diagnostics UI layer of the app panel's XamlRoot (HostAttach). Its

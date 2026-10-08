@@ -27,7 +27,7 @@ struct PinnedComment { InstanceHandle handle; std::wstring id; std::wstring text
                        bool seeded;
                        std::wstring revision; };
 static std::vector<PinnedComment> g_pins;
-static bool g_commentsShown = true;  // until the overlay reads the user's "Hide markers" setting
+static bool g_commentsShown = true;  // until the overlay reads the user's CommentMarkersHidden setting
 
 static void UpsertPin(InstanceHandle key, const std::wstring& id, const std::wstring& text, const RECT& bounds);
 static void RemovePinById(const std::wstring& id);

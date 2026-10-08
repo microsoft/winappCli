@@ -95,13 +95,13 @@ current one off:
 - **Comments**: click an element to comment on it. The comment panel shows the element,
   its XAML file and line (or **Not linked to source**), a **Comment** box, and any other
   comments already on the element. **Open in DevTools** opens the window on that element,
-  where every property editor is. The arrow beside **Comments** has **Show all comments**,
-  which opens the window's Comments pane, and **Hide markers** / **Show markers**.
+  where every property editor is. The arrow beside **Comments** has **Open comments list**,
+  which opens the window's Comments pane, and **Show comment markers**.
 
 Saved comments show as markers on their elements when the app starts, including
-comments added from the CLI or by an agent. **Hide markers** hides them until you
-choose **Show markers**, including on later launches; turning on **Comments** shows
-them again for that run.
+comments added from the CLI or by an agent. Clearing **Show comment markers** hides
+them until you check it again, including on later launches; turning on **Comments**
+shows them again for that run.
 
 In the DevTools window, **Comment** in the properties header comments on the selected
 element: type it and press **Enter**. If the element already has a comment, the box shows
@@ -144,11 +144,14 @@ The **More options** (**⋯**) menu at the end of the toolbar has:
 - **Hide toolbar**: hides it until you press **Ctrl+Shift+F12** or run
   `winapp devtools call Overlay.show`. Comments, the DevTools window and `winapp devtools`
   commands keep working.
-- **Show toolbar on launch**: turn it off to make your default `headless`: later runs
-  draw nothing in your app until you press **Ctrl+Shift+F12**.
-- **Turn off DevTools by default**: later runs start without DevTools. Turn it back on
-  with `winapp devtools default on`.
 - **Keep toolbar open**: keeps the toolbar expanded instead of collapsing to its pill.
+- **When the app starts**: your default for later runs, the same setting as
+  `winapp devtools default`.
+  - **Show toolbar** (`on`): DevTools with the toolbar.
+  - **Hide toolbar** (`headless`): DevTools draws nothing in your app until you press
+    **Ctrl+Shift+F12**.
+  - **Don't start DevTools** (`off`): later runs start without DevTools. Turn it back on
+    with `winapp devtools default on`.
 
 With `--devtools headless`, **Ctrl+Shift+F12** builds and shows the toolbar the first
 time you press it.

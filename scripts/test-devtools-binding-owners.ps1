@@ -297,16 +297,16 @@ try {
         $restoredNodes = @($restored.windows | ForEach-Object { Nodes $_.elements })
         Check (@($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoPill' -and -not $_.isOffscreen }).Count -eq 1 -and
             @($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoRailL' -and -not $_.isOffscreen }).Count -eq 0) 'show restores the previously expanded toolbar state'
-        # The ⋯ menu shows the default the CLI sets while the app runs.
+        # The ⋯ menu selects the default the CLI sets while the app runs.
         $defaultBefore = Invoke-Cli @('devtools', 'default')
         try {
-            foreach ($mode in 'headless', 'on') {
-                $null = Invoke-Cli @('devtools', 'default', $mode)
+            foreach ($mode in @(@('headless', 'DevToolsStartHidden'), @('off', 'DevToolsStartOff'), @('on', 'DevToolsStartShown'))) {
+                $null = Invoke-Cli @('devtools', 'default', $mode[0])
                 $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoMore', '-a', $app)
-                $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsShowOnLaunch', '-a', $app, '-t', '5000')
-                $launch = Invoke-Cli @('ui', 'get-property', 'DevToolsShowOnLaunch', '-a', $app, '-p', 'ToggleState')
+                $null = Invoke-Cli @('ui', 'wait-for', $mode[1], '-a', $app, '-t', '5000')
+                $selected = Invoke-Cli @('ui', 'get-property', $mode[1], '-a', $app, '-p', 'IsSelected')
                 $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoMore', '-a', $app)
-                Check ($launch.properties.ToggleState -eq $(if ($mode -eq 'on') { 'On' } else { 'Off' })) "the menu shows a default of $mode set from the CLI"
+                Check ($selected.properties.IsSelected -eq 'True') "the menu selects a default of $($mode[0]) set from the CLI"
             }
         }
         finally {

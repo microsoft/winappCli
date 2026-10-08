@@ -366,7 +366,7 @@ static void CALLBACK ToolbarMenuLeaveProc(HWND, UINT, UINT_PTR, DWORD)
 
 // Opens `menu` under its `anchor` button, above the bar when the toolbar sits at the bottom. A menu opened from the
 // keyboard puts focus on its first action.
-static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, int items, const wchar_t* first)
+static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, const wchar_t* first)
 {
     const bool wasOpen = g_toolbarMenu && wcscmp(g_toolbarMenu, menu) == 0;
     CloseToolbarMenu();
@@ -378,16 +378,18 @@ static void ToggleToolbarMenu(const wchar_t* menu, const wchar_t* anchor, int it
         auto anchorElement = ToolbarPart(anchor).as<DevToolsX::UIElement>();
         auto panel = ToolbarPart(menu).as<DevToolsX::FrameworkElement>();
         keyboard = anchorElement.FocusState() != DevToolsX::FocusState::Unfocused;
-        const double width = panel.Width(), height = 10.0 + 32.0 * items;
+        panel.Visibility(DevToolsX::Visibility::Visible);
+        panel.Measure({ static_cast<float>(panel.Width()), std::numeric_limits<float>::infinity() });
+        const double width = panel.Width(), height = panel.DesiredSize().Height;
         const double offset = anchorElement.TransformToVisual(barObject.as<DevToolsX::UIElement>()).TransformPoint({ 0, 0 }).X;
         const double x = (std::clamp)(BarX() + offset, 4.0, (std::max)(4.0, g_protoW - width - 4.0));
         const double y = CornerIsTop(g_corner) ? BarY() + kBarH + 4.0 : BarY() - height - 4.0;
         MoveOverlayElement(reinterpret_cast<IInspectable*>(winrt::get_abi(panel)), x, y);
     } catch (const winrt::hresult_error& e) {
+        ProtoSetPartVisible(menu, false);
         DevToolsOverlayLog(L"overlay.toolbar menu placement failed hr=0x%08X", e.code().value);
         return;
     }
-    ProtoSetPartVisible(menu, true);
     g_toolbarMenu = menu;
     g_toolbarMenuAnchor = anchor;
     if (keyboard) {
@@ -426,10 +428,12 @@ static void SetCommentsShown(bool on);
 static void ShowAllComments();
 static void OnCommentsMenuClick(void*, void*)
 {
-    ToggleToolbarMenu(L"DevToolsCommentsMenu", L"DevToolsProtoCommentsMenu", 2, L"DevToolsShowAllComments");
+    ProtoSetPartText(L"DevToolsShowAllCommentsText", L"Open comments list (" + std::to_wstring(CommentCount()) + L")");
+    ProtoSetToggle(L"DevToolsToggleMarkers", L"DevToolsMarkersCheck", L"", CommentsShown());
+    ToggleToolbarMenu(L"DevToolsCommentsMenu", L"DevToolsProtoCommentsMenu", L"DevToolsShowAllComments");
 }
 static void OnShowAllCommentsClick(void*, void*) { CloseToolbarMenu(); ShowAllComments(); }
-// Hidden markers stay hidden on the next launch; Show markers turns them back on.
+// Hidden markers stay hidden on the next launch; showing them again clears that.
 static void OnToggleMarkersClick(void*, void*)
 {
     CloseToolbarMenu();
@@ -438,13 +442,26 @@ static void OnToggleMarkersClick(void*, void*)
     SetCommentsShown(now);
 }
 
-static bool DefaultModeIsOn();
-static void SetShowOnLaunch(bool on);
+// The mode winapp run starts a WinUI project in when --devtools isn't given: on, headless or off. One per-user
+// setting, shared with winapp devtools default; unset means on.
+static std::string DefaultMode()
+{
+    const std::wstring mode = DevToolsSettingsGetText(L"DefaultMode");
+    return mode == L"headless" ? "headless" : mode == L"off" ? "off" : "on";
+}
+
+// "When the app starts" is a view of that setting: Show toolbar is on, Hide toolbar is headless, Don't start is off.
+static void SetStartModeUi(const std::string& mode)
+{
+    const wchar_t* name = mode == "headless" ? L"DevToolsStartHidden" : mode == "off" ? L"DevToolsStartOff" : L"DevToolsStartShown";
+    ProtoSetToggle(name, L"", L"", true);
+}
+
 static void OnMoreMenuClick(void*, void*)
 {
     // `winapp devtools default` can change the setting while the app runs.
-    SetShowOnLaunch(DefaultModeIsOn());
-    ToggleToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore", 3, L"DevToolsHideToolbar");
+    SetStartModeUi(DefaultMode());
+    ToggleToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore", L"DevToolsHideToolbar");
 }
 
 // Hidden for this run: DevTools stays attached, and Ctrl+Shift+F12 or Overlay.show brings the toolbar back. A mode
@@ -458,35 +475,16 @@ static void OnHideToolbarClick(void*, void*)
     DevToolsOverlayLog(L"overlay.toolbar hidden from its menu");
 }
 
-// The mode winapp run starts a WinUI project in when --devtools isn't given: on, headless or off. One per-user
-// setting, shared with winapp devtools default; unset means on.
-static bool DefaultModeIsOn()
-{
-    const std::wstring mode = DevToolsSettingsGetText(L"DefaultMode");
-    return mode.empty() || mode == L"on";
-}
-
-// "Show toolbar on launch" is a view of that setting: checked is on, unchecked is headless.
-static void SetShowOnLaunch(bool on)
-{
-    ProtoSetToggle(L"DevToolsShowOnLaunch", L"DevToolsShowOnLaunchCheck", L"", on);
-}
-static void OnShowOnLaunchClick(void*, void*)
+static void SetDefaultMode(const char* mode)
 {
     CloseToolbarMenu();
-    const bool now = !DefaultModeIsOn();
-    DevToolsSettingsSetText(L"DefaultMode", now ? "on" : "headless");
-    SetShowOnLaunch(now);
-    DevToolsOverlayLog(L"overlay.toolbar default mode -> %s (persisted)", now ? L"on" : L"headless");
+    DevToolsSettingsSetText(L"DefaultMode", mode);
+    SetStartModeUi(mode);
+    DevToolsOverlayLog(L"overlay.toolbar default mode -> %S (persisted)", mode);
 }
-static void OnTurnOffByDefaultClick(void*, void*)
-{
-    CloseToolbarMenu();
-    DevToolsSettingsSetText(L"DefaultMode", "off");
-    SetShowOnLaunch(false);
-    DevToolsOverlayLog(L"overlay.toolbar default mode -> off (persisted)");
-}
-
+static void OnStartShownClick(void*, void*) { SetDefaultMode("on"); }
+static void OnStartHiddenClick(void*, void*) { SetDefaultMode("headless"); }
+static void OnStartOffClick(void*, void*) { SetDefaultMode("off"); }
 static std::wstring ChipSurfaceLabel()
 {
     const std::vector<DevToolsSurface>& all = DevToolsOverlay_AllSurfaces();
@@ -918,8 +916,9 @@ static void WirePrototype(IInspectable* canvas)
         WireToolbarMenu(L"DevToolsCommentsMenu");
         wireNamedClick(L"DevToolsProtoMore", g_protoSink[18], &OnMoreMenuClick);
         wireNamedClick(L"DevToolsHideToolbar", g_protoSink[19], &OnHideToolbarClick);
-        wireNamedClick(L"DevToolsShowOnLaunch", g_protoSink[20], &OnShowOnLaunchClick);
-        wireNamedClick(L"DevToolsTurnOffByDefault", g_protoSink[21], &OnTurnOffByDefaultClick);
+        wireNamedClick(L"DevToolsStartShown", g_protoSink[20], &OnStartShownClick);
+        wireNamedClick(L"DevToolsStartHidden", g_protoSink[21], &OnStartHiddenClick);
+        wireNamedClick(L"DevToolsStartOff", g_protoSink[22], &OnStartOffClick);
         WireToolbarMenu(L"DevToolsMoreMenu");
         wireNamedClick(L"DevToolsProtoInspect", g_protoSink[4], &OnInspectClick);
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &OnLayoutToggleClick);

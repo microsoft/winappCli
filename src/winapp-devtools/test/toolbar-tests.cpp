@@ -124,8 +124,20 @@ static void TestToolbarContract()
                      CountOf(xaml.substr(inspectPos, morePos - inspectPos), "x:Name=\"DevToolsProto") == 1 &&
                      moreMenu < xaml.find("x:Name=\"DevToolsProtoPin\"") &&
                      moreMenu < xaml.find("x:Name=\"DevToolsHideToolbar\"") &&
-                     moreMenu < xaml.find("x:Name=\"DevToolsShowOnLaunch\""),
-                 "the bar ends with Open DevTools and More, whose menu holds Hide, Show on launch and Keep open");
+                     moreMenu < xaml.find("x:Name=\"DevToolsStartShown\""),
+                 "the bar ends with Open DevTools and More, whose menu holds Hide, Keep open and the start mode");
+    // The start mode is one choice of three, so UI Automation must read it as a radio group (SelectionItem),
+    // not as three unrelated buttons; the header above it is text, never a focus stop.
+    for (const char* id : { "DevToolsStartShown", "DevToolsStartHidden", "DevToolsStartOff" })
+        CheckToolbar(xaml.find(std::string("<RadioButton x:Name=\"") + id + "\" GroupName=\"DevToolsDefaultMode\"") != std::string::npos,
+                     (std::string(id) + " is a radio item in the start-mode group").c_str());
+    CheckToolbar(xaml.find("<TextBlock Text=\"WHEN THE APP STARTS\"") != std::string::npos &&
+                     overlay.find("ProtoSetToggle(name, L\"\", L\"\", true);") != std::string::npos,
+                 "the start-mode header is text, and opening the menu re-selects the saved mode");
+    CheckToolbar(xaml.find("<ToggleButton x:Name=\"DevToolsToggleMarkers\"") != std::string::npos &&
+                     xaml.find("AutomationProperties.Name=\"Show comment markers\"") != std::string::npos &&
+                     overlay.find("DevToolsToggleMarkersText") == std::string::npos,
+                 "Show comment markers is a checked toggle whose label never flips");
     CheckToolbar(xaml.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
                      selectionPanel.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
                      windowShell.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
@@ -460,7 +472,7 @@ static void TestToolbarContract()
     CheckToolbar(window.find("AutomationProperties.AutomationId=\\\"WinAppDevToolsAddComment\\\"") != std::string::npos &&
                      window.find("DevToolsOverlay_AddComment(element, value, saved->id") != std::string::npos,
                  "the inspector's Comment action saves through the in-app comment writer");
-    CheckToolbar(overlay.find("static EventSink g_protoSink[22];") != std::string::npos,
+    CheckToolbar(overlay.find("static EventSink g_protoSink[23];") != std::string::npos,
                  "toolbar owns independent pointer, click, resize and focus sinks");
     CheckToolbar(overlay.find("wireNamedClick(L\"DevToolsProtoPick\", g_protoSink[2], &OnPickClick);") != std::string::npos,
                  "Pick is wired by namescope identity");

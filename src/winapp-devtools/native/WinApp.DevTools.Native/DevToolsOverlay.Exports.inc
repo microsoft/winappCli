@@ -53,7 +53,7 @@ static void SetCommentsShown(bool on)
 {
     g_commentsShown = on;
     if (on) DrawAllPins(); else ClearAllPinsUi();
-    ProtoSetPartText(L"DevToolsToggleMarkersText", on ? L"Hide markers" : L"Show markers");
+    ProtoSetToggle(L"DevToolsToggleMarkers", L"DevToolsMarkersCheck", L"", on);
     UpdateCommentBadge();
     DevToolsOverlayLog(L"overlay.comments %s (pins=%zu)", on ? L"show" : L"hide", g_pins.size());
 }

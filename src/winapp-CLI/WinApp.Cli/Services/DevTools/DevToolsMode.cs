@@ -57,7 +57,7 @@ internal sealed record DevToolsResolution(DevToolsMode Mode, DevToolsModeSource 
 
 /// <summary>
 /// The user's default DevTools mode, one file in the per-user state folder. The DevTools toolbar reads and writes
-/// the same file (DevToolsSettings.h), so its "Show toolbar on launch" and "Turn off DevTools by default" items and
+/// the same file (DevToolsSettings.h), so its "When the app starts" menu items and
 /// <c>winapp devtools default</c> change the same setting.
 /// </summary>
 internal static class DevToolsDefaultSetting
