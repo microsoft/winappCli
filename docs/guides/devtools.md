@@ -233,7 +233,9 @@ rather than guessing. Listing comments does not edit source automatically.
 `update --status` accepts `open`, `resolved`, `stale`, or `dismissed`. Every
 add/update/delete refreshes the markers of your running DevTools apps whose project
 uses the same store, including a Sandbox app launched with `winapp run --devtools on`
-(within about a second). `--app <pid>` only names an extra target to refresh.
+(within about a second). On `update` and `delete`, `--app <pid>` names an extra app
+to refresh; on `add` it names the app to capture from with `--from-selection` or
+`--from-element`.
 
 ## Find and inspect an element
 

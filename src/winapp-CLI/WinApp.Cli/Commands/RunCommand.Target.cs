@@ -879,7 +879,7 @@ internal partial class RunCommand
                 target.Epoch.Value);
 
             ansiConsole.Profile.Out.Writer.WriteLine(
-                JsonSerializer.Serialize(result, RunCommandJsonContext.Default.RunCommandResult));
+                JsonSerializer.Serialize(result, RunCommandJsonContext.Output.RunCommandResult));
         }
 
         internal static RunCommandResult CreateDirectGuestResult(
@@ -965,7 +965,7 @@ internal partial class RunCommand
                     $"--on {selector} -a {pid.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
             }
 
-            return JsonSerializer.Serialize(result, RunCommandJsonContext.Default.RunCommandResult);
+            return JsonSerializer.Serialize(result, RunCommandJsonContext.Output.RunCommandResult);
         }
 
         /// <summary>Relays a guest stream chunk verbatim.</summary>

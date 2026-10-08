@@ -1253,7 +1253,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 DevTools = WithDevToolsMode(devTools),
             };
 
-            var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Default.RunCommandResult);
+            var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Output.RunCommandResult);
 
             // Write the machine-readable payload straight to the underlying stdout writer rather than
             // ansiConsole.WriteLine, which renders through Spectre's word-wrapping layer and injects raw
@@ -1704,4 +1704,13 @@ internal sealed class ExecutionTargetInfo
     WriteIndented = true,
     NewLine = "\n",
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-internal partial class RunCommandJsonContext : JsonSerializerContext;
+internal partial class RunCommandJsonContext : JsonSerializerContext
+{
+    private static RunCommandJsonContext? s_output;
+
+    /// <summary>Relaxed escaping, so messages and paths keep their quotes and angle brackets.</summary>
+    internal static RunCommandJsonContext Output => s_output ??= new(new JsonSerializerOptions(Default.Options)
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    });
+}

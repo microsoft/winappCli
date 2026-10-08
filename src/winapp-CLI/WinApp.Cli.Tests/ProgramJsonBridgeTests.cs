@@ -45,6 +45,14 @@ public class ProgramJsonBridgeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Run_JsonError_KeepsQuotesReadable()
+    {
+        var (stdout, _, exitCode) = await InvokeProgramAsync(["run", _tempDirectory.FullName, "--json", "--devtools", "yes"]);
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(stdout, "not 'yes'", "relaxed escaping keeps ' instead of \\u0027");
+    }
+
+    [TestMethod]
     public async Task Run_UnknownDevToolsValue_NamesTheValues()
     {
         var (stdout, stderr, exitCode) = await InvokeProgramAsync(["run", _tempDirectory.FullName, "--devtools", "yes"]);

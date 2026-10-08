@@ -88,7 +88,7 @@ internal partial class RunCommand
                     Services.DevTools.DevToolsRunTelemetryScope.SetOutcome(Services.DevTools.DevToolsOutcome.Attached);
                     if (json)
                     {
-                        ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(output, RunCommandJsonContext.Default.RunCommandResult));
+                        ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(output, RunCommandJsonContext.Output.RunCommandResult));
                     }
                     else
                     {

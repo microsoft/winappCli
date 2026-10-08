@@ -536,7 +536,7 @@ internal static class Program
                 if (effectiveJson)
                 {
                     Console.Out.WriteLine(System.Text.Json.JsonSerializer.Serialize(new RunCommandResult { Error = devToolsError },
-                        RunCommandJsonContext.Default.RunCommandResult));
+                        RunCommandJsonContext.Output.RunCommandResult));
                 }
                 else
                 {
