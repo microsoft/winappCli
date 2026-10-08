@@ -90,7 +90,9 @@ winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
 ```
 
 - Start with `target snapshot` when an app never appeared or a command failed. It does
-  not create a VM, reconnect the client, or repair an agent.
+  not create a VM, reconnect the client, or repair an agent. Its host checks show
+  missing Sandbox prerequisites and their fixes; report those to the user instead of
+  enabling features, elevating, or restarting Windows yourself.
   For error windows or ambiguous readiness, follow the
   [desktop readiness guidance](https://github.com/microsoft/winappCli/blob/main/docs/sandbox-execution.md#automating-the-ui);
   do not close windows or reconnect automatically to make a snapshot succeed.

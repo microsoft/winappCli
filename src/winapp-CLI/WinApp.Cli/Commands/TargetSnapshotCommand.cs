@@ -51,7 +51,7 @@ internal class TargetSnapshotCommand : Command, IShortDescription
     public TargetSnapshotCommand()
         : base(
             "snapshot",
-            "Report an execution target's readiness, capabilities, deployments, and top-level guest windows. " +
+            "Report an execution target's host prerequisites, readiness, capabilities, deployments, and top-level guest windows. " +
             "Inspects only: never starts, connects, or repairs a target, and reports plainly when none is running. " +
             "Writes only to stdout: no screenshots and no files.")
     {
@@ -84,8 +84,13 @@ internal class TargetSnapshotCommand : Command, IShortDescription
                 return TargetOutput.RejectSelection(console, json, ex.Error);
             }
 
+            TargetHostReadiness? host = null;
+
             try
             {
+                // Read-only like the inspection below: reports prerequisites, never fixes them.
+                host = await orchestrator.DescribeHostAsync(cancellationToken).ConfigureAwait(false);
+
                 // Inspect-only: never creates, starts, reconnects, or repairs. A command whose whole
                 // job is to report state must not be the reason that state exists — an agent asking
                 // "is a Sandbox up?" would otherwise start one by asking, and then be told yes.
@@ -95,6 +100,7 @@ internal class TargetSnapshotCommand : Command, IShortDescription
                 var output = new TargetSnapshotOutput
                 {
                     ExecutionTarget = ExecutionTargetScope.For(reference, inspection.Epoch),
+                    Host = host,
                     Running = inspection.Running,
                     Attached = target is not null,
                     Capabilities = target?.Capabilities,
@@ -147,7 +153,13 @@ internal class TargetSnapshotCommand : Command, IShortDescription
             }
             catch (ExecutionTargetException ex)
             {
-                return TargetOutput.Fail(console, json, ex.Error);
+                // A broken host is often why inspection failed, so the prerequisites still matter.
+                if (!json && host is not null)
+                {
+                    RenderHost(console, host);
+                }
+
+                return TargetOutput.Fail(console, json, ex.Error, host);
             }
         }
 
@@ -374,13 +386,33 @@ internal class TargetSnapshotCommand : Command, IShortDescription
             if (!output.Running)
             {
                 console.MarkupLineInterpolated($"{reference.Selector}: not running");
-                console.MarkupLineInterpolated(
-                    $"  Start one with: winapp run . --on {reference.Selector}");
+
+                if (output.Host is { } host)
+                {
+                    RenderHost(console, host);
+                }
+
+                if (output.Host is { Ready: false })
+                {
+                    console.MarkupLineInterpolated(
+                        $"  Fix the failed host checks, then start one with: winapp run . --on {reference.Selector}");
+                }
+                else
+                {
+                    console.MarkupLineInterpolated(
+                        $"  Start one with: winapp run . --on {reference.Selector}");
+                }
+
                 return;
             }
 
             console.MarkupLineInterpolated(
                 $"{reference.Selector}: running, epoch {output.ExecutionTarget.Epoch ?? "none"}");
+
+            if (output.Host is { } runningHost)
+            {
+                RenderHost(console, runningHost);
+            }
 
             if (output.Capabilities is { } capabilities)
             {
@@ -447,6 +479,36 @@ internal class TargetSnapshotCommand : Command, IShortDescription
 
         private static string Yes(bool value) => value ? "yes" : "no";
 
+        private static void RenderHost(IAnsiConsole console, TargetHostReadiness host)
+        {
+            console.MarkupLineInterpolated($"  Host: {(host.Ready ? "ready" : "not ready")}");
+
+            foreach (var check in host.Checks)
+            {
+                var status = check.Status switch
+                {
+                    TargetHostCheckStatus.Passed => "passed",
+                    TargetHostCheckStatus.Failed => "FAILED",
+                    _ => "not checked",
+                };
+
+                // Details can echo provider output, so they are sanitized like guest text.
+                console.MarkupLineInterpolated(
+                    $"    {check.Name}: {status}{(check.Detail is { } detail ? $" - {TerminalText.Sanitize(detail)}" : "")}");
+
+                if (check.Fix is { } fix)
+                {
+                    console.MarkupLineInterpolated($"      Fix: {fix}");
+                }
+
+                if (check.NextCommand is { } next)
+                {
+                    console.MarkupLineInterpolated(
+                        $"      {(next.Advisory ? "You may want to run" : "Try")}: {next.Command}");
+                }
+            }
+        }
+
         private static string DescribeDeploymentState(TargetSnapshotDeployment deployment)
         {
             if (deployment.Dirty)
@@ -485,6 +547,11 @@ internal sealed class TargetSnapshotOutput
 {
     /// <summary>Which target, and which incarnation of it, was described.</summary>
     public required ExecutionTargetScope ExecutionTarget { get; init; }
+
+    /// <summary>
+    /// Whether this host meets the target's prerequisites, or null when the target does not report them.
+    /// </summary>
+    public TargetHostReadiness? Host { get; init; }
 
     /// <summary>True when the target winapp manages is running right now.</summary>
     /// <remarks>
