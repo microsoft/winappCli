@@ -212,7 +212,8 @@ pwsh benchmarks\agents\run.ps1 -Rescore benchmarks\agents\results\<timestamp>
 This writes `runs.rescored.jsonl` and `summary.rescored.md` next to the originals, which are left
 unchanged. Only `pass`, `partial`, `fail`, and `n/a` runs are re-evaluated. Each rescored run keeps
 its `originalStatus`, and the command prints how many runs moved between statuses. Runs record a
-hash of their prompt; a run whose prompt has changed since is not rescored and gets a note. A
+hash of their prompt; a run whose prompt has changed since is not rescored and gets a note. Runs of a
+scenario that no longer exists become `scenario_removed` and are left out of pass rates. A
 changed fixture still needs a new run.
 
 ### Comparing runs
