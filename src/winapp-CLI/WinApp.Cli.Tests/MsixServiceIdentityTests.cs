@@ -211,18 +211,18 @@ public class MsixServiceIdentityTests : BaseCommandTests
     public async Task CopyFilesFromRecipeAsync_MSBuildEscapedSourcePath_IsUnescaped()
     {
         var srcDir = _tempDirectory.CreateSubdirectory("Program Files (x86)");
-        var srcManifest = new FileInfo(Path.Combine(srcDir.FullName, "AppxManifest.xml"));
+        var srcManifest = new FileInfo(Path.Join(srcDir.FullName, "AppxManifest.xml"));
         await File.WriteAllTextAsync(srcManifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
-        var srcData = new FileInfo(Path.Combine(srcDir.FullName, "ucrtbased.dll"));
+        var srcData = new FileInfo(Path.Join(srcDir.FullName, "ucrtbased.dll"));
         await File.WriteAllTextAsync(srcData.FullName, "crt", TestContext.CancellationToken);
 
         var escaped = srcData.FullName.Replace("(", "%28").Replace(")", "%29");
         var recipe = new FileInfo(WriteRecipe(srcManifest, (escaped, "ucrtbased.dll")));
-        var outputDir = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "layout"));
+        var outputDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "layout"));
 
         await InvokeCopyFilesFromRecipeAsync(recipe, outputDir);
 
-        Assert.AreEqual("crt", await File.ReadAllTextAsync(Path.Combine(outputDir.FullName, "ucrtbased.dll"), TestContext.CancellationToken));
+        Assert.AreEqual("crt", await File.ReadAllTextAsync(Path.Join(outputDir.FullName, "ucrtbased.dll"), TestContext.CancellationToken));
     }
 
     [TestMethod]
