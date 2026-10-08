@@ -61,11 +61,4 @@ public sealed class DevToolsDefaultCommandTests() : BaseCommandTests(logLevel: M
         Assert.AreEqual(0, await Run());
         StringAssert.Contains(TestAnsiConsole.Output, "CI is set");
     }
-
-    [TestMethod]
-    public async Task OnSandbox_IsRefused()
-    {
-        Assert.AreEqual(1, await Run("off", "--on", "sandbox", "--json"));
-        Assert.IsFalse(File.Exists(DevToolsDefaultSetting.FilePath(_state)));
-    }
 }

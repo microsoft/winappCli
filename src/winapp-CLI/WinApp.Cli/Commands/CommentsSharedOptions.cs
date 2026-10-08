@@ -36,11 +36,6 @@ internal static class CommentsSharedOptions
         Description = "Project directory (default: current directory); comments are stored at the repository root."
     };
 
-    public static Option<string?> AppTitleOption { get; } = new("--app-title")
-    {
-        Description = "App display name included in the output."
-    };
-
     public static Option<string?> ReadAppOption { get; } = new("--app", "-a")
     {
         Description = "Read the comments of this running DevTools app's project: PID or process name. Default: the current directory's project."

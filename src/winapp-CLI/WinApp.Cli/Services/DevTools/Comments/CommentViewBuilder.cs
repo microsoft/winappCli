@@ -133,13 +133,12 @@ internal static class CommentViewBuilder
     public static CommentsListPayload BuildPayload(
         IEnumerable<Comment> comments,
         ICommentAnchorResolver resolver,
-        string? appTitle,
         string? sourceRoot,
         string? storePath = null)
     {
         var payload = new CommentsListPayload
         {
-            App = new CommentAppInfo { Title = appTitle, SourceRoot = sourceRoot, StorePath = storePath },
+            App = new CommentAppInfo { SourceRoot = sourceRoot, StorePath = storePath },
         };
 
         foreach (var c in comments)

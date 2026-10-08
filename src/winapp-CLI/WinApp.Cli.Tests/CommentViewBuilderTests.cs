@@ -178,7 +178,7 @@ public class CommentViewBuilderTests
             Anchor = new CommentAnchor { SourceFile = "MainWindow.xaml", Identity = new CommentIdentity { Name = "SaveButton" } },
         };
 
-        var payload = CommentViewBuilder.BuildPayload([comment], new OneHitResolver(), "MyApp", null);
+        var payload = CommentViewBuilder.BuildPayload([comment], new OneHitResolver(), null);
 
         Assert.AreEqual(1, payload.Comments.Count);
         Assert.AreEqual(1, payload.Comments[0].Hits.Count);
@@ -195,7 +195,7 @@ public class CommentViewBuilderTests
             Anchor = new CommentAnchor { SourceFile = "MainWindow.xaml", Identity = new CommentIdentity { Type = "StackPanel" } },
         };
 
-        var payload = CommentViewBuilder.BuildPayload([comment], new TwoHitResolver(), "MyApp", null);
+        var payload = CommentViewBuilder.BuildPayload([comment], new TwoHitResolver(), null);
         Assert.IsTrue(payload.Comments[0].Ambiguous);
         Assert.HasCount(2, payload.Comments[0].Candidates);
         Assert.AreEqual("MainWindow.xaml:15", payload.Comments[0].Candidates[0]);
@@ -212,7 +212,7 @@ public class CommentViewBuilderTests
             Anchor = new CommentAnchor { SourceFile = "MainWindow.xaml", Line = 99, Identity = new CommentIdentity { Name = "SaveButton" } },
         };
 
-        var payload = CommentViewBuilder.BuildPayload([comment], new OneHitResolver(), "MyApp", null);
+        var payload = CommentViewBuilder.BuildPayload([comment], new OneHitResolver(), null);
         Assert.AreEqual(99, payload.Comments[0].Anchor.Line);
         Assert.AreEqual(3, payload.Comments[0].Hits[0].Line);
         Assert.IsFalse(payload.Comments[0].AnchorConfirmed);
@@ -229,7 +229,7 @@ public class CommentViewBuilderTests
             Anchor = new CommentAnchor { SourceFile = "MainWindow.xaml", Identity = new CommentIdentity { Name = "CounterButton" } },
         };
 
-        var payload = CommentViewBuilder.BuildPayload([comment], new CorroboratingResolver(), "MyApp", null);
+        var payload = CommentViewBuilder.BuildPayload([comment], new CorroboratingResolver(), null);
         Assert.IsFalse(payload.Comments[0].Ambiguous);
     }
 

@@ -50,10 +50,6 @@ internal class DevToolsDefaultCommand : Command, IShortDescription, IHelpExample
         public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            if (!ExecutionTargetSelection.Resolve(parseResult).IsLocal)
-            {
-                return Task.FromResult(Fail("'winapp devtools default' is a setting on this machine and doesn't take --on.", json));
-            }
             var requested = parseResult.GetValue(ModeArgument);
             try
             {

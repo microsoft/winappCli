@@ -108,7 +108,8 @@ do not add it automatically to recover from a refused save. See
 likely-source limits, including rebuild/hot-reload uncertainty.
 
 Saved list/get/update/delete use the host store without connecting to Sandbox.
-Choose it with `--source-root`; list/get reject `--app` and `--on`.
+Choose it with `--source-root`, or with `-a <pid>` on list/get to read the running
+app's project; none of them take `--on`.
 Mutations refresh the markers of running DevTools apps (local and Sandbox) that use
 the same store; no `--app` is needed. See the guide for save-warning behavior.
 

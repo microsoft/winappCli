@@ -235,8 +235,6 @@ internal sealed class CommentsListPayload
 
 internal sealed class CommentAppInfo
 {
-    public string? Title { get; set; }
-
     public string? SourceRoot { get; set; }
 
     public string? StorePath { get; set; }

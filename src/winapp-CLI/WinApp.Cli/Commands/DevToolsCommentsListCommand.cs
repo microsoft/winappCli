@@ -38,7 +38,6 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
         Options.Add(ProjectOption);
         Options.Add(CommentsSharedOptions.ReadAppOption);
         Options.Add(CommentsSharedOptions.SourceRootOption);
-        Options.Add(CommentsSharedOptions.AppTitleOption);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -82,7 +81,6 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
             }
             project ??= appRoot;
             var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ?? appRoot ?? currentDirectory.GetCurrentDirectory();
-            var appTitle = parseResult.GetValue(CommentsSharedOptions.AppTitleOption);
 
             try
             {
@@ -107,7 +105,7 @@ internal class DevToolsCommentsListCommand : Command, IShortDescription, IHelpEx
                     ? inProject.FindAll(c => c.Status == status)
                     : all || json ? inProject : inProject.FindAll(c => c.Status == CommentStatus.Open);
 
-                var payload = CommentViewBuilder.BuildPayload(selected, resolver, appTitle, sourceRoot, location.StorePath);
+                var payload = CommentViewBuilder.BuildPayload(selected, resolver, sourceRoot, location.StorePath);
 
                 if (json)
                 {

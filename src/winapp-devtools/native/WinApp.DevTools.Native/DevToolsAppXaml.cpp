@@ -152,12 +152,6 @@ void DevToolsAppXaml_ClassifyBatch(const std::vector<std::wstring>& uris, std::v
     }
 }
 
-bool DevToolsAppXaml_HasAppXamlSet()
-{
-    EnsureScanned();
-    return !g_appXaml.empty();
-}
-
 bool DevToolsAppXaml_ScanDiscredited()
 {
     return g_scanDiscredited.load();
