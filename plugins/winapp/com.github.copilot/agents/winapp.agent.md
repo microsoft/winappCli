@@ -103,6 +103,9 @@ Driving a UI while other workflows may be running?
 │  change what the app shows, and behind an earlier exclusive command of your OWN workflow
 ├─ `ui record` shares its turn only with the SAME workflow id — a no-id recording blocks everyone
 │  else for its whole duration
+├─ Command seems stuck? → read stderr: after 1s a waiting command says what holds the desktop and
+│  for how long (silent under --json/--quiet). If the holder is your own recording or task, rerun
+│  with the same WINAPP_UI_WORKFLOW_ID; otherwise wait or Ctrl+C (exit 130, command never ran)
 └─ After a reasoning gap, reopen/re-navigate and re-resolve before acting — another workflow may
    have used the desktop, so transient UI (menus, flyouts) is gone
 
