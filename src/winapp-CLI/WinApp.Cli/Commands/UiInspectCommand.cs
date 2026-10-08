@@ -266,10 +266,18 @@ internal partial class UiInspectCommand : Command, IShortDescription
                         : realElements;
                     var separators = (interactive ? allElements : elements).Where(e => e.Type == "---").ToArray();
                     var truncated = realElements.Count(e => e.HasMoreChildren == true);
-                    var example = realElements.FirstOrDefault(IsInteractive) ?? realElements.FirstOrDefault();
+                    var example = realElements.FirstOrDefault(e => e.IsInvokable)
+                        ?? realElements.FirstOrDefault(IsInteractive)
+                        ?? realElements.FirstOrDefault();
                     var exampleSelector = example?.Selector ?? example?.Id;
+                    var exampleCommand = example switch
+                    {
+                        { IsInvokable: true } => $"invoke {exampleSelector} -a <app>",
+                        { IsEditable: true } => $"set-value {exampleSelector} \"<text>\" -a <app>",
+                        _ => $"click {exampleSelector} -a <app>",
+                    };
                     var exampleHint = exampleSelector is not null
-                        ? $" Use the [bold cyan]first token[/] as selector, e.g.: [grey]{EscapeMarkup(UiCommandAdvice.Command($"invoke {exampleSelector} -a <app>"))}[/]"
+                        ? $" Use the [bold cyan]first token[/] as selector, e.g.: [grey]{EscapeMarkup(UiCommandAdvice.Command(exampleCommand))}[/]"
                         : "";
                     ansiConsole.WriteLine();
                     ansiConsole.MarkupLine($"[grey]Found {displayedElements.Length} elements (--depth {depth}).{exampleHint}[/]");
@@ -330,9 +338,10 @@ internal partial class UiInspectCommand : Command, IShortDescription
             "TreeItem", "DataItem", "Slider"
         };
 
-        /// <summary>An element is interactive if it supports an actionable UIA pattern OR matches a conventional control type.</summary>
+        /// <summary>An element is interactive if it supports an actionable UIA pattern, has a writable
+        /// value (set-value target), or matches a conventional control type.</summary>
         private static bool IsInteractive(UiElement el)
-            => el.IsInvokable || InteractiveTypes.Contains(el.Type);
+            => el.IsInvokable || el.IsEditable == true || InteractiveTypes.Contains(el.Type);
 
         /// <summary>For each interactive element without its own actionable pattern, find the nearest
         /// invokable ancestor in the unfiltered element list and attach it as a fallback hint.</summary>

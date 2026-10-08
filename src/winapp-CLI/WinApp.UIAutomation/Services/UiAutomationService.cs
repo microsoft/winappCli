@@ -1364,11 +1364,14 @@ internal sealed partial class UiAutomationService : IUiAutomation
             return false;
         }
 
+        // An explicit window is verified through its window ancestry instead of PIDs: a hosted
+        // packaged app's content belongs to CalculatorApp while its frame belongs to ApplicationFrameHost.
+        var verifyByWindow = target.IsExplicitWindow;
+
         var pid = s_getElementProcessId(focused);
-        if (pid != 0)
+        if (pid != 0 && !verifyByWindow)
         {
-            if (pid != target.ProcessId) { return false; }
-            if (!target.IsExplicitWindow) { return true; }
+            return pid == target.ProcessId;
         }
 
         // Some providers (including WinUI in Sandbox) omit PID on the entire UIA branch.
@@ -1379,7 +1382,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         for (var depth = 0; current is not null && depth < 40; depth++)
         {
             ct.ThrowIfCancellationRequested();
-            if (depth > 0)
+            if (depth > 0 && !verifyByWindow)
             {
                 pid = s_getElementProcessId(current);
                 if (pid != 0 && pid != target.ProcessId) { return false; }
@@ -1394,8 +1397,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 {
                     throw new InvalidOperationException("The focused element's window is no longer available. Retry 'get-focused'.");
                 }
-                if (nativePid != target.ProcessId) { return false; }
-                if (target.IsExplicitWindow && root != target.WindowHandle) { return false; }
+                if (!verifyByWindow && nativePid != target.ProcessId) { return false; }
+                if (verifyByWindow && root != target.WindowHandle) { return false; }
 
                 // Check the root as well: a stale/reused handle cannot authorize another process.
                 var rootPid = SystemUiQuery.s_getProcessIdForWindow(root);
@@ -1985,6 +1988,14 @@ internal sealed partial class UiAutomationService : IUiAutomation
             catch (Exception ex) when (!requireCurrentIdentity)
             {
                 _logger.LogDebug("Stored HWND {Hwnd} failed: {Error}", uiTarget.WindowHandle, ex.Message);
+            }
+
+            // An explicit window is the whole scope. Its process may host other windows (for
+            // example ApplicationFrameHost hosts every packaged app's frame), so once the window is
+            // gone, don't fall back to another window of that process.
+            if (uiTarget.IsExplicitWindow)
+            {
+                return null;
             }
         }
 
@@ -2630,9 +2641,11 @@ internal sealed partial class UiAutomationService : IUiAutomation
 
         // Try to get current value for editable elements (TextBox, ComboBox, etc.)
         string? value = null;
+        bool? isEditable = null;
+        IUIAutomationValuePattern? valuePattern = null;
         try
         {
-            var valuePattern = (IUIAutomationValuePattern)element.GetCurrentPattern(UIA_PATTERN_ID.UIA_ValuePatternId);
+            valuePattern = (IUIAutomationValuePattern)element.GetCurrentPattern(UIA_PATTERN_ID.UIA_ValuePatternId);
             var bstr = valuePattern.get_CurrentValue();
             var v = bstr.ToString();
             if (!string.IsNullOrEmpty(v))
@@ -2641,6 +2654,22 @@ internal sealed partial class UiAutomationService : IUiAutomation
             }
         }
         catch { }
+
+        // Writability is independent of reading the value: set-value doesn't need the old text.
+        if (valuePattern is not null)
+        {
+            try
+            {
+                if (!(bool)valuePattern.get_CurrentIsReadOnly())
+                {
+                    isEditable = true;
+                }
+            }
+            catch (COMException)
+            {
+                // The provider can't report writability; leave IsEditable unset like any other optional hint.
+            }
+        }
 
         // Try to get toggle state for checkboxes/toggles
         string? toggleState = null;
@@ -2729,6 +2758,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             ScrollDir = scrollDir,
             Selector = selector,
             IsInvokable = isInvokable,
+            IsEditable = isEditable,
         };
     }
 
