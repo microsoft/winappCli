@@ -189,6 +189,29 @@ public class CommentStoreTests
     }
 
     [TestMethod]
+    public void CorruptStoreBackup_NeverWritesThroughALinkedBackupPath()
+    {
+        // A checkout could ship ui-comments.json.bak as a link to another file the user can write.
+        const string corrupt = "{ not json";
+        File.WriteAllText(StorePath, corrupt);
+        var victim = Path.Combine(Directory.CreateDirectory(Path.Combine(_dir, "elsewhere")).FullName, "victim.txt");
+        File.WriteAllText(victim, "keep");
+        try
+        {
+            File.CreateSymbolicLink(StorePath + ".bak", victim);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Assert.Inconclusive("Could not create a file symbolic link on this machine.");
+        }
+
+        Assert.ThrowsExactly<CommentStoreCorruptException>(() => NewStore().Add(StorePath, NewComment("new one")));
+
+        Assert.AreEqual("keep", File.ReadAllText(victim));
+        Assert.AreEqual(corrupt, File.ReadAllText(StorePath));
+    }
+
+    [TestMethod]
     public void Delete_ExistingId_RemovesRowAndReturnsIt()
     {
         var store = NewStore();

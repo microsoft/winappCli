@@ -386,6 +386,12 @@ internal sealed class CommentStore : ICommentStore
         try
         {
             var backup = storePath + ".bak";
+            var directory = Path.GetDirectoryName(storePath)!;
+            // A checkout can ship the store or its backup as a link; never write through one.
+            if (PathSafety.HasReparsePointOnPath(storePath, directory) || PathSafety.HasReparsePointOnPath(backup, directory))
+            {
+                return null;
+            }
             File.Copy(storePath, backup, overwrite: true);
             return backup;
         }
