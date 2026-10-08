@@ -1712,8 +1712,8 @@ int main()
             geometryTransforms = 0;
             check(!TryElementRootBounds(&d, 20, 11, &box) && geometryTransforms == 0,
                 "surface move", "explicit second root rejects first-root target before transform");
-            check(TryElementRootBounds(&d, 20, 21, &box) && geometryDestination == &d.foreignContent,
-                "surface move", "explicit second root measures its own Content independently of toolbar and selection");
+            check(TryElementRootBounds(&d, 20, 21, &box) && geometryDestination == nullptr,
+                "surface move", "explicit second root measures in its own XamlRoot independently of toolbar and selection");
             d.secondTarget.x = d.secondTarget.y = 24;
             d.secondTarget.scale = 2;
             DevToolsLayoutBox layout{};
@@ -1994,8 +1994,8 @@ int main()
             check(ok == expected, entry, name);
             check((geometryTransforms != 0) == expectTransform, entry, "transform boundary");
             if (expected) {
-                check(geometryDestination == &d.content && d.active.contentReads == 1 && d.alias.contentReads == 0,
-                      entry, "destination is supplied root Content, not surface element or target root read");
+                check(geometryDestination == nullptr && d.active.contentReads == 1 && d.alias.contentReads == 0,
+                      entry, "bounds are in XamlRoot DIPs; the supplied root's Content only proves the shared root");
                 check(GeometryRect(layout ? box.box : bounds, 24, 24, 124, 104),
                       entry, "positive content-DIP bounds preserve 24-DIP origin");
                 if (layout) {

@@ -3,7 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:BindingOwnersFixture">
-    <StackPanel Spacing="8" Padding="24" Margin="48,40,0,0">
+    <StackPanel Spacing="8" Padding="24">
         <StackPanel.Resources>
             <MenuFlyout x:Key="FixtureMenu">
                 <MenuFlyoutItem AutomationProperties.AutomationId="FixtureMenuItem" Text="Fixture menu item" Width="120" />

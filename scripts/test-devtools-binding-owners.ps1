@@ -251,11 +251,6 @@ try {
         $all = @($peek.windows | ForEach-Object { Nodes $_.elements })
         Check (@($all | Where-Object hasMoreChildren -eq $true).Count -eq 0) 'flyout UIA observation is not depth-limited'
         Check (@($all | Where-Object { $_.automationId -eq 'DevToolsSelComment' -and -not $_.isOffscreen }).Count -gt 0) 'flyout comment editor is visible'
-        $headingBox = @($all | Where-Object { $_.automationId -eq 'WindowHeading' })
-        $highlight = @($all | Where-Object { $_.automationId -eq 'WinAppDevToolsHighlight' -and -not $_.isOffscreen })
-        # The fixture's content has a margin, so content and window origins differ.
-        Check ($headingBox.Count -eq 1 -and $highlight.Count -eq 1 -and
-            [Math]::Abs($highlight[0].x - $headingBox[0].x) -le 2 -and [Math]::Abs($highlight[0].y - $headingBox[0].y) -le 2) 'the selection highlight sits on the picked element'
         $sourceLine = @($all | Where-Object { $_.automationId -eq 'DevToolsSelSource' -and -not $_.isOffscreen })
         Check ($sourceLine.Count -eq 1 -and $sourceLine[0].name -match 'MainWindow\.xaml:\d+') 'the comment flyout names the picked element''s source line'
         Check (@($all | Where-Object { $_.automationId -match '^DevToolsSel(Row|Edit|Status|Reveal)' }).Count -eq 0) 'the comment flyout has no property rows'
@@ -501,6 +496,24 @@ try {
         Check ((Wait-Focused 'DevToolsProtoPick') -eq 'DevToolsProtoPick') 'the first shortcut after focus moves on from an Esc return reaches the toolbar'
         $null = Invoke-Cli @('ui', 'send-keys', 'esc', '-a', $app, '--via', 'send-input')
         Check ((Wait-Focused 'ShortcutOther') -eq 'ShortcutOther') 'Esc returns focus to the element the shortcut left'
+
+        # A centered or margined window content starts away from the window origin; the highlight must still
+        # land on the selected element.
+        $rootPanel = @(Nodes $tree.elements | Where-Object { @($_.children | Where-Object name -eq 'WindowHeading').Count -eq 1 })
+        Check ($rootPanel.Count -eq 1) 'the fixture root panel is identified'
+        $null = Invoke-Cli @('devtools', 'set-property', [string]$rootPanel[0].selector, 'Margin', '48,40,0,0', '-a', $app)
+        try {
+            $null = Invoke-Cli @('devtools', 'call', 'Selection.select', "handle=$($heading[0].handle)", '-a', $app)
+            Start-Sleep -Milliseconds 300
+            $offset = @((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows | ForEach-Object { Nodes $_.elements })
+            $headingBox = @($offset | Where-Object { $_.automationId -eq 'WindowHeading' })
+            $highlight = @($offset | Where-Object { $_.automationId -eq 'WinAppDevToolsHighlight' -and -not $_.isOffscreen })
+            Check ($headingBox.Count -eq 1 -and $highlight.Count -eq 1 -and
+                [Math]::Abs($highlight[0].x - $headingBox[0].x) -le 2 -and [Math]::Abs($highlight[0].y - $headingBox[0].y) -le 2) 'the selection highlight follows offset window content'
+        }
+        finally {
+            $null = Invoke-Cli @('devtools', 'set-property', [string]$rootPanel[0].selector, 'Margin', '0', '-a', $app)
+        }
 
         # A windowed app menu drawn over the toolbar takes the click; the toolbar under it does not.
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
