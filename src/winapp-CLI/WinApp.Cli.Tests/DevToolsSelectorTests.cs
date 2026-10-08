@@ -178,7 +178,7 @@ public class DevToolsSelectorTests
 
         Assert.AreEqual(0, exit, "A fallback is still a successful read of the tree.");
         StringAssert.Contains(output, "no XAML source information");
-        StringAssert.Contains(output, "winapp run --devtools", "The message must say how to enable the authored view.");
+        StringAssert.Contains(output, "winapp run --devtools on", "The message must say how to enable the authored view.");
         StringAssert.Contains(output, "ContentPresenter", "The raw tree is shown rather than nothing.");
     }
 
@@ -608,7 +608,7 @@ public class DevToolsSelectorTests
 
         Assert.AreEqual(0, exit);
         StringAssert.Contains(output, "no XAML source information");
-        StringAssert.Contains(output, "winapp run --devtools", "The actionable next step is a relaunch.");
+        StringAssert.Contains(output, "winapp run --devtools on", "The actionable next step is a relaunch.");
         Assert.IsFalse(output.Contains("cannot yet say which elements are yours", StringComparison.Ordinal),
             "Waiting is the wrong advice for an app that will never report source info.");
     }

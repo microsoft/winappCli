@@ -194,7 +194,7 @@ internal sealed class DevToolsTargetResolver(
                    "Pass --app/-a <name|title|pid> to choose one.";
         }
 
-        return "No app has DevTools attached. Launch one with `winapp run --devtools`, or pass " +
+        return "No app has DevTools attached. Launch one with `winapp run --devtools on`, or pass " +
                "--attach with --app/-a <name|title|pid> to authorize attachment to a running WinUI app. " +
                "`winapp devtools list --include-available` shows attach candidates.";
     }

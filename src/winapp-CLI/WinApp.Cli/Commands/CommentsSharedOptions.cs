@@ -67,7 +67,7 @@ internal static class CommentsSharedOptions
         root = readSourceRoot(pid, cancellationToken);
         if (string.IsNullOrWhiteSpace(root))
         {
-            error = $"Process {pid} did not report a project folder. Launch it with 'winapp run <project> --devtools', or pass --source-root.";
+            error = $"Process {pid} did not report a project folder. Launch it with 'winapp run <project> --devtools on', or pass --source-root.";
             return false;
         }
         return true;

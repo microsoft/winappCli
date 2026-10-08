@@ -63,6 +63,20 @@ internal partial class RunCommand
             "or --unregister-on-exit.",
     };
 
+    /// <summary>The one-line error for a missing or unknown <c>--devtools</c> value, or null when it parsed.</summary>
+    internal static string? DevToolsValueError(ParseResult parseResult)
+    {
+        if (parseResult.CommandResult.Command is not RunCommand ||
+            parseResult.GetResult(DevToolsOption) is not { Implicit: false } option ||
+            !parseResult.Errors.Any(error => error.SymbolResult is { } symbol && (symbol == option || symbol.Parent == option)))
+        {
+            return null;
+        }
+        return option.Tokens.Count == 0
+            ? "--devtools needs a value: on, off or headless"
+            : $"--devtools must be on, off or headless, not '{option.Tokens[0].Value}'";
+    }
+
     public partial class Handler
     {
         private async Task<GuestSourceManifest> BindCoordinatePayloadAsync(

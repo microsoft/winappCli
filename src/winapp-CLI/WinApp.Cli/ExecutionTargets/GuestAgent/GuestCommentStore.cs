@@ -308,7 +308,7 @@ internal sealed class GuestCommentStore(CommentStore local, GuestCommentContext 
         if (context.HostCommentsUnavailable)
         {
             throw new InvalidOperationException("Persistent host comments are unavailable for this late-attached application. " +
-                "Launch its project with 'winapp run --devtools --on sandbox' to bind a host store and source snapshot.");
+                "Launch its project with 'winapp run --on sandbox --devtools on' to bind a host store and source snapshot.");
         }
         if (context.Process is null)
         {

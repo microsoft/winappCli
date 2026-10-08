@@ -137,7 +137,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                     case CaptureStatus.Failed:
                         return Task.FromResult(Fail(ansiConsole, json, result.Error?.Message ?? "Element capture failed."));
                     case CaptureStatus.NoAgent:
-                        return Task.FromResult(Fail(ansiConsole, json, $"No DevTools tap answered for pid {pid}. Launch the app with 'winapp run <app> --devtools'."));
+                        return Task.FromResult(Fail(ansiConsole, json, $"No DevTools tap answered for pid {pid}. Launch the app with 'winapp run <app> --devtools on'."));
                     case CaptureStatus.NoSelection when fromElement is not null:
                         return Task.FromResult(Fail(ansiConsole, json, $"No element '{fromElement}' in the app's visual tree. Pass an x:Name or a handle from 'winapp devtools inspect'."));
                     case CaptureStatus.NoSelection:

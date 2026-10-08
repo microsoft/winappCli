@@ -189,7 +189,7 @@ internal sealed record AuthoredForest(
         {
             var why = "This app reports no XAML source information, so its own elements cannot be told apart " +
                       "from the framework's. Showing the raw tree instead. Launch it with " +
-                      "`winapp run --devtools`, which turns source information on.";
+                      "`winapp run --devtools on`, which turns source information on.";
             return ClassificationTruncated
                 ? why + " (The agent is still classifying, so run the command again if you did launch it that way.)"
                 : why;

@@ -530,6 +530,25 @@ internal static class Program
 
             bool effectiveJson = ResolveEffectiveJson(parsedArgs);
 
+            // `run --devtools` needs a mode. Name the values instead of printing the whole run help.
+            if (parsedArgs.Errors.Count > 0 && RunCommand.DevToolsValueError(parsedArgs) is { } devToolsError)
+            {
+                if (effectiveJson)
+                {
+                    Console.Out.WriteLine(System.Text.Json.JsonSerializer.Serialize(new RunCommandResult { Error = devToolsError },
+                        RunCommandJsonContext.Default.RunCommandResult));
+                }
+                else
+                {
+                    Console.Error.WriteLine($"{UiSymbols.Error} {devToolsError}");
+                }
+                if (!isCompleteMode)
+                {
+                    logCommandCompleted(parsedArgs.CommandResult, 1);
+                }
+                return 1;
+            }
+
             if (effectiveJson && parsedArgs.Errors.Count > 0 && IsDescendantOf(parsedArgs, "devtools"))
             {
                 EmitDevToolsJsonError(parsedArgs, string.Join("; ", parsedArgs.Errors.Select(e => e.Message)));

@@ -69,5 +69,5 @@ internal sealed record DevToolsAppAuthored(
             : SourceInstrumented
                 ? "The agent classified no element as app-authored: every live element came from framework or template XAML."
                 : "This app reports no XAML source information, so nothing can be classified as app-authored. " +
-                  "Launch it with `winapp run --devtools`, which turns source information on.";
+                  "Launch it with `winapp run --devtools on`, which turns source information on.";
 }

@@ -78,7 +78,7 @@ internal sealed class ExecutionTargetDevToolsRouter(
             await using var target = inspection.Target;
             if (target is null)
             {
-                throw new InvalidOperationException("The Sandbox agent is not connected. Start a guest app with 'winapp run <project> --on sandbox --devtools'. No target was provisioned.");
+                throw new InvalidOperationException("The Sandbox agent is not connected. Start a guest app with 'winapp run <project> --on sandbox --devtools on'. No target was provisioned.");
             }
             if (parsed.CommandResult.Command is DevToolsListCommand)
             {

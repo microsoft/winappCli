@@ -137,7 +137,7 @@ public class DevToolsTargetResolverTests
         var target = await resolver.ResolveAsync(null, null, CancellationToken.None);
 
         Assert.IsFalse(target.Ok);
-        StringAssert.Contains(target.Error!, "run --devtools");
+        StringAssert.Contains(target.Error!, "run --devtools on");
         StringAssert.Contains(target.Error!, "--app/-a");
         StringAssert.Contains(target.Error!, "list --include-available");
         Assert.IsFalse(target.Error!.Contains("--window", StringComparison.Ordinal));
