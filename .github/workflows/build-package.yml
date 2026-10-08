@@ -344,10 +344,73 @@ jobs:
         if-no-files-found: warn
         overwrite: true
 
+  # Generated .NET projects covering how `winapp run` conveys the target architecture to MSBuild.
+  # Fixtures run one at a time per shard; see tests/project-arch/README.md.
+  project-arch:
+    needs: build-artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    name: project-arch (${{ matrix.shard }}/4)
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Enable Windows Developer Mode
+      run: |
+        reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v "AllowDevelopmentWithoutDevLicense" /d 1 /f
+
+    # Some fixtures target net8.0 and must launch on its runtime.
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        dotnet-version: |
+          8.0.x
+          10.0.x
+
+    - name: Download CLI binaries
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-binaries
+        path: artifacts/cli
+
+    - name: Run architecture matrix
+      env:
+        SHARD: ${{ matrix.shard }}
+      run: |
+        $pester = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $pester) { throw 'Pester 5 is required.' }
+        Import-Module $pester -Force
+        $container = New-PesterContainer -Path tests/project-arch/ProjectArch.Tests.ps1 -Data @{
+          WinappPath = 'artifacts/cli/win-x64'
+          Architecture = 'x64'
+          Shard = "$env:SHARD/4"
+        }
+        $config = New-PesterConfiguration
+        $config.Run.Container = $container
+        $config.Run.Exit = $true
+        $config.Output.Verbosity = 'Detailed'
+        $config.TestResult.Enabled = $true
+        $config.TestResult.OutputPath = "artifacts/TestResults/project-arch-$env:SHARD.xml"
+        $config.TestResult.OutputFormat = 'JUnitXml'
+        Invoke-Pester -Configuration $config
+
+    - name: Upload test results
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: project-arch-results-${{ matrix.shard }}
+        path: artifacts/TestResults/project-arch-${{ matrix.shard }}.xml
+        if-no-files-found: error
+        overwrite: true
+
   # Retain the original required check, but only turn it green after every lane.
   build-and-package:
     if: always()
-    needs: [build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics]
+    needs: [build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics, project-arch]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs

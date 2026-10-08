@@ -158,12 +158,12 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         ArchOption = new Option<string?>("--arch")
         {
-            Description = "Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture."
+            Description = "Project mode: target architecture (x64, arm64, or x86). Builds with the matching MSBuild Platform, as Visual Studio does; a project that sets its own RuntimeIdentifier or enables dynamic platform resolution builds for the win-<arch> RID instead. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture."
         };
 
         RuntimeOption = new Option<string?>("--runtime")
         {
-            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too."
+            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, exactly like --arch, rejects non-Windows RIDs (e.g. linux-x64), and overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too."
         };
         RuntimeOption.Aliases.Add("-r");
 

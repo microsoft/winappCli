@@ -71,7 +71,7 @@ Describe 'Artifact-first workflow dependencies' {
 
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
-        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics\]'
+        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics, project-arch\]'
     }
 
     It 'builds both architectures in one producer without intermediate publish artifacts' {
@@ -93,8 +93,8 @@ Describe 'Artifact-first workflow dependencies' {
         $npmPackaging | Should -Match 'npm run compile --ignore-scripts'
     }
 
-    It 'starts validation, docs, UI E2E and samples from early artifacts, not the final gate' {
-        foreach ($job in @('validate-tests', 'validate-docs', 'e2e-test-ui', 'samples')) {
+    It 'starts validation, docs, UI E2E, samples and the architecture matrix from early artifacts, not the final gate' {
+        foreach ($job in @('validate-tests', 'validate-docs', 'e2e-test-ui', 'samples', 'project-arch')) {
             $text = Get-JobText $buildWorkflow $job
             $text | Should -Match '(?m)^\s+needs: build-artifacts\r?$'
             $text | Should -Not -Match 'dotnet publish|needs: build-and-package'
@@ -103,6 +103,10 @@ Describe 'Artifact-first workflow dependencies' {
             Should -Match ([regex]::Escape('$testArgs.CliShard = [int]$env:CLI_SHARD'))
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-e2e-winui-ui\.ps1'
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-ui-coordination\.ps1'
+        $matrix = Get-JobText $buildWorkflow 'project-arch'
+        $matrix | Should -Match 'tests/project-arch/ProjectArch\.Tests\.ps1'
+        $matrix | Should -Match 'fail-fast: false'
+        $matrix | Should -Match 'timeout-minutes:'
     }
 
     It 'runs both CLI shards, auxiliary suites once, and UI Automation on isolated runners' {
@@ -170,7 +174,7 @@ Describe 'Partial reruns replace only owned artifacts' {
             Get-UploadSteps $sampleWorkflow
             Get-UploadSteps $reportAction
         )
-        $uploads.Count | Should -Be 12
+        $uploads.Count | Should -Be 13
         foreach ($upload in $uploads) {
             $upload | Should -Match '(?m)^        overwrite: true\r?$' -Because $upload
         }
@@ -189,6 +193,13 @@ Describe 'Partial reruns replace only owned artifacts' {
             foreach ($lane in @('Cli-1', 'Cli-2', 'Auxiliary', 'UIAutomation')) {
                 $laneName.Replace('${{ matrix.lane }}', $lane)
             }
+            $shardUpload = @(Get-UploadSteps (Get-JobText $buildWorkflow 'project-arch'))
+            $shardUpload.Count | Should -Be 1
+            $shardName = [regex]::Match($shardUpload[0], '(?m)^        name: (.+?)\r?$').Groups[1].Value
+            $shards = [regex]::Match((Get-JobText $buildWorkflow 'project-arch'), '(?m)^        shard: \[(.+)\]').Groups[1].Value
+            foreach ($shard in ($shards -split ', ')) {
+                $shardName.Replace('${{ matrix.shard }}', $shard)
+            }
             $sampleUpload = @(Get-UploadSteps (Get-JobText $sampleWorkflow 'test-sample'))
             $sampleUpload.Count | Should -Be 1
             $sampleName = [regex]::Match($sampleUpload[0], '(?m)^        name: (.+?)\r?$').Groups[1].Value
@@ -200,7 +211,7 @@ Describe 'Partial reruns replace only owned artifacts' {
                 [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
             }
         )
-        $names.Count | Should -Be 27
+        $names.Count | Should -Be 31
         @($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count | Should -Be 0
         @($names | Group-Object | Where-Object Count -GT 1).Count | Should -Be 0
         (Get-JobText $sampleWorkflow 'build') | Should -Match 'if: \$\{\{ !inputs.use-existing-artifacts \}\}'
@@ -247,7 +258,7 @@ Describe 'Failed validation reports without promoting the main baseline' {
 Describe 'Required build check outcomes' {
     BeforeEach {
         $script:results = @{}
-        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'e2e-test-ui', 'samples', 'metrics')) {
+        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'e2e-test-ui', 'samples', 'metrics', 'project-arch')) {
             $results[$job] = @{ result = 'success' }
         }
         $env:IS_PR = 'true'

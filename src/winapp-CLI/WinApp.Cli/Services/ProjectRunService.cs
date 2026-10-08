@@ -221,11 +221,13 @@ internal sealed partial class ProjectRunService(
         // -p:CsWinRTWindowsMetadata. Skipped when the user set the property. null = no injection.
         var csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimFramework);
 
-        // Decide whether to inject an explicit -p:Platform (else arch is conveyed by the RID alone). Injected
-        // only when the target AND its whole ProjectReference closure declare a <Platforms> including the
-        // arch, so it can't desync a no-<Platforms> reference (MSB3030/PRI252). Threaded into every pass
-        // below (restore/build/evaluate) via `options`, keeping them in lock-step.
-        options = ResolvePlatformInjection(csproj, options, requireConcreteRid: aotPublish);
+        // Decide how the architecture reaches MSBuild. `winapp run` builds convey it the way Visual Studio
+        // does — a global Platform with no global RID — unless evaluation shows the project can't honor
+        // that. Publish passes (`winapp pack`, --aot) keep the RID-based resolution they ship with.
+        // Threaded into every pass below (restore/build/evaluate) via `options`, keeping them in lock-step.
+        options = publish || aotPublish
+            ? ResolvePlatformInjection(csproj, options, requireConcreteRid: aotPublish)
+            : await ResolveBuildArchitectureAsync(csproj, options, workingDir, cancellationToken);
         if (!aotPublish)
         {
             options = await ResolveRequiredPublishProfileAsync(
@@ -410,13 +412,13 @@ internal sealed partial class ProjectRunService(
 
         var props = MsBuildPropertyReader.Parse(stdout, RequestedProperties);
 
-        // `--no-build` means "run what's already built", but winapp's evaluate injects `-r win-<arch>`
-        // and (when the project declares <Platforms>) `-p:Platform=<arch>`, and each adds a segment to
-        // the output path — bin\ARM64\Debug\<tfm>\win-arm64\ versus the bin\Debug\<tfm>\ that Visual
-        // Studio and a plain `dotnet build` produce. So drop those injected knobs progressively and take
-        // the first variant whose TargetDir exists. A winapp build writes the fully-qualified path, so it
-        // matches on the first try and never gets here. Build mode only: publish mode ran the publish pass
-        // (even under --no-build) and resolves the payload from PublishDir below.
+        // `--no-build` means "run what's already built", but winapp's evaluate injects `-p:Platform=<arch>`
+        // (and `-r win-<arch>` for projects that need it), and each adds a segment to the output path —
+        // bin\ARM64\Debug\<tfm>\ or bin\Debug\<tfm>\win-arm64\ versus the bin\Debug\<tfm>\ that a plain
+        // `dotnet build` produces. So try the other layouts and take the first variant whose TargetDir
+        // exists. A winapp build writes the fully-qualified path, so it matches on the first try and never
+        // gets here. Build mode only: publish mode ran the publish pass (even under --no-build) and
+        // resolves the payload from PublishDir below.
         if (options.NoBuild && !publish)
         {
             var primaryTargetDir = GetProp(props, "TargetDir");
@@ -426,15 +428,20 @@ internal sealed partial class ProjectRunService(
                 var fallbacks = new List<(bool Rid, bool Platform, bool PublishProfile)>();
                 if (!string.IsNullOrWhiteSpace(options.Platform))
                 {
-                    fallbacks.Add((false, true, true)); // no RID, keep resolved Platform/profile
+                    if (!options.OmitRuntimeIdentifier)
+                    {
+                        fallbacks.Add((false, true, true)); // no RID, keep resolved Platform/profile
+                    }
+
+                    fallbacks.Add((true, true, false)); // Platform + RID (earlier winapp versions)
                 }
                 fallbacks.Add((false, false, false)); // plain `dotnet build` / VS layout
-                fallbacks.Add((true, false, false));  // RID-only (including older winapp versions)
+                fallbacks.Add((true, false, false));  // RID-only (earlier winapp versions)
 
                 foreach (var (includeRid, includePlatform, includePublishProfile) in fallbacks)
                 {
                     var args = BuildEvaluateArguments(
-                        csproj, options, csWinRTMetadata,
+                        csproj, includeRid ? options with { OmitRuntimeIdentifier = false } : options, csWinRTMetadata,
                         includeRuntimeIdentifier: includeRid,
                         includePlatform: includePlatform,
                         includePublishProfile: includePublishProfile);
@@ -717,7 +724,7 @@ internal sealed partial class ProjectRunService(
         options = await ResolveEffectiveFrameworkAsync(csproj, options, workingDir, cancellationToken);
         var shimFramework = await ResolveShimFrameworkAsync(csproj, options, workingDir, cancellationToken);
         var csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimFramework);
-        options = ResolvePlatformInjection(csproj, options);
+        options = await ResolveBuildArchitectureAsync(csproj, options, workingDir, cancellationToken);
         options = await ResolveRequiredPublishProfileAsync(
             csproj,
             options,
@@ -1144,7 +1151,7 @@ internal sealed partial class ProjectRunService(
                     // conditional Platform injection (ResolvePlatformInjection). The RID still follows --arch,
                     // so an inconsistent pair builds a mismatched app — warn so the divergence isn't silent.
                     logger.LogDebug(
-                        "{UISymbol} -p:{Property} is forwarded as-is; the RuntimeIdentifier still follows --arch, so ensure they are consistent.",
+                        "{UISymbol} -p:{Property} is forwarded as-is; unless it names the --arch architecture, the RuntimeIdentifier follows --arch, so ensure they are consistent.",
                         UiSymbols.Note, segment);
                 }
             }

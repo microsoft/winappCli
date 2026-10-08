@@ -281,6 +281,13 @@ matrix with `npm-package` and `nuget-packages` from the same run. Manual sample
 runs still build their own packages and support selecting one sample. Sample
 results are uploaded as JUnit XML via Pester's `TestResult` configuration.
 
+The `project-arch` job runs `tests\project-arch\ProjectArch.Tests.ps1` in four
+shards with the same-run x64 CLI. It generates .NET projects covering how
+`winapp run` conveys the target architecture (Platform vs. RuntimeIdentifier,
+reference graphs, packaging, Windows App SDK versions) and launches each app.
+Add a fixture there when changing project-mode architecture handling; see
+`tests\project-arch\README.md` to run it locally.
+
 Keep `build-and-package` and `test-samples-result` as top-level aggregate check
 names for branch protection. They must fail on failures, cancellations, and
 unexpected skips, not just test failures. Metrics join package artifacts with

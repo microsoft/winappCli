@@ -75,7 +75,7 @@ Describe 'winui-app sample' {
                 $script:platform = if ($script:rid -eq 'win-arm64') { 'ARM64' } else { 'x64' }
                 $script:profileName = "debug-$($script:platform).pubxml"
 
-                # Exercise the real .NET SDK boundary behind architecture-profile inference. Keep this
+                # Exercise the real .NET SDK boundary behind architecture-profile selection. Keep this
                 # test-only configuration out of the sample itself so its normal workflow stays lightweight.
                 $projectPath = Join-Path $script:tempDir 'winui-app.csproj'
                 $project = [System.Xml.Linq.XDocument]::Load($projectPath)
@@ -125,7 +125,7 @@ Describe 'winui-app sample' {
 "@ | Set-Content -Path (Join-Path $profileDir $script:profileName)
 
                 # A same-named library profile would be imported by a plain global PublishProfile property.
-                # winapp scopes the inferred profile to the root app, so this file must remain inactive.
+                # Only the app selects a profile, so this file must remain inactive.
                 $libraryProfileDir = Join-Path $libraryDir 'Properties\PublishProfiles'
                 New-Item -ItemType Directory -Path $libraryProfileDir -Force | Out-Null
                 Copy-Item -Path (Join-Path $profileDir $script:profileName) -Destination $libraryProfileDir
@@ -150,16 +150,21 @@ Describe 'winui-app sample' {
             # --no-launch builds the loose layout and registers a debug identity
             # without launching the app (no GUI, deterministic in CI).
             $output = Invoke-WinappCommand -Arguments 'run . --no-launch'
-            "$output" | Should -Match ([regex]::Escape("-p:PublishProfile=$($script:profileName)"))
+            # winapp conveys the architecture with Platform, so the project's own debug-$(Platform)
+            # profile applies; RID-only would fail with NETSDK1102 (proven above).
+            "$output" | Should -Match ([regex]::Escape("-p:Platform=$($script:platform)"))
+            "$output" | Should -Not -Match '(^|\s)-r\s+win-'
             # Scoped to the profile argument rather than the whole console output: winapp prints its
             # version banner, which carries the branch name, so a bare 'release-' match fails on any
             # branch whose name happens to contain it.
             "$output" | Should -Not -Match ([regex]::Escape('PublishProfile=release-'))
+            Join-Path $script:tempDir "bin\$($script:platform)\Debug\net10.0-windows10.0.26100.0\$($script:rid)\winui-app.exe" |
+                Should -Exist -Because 'the self-contained profile places the output under its RuntimeIdentifier'
             "$output" | Should -Match 'Registering packaged application'
             "$output" | Should -Match 'registered'
         }
 
-        It 'Finds the inferred-profile output with --no-build' -Skip:$script:skip {
+        It 'Finds the profile output with --no-build' -Skip:$script:skip {
             Invoke-WinappCommand -Arguments 'run . --no-build --no-launch'
         }
 
@@ -218,7 +223,12 @@ Describe 'winui-app sample' {
                 $stagedExe = Join-Path $layoutDir $executable
                 $stagedExe | Should -Exist
 
-                $recipes = @(Get-ChildItem (Join-Path $script:tempDir 'bin') -Recurse -Filter '*.build.appxrecipe')
+                # Earlier steps in this folder leave their own build output (bin\<Platform>\...), so locate the
+                # Native AOT build through its publish folder: the recipe sits in that publish folder's TargetDir.
+                $published = @(Get-ChildItem (Join-Path $script:tempDir 'bin') -Recurse -Filter $executable |
+                    Where-Object { $_.Directory.Name -eq 'publish' })
+                $published.Count | Should -Be 1
+                $recipes = @(Get-ChildItem $published[0].Directory.Parent.FullName -Filter '*.build.appxrecipe')
                 $recipes.Count | Should -Be 1
                 $recipe = [System.Xml.Linq.XDocument]::Load($recipes[0].FullName)
                 $entries = @($recipe.Descendants() | Where-Object {
@@ -228,9 +238,6 @@ Describe 'winui-app sample' {
                 $entries.Count | Should -Be 1
                 $nativeExe = [System.IO.Path]::GetFullPath($entries[0].Attribute('Include').Value, $recipes[0].DirectoryName)
                 $nativeExe | Should -Exist
-                $published = @(Get-ChildItem (Join-Path $script:tempDir 'bin') -Recurse -Filter $executable |
-                    Where-Object { $_.Directory.Name -eq 'publish' })
-                $published.Count | Should -Be 1
                 (Get-FileHash $stagedExe).Hash | Should -Be (Get-FileHash $nativeExe).Hash
                 (Get-FileHash $stagedExe).Hash | Should -Be (Get-FileHash $published[0].FullName).Hash
 
