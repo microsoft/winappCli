@@ -130,18 +130,19 @@ bool DevToolsAppXaml_ClassifyWith(const std::vector<std::wstring>& uris, const s
                                   std::vector<char>& out)
 {
     out.assign(uris.size(), 0);
-    size_t candidates = 0, hits = 0;
+    std::set<std::wstring> candidates, hits;   // distinct files: one busy loose file must not outvote the pages
     for (size_t i = 0; i < uris.size(); ++i) {
         if (uris[i].empty()) continue;
         const std::wstring lower = ToLower(uris[i]);
         if (!LegacyDenylistSaysApp(lower)) continue;   // framework by name -> stays 0
         out[i] = 1;
-        ++candidates;
-        if (scanned.count(PathKey(lower))) ++hits;
+        const std::wstring key = PathKey(lower);
+        candidates.insert(key);
+        if (scanned.count(key)) hits.insert(key);
     }
     // The scan sees only loose .xaml/.xbf files; XAML compiled into resources.pri is invisible to it. A scan that
-    // misses most of the candidates is partial, and trusting it would hide the app's own pages.
-    const bool usable = !scanned.empty() && hits * 2 >= candidates;
+    // misses most of the candidate files is partial, and trusting it would hide the app's own pages.
+    const bool usable = !scanned.empty() && hits.size() * 2 >= candidates.size();
     if (usable) {
         for (size_t i = 0; i < uris.size(); ++i)
             if (out[i] && !scanned.count(PathKey(uris[i]))) out[i] = 0;

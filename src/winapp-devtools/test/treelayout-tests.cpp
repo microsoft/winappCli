@@ -582,6 +582,13 @@ static void Test_PartialPackageScanDoesNotHideTheApp()
                                                 L"ms-appx:///SomeLibrary/Themes/Control.xaml" };
     Check(DevToolsAppXaml_ClassifyWith(covered, scanned, app), "a scan that covers most candidates is trusted");
     Check(app[0] && app[1] && !app[2], "a trusted scan keeps the app's files and drops the library's");
+
+    // Files, not elements, decide it: one loose file with many template parts must not outvote two compiled pages.
+    std::vector<std::wstring> busy(80, L"ms-appx:///Styles/Button.xaml");
+    for (int i = 0; i < 30; ++i) busy.push_back(L"ms-appx:///MainWindow.xaml");
+    for (int i = 0; i < 30; ++i) busy.push_back(L"ms-appx:///Pages/HomePage.xaml");
+    Check(!DevToolsAppXaml_ClassifyWith(busy, scanned, app), "one busy loose file does not make a partial scan trusted");
+    CheckEq((int)std::count(app.begin(), app.end(), 1), 140, "the compiled pages stay app-authored");
 }
 
 // Defined in protocol-tests.cpp: the DevToolsProtocol JSON reader suite. Both are COM-free pure logic, so they
