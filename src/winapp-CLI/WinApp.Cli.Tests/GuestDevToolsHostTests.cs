@@ -72,6 +72,34 @@ public sealed class GuestDevToolsHostTests
     }
 
     [TestMethod]
+    public void LaunchedProcesses_AreReadyLaunchesOfThisDeploymentAndEpoch()
+    {
+        var root = TestPaths.TempRoot("guest-host-launched");
+        var host = new GuestDevToolsHost(new TargetStateDirectoryProvider(root), new FakeAppLauncherService());
+        try
+        {
+            void Launch(string phase, string epoch, string deployment, int pid)
+            {
+                var id = Guid.NewGuid().ToString("N");
+                var directory = host.Create(Target, id);
+                host.WritePlan(Target, id, Plan with { Epoch = epoch, DeploymentId = deployment });
+                GuestDevToolsHost.WriteState(directory, new(phase, new("ready", new(pid, 1000 + pid), 1, true), SessionId: id, BindingId: id));
+            }
+            Launch("ready", "epoch", "app-deployment", 1040);
+            Launch("exited", "epoch", "app-deployment", 1041);
+            Launch("ready", "older-epoch", "app-deployment", 1042);
+            Launch("ready", "epoch", "other-deployment", 1043);
+            var launched = host.LaunchedProcesses(Target, "epoch", "app-deployment");
+            Assert.AreEqual(new GuestProcessStart(1040, 2040), launched.Single());
+            Assert.IsEmpty(host.LaunchedProcesses(new("sandbox", "other"), "epoch", "app-deployment"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void PrivatePlan_RoundTripsAndRejectsForeignAccess()
     {
         var root = TestPaths.TempRoot("guest-host-plan");

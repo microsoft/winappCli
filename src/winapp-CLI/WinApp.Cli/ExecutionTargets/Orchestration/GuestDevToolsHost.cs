@@ -155,6 +155,41 @@ internal sealed class GuestDevToolsHost(ITargetStateDirectoryProvider directorie
         return application;
     }
 
+    /// <summary>The guest processes this host launched with DevTools for a deployment in the target's current epoch.</summary>
+    internal IReadOnlyList<GuestProcessStart> LaunchedProcesses(ExecutionTargetRef target, string epoch, string deploymentId)
+    {
+        var targetRoot = directories.GetTargetRoot(target, create: false).FullName;
+        var root = Path.Combine(targetRoot, "devtools");
+        if (!Directory.Exists(root) || PathSafety.HasReparsePointOnPath(root, targetRoot))
+        {
+            return [];
+        }
+        var processes = new List<GuestProcessStart>();
+        foreach (var directory in Directory.EnumerateDirectories(root))
+        {
+            var id = Path.GetFileName(directory);
+            if (!Guid.TryParseExact(id, "N", out _) || !File.Exists(Path.Combine(directory, "status.json")))
+            {
+                continue;
+            }
+            try
+            {
+                var state = ReadState(target, id);
+                var plan = ReadPlan(target, id);
+                if (state.Phase == "ready" && state.App?.Process is { ProcessId: > 0, StartTicksUtc: > 0 } process &&
+                    plan.Epoch == epoch && plan.DeploymentId == deploymentId)
+                {
+                    processes.Add(process);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
+            {
+                // A receipt this user can't read proves nothing about a running app.
+            }
+        }
+        return processes;
+    }
+
     internal string FindSelector(PreparedTarget target, GuestProcessStart process)
     {
         var targetRoot = directories.GetTargetRoot(target.Reference, create: false).FullName;

@@ -321,10 +321,27 @@ internal partial class RunCommand
                 var provisioning = await ProvisionRuntimesAsync(
                     target, sourceRoot, applicationArchitecture, packageGraph, framework, cancellationToken);
 
+                // Deploying stops this deployment's running instance; a DevTools run says so, as it does locally.
+                var runningBefore = inspector is null ? [] : await RunningDevToolsAppsAsync(target, deploymentId, cancellationToken);
+
                 WriteProgress(isJson, "Deploying the application into the Windows Sandbox...");
 
                 var deployment = await guestApplicationRunner.DeployAsync(
                     target, deploymentId, sourceRoot, clean, cancellationToken);
+
+                var closed = new List<int>();
+                foreach (var process in runningBefore)
+                {
+                    if (!await target.Operations.IsTrackedProcessRunningAsync(process.ProcessId, process.StartTicksUtc, cancellationToken))
+                    {
+                        closed.Add(process.ProcessId);
+                    }
+                }
+                if (closed.Count > 0 && !isJson)
+                {
+                    ansiConsole.MarkupLineInterpolated(
+                        $"{UiSymbols.Note} Closed {closed.Count} running instance(s) of this app (PID {string.Join(", ", closed)}) so DevTools starts cold.");
+                }
 
                 var state = deployment.State;
 
@@ -504,6 +521,20 @@ internal partial class RunCommand
             {
                 return Fail(ex.Message, isJson);
             }
+        }
+
+        private async Task<List<GuestProcessStart>> RunningDevToolsAppsAsync(
+            PreparedTarget target, string deploymentId, CancellationToken cancellationToken)
+        {
+            var running = new List<GuestProcessStart>();
+            foreach (var process in guestDevToolsHost?.LaunchedProcesses(target.Reference, target.Epoch.Value, deploymentId) ?? [])
+            {
+                if (await target.Operations.IsTrackedProcessRunningAsync(process.ProcessId, process.StartTicksUtc, cancellationToken))
+                {
+                    running.Add(process);
+                }
+            }
+            return running;
         }
 
         /// <summary>
