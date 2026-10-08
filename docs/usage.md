@@ -1250,12 +1250,12 @@ Everything written after `dotnet run` is passed to **your application**, exactly
 # Goes to your app. `--` is optional here, but required when the flag is also a
 # `dotnet run` option (--configuration, --framework, --project, -c, -f, -r, ...),
 # otherwise the SDK claims it and your app never sees it.
-dotnet run --devtools
-dotnet run -- --devtools
+dotnet run --demo-mode
+dotnet run -- --demo-mode
 dotnet run -- --configuration Release
 
-# Configures WinApp; --devtools still reaches your app
-dotnet run -p:WinAppRunDetach=true --devtools
+# Configures WinApp; --demo-mode still reaches your app
+dotnet run -p:WinAppRunDetach=true --demo-mode
 ```
 
 The following MSBuild properties can be set in your `.csproj` to control behavior:
@@ -1272,6 +1272,7 @@ The following MSBuild properties can be set in your `.csproj` to control behavio
 | `WinAppRunClean` | `false` | Remove the existing package's application data (LocalState, settings) before re-deploying |
 | `WinAppRunSymbols` | `false` | Download symbols from the Microsoft Symbol Server for richer native crash analysis. Only has an effect with `WinAppRunDebugOutput`. |
 | `WinAppRunExecutable` | (empty) | Executable path relative to the build-output folder. Use when the manifest contains `$targetnametoken$` and the output folder has more than one `.exe`. |
+| `WinAppRunDevTools` | (unset) | `on`, `off` or `headless`, like [`--devtools`](guides/devtools.md#turn-devtools-on-or-off). Unset, a WinUI app gets DevTools by default. `on` and `headless` can't be combined with `WinAppRunNoLaunch` or `WinAppRunUseExecutionAlias=false`. |
 | `WinAppRunArgs` | (empty) | Raw arguments appended to the `winapp run` command line, for options with no dedicated property (for example `--verbose`). Appended after every property above. |
 
 **Mutually exclusive settings.** `WinAppRunNoLaunch` and `WinAppRunDetach` each describe a different

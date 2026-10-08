@@ -918,4 +918,76 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         AssertTelemetry(winUI ? DevToolsMode.On : DevToolsMode.Off,
             winUI ? DevToolsModeSource.Default : DevToolsModeSource.NotWinUI, winUI ? DevToolsOutcome.Attached : null);
     }
+
+    // ---- 'dotnet run' through the NuGet package ----
+
+    private (string Output, string Project, string SourcesFile) NuGetWinUIRun(string? ci = null)
+    {
+        var app = Prepare("folder", true);
+        var project = _tempDirectory.CreateSubdirectory("nuget-project").FullName;
+        File.WriteAllText(Path.Combine(project, "App.csproj"), "<Project />");
+        File.WriteAllText(Path.Combine(project, "MainWindow.xaml"), "<Window />");
+        var sources = Path.Combine(project, "winapp-devtools-sources.txt");
+        File.WriteAllLines(sources, [$"project|{Path.Combine(project, "App.csproj")}", "savedState|", "source|MainWindow.xaml"]);
+        var handler = GetRequiredService<RunCommand.Handler>();
+        handler.ReadCiVariable = () => ci;
+        handler.ReadDefaultMode = () => null;
+        DevToolsRunTelemetryScope.Begin();
+        return (app.Output, project, sources);
+    }
+
+    private Task<int> DotnetRun(string output, string framework, string sources, params string[] options) =>
+        ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(),
+            ["run", output, .. options, "--devtools-sources", sources, "--project-framework", framework, "--caller", "nuget-package"]);
+
+    [TestMethod]
+    public async Task NuGetWinUIRun_IsOnByDefault_AndInspectsTheProjectSources()
+    {
+        var run = NuGetWinUIRun();
+        Assert.AreEqual(0, await DotnetRun(run.Output, "winui", run.SourcesFile, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.HasCount(1, _attach.Calls);
+        Assert.AreEqual((run.Project, true), _environments.Single(), "comments and source lines belong to the project, not the build output");
+        Assert.IsNotNull(_launcher.LastEnvironment!["WINAPP_DEVTOOLS_SOURCE_INVENTORY"], "the project's XAML sources are inventoried");
+        Assert.AreEqual("default", DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("source").GetString());
+        AssertTelemetry(DevToolsMode.On, DevToolsModeSource.Default, DevToolsOutcome.Attached);
+    }
+
+    [TestMethod]
+    [DataRow("wpf")]
+    [DataRow("other-dotnet")]
+    public async Task NuGetRun_OfAnotherFramework_IsOffAndUnchanged(string framework)
+    {
+        var run = NuGetWinUIRun();
+        Assert.AreEqual(0, await DotnetRun(run.Output, framework, run.SourcesFile, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.IsEmpty(_attach.Calls);
+        Assert.IsNull(DevToolsJson(TestAnsiConsole.Output));
+        AssertTelemetry(DevToolsMode.Off, DevToolsModeSource.NotWinUI, null);
+    }
+
+    [TestMethod]
+    public async Task NuGetWinUIRun_InCi_IsOff()
+    {
+        var run = NuGetWinUIRun(ci: "1");
+        Assert.AreEqual(0, await DotnetRun(run.Output, "winui", run.SourcesFile, "--detach", "--json"), TestAnsiConsole.Output);
+        Assert.IsEmpty(_attach.Calls);
+        AssertTelemetry(DevToolsMode.Off, DevToolsModeSource.Ci, null);
+    }
+
+    [TestMethod]
+    [DataRow("--no-launch")]
+    [DataRow("--without-alias")]
+    public async Task NuGetWinUIRun_WithAnOptionDevToolsCannotUse_IsOffWithoutAnError(string option)
+    {
+        var run = NuGetWinUIRun();
+        Assert.AreEqual(0, await DotnetRun(run.Output, "winui", run.SourcesFile, option, "--json"), TestAnsiConsole.Output);
+        Assert.IsEmpty(_attach.Calls);
+        AssertTelemetry(DevToolsMode.Off, DevToolsModeSource.IncompatibleOption, null);
+    }
+
+    [TestMethod]
+    public void NuGetDefaultLine_NamesTheMSBuildProperty()
+    {
+        Assert.AreEqual("DevTools on (default) · turn off: -p:WinAppRunDevTools=off or winapp devtools default off",
+            RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.On, DevToolsModeSource.Default), dotnetRun: true));
+    }
 }

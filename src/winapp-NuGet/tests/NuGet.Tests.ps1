@@ -128,6 +128,7 @@ $extraProps  </PropertyGroup>
                 [string]$WinAppRunExecutable = "",
                 [string]$WinAppRunUseExecutionAlias = "",
                 [string]$WinAppRunDevTools = "",
+                [string]$ExtraItems = "",
                 [string]$OutputType = "WinExe",
                 [switch]$UseWinUI,
                 [switch]$UseWPF,
@@ -167,6 +168,7 @@ $extraProps  </PropertyGroup>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <OutputType>$OutputType</OutputType>
 $extraProps  </PropertyGroup>
+  <ItemGroup>$ExtraItems</ItemGroup>
   <Import Project="$($script:propsPath)" />
   <Import Project="$($script:targetsPath)" />
 </Project>
@@ -618,7 +620,7 @@ $preCompiledItem  <Import Project="$($script:propsPath)" />
         }
 
         It "Forwards no DevTools switch when WinAppRunDevTools is unset" {
-            Get-ComputedRunArgs -CaseName 'run-devtools-unset' -UseWinUI | Should -Not -Match '--devtools'
+            Get-ComputedRunArgs -CaseName 'run-devtools-unset' -UseWinUI | Should -Not -Match ' --devtools '
         }
 
         It "Forwards WinAppRunDevTools=<value> as --devtools <value>" -ForEach @(
@@ -648,6 +650,23 @@ $preCompiledItem  <Import Project="$($script:propsPath)" />
         It "Allows WinAppRunDevTools=off with either conflicting property" {
             Get-ComputedRunArgs -CaseName 'run-devtools-off-nolaunch' -WinAppRunDevTools 'off' -WinAppRunNoLaunch |
                 Should -Match ' --devtools off '
+        }
+
+        It "Hands a WinUI app's project and XAML sources to winapp" {
+            $args = Get-ComputedRunArgs -CaseName 'run-devtools-sources' -UseWinUI `
+                -ExtraItems '<Page Include="MainWindow.xaml" /><ApplicationDefinition Include="App.xaml" />'
+
+            $args | Should -Match ' --devtools-sources "([^"]+)"'
+            $file = [regex]::Match($args, ' --devtools-sources "([^"]+)"').Groups[1].Value
+            $lines = Get-Content -LiteralPath $file
+            $lines | Should -Contain "project|$(Join-Path $script:tempRoot 'run-devtools-sources\test.csproj')"
+            $lines | Should -Contain 'source|MainWindow.xaml'
+            $lines | Should -Contain 'source|App.xaml'
+            @($lines | Where-Object { $_ -like 'savedState|*' }).Count | Should -Be 1
+        }
+
+        It "Hands no XAML sources to winapp for an app that isn't WinUI" {
+            Get-ComputedRunArgs -CaseName 'run-devtools-sources-wpf' -UseWPF | Should -Not -Match '--devtools-sources'
         }
     }
 

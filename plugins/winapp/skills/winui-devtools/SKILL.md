@@ -46,8 +46,8 @@ Packaged aliases are prepared automatically in the staged manifest, not manually
 authored in the source manifest. DevTools uses its private staged alias regardless
 of the ordinary-run `WinAppRunUseExecutionAlias` preference. Explicit
 `--without-alias`, Windows-disabled aliases and unverifiable targets still fail.
-See the [launch troubleshooting guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#when-a-command-fails)
-for the `dotnet run` integration limitation.
+With `dotnet run` (NuGet package), a WinUI app gets DevTools the same way;
+`-p:WinAppRunDevTools=on|off|headless` chooses the mode.
 
 Do not adopt a different running instance when launch fails. Attaching to an
 existing app is explicit and headless by default:

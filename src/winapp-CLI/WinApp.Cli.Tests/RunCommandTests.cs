@@ -1344,11 +1344,22 @@ public class RunCommandTests : BaseCommandTests
         var rootCommand = GetRequiredService<WinAppRootCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(rootCommand,
-            ["run", _tempDirectory.FullName, "--caller", "nuget-package", "--", "--devtools"]);
+            ["run", _tempDirectory.FullName, "--caller", "nuget-package", "--", "--demo-mode"]);
 
         Assert.AreEqual(0, exitCode);
         Assert.IsFalse($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}".Contains("was passed to your application", StringComparison.Ordinal),
             "An argument winapp never owned should not produce a migration notice");
+    }
+
+    [TestMethod]
+    public async Task RunCommand_NuGetCaller_ForwardsDevTools_PointsAtWinAppRunDevTools()
+    {
+        await CreateTestManifestAsync();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(),
+            ["run", _tempDirectory.FullName, "--caller", "nuget-package", "--", "--devtools"]);
+
+        Assert.AreEqual(0, exitCode);
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", "-p:WinAppRunDevTools=<on|off|headless>");
     }
 
     [TestMethod]

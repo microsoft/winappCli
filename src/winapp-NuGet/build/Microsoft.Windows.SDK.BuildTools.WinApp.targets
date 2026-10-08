@@ -343,6 +343,15 @@
   <Target Name="_WinAppBuildRunArgs"
           DependsOnTargets="_WinAppValidateRunSupport"
           Condition="'$(_WinAppRunSupportActive)' == 'true'">
+    <!--
+      WinUI DevTools maps elements to source lines: hand winapp the project, its XAML compiler saved state and
+      its XAML sources, which a build-output folder run cannot discover itself.
+    -->
+    <PropertyGroup Condition="'$(UseWinUI)' == 'true' And '$(_WinAppFileBasedApp)' != 'true'">
+      <_WinAppDevToolsSourcesFile>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'winapp-devtools-sources.txt'))))</_WinAppDevToolsSourcesFile>
+    </PropertyGroup>
+    <WriteLinesToFile Condition="'$(_WinAppDevToolsSourcesFile)' != ''" File="$(_WinAppDevToolsSourcesFile)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="project|$(MSBuildProjectFullPath);savedState|$(XamlSavedStateFilePath);@(Page->'source|%(Identity)');@(ApplicationDefinition->'source|%(Identity)')" />
     <PropertyGroup>
       <!-- Remove trailing backslash from paths to avoid escaping the closing quote -->
       <_WinAppManifestPathArg>$(WinAppManifestPath.TrimEnd('\'))</_WinAppManifestPathArg>
@@ -573,6 +582,7 @@
       <_WinAppRunArgs Condition="'$(WinAppRunSymbols)' == 'true'">$(_WinAppRunArgs) --symbols</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(WinAppRunExecutable)' != ''">$(_WinAppRunArgs) --executable "$(WinAppRunExecutable)"</_WinAppRunArgs>
       <_WinAppRunArgs Condition="'$(_WinAppRunDevTools)' != ''">$(_WinAppRunArgs) --devtools $(_WinAppRunDevTools)</_WinAppRunArgs>
+      <_WinAppRunArgs Condition="'$(_WinAppDevToolsSourcesFile)' != ''">$(_WinAppRunArgs) --devtools-sources "$(_WinAppDevToolsSourcesFile)"</_WinAppRunArgs>
       <_WinAppRunArgs>$(_WinAppRunArgs) --project-framework $(_WinAppProjectFramework)</_WinAppRunArgs>
       <_WinAppRunArgs>$(_WinAppRunArgs) --caller nuget-package</_WinAppRunArgs>
       <!--

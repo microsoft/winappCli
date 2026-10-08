@@ -19,6 +19,40 @@ internal partial class RunCommand
         Hidden = true,
     };
 
+    // Written by the NuGet package's 'dotnet run' integration: the project, its XAML saved state and its XAML
+    // sources, one "kind|value" per line, so a build-output folder run can map elements to source.
+    internal static Option<FileInfo?> DevToolsSourcesOption { get; } = new("--devtools-sources")
+    {
+        Hidden = true,
+    };
+
+    internal sealed record NuGetDevToolsSources(FileInfo Project, IReadOnlyList<string> Sources, XamlCompilerArtifacts? Compiler)
+    {
+        internal static NuGetDevToolsSources? Read(FileInfo? file)
+        {
+            if (file is not { Exists: true }) { return null; }
+            string? project = null, savedState = null;
+            var sources = new List<string>();
+            foreach (var line in File.ReadAllLines(file.FullName))
+            {
+                var split = line.IndexOf('|');
+                if (split < 0) { continue; }
+                var value = line[(split + 1)..].Trim();
+                switch (line[..split])
+                {
+                    case "project": project = value; break;
+                    case "savedState": savedState = value; break;
+                    case "source" when value.Length > 0: sources.Add(value); break;
+                }
+            }
+            if (string.IsNullOrEmpty(project) || !Path.IsPathFullyQualified(project) || !File.Exists(project)) { return null; }
+            var csproj = new FileInfo(project);
+            var compiler = string.IsNullOrEmpty(savedState) ? null : XamlSourceCoordinates.FromProperties(csproj,
+                new Dictionary<string, string> { ["XamlSavedStateFilePath"] = savedState });
+            return new(csproj, sources.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), compiler);
+        }
+    }
+
     public static Option<DevToolsMode?> DevToolsOption { get; } = new("--devtools")
     {
         HelpName = "on|off|headless",
@@ -102,14 +136,17 @@ internal partial class RunCommand
             };
 
         // The one line a run prints when DevTools came from the default rather than the command line.
-        internal static string? DefaultDevToolsLine(DevToolsResolution run) => run is { Enabled: true, FailOpen: true }
+        internal static string? DefaultDevToolsLine(DevToolsResolution run, bool dotnetRun = false) => run is { Enabled: true, FailOpen: true }
             ? $"DevTools {run.Mode.ToString().ToLowerInvariant()} ({(run.Source == DevToolsModeSource.Setting ? "your default" : "default")}) · " +
-              "turn off: --devtools off or winapp devtools default off"
+              $"turn off: {(dotnetRun ? "-p:WinAppRunDevTools=off" : "--devtools off")} or winapp devtools default off"
             : null;
+
+        // 'dotnet run' through the NuGet package: options reach winapp as MSBuild properties.
+        private bool dotnetRun;
 
         private void AnnounceDefaultDevTools(bool isJson)
         {
-            if (!isJson && DefaultDevToolsLine(devToolsRun) is { } line && logger.IsEnabled(LogLevel.Information))
+            if (!isJson && DefaultDevToolsLine(devToolsRun, dotnetRun) is { } line && logger.IsEnabled(LogLevel.Information))
             {
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Note} {line}");
             }

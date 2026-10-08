@@ -250,6 +250,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         Options.Add(DebugOutputOption);
         Options.Add(DevToolsOption);
         Options.Add(GuestInspectorApplicationOption);
+        Options.Add(DevToolsSourcesOption);
         Options.Add(UnregisterOnExitOption);
         Options.Add(DetachOption);
         Options.Add(CleanOption);
@@ -600,9 +601,13 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             }
 
             // A run DevTools could not start for (CI, --no-launch, --without-alias, a Sandbox run, a guest registration)
-            // stays plain unless DevTools was asked for, and only a WinUI project gets it by default.
-            var winUIProject = inputResolution.Mode == WinAppRunMode.Project &&
-                projectContextDetector.DetectProject(inputResolution.Csproj!).Framework == ProjectAppFramework.WinUI;
+            // stays plain unless DevTools was asked for, and only a WinUI project gets it by default. 'dotnet run'
+            // through the NuGet package hands winapp the build output and the project's framework.
+            dotnetRun = string.Equals(parseResult.GetValue(WinAppRootCommand.CallerOption), "nuget-package", StringComparison.Ordinal);
+            var winUIProject = inputResolution.Mode == WinAppRunMode.Project
+                ? projectContextDetector.DetectProject(inputResolution.Csproj!).Framework == ProjectAppFramework.WinUI
+                : dotnetRun && inputResolution.Mode == WinAppRunMode.Folder &&
+                    string.Equals(parseResult.GetValue(WinAppRootCommand.ProjectFrameworkOption), "winui", StringComparison.OrdinalIgnoreCase);
             devToolsRun = DevToolsResolution.Resolve(requestedDevTools,
                 DevToolsResolution.IsCi(ReadCiVariable()),
                 noLaunch || withoutAlias || !executionTarget.IsLocal || guestInspectorApplication is not null,
@@ -691,12 +696,15 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 withAlias, withoutAlias, noLaunch, detach, isJson,
                 outputType: DetectFolderOutputType(inputFolder, executable));
 
+            var nugetSources = devToolsRun.Enabled ? NuGetDevToolsSources.Read(parseResult.GetValue(DevToolsSourcesOption)) : null;
             return await ExecuteRunPipelineAsync(
                 inputFolder, manifest, layoutOutput, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: null, projectFile: null, framework: null, noRestore: false, selfContained: false,
                 folderAliasDecision, executionTarget, cancellationToken, devTools: devToolsRun.Enabled,
-                showOverlay: devToolsRun.ShowToolbar, inspectorApplicationId: guestInspectorApplication);
+                showOverlay: devToolsRun.ShowToolbar, inspectorApplicationId: guestInspectorApplication,
+                devToolsSources: nugetSources?.Sources, devToolsCompilerArtifacts: nugetSources?.Compiler,
+                devToolsProject: nugetSources?.Project);
         }
 
         /// <summary>
@@ -792,7 +800,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             string? inspectorApplicationId = null,
             FileInfo? appxRecipe = null,
             bool nativeAot = false,
-            Services.DevTools.XamlCompilerArtifacts? devToolsCompilerArtifacts = null)
+            Services.DevTools.XamlCompilerArtifacts? devToolsCompilerArtifacts = null,
+            FileInfo? devToolsProject = null)
         {
             // A non-local target diverges here rather than later: everything below this point registers a
             // package and launches a process on this machine, which is exactly what running
@@ -1063,7 +1072,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
             if (devTools)
             {
-                if (await RunInspectorAliasAsync(inspectorAlias, inputFolder, projectFile, aumid, appArgs,
+                if (await RunInspectorAliasAsync(inspectorAlias, inputFolder, projectFile ?? devToolsProject, aumid, appArgs,
                     debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName, cancellationToken,
                     nativeAot, devToolsSources, devToolsCompilerArtifacts) is int inspected)
                 {
@@ -1365,6 +1374,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             ["--args"] = "WinAppLaunchArgs=<args>",
             ["--manifest"] = "WinAppManifestPath=<path>",
             ["--output-appx-directory"] = "WinAppLooseLayoutPath=<path>",
+            ["--devtools"] = "WinAppRunDevTools=<on|off|headless>",
         };
 
         /// <summary>

@@ -60,6 +60,13 @@ To choose for one run, pass `--devtools on`, `--devtools headless` or `--devtool
 `headless` starts DevTools without drawing anything in your app: `winapp devtools`
 commands work, and **Ctrl+Shift+F12** shows the toolbar.
 
+With `dotnet run` and the `Microsoft.Windows.SDK.BuildTools.WinApp` package, a WinUI
+app gets DevTools the same way. Choose with an MSBuild property:
+
+```powershell
+dotnet run -p:WinAppRunDevTools=off      # or headless, or on
+```
+
 To change the default for your user account:
 
 ```powershell
@@ -456,9 +463,8 @@ its entry in Windows App execution aliases and retry. `--devtools on` cannot be
 combined with `--no-launch` or `--without-alias`; the [other run-option restrictions](../usage.md#run)
 still apply.
 
-Use `winapp run` directly for this workflow. The NuGet `dotnet run` integration runs
-a build-output folder, where DevTools is off unless you add `--devtools on`, and it
-forwards a `false` alias preference as `--without-alias`, which DevTools can't use.
+With `dotnet run`, `WinAppRunNoLaunch=true` or `WinAppRunUseExecutionAlias=false` turns
+DevTools off, and fails the build when `WinAppRunDevTools` is `on` or `headless`.
 
 If the app is already running when you run `winapp run . --devtools on`, `run` stops
 and names its PID: DevTools needs to start the app itself. Close that instance and
