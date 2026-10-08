@@ -606,7 +606,7 @@ static void WireSelScroller(const RECT& bounds)
 
 static void TrackingSync()
 {
-    const bool need = (g_selectedHandle != 0) || !g_pins.empty();
+    const bool need = (g_selectedHandle != 0) || (g_lastHighlightHandle != 0) || !g_pins.empty();
     if (need && !g_trackTimer) {
         g_trackTimer = SetTimer(nullptr, 0, kTrackIntervalMs, &TrackingTimerProc);
         g_trackFirstTickPending = true;
@@ -687,8 +687,20 @@ static void OnCensusNodeRemoved(InstanceHandle h)
     DeselectAll(g_lastHighlightHandle == g_selectedHandle);
 }
 
+// A highlight set from the inspector or a client, not a pick, follows its element's layout as markers do.
+static void TrackHighlight()
+{
+    const InstanceHandle h = g_lastHighlightHandle;
+    if (!h || h == g_selectedHandle || !g_pickDiag || g_surfaceMoving) return;
+    RECT nb{};
+    if (!TryElementRootBounds(g_pickDiag, h, h, &nb) || EqualRect(&nb, &g_lastPickBoundsDip)) return;
+    if (SUCCEEDED(DrawAdorner(g_pickDiag, nb.left, nb.top, nb.right - nb.left, nb.bottom - nb.top, g_pickSeed)))
+        g_lastPickBoundsDip = nb;
+}
+
 static void TrackingTick()
 {
+    TrackHighlight();
     if (g_surfaceMoving || !g_pickDiag || !g_pickRoot) return;
 // The 64-tick cost line below cannot answer this: a tick that never runs logs nothing, which is
 // indistinguishable from a tick that runs and early-outs.

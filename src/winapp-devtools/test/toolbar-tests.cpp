@@ -103,6 +103,9 @@ static void TestToolbarContract()
     CheckToolbar(xaml.find("<ToggleButton x:Name=\"DevToolsProtoLayout\"") != std::string::npos &&
                      xaml.find("ToolTip=\"Show layout adorners") == std::string::npos,
                  "Layout adorners is a toggle for UI Automation, with a tooltip that holds in both states");
+    CheckToolbar(xaml.find("<ToggleButton x:Name=\"DevToolsProtoPick\"") != std::string::npos &&
+                     overlay.find("ProtoSetToggle(L\"DevToolsProtoPick\", L\"DevToolsPickOn\", L\"DevToolsPickOff\", on);") != std::string::npos,
+                 "Select element is a toggle whose state UI Automation reads, like Comment mode");
     CheckToolbar(xaml.find("<ToggleButton x:Name=\"DevToolsProtoPin\"") != std::string::npos &&
                      xaml.find("x:Name=\"DevToolsPinOn\"") != std::string::npos &&
                      xaml.find("DevToolsProtoPinDot") == std::string::npos &&

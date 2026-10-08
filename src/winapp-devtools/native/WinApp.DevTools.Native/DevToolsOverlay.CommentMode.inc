@@ -157,6 +157,9 @@ static std::wstring BuildPinMarkup(const DevToolsSelection::PinPixels& pin, cons
     m += L"<Button xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"";
     m += L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"";
     m += L" AutomationProperties.AutomationId=\"WinAppDevToolsCommentPin\"";
+    // Markers are visual only: hundreds of them would flood agents and screen readers. The Comments pane and the
+    // toolbar's comment menu reach the same comments through UI Automation.
+    m += L" AutomationProperties.AccessibilityView=\"Raw\" IsTabStop=\"False\"";
     m += L" AutomationProperties.Name=\"Comment on this element\"";
     m += L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(tip) + L"\"";
     m += L" Canvas.Left=\"" + DipText(pin.x) + L"\" Canvas.Top=\"" + DipText(pin.y) + L"\" Canvas.ZIndex=\"1900\"";

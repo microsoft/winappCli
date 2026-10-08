@@ -91,12 +91,20 @@
           <Ellipse Width="8" Height="8" Fill="$LIVE$" HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Grid>
       </Border>
-      <Button x:Name="DevToolsProtoPick" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+      <ToggleButton x:Name="DevToolsProtoPick" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
               IsEnabled="$PICKENABLED$"
               ToolTipService.ToolTip="Select an element to inspect (Esc to exit)"
               AutomationProperties.AutomationId="DevToolsProtoPick"
               AutomationProperties.Name="Select element">
+        <ToggleButton.Resources>
+          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+        </ToggleButton.Resources>
         <Grid Width="30" Height="26">
           <FontIcon x:Name="DevToolsPickOff" FlowDirection="LeftToRight" Glyph="&#xE7C9;"
                     FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -106,7 +114,7 @@
                       Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Grid>
         </Grid>
-      </Button>
+      </ToggleButton>
       <!-- Comment mode is a mode like Pick; the chevron beside it opens the comment actions. -->
       <ToggleButton x:Name="DevToolsProtoComments" Style="{x:Null}" AllowFocusOnInteraction="False" Width="34" Height="26" Padding="0" BorderThickness="0" CornerRadius="6,0,0,6"
               Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"

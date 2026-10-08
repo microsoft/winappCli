@@ -297,6 +297,22 @@ try {
         $restoredNodes = @($restored.windows | ForEach-Object { Nodes $_.elements })
         Check (@($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoPill' -and -not $_.isOffscreen }).Count -eq 1 -and
             @($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoRailL' -and -not $_.isOffscreen }).Count -eq 0) 'show restores the previously expanded toolbar state'
+        # The ⋯ menu shows the default the CLI sets while the app runs.
+        $defaultBefore = Invoke-Cli @('devtools', 'default')
+        try {
+            foreach ($mode in 'headless', 'on') {
+                $null = Invoke-Cli @('devtools', 'default', $mode)
+                $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoMore', '-a', $app)
+                $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsShowOnLaunch', '-a', $app, '-t', '5000')
+                $launch = Invoke-Cli @('ui', 'get-property', 'DevToolsShowOnLaunch', '-a', $app, '-p', 'ToggleState')
+                $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoMore', '-a', $app)
+                Check ($launch.properties.ToggleState -eq $(if ($mode -eq 'on') { 'On' } else { 'Off' })) "the menu shows a default of $mode set from the CLI"
+            }
+        }
+        finally {
+            if ($defaultBefore.source -eq 'setting') { $null = Invoke-Cli @('devtools', 'default', [string]$defaultBefore.mode) }
+            else { Remove-Item -LiteralPath $defaultBefore.settingFile -Force -ErrorAction SilentlyContinue }
+        }
         $blockedStore = Join-Path (Split-Path -Parent $project) '.winapp\ui-comments.json'
         Check (-not (Test-Path -LiteralPath $blockedStore)) 'comment failure probe has no existing store to overwrite'
         New-Item -ItemType Directory -Path $blockedStore -Force | Out-Null
@@ -409,20 +425,57 @@ try {
         $pinNodes = @($pins.windows | ForEach-Object { Nodes $_.elements })
         $narrowBox = @($pinNodes | Where-Object { $_.automationId -eq 'NarrowCommentProbe' -and -not $_.isOffscreen })
         Check ($narrowBox.Count -eq 1 -and $narrowBox[0].width -gt 0) 'narrow control has actual visible UIA bounds'
-        $overlaps = @($pinNodes | Where-Object { $_.automationId -eq 'WinAppDevToolsCommentPin' -and -not $_.isOffscreen } |
-            ForEach-Object {
-                $width = [Math]::Max(0, [Math]::Min($_.x + $_.width, $narrowBox[0].x + $narrowBox[0].width) - [Math]::Max($_.x, $narrowBox[0].x))
-                $height = [Math]::Max(0, [Math]::Min($_.y + $_.height, $narrowBox[0].y + $narrowBox[0].height) - [Math]::Max($_.y, $narrowBox[0].y))
-                [ordered]@{ pin = $_; intersectionArea = $width * $height }
-            })
+        # Markers are drawn for sight only; the Comments pane and toolbar menu carry them for UI Automation.
+        Check (@($pinNodes | Where-Object automationId -eq 'WinAppDevToolsCommentPin').Count -eq 0 -and
+            @((Invoke-Cli @('ui', 'inspect', '-a', $app, '-i')).windows | ForEach-Object { Nodes $_.elements } |
+                Where-Object name -eq 'Comment on this element').Count -eq 0) 'comment markers stay out of the UI Automation tree'
+        $windowBox = @($pins.windows | Where-Object { [string]$_.hwnd -eq $window })[0].elements[0]
+        function Capture-Window([string]$Name) {
+            $path = Join-Path $evidence $Name
+            $null = Invoke-Cli @('ui', 'screenshot', '-w', $window, '-o', $path)
+            return $path
+        }
+        function Toggle-Markers {
+            $shownMenu = @((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows | ForEach-Object { Nodes $_.elements } |
+                Where-Object { $_.automationId -eq 'DevToolsProtoCommentsMenu' -and -not $_.isOffscreen })
+            if ($shownMenu.Count -eq 0) {
+                $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
+                $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsProtoCommentsMenu', '-a', $app, '-t', '5000')
+                $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoCommentsMenu', '-a', $app)
+            }
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoCommentsMenu', '-a', $app)
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsToggleMarkers', '-a', $app, '-t', '5000')
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsToggleMarkers', '-a', $app)
+            Start-Sleep -Milliseconds 300
+        }
+        $shown = Capture-Window 'narrow-pin.png'
+        Toggle-Markers
+        try { $hiddenShot = Capture-Window 'narrow-pin-hidden.png' } finally { Toggle-Markers }
+        Add-Type -AssemblyName System.Drawing
+        $a = [Drawing.Bitmap]::new($shown); $b = [Drawing.Bitmap]::new($hiddenShot)
+        try {
+            $sameSize = $a.Width -eq $b.Width -and $a.Height -eq $b.Height
+            $markerPixels = 0; $labelPixels = 0
+            # The capture excludes the window's invisible resize borders: equal left and right, none at the top.
+            $left = [int]($narrowBox[0].x - $windowBox.x - [Math]::Floor(($windowBox.width - $a.Width) / 2)); $top = [int]($narrowBox[0].y - $windowBox.y)
+            for ($y = 0; $sameSize -and $y -lt $a.Height; $y += 2) {
+                for ($x = 0; $x -lt $a.Width; $x += 2) {
+                    if ($a.GetPixel($x, $y) -ne $b.GetPixel($x, $y)) {
+                        $markerPixels++
+                        if ($x -ge $left -and $x -lt $left + $narrowBox[0].width -and $y -ge $top -and $y -lt $top + $narrowBox[0].height) { $labelPixels++ }
+                    }
+                }
+            }
+        }
+        finally { $a.Dispose(); $b.Dispose() }
         [ordered]@{ observationOnly = $false; dpi = [BindingOwnersGuard]::GetDpiForWindow([IntPtr][long]$window);
-            target = $narrowBox[0]; pins = $overlaps } | ConvertTo-Json -Depth 20 |
+            target = $narrowBox[0]; window = $windowBox; markerPixels = $markerPixels; labelPixels = $labelPixels } | ConvertTo-Json -Depth 20 |
             Set-Content (Join-Path $evidence 'narrow-pin-observation.json')
-        $null = Invoke-Cli @('ui', 'screenshot', '-w', $window, '--capture-screen', '-o', (Join-Path $evidence 'narrow-pin.png'))
-        Check ($overlaps.Count -eq 2 -and @($overlaps | Where-Object intersectionArea -GT 0).Count -eq 0) 'both visible comment pins leave the narrow label unobscured'
+        Check ($sameSize -and $markerPixels -gt 0 -and $labelPixels -eq 0) 'visible comment markers leave the narrow label unobscured'
 
         # Pick mode selects the clicked element in the inspector and opens no comment flyout.
         $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
+        Check ((Invoke-Cli @('ui', 'get-property', 'DevToolsProtoPick', '-a', $app, '-p', 'ToggleState')).properties.ToggleState -eq 'On') 'Select element reports its On state to UI Automation'
         $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'WinAppDevToolsAddComment', '-a', $app, '-t', '10000')
         $picked = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
@@ -431,6 +484,7 @@ try {
         Check (@((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows | ForEach-Object { Nodes $_.elements } |
             Where-Object automationId -eq 'DevToolsSelComment').Count -eq 0) 'pick mode opens no comment flyout'
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
+        Check ((Invoke-Cli @('ui', 'get-property', 'DevToolsProtoPick', '-a', $app, '-p', 'ToggleState')).properties.ToggleState -eq 'Off') 'Select element reports its Off state to UI Automation'
         $null = Invoke-Cli @('devtools', 'call', 'Window.close', '-a', $app)
 
         $null = Invoke-Cli @('devtools', 'call', 'Window.open', '-a', $app)
@@ -501,15 +555,17 @@ try {
         # land on the selected element.
         $rootPanel = @(Nodes $tree.elements | Where-Object { @($_.children | Where-Object name -eq 'WindowHeading').Count -eq 1 })
         Check ($rootPanel.Count -eq 1) 'the fixture root panel is identified'
+        $null = Invoke-Cli @('devtools', 'call', 'Selection.select', 'handle=0', '-a', $app)
+        $null = Invoke-Cli @('devtools', 'call', 'Overlay.highlight', "handle=$($heading[0].handle)", '-a', $app)
+        # The highlight follows a layout change without being set again.
         $null = Invoke-Cli @('devtools', 'set-property', [string]$rootPanel[0].selector, 'Margin', '48,40,0,0', '-a', $app)
         try {
-            $null = Invoke-Cli @('devtools', 'call', 'Selection.select', "handle=$($heading[0].handle)", '-a', $app)
-            Start-Sleep -Milliseconds 300
+            Start-Sleep -Milliseconds 500
             $offset = @((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows | ForEach-Object { Nodes $_.elements })
             $headingBox = @($offset | Where-Object { $_.automationId -eq 'WindowHeading' })
             $highlight = @($offset | Where-Object { $_.automationId -eq 'WinAppDevToolsHighlight' -and -not $_.isOffscreen })
             Check ($headingBox.Count -eq 1 -and $highlight.Count -eq 1 -and
-                [Math]::Abs($highlight[0].x - $headingBox[0].x) -le 2 -and [Math]::Abs($highlight[0].y - $headingBox[0].y) -le 2) 'the selection highlight follows offset window content'
+                [Math]::Abs($highlight[0].x - $headingBox[0].x) -le 2 -and [Math]::Abs($highlight[0].y - $headingBox[0].y) -le 2) 'the highlight follows its element when window content moves'
         }
         finally {
             $null = Invoke-Cli @('devtools', 'set-property', [string]$rootPanel[0].selector, 'Margin', '0', '-a', $app)

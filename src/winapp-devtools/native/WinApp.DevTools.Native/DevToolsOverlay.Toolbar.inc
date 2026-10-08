@@ -431,8 +431,12 @@ static void OnCommentsMenuClick(void*, void*)
 static void OnShowAllCommentsClick(void*, void*) { CloseToolbarMenu(); ShowAllComments(); }
 static void OnToggleMarkersClick(void*, void*) { CloseToolbarMenu(); SetCommentsShown(!CommentsShown()); }
 
+static bool DefaultModeIsOn();
+static void SetShowOnLaunch(bool on);
 static void OnMoreMenuClick(void*, void*)
 {
+    // `winapp devtools default` can change the setting while the app runs.
+    SetShowOnLaunch(DefaultModeIsOn());
     ToggleToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore", 3, L"DevToolsHideToolbar");
 }
 

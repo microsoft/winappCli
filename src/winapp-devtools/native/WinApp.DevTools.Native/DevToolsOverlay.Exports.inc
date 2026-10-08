@@ -44,19 +44,7 @@ static void SetPickButtonOn(bool armed)
     if (g_pickModeSink) g_pickModeSink(on);
     DevToolsOverlayLog(L"overlay.pickmode button state=%s comments=%d", on ? L"ON" : L"OFF", (int)(armed && CommentModeOn()));
     ProtoSetToggle(L"DevToolsProtoComments", L"DevToolsCommentsOn", L"DevToolsCommentsOff", armed && CommentModeOn());
-    if (!g_protoRoot) return;
-    auto setVis = [](const wchar_t* name, bool visible) {
-        if (IInspectable* el = DevToolsSelFindName(g_protoRoot, name)) {
-            void* ui = nullptr;
-            if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-                DevToolsPutVisibility(ui, visible ? 0 : 1);
-                reinterpret_cast<IUnknown*>(ui)->Release();
-            }
-            el->Release();
-        }
-    };
-    setVis(L"DevToolsPickOn", on);
-    setVis(L"DevToolsPickOff", !on);
+    ProtoSetToggle(L"DevToolsProtoPick", L"DevToolsPickOn", L"DevToolsPickOff", on);
     UpdateChipLabel();
 }
 
@@ -815,7 +803,7 @@ HRESULT DevToolsOverlay_HighlightHandle(IXamlDiagnostics* diag, InstanceHandle r
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::OverlayHighlight);
     if (!diag) return E_INVALIDARG;
 
-    auto applied = [](InstanceHandle h) { g_lastHighlightHandle = h; NotifyStateChanged(); };
+    auto applied = [](InstanceHandle h) { g_lastHighlightHandle = h; TrackingSync(); NotifyStateChanged(); };
 
     if (!target) { ClearAdorner(); applied(0); return S_OK; }
     if (g_selectionHost) {
