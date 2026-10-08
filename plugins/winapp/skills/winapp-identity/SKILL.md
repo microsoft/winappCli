@@ -94,7 +94,7 @@ After running, launch your exe normally — Windows will recognize it as having 
 
 ## Tips
 
-- You must re-run `create-debug-identity` after any changes to `Package.appxmanifest` or image assets
+- You must re-run `create-debug-identity` (or `winapp run`) after any changes to `Package.appxmanifest` or image assets; both read them only when they register the package
 - The debug identity persists across reboots until explicitly removed
 - To remove this sparse registration: `winapp unregister --manifest .\Package.appxmanifest`
 - If you have both a debug identity and an installed MSIX, they may conflict — use `--keep-identity` carefully
