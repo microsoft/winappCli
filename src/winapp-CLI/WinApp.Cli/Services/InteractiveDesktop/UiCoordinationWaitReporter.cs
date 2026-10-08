@@ -178,7 +178,7 @@ internal sealed class UiCoordinationWaitReporter(
         var active = diagnostics.ActiveProcessId is { } activePid
             ? $"held by winapp PID {activePid}"
             : "no active winapp command";
-        return $"[{active}; queue depth {diagnostics.QueueDepth}, {diagnostics.CommandsAhead} ahead]";
+        return $"[{active}; queue depth {diagnostics.QueueDepth}, {diagnostics.CommandsAhead} must finish first]";
     }
 
     private static long RoundUpToSecond(long ms) => (ms + 999) / 1_000 * 1_000;

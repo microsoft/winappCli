@@ -97,7 +97,7 @@ public class UiCoordinationWaitReporterTests
         reporter.ReportIfDue(3_000, OtherWorkflow());
 
         StringAssert.Contains(output.ToString(), "held by winapp PID 424242");
-        StringAssert.Contains(output.ToString(), "queue depth 1");
+        StringAssert.Contains(output.ToString(), "queue depth 1, 1 must finish first]");
     }
 
     [TestMethod]
