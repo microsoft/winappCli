@@ -1,0 +1,5 @@
+Run for every release candidate.
+Guest state must be discarded between candidates.
+Do not share a host profile or use an existing installation.
+Any missing expected element fails the gate.
+Results must survive guest shutdown.

@@ -1,0 +1,46 @@
+{
+  "id": "mossgate-wants-windows-to-recognize-debug-process",
+  "description": "Recognizes identity-gated startup behavior while preserving a Tauri app's existing MSI.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "5",
+  "framework": "Tauri / Rust / React",
+  "conflictingSignal": true,
+  "sources": [
+    "https://github.com/tauri-apps/tauri/issues/15145",
+    "https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/grant-identity-to-nonpackaged-apps",
+    "https://learn.microsoft.com/en-us/uwp/api/windows.applicationmodel.startuptask.requestenableasync"
+  ],
+  "prompt": "Trying StartupTask from Mossgate Desk under tauri dev, but the process has no identity. How can I add one for debugging and alongside our existing MSI?",
+  "paraphrases": {
+    "novice": "Mossgate Desk's start-at-login code needs Windows to know which app owns the running program. Can I supply what's missing while debugging and keep using our MSI for customers?",
+    "terse": "Mossgate tauri dev: StartupTask needs identity. Add for debug and existing MSI installs."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The ordinary Tauri debug process and existing MSI are represented by configuration and experiment notes; neither artifact is included.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "identity"
+        ]
+      ],
+      "acceptable": [
+        "framework.guidance",
+        "msix.manifest"
+      ],
+      "forbid": [
+        "winui.*",
+        "project.scaffold",
+        "msix.package",
+        "session.report"
+      ]
+    }
+  }
+}

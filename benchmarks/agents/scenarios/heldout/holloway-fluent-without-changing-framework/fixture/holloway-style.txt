@@ -1,0 +1,4 @@
+A WinUI Gallery screenshot was discussed as visual inspiration; no image is supplied.
+All production screens remain System.Windows WPF.
+Preserve existing resource dictionaries and keyboard conventions.
+No migration or Windows platform API integration is requested.

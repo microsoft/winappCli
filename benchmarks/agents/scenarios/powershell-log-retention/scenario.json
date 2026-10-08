@@ -1,6 +1,8 @@
 {
   "id": "powershell-log-retention",
   "description": "Near-miss: Windows server PowerShell script; no skill needed.",
+  "set": "dev",
+  "cohort": "near-miss",
   "prompt": "Fix cleanup.ps1 so it deletes only .log files older than 30 days under the given folder, supports -WhatIf, and never follows junctions outside that folder. It runs as a scheduled task on our Windows server.",
   "configurations": [
     "winapp",
@@ -9,10 +11,12 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsForbid": [
-      "winapp-*",
-      "winui-*"
-    ],
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
     "maxSkills": 0
   }
 }

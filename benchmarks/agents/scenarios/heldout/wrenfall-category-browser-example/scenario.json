@@ -1,0 +1,40 @@
+{
+  "id": "wrenfall-category-browser-example",
+  "description": "Accepts either a working WinUI example or concrete WinUI design help for a categorized navigation UI.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "3",
+  "framework": "WinUI 3 / C# / XAML",
+  "conflictingSignal": false,
+  "sources": [
+    "https://github.com/microsoft/WinUI-Gallery/issues/1867"
+  ],
+  "prompt": "Need a WinUI 3 example for Wrenfall Reader: categories on the left, expandable children, and a clear selected item. What would you use, and can you show working XAML with keyboard navigation?",
+  "paraphrases": {
+    "novice": "Wrenfall Reader needs a list of categories on the left, with smaller categories you can expand. Can you show a WinUI 3 example where people can see their selection and use the keyboard?",
+    "terse": "Wrenfall WinUI category sidebar with expandable children. Need usable XAML example."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "ui.samples"
+        ],
+        [
+          "winui.design"
+        ]
+      ],
+      "forbid": [
+        "winui.migrate",
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

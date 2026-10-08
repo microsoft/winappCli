@@ -393,11 +393,13 @@ Describe 'Scenario definitions' {
 
     It 'does not credit signing-only runs in packaging scenarios' {
         $s = Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot '..\scenarios')
-        $installed = @('winapp-package', 'winapp-signing', 'winui-packaging')
+        # Capability maps apply to a plugin's whole skill set, so install both plugins.
+        $installed = @(Get-PluginSkillNames (Join-Path $PSScriptRoot '..\..\..\plugins\winapp')) + @(Get-PluginSkillNames (Join-Path $PSScriptRoot '..\..\..\plugins\winui\agent-plugin'))
         foreach ($id in 'explicit-winapp-cli-package', 'winui-release-msix', 'wpf-winappsdk-msix-trap', 'winforms-package-sign') {
             $x = $s | Where-Object Id -eq $id
-            (Test-Expectations -Expect $x.Expect -LoadedSkills 'winapp-signing' -InstalledSkills $installed).Status | Should -Be 'fail' -Because $id
-            (Test-Expectations -Expect $x.Expect -LoadedSkills 'winapp-package', 'winapp-signing' -InstalledSkills $installed).Status | Should -Be 'pass' -Because $id
+            # Signing alone is at most acceptable (partial), never a pass.
+            (Test-ScenarioExpectations -Expect $x.Expect -LoadedSkills 'winapp-signing' -InstalledSkills $installed).Status | Should -BeIn 'fail', 'partial' -Because $id
+            (Test-ScenarioExpectations -Expect $x.Expect -LoadedSkills 'winapp-package', 'winapp-signing' -InstalledSkills $installed).Status | Should -Be 'pass' -Because $id
         }
     }
 

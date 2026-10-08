@@ -147,6 +147,34 @@ public class InteractiveDesktopPathsHardeningTests
         Assert.IsNotNull(ex.RecoveryHint, "a fail-closed error has to say what to do next");
     }
 
+    /// <summary>
+    /// Only the coordination directory is restricted; ancestors it has to create keep ordinary
+    /// inherited permissions.
+    /// </summary>
+    /// <remarks>
+    /// Regression: the restricted DACL used to be stamped onto every missing ancestor too. With the
+    /// default location that is <c>%USERPROFILE%\.winapp\state</c>, which also holds execution-target
+    /// state — and Windows Sandbox could then no longer share any bootstrap folder beneath it.
+    /// </remarks>
+    [TestMethod]
+    public void MissingAncestorsAreNotRestricted()
+    {
+        Directory.CreateDirectory(_root);
+        var state = Path.Join(_root, "state");
+        var ui = Path.Join(state, "ui");
+        Environment.SetEnvironmentVariable(InteractiveDesktopPaths.LockDirectoryOverrideVariable, ui);
+
+        new InteractiveDesktopPaths(new ProcessInspector()).EnsureDirectories();
+
+        Assert.IsTrue(
+            InteractiveDesktopPaths.IsCurrentUserOnly(
+                new DirectoryInfo(ui).GetAccessControl(), WindowsIdentity.GetCurrent().User!),
+            "the coordination directory itself must still be current-user-only");
+        Assert.IsFalse(
+            new DirectoryInfo(state).GetAccessControl().AreAccessRulesProtected,
+            "an ancestor created on the way must inherit its parent's permissions, not the coordination DACL");
+    }
+
     [TestMethod]
     public void UnrelatedFilesInAnOverrideDirectoryAreLeftAlone()
     {

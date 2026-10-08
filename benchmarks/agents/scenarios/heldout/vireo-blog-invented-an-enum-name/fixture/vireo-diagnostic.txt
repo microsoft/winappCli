@@ -1,0 +1,3 @@
+error C2039: 'BlockedByUser': is not a member of 'winrt::Windows::ApplicationModel::StartupTaskState'
+Projection generation succeeds.
+Team constraint: retain Windows kit 10.0.19041.0.

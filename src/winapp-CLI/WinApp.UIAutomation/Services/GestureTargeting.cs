@@ -47,7 +47,8 @@ public static class GestureTargeting
     /// <see cref="StabilityTolerancePx"/> (target settled) or the read budget is exhausted (still
     /// moving). <paramref name="initial"/> is the bounds the caller already resolved before
     /// foregrounding and seeds the comparison, so a static element settles after a single confirming
-    /// read.
+    /// read. <paramref name="requireUnique"/> re-reads with the same uniqueness rule the caller used
+    /// to resolve <paramref name="initial"/>.
     /// </summary>
     public static async Task<StableTarget> ResolveStableAsync(
         IUiAutomation uiAutomation,
@@ -57,7 +58,8 @@ public static class GestureTargeting
         int maxReads,
         int readDelayMs,
         Func<int, CancellationToken, Task>? delay,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireUnique = false)
     {
         delay ??= (ms, ct) => Task.Delay(ms, ct);
 
@@ -66,7 +68,7 @@ public static class GestureTargeting
         {
             await delay(readDelayMs, cancellationToken);
 
-            var current = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+            var current = await FindAsync(uiAutomation, uiTarget, selector, requireUnique, cancellationToken);
             if (current is null)
             {
                 return new StableTarget(TargetStatus.NotFound, initial, 0, 0);
@@ -111,9 +113,10 @@ public static class GestureTargeting
         UiTarget uiTarget,
         UiSelector selector,
         UiElement expected,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireUnique = false)
     {
-        var current = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+        var current = await FindAsync(uiAutomation, uiTarget, selector, requireUnique, cancellationToken);
         if (current is null)
         {
             return new StableTarget(TargetStatus.NotFound, expected, 0, 0);
@@ -132,6 +135,12 @@ public static class GestureTargeting
 
         return Ok(current);
     }
+
+    private static Task<UiElement?> FindAsync(
+        IUiAutomation uiAutomation, UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct)
+        => requireUnique
+            ? uiAutomation.FindSingleElementAsync(uiTarget, selector, requireUnique: true, ct)
+            : uiAutomation.FindSingleElementAsync(uiTarget, selector, ct);
 
     private static (int X, int Y) Center(UiElement element)
         => ((int)(element.X + element.Width / 2.0), (int)(element.Y + element.Height / 2.0));

@@ -2703,7 +2703,7 @@ public class RunCommandTests : BaseCommandTests
         Assert.AreEqual(0, exitCode);
         StringAssert.Contains(
             TestAnsiConsole.Output,
-            "No .csproj/.sln/.slnx with a runnable app found",
+            "No .csproj/.vcxproj/.sln/.slnx with a runnable app found",
             "Debug/verbose output should explain why a directory fell back to build-output folder mode.");
     }
 
@@ -2752,7 +2752,7 @@ public class RunCommandFolderModeBreadcrumbTests() : BaseCommandTests(logLevel: 
 
         Assert.AreEqual(0, exitCode, "Folder mode should succeed");
         Assert.IsFalse(
-            TestAnsiConsole.Output.Contains("No .csproj/.sln/.slnx with a runnable app found", StringComparison.Ordinal),
+            TestAnsiConsole.Output.Contains("No .csproj/.vcxproj/.sln/.slnx with a runnable app found", StringComparison.Ordinal),
             "The folder-mode breadcrumb is a troubleshooting aid and must not appear at default verbosity");
     }
 }
