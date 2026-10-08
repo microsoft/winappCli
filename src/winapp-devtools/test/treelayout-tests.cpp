@@ -6,11 +6,13 @@
 // Run through scripts/test-native-units.ps1.
 
 #include "DevToolsTreeLayout.h"
+#include "DevToolsAppXaml.h"
 #include <windows.h>
 #include <algorithm>
 #include <atomic>
 #include <climits>
 #include <cstdio>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -557,6 +559,31 @@ static void Test_FocusRedirectsToTheNearestAuthoredAncestor()
     Check(NearestAppAuthoredAncestor(t.rows, t.rows.size() + 10) == kNoRow, "an out-of-range row is not a crash");
 }
 
+// AI Dev Gallery: the package holds a handful of loose .xaml files; every page is compiled into resources.pri, so
+// the scan sees almost none of them. Opening a picker brought one element from a loose file into the tree, and
+// that single scan hit made the classifier trust the scan and drop every other app element from "Just my XAML".
+static void Test_PartialPackageScanDoesNotHideTheApp()
+{
+    const std::set<std::wstring> scanned = { L"styles/button.xaml", L"app.xaml" };
+    std::vector<std::wstring> uris;
+    for (int i = 0; i < 40; ++i) uris.push_back(L"ms-appx:///Pages/HomePage.xaml");
+    uris.push_back(L"ms-appx:///MainWindow.xaml");
+    uris.push_back(L"ms-appx:///Styles/Button.xaml");
+    uris.push_back(L"ms-resource:///Files/Microsoft.UI.Xaml;component/themes/generic.xaml");
+    uris.push_back(L"");
+
+    std::vector<char> app;
+    Check(!DevToolsAppXaml_ClassifyWith(uris, scanned, app), "a scan that misses most candidates is not trusted");
+    CheckEq((int)std::count(app.begin(), app.end(), 1), 42, "every non-framework element stays app-authored");
+    Check(!app[42] && !app[43], "framework and source-less elements stay framework");
+
+    // A scan that covers the app's XAML still filters out library XAML it never saw.
+    const std::vector<std::wstring> covered = { L"ms-appx:///Styles/Button.xaml", L"ms-appx:///App.xaml",
+                                                L"ms-appx:///SomeLibrary/Themes/Control.xaml" };
+    Check(DevToolsAppXaml_ClassifyWith(covered, scanned, app), "a scan that covers most candidates is trusted");
+    Check(app[0] && app[1] && !app[2], "a trusted scan keeps the app's files and drops the library's");
+}
+
 // Defined in protocol-tests.cpp: the DevToolsProtocol JSON reader suite. Both are COM-free pure logic, so they
 // share one binary and one runner.
 int RunProtocolTests();
@@ -771,6 +798,7 @@ int main()
     Test_ElementIdentityIsPathDependentAndStable();
     Test_CollapseStateSurvivesARowRebuild();
     Test_FocusRedirectsToTheNearestAuthoredAncestor();
+    Test_PartialPackageScanDoesNotHideTheApp();
 
     std::printf("\n");
     const int protocolFailures = RunProtocolTests();

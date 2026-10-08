@@ -4,6 +4,7 @@
 #include "DevToolsAppXaml.h"
 
 #include <windows.h>
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <set>
@@ -125,35 +126,37 @@ bool DevToolsAppXaml_IsAppAuthored(const std::wstring& uri)
     return g_appXaml.count(PathKey(lower)) != 0;
 }
 
-void DevToolsAppXaml_ClassifyBatch(const std::vector<std::wstring>& uris, std::vector<char>& out)
+bool DevToolsAppXaml_ClassifyWith(const std::vector<std::wstring>& uris, const std::set<std::wstring>& scanned,
+                                  std::vector<char>& out)
 {
     out.assign(uris.size(), 0);
-    EnsureScanned();
-
-    std::vector<char> notFramework(uris.size(), 0);
-    bool anyCandidate = false;
-    bool anyAllowlistHit = false;
+    size_t candidates = 0, hits = 0;
     for (size_t i = 0; i < uris.size(); ++i) {
         if (uris[i].empty()) continue;
         const std::wstring lower = ToLower(uris[i]);
         if (!LegacyDenylistSaysApp(lower)) continue;   // framework by name -> stays 0
-        notFramework[i] = 1;
-        anyCandidate = true;
-        if (!g_appXaml.empty() && g_appXaml.count(PathKey(lower)) != 0) anyAllowlistHit = true;
+        out[i] = 1;
+        ++candidates;
+        if (scanned.count(PathKey(lower))) ++hits;
     }
-
-    const bool usable = !g_appXaml.empty() && !(anyCandidate && !anyAllowlistHit);
-    if (anyCandidate && !anyAllowlistHit) g_scanDiscredited.store(true);
-    else if (anyAllowlistHit) g_scanDiscredited.store(false);
-
-    for (size_t i = 0; i < uris.size(); ++i) {
-        if (!notFramework[i]) continue;
-        out[i] = usable ? (g_appXaml.count(PathKey(uris[i])) != 0 ? 1 : 0) : 1;
+    // The scan sees only loose .xaml/.xbf files; XAML compiled into resources.pri is invisible to it. A scan that
+    // misses most of the candidates is partial, and trusting it would hide the app's own pages.
+    const bool usable = !scanned.empty() && hits * 2 >= candidates;
+    if (usable) {
+        for (size_t i = 0; i < uris.size(); ++i)
+            if (out[i] && !scanned.count(PathKey(uris[i]))) out[i] = 0;
     }
+    return usable;
+}
+
+void DevToolsAppXaml_ClassifyBatch(const std::vector<std::wstring>& uris, std::vector<char>& out)
+{
+    EnsureScanned();
+    const bool usable = DevToolsAppXaml_ClassifyWith(uris, g_appXaml, out);
+    if (std::find(out.begin(), out.end(), 1) != out.end()) g_scanDiscredited.store(!usable);
 }
 
 bool DevToolsAppXaml_ScanDiscredited()
 {
     return g_scanDiscredited.load();
 }
-

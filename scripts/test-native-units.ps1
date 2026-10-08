@@ -74,6 +74,7 @@ $testCpps = @(
 )
 $unitCpps = @(
     (Join-Path $srcDir "DevToolsTreeLayout.cpp"),
+    (Join-Path $srcDir "DevToolsAppXaml.cpp"),
     (Join-Path $srcDir "DevToolsProtocol.cpp"),
     (Join-Path $srcDir "DevToolsProtocolSchema.cpp"),
     (Join-Path $srcDir "DevToolsTrust.cpp"),
