@@ -2735,6 +2735,22 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task RunBuild_ConflictingProjectRidWithRidSplitGraph_KeepsRid()
+    {
+        // The graph removes RuntimeIdentifier on one edge, which makes the legacy resolution drop the RID.
+        // A project that sets its own RID must still get -r win-<arch>, or its RID wins (NETSDK1032).
+        var app = WriteRidSplitGraph(stripRidOnMiddleEdge: true);
+        var dotnet = ArchitectureProbeDotnet("""
+            "RuntimeIdentifier":"win-x86","EnableDynamicPlatformResolution":""
+            """);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(app, PlatformOptions("arm64"), CancellationToken.None);
+
+        StringAssert.Contains(BuildPass(dotnet), "-r win-arm64");
+    }
+
+    [TestMethod]
     public async Task RunBuild_UserPlatformForAnotherArch_KeepsRid()
     {
         var csproj = WriteFile("App.csproj", PlatformAwareExeCsproj);
@@ -2756,8 +2772,8 @@ public class ProjectRunServiceTests
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         var ridSegments = withPlatform ? new[] { "bin", "arm64", "Debug", "net10.0", "win-arm64" } : ["bin", "Debug", "net10.0", "win-arm64"];
-        var existing = Directory.CreateDirectory(Path.Combine([_tempDir.FullName, .. ridSegments])).FullName + Path.DirectorySeparatorChar;
-        var missing = Path.Combine(_tempDir.FullName, "bin", "missing") + Path.DirectorySeparatorChar;
+        var existing = Directory.CreateDirectory(Path.Join([_tempDir.FullName, .. ridSegments])).FullName + Path.DirectorySeparatorChar;
+        var missing = Path.Join(_tempDir.FullName, "bin", "missing") + Path.DirectorySeparatorChar;
         var dotnet = new FakeDotNetService
         {
             RunDotnetCommandHandler = a =>

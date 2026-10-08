@@ -174,7 +174,10 @@ internal sealed partial class ProjectRunService
             logger.LogDebug(
                 "{UISymbol} The project sets RuntimeIdentifier '{Rid}' or EnableDynamicPlatformResolution '{Edpr}'; conveying the architecture with the RID.",
                 UiSymbols.Note, GetProp(props, "RuntimeIdentifier"), GetProp(props, "EnableDynamicPlatformResolution"));
-            return ResolvePlatformInjection(csproj, options);
+
+            // The legacy resolution drops the RID for a reference graph that removes it, but this project's
+            // own RuntimeIdentifier would then win and build the wrong architecture (NETSDK1032).
+            return ResolvePlatformInjection(csproj, options) with { OmitRuntimeIdentifier = false };
         }
 
         return platformOnly;
