@@ -75,6 +75,9 @@ winapp sign ./myapp.msix ./devcert.pfx --password MySecurePassword
 
 # Sign with timestamp for production (signature remains valid after cert expires)
 winapp sign ./myapp.msix ./production.pfx --timestamp http://timestamp.digicert.com
+
+# Verify a signature (runs the Windows SDK signtool; the signing certificate must be trusted)
+winapp tool signtool.exe verify /pa ./myapp.msix
 ```
 
 ### Bundle signing

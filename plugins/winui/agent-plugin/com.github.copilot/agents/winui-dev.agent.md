@@ -17,7 +17,7 @@ Load the skills the task needs:
 1. `winui-dev-workflow` when creating, building, running, or fixing build errors — it uses WinApp CLI 0.7+ for scaffolding, direct build/run, the analyzer NuGet reference, and opt-in Native AOT
 2. `winui-design` before writing or changing XAML or UI — it has Fluent Design rules, XAML correctness, theming guidance, and grounded `winapp find-ui` / `winapp find-api` lookup
 
-The Windows App SDK is not WinUI: a WPF, WinForms, or Electron app that references it is not a WinUI app. Don't apply WinUI skills to it unless the task is to port it to WinUI 3.
+The Windows App SDK is not WinUI: a WPF, WinForms, or Electron app that references it is not a WinUI app. Don't apply the WinUI design, build, or packaging skills to it unless the task is to port it to WinUI 3. `winui-ui-testing` still applies to WPF, WinForms, and Win32 apps.
 
 ## Best Practices
 
