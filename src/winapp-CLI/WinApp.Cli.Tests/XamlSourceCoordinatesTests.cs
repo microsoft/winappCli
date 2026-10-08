@@ -37,7 +37,11 @@ public sealed class XamlSourceCoordinatesTests
     }
 
     [TestCleanup]
-    public void Cleanup() => Directory.Delete(_root, recursive: true);
+    public void Cleanup()
+    {
+        Directory.Delete(_root, recursive: true);
+        if (Directory.Exists(_root + "-outside")) { Directory.Delete(_root + "-outside", recursive: true); }
+    }
 
     private void WriteMetadata(string? project = null, string? resourceMap = null, bool includeXbf = true, bool fingerprint = true)
     {
@@ -112,7 +116,29 @@ public sealed class XamlSourceCoordinatesTests
     }
 
     [TestMethod]
+    public async Task CppSavedState_ReadsGeneratedXamlFromTheEntryPrefix()
+    {
+        // C++/WinRT keeps the saved state in the intermediate directory but writes XAML/XBF to "Generated Files".
+        var generated = Path.Combine(_root, "Generated Files");
+        Directory.CreateDirectory(generated);
+        foreach (var name in new[] { "Main.xaml", "Main.xbf" })
+        {
+            File.Move(Path.Combine(_intermediate, name), Path.Combine(generated, name));
+        }
+        var statePath = Path.Combine(_intermediate, "state.xml");
+        var state = XDocument.Load(statePath);
+        state.Descendants("XamlSourceFileData").Single().SetAttributeValue("GeneratedCodePathPrefix", Path.Combine(generated, "Main"));
+        state.Save(statePath);
+
+        var capture = XamlSourceCoordinates.Capture(_project, await SnapshotAsync(), "", "", statePath);
+
+        Assert.IsEmpty(capture.Exclusions, string.Join("; ", capture.Exclusions.Select(e => e.Reason)));
+        Assert.AreEqual(2, capture.Files.Single().Elements[1].Line);
+    }
+
+    [TestMethod]
     [DataRow("prefix")]
+    [DataRow("outside")]
     [DataRow("duplicate")]
     [DataRow("source")]
     [DataRow("xbf")]
@@ -123,6 +149,14 @@ public sealed class XamlSourceCoordinatesTests
         var state = XDocument.Load(statePath);
         var entry = state.Descendants("XamlSourceFileData").Single();
         if (change == "prefix") { entry.SetAttributeValue("GeneratedCodePathPrefix", Path.Combine(_root, "elsewhere", "Main")); }
+        if (change == "outside")
+        {
+            var outside = _root + "-outside";
+            Directory.CreateDirectory(outside);
+            File.Copy(Path.Combine(_intermediate, "Main.xaml"), Path.Combine(outside, "Main.xaml"), overwrite: true);
+            File.Copy(Path.Combine(_intermediate, "Main.xbf"), Path.Combine(outside, "Main.xbf"), overwrite: true);
+            entry.SetAttributeValue("GeneratedCodePathPrefix", Path.Combine(outside, "Main"));
+        }
         if (change == "duplicate") { entry.AddAfterSelf(new XElement(entry)); }
         if (change == "source") { entry.SetAttributeValue("XamlFileName", "Other.xaml"); }
         state.Save(statePath);

@@ -128,6 +128,11 @@ internal sealed partial class ProjectRunService
         }
 
         List<string> evaluateArgs = [project.FullName, "-nologo", .. properties, .. CppRequestedProperties.Select(p => $"-getProperty:{p}")];
+        if (options.CaptureDevToolsSources)
+        {
+            evaluateArgs.Add("-getItem:Page,ApplicationDefinition");
+            evaluateArgs.AddRange(DevTools.XamlSourceCoordinates.Properties.Select(p => $"-getProperty:{p}"));
+        }
         logger.LogDebug("{UISymbol} {Command}", UiSymbols.Note, RedactSecretsForDisplay(WindowsCommandLine.JoinArguments([msbuild, .. evaluateArgs]) ?? string.Empty));
         var evaluation = await msBuildService.RunAsync(msbuild, evaluateArgs, onLine: null, cancellationToken);
         if (evaluation.ExitCode != 0)
@@ -150,8 +155,18 @@ internal sealed partial class ProjectRunService
             return new ProjectBuildOutcome(null, evaluation.ExitCode);
         }
 
-        var props = MsBuildPropertyReader.Parse(evaluation.StandardOutput, CppRequestedProperties);
-        return new ProjectBuildOutcome(CreateCppResolution(project, options, props), 0);
+        var props = MsBuildPropertyReader.Parse(evaluation.StandardOutput,
+            [.. CppRequestedProperties, .. DevTools.XamlSourceCoordinates.Properties]);
+        var resolution = CreateCppResolution(project, options, props);
+        if (options.CaptureDevToolsSources)
+        {
+            resolution = resolution with
+            {
+                DevToolsXamlSources = ReadDevToolsSources(evaluation.StandardOutput),
+                DevToolsCompilerArtifacts = DevTools.XamlSourceCoordinates.FromProperties(project, props),
+            };
+        }
+        return new ProjectBuildOutcome(resolution, 0);
     }
 
     /// <summary>

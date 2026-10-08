@@ -341,23 +341,21 @@ internal static class XamlSourceCoordinates
             {
                 var matches = entries.Where(element => string.Equals(
                     (string?)element.Attribute("XamlFileName"), source.RelativePath, StringComparison.OrdinalIgnoreCase)).ToArray();
-                var generatedPath = Path.GetFullPath(source.RelativePath, intermediate);
                 // Without compiler item metadata, only an exact unlinked source/resource association is admitted.
-                if (matches.Length != 1 || (!IsClassless(matches[0]) && !string.Equals(
-                        (string?)matches[0].Attribute("GeneratedCodePathPrefix"), Path.ChangeExtension(generatedPath, null),
-                        StringComparison.OrdinalIgnoreCase)) ||
+                if (matches.Length != 1 || GeneratedRoot(matches[0], source.RelativePath, intermediate, project.DirectoryName!) is not { } root ||
                     !long.TryParse((string?)matches[0].Attribute("XamlFileTimeAtLastCompileInTicks"), out var ticks))
                 {
                     throw new InvalidDataException($"The selected XAML saved state does not identify the unlinked source '{source.RelativePath}'.");
                 }
+                var generatedPath = Path.GetFullPath(source.RelativePath, root);
                 using var originalFile = Open(Path.GetFullPath(source.RelativePath, project.DirectoryName!), project.DirectoryName!);
-                using var generatedFile = Open(generatedPath, intermediate);
+                using var generatedFile = Open(generatedPath, root);
                 var original = Bytes(originalFile);
                 var generated = Bytes(generatedFile);
                 var xbfPath = Path.ChangeExtension(generatedPath, ".xbf");
-                using var xbfFile = Open(xbfPath, intermediate);
+                using var xbfFile = Open(xbfPath, root);
                 var xbf = Bytes(xbfFile);
-                var proof = new XamlCoordinateMap.BuildProof(project.FullName, intermediate, intermediate,
+                var proof = new XamlCoordinateMap.BuildProof(project.FullName, intermediate, root,
                     "saved-state-and-validated-rewrite", source.RelativePath, source.RelativePath, null,
                     generatedPath, xbfPath, Hash(original), Hash(generated), Hash(xbf),
                     File.GetLastWriteTime(originalFile.SafeFileHandle).Ticks, ticks);
@@ -372,6 +370,21 @@ internal static class XamlSourceCoordinates
     // A classless ResourceDictionary has no generated code, so its saved state is keyed only by file name.
     private static bool IsClassless(XElement entry) =>
         (string?)entry.Attribute("GeneratedCodePathPrefix") is "" && (string?)entry.Attribute("ClassFullName") is "";
+
+    // C# writes generated XAML beside the saved state; C++ writes it to "Generated Files". The entry's own
+    // prefix names that root, which must stay inside the project.
+    private static string? GeneratedRoot(XElement entry, string source, string intermediate, string projectDirectory)
+    {
+        if (IsClassless(entry)) { return intermediate; }
+        var prefix = (string?)entry.Attribute("GeneratedCodePathPrefix") ?? "";
+        var suffix = Path.ChangeExtension(source, null);
+        if (!Path.IsPathFullyQualified(prefix) || !prefix.EndsWith(Path.DirectorySeparatorChar + suffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+        var root = Path.GetFullPath(prefix[..^suffix.Length]);
+        return Inside(root, projectDirectory) ? root : null;
+    }
 
     private static bool IsSourceFailure(Exception ex) =>
         ex is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or XmlException or ArgumentException;
