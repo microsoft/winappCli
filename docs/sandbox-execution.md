@@ -66,6 +66,8 @@ With `--expect-sandbox`, winapp never starts a Sandbox or takes over a different
 The command fails with `sandbox_instance_mismatch` if the expected Sandbox isn't running
 or another Sandbox is running. To also reject the same instance after winapp re-prepares it,
 pass the `ExecutionTarget.Epoch` value from an earlier `--json` result instead of the ID.
+With an epoch, winapp also fails if the Sandbox's guest no longer answers, for example after
+the Sandbox was restarted with the same ID, instead of preparing it again.
 
 `--expect-sandbox` works with `run`, `unregister`, `ui`, and `target` commands. To apply it
 to every command in a script, set `WINAPP_EXPECT_SANDBOX` to the same value. The option
@@ -373,7 +375,7 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_setup_requires_restart` | Windows reports a pending restart; save work and restart when ready, then retry |
 | `sandbox_setup_incomplete` | Open Windows Sandbox from Start and finish client setup/update, then retry |
 | `sandbox_unmanaged_instance`, `sandbox_target_ambiguous` | Inspect the reported instances/windows; do not stop unrelated work to resolve ambiguity |
-| `sandbox_instance_mismatch` | The Sandbox from `--expect-sandbox` or `WINAPP_EXPECT_SANDBOX` isn't the only one running, or its epoch changed. Run `wsb list` and compare the IDs before retrying |
+| `sandbox_instance_mismatch` | The Sandbox from `--expect-sandbox` or `WINAPP_EXPECT_SANDBOX` isn't the only one running, or its epoch changed or can no longer be confirmed. Run the suggested `nextCommand` (`wsb list` or `winapp target snapshot sandbox --json --expect-sandbox <id>`) and compare before retrying |
 | `sandbox_input_not_ready`, `sandbox_no_interactive_session` | Restore the existing client or reconnect as directed, then retry |
 | `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested, then close/retry only with consent |
 | `sandbox_agent_busy` | Wait for another command to finish, then retry |

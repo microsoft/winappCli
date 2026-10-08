@@ -869,7 +869,9 @@ public class WindowsSandboxLifecycleTests
 
         Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, ex.Error.Code);
         Assert.AreEqual($"{ExpectedId}:OLDNONCE", ex.Error.Context!["expectedEpoch"]);
-        Assert.AreEqual("winapp target snapshot sandbox --json", ex.Error.NextCommand?.Command);
+        Assert.AreEqual(
+            $"winapp target snapshot sandbox --json --expect-sandbox {ExpectedId}",
+            ex.Error.NextCommand?.Command);
     }
 
     [TestMethod]

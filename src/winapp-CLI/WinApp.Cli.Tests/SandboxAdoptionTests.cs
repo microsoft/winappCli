@@ -45,6 +45,47 @@ public class SandboxAdoptionTests
     }
 
     [TestMethod]
+    public async Task PinnedEpoch_WhoseGuestDoesNotAnswer_FailsInsteadOfPreparingANewGuest()
+    {
+        // The same ID restarted under unchanged host state looks exactly like this: winapp's record
+        // still names the epoch, but nothing in the guest answers for it.
+        using var harness = new AdoptionHarness();
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        var state = harness.ReadState()!;
+        var epoch = ExecutionTargetEpoch.Create(state.InstanceId!, state.BootNonce!).Value;
+        harness.Lifecycle.GetEnvironmentVariable = name =>
+            name == SandboxExpectation.EnvironmentVariable ? epoch : null;
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Connect timed out");
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => harness.Backend.EnsureConnectedAsync(new EnsureTargetOptions(true), TestContext.CancellationToken));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InstanceMismatch, ex.Error.Code);
+        Assert.AreEqual(epoch, ex.Error.Context!["expectedEpoch"]);
+        Assert.AreEqual(state.BootstrappedEpoch, harness.ReadState()!.BootstrappedEpoch);
+    }
+
+    [TestMethod]
+    public async Task ExpectedIdOnly_WhoseGuestDoesNotAnswer_IsRepaired()
+    {
+        using var harness = new AdoptionHarness();
+        var id = Guid.NewGuid().ToString();
+        harness.Cli.SetRunning(id);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        harness.Lifecycle.GetEnvironmentVariable = name =>
+            name == SandboxExpectation.EnvironmentVariable ? id : null;
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Connect timed out");
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+    }
+
+    [TestMethod]
     [DataRow("not-an-address")]
     [DataRow("999.0.0.1")]
     [DataRow("::1")]
@@ -800,9 +841,10 @@ public class SandboxAdoptionTests
             var binary = new FileInfo(Path.Join(_root.FullName, "winapp.exe"));
             File.WriteAllText(binary.FullName, "agent");
 
+            Lifecycle = new WindowsSandboxLifecycle(Cli, stateStore);
             Backend = new WindowsSandboxBackend(
                 Cli,
-                new WindowsSandboxLifecycle(Cli, stateStore),
+                Lifecycle,
                 directories,
                 new StaticBinaryProvider(binary),
                 new NoOpWindowController(),
@@ -822,6 +864,8 @@ public class SandboxAdoptionTests
         }
 
         public AdoptionSandboxCli Cli { get; }
+
+        public WindowsSandboxLifecycle Lifecycle { get; }
 
         public WindowsSandboxBackend Backend { get; }
 

@@ -253,8 +253,10 @@ internal static class Program
             }
 
             // The Sandbox lifecycle reads the expectation from the environment, so copying the
-            // option there makes it override WINAPP_EXPECT_SANDBOX.
-            if (ExecutionTargetSelection.RawExpectation(parsedArgs) is { } expectedSandbox)
+            // option there makes it override WINAPP_EXPECT_SANDBOX. A parse error (such as a missing
+            // value) is left for InvokeAsync to report with the usual diagnostic and help.
+            if (parsedArgs.Errors.Count == 0 &&
+                ExecutionTargetSelection.RawExpectation(parsedArgs) is { } expectedSandbox)
             {
                 Environment.SetEnvironmentVariable(SandboxExpectation.EnvironmentVariable, expectedSandbox.Trim());
             }

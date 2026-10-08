@@ -120,10 +120,26 @@ internal sealed record SandboxExpectation(string InstanceId, ExecutionTargetEpoc
     public ExecutionTargetException GenerationMismatch(ExecutionTargetEpoch? actual) =>
         Mismatch(
             $"The expected Windows Sandbox {InstanceId} is running, but not in the generation that was expected.",
-            "Rediscover the current epoch with 'winapp target snapshot sandbox --json', or pass only the Sandbox ID.",
+            $"Rediscover the current epoch with '{SnapshotCommand}', or pass only the Sandbox ID.",
             running: null,
             actual,
-            new ExecutionTargetNextCommand { Command = "winapp target snapshot sandbox --json", Advisory = true });
+            new ExecutionTargetNextCommand { Command = SnapshotCommand, Advisory = true });
+
+    /// <summary>
+    /// The error for an expected generation that winapp's saved state still names, but whose guest
+    /// no longer answers, so it may have been restarted under the same ID.
+    /// </summary>
+    public ExecutionTargetException GenerationUnverified(ExecutionTargetEpoch epoch) =>
+        Mismatch(
+            $"The expected Windows Sandbox {InstanceId} is running, but winapp could not confirm it is still the expected generation.",
+            "The Sandbox may have been restarted. Pass only the Sandbox ID to let winapp prepare it again.",
+            running: null,
+            epoch,
+            new ExecutionTargetNextCommand { Command = SnapshotCommand, Advisory = true });
+
+    // Passing the ID overrides a stale epoch in WINAPP_EXPECT_SANDBOX, which would otherwise make the
+    // suggested command fail the same way.
+    private string SnapshotCommand => $"winapp target snapshot sandbox --json {OptionName} {InstanceId}";
 
     private ExecutionTargetException Mismatch(
         string message,
