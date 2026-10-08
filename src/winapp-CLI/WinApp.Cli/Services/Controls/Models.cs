@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(CorePattern[]))]
 [JsonSerializable(typeof(Dictionary<string, string[]>))]
 [JsonSerializable(typeof(DocLink[]))]
+[JsonSerializable(typeof(ApiRef[]))]
 [JsonSerializable(typeof(ProviderSnapshot))]
 [JsonSerializable(typeof(SnapshotManifest))]
 internal partial class ControlsJsonContext : JsonSerializerContext { }
@@ -83,6 +84,26 @@ internal sealed class Scenario
     [JsonPropertyName("apiNamespace")] public string? ApiNamespace { get; set; }
     /// <summary>Official documentation links (API reference, guidelines, etc.) (Gallery only).</summary>
     [JsonPropertyName("docs")] public DocLink[] Docs { get; set; } = [];
+    /// <summary>APIs this sample calls, when its source publishes them. Null rather than an
+    /// empty array when absent, and omitted from serialization in that case, so a corpus in
+    /// which no source populates it stays byte-identical to one baked before the field
+    /// existed — otherwise adding an empty list everywhere would invalidate every cache and
+    /// force a re-fetch for data nobody has yet.</summary>
+    [JsonPropertyName("apis")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiRef[]? Apis { get; set; }
+}
+
+/// <summary>
+/// One API a sample calls, as its source documents it. Separate from <see cref="DocLink"/>
+/// because the name is the thing being matched and the link is optional supporting detail,
+/// where a doc link is the reverse.
+/// </summary>
+internal sealed class ApiRef
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("description")] public string? Description { get; set; }
+    [JsonPropertyName("uri")] public string? Uri { get; set; }
 }
 
 internal sealed class DocLink

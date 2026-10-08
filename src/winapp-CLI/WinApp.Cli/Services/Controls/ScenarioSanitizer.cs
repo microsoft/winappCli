@@ -67,6 +67,18 @@ internal static partial class ScenarioSanitizer
         s.XmlnsImports = StripLineControlChars(s.XmlnsImports);
         s.RelatedControls = StripLineControlChars(s.RelatedControls);
 
+        // API names and their one-line descriptions are rendered inline next to each other
+        // for the same reason, and arrive from the same downloaded JSON.
+        if (s.Apis is { Length: > 0 })
+        {
+            foreach (var api in s.Apis)
+            {
+                api.Name = StripLineControlChars(api.Name) ?? "";
+                api.Description = StripLineControlChars(api.Description);
+                api.Uri = StripLineControlChars(api.Uri);
+            }
+        }
+
         var xaml = StripControlChars(s.Xaml);
         s.Xaml = !string.IsNullOrWhiteSpace(xaml)
             && !SampleSubstitutionPlaceholder.Contains(xaml)

@@ -51,6 +51,11 @@ public class SampleIndexTests
             ControlDescription = "A control that responds to user input.",
             RelatedControls = ButtonRelated,
             ApiNamespace = "Microsoft.UI.Xaml.Controls",
+            Apis =
+            [
+                new ApiRef { Name = "Microsoft.UI.Xaml.Controls.Button", Description = "The control itself.", Uri = "https://learn.microsoft.com/button" },
+                new ApiRef { Name = "Microsoft.UI.Xaml.Controls.Button.Click" },
+            ],
             Docs =
             [
                 new DocLink { Title = "Button class", Uri = "https://learn.microsoft.com/button" },
@@ -72,6 +77,10 @@ public class SampleIndexTests
             ControlDescription = "A control that responds to user input.",
             RelatedControls = ButtonRelated,
             ApiNamespace = "Microsoft.UI.Xaml.Controls",
+            // Deliberately different from button-1's: sibling samples that demonstrate
+            // different APIs must each keep their own list rather than collapsing to a
+            // control-level default.
+            Apis = [new ApiRef { Name = "Microsoft.UI.Xaml.Controls.Button.Content", Description = "Set declaratively in XAML." }],
             Docs =
             [
                 new DocLink { Title = "Button class", Uri = "https://learn.microsoft.com/button" },
@@ -119,7 +128,69 @@ public class SampleIndexTests
                 Assert.AreEqual(before.Docs[d].Title, after.Docs[d].Title, "Docs.Title");
                 Assert.AreEqual(before.Docs[d].Uri, after.Docs[d].Uri, "Docs.Uri");
             }
+
+            Assert.AreEqual(before.Apis!.Length, after.Apis!.Length, "Apis length");
+            for (int a = 0; a < before.Apis.Length; a++)
+            {
+                Assert.AreEqual(before.Apis[a].Name, after.Apis[a].Name, "Apis.Name");
+                Assert.AreEqual(before.Apis[a].Description, after.Apis[a].Description, "Apis.Description");
+                Assert.AreEqual(before.Apis[a].Uri, after.Apis[a].Uri, "Apis.Uri");
+            }
         }
+    }
+
+    /// <summary>
+    /// A control whose samples all call the same APIs states them once, and a sample that
+    /// does not restate them still reads them back. This is the hoist/inherit half of the
+    /// contract; <see cref="RoundTrip_PreservesEveryScenarioField"/> covers the half where
+    /// siblings disagree and each states its own.
+    /// </summary>
+    [TestMethod]
+    public void Apis_SharedByEverySample_AreWrittenOnceAndInherited()
+    {
+        ApiRef[] shared = [new ApiRef { Name = "Windows.Storage.Pickers.FileOpenPicker", Uri = "https://learn.microsoft.com/picker" }];
+        Scenario[] scenarios =
+        [
+            new Scenario { Id = "p-1", ControlId = "picker", ControlName = "Picker", HeaderText = "Open", CSharp = "var p = new FileOpenPicker();", Source = "gallery", Apis = shared },
+            new Scenario { Id = "p-2", ControlId = "picker", ControlName = "Picker", HeaderText = "Open again", CSharp = "var q = new FileOpenPicker();", Source = "gallery", Apis = shared },
+        ];
+
+        var json = SampleIndexWriter.Write(scenarios, source: "gallery");
+
+        using var doc = JsonDocument.Parse(json);
+        var control = doc.RootElement.GetProperty("controls")[0];
+        Assert.AreEqual(1, control.GetProperty("apis").GetArrayLength(), "the shared list belongs on the control");
+        foreach (var sample in control.GetProperty("samples").EnumerateArray())
+        {
+            Assert.IsFalse(sample.TryGetProperty("apis", out _), "a sample must not restate the control's list");
+        }
+
+        var (roundTripped, _, _) = SampleIndexParser.Parse(json, "gallery");
+        Assert.AreEqual(2, roundTripped.Length);
+        foreach (var scenario in roundTripped)
+        {
+            Assert.AreEqual("Windows.Storage.Pickers.FileOpenPicker", scenario.Apis![0].Name, "every sample inherits the control's list");
+        }
+    }
+
+    /// <summary>
+    /// A source that publishes no APIs produces a corpus with no <c>apis</c> at all, rather
+    /// than an empty array on every record. Serializing empties would change the bytes of an
+    /// otherwise-unchanged corpus and so force a cache invalidation for data nobody has yet.
+    /// </summary>
+    [TestMethod]
+    public void Apis_AbsentFromSource_StayNullRatherThanEmpty()
+    {
+        Scenario[] scenarios =
+        [
+            new Scenario { Id = "b-1", ControlId = "b", ControlName = "B", HeaderText = "H", CSharp = "var b = 1;", Source = "gallery" },
+        ];
+
+        var json = SampleIndexWriter.Write(scenarios, source: "gallery");
+
+        Assert.IsFalse(json.Contains("\"apis\"", StringComparison.Ordinal), "no 'apis' property should be emitted");
+        var (roundTripped, _, _) = SampleIndexParser.Parse(json, "gallery");
+        Assert.IsNull(roundTripped[0].Apis, "an absent list stays null, not empty");
     }
 
     /// <summary>
@@ -497,6 +568,7 @@ public class SampleIndexTests
         AssertPropertiesMatch(SampleIndexSchema.DocumentProperties, root, "document");
         AssertPropertiesMatch(SampleIndexSchema.ControlProperties, defs.GetProperty("control"), "control");
         AssertPropertiesMatch(SampleIndexSchema.DocLinkProperties, defs.GetProperty("docLink"), "docLink");
+        AssertPropertiesMatch(SampleIndexSchema.ApiRefProperties, defs.GetProperty("apiRef"), "apiRef");
         AssertPropertiesMatch(SampleIndexSchema.SampleProperties, defs.GetProperty("sample"), "sample");
 
         Assert.AreEqual(

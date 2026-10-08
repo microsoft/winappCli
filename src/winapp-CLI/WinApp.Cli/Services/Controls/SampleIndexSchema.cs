@@ -55,6 +55,14 @@ internal static class SampleIndexSchema
     /// field simply contributes nothing to that slot.</summary>
     public const string CuratedKeywords = "curatedKeywords";
     public const string Docs = "docs";
+
+    /// <summary>APIs a control's or a sample's code calls. Control-level is the default a
+    /// sample may override, like <see cref="Details"/> — a multi-scenario source sets it per
+    /// sample, a single-purpose control sets it once. Distinct from
+    /// <see cref="ApiNamespace"/>, which names only the namespace the control itself lives
+    /// in: this is the per-sample API list that lets one index answer both "which control
+    /// does X" and "which API does X, and show me code that calls it".</summary>
+    public const string Apis = "apis";
     public const string Samples = "samples";
 
     // Doc link level.
@@ -74,14 +82,20 @@ internal static class SampleIndexSchema
 
     /// <summary>Every control-level property the contract defines.</summary>
     public static readonly string[] ControlProperties =
-        [Id, Name, Description, Details, ApiNamespace, NuGetPackage, RelatedControls, XmlnsImports, Usings, Keywords, CuratedKeywords, Docs, Samples];
+        [Id, Name, Description, Details, ApiNamespace, NuGetPackage, RelatedControls, XmlnsImports, Usings, Keywords, CuratedKeywords, Docs, Apis, Samples];
 
     /// <summary>Every doc-link property the contract defines.</summary>
     public static readonly string[] DocLinkProperties = [Title, Uri];
 
-    /// <summary>Every sample-level property the contract defines. <see cref="Details"/> and
-    /// <see cref="XmlnsImports"/> appear at BOTH levels: they are control-level defaults that
-    /// an individual sample may override, because Toolkit samples legitimately carry their own
-    /// description and their own XAML namespace imports.</summary>
-    public static readonly string[] SampleProperties = [Header, Xaml, Code, Language, Details, XmlnsImports, Gallery];
+    /// <summary>Every api-reference property the contract defines. <see cref="Uri"/> rather
+    /// than "url" so one index carries a single spelling of the concept it already uses on
+    /// <see cref="DocLinkProperties"/>.</summary>
+    public static readonly string[] ApiRefProperties = [Name, Description, Uri];
+
+    /// <summary>Every sample-level property the contract defines. <see cref="Details"/>,
+    /// <see cref="XmlnsImports"/> and <see cref="Apis"/> appear at BOTH levels: they are
+    /// control-level defaults that an individual sample may override, because Toolkit samples
+    /// legitimately carry their own description and their own XAML namespace imports, and a
+    /// project-shaped source carries a different API list per scenario.</summary>
+    public static readonly string[] SampleProperties = [Header, Xaml, Code, Language, Details, XmlnsImports, Apis, Gallery];
 }

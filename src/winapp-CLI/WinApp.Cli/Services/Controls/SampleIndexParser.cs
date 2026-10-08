@@ -83,6 +83,7 @@ internal static class SampleIndexParser
             var keywords = GetStringArray(control, SampleIndexSchema.Keywords);
             var authorKeywords = GetStringArray(control, SampleIndexSchema.CuratedKeywords);
             var docs = GetDocLinks(control);
+            var apis = GetApiRefs(control);
 
             // Both dictionaries are served verbatim (not stop-word cleaned) so multi-word
             // intent terms like "css layout" survive; cleaning would drop "layout".
@@ -123,6 +124,9 @@ internal static class SampleIndexParser
                 var sampleXmlns = sample.TryGetProperty(SampleIndexSchema.XmlnsImports, out _)
                     ? GetStringArray(sample, SampleIndexSchema.XmlnsImports)
                     : xmlnsImports;
+                var sampleApis = sample.TryGetProperty(SampleIndexSchema.Apis, out _)
+                    ? GetApiRefs(sample)
+                    : apis;
 
                 // A sample with neither XAML nor code has no usable content. Placeholder
                 // tokens depend on live Gallery option controls, so suppress only the
@@ -155,6 +159,9 @@ internal static class SampleIndexParser
                     RelatedControls = relatedControls,
                     XmlnsImports = sampleXmlns,
                     Docs = docs,
+                    // Null, not an empty array, when the source publishes none: the field is
+                    // omitted from the cached corpus in that case (see Scenario.Apis).
+                    Apis = sampleApis.Length > 0 ? sampleApis : null,
                 });
             }
         }
@@ -193,6 +200,35 @@ internal static class SampleIndexParser
             if (string.IsNullOrEmpty(uri)) continue;
 
             list.Add(new DocLink { Title = GetString(doc, SampleIndexSchema.Title), Uri = uri });
+        }
+        return [.. list];
+    }
+
+    /// <summary>
+    /// Read an <c>apis</c> array from a control or a sample. An entry with no <c>name</c> is
+    /// skipped: the name is what a query matches against, so an entry without one carries a
+    /// link and nothing to find it by.
+    /// </summary>
+    private static ApiRef[] GetApiRefs(JsonElement owner)
+    {
+        if (!owner.TryGetProperty(SampleIndexSchema.Apis, out var apis)
+            || apis.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var list = new List<ApiRef>();
+        foreach (var api in apis.EnumerateArray().Where(api => api.ValueKind == JsonValueKind.Object))
+        {
+            var name = GetString(api, SampleIndexSchema.Name);
+            if (string.IsNullOrEmpty(name)) continue;
+
+            list.Add(new ApiRef
+            {
+                Name = name,
+                Description = NullIfEmpty(GetString(api, SampleIndexSchema.Description)),
+                Uri = NullIfEmpty(GetString(api, SampleIndexSchema.Uri)),
+            });
         }
         return [.. list];
     }
