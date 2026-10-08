@@ -63,9 +63,16 @@ internal static partial class DevelopmentIdentityHelper
     }
 
     /// <summary>
-    /// Builds the unique identity for a staged manifest. Authored aliases keep their stem and gain the
-    /// derived name's suffix: <c>foo.exe</c> becomes <c>foo.w&lt;24 hex&gt;.exe</c>.
+    /// Renames an authored execution alias for a derived package name: <c>foo.exe</c> becomes
+    /// <c>foo.w&lt;24 hex&gt;.exe</c>. An alias that already carries the suffix is returned unchanged.
     /// </summary>
+    public static string RenameAlias(string alias, string derivedName)
+    {
+        var suffix = derivedName[^26..] + ".exe";
+        return alias.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) ? alias : alias[..^".exe".Length] + suffix;
+    }
+
+    /// <summary>Builds the unique identity for a source manifest. Aliases are filled in when the staged copy is renamed.</summary>
     public static DevelopmentIdentity Create(AppxManifestDocument document, string ownerPath)
     {
         var originalName = document.IdentityName
@@ -73,16 +80,12 @@ internal static partial class DevelopmentIdentityHelper
         var publisher = document.IdentityPublisher
             ?? throw new InvalidOperationException("The manifest must specify Identity/@Publisher to use --unique-identity.");
         var name = DeriveName(ownerPath, originalName);
-        var suffix = name[^26..];
-        var aliases = document.GetExecutionAliases()
-            .ToDictionary(alias => alias, alias => alias[..^".exe".Length] + suffix + ".exe", StringComparer.OrdinalIgnoreCase);
         return new DevelopmentIdentity
         {
             OriginalPackageName = originalName,
             PackageName = name,
             PackageFamilyName = AppLauncherService.ComputeFamilyName(name, publisher),
             OwnerPath = CanonicalizePath(ownerPath),
-            Aliases = aliases,
         };
     }
 

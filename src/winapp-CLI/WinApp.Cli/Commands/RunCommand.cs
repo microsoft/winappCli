@@ -862,7 +862,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                             var derived = DevelopmentIdentityHelper.Create(probe, developmentIdentity.OwnerPath);
                             probeFamily = derived.PackageFamilyName;
                             probeAlias = declaredAliases.Count > 0
-                                ? derived.Aliases[declaredAliases[0]]
+                                ? DevelopmentIdentityHelper.RenameAlias(declaredAliases[0], derived.PackageName)
                                 : ExecutionAliasResolver.BuildDefaultAliasName(probeFamily);
                         }
 

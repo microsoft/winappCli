@@ -287,17 +287,25 @@ internal class AppxManifestDocument
         }
     }
 
-    /// <summary>Renames the package and its authored execution aliases. Call on a staged copy only.</summary>
-    public void ApplyDevelopmentIdentity(DevelopmentIdentity identity)
+    /// <summary>
+    /// Renames the package and its authored execution aliases. Call on a staged copy only, after
+    /// placeholders such as <c>$targetnametoken$</c> are resolved.
+    /// </summary>
+    /// <returns>The identity with the original-to-renamed alias map filled in.</returns>
+    public DevelopmentIdentity ApplyDevelopmentIdentity(DevelopmentIdentity identity)
     {
         IdentityName = identity.PackageName;
+        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var alias in _document.Descendants().Where(e => e.Name.LocalName == "ExecutionAlias"))
         {
-            if (alias.Attribute("Alias")?.Value is { } name && identity.Aliases.TryGetValue(name, out var renamed))
+            if (alias.Attribute("Alias")?.Value is { Length: > 0 } name)
             {
+                var renamed = DevelopmentIdentityHelper.RenameAlias(name, identity.PackageName);
+                aliases[name] = renamed;
                 alias.SetAttributeValue("Alias", renamed);
             }
         }
+        return identity with { Aliases = aliases };
     }
 
     private static InvalidOperationException UnsupportedIdentity(string reason) =>

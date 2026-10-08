@@ -127,13 +127,21 @@ public class UniqueIdentityTests : BaseCommandTests
     }
 
     [TestMethod]
-    public void Create_RenamesAuthoredAliasesWithTheDerivedSuffix()
+    public void ApplyDevelopmentIdentity_RenamesEveryStagedAliasOnce()
     {
-        var identity = DevelopmentIdentityHelper.Create(AppxManifestDocument.Parse(Manifest(extensions: AliasExtension)), _tempDirectory.FullName);
+        // A staged alias is whatever the manifest resolved to, e.g. $targetnametoken$.exe -> app.exe.
+        var staged = AppxManifestDocument.Parse(Manifest(extensions: AliasExtension));
+        var identity = DevelopmentIdentityHelper.Create(staged, _tempDirectory.FullName);
 
-        Assert.AreEqual("tool" + identity.PackageName[^26..] + ".exe", identity.Aliases["tool.exe"]);
+        identity = staged.ApplyDevelopmentIdentity(identity);
+        var again = staged.ApplyDevelopmentIdentity(identity);
+
+        var renamed = "tool" + identity.PackageName[^26..] + ".exe";
+        Assert.AreEqual(renamed, identity.Aliases["tool.exe"]);
+        Assert.AreEqual(renamed, staged.GetExecutionAliases().Single());
+        Assert.AreEqual(renamed, again.Aliases[renamed], "A second rename must not add another suffix");
+        Assert.AreEqual(identity.PackageName, staged.IdentityName);
         Assert.AreEqual(AppLauncherService.ComputeFamilyName(identity.PackageName, Publisher), identity.PackageFamilyName);
-        Assert.AreEqual("Contoso.App", identity.OriginalPackageName);
     }
 
     // ---- Supported manifests ----
@@ -228,6 +236,36 @@ public class UniqueIdentityTests : BaseCommandTests
 
         Assert.IsEmpty(_registration.UnregisterByFullNameCalls);
         Assert.HasCount(1, _registration.RegisterLooseLayoutCalls);
+    }
+
+    [TestMethod]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    public async Task SwitchingModes_ReplacesTheLayoutsOldRegistrationAndItsResources(bool firstUnique, bool secondUnique)
+    {
+        var output = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "bin"));
+        var manifest = WriteBuildOutput(output, Manifest());
+        var layout = new DirectoryInfo(Path.Join(output.FullName, "AppX"));
+        var first = await RunAsync(manifest, layout, _tempDirectory.FullName, unique: firstUnique);
+        var stalePri = Path.Join(layout.FullName, "resources.pri");
+        File.WriteAllText(stalePri, $"indexed for {first.PackageName}");
+        var elsewhere = Path.Join(_tempDirectory.FullName, "other-checkout", "AppX");
+        _registration.FakeDevPackages =
+        [
+            new DevPackageInfo($"{first.PackageName}_1.0.0.0_x64__mine", first.PackageName, "1.0.0.0", layout.FullName, IsDevelopmentMode: true, Publisher),
+            new DevPackageInfo($"{first.PackageName}_1.0.0.0_x64__theirs", first.PackageName, "1.0.0.0", elsewhere, IsDevelopmentMode: true, Publisher),
+        ];
+
+        var second = await RunAsync(manifest, layout, _tempDirectory.FullName, unique: secondUnique);
+
+        Assert.AreNotEqual(first.PackageName, second.PackageName);
+        Assert.IsFalse(File.Exists(stalePri), "A PRI indexed for the other identity must not be reused");
+        Assert.Contains(($"{first.PackageName}_1.0.0.0_x64__mine", true), _registration.UnregisterByFullNameCalls);
+        if (secondUnique)
+        {
+            // A unique run never touches another checkout's registration of the original name.
+            Assert.DoesNotContain(($"{first.PackageName}_1.0.0.0_x64__theirs", true), _registration.UnregisterByFullNameCalls);
+        }
     }
 
     [TestMethod]

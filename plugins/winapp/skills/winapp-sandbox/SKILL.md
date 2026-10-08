@@ -51,7 +51,7 @@ winapp ui screenshot --on sandbox -a MyApp -o .\result.png
 
 For parallel packaged worktrees, opt into
 `winapp run . --unique-identity --on sandbox --detach --json`. Use the returned
-`UiTargetArgs`; the derived package name is printed during the run. All copies share one Sandbox. See
+`UiTargetArgs`. All copies share one Sandbox. See
 [unique identity for parallel checkouts](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts).
 
 ## Coordinate a recording with actions

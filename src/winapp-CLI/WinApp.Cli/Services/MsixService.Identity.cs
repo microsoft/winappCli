@@ -184,6 +184,8 @@ internal partial class MsixService
             uniqueIdentity = DevelopmentIdentityHelper.Create(doc, developmentIdentity.OwnerPath);
         }
 
+        var packageName = uniqueIdentity?.PackageName ?? doc.IdentityName;
+
         var isMSBuildGenerated = doc.Document.Root?
             .Element(AppxManifestDocument.BuildNs + "Metadata")?
             .Elements(AppxManifestDocument.BuildNs + "Item")
@@ -195,6 +197,7 @@ internal partial class MsixService
 
             // Snapshot the previous registered manifest BEFORE the copy/sync overwrites it (issue #537).
             var previousManifestBytes = TryReadExistingLayoutManifestBytes(outputAppXDirectory);
+            var previousPackageName = DiscardResourcesFromAnotherIdentity(previousManifestBytes, packageName, outputAppXDirectory, taskContext);
 
             var recipeFile = appxRecipe
                 ?? inputDirectory.EnumerateFiles("*.build.appxrecipe", SearchOption.TopDirectoryOnly).FirstOrDefault();
@@ -234,7 +237,7 @@ internal partial class MsixService
             if (uniqueIdentity is not null)
             {
                 var staged = AppxManifestDocument.Load(registrationManifest.FullName);
-                staged.ApplyDevelopmentIdentity(uniqueIdentity);
+                uniqueIdentity = staged.ApplyDevelopmentIdentity(uniqueIdentity);
                 staged.Save(registrationManifest.FullName);
                 await priService.ReindexIdentityAsync(outputAppXDirectory, uniqueIdentity.PackageName, taskContext, cancellationToken);
                 identity = identity with { PackageName = uniqueIdentity.PackageName };
@@ -280,6 +283,8 @@ internal partial class MsixService
                 await InstallRecipeFrameworkPackagesAsync(recipeFile, registrationManifest, runtimeArch, taskContext, cancellationToken);
             }
 
+            await RemoveRegistrationOfAnotherIdentityAsync(previousPackageName, identity.PackageName, identity.Publisher, outputAppXDirectory, clean, taskContext, cancellationToken);
+
             var skipResult = TrySkipRegistration(
                 identity.PackageName, identity.Publisher, identity.ApplicationId,
                 previousManifestBytes, registrationManifest, outputAppXDirectory,
@@ -312,6 +317,7 @@ internal partial class MsixService
 
         // Snapshot the previously-registered manifest BEFORE Sync overwrites it (issue #537).
         var previousRawManifestBytes = TryReadExistingLayoutManifestBytes(outputAppXDirectory);
+        var previousRawPackageName = DiscardResourcesFromAnotherIdentity(previousRawManifestBytes, packageName, outputAppXDirectory, taskContext);
 
         SyncFilesToOutputDirectory(inputDirectory, outputAppXDirectory, appxManifestPath, taskContext, reconciliation);
 
@@ -401,7 +407,7 @@ internal partial class MsixService
         if (uniqueIdentity is not null)
         {
             var staged = AppxManifestDocument.Parse(manifestContent);
-            staged.ApplyDevelopmentIdentity(uniqueIdentity);
+            uniqueIdentity = staged.ApplyDevelopmentIdentity(uniqueIdentity);
             manifestContent = staged.ToXml();
             await priService.ReindexIdentityAsync(outputAppXDirectory, uniqueIdentity.PackageName, taskContext, cancellationToken);
         }
@@ -448,6 +454,8 @@ internal partial class MsixService
             }
 
             // See MSBuild branch above for the rationale (issue #537).
+            await RemoveRegistrationOfAnotherIdentityAsync(previousRawPackageName, identity.PackageName, identity.Publisher, outputAppXDirectory, clean, taskContext, cancellationToken);
+
             var skipResult = TrySkipRegistration(
                 identity.PackageName, identity.Publisher, identity.ApplicationId,
                 previousRawManifestBytes, copiedAppxManifestPath, outputAppXDirectory,
@@ -1366,6 +1374,62 @@ internal partial class MsixService
         }
 
         RemoveCompetingLayoutManifests(outputAppXDirectory, taskContext);
+    }
+
+    /// <summary>
+    /// Returns the package name the layout last held when it differs from <paramref name="packageName"/>
+    /// (a switch to or from <c>--unique-identity</c>, or an edited <c>Identity/@Name</c>), and deletes
+    /// the layout's <c>resources.pri</c> because it was indexed for that other name. Staging copies the
+    /// build's own PRI back, or generates a new one.
+    /// </summary>
+    private static string? DiscardResourcesFromAnotherIdentity(byte[]? previousManifest, string? packageName, DirectoryInfo layout, TaskContext taskContext)
+    {
+        string? previousName;
+        try
+        {
+            previousName = previousManifest is null ? null : AppxManifestDocument.Parse(Encoding.UTF8.GetString(previousManifest)).IdentityName;
+        }
+        catch (System.Xml.XmlException)
+        {
+            return null;
+        }
+        if (previousName is null || packageName is null || string.Equals(previousName, packageName, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var pri = new FileInfo(Path.Join(layout.FullName, "resources.pri"));
+        if (pri.Exists)
+        {
+            pri.Delete();
+            taskContext.AddDebugMessage($"{UiSymbols.Trash} Removed resources.pri indexed for {previousName}");
+        }
+        return previousName;
+    }
+
+    /// <summary>
+    /// Removes the development package this layout was registered under before its identity changed.
+    /// Only a registration from this exact layout is removed, so another checkout's copy is left alone.
+    /// </summary>
+    private async Task RemoveRegistrationOfAnotherIdentityAsync(
+        string? previousName, string packageName, string publisher, DirectoryInfo layout, bool clean, TaskContext taskContext, CancellationToken cancellationToken)
+    {
+        if (previousName is null || string.Equals(previousName, packageName, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var layoutPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(layout.FullName));
+        foreach (var package in packageRegistrationService.FindDevPackages(previousName))
+        {
+            if (package.IsDevelopmentMode && package.InstallLocation is { Length: > 0 } location
+                && string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(location)), layoutPath, StringComparison.OrdinalIgnoreCase)
+                && (package.Publisher is null || string.Equals(package.Publisher, publisher, StringComparison.OrdinalIgnoreCase)))
+            {
+                taskContext.AddDebugMessage($"{UiSymbols.Trash} Removing {package.FullName}, which this layout was registered as before");
+                await packageRegistrationService.UnregisterByFullNameAsync(package.FullName, preserveAppData: !clean, cancellationToken);
+            }
+        }
     }
 
     /// <summary>

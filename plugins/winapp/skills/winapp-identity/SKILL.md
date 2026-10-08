@@ -20,7 +20,7 @@ winapp unregister .
 ```
 
 Use this only when the user wants copies of an app to stay registered side by side.
-Pass the same input for every run and for cleanup, and read names from the returned
+Pass the same input for every run, and the same project, `.cs`, or folder for cleanup (for a solution, the project it ran). Read names from the returned
 `Identity` and aliases instead of guessing them. Never resolve a registration conflict
 by removing another checkout's package.
 
@@ -142,7 +142,7 @@ winapp create-debug-identity .\bin\Debug\myapp.exe
 | **Capture debug output** | `winapp run .\build\Debug --debug-output` | Captures `OutputDebugString`; on crash, writes minidump and analyzes managed exceptions automatically. **Blocks other debuggers** (one debugger per process) |
 | **Run and auto-clean** | `winapp run .\build\Debug --unregister-on-exit` | Unregisters the dev package after the app exits |
 | **Launch and detach (CI)** | `winapp run .\build\Debug --detach` | Returns immediately after launch; use `--json` to get PID for scripting |
-| **Clean up this app's registration** | `winapp unregister .` | Pass the same input as `run`; works with or without `--unique-identity` |
+| **Clean up this app's registration** | `winapp unregister .` | Pass the same project, `.cs`, or folder as `run` (for a solution, the project it ran); works with or without `--unique-identity` |
 
 > **Using Visual Studio with a packaging project?** VS already handles identity, AUMID activation, and debugger attachment from F5. These workflows are most useful for VS Code, terminal-based development, and frameworks VS doesn't natively package (Rust, Flutter, Tauri, Electron, C++).
 

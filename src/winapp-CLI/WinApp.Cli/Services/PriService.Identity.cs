@@ -49,7 +49,8 @@ internal partial class PriService
                     "MakePri did not produce resources.pri for the unique identity. Rebuild the app, or run without --unique-identity.");
             }
 
-            File.Copy(output, priPath, overwrite: true);
+            // Replaces the layout's entry rather than writing through a linked destination.
+            AtomicFile.Copy(output, priPath);
             taskContext.AddDebugMessage($"{UiSymbols.Files} Re-indexed resources.pri for {packageName}");
         }
         finally
