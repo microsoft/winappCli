@@ -1,0 +1,44 @@
+{
+  "id": "sable-flutter-release-needs-a-container",
+  "description": "Routes a Flutter desktop release to generic MSIX creation rather than WinUI or MAUI packaging.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "5",
+  "framework": "Flutter / Dart",
+  "conflictingSignal": false,
+  "sources": [
+    "https://github.com/flutter/flutter/issues/63672",
+    "https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-packaging-dot-net"
+  ],
+  "prompt": "Package Sable Ferry's Flutter Windows release as a .msix for our pilot. The inventory is attached; it needs the data directory and Flutter DLLs. Our release team handles signing afterward.",
+  "paraphrases": {
+    "novice": "Sable Ferry already runs on Windows. Can you make a .msix from the Flutter release files listed here, including the extra files it needs to work? Another team will sign it.",
+    "terse": "Sable Ferry Flutter release folder to .msix. Include data and runtime DLLs."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The completed Flutter release is described by a text inventory rather than supplied as executable or DLL files.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "msix.package"
+        ]
+      ],
+      "acceptable": [
+        "framework.guidance"
+      ],
+      "forbid": [
+        "winui.*",
+        "maui.package",
+        "winui.migrate",
+        "session.report"
+      ]
+    }
+  }
+}

@@ -1,0 +1,4 @@
+The displayed source is the existing WPF screen.
+Its view model exposes a writable Reference property.
+The successor has not been created.
+Keep the branch-office application unchanged.

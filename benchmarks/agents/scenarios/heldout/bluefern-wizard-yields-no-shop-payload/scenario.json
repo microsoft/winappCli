@@ -1,0 +1,49 @@
+{
+  "id": "bluefern-wizard-yields-no-shop-payload",
+  "description": "Combines MAUI-specific Windows publishing repair with Store submission rather than treating its platform shell as a standalone WinUI app.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "9",
+  "framework": ".NET MAUI / Android and Windows",
+  "conflictingSignal": true,
+  "sources": [
+    "https://github.com/dotnet/maui/issues/22445",
+    "https://learn.microsoft.com/en-us/dotnet/maui/windows/deployment/publish-cli?view=net-maui-9.0",
+    "https://learn.microsoft.com/en-us/windows/apps/publish/"
+  ],
+  "prompt": "Publishing Bluefern Survey for Windows says success, but there's no .msixupload. Can you fix the MAUI publish settings and show how to submit it to the Microsoft Store?",
+  "paraphrases": {
+    "novice": "Bluefern Survey's MAUI project says the Windows publish finished, but I don't have a file to send to the Store. How do I make the right one and submit it?",
+    "terse": "Bluefern MAUI publish: no .msixupload. Need package and Store submission."
+  },
+  "configurations": [
+    "none",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The absent .msixupload and wizard result are represented by an output inventory; no application binaries or remote account are included.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "maui.package",
+          "store.publish"
+        ]
+      ],
+      "acceptable": [
+        "troubleshoot",
+        "msix.manifest"
+      ],
+      "forbid": [
+        "winui.design",
+        "winui.migrate",
+        "winui.review",
+        "winui.build",
+        "ui.samples",
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

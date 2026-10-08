@@ -1,0 +1,8 @@
+{
+ "application": "Marigold Register",
+ "framework": "WinForms",
+ "artifact": "MarigoldRegister.exe",
+ "deployment": "self-contained x64 folder",
+ "initialBalance": "0.00",
+ "receiptTotal": "12.50"
+}

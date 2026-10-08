@@ -1,0 +1,13 @@
+name: release
+on: { push: { tags: ['v*'] } }
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: dotnet publish src/Quillmark.csproj -c Release -o out
+      - name: Sign
+        run: |
+          signtool sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 `
+            /dlib "$env:LOCALAPPDATA\Microsoft\MicrosoftTrustedSigningClientTools\Azure.CodeSigning.Dlib.dll" `
+            /dmdf metadata.json out\Quillmark.msix
