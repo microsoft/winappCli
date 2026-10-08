@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using WinApp.Cli.Commands;
 using WinApp.Cli.ExecutionTargets.Abstractions;
@@ -9,6 +10,7 @@ using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 using WinApp.Cli.Services.DevTools;
+using WinApp.Cli.Services.DevTools.Comments;
 
 namespace WinApp.Cli.Tests;
 
@@ -787,6 +789,32 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(12345u, document.RootElement.GetProperty("ProcessId").GetUInt32());
         StringAssert.Contains(DevToolsJson(TestAnsiConsole.Output)!.Value.GetProperty("unavailable").GetString()!, "The agent did not answer.");
         AssertTelemetry(DevToolsMode.On, DevToolsModeSource.Default, DevToolsOutcome.FellBack);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task Default_ConnectFailure_HumanOutputIsOnePlainLine()
+    {
+        var app = WinUIProject(true);
+        _attach.Result = DevToolsConnection.Fail("Could not locate the target's Windows App Runtime: missing.");
+        var (exit, ambient) = await InvokeWithAmbientConsoleCaptureAsync(GetRequiredService<RunCommand>(), [app.Input, "--detach"]);
+        Assert.AreEqual(0, exit, TestAnsiConsole.Output);
+        var output = System.Text.RegularExpressions.Regex.Replace($"{ambient}{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", @"\s+", " ");
+        Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(output, "DevTools unavailable"), output);
+        StringAssert.Contains(output,
+            "DevTools unavailable: Could not locate the target's Windows App Runtime: missing · the app runs without DevTools");
+        Assert.DoesNotContain("attach --pid", output);
+    }
+
+    [TestMethod]
+    public async Task ServiceFailure_IsReturnedNotLoggedAsAnError()
+    {
+        // The run prints the returned reason once; an error log here added "[ERROR]" and a stack trace to it.
+        var logger = new LevelLogger<DevToolsService>(LogLevel.Information);
+        var service = new DevToolsService(logger, GetRequiredService<ICommentPusher>());
+        var result = await service.ConnectAsync((uint)Environment.ProcessId, false, DevToolsAccess.Mutation, CancellationToken.None);
+        Assert.IsFalse(result.Connected);
+        Assert.IsEmpty(logger.Entries.Where(entry => entry.Level >= LogLevel.Warning).ToArray(), result.Error);
     }
 
     [TestMethod]

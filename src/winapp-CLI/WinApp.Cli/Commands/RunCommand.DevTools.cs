@@ -159,9 +159,12 @@ internal partial class RunCommand
             DevToolsRunTelemetryScope.SetOutcome(DevToolsOutcome.FellBack);
             if (!isJson)
             {
-                logger.LogWarning("{UISymbol} DevTools is unavailable for this run: {Reason}", UiSymbols.Warning, reason);
+                logger.LogWarning("{UISymbol} {Line}", UiSymbols.Warning, StepAsideLine(reason));
             }
         }
+
+        internal static string StepAsideLine(string reason) =>
+            $"DevTools unavailable: {reason.Trim().TrimEnd('.')} · the app runs without DevTools";
 
         internal Func<string?, bool, IReadOnlyDictionary<string, string?>> CreateDevToolsEnvironment { get; set; } =
             DevToolsArtifacts.CreateLaunchEnvironment;
@@ -306,6 +309,7 @@ internal partial class RunCommand
                 // reports it and the run carries on with the same process, exit code and wait.
                 DevToolsConnection? connection = null;
                 string? unavailable = null;
+                var attachHint = "";
                 if (launched.HasExited)
                 {
                     unavailable = $"The app exited right after launch (exit code {launched.ExitCode}), before DevTools could inspect it.";
@@ -316,10 +320,10 @@ internal partial class RunCommand
                     cancellationToken.ThrowIfCancellationRequested();
                     if (!connection.Connected || launched.HasExited)
                     {
-                        unavailable = (launched.HasExited
+                        unavailable = launched.HasExited
                             ? $"The launched process exited before inspection completed (exit code {launched.ExitCode})."
-                            : connection.Error ?? "The requested DevTools overlay did not open.") +
-                            $" If process {pid} is still running, inspect it with 'winapp devtools attach --pid {pid}'.";
+                            : connection.Error ?? "The requested DevTools overlay did not open.";
+                        attachHint = $" If process {pid} is still running, inspect it with 'winapp devtools attach --pid {pid}'.";
                         connection = null;
                     }
                     else if (showOverlay && !connection.OverlayShown)
@@ -333,7 +337,7 @@ internal partial class RunCommand
                 {
                     if (!devToolsRun.FailOpen)
                     {
-                        return InspectorFailure(aumid, pid, unavailable, isJson, coordinates);
+                        return InspectorFailure(aumid, pid, unavailable + attachHint, isJson, coordinates);
                     }
                     DevToolsStepsAside(unavailable, isJson);
                 }

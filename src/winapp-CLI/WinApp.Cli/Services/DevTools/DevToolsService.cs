@@ -63,7 +63,7 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
-            logger.LogError(ex, "Could not prepare the DevTools agent.");
+            logger.LogDebug(ex, "Could not prepare the DevTools agent.");
             return DevToolsConnection.Fail($"Could not prepare the DevTools agent: {ex.Message}");
         }
 
@@ -87,7 +87,7 @@ internal sealed class DevToolsService(ILogger<DevToolsService> logger, ICommentP
         }
         catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
         {
-            logger.LogError(ex, "Could not locate the target's Windows App Runtime.");
+            logger.LogDebug(ex, "Could not locate the target's Windows App Runtime.");
             return DevToolsConnection.Fail($"Could not locate the target's Windows App Runtime: {ex.Message}");
         }
         if (udkPath is null)
