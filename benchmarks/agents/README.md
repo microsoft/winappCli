@@ -212,8 +212,9 @@ pwsh benchmarks\agents\run.ps1 -Rescore benchmarks\agents\results\<timestamp>
 This writes `runs.rescored.jsonl` and `summary.rescored.md` next to the originals, which are left
 unchanged. Only `pass`, `partial`, `fail`, and `n/a` runs are re-evaluated. Each rescored run keeps
 its `originalStatus`, and the command prints how many runs moved between statuses. Runs record a
-hash of their prompt; a run whose prompt has changed since is not rescored and gets a note. Runs of a
-scenario that no longer exists become `scenario_removed` and are left out of pass rates. A
+hash of their prompt; a run whose prompt has changed since is not rescored and gets a note. Scored
+runs (`pass`, `partial`, `fail`, `n/a`) of a scenario that no longer exists become `scenario_removed`,
+so they are left out of pass rates like timeouts and errors already are. A
 changed fixture still needs a new run.
 
 ### Comparing runs
@@ -273,7 +274,7 @@ plugins change their skill names without a map update. For a candidate that rena
 splits skills, add a map for its skill set; the existing maps keep scoring older results. When a
 skill is removed, remove its map entry, any capability only it provided, and the scenarios that
 expected that capability. Older runs that had it installed are then scored by the remaining map,
-and runs of the removed scenarios are excluded as `scenario_removed`.
+and runs of the removed scenarios are left out of pass rates (scored ones as `scenario_removed`).
 
 Capabilities starting with `winui.` (and `ui.samples`) are WinUI-specific, so non-WinUI scenarios
 forbid `winui.*`. Mapping choices that affect scores:
