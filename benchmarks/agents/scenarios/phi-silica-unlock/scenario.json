@@ -1,0 +1,29 @@
+{
+  "id": "phi-silica-unlock",
+  "description": "Journey: Phi Silica needs an unlock token; a manifest capability will not unlock it.",
+  "set": "dev",
+  "cohort": "vague",
+  "prompt": "Phi Silica says it needs an unlock token. Can't we just add a capability so it runs?",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "api.lookup"
+      ],
+      "acceptable": [
+        "identity",
+        "msix.manifest"
+      ],
+      "forbid": [
+        "msix.sign",
+        "winui.migrate",
+        "session.report"
+      ]
+    }
+  }
+}

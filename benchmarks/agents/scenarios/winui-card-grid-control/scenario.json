@@ -1,7 +1,9 @@
 {
   "id": "winui-card-grid-control",
   "description": "WinUI control choice: replace a ListView with an adaptive card grid (find-ui vs winui-design).",
-  "prompt": "LibraryPage shows books in a plain ListView. Change it to a grid of cards (cover, title, author) that adds columns as the window gets wider. Use the control Windows apps normally use for this instead of hand-rolling a layout panel.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Books should look like covers in a library, not a plain list. Make the tiles wrap as the window gets wider.",
   "configurations": [
     "winapp",
     "winui",
@@ -9,16 +11,18 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winapp-find-ui",
-      "winui-design"
-    ],
-    "skillsForbid": [
-      "winui-wpf-migration",
-      "winui-session-report",
-      "winapp-ui-automation",
-      "winui-ui-testing",
-      "winapp-package"
-    ]
+    "capabilities": {
+      "primary": [
+        "winui.design",
+        "ui.samples"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "session.report",
+        "ui.automate",
+        "ui.test",
+        "msix.package"
+      ]
+    }
   }
 }

@@ -1,0 +1,39 @@
+{
+  "id": "vireo-blog-invented-an-enum-name",
+  "description": "Routes an unavailable WinRT enum value to exact metadata lookup without upgrading dependencies.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "4",
+  "framework": "C++/WinRT / Win32",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/uwp/api/windows.applicationmodel.startuptask.requestenableasync"
+  ],
+  "prompt": "'BlockedByUser' isn't a member of StartupTaskState in Vireo Beacon. Which enum value means the user disabled startup? We're pinned to Windows SDK 10.0.19041.0.",
+  "paraphrases": {
+    "novice": "Vireo Beacon won't compile the name I copied from a blog. What does our Windows SDK call the result where someone has turned automatic startup off?",
+    "terse": "Vireo C2039: StartupTaskState::BlockedByUser. Correct member for SDK 10.0.19041.0?"
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "api.lookup"
+        ]
+      ],
+      "forbid": [
+        "project.setup",
+        "toolchain.prereqs",
+        "winui.*",
+        "identity",
+        "session.report"
+      ]
+    }
+  }
+}

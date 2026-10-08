@@ -24,7 +24,8 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
   and finish its client setup/update. Do not repeatedly retry an unchanged prerequisite.
 - Connection or reconnect may briefly take focus; do not promise zero desktop interruption.
 - Existing Sandbox instances are reused and changed, not discarded. Never close one
-  or run `wsb stop` without user consent.
+  or run `wsb stop` without user consent. Closing the Sandbox window does not end the
+  Sandbox; `wsb connect --id <id>` shows it again.
 
 ## Launch, inspect, act, verify
 
@@ -156,10 +157,16 @@ suppressed with `--quiet`/`--json`.
 
 - Prerequisite errors: follow the setup guidance above; keep elevation and restart under user control.
 - Input unavailable: restore the existing client or use the error's reconnect command.
+- "Only one running instance of Windows Sandbox is allowed" from the Start menu: a Sandbox
+  is already running. Point the user to **Windows Sandbox** in the taskbar; if it has no
+  window, `wsb list` then `wsb connect --id <id>`. Never stop it without consent.
 - Incompatible CLI: follow the error; upgrade the installed CLI through its install method,
-  **not `winapp update`**. Obtain consent before closing a Sandbox for a version change.
+  **not `winapp update`**. Obtain consent before stopping a Sandbox (`wsb stop --id <id>`)
+  for a version change; closing its window does not stop it.
 - Missing/unsupported runtime: use the named requirement and configuration in the error.
   Do not assume any newer same-major runtime is compatible or substitute architectures.
+- Folder share refused (`sandbox_transport_failed`, `0x80070005`): Sandbox shares as SYSTEM.
+  Grant it access to the reported folder with the error's `icacls` command, then retry.
 - Incomplete deployment/transfer: retry. Busy: wait. Partial recording: keep reported evidence.
 - Package conflict: do not remove external or inbox packages to force registration.
 

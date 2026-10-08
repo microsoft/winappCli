@@ -105,8 +105,8 @@ For full details, see the [Debugging Guide](https://github.com/microsoft/WinAppC
 | `cert generate` | Nothing (or `Package.appxmanifest` for publisher) | `devcert.pfx` |
 | `cert install` | Certificate file + admin | Machine certificate store |
 | `create-debug-identity` | `Package.appxmanifest` + exe + trusted cert | Registers sparse package with Windows |
-| `run` | Build output folder + `Package.appxmanifest`; **or** a `.csproj`/`.sln`; **or** a `.cs` file-based app (no manifest needed — one is generated) | Registers loose layout package, launches app |
-| `unregister` | `.cs`, `.csproj`, `.sln`/`.slnx`, folder, or a recorded `--output-appx-directory`; `--manifest` for manifest selection | Removes the development registration that `run` or `create-debug-identity` created |
+| `run` | Build output folder + `Package.appxmanifest`; **or** a `.csproj`/`.vcxproj`/`.sln` (C++ needs Visual Studio or Build Tools with the C++ workload); **or** a `.cs` file-based app (no manifest needed — one is generated) | Registers loose layout package, launches app |
+| `unregister` | The same input passed to `run` (`.cs`, `.csproj`/`.vcxproj`, `.sln`/`.slnx`, or folder), or `--manifest` | Removes the development registration that `run` or `create-debug-identity` created |
 | `package` | Build output + `Package.appxmanifest` | `.msix` file |
 | `sign` | File + certificate | Signed file (in-place) |
 | `create-external-catalog` | Directory with executables | `CodeIntegrityExternal.cat` |

@@ -702,6 +702,59 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task FolderMode_CppLibraryOnlyFolder_ExplainsUnlessAManifestIsGiven()
+    {
+        var withoutManifestDir = _tempDirectory.CreateSubdirectory("LibA");
+        var withManifestDir = _tempDirectory.CreateSubdirectory("LibB");
+        const string library = "<Project><PropertyGroup><ConfigurationType>DynamicLibrary</ConfigurationType></PropertyGroup></Project>";
+        File.WriteAllText(Path.Join(withoutManifestDir.FullName, "LibA.vcxproj"), library);
+        File.WriteAllText(Path.Join(withManifestDir.FullName, "LibB.vcxproj"), library);
+        var manifestPath = Path.Join(_tempDirectory.CreateSubdirectory("pkg").FullName, "appxmanifest.xml");
+        File.WriteAllText(manifestPath, TestManifestContent);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [withoutManifestDir.FullName]);
+        await ParseAndInvokeWithCaptureAsync(command, [withManifestDir.FullName, "--manifest", manifestPath]);
+
+        var output = $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}";
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(output, "LibA.vcxproj in");
+        Assert.IsFalse(output.Contains("LibB.vcxproj in", StringComparison.Ordinal),
+            "with --manifest, folder mode runs as before instead of reporting the library");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Cpp_PlatformProperty_SelectsArchitectureWhenArchIsNotGiven()
+    {
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
+        SetUnpackagedOutcome(vcxproj, CreateTargetDir(withManifest: false), selfContained: false, arch: "arm64");
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, "-p", "Platform=ARM64", "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("arm64", _fakeProjectRunService.BuildOptions[0].Architecture,
+            "-p Platform=ARM64 must select arm64 instead of the machine's architecture");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Cpp_ExplicitArch_IsNotOverriddenByPlatformProperty()
+    {
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
+        SetUnpackagedOutcome(vcxproj, CreateTargetDir(withManifest: false), selfContained: false, arch: "x64");
+        var command = GetRequiredService<RunCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, "--arch", "x64", "-p", "Platform=ARM64", "--detach"]);
+
+        Assert.AreEqual("x64", _fakeProjectRunService.BuildOptions[0].Architecture,
+            "an explicit --arch is kept so the service reports the conflict");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Runtime_ResolvesArchIntoBuild()
     {
         var csproj = CreateCsproj();

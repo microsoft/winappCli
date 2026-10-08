@@ -1,0 +1,44 @@
+{
+  "id": "oxalis-credential-does-not-match-envelope",
+  "description": "Distinguishes a manifest publisher mismatch from damaged keys or machine trust.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "6",
+  "framework": "WinForms / MSIX / Azure DevOps",
+  "conflictingSignal": true,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/msix/package/sign-app-package-using-signtool"
+  ],
+  "prompt": "0x8007000B for Oxalis Ledger. Our other apps work with this cert; its subject is CN=Oxalis Software Ltd, but this manifest has Publisher=CN=Oxalis Development. Which name do I use?",
+  "paraphrases": {
+    "novice": "Signing Oxalis Ledger fails with 0x8007000B. Our certificate works elsewhere, and I noticed the company names in these two files are different. Which name should I change?",
+    "terse": "0x8007000B signing Oxalis msix. Certificate subject and manifest Publisher differ."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "troubleshoot"
+        ],
+        [
+          "msix.sign"
+        ],
+        [
+          "msix.manifest"
+        ]
+      ],
+      "forbid": [
+        "toolchain.prereqs",
+        "winui.*",
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

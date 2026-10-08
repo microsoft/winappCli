@@ -1,0 +1,31 @@
+{
+  "id": "maui-msixupload-missing",
+  "description": "Error-first: MAUI Windows Store publish produced .msix but no .msixupload.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "I picked Microsoft Store in the Publish wizard for the Windows target but only got a .msix. Where's the .msixupload file?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "maui.package",
+        "store.publish"
+      ],
+      "acceptable": [
+        "msix.package"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "winui.design",
+        "session.report"
+      ]
+    },
+    "commands": [
+      "^(package|store)"
+    ]
+  }
+}

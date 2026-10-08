@@ -221,6 +221,17 @@ For parallel packaged checkouts, see `winapp-identity` and the canonical
 Do not add this flag to an unpackaged run or automatically remove another checkout's
 registration to make normal mode succeed.
 
+#### Project mode: `winapp run` on a C++ `.vcxproj`
+
+A Visual Studio C++ project (for example the **WinUI Blank App (Packaged)** C++/WinRT template) runs the same way. winapp builds it with Visual Studio's MSBuild (restoring `packages.config` first), then launches it packaged or unpackaged:
+
+```powershell
+winapp run .\MyApp.vcxproj
+winapp run . -c Release --arch arm64 --detach --json
+```
+
+Requires Visual Studio or Build Tools with the **Desktop development with C++** workload (WinUI 3 apps also need **C++ WinUI app development tools**); the .NET SDK is not needed. If the C++ build tools, platform toolset, or Windows SDK are missing, the error says what to install. `--framework` and `--aot` are .NET-only.
+
 #### Single-file mode: `winapp run` on a `.cs` file-based app
 
 A .NET 10 file-based app is a single `.cs` file configured by `#:` directives, with no project file. Point `winapp run` at it and the app builds and launches **with package identity** — no hand-written manifest:

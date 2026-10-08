@@ -93,6 +93,7 @@ C++ projects use winapp primarily for SDK projections (CppWinRT headers) and pac
 - Headers generated in `.winapp/generated/include`
 - Response file at `.cppwinrt.rsp` for build system integration
 - Add `.winapp/packages` to include/lib paths in your build system
+- Visual Studio projects (`.vcxproj`, e.g. WinUI 3 C++/WinRT): `winapp run .\MyApp.vcxproj` (or the project folder) builds with Visual Studio's MSBuild and launches the app; it needs Visual Studio or Build Tools with the C++ workload. CMake projects run their build-output folder instead.
 
 ### Rust
 - Use the `windows` crate for Windows API bindings
@@ -114,7 +115,7 @@ C++ projects use winapp primarily for SDK projections (CppWinRT headers) and pac
 | Framework | Recommended command | Notes |
 |-----------|-------------------|-------|
 | **.NET** | `winapp run .\bin\x64\Debug\<tfm>\win-x64\` | Build with `dotnet build -c Debug -p:Platform=x64` first; GUI apps launch via AUMID, console apps automatically via an execution alias |
-| **C++** | `winapp run .\build\Debug` | Console apps are detected and launched via an execution alias automatically |
+| **C++** | `winapp run .\MyApp.vcxproj` (Visual Studio project) or `winapp run .\build\Debug` (CMake output) | The `.vcxproj` is built with MSBuild first; console apps are detected and launched via an execution alias automatically |
 | **Rust** | `winapp run .\target\debug` | Console apps are detected and launched via an execution alias automatically |
 | **Flutter** | `winapp run .\build\windows\x64\runner\Debug` | GUI app — plain `winapp run` works |
 | **Tauri** | `winapp run .\dist` | Stage exe to `dist/` first (avoids copying entire `target/` tree); GUI app |

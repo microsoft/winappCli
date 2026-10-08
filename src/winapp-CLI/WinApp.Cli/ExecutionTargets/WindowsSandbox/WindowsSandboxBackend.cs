@@ -5,7 +5,6 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
-using System.Text;
 using WinApp.Cli.ExecutionTargets.Abstractions;
 using WinApp.Cli.ExecutionTargets.GuestAgent;
 using WinApp.Cli.ExecutionTargets.Orchestration;
@@ -147,13 +146,7 @@ internal sealed class WindowsSandboxBackend(
         string HostBootstrap,
         string HostResult,
         string GuestBootstrap,
-        string GuestResult)
-    {
-        internal string? BinaryDirectoryName { get; init; }
-
-        internal string GuestBinaryDirectory => TargetPathSafety.CombineInsideRoot(
-            GuestBootstrap, BinaryDirectoryName ?? throw new InvalidOperationException("The guest binary has not been staged."));
-    }
+        string GuestResult);
 
     /// <summary>Picks a listening port for the guest agent from the dynamic range.</summary>
     /// <remarks>
@@ -246,10 +239,8 @@ internal sealed class WindowsSandboxBackend(
             ? "Repairing the Windows Sandbox connection..."
             : "Preparing the Windows Sandbox guest agent...");
         var bootstrap = PrepareBootstrapDirectories(lease.Epoch);
-        var payload = await StageBootstrapPayloadAsync(hostBinaryProvider.GetBinary(), bootstrap.HostBootstrap, cancellationToken)
+        var agentHash = await StageBootstrapBinaryAsync(lease.InstanceId, bootstrap.HostBootstrap, cancellationToken)
             .ConfigureAwait(false);
-        var agentHash = payload.BinaryHash;
-        bootstrap = bootstrap with { BinaryDirectoryName = payload.DirectoryName };
 
         // The port is chosen here, by the host, and written into the material the agent reads. That
         // ordering is what removes the Windows Security consent dialog: the inbound rule below can
@@ -290,6 +281,10 @@ internal sealed class WindowsSandboxBackend(
         // start that guest and cannot assume it is unattended, so only a confirmed missing session
         // creates a client -- and a genuinely closed client is recovered later, from the agent's own
         // evidence rather than from a guess.
+        //
+        // Measured, not assumed: connecting a closed window here, before the privileged steps
+        // below, made recovery slower (median 58 s against 34 s). The guest re-attaching its session
+        // slowed the firewall step by about 16 s, far more than the one agent launch it saved.
         var session = await cli
             .ProbeInteractiveSessionAsync(lease.InstanceId, cancellationToken)
             .ConfigureAwait(false);
@@ -323,7 +318,7 @@ internal sealed class WindowsSandboxBackend(
         // prompt: the rule has to be in place when the socket opens, or Windows asks the user.
         await AllowGuestAgentConnectionAsync(
             lease.InstanceId,
-            bootstrap.GuestBinaryDirectory,
+            bootstrap.GuestBootstrap,
             agentPort,
             cancellationToken).ConfigureAwait(false);
 
@@ -762,7 +757,7 @@ internal sealed class WindowsSandboxBackend(
     /// Never fatal: losing it only means the next command treats the single open window as adopted,
     /// and failing a connection over a contended state file would be worse. Adopted/manual clients
     /// are deliberately never written here: remembering one would later make it look winapp-owned
-    /// and allow minimized restore to move the user's window off-screen.
+    /// and allow minimized restore to move the user's own window.
     /// </remarks>
     private void RememberClientWindow(SandboxClientWindow client)
     {
@@ -865,6 +860,10 @@ internal sealed class WindowsSandboxBackend(
         Directory.CreateDirectory(result);
         ClearDirectoryContents(result);
 
+        // Both are mapped into the guest by `wsb share`, which needs SYSTEM to be able to open them.
+        SandboxShareAccess.EnsureHostServiceAccess(bootstrap);
+        SandboxShareAccess.EnsureHostServiceAccess(result);
+
         PruneOldGenerations(root, token);
 
         return new BootstrapShare(
@@ -943,67 +942,73 @@ internal sealed class WindowsSandboxBackend(
         }
     }
 
-    /// <summary>Publishes a coherent runtime bundle without replacing a previously mapped image.</summary>
+    /// <summary>Publishes the host binary into the read-only bootstrap share and returns its hash.</summary>
     /// <remarks>
-    /// Identical bundles reuse their immutable directory. Changed binaries or companions get a new
-    /// directory within the same epoch share; the connection material stays at the share root.
+    /// Staging is skipped entirely when the bytes already match, which is the ordinary case: the
+    /// same build reconnecting or repairing does not rewrite the share at all. Replacing the file is
+    /// therefore only attempted when the host binary genuinely changed — and that is exactly when
+    /// the running agent may still hold the old one open.
     /// </remarks>
-    internal readonly record struct StagedAgentPayload(string BinaryHash, string DirectoryName);
-
-    internal static IReadOnlyList<(string Name, FileInfo Source)> GetBootstrapPayloadFiles(FileInfo binary)
-    {
-        var files = new List<(string Name, FileInfo Source)> { (GuestAgentCommandNames.BinaryName, binary) };
-        var companion = new FileInfo(Path.Join(binary.DirectoryName, SkiaCompanionName));
-        if (companion.Exists)
-        {
-            files.Add((SkiaCompanionName, companion));
-        }
-        return files;
-    }
-
-    internal static async Task<StagedAgentPayload> StageBootstrapPayloadAsync(
-        FileInfo binary,
+    private async Task<string> StageBootstrapBinaryAsync(
+        string instanceId,
         string bootstrapDirectory,
         CancellationToken cancellationToken)
     {
-        var files = GetBootstrapPayloadFiles(binary);
-        var hashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        using var bundleHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var (name, source) in files.OrderBy(file => file.Name, StringComparer.Ordinal))
+        var source = hostBinaryProvider.GetBinary();
+
+        string expected;
+        try
         {
-            var hash = await GuestAgentIdentity.ComputeBinaryHashAsync(source.FullName, cancellationToken).ConfigureAwait(false);
-            hashes.Add(name, hash);
-            bundleHash.AppendData(Encoding.UTF8.GetBytes(name));
-            bundleHash.AppendData([0]);
-            bundleHash.AppendData(Convert.FromHexString(hash));
+            expected = await StageBootstrapFileAsync(
+                source,
+                TargetPathSafety.CombineInsideRoot(bootstrapDirectory, GuestAgentCommandNames.BinaryName),
+                cancellationToken).ConfigureAwait(false);
         }
-        // A mapped image can stay locked even after its agent exits. Never overwrite that image.
-        var directoryName = "payload-" + Convert.ToHexStringLower(bundleHash.GetHashAndReset());
-        var destination = TargetPathSafety.CombineInsideRoot(bootstrapDirectory, directoryName);
-        TargetFileTransferService.EnsureHostDestinationHasNoLinks(destination);
-        Directory.CreateDirectory(destination);
-        foreach (var (name, source) in files)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The guest still holds the file a different winapp version staged -- a running agent,
+            // or the Sandbox's folder sharing keeping it open after the agent exited -- so it cannot
+            // be replaced in place. Windows reports that as a sharing violation or as access denied
+            // depending on how the file is held; either way it surfaced raw ("IO_SharingViolation_
+            // NoFileName", or an unhandled UnauthorizedAccessException), which looked like a winapp
+            // defect rather than a version conflict with an existing Sandbox.
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.AgentIncompatible,
+                "A different version of winapp started the Windows Sandbox agent, and the Sandbox " +
+                "is still using its files, so this version could not replace them.",
+                // Stopped, not closed: closing the window leaves a Sandbox winapp started running, so
+                // its files stay in use.
+                userAction: $"Save anything you need from the Sandbox, stop it with `wsb stop --id {instanceId}`, then run the command again to start a fresh agent.",
+                context: new Dictionary<string, string> { ["sandboxId"] = instanceId },
+                nextCommand: new ExecutionTargetNextCommand
+                {
+                    Command = $"wsb stop --id {instanceId}",
+
+                    // Stopping discards whatever is running in the guest, so it stays the user's call.
+                    Advisory = true,
+                },
+                innerException: ex);
+        }
+
+        var companion = new FileInfo(Path.Join(source.DirectoryName, SkiaCompanionName));
+        if (companion.Exists)
         {
             try
             {
-                var actual = await StageBootstrapFileAsync(
-                    source, TargetPathSafety.CombineInsideRoot(destination, name),
+                await StageBootstrapFileAsync(
+                    companion,
+                    TargetPathSafety.CombineInsideRoot(bootstrapDirectory, SkiaCompanionName),
                     cancellationToken).ConfigureAwait(false);
-                if (!string.Equals(actual, hashes[name], StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new IOException($"The host guest-agent payload '{name}' changed while it was being staged.");
-                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                throw ExecutionTargetException.Create(
-                    ExecutionTargetErrorCodes.AgentUpgradeFailed,
-                    $"Could not stage the guest-agent payload '{name}' in its immutable runtime directory.",
-                    userAction: "Finish any build updating winapp, check access to its target state directory, then retry.",
-                    innerException: ex);
+                // The companion is only needed for image encoding, and a locked one is byte-identical
+                // to what a running agent already loaded. Failing the whole command over it would
+                // turn a working Sandbox into an error.
             }
         }
-        return new StagedAgentPayload(hashes[GuestAgentCommandNames.BinaryName], directoryName);
+
+        return expected;
     }
 
     /// <summary>Atomically stages and verifies one trusted host runtime file.</summary>
@@ -1216,7 +1221,8 @@ internal sealed class WindowsSandboxBackend(
     /// Starts the guest agent through <c>wsb exec</c>, the one fixed bootstrap operation.
     /// </summary>
     /// <remarks>
-    /// The agent runs from an immutable payload directory in the read-only bootstrap share.
+    /// The agent runs from the read-only share on first launch. It copies itself into guest-local
+    /// storage before serving, so the host share is not held open for the life of the Sandbox.
     /// </remarks>
     private async Task LaunchAgentAsync(
         string instanceId,
@@ -1224,7 +1230,7 @@ internal sealed class WindowsSandboxBackend(
         CancellationToken cancellationToken)
     {
         var command =
-            $"\"{bootstrap.GuestBinaryDirectory}\\{GuestAgentCommandNames.BinaryName}\" {GuestAgentCommandNames.Verb} " +
+            $"\"{bootstrap.GuestBootstrap}\\{GuestAgentCommandNames.BinaryName}\" {GuestAgentCommandNames.Verb} " +
             $"--bootstrap-dir \"{bootstrap.GuestBootstrap}\" --result-dir \"{bootstrap.GuestResult}\"";
 
         await cli.LaunchAgentAsync(instanceId, command, cancellationToken).ConfigureAwait(false);

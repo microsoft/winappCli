@@ -1,0 +1,6 @@
+{
+ "productName": "Mossgate Desk",
+ "version": "0.6.0",
+ "identifier": "io.mossgate.desk",
+ "bundle": {"active": true, "targets": ["msi"]}
+}

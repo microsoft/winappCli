@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net9.0-android;net9.0-ios;net9.0-windows10.0.19041.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <UseMaui>true</UseMaui>
+    <ApplicationTitle>Pinecrest</ApplicationTitle>
+    <ApplicationDisplayVersion>2.4</ApplicationDisplayVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-windows10.0.19041.0'">
+    <WindowsPackageType>MSIX</WindowsPackageType>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,30 @@
+{
+  "id": "winui-layout-cycle-hang",
+  "description": "Error-first: WinUI page hangs with a layout cycle.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "DashboardPage hangs at 100% CPU when it opens. Output window: 'Layout cycle detected. Layout could not complete.' Where's the loop?",
+  "configurations": [
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "winui.design",
+        "winui.build"
+      ],
+      "acceptable": [
+        "winui.review"
+      ],
+      "forbid": [
+        "msix.package",
+        "msix.sign",
+        "project.setup",
+        "winui.migrate",
+        "session.report"
+      ]
+    }
+  }
+}

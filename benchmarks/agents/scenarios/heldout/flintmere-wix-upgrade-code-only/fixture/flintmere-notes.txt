@@ -1,0 +1,4 @@
+Current application: WinForms.
+Shipping format: WiX MSI only.
+Dormant research: a future .msix prototype; not shipping and not selected.
+No package-dependent feature is being introduced.
