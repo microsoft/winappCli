@@ -1,6 +1,8 @@
 {
   "id": "wpf-add-notifications",
   "description": "WPF app that references the Windows App SDK (not WinUI) wants a toast notification.",
+  "set": "dev",
+  "cohort": "implicit",
   "prompt": "When the CSV import in MainWindow finishes, show a Windows toast notification saying how many rows were imported. Make whatever changes this WPF app needs for that to work.",
   "configurations": [
     "winapp",
@@ -9,13 +11,20 @@
   ],
   "fixture": "fixture",
   "expect": {
-    "skillsAny": [
-      "winapp-identity",
-      "winapp-frameworks",
-      "winapp-setup"
-    ],
-    "skillsForbid": [
-      "winui-*"
-    ]
+    "capabilities": {
+      "primary": [
+        "identity",
+        "framework.guidance"
+      ],
+      "acceptable": [
+        "project.setup",
+        "api.lookup"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
   }
 }

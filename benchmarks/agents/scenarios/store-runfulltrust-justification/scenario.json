@@ -1,0 +1,30 @@
+{
+  "id": "store-runfulltrust-justification",
+  "description": "Journey: Partner Center asks to justify runFullTrust from the template.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Partner Center wants a justification for runFullTrust. It came from the template. Should I just delete it?",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "msix.manifest",
+        "store.publish"
+      ],
+      "acceptable": [
+        "troubleshoot",
+        "winui.package"
+      ],
+      "forbid": [
+        "msix.sign",
+        "winui.migrate",
+        "session.report"
+      ]
+    }
+  }
+}

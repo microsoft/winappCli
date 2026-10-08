@@ -1,0 +1,9 @@
+<Window x:Class="Tidewell.IntakeDialog"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <StackPanel Margin="16">
+  <TextBox Text="{Binding Reference, UpdateSourceTrigger=PropertyChanged}" />
+  <Button Content="Submit" Click="SubmitClicked" />
+  <TextBlock x:Name="Receipt" />
+ </StackPanel>
+</Window>

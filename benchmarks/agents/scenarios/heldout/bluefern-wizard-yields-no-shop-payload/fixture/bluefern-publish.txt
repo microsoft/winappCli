@@ -1,0 +1,5 @@
+IDE publish wizard reported success.
+Output inventory: BluefernSurvey.exe and supporting runtime files.
+No .msixupload or .msixbundle was generated.
+A Windows storefront name reservation exists.
+Android publishing is working and must remain unchanged.

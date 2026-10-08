@@ -292,13 +292,16 @@ Every `winapp ui` command writes errors to **stderr** as:
     "message": "…",
     "selector": "btn-save-c3d4",
     "details": "…",
+    "suggestions": ["…"],
     "recoveryHint": "…"
   }
 }
 ```
 
 Only `code` and `message` are always present; the rest are omitted when
-they do not apply.
+they do not apply. `suggestions` lists up to two command names when an
+unknown `winapp ui` command was typed (for example `ui dump` suggests
+`inspect`).
 
 ### Desktop coordination
 

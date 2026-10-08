@@ -239,7 +239,7 @@ internal sealed class WindowsSandboxBackend(
             ? "Repairing the Windows Sandbox connection..."
             : "Preparing the Windows Sandbox guest agent...");
         var bootstrap = PrepareBootstrapDirectories(lease.Epoch);
-        var agentHash = await StageBootstrapBinaryAsync(bootstrap.HostBootstrap, cancellationToken)
+        var agentHash = await StageBootstrapBinaryAsync(lease.InstanceId, bootstrap.HostBootstrap, cancellationToken)
             .ConfigureAwait(false);
 
         // The port is chosen here, by the host, and written into the material the agent reads. That
@@ -281,6 +281,10 @@ internal sealed class WindowsSandboxBackend(
         // start that guest and cannot assume it is unattended, so only a confirmed missing session
         // creates a client -- and a genuinely closed client is recovered later, from the agent's own
         // evidence rather than from a guess.
+        //
+        // Measured, not assumed: connecting a closed window here, before the privileged steps
+        // below, made recovery slower (median 58 s against 34 s). The guest re-attaching its session
+        // slowed the firewall step by about 16 s, far more than the one agent launch it saved.
         var session = await cli
             .ProbeInteractiveSessionAsync(lease.InstanceId, cancellationToken)
             .ConfigureAwait(false);
@@ -753,7 +757,7 @@ internal sealed class WindowsSandboxBackend(
     /// Never fatal: losing it only means the next command treats the single open window as adopted,
     /// and failing a connection over a contended state file would be worse. Adopted/manual clients
     /// are deliberately never written here: remembering one would later make it look winapp-owned
-    /// and allow minimized restore to move the user's window off-screen.
+    /// and allow minimized restore to move the user's own window.
     /// </remarks>
     private void RememberClientWindow(SandboxClientWindow client)
     {
@@ -856,6 +860,10 @@ internal sealed class WindowsSandboxBackend(
         Directory.CreateDirectory(result);
         ClearDirectoryContents(result);
 
+        // Both are mapped into the guest by `wsb share`, which needs SYSTEM to be able to open them.
+        SandboxShareAccess.EnsureHostServiceAccess(bootstrap);
+        SandboxShareAccess.EnsureHostServiceAccess(result);
+
         PruneOldGenerations(root, token);
 
         return new BootstrapShare(
@@ -942,6 +950,7 @@ internal sealed class WindowsSandboxBackend(
     /// the running agent may still hold the old one open.
     /// </remarks>
     private async Task<string> StageBootstrapBinaryAsync(
+        string instanceId,
         string bootstrapDirectory,
         CancellationToken cancellationToken)
     {
@@ -955,20 +964,25 @@ internal sealed class WindowsSandboxBackend(
                 TargetPathSafety.CombineInsideRoot(bootstrapDirectory, GuestAgentCommandNames.BinaryName),
                 cancellationToken).ConfigureAwait(false);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // The agent already serving this Sandbox is running from this exact file, so a newer
-            // winapp cannot replace it in place. Reported as the actionable thing it is: the raw
-            // exception surfaces as "IO_SharingViolation_NoFileName", which tells the user nothing
-            // and looks like a winapp defect rather than a running-agent conflict.
+            // The guest still holds the file a different winapp version staged -- a running agent,
+            // or the Sandbox's folder sharing keeping it open after the agent exited -- so it cannot
+            // be replaced in place. Windows reports that as a sharing violation or as access denied
+            // depending on how the file is held; either way it surfaced raw ("IO_SharingViolation_
+            // NoFileName", or an unhandled UnauthorizedAccessException), which looked like a winapp
+            // defect rather than a version conflict with an existing Sandbox.
             throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.AgentIncompatible,
-                "A different version of winapp is already running the Windows Sandbox agent, " +
-                "so this one could not replace it.",
-                userAction: "Close Windows Sandbox, then run the command again to start a fresh agent.",
+                "A different version of winapp started the Windows Sandbox agent, and the Sandbox " +
+                "is still using its files, so this version could not replace them.",
+                // Stopped, not closed: closing the window leaves a Sandbox winapp started running, so
+                // its files stay in use.
+                userAction: $"Save anything you need from the Sandbox, stop it with `wsb stop --id {instanceId}`, then run the command again to start a fresh agent.",
+                context: new Dictionary<string, string> { ["sandboxId"] = instanceId },
                 nextCommand: new ExecutionTargetNextCommand
                 {
-                    Command = "wsb stop",
+                    Command = $"wsb stop --id {instanceId}",
 
                     // Stopping discards whatever is running in the guest, so it stays the user's call.
                     Advisory = true,
@@ -986,7 +1000,7 @@ internal sealed class WindowsSandboxBackend(
                     TargetPathSafety.CombineInsideRoot(bootstrapDirectory, SkiaCompanionName),
                     cancellationToken).ConfigureAwait(false);
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // The companion is only needed for image encoding, and a locked one is byte-identical
                 // to what a running agent already loaded. Failing the whole command over it would

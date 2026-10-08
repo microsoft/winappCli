@@ -1,0 +1,29 @@
+{
+  "id": "wpf-notifications-without-winui",
+  "description": "Trap: WPF developer asks whether notifications require converting to WinUI; migration is not needed.",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "Do I have to convert this to WinUI to get Windows notifications? It's WPF right now and the rewrite isn't happening this year.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "framework.guidance",
+        "identity"
+      ],
+      "acceptable": [
+        "api.lookup"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
+  }
+}

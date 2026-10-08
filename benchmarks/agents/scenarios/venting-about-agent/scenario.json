@@ -1,0 +1,22 @@
+{
+  "id": "venting-about-agent",
+  "description": "Trap: user vents about the agent but asks for a code fix; session analysis must not load.",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "Ugh. Last three answers were wrong and you keep rebuilding the whole solution. Just fix the null reference in OrderTotals.Sum.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

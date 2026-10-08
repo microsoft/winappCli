@@ -1,0 +1,41 @@
+{
+  "id": "tidewell-intake-gets-a-separate-successor",
+  "description": "Requires both a new WinUI application and a concrete port of an existing WPF screen.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "2",
+  "framework": "WPF to WinUI 3 / C#",
+  "conflictingSignal": true,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/get-started/start-here",
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/use-windows-app-sdk-in-existing-project"
+  ],
+  "prompt": "Create a separate WinUI 3 app for Tidewell Intake and port this WPF form into it, including its binding and submit handler. The branch offices still need the old client unchanged.",
+  "paraphrases": {
+    "novice": "Can you start a WinUI 3 version of Tidewell Intake and move this form over so entering and submitting a reference still works? People are using the WPF version, so we need to keep it intact.",
+    "terse": "Tidewell: new WinUI 3 project + port WPF intake form. Keep old client working."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "project.scaffold",
+          "winui.migrate"
+        ]
+      ],
+      "acceptable": [
+        "winui.design",
+        "framework.guidance"
+      ],
+      "forbid": [
+        "session.report"
+      ]
+    }
+  }
+}

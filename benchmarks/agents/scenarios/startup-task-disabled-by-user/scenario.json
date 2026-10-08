@@ -1,0 +1,30 @@
+{
+  "id": "startup-task-disabled-by-user",
+  "description": "Error-first: StartupTask returns DisabledByUser; the app cannot override it.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "'Start with Windows' won't stay checked. RequestEnableAsync() comes back DisabledByUser every time. Can we force it back on from the app?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "api.lookup",
+        "identity"
+      ],
+      "acceptable": [
+        "msix.manifest",
+        "troubleshoot"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report",
+        "msix.sign"
+      ]
+    }
+  }
+}
