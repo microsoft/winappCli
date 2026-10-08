@@ -911,6 +911,10 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         Assert.AreEqual(0, await Run(vcxproj, "--detach", "--json"), TestAnsiConsole.Output);
 
         Assert.AreEqual(winUI ? 1 : 0, _attach.Calls.Count);
+        if (winUI)
+        {
+            Assert.IsFalse(_environments.Single().Item2, "a C++ app has no .NET runtime to load the managed binding host");
+        }
         AssertTelemetry(winUI ? DevToolsMode.On : DevToolsMode.Off,
             winUI ? DevToolsModeSource.Default : DevToolsModeSource.NotWinUI, winUI ? DevToolsOutcome.Attached : null);
     }

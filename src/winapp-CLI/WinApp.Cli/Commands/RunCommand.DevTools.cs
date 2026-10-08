@@ -176,7 +176,7 @@ internal partial class RunCommand
             var launchedAny = false;
             try
             {
-                var managed = !nativeAot && (projectFile is not null ||
+                var managed = !nativeAot && (projectFile is not null && !ProjectRunService.IsCppProject(projectFile) ||
                     (alias.Target.TargetExecutable is { } executable && File.Exists(Path.ChangeExtension(executable, ".runtimeconfig.json"))));
                 var environment = CreateDevToolsEnvironment(projectFile?.DirectoryName, managed);
                 using var coordinates = await XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(projectFile, sources, compiler, cancellationToken,

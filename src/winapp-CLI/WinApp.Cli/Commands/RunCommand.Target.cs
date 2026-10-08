@@ -240,7 +240,7 @@ internal partial class RunCommand
                 framework: resolution.Framework,
                 inspector: devTools ? new(csproj, resolution.DevToolsXamlSources ?? [],
                     executableRelativePath, WindowsCommandLine.JoinArguments(launchArguments), showOverlay, detach,
-                    Managed: !resolution.IsAot, Compiler: resolution.DevToolsCompilerArtifacts) : null);
+                    Managed: !resolution.IsAot && !ProjectRunService.IsCppProject(csproj), Compiler: resolution.DevToolsCompilerArtifacts) : null);
         }
 
         /// <summary>

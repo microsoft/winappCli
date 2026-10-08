@@ -479,7 +479,7 @@ internal partial class RunCommand
                     coordinates = await Services.DevTools.XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(csproj, resolution.DevToolsXamlSources,
                         resolution.DevToolsCompilerArtifacts, cancellationToken,
                         (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(exePath)!, token));
-                    environment = CreateDevToolsEnvironment(csproj.DirectoryName, !resolution.IsAot);
+                    environment = CreateDevToolsEnvironment(csproj.DirectoryName, !resolution.IsAot && !ProjectRunService.IsCppProject(csproj));
                 }
                 catch (Exception ex) when (devToolsRun.FailOpen && ex is IOException or UnauthorizedAccessException or InvalidOperationException)
                 {
