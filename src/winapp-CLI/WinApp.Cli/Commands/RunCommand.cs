@@ -16,6 +16,7 @@ using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.Performance;
 using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
@@ -262,6 +263,9 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         Options.Add(PropertyOption);
         Options.Add(ProjectOption);
         Options.Add(WinAppRootCommand.JsonOption);
+        Options.Add(ProfileOption);
+        Options.Add(ProfileDurationOption);
+        Options.Add(ProfileSizeOption);
     }
 
     public partial class Handler(
@@ -280,7 +284,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         GuestApplicationRunner guestApplicationRunner,
         TargetRuntimeService targetRuntimeService,
         IWinappDirectoryService winappDirectoryService,
-        ILogger<RunCommand> logger) : AsynchronousCommandLineAction
+        ILogger<RunCommand> logger,
+        PerfCaptureService? perfCaptureService = null) : AsynchronousCommandLineAction
     {
         // Test seams for the execution-alias launch path. They isolate the two operating-system
         // boundaries — resolving the Windows App Execution Alias proxy location and starting the
@@ -317,7 +322,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             ProjectContextPackaging.Unknown,
             ProjectExecutionMode.SingleFile);
 
-        public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
+        private async Task<int> InvokeCoreAsync(ParseResult parseResult, CancellationToken cancellationToken)
         {
             // GuestLaunchCommand shares this handler (it needs the same app-launcher/package-
             // registration/debug-output dependencies and the extracted post-launch logic) but is a
@@ -918,7 +923,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
                     // Step 3: Launch the application using IApplicationActivationManager
                     taskContext.AddDebugMessage($"{UiSymbols.Rocket} Launching application...");
-                    processId = appLauncherService.LaunchByAumid(aumid, appArgs);
+                    processId = await LaunchAumidWithProfileAsync(aumid, appArgs, packageFullName, cancellationToken);
 
                     return (0, $"{packageFamilyName} launched (PID: {processId})");
                 }
@@ -1002,7 +1007,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // project-mode detach path (Change 3 / L6).
                     ansiConsole.WriteLine(processId.ToString());
                 }
-                return 0;
+                return profileRun?.Error is null ? 0 : 1;
             }
 
             // Alias launch: run in this terminal with inherited stdio. When the alias was a default rather
@@ -1024,7 +1029,14 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
                 if (aumid != null)
                 {
-                    processId = appLauncherService.LaunchByAumid(aumid, appArgs);
+                    try
+                    {
+                        processId = await LaunchAumidWithProfileAsync(aumid, appArgs, packageFullName, cancellationToken);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                    {
+                        return Fail($"Failed to launch with performance capture: {ex.Message}", isJson);
+                    }
                 }
             }
 
@@ -1095,7 +1107,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             {
                 AUMID = aumid,
                 ProcessId = processId,
-                Error = errorMessage
+                Error = errorMessage,
+                Profile = profileRun?.Result,
             };
 
             var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Default.RunCommandResult);
@@ -1457,28 +1470,38 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
             try
             {
-                using var process = ProcessStarter(psi);
+                ILaunchedProcess? launched;
+                if (profileRun is null)
+                {
+                    var started = ProcessStarter(psi);
+                    launched = started is null ? null : new LaunchedProcess(started);
+                }
+                else
+                {
+                    launched = await LaunchExecutableWithProfileAsync(psi.FileName, psi.Arguments,
+                        psi.WorkingDirectory, LaunchStdioMode.Inherit, cancellationToken);
+                }
+                using var process = launched;
                 if (process == null)
                 {
                     logger.LogError("{UISymbol} Failed to start process via execution alias '{Alias}' ({Path}).", UiSymbols.Error, alias, aliasFile.FullName);
                     return 1;
                 }
-
                 if (targetSelector is not null)
                 {
                     WriteTargetLaunchConfirmation(
                         targetSelector,
-                        unchecked((uint)process.Id),
+                        process.ProcessId,
                         waitForExit: true);
                 }
 
                 if (debugOutput)
                 {
-                    var exitCode = await debugOutputService.RunDebugLoopAsync(unchecked((uint)process.Id), cancellationToken,
+                    var exitCode = await debugOutputService.RunDebugLoopAsync(process.ProcessId, cancellationToken,
                         useSymbols, symbolSearchPaths: [inputFolder.FullName]);
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        appLauncherService.TerminatePackageProcesses(packageFullName, unchecked((uint)process.Id));
+                        appLauncherService.TerminatePackageProcesses(packageFullName, process.ProcessId);
                     }
                     return exitCode;
                 }
@@ -1492,7 +1515,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 catch (OperationCanceledException)
                 {
                     // Ctrl+C — terminate all processes belonging to the package before exiting.
-                    appLauncherService.TerminatePackageProcesses(packageFullName, unchecked((uint)process.Id));
+                    appLauncherService.TerminatePackageProcesses(packageFullName, process.ProcessId);
                     return -1;
                 }
             }
@@ -1523,6 +1546,7 @@ internal sealed class RunCommandResult
     public string? AUMID { get; set; }
     public uint? ProcessId { get; set; }
     public string? Error { get; set; }
+    public RunProfileResult? Profile { get; set; }
 
     /// <summary>True when the app ran on an execution target rather than on this machine.</summary>
     /// <remarks>

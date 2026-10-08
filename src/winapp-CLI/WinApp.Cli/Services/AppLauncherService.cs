@@ -61,6 +61,7 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
             psi.RedirectStandardOutput = true;
             psi.RedirectStandardError = true;
             psi.RedirectStandardInput = true;
+            psi.CreateNoWindow = true;
         }
 
         if (!string.IsNullOrEmpty(arguments))
@@ -106,6 +107,35 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
 
         logger.LogDebug("Launched executable {ExePath} (PID {PID}).", exePath, process.Id);
         return new LaunchedProcess(process);
+    }
+
+    public Task<ILaunchedProcess> LaunchExecutableForProfilingAsync(string exePath, string? arguments,
+        string? workingDirectory, LaunchStdioMode stdioMode, Func<uint, Task> ready, CancellationToken token) =>
+        Performance.PerfStartupGate.LaunchAsync(exePath, arguments, workingDirectory, stdioMode, ready, token);
+
+    public unsafe IDisposable EnablePackageDebugging(string packageFullName, string debuggerCommandLine)
+    {
+        Performance.PerfStartupGate.ValidateHostArchitecture();
+        var settings = PackageDebugSettings.CreateInstance<IPackageDebugSettings>();
+        var environment = Performance.PerfStartupGate.CreateEnvironmentBlock([]);
+        fixed (char* environmentBlock = environment)
+        {
+            settings.EnableDebugging(packageFullName, debuggerCommandLine, new PZZWSTR(environmentBlock));
+        }
+        return new PackageDebuggingScope(settings, packageFullName);
+    }
+
+    private sealed class PackageDebuggingScope(IPackageDebugSettings settings, string fullName) : IDisposable
+    {
+        private bool disposed;
+        public void Dispose()
+        {
+            if (!disposed)
+            {
+                settings.DisableDebugging(fullName);
+                disposed = true;
+            }
+        }
     }
 
     private static readonly STD_HANDLE[] StdHandleIds =
