@@ -1,0 +1,7 @@
+Five managed Windows 11 x64 laptops.
+Private trial only, no Store submission.
+Pilot publisher: CN=Duskberry Field Research
+No existing credential has been issued yet.
+Recipients can receive a public certificate through IT.
+Never distribute the private key or its password to recipients.
+Phone targets are outside this request.

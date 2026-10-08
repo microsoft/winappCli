@@ -1,0 +1,9 @@
+{
+ "application": "Bracken Meter",
+ "artifact": "bracken-meter.exe",
+ "authenticodeStatus": "NotSigned",
+ "allowRuleKind": "publisher",
+ "requiredOrganization": "Bracken Research Ltd",
+ "formatChangeAllowed": false,
+ "smartScreenReputationIsSeparate": true
+}

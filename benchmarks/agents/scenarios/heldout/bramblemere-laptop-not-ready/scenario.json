@@ -1,0 +1,38 @@
+{
+  "id": "bramblemere-laptop-not-ready",
+  "description": "Recognizes an underspecified workstation preparation request without inventing an application project.",
+  "set": "heldout",
+  "cohort": "vague",
+  "persona": "8",
+  "framework": "Developer workstation / Windows 11",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/get-started/start-here"
+  ],
+  "prompt": "New Bramblemere laptop, only VS Code so far. What do I need to fill the gaps in this inventory, and how do I check the installed versions and settings before Monday?",
+  "paraphrases": {
+    "novice": "I'm joining Bramblemere's desktop team and have a new computer with just an editor. What else should I install, what settings should I change, and how do I know it's ready?",
+    "terse": "Bramblemere laptop onboarding. Install missing dev tools and verify versions and settings."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "toolchain.prereqs"
+        ]
+      ],
+      "forbid": [
+        "project.scaffold",
+        "project.setup",
+        "winui.design",
+        "session.report"
+      ]
+    }
+  }
+}
