@@ -213,6 +213,23 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
+    public void GetPattern_StaleReactorId_SuggestsAScopedSearchRatherThanList()
+    {
+        // Reactor is opt-in: a plain search and --list both skip the provider entirely, and
+        // --source can't be combined with --list. Suggesting either would send the caller to
+        // a command that cannot return the id they are trying to recover.
+        var engine = BuildEngine();
+
+        var (formatted, found, canonicalId) = engine.GetPattern("reactor-flexpanel-9");
+
+        Assert.IsFalse(found);
+        Assert.IsNull(canonicalId);
+        StringAssert.Contains(formatted, "winapp find-ui flexpanel --source reactor");
+        Assert.IsFalse(formatted.Contains("--list", StringComparison.Ordinal),
+            "--list excludes Reactor and cannot be narrowed with --source, so it can't recover a reactor id");
+    }
+
+    [TestMethod]
     public void GetPattern_UnknownBareId_StaysTerse()
     {
         // No source prefix means this reads as a typo rather than a stale id, and the

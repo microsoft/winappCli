@@ -758,9 +758,14 @@ internal sealed class SearchEngine
         // search can stop resolving when a control is renamed or its samples renumbered.
         // Only source-prefixed ids get the hint: a bare word is more likely a typo than a
         // stale id, and the generic message already covers that.
+        // Reactor is opt-in, so neither of the generic suggestions can recover one of its
+        // ids: a plain search and `--list` both skip the provider entirely, and `--source`
+        // can't be combined with `--list`. A scoped search is the only command that works.
         var hint = expectedSource == null
             ? ""
-            : $" Sample ids can change when the corpus is refreshed — run `winapp find-ui {SearchTermForStaleId(bareId)}` or `winapp find-ui --list` to find the current one.";
+            : ProviderRegistry.IsReactorSource(expectedSource)
+                ? $" Sample ids can change when the corpus is refreshed — run `winapp find-ui {SearchTermForStaleId(bareId)} --source {ProviderRegistry.ReactorSourceId}` to find the current one."
+                : $" Sample ids can change when the corpus is refreshed — run `winapp find-ui {SearchTermForStaleId(bareId)}` or `winapp find-ui --list` to find the current one.";
         return ($"Pattern '{id}' not found.{hint}", false, null);
     }
 
