@@ -147,7 +147,7 @@ winapp ui invoke Submit -a myapp
 - **AutomationId selectors**: When an element has a unique AutomationId, it becomes the selector directly (e.g., `[MinimizeButton]`). These survive layout changes and localization — preferred for stable targeting.
 - **Slug selectors**: When no unique AutomationId exists, a generated slug is used (e.g., `[btn-close-a2b3]`). Format: `prefix-name-hash`. May go stale after UI changes.
 - **Plain text search**: `search` and `invoke` accept plain text — `search Minimize` finds elements with "Minimize" in their Name or AutomationId (substring, case-insensitive). No special syntax needed.
-- **`--interactive` flag**: Filters to invokable elements only with auto-depth 8 — the fastest way to see what you can click
+- **`--interactive` flag**: Filters to elements you can invoke, click, or set-value (including text documents) with auto-depth 8 — the fastest way to see what you can act on
 - **Invokable ancestor surfacing**: When a search result isn't invokable, the nearest invokable parent is shown with its selector
 - **`;` chaining**: Chain commands with `;` to run multiple operations in one call, reducing agent round-trips
 - **`-a` vs `-w`**: Use `-a` to find apps by name/title/PID. Use `-w <HWND>` for stable window targeting
@@ -163,7 +163,7 @@ winapp ui status -a myapp; winapp ui inspect -a myapp --interactive
 
 ### Inspect element tree
 ```powershell
-winapp ui inspect -a myapp --interactive      # invokable elements only, auto-depth 8
+winapp ui inspect -a myapp --interactive      # elements you can invoke, click, or set-value; auto-depth 8
 winapp ui inspect -a myapp --depth 5          # deeper tree at depth 5
 winapp ui inspect txt-searchbox-e5f6 -a myapp  # subtree rooted at element
 winapp ui inspect btn-settings-a1b2 -a myapp --ancestors  # walk up from element to root
@@ -394,7 +394,7 @@ winapp ui wait-for itm-status-c3d4 -a myapp --value "Complete" --timeout 5000
 ```
 
 ## Tips
-- Use `--interactive` with `inspect` as your first command — it shows only what you can click
+- Use `--interactive` with `inspect` as your first command — it shows only what you can act on
 - Chain commands with `;` to reduce round-trips (see note below on why not `&&`)
 - Use slugs from output to target specific elements — they're hash-validated and shell-safe
 - Use plain text search to find elements: `search Minimize`, `invoke Submit`

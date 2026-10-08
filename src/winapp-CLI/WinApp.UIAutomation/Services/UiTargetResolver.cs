@@ -57,13 +57,7 @@ public sealed class UiTargetResolver(
             {
                 throw new AppNotFoundException($"No running app found matching '{app}'.");
             }
-            if (windows.Count > 1)
-            {
-                return Task.FromResult(AutoSelectWindow(windows, app));
-            }
-            // Single match
-            var match = windows[0];
-            return Task.FromResult(CreateTarget(match.Pid, match.Hwnd, match.Title));
+            return Task.FromResult(SelectTitleMatch(windows, app));
         }
 
         var resolved = process.Value;
@@ -80,6 +74,24 @@ public sealed class UiTargetResolver(
             return Task.FromResult(CreateTarget(resolved.Id, processWindows[0].Hwnd, processWindows[0].Title));
         }
 
+        // The process owns no top-level window. Packaged (UWP) apps such as Calculator draw inside
+        // an ApplicationFrameHost frame, so use the frame that hosts this process's content.
+        var frames = HostedAppFrameWindows(systemQuery, resolved.Id);
+        if (frames.Count > 0)
+        {
+            var target = frames.Count > 1
+                ? AutoSelectWindow(frames, app)
+                : CreateTarget(frames[0].Pid, frames[0].Hwnd, frames[0].Title);
+            // The host process owns every packaged app's frame, so stay in this window.
+            target.IsExplicitWindow = true;
+            logger.LogInformation(
+                "'{ProcessName}' (PID {Pid}) has no top-level window of its own; using the app frame \"{Title}\" (HWND {Hwnd}) that hosts it.",
+                resolved.ProcessName, resolved.Id, target.WindowTitle, target.WindowHandle);
+            return Task.FromResult(target);
+        }
+
+        // No window yet (for example, the app is still starting). Keep the process-scoped target so
+        // polling commands such as wait-for can find the window once it appears.
         return Task.FromResult(new UiTarget
         {
             ProcessId = resolved.Id,
@@ -87,6 +99,49 @@ public sealed class UiTargetResolver(
             WindowTitle = GetMainWindowTitle(resolved)
         });
     }
+
+    private List<(nint Hwnd, int Pid, string Title)> FramesOnly(List<(nint Hwnd, int Pid, string Title)> windows) =>
+        windows
+            .Where(w => string.Equals(systemQuery.GetWindowClassName((long)w.Hwnd), ApplicationFrameWindowClass, StringComparison.Ordinal))
+            .ToList();
+
+    /// <summary>
+    /// Picks a window from title matches. ApplicationFrameHost frames win over other matches (a
+    /// browser tab or editor titled "calculator" should not beat the Calculator app), and a target
+    /// resolved to a frame is scoped to that window, because the host process owns the frames of
+    /// every other running packaged app too.
+    /// </summary>
+    private UiTarget SelectTitleMatch(List<(nint Hwnd, int Pid, string Title)> windows, string app)
+    {
+        var frames = FramesOnly(windows);
+        var candidates = frames.Count > 0 ? frames : windows;
+
+        var target = candidates.Count > 1
+            ? AutoSelectWindow(candidates, app)
+            : CreateTarget(candidates[0].Pid, candidates[0].Hwnd, candidates[0].Title);
+
+        if (frames.Count > 0)
+        {
+            target.IsExplicitWindow = true;
+        }
+
+        return target;
+    }
+
+    private const string ApplicationFrameWindowClass = "ApplicationFrameWindow";
+
+    /// <summary>
+    /// The ApplicationFrameHost frames hosting <paramref name="pid"/>'s content, with each frame's
+    /// owning PID and title. Empty for an ordinary process or one with no visible window yet.
+    /// </summary>
+    /// <param name="pid">Process whose packaged-app content the frames must host.</param>
+    public static List<(nint Hwnd, int Pid, string Title)> FindHostedAppFrameWindows(int pid)
+        => HostedAppFrameWindows(s_sharedQuery, pid);
+
+    private static List<(nint Hwnd, int Pid, string Title)> HostedAppFrameWindows(ISystemUiQuery query, int pid)
+        => query.FindHostedAppFrames(pid)
+            .Select(h => ((nint)h, (int)query.GetProcessIdForWindow(h), query.GetWindowText(h) ?? ""))
+            .ToList();
 
     /// <summary>
     /// Auto-selects the best window from multiple candidates silently.
@@ -259,13 +314,18 @@ public sealed class UiTargetResolver(
 
         if (candidates.Count > 1)
         {
+            // A hosted packaged app (e.g. two Calculators) has no main window of its own; the
+            // ApplicationFrameHost frame hosting it counts as its window.
             var withWindow = candidates
-                .Where(p => p.MainWindowHandle != 0 && !string.IsNullOrEmpty(p.MainWindowTitle))
+                .Select(p => (Process: p, Title: p.MainWindowHandle != 0 && !string.IsNullOrEmpty(p.MainWindowTitle)
+                    ? p.MainWindowTitle
+                    : HostedAppFrameWindows(systemQuery, p.Id).Select(f => f.Title).FirstOrDefault()))
+                .Where(c => c.Title is not null)
                 .ToList();
 
             if (withWindow.Count == 1)
             {
-                var single = withWindow[0];
+                var single = withWindow[0].Process;
                 if (partial) { LogPartialMatch(app, single); }
                 return single;
             }
@@ -273,9 +333,9 @@ public sealed class UiTargetResolver(
             if (withWindow.Count > 1)
             {
                 var listing = string.Join("\n  ",
-                    withWindow.Select(p => partial
-                        ? $"PID {p.Id} ({p.ProcessName}): \"{p.MainWindowTitle}\""
-                        : $"PID {p.Id}: \"{p.MainWindowTitle}\""));
+                    withWindow.Select(c => partial
+                        ? $"PID {c.Process.Id} ({c.Process.ProcessName}): \"{c.Title}\""
+                        : $"PID {c.Process.Id}: \"{c.Title}\""));
                 var header = partial
                     ? $"Multiple processes matching '{app}' found:"
                     : $"Multiple '{app}' windows found:";

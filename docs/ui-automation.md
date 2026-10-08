@@ -264,7 +264,13 @@ which cannot run before the head does anyway — every few seconds.
 winapp ui inspect -a notepad
 winapp ui inspect -a slack            # auto-picks visible window for multi-process apps
 winapp ui inspect -a imageresizer     # partial match: finds PowerToys.ImageResizer
+winapp ui search Seven -a calculator  # hosted app: uses the frame window that hosts it
 ```
+
+Some packaged apps (for example Calculator) have no window of their own; another process
+hosts their frame. When the matched process (by name or PID) has no visible window, `-a`
+uses the frame that hosts its content instead. If there is none (for example, the app is
+still starting), `-a` targets the process, so `wait-for` keeps looking until its window appears.
 
 ### By window title
 ```bash
@@ -387,7 +393,7 @@ winapp ui inspect -a notepad                    # full window tree, depth 3
 winapp ui inspect -a notepad --depth 5          # deeper tree
 winapp ui inspect txt-searchbox-e5f6 -a notepad # subtree rooted at element
 winapp ui inspect --ancestors btn-close-d1a2 -a notepad  # walk up from element to root
-winapp ui inspect -a myapp --interactive        # invokable elements only, auto-depth 8
+winapp ui inspect -a myapp --interactive        # elements you can invoke, click, or set-value; auto-depth 8
 winapp ui inspect -a myapp --hide-disabled      # hide disabled elements
 winapp ui inspect -a myapp --hide-offscreen     # hide offscreen elements
 ```
@@ -401,7 +407,7 @@ win-aidevgalleryp-f1a3 "AI Dev Gallery Preview" (94,206 1280x1023)
     itm-samples-3f2c "Samples" (102,330 72x62)
 ```
 
-Example output (`--interactive` — invokable elements only, flat list):
+Example output (`--interactive` — actionable elements only, flat list):
 ```
 btn-minimize-d1a0 "Minimize" (1222,206 48x48)
 btn-maximize-e2b1 "Maximize" (1270,206 48x48)

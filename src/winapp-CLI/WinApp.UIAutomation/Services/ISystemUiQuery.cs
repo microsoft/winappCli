@@ -62,4 +62,11 @@ public interface ISystemUiQuery
     /// several top-level windows).
     /// </summary>
     long GetRootWindow(long hwnd);
+
+    /// <summary>
+    /// Visible top-level <c>ApplicationFrameWindow</c> frames that host a <c>Windows.UI.Core.CoreWindow</c>
+    /// owned by <paramref name="pid"/>. Packaged apps such as Calculator draw inside a frame that
+    /// belongs to ApplicationFrameHost, so the app's own process owns no top-level window.
+    /// </summary>
+    IReadOnlyList<long> FindHostedAppFrames(int pid);
 }

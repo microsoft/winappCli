@@ -570,7 +570,11 @@ public sealed class FakeSystemUiQuery : ISystemUiQuery
     public uint GetProcessIdForWindow(long hwnd)
         => ProcessIdByHwnd.TryGetValue(hwnd, out var pid) ? pid : ProcessIdForWindowResult;
 
-    public string? GetWindowText(long hwnd) => WindowTextResult;
+    /// <summary>Per-HWND titles for <see cref="GetWindowText"/>; unmapped handles fall back to <see cref="WindowTextResult"/>.</summary>
+    public Dictionary<long, string?> WindowTextByHwnd { get; } = [];
+
+    public string? GetWindowText(long hwnd)
+        => WindowTextByHwnd.TryGetValue(hwnd, out var text) ? text : WindowTextResult;
 
     public (int Width, int Height) GetWindowSize(long hwnd)
         => WindowSizeByHwnd.TryGetValue(hwnd, out var size) ? size : (0, 0);
@@ -586,6 +590,12 @@ public sealed class FakeSystemUiQuery : ISystemUiQuery
 
     public long GetRootWindow(long hwnd)
         => RootWindowByHwnd.TryGetValue(hwnd, out var root) ? root : hwnd;
+
+    /// <summary>Per-PID ApplicationFrameHost frames for <see cref="FindHostedAppFrames"/>. Unmapped PIDs host none.</summary>
+    public Dictionary<int, List<long>> HostedFramesByPid { get; } = [];
+
+    public IReadOnlyList<long> FindHostedAppFrames(int pid)
+        => HostedFramesByPid.TryGetValue(pid, out var frames) ? frames : [];
 }
 
 /// <summary>
