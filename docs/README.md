@@ -95,12 +95,14 @@ cd MyWinUIApp
 winapp run
 ```
 
-When you're ready to share the app, generate a development certificate and create a signed MSIX package:
+When you're ready to test a package locally, generate a development certificate and create a signed MSIX package:
 
 ```powershell
 winapp cert generate --manifest ./Package.appxmanifest
 winapp pack ./MyWinUIApp.csproj -c Release --cert ./devcert.pfx
 ```
+
+The development certificate uses a default password and is for local testing only. Before you distribute your app, sign it with a trusted certificate, for example with [`winapp az-sign`](usage.md#az-sign). For more information, see [Security](security.md#the-default-password).
 
 For a step-by-step walkthrough that includes setup and your first UI change, see [Build your first WinUI app](https://learn.microsoft.com/windows/apps/get-started/start-here). To see all available templates, run `winapp new --list`. For the complete workflow, including debugging, UI automation, and packaging, see [Using winapp CLI with WinUI](guides/winui.md).
 

@@ -1,6 +1,6 @@
 <!-- mslearn: true -->
 <!-- ms.topic: how-to -->
-<!-- description: Create, run, debug, test, and package WinUI 3 apps from the command line with winapp CLI, from a new template to a signed MSIX. -->
+<!-- description: Create, run, debug, automate, and package WinUI 3 apps from the command line with winapp CLI, from a new template to a signed MSIX. -->
 # Using winapp CLI with WinUI
 
 This guide shows how to use winapp CLI across the full inner loop of a WinUI 3 app: create a project from an official template, build and launch it with package identity, debug crashes, find controls and APIs, automate the UI, and produce a signed MSIX package. Every step runs from the command line, so it works in any editor, in CI, and with AI coding agents.
@@ -17,7 +17,7 @@ WinUI project templates already include a `Package.appxmanifest`, so you don't n
   winget install Microsoft.winappcli --source winget
   ```
 
-- [Developer Mode](https://learn.microsoft.com/windows/advanced-settings/developer-mode), which Windows requires to register the app from your build output. If it's off, winapp CLI can turn it on for you. For what this changes on your machine, see [Security](../security.md#developer-mode).
+- [Developer Mode](https://learn.microsoft.com/windows/advanced-settings/developer-mode), which Windows requires to register the app from your build output. Turn it on in **Settings > System > For developers**. For what this changes on your machine, see [Security](../security.md#developer-mode).
 
 ## Create a WinUI app
 
@@ -40,7 +40,7 @@ Run `winapp new --list` to see the templates in the installed pack. The pack inc
 | `winui-tabview` | XAML app with a TabView shell. [See screenshot](https://learn.microsoft.com/windows/apps/dev-tools/visual-studio#winui-tabview-app) |
 | `winui-mvvm` | XAML app that uses the MVVM pattern with CommunityToolkit.Mvvm. [See screenshot](https://learn.microsoft.com/windows/apps/dev-tools/visual-studio#winui-mvvm-app) |
 | `winui-lib` | WinUI class library |
-| `winui-unittest` | Packaged MSTest app that runs its tests when you launch it |
+| `winui-unittest` | Packaged MSTest project for WinUI unit tests |
 | `reactor`, `reactor-mvu`, `reactor-navview`, `reactor-tabview` | Experimental. WinUI apps written in C# only, with no XAML |
 
 > [!NOTE]
@@ -79,11 +79,11 @@ winapp CLI reads the project's `WindowsPackageType` property to decide how to la
 winapp run -p WindowsPackageType=None
 ```
 
-Other useful options include `--clean` to remove the previous registration first, `--no-launch` to register without starting the app, and `--detach --json` to return the process ID and exit so that scripts and agents can keep working while the app runs. For the full list, see [Project mode (.NET SDK projects)](../usage.md#project-mode-net-sdk-projects).
+Other useful options include `--clean` to remove the previous registration and the app's saved data (LocalState and settings) for a fresh first run, `--no-launch` to register without starting the app, and `--detach --json` to return the process ID and exit so that scripts and agents can keep working while the app runs. For the full list, see [Project mode (.NET SDK projects)](../usage.md#project-mode-net-sdk-projects).
 
 ### Use dotnet run instead
 
-If you prefer `dotnet run`, add the `Microsoft.Windows.SDK.BuildTools.WinApp` NuGet package to the project. The package hooks `dotnet run` so that it calls `winapp run` and launches the app with identity.
+If you prefer `dotnet run`, use the `Microsoft.Windows.SDK.BuildTools.WinApp` NuGet package. The package hooks `dotnet run` so that it calls `winapp run` and launches the app with identity. Projects that you create with `winapp new` already reference the package, so `dotnet run` works without extra setup. For other projects, add the package first:
 
 ```powershell
 dotnet add package Microsoft.Windows.SDK.BuildTools.WinApp --prerelease
@@ -127,25 +127,17 @@ Both commands support `--json`, so AI coding agents can use them to choose contr
 winapp run --detach
 winapp ui inspect -a MyApp
 winapp ui search Button -a MyApp
-winapp ui invoke btn-save-1234 -a MyApp
+winapp ui invoke PART_PaneToggleButton -a MyApp
 winapp ui screenshot -a MyApp
 ```
 
+The `PART_PaneToggleButton` selector targets the menu button in the `winui-navview` template. For your own controls, copy a selector from the output of `winapp ui inspect` or `winapp ui search`.
+
 To run the app in Windows Sandbox instead of on your desktop, add `--on sandbox` to `winapp run` and `winapp ui`. For more information, see [UI automation](../ui-automation.md) and [Sandbox execution](../sandbox-execution.md).
-
-## Test your app
-
-Projects created from the `winui-unittest` template are packaged MSTest apps. They run their tests when the app launches, so use `winapp run` instead of `dotnet test`:
-
-```powershell
-winapp new --name MyApp.Tests --template winui-unittest --use-defaults
-cd MyApp.Tests
-winapp run
-```
 
 ## Package and sign
 
-When the app is ready to share, generate a development certificate whose publisher matches your manifest, and then build and package the project in one step:
+When you're ready to test a package locally, generate a development certificate whose publisher matches your manifest, and then build and package the project in one step:
 
 ```powershell
 winapp cert generate --manifest .\Package.appxmanifest
@@ -158,26 +150,27 @@ The development certificate is for local testing only, and it uses a default pas
 
 ## Existing WinUI projects
 
-winapp CLI works with WinUI projects that you created in Visual Studio. Point `winapp run` or `winapp pack` at the project or solution file, or run them from the folder that contains it. You can keep building and debugging in Visual Studio and use winapp CLI for scripts, CI, and agent workflows.
+winapp CLI works with WinUI projects that you created in Visual Studio. Point `winapp run` at the project file, the solution file, or the folder that contains one. For `winapp pack`, pass the `.csproj`. You can keep building and debugging in Visual Studio and use winapp CLI for scripts, CI, and agent workflows.
 
 ## WinUI with C++
 
-The [`cpp-app-winui`](../../samples/cpp-app-winui) sample shows a C++ WinUI app that builds with CMake and creates its UI in code without XAML. Build the app with CMake, and then point `winapp run` at the build output:
+`winapp run` also builds and launches C++/WinRT WinUI projects (`.vcxproj`) that you created from the Visual Studio **WinUI Blank App (Packaged)** template. It builds the project with Visual Studio's MSBuild, registers the app with package identity, and launches it:
 
 ```powershell
-cmake -B build
-cmake --build build --config Debug
-winapp run .\build\Debug
+winapp run .\MyApp.vcxproj
+
+# Or from the folder that contains the project
+winapp run .
 ```
 
-For C++ apps that don't use WinUI, see [Using winapp CLI with C++](cpp.md).
+C++ projects need Visual Studio or Build Tools for Visual Studio with the **Desktop development with C++** workload and **C++ WinUI app development tools**. `winapp pack` doesn't build `.vcxproj` projects, so create the MSIX package in Visual Studio. For prerequisites and options, see [C++ projects (.vcxproj)](../usage.md#c-projects-vcxproj). For C++ apps that don't use WinUI, see [Using winapp CLI with C++](cpp.md).
 
 ## Samples
 
 - [`winui-app`](../../samples/winui-app): a packaged WinUI app with controls set up for `winapp ui` automation
 - [`winui-unpackaged-app`](../../samples/winui-unpackaged-app): a WinUI app that runs without package identity
 - [`winui-solution`](../../samples/winui-solution): a multi-project solution that shows how `winapp run` picks the app project
-- [`cpp-app-winui`](../../samples/cpp-app-winui): a C++ WinUI app built with CMake
+- [`cpp-winui-app`](../../samples/cpp-winui-app): a packaged C++/WinRT WinUI app (Visual Studio `.vcxproj` with XAML) that runs with `winapp run`
 
 ## Next steps
 
