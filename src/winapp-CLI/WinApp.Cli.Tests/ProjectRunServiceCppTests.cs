@@ -168,6 +168,24 @@ public sealed class ProjectRunServiceCppTests : IDisposable
             () => _service.ResolveInputAsync(_tempDir, CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "Multiple runnable app projects found");
+        StringAssert.Contains(ex.Message, "Native.vcxproj", "the C++ app is a valid --project choice too");
+    }
+
+    [TestMethod]
+    public async Task ResolveInput_SolutionWithTwoCsharpAppsAndCppApp_ListsTheCppAppAsAChoice()
+    {
+        var solution = WriteFile("App.slnx", Slnx("A/A.csproj", "B/B.csproj", "Native/Native.vcxproj", "Lib/Lib.vcxproj"));
+        WriteFile(@"A\A.csproj", CsharpApp);
+        WriteFile(@"B\B.csproj", CsharpApp);
+        WriteFile(@"Native\Native.vcxproj", CppApp);
+        WriteFile(@"Lib\Lib.vcxproj", CppLibrary);
+
+        var ex = await Assert.ThrowsExactlyAsync<ProjectRunException>(
+            () => _service.ResolveInputAsync(solution, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "multiple runnable app projects");
+        StringAssert.Contains(ex.Message, "Native.vcxproj");
+        Assert.IsFalse(ex.Message.Contains("Lib.vcxproj", StringComparison.Ordinal), "a C++ library is not runnable");
     }
 
     [TestMethod]
@@ -422,7 +440,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
             () => _service.BuildAndResolveAsync(project, options, CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "MSB8036");
-        StringAssert.Contains(ex.Message, "winget install Microsoft.WindowsSDK.");
+        StringAssert.Contains(ex.Message, "winget install Microsoft.WindowsSDK.10.0.99999", "suggest the SDK the project needs, not an arbitrary one");
     }
 
     [TestMethod]

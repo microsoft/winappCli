@@ -443,10 +443,14 @@ internal sealed partial class ProjectRunService
     /// Watches MSBuild output for the errors that mean a prerequisite is missing, so the failure can say
     /// what to install instead of leaving the user with a raw MSBuild code.
     /// </summary>
-    internal sealed class CppBuildFailureCollector
+    internal sealed partial class CppBuildFailureCollector
     {
         private int _missingToolset;
         private int _missingWindowsSdk;
+        private string? _missingWindowsSdkVersion;
+
+        [System.Text.RegularExpressions.GeneratedRegex(@"Windows SDK version (\d+\.\d+\.\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+        private static partial System.Text.RegularExpressions.Regex MissingWindowsSdkVersionRegex();
 
         /// <summary>True for the MSBuild error lines winapp replaces with its own explanation.</summary>
         public static bool IsPrerequisiteError(string line) =>
@@ -461,6 +465,11 @@ internal sealed partial class ProjectRunService
             }
             else if (line.Contains("error MSB8036", StringComparison.OrdinalIgnoreCase))
             {
+                if (MissingWindowsSdkVersionRegex().Match(line) is { Success: true } match)
+                {
+                    Interlocked.CompareExchange(ref _missingWindowsSdkVersion, match.Groups[1].Value, null);
+                }
+
                 Interlocked.Exchange(ref _missingWindowsSdk, 1);
             }
         }
@@ -478,8 +487,11 @@ internal sealed partial class ProjectRunService
                 }
                 if (Volatile.Read(ref _missingWindowsSdk) == 1)
                 {
-                    hints.Add("The Windows SDK version this project targets is not installed (MSB8036). " +
-                        "Install it with the Visual Studio Installer or winget (e.g. winget install Microsoft.WindowsSDK.10.0.26100), " +
+                    var version = Volatile.Read(ref _missingWindowsSdkVersion);
+                    hints.Add((version is null
+                            ? "The Windows SDK version this project targets is not installed (MSB8036). "
+                            : $"The Windows SDK {version} this project targets is not installed (MSB8036). ") +
+                        $"Install it with the Visual Studio Installer or winget (e.g. winget install Microsoft.WindowsSDK.{version ?? "10.0.26100"}), " +
                         "or build against an installed one with -p:WindowsTargetPlatformVersion=<version>.");
                 }
 
