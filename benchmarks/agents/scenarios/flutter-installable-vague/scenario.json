@@ -1,0 +1,30 @@
+{
+  "id": "flutter-installable-vague",
+  "description": "Vague ask: make a Flutter app installable on Windows.",
+  "set": "dev",
+  "cohort": "vague",
+  "prompt": "make my app installable on windows",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "msix.package",
+        "framework.guidance"
+      ],
+      "acceptable": [
+        "msix.sign",
+        "project.setup"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report",
+        "maui.package"
+      ]
+    }
+  }
+}

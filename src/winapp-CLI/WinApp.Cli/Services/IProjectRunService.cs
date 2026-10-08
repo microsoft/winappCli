@@ -15,7 +15,7 @@ internal interface IProjectRunService
     /// <summary>
     /// Classifies the run input into folder mode (existing behavior), project mode, or single-file mode.
     /// </summary>
-    /// <param name="input">The positional argument: a <c>.cs</c> file-based app, a <c>.csproj</c>/<c>.sln</c>/<c>.slnx</c> file, or a directory.</param>
+    /// <param name="input">The positional argument: a <c>.cs</c> file-based app, a <c>.csproj</c>/<c>.vcxproj</c>/<c>.sln</c>/<c>.slnx</c> file, or a directory.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="projectSelector">
     /// Optional <c>--project</c> selector used to pick the runnable project when the input is a

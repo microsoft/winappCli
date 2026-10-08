@@ -254,6 +254,10 @@ internal sealed class UiErrorInfo
     public string Message { get; set; } = "";
     public string? Selector { get; set; }
     public string? Details { get; set; }
+
+    /// <summary>Likely intended commands, for an unknown <c>winapp ui</c> command. Omitted otherwise.</summary>
+    public string[]? Suggestions { get; set; }
+
     public string? RecoveryHint { get; set; }
     public UiPartialOutputInfo? PartialOutput { get; set; }
 

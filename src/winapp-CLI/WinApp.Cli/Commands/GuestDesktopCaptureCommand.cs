@@ -145,10 +145,11 @@ internal sealed class GuestDesktopRecordCommand : Command, IShortDescription
     }
 
     public sealed class Handler(
-        IUiTargetResolver targetResolver, IUiRecordingService recordingService,
+        IUiTargetResolver targetResolver, IUiAutomation uiAutomation, IUiSelectorParser selectorParser,
+        IUiRecordingService recordingService,
         IWindowCapture windowCapture, ISystemUiQuery systemQuery, IAnsiConsole console,
         IInteractiveDesktopLock desktopLock, ILogger<UiRecordCommand> logger)
-        : UiRecordCommand.Handler(targetResolver, recordingService, windowCapture, systemQuery, console, desktopLock, logger)
+        : UiRecordCommand.Handler(targetResolver, uiAutomation, selectorParser, recordingService, windowCapture, systemQuery, console, desktopLock, logger)
     {
         private ExecutionTargetScope? _scope;
         protected override int? Preflight(ParseResult parseResult)
@@ -161,6 +162,7 @@ internal sealed class GuestDesktopRecordCommand : Command, IShortDescription
         protected override bool IsDesktop => true;
         protected override bool TrySelectSubject(ParseResult parseResult, bool json) => true;
         protected override string? ElementSelector(ParseResult parseResult) => null;
+        protected override int? ValidateElementFilters(ParseResult parseResult, bool json) => null;
         protected override bool CaptureScreen(ParseResult parseResult) => false;
     }
 }

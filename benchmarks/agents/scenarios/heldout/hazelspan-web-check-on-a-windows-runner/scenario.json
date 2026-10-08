@@ -1,0 +1,29 @@
+{
+  "id": "hazelspan-web-check-on-a-windows-runner",
+  "description": "Avoids desktop UI helpers for Playwright tests of a browser application on Windows CI.",
+  "set": "heldout",
+  "cohort": "near-miss",
+  "persona": "7",
+  "framework": "Playwright / React / GitHub Actions",
+  "conflictingSignal": false,
+  "sources": [],
+  "prompt": "Hazelspan Checkout's Playwright test times out on windows-latest after the spinner disappears. Can you fix the locator and waiting logic for the payment button?",
+  "paraphrases": {
+    "novice": "The browser test for Hazelspan Checkout gets stuck trying to press Pay on our Windows CI runner. Here's the page and test. Why can't it find the button?",
+    "terse": "Hazelspan Playwright timeout at Pay on windows-latest. Fix locator."
+  },
+  "configurations": [
+    "none",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

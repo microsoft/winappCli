@@ -1,0 +1,9 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Glenmore Viewer" Manufacturer="Glenmore" Version="4.1.0" UpgradeCode="6b1f0d8e-3c2a-4b5e-9d7f-2a1c3e4b5f60" Scope="perUser">
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="Glenmore Viewer">
+        <Component><File Source="GlenmoreViewer.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>
