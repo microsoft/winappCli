@@ -95,6 +95,7 @@ HRESULT DevToolsOverlay_BuildAndInsert(IXamlDiagnostics* diag, IVisualTreeServic
             if (DevToolsSettingsGetBool(L"ToolbarPinned", false)) { ProtoSetPinned(true); ShowARow(true); }
 // the layout-adorner toggle is persisted the same way.
             if (DevToolsSettingsGetBool(L"LayoutAdorners", false)) SetLayoutAdornersOn(true);
+            SetCommentsShown(!DevToolsSettingsGetBool(L"CommentMarkersHidden", false));
             SetShowOnLaunch(DefaultModeIsOn());
             UpdateChipLabel();
 

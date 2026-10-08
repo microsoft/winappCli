@@ -429,7 +429,14 @@ static void OnCommentsMenuClick(void*, void*)
     ToggleToolbarMenu(L"DevToolsCommentsMenu", L"DevToolsProtoCommentsMenu", 2, L"DevToolsShowAllComments");
 }
 static void OnShowAllCommentsClick(void*, void*) { CloseToolbarMenu(); ShowAllComments(); }
-static void OnToggleMarkersClick(void*, void*) { CloseToolbarMenu(); SetCommentsShown(!CommentsShown()); }
+// Hidden markers stay hidden on the next launch; Show markers turns them back on.
+static void OnToggleMarkersClick(void*, void*)
+{
+    CloseToolbarMenu();
+    const bool now = !CommentsShown();
+    DevToolsSettingsSetBool(L"CommentMarkersHidden", !now);
+    SetCommentsShown(now);
+}
 
 static bool DefaultModeIsOn();
 static void SetShowOnLaunch(bool on);

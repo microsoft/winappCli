@@ -27,7 +27,7 @@ struct PinnedComment { InstanceHandle handle; std::wstring id; std::wstring text
                        bool seeded;
                        std::wstring revision; };
 static std::vector<PinnedComment> g_pins;
-static bool g_commentsShown = false;
+static bool g_commentsShown = true;  // until the overlay reads the user's "Hide markers" setting
 
 static void UpsertPin(InstanceHandle key, const std::wstring& id, const std::wstring& text, const RECT& bounds);
 static void RemovePinById(const std::wstring& id);
@@ -105,7 +105,12 @@ static void SetSelCommentDeleteVisible(bool visible)
 }
 
 static bool CommentModeOn() { return g_commentMode; }
-static void SetCommentMode(bool on) { g_commentMode = on; }
+static void SetCommentMode(bool on)
+{
+    g_commentMode = on;
+    // Commenting shows the comments already there, even if the user hid their markers.
+    if (on && !g_commentsShown) SetCommentsShown(true);
+}
 
 static std::wstring QuoteArg(const std::wstring& in)
 {

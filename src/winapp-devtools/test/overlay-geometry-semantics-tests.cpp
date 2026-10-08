@@ -576,6 +576,27 @@ int main()
         std::printf("%s %s: %s\n", ok ? "PASS" : "FAIL", entry, name);
     };
     {
+        // Stored comments pushed at launch draw their markers without a trip to the comments menu. "Hide markers"
+        // is remembered for the user; Comment mode shows them anyway; "Show markers" turns them back on. The test
+        // restores the user's real setting file.
+        check(g_commentsShown, "comment markers", "a fresh launch shows the markers of stored comments");
+        const std::wstring hiddenFile = DevToolsSettingsFile(L"CommentMarkersHidden");
+        const bool hadHidden = GetFileAttributesW(hiddenFile.c_str()) != INVALID_FILE_ATTRIBUTES;
+        const bool savedHidden = DevToolsSettingsGetBool(L"CommentMarkersHidden", false);
+        OnToggleMarkersClick(nullptr, nullptr);
+        check(!g_commentsShown && DevToolsSettingsGetBool(L"CommentMarkersHidden", false),
+            "comment markers", "Hide markers hides them and is remembered");
+        SetCommentMode(true);
+        check(g_commentsShown && DevToolsSettingsGetBool(L"CommentMarkersHidden", false),
+            "comment markers", "Comment mode shows hidden markers for this run");
+        SetCommentMode(false);
+        OnToggleMarkersClick(nullptr, nullptr);
+        OnToggleMarkersClick(nullptr, nullptr);
+        check(g_commentsShown && !DevToolsSettingsGetBool(L"CommentMarkersHidden", true),
+            "comment markers", "Show markers turns them back on for later launches");
+        if (hadHidden) DevToolsSettingsSetBool(L"CommentMarkersHidden", savedHidden); else DeleteFileW(hiddenFile.c_str());
+    }
+    {
         SwitchObject canvas, bar, pill, snaps[kCornerCount];
         g_canvasStatics = &canvas; g_aRow = &bar; g_railL = &pill;
         for (int i = 0; i < kCornerCount; ++i) g_snapUi[i] = &snaps[i];

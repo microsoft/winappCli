@@ -94,7 +94,12 @@ current one off:
   its XAML file and line (or **Not linked to source**), a **Comment** box, and any other
   comments already on the element. **Open in DevTools** opens the window on that element,
   where every property editor is. The arrow beside **Comments** has **Show all comments**,
-  which opens the window's Comments pane, and **Show markers** / **Hide markers**.
+  which opens the window's Comments pane, and **Hide markers** / **Show markers**.
+
+Saved comments show as markers on their elements when the app starts, including
+comments added from the CLI or by an agent. **Hide markers** hides them until you
+choose **Show markers**, including on later launches; turning on **Comments** shows
+them again for that run.
 
 In the DevTools window, **Comment** in the properties header comments on the selected
 element: type it and press **Enter**. If the element already has a comment, the box shows
