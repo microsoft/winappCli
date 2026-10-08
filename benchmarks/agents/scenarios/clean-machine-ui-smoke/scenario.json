@@ -1,0 +1,39 @@
+{
+  "id": "clean-machine-ui-smoke",
+  "description": "Keyword-free sandbox + UI automation: check a build on a clean Windows install and click through.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Can you try the release build on a clean Windows VM? Click Get started and grab a screenshot of what comes next.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "sandbox.run",
+          "ui.automate"
+        ],
+        [
+          "sandbox.run",
+          "ui.test"
+        ]
+      ],
+      "acceptable": [
+        "ui.automate",
+        "ui.test"
+      ],
+      "forbid": [
+        "winui.design",
+        "winui.migrate",
+        "msix.sign",
+        "msix.package",
+        "session.report"
+      ]
+    }
+  }
+}

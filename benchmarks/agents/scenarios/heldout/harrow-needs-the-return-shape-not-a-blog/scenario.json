@@ -1,0 +1,39 @@
+{
+  "id": "harrow-needs-the-return-shape-not-a-blog",
+  "description": "Recognizes an exact SDK symbol query without requiring API terminology in the prompt.",
+  "set": "heldout",
+  "cohort": "vague",
+  "persona": "4",
+  "framework": "C# / Windows Runtime",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/uwp/api/windows.applicationmodel.startuptask.requestenableasync"
+  ],
+  "prompt": "What does RequestEnableAsync return in Harrow Dock? Check the Windows SDK version referenced here and list the StartupTaskState values it actually defines.",
+  "paraphrases": {
+    "novice": "Harrow Dock asks Windows if it can start at login. What answers can that call give us, and what are they called in the version we're using?",
+    "terse": "Harrow: RequestEnableAsync return type and StartupTaskState members for referenced SDK?"
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "api.lookup"
+        ]
+      ],
+      "forbid": [
+        "project.setup",
+        "toolchain.prereqs",
+        "winui.*",
+        "identity",
+        "session.report"
+      ]
+    }
+  }
+}

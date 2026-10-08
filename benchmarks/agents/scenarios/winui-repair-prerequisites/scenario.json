@@ -1,0 +1,30 @@
+{
+  "id": "winui-repair-prerequisites",
+  "description": "WinUI toolchain repair on a new machine (winui-setup primary).",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "This repo won't build on my new laptop. `dotnet --list-sdks` prints nothing and PowerShell says winapp isn't recognized. Help me get it running.",
+  "configurations": [
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "toolchain.prereqs"
+      ],
+      "acceptable": [
+        "project.setup",
+        "winui.build"
+      ],
+      "forbid": [
+        "msix.package",
+        "msix.sign",
+        "winui.package",
+        "winui.migrate",
+        "session.report"
+      ]
+    }
+  }
+}

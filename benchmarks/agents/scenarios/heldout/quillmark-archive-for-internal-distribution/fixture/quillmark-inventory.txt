@@ -1,0 +1,6 @@
+electron-builder directory release, x64:
+Quillmark Notes.exe
+resources/app.asar
+chrome_elf.dll
+locales/en-US.pak
+No MSIX has been created.

@@ -1,0 +1,45 @@
+{
+  "id": "quillmark-archive-for-internal-distribution",
+  "description": "Requires both packaging an Electron payload and authenticating it with a managed cloud credential.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "1",
+  "framework": "Electron / electron-builder / Azure Artifact Signing",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-packaging-dot-net",
+    "https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations"
+  ],
+  "prompt": "We have Quillmark Notes' electron-builder directory release. How do I turn it into a .msix and sign it using our Azure account? The private key has to stay in Azure.",
+  "paraphrases": {
+    "novice": "Quillmark Notes is ready, but IT wants a .msix signed through their Azure account. What do I add after Electron creates the release folder? We're not allowed to download the private key.",
+    "terse": "Quillmark Electron: package directory as .msix, sign through Azure."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The existing Electron binaries and future .msix are represented by an inventory; the cloud account is described without credentials.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "msix.package",
+          "msix.sign"
+        ]
+      ],
+      "acceptable": [
+        "framework.guidance",
+        "toolchain.prereqs"
+      ],
+      "forbid": [
+        "winui.*",
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

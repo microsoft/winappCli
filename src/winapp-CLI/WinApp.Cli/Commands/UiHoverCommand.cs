@@ -14,9 +14,15 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiHoverCommand : Command, IShortDescription
+internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Move the mouse to an element to trigger hover effects like tooltips";
+    public string ShortDescription => "Move the mouse to an element (tooltips, hover states)";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui hover \"Save\" -a <app>",
+        "winapp ui hover \"Save\" --type Button -a <app>",
+    ];
 
     public static Option<int> DwellTimeOption { get; } = new("--dwell-time")
     {
@@ -33,6 +39,7 @@ internal class UiHoverCommand : Command, IShortDescription
         Options.Add(SharedUiOptions.WindowOption);
         Options.Add(DwellTimeOption);
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -79,7 +86,7 @@ internal class UiHoverCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -94,8 +101,8 @@ internal class UiHoverCommand : Command, IShortDescription
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = selectorParser.Parse(selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+                var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {
@@ -120,7 +127,8 @@ internal class UiHoverCommand : Command, IShortDescription
                     // Re-resolve just before hovering so the captured rect is current after any wait.
                     var stable = await GestureTargeting.ResolveStableAsync(
                         uiAutomation, uiTarget, selector, element,
-                        GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
+                        GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken,
+                        requireUnique: UiQueryOptions.HasFilters(parseResult));
                     if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, "hover"))
                     {
                         return 1;
@@ -176,6 +184,11 @@ internal class UiHoverCommand : Command, IShortDescription
                 }
 
                 return 0;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {

@@ -1,0 +1,22 @@
+{
+  "id": "powershell-list-installed-msix",
+  "description": "Trap: list installed MSIX packages with PowerShell.",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "Give me a PowerShell one-liner that lists every installed MSIX package with its version and install folder, sorted by name, for a support script.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

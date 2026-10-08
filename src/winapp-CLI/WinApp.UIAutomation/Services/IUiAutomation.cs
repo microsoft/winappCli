@@ -73,6 +73,10 @@ public interface IUiAutomation
     /// <exception cref="UiAmbiguousSelectorException">More than one element matched.</exception>
     Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct);
 
+    /// <summary>Confirms that two in-process query results refer to the same live UIA provider.
+    /// Never compares short selector hashes or resolves an external model by name.</summary>
+    bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct);
+
     /// <summary>Reads an element's UIA properties.</summary>
     /// <param name="uiTarget">The app or window that owns the element.</param>
     /// <param name="element">The element to read.</param>

@@ -1,0 +1,43 @@
+{
+  "id": "umber-repeatable-first-launch-proof",
+  "description": "Requires recurring desktop UI checks under disposable clean-machine conditions.",
+  "set": "heldout",
+  "cohort": "vague",
+  "persona": "7",
+  "framework": "WPF / desktop release verification",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file"
+  ],
+  "prompt": "Umber Ledger works on our PCs but fails for new users. Add a first-launch test in a fresh Sandbox for every release: enter the organization, assert the ledger opens, and save evidence if the release check fails.",
+  "paraphrases": {
+    "novice": "For each Umber Ledger release, can a test use an empty Windows desktop that gets thrown away afterward? It should enter the organization name, check the ledger appears, and block the release with saved evidence if something goes wrong.",
+    "terse": "Umber release test in fresh Sandbox: welcome form to ledger. Assert result and retain failures."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The candidate installer and future UI execution are represented by a delivery inventory and acceptance criteria.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "ui.test",
+          "sandbox.run"
+        ]
+      ],
+      "acceptable": [
+        "ui.automate"
+      ],
+      "forbid": [
+        "winui.*",
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

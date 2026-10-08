@@ -1,0 +1,31 @@
+{
+  "id": "flintmere-wix-upgrade-code-only",
+  "description": "Avoids MSIX and identity routing for a narrowly scoped WiX MSI upgrade correction.",
+  "set": "heldout",
+  "cohort": "trap",
+  "persona": "2",
+  "framework": "WiX / MSI / WinForms",
+  "conflictingSignal": true,
+  "sources": [],
+  "prompt": "Updating Flintmere Billing leaves both versions installed. Can you fix MajorUpgrade and UpgradeCode in our WiX MSI? The release notes include the earlier .msix experiment.",
+  "paraphrases": {
+    "novice": "Installing the new Flintmere Billing version leaves the old one on staff computers too. How do I fix the WiX installer so the update replaces it?",
+    "terse": "Flintmere MSI upgrade leaves old version installed. Check WiX upgrade IDs."
+  },
+  "configurations": [
+    "none",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The installed MSI versions are represented by release metadata and a WiX extract, not installer binaries.",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

@@ -1,0 +1,3 @@
+Requested output: retrospective explanation of the prior assistant's decisions.
+Do not operate the desktop application.
+Do not modify a test or app source.

@@ -45,6 +45,12 @@ internal static class WsbHResult
     /// </remarks>
     internal const int NoSuchLogonSession = unchecked((int)0x80070520);
 
+    /// <summary>
+    /// <c>E_ACCESSDENIED</c>. From <c>wsb share</c> it means Windows Sandbox's host service could
+    /// not open the host folder, not that the Sandbox or the host is broken.
+    /// </summary>
+    internal const int AccessDenied = unchecked((int)0x80070005);
+
     /// <summary>Formats an HRESULT the way it is reported in context and in wsb's own output.</summary>
     internal static string Format(int hresult) =>
         "0x" + hresult.ToString("X8", CultureInfo.InvariantCulture);

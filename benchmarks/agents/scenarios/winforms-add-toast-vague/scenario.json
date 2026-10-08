@@ -1,0 +1,29 @@
+{
+  "id": "winforms-add-toast-vague",
+  "description": "Vague ask: two-word request for a toast in a WinForms app.",
+  "set": "dev",
+  "cohort": "vague",
+  "prompt": "add toast notification when sync is done",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "identity",
+        "framework.guidance"
+      ],
+      "acceptable": [
+        "api.lookup",
+        "project.setup"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "session.report"
+      ]
+    }
+  }
+}

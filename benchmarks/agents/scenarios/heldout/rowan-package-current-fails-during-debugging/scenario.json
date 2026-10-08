@@ -1,0 +1,47 @@
+{
+  "id": "rowan-package-current-fails-during-debugging",
+  "description": "Distinguishes missing process identity in WinForms from UI or compiler failure.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "2",
+  "framework": "WinForms / .NET 8",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/grant-identity-to-nonpackaged-apps"
+  ],
+  "prompt": "Rowan Claims needs to appear in the Windows Share sheet, but Package.Current throws 0x80073D54 when I hit F5. Can we make it work locally and for customers without replacing our WinForms MSI?",
+  "paraphrases": {
+    "novice": "The forms in Rowan Claims work, but our sharing code fails with 0x80073D54 because Windows doesn't know which app the program belongs to. How do I fix that for debugging and for staff who install our MSI?",
+    "terse": "Rowan F5: Package.Current 0x80073D54. Need Windows Share sheet support here and with the existing MSI."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "A failing debug process and retained MSI are represented by a project extract and exception capture.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "identity"
+        ],
+        [
+          "troubleshoot"
+        ]
+      ],
+      "acceptable": [
+        "framework.guidance",
+        "msix.manifest"
+      ],
+      "forbid": [
+        "winui.*",
+        "project.scaffold",
+        "msix.package",
+        "session.report"
+      ]
+    }
+  }
+}

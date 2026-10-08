@@ -1,0 +1,22 @@
+{
+  "id": "winui-generic-csharp-bug",
+  "description": "Near-miss: pure C# parser bug inside a WinUI repo; no skill needed.",
+  "set": "dev",
+  "cohort": "near-miss",
+  "prompt": "CSV import splits \"a,b\",c into three fields. Fix ParseLine; examples are in CsvReaderTests.cs.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

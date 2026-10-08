@@ -1,0 +1,41 @@
+{
+  "id": "kestrel-port-and-check-before-approval",
+  "description": "Requires a WPF-to-WinUI port and a quality check of the resulting WinUI implementation.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "2",
+  "framework": "WPF to WinUI 3 / C#",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/en-us/windows/apps/get-started/start-here"
+  ],
+  "prompt": "Port Kestrel Index's WPF search panel into our existing WinUI 3 app, keeping QueryService. Then review the port for binding, async lifetime, and keyboard issues before we merge it.",
+  "paraphrases": {
+    "novice": "Can you move Kestrel Index's old WPF search screen into the WinUI 3 application we already have? Keep the search service, and check the result for problems with updating text, closing the screen, or using the keyboard.",
+    "terse": "Kestrel: port WPF search pane to WinUI, then review the port. Reuse QueryService."
+  },
+  "configurations": [
+    "none",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        [
+          "winui.migrate",
+          "winui.review"
+        ]
+      ],
+      "acceptable": [
+        "winui.design",
+        "winui.build"
+      ],
+      "forbid": [
+        "project.scaffold",
+        "session.report"
+      ]
+    }
+  }
+}

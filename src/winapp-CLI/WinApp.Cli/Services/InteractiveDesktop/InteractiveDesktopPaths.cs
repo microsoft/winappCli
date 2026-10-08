@@ -281,8 +281,23 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
         {
             try
             {
+                // Missing ancestors are created first, with ordinary inherited permissions.
+                // Create(DirectorySecurity) would otherwise stamp the current-user-only DACL onto
+                // every ancestor it has to create too -- including the shared
+                // %USERPROFILE%\.winapp\state root, which then locks SYSTEM out of everything under
+                // it, and Windows Sandbox's host service can no longer share the target's bootstrap
+                // folders.
+                if (directoryInfo.Parent is { } parent)
+                {
+                    parent.Create();
+                }
+
                 directoryInfo.Create(BuildCurrentUserOnlySecurity());
-                return;
+
+                // Not a return. Create succeeds without applying the security when the directory
+                // already exists, so one another process created after the parent appeared would
+                // otherwise be trusted as-is. Falling through verifies, and repairs or fails closed.
+                directoryInfo.Refresh();
             }
             catch (UnauthorizedAccessException ex)
             {

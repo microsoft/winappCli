@@ -14,11 +14,19 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiTouchCommand : Command, IShortDescription
+internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
 {
     private const int MaxDelayMs = 60_000;
 
-    public string ShortDescription => "Inject synthetic touch gestures (tap, swipe, pinch, stretch, long-press)";
+    public string ShortDescription => "Inject touch gestures (tap, swipe, pinch)";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui touch <selector> -a <app>",
+        "winapp ui touch <selector> --type ListItem -a <app> --gesture swipe --direction left --distance 200",
+    ];
+
+    public string? Usage => "winapp ui touch [<selector>] (-a <app> | -w <hwnd>) [--at <x,y>] [options]";
 
     private static readonly Dictionary<string, TouchGesture> Gestures = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -96,6 +104,7 @@ internal class UiTouchCommand : Command, IShortDescription
         Options.Add(DurationOption);
         Options.Add(FingersOption);
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
     }
 
     public class Handler(
@@ -278,6 +287,11 @@ internal class UiTouchCommand : Command, IShortDescription
                 return 1;
             }
 
+            if (at is not null && UiQueryOptions.HasFilters(parseResult))
+            {
+                return RejectInvalidArguments(parseResult, json, "--type, --root, and --class-name narrow a selector and cannot be combined with --at.");
+            }
+
             // Missing-app check runs after all argument validation so invalid arg values return
             // invalid_arguments rather than missing_app.
             if (string.IsNullOrWhiteSpace(app) && window is null)
@@ -286,7 +300,7 @@ internal class UiTouchCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -341,7 +355,7 @@ internal class UiTouchCommand : Command, IShortDescription
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
                     var target = await PointerCommandSupport.ResolvePointAsync(
-                        uiAutomation, selectorParser, uiTarget, selectorStr, at, atStr,
+                        uiAutomation, selectorParser, parseResult, uiTarget, selectorStr, at, atStr,
                         "touch", "touch point", logger, json, cancellationToken);
                     if (!target.Ok)
                     {
@@ -426,6 +440,11 @@ internal class UiTouchCommand : Command, IShortDescription
                 }
 
                 return 0;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {

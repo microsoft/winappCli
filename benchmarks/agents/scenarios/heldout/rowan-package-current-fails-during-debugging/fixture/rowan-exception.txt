@@ -1,0 +1,6 @@
+System.InvalidOperationException
+HRESULT: 0x80073D54
+at Windows.ApplicationModel.Package.get_Current()
+Launch method: direct debugger launch
+GetCurrentPackageFullName: 15700
+UI opens normally before the experimental package-dependent code runs.

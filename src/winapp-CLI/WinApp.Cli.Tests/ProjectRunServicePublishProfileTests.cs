@@ -886,7 +886,8 @@ public sealed class ProjectRunServicePublishProfileTests
             new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, dotnet),
             new FakeCsWinRTMetadataShimService(),
             console,
-            NullLogger<ProjectRunService>.Instance)
+            NullLogger<ProjectRunService>.Instance,
+            new FakeMSBuildService())
         {
             NativeTerminalGateOverrideForTests = () => false,
         };
