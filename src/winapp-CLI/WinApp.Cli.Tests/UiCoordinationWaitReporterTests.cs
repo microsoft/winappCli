@@ -18,16 +18,14 @@ public class UiCoordinationWaitReporterTests
         Reason: UiWaitReason.OtherWorkflowActive,
         HeldForMs: heldForMs);
 
-    private static (UiCoordinationWaitReporter Reporter, StringWriter Output) Create(UiCoordinationOutputMode mode)
-    {
-        var output = new StringWriter();
-        return (new UiCoordinationWaitReporter(output, mode, "ui click"), output);
-    }
+    private static UiCoordinationWaitReporter Create(UiCoordinationOutputMode mode, TextWriter? output = null)
+        => new(output ?? TextWriter.Null, mode, "ui click");
 
     [TestMethod]
     public void StaysSilentForTheFirstSecond()
     {
-        var (reporter, output) = Create(Text);
+        using var output = new StringWriter();
+        var reporter = Create(Text, output);
 
         reporter.ReportIfDue(UiCoordinationWaitReporter.FirstReportAfterMs - 1, OtherWorkflow());
 
@@ -37,7 +35,8 @@ public class UiCoordinationWaitReporterTests
     [TestMethod]
     public void RepeatsNoMoreThanOncePerInterval()
     {
-        var (reporter, output) = Create(Text);
+        using var output = new StringWriter();
+        var reporter = Create(Text, output);
 
         reporter.ReportIfDue(1_000, OtherWorkflow());
         reporter.ReportIfDue(2_000, OtherWorkflow());
@@ -47,11 +46,26 @@ public class UiCoordinationWaitReporterTests
     }
 
     [TestMethod]
+    public void SchedulesTheNextNoticeFromWhenTheLastOneActuallyPrinted()
+    {
+        var reporter = Create(Text);
+
+        Assert.AreEqual(UiCoordinationWaitReporter.FirstReportAfterMs, reporter.NextReportInMs(0));
+
+        // A wake-up that runs a little late must not push the following notice a whole interval out.
+        reporter.ReportIfDue(1_001, OtherWorkflow());
+
+        Assert.AreEqual(1_001 + UiCoordinationWaitReporter.RepeatIntervalMs - 6_000, reporter.NextReportInMs(6_000));
+        Assert.IsTrue(reporter.IsReportDue(1_001 + UiCoordinationWaitReporter.RepeatIntervalMs));
+    }
+
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, true)]
     public void StaysSilentUnderJsonAndQuiet(bool json, bool quiet)
     {
-        var (reporter, output) = Create(new UiCoordinationOutputMode(json, Verbose: false, quiet));
+        using var output = new StringWriter();
+        var reporter = Create(new UiCoordinationOutputMode(json, Verbose: false, quiet), output);
 
         reporter.ReportIfDue(10_000, OtherWorkflow());
 
@@ -61,7 +75,8 @@ public class UiCoordinationWaitReporterTests
     [TestMethod]
     public void OtherWorkflow_SaysWhatHoldsTheDesktopForHowLongAndHowToShare()
     {
-        var (reporter, output) = Create(Text);
+        using var output = new StringWriter();
+        var reporter = Create(Text, output);
 
         reporter.ReportIfDue(3_000, OtherWorkflow());
 
@@ -76,7 +91,8 @@ public class UiCoordinationWaitReporterTests
     [TestMethod]
     public void Verbose_AddsLocalDiagnostics()
     {
-        var (reporter, output) = Create(new UiCoordinationOutputMode(Json: false, Verbose: true, Quiet: false));
+        using var output = new StringWriter();
+        var reporter = Create(new UiCoordinationOutputMode(Json: false, Verbose: true, Quiet: false), output);
 
         reporter.ReportIfDue(3_000, OtherWorkflow());
 
@@ -87,19 +103,19 @@ public class UiCoordinationWaitReporterTests
     [TestMethod]
     public void Grace_SaysTheHolderMayContinue()
     {
-        var (reporter, _) = Create(Text);
+        var reporter = Create(Text);
 
         var line = reporter.BuildLine(1_500, new UiWaitDiagnostics(
             1, 0, null, null, UiWaitReason.OtherWorkflowGrace, GraceRemainingMs: 2_500));
 
-        StringAssert.Contains(line, "keeps the desktop for up to 2s more in case it continues");
+        StringAssert.Contains(line, "keeps the desktop for up to 3s more in case it continues");
         Assert.IsFalse(line.Contains("WINAPP_UI_WORKFLOW_ID", StringComparison.Ordinal));
     }
 
     [TestMethod]
     public void OwnWorkflow_NamesTheEarlierCommandWithoutSharingAdvice()
     {
-        var (reporter, _) = Create(Text);
+        var reporter = Create(Text);
 
         var line = reporter.BuildLine(1_500, new UiWaitDiagnostics(
             0, 1, null, "ui screenshot", UiWaitReason.OwnWorkflow, WaitersAhead: 3));
@@ -112,11 +128,11 @@ public class UiCoordinationWaitReporterTests
     [TestMethod]
     public void QueuedBehindOthers_CountsThem()
     {
-        var (reporter, _) = Create(Text);
+        var reporter = Create(Text);
 
         var line = reporter.BuildLine(1_500, OtherWorkflow() with { WaitersAhead = 2 });
 
-        StringAssert.Contains(line, "2 commands from other workflows are queued ahead of this one.");
+        StringAssert.Contains(line, "2 commands are queued ahead of this one.");
     }
 
     [TestMethod]

@@ -663,7 +663,7 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                         return;
                     }
 
-                    plan = BuildWaitPlan(state, entry, reporter.IsReportDue(_waitWatch.ElapsedMilliseconds));
+                    plan = BuildWaitPlan(state, entry, reporter);
                 }
 
                 if (plan.Diagnostics is { } diagnostics)
@@ -696,8 +696,10 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         /// a known time — so the head also wakes exactly then rather than up to an interval late.
         /// </para>
         /// </remarks>
-        private WaitPlan BuildWaitPlan(InteractiveDesktopState state, OwnerCommandEntry? ownEntry, bool reportDue)
+        private WaitPlan BuildWaitPlan(
+            InteractiveDesktopState state, OwnerCommandEntry? ownEntry, UiCoordinationWaitReporter reporter)
         {
+            var reportDue = reporter.IsReportDue(_waitWatch.ElapsedMilliseconds);
             var isHead = IsRecoveryResponsible(state, ownEntry);
             var timeoutMs = isHead ? HeadRecoveryMs : DeepRecoveryMs;
 
@@ -715,10 +717,10 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
             if (outputMode.AllowsWaitingStatus)
             {
                 // Human output has its own cadence to keep, so never sleep past the next status line.
-                var untilReport = NextReportInMs(_waitWatch.ElapsedMilliseconds);
+                var untilReport = reporter.NextReportInMs(_waitWatch.ElapsedMilliseconds);
                 if (untilReport < timeoutMs)
                 {
-                    timeoutMs = untilReport;
+                    timeoutMs = (int)untilReport;
                 }
             }
 
@@ -748,19 +750,6 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
             return head is not null
                 && head.Pid == participant.ProcessId
                 && head.ProcessStartTicksUtc == participant.StartTicksUtc;
-        }
-
-        /// <summary>Milliseconds until the wait reporter would next print, for the sleep clamp.</summary>
-        private static int NextReportInMs(long elapsedMs)
-        {
-            if (elapsedMs < UiCoordinationWaitReporter.FirstReportAfterMs)
-            {
-                return (int)(UiCoordinationWaitReporter.FirstReportAfterMs - elapsedMs);
-            }
-
-            var sinceCycle = (elapsedMs - UiCoordinationWaitReporter.FirstReportAfterMs)
-                % UiCoordinationWaitReporter.RepeatIntervalMs;
-            return (int)(UiCoordinationWaitReporter.RepeatIntervalMs - sinceCycle);
         }
 
         private UiWaitDiagnostics BuildDiagnostics(InteractiveDesktopState state, OwnerCommandEntry? ownEntry)
@@ -805,10 +794,15 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
             if (ownEntry is { Ticket: { } myOwnTicket })
             {
                 reason = UiWaitReason.OwnWorkflow;
-                blockingOperation = state.OwnerCommands
+
+                // The barrier is the earliest earlier desktop-exclusive command; earlier turn-shared work
+                // such as a running recording keeps going alongside this one and is not what it waits on.
+                var earlier = state.OwnerCommands
                     .Where(c => (c.Ticket ?? long.MaxValue) < myOwnTicket)
                     .OrderBy(c => c.Ticket)
-                    .FirstOrDefault()?.Operation;
+                    .ToList();
+                blockingOperation = (earlier.FirstOrDefault(c => c.Mode == UiTurnMode.DesktopExclusive)
+                    ?? earlier.FirstOrDefault())?.Operation;
             }
             else if (state.Owner is not null && state.OwnerCommands.Count > 0)
             {

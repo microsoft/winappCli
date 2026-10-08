@@ -642,6 +642,55 @@ public partial class InteractiveDesktopLockTests
     }
 
     [TestMethod]
+    public async Task AWaitingCommandInTheSameWorkflowNamesTheExclusiveCommandItWaitsBehind()
+    {
+        // Same workflow: a running recording (turn-shared, ticket 1) and a screenshot (exclusive,
+        // ticket 2). A new click (ticket 3) waits for the screenshot, not the recording.
+        _paths.EnsureDirectories();
+        using var recordLease = new FileStream(_paths.LeasePath(424242, 987654321), FileMode.Create,
+            FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+        using var screenshotLease = new FileStream(_paths.LeasePath(424243, 987654322), FileMode.Create,
+            FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+        using (var stateLock = _store.AcquireStateLock(CancellationToken.None))
+        {
+            var state = InteractiveDesktopState.CreateFresh();
+            state.TurnId = 1;
+            state.NextTicket = 3;
+            state.Owner = new OwnerRecord
+            {
+                Kind = UiOwnerKind.Workflow,
+                Key = UiOwnerResolver.ComputeWorkflowKey("interactive-desktop-lock-tests"),
+            };
+            state.OwnerCommands.Add(new OwnerCommandEntry
+            {
+                Ticket = 1, Pid = 424242, ProcessStartTicksUtc = 987654321, Operation = "ui record",
+                Mode = UiTurnMode.TurnShared, Status = UiCommandStatus.Running,
+            });
+            state.OwnerCommands.Add(new OwnerCommandEntry
+            {
+                Ticket = 2, Pid = 424243, ProcessStartTicksUtc = 987654322, Operation = "ui screenshot",
+                Mode = UiTurnMode.DesktopExclusive, Status = UiCommandStatus.Running,
+            });
+            _store.Publish(state);
+        }
+
+        using var cts = new CancellationTokenSource();
+        var queued = _coordinator.RunCoordinatedAsync(
+            UiTurnMode.DesktopExclusive, "ui click", ParseArgs(),
+            (_, _) => Task.FromResult(0), cts.Token);
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (_statusOut.ToString().Length == 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
+
+        await cts.CancelAsync();
+        Assert.AreEqual(InteractiveDesktopLock.CancelledExitCode, await queued);
+        StringAssert.Contains(_statusOut.ToString(), "an earlier 'ui screenshot' in this workflow must finish first.");
+    }
+
+    [TestMethod]
     [DataRow("--json")]
     [DataRow("--quiet")]
     public async Task AWaitingCommandStaysSilentUnderJsonAndQuiet(string flag)

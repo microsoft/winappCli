@@ -87,6 +87,17 @@ internal sealed class UiCoordinationWaitReporter(
     }
 
     /// <summary>
+    /// Milliseconds from <paramref name="elapsedMs"/> until the next notice is due, measured from when
+    /// the last one actually printed so a late wake-up does not push the following notice a whole
+    /// interval further out.
+    /// </summary>
+    public long NextReportInMs(long elapsedMs)
+    {
+        var dueAt = _lastReportedAtMs < 0 ? FirstReportAfterMs : _lastReportedAtMs + RepeatIntervalMs;
+        return Math.Max(0, dueAt - elapsedMs);
+    }
+
+    /// <summary>
     /// Writes a waiting notice when one is due. Silent under <c>--json</c> and <c>--quiet</c>, and
     /// silent for the first <see cref="FirstReportAfterMs"/> milliseconds in every mode.
     /// </summary>
@@ -135,7 +146,7 @@ internal sealed class UiCoordinationWaitReporter(
             case UiWaitReason.OtherWorkflowGrace:
                 reason = "another workflow just finished a command and keeps the desktop"
                     + (diagnostics.GraceRemainingMs is { } left
-                        ? $" for up to {FormatDuration(Math.Max(left, 1_000))} more"
+                        ? $" for up to {FormatDuration(RoundUpToSecond(Math.Max(left, 1)))} more"
                         : " briefly")
                     + " in case it continues.";
                 break;
@@ -148,8 +159,8 @@ internal sealed class UiCoordinationWaitReporter(
         if (diagnostics.Reason != UiWaitReason.OwnWorkflow && diagnostics.WaitersAhead > 0)
         {
             reason += diagnostics.WaitersAhead == 1
-                ? " 1 command from another workflow is queued ahead of this one."
-                : $" {diagnostics.WaitersAhead} commands from other workflows are queued ahead of this one.";
+                ? " 1 command is queued ahead of this one."
+                : $" {diagnostics.WaitersAhead} commands are queued ahead of this one.";
         }
 
         return $"'{operation}' has waited {waited} for the desktop: {reason}"
@@ -169,6 +180,8 @@ internal sealed class UiCoordinationWaitReporter(
             : "no active winapp command";
         return $"[{active}; queue depth {diagnostics.QueueDepth}, {diagnostics.CommandsAhead} ahead]";
     }
+
+    private static long RoundUpToSecond(long ms) => (ms + 999) / 1_000 * 1_000;
 
     /// <summary>Formats a duration as <c>3s</c>, <c>2m 14s</c> or <c>1h 5m</c>.</summary>
     internal static string FormatDuration(long ms)
