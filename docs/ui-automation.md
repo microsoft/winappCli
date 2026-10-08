@@ -17,6 +17,12 @@ Most commands drive the app through UIA patterns (no input injection). The excep
 
 ## Quick Start
 
+Run `winapp ui --help` for the core loop: `inspect -a <app> --interactive` to see what you
+can act on, `invoke` or `set-value` to act, and `get-value` to check the result. Every
+command's `--help` shows examples. An unknown command, such as `winapp ui dump`, exits with
+code 1 and suggests the closest commands (as a JSON error with `suggestions` when you pass
+`--json`).
+
 ```bash
 # Connect to any app and see its UI tree
 winapp ui inspect -a notepad
@@ -53,10 +59,18 @@ winapp ui search "Welcome to MyApp" -a myapp --root MailRow --type Text --class-
 winapp ui get-value Subject -w 123456 --root MailRow --type TextBox
 winapp ui get-property Subject -a myapp --root MailRow --type Edit --property Value
 winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value "Ready" --timeout 10000
+winapp ui invoke Open -w <dialog-HWND> --type Button
+winapp ui set-value "Text editor" "hello" -a notepad --type Document
 ```
 
-`search`, `get-property`, `get-value`, and `wait-for` accept these optional filters.
-The selector and every supplied filter must match the **same element**:
+These commands accept optional filters on their element selector:
+`inspect` (with a selector), `search`, `get-property`, `get-value`, `wait-for`,
+`invoke`, `set-value`, `click`, `focus`, `hover`, `scroll`, `scroll-into-view`,
+`screenshot`, `record`, `touch`, and `pen`. `drag` (two selectors) and `send-keys --target` do not.
+The selector and every supplied filter must match the **same element**. Filters narrow a
+selector, so `inspect`, `screenshot`, and `record`, whose selector is optional, fail with
+`invalid_arguments` when given filters without one. For `touch` and `pen`, filters need a
+selector; they can't be combined with `--at` or `--path` (`invalid_arguments`):
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
   never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.
@@ -98,9 +112,11 @@ A root slug selects that element even when another window has the same
 AutomationId. If the selected root is replaced, its old slug no longer matches;
 use an AutomationId or name root when you want polling to follow a replacement.
 
-When filters are present, commands that read a single element fail with
+When filters are present, every command except `search` fails with
 `ambiguous_selector` if more than one element remains; narrow the filters or use
-a unique slug. Exact AutomationId matches retain precedence over substring
+a unique slug. Commands that act on the element count matches in every window
+they search, so a matching control in an owned dialog also makes the selector
+ambiguous. Exact AutomationId matches retain precedence over substring
 matches, within the filtered scope. Omitting all three options preserves the
 existing query behavior.
 
@@ -606,6 +622,7 @@ popup rather than the window behind it.
 winapp ui invoke SettingsCategory -a myapp --action select
 winapp ui invoke AgreeCheckbox -a myapp --action toggle-on --json
 winapp ui invoke SizeComboBox -a myapp --action expand
+winapp ui invoke Open -w <dialog-HWND> --root Actions --type Button --class-name Button --action invoke
 winapp ui invoke SubmitButton -a myapp
 ```
 
@@ -616,6 +633,17 @@ be selected, not invoked, with `--action select`. With `--action`, a slug target
 exactly one element; a plain-text or AutomationId selector that matches more than
 one element fails closed with a nonzero exit code rather than acting on the first
 match, so pass a slug from `inspect`/`search` when a name is ambiguous.
+
+`--root`, `--type`, and `--class-name` narrow the match as described in
+[Scoped and typed queries](#scoped-and-typed-queries), with or without `--action`.
+Use `-w <dialog-HWND>` to restrict an action to that dialog, or `-a <app>` to
+include the app's windows. A filtered invoke confirms the unique target before
+acting, requires exactly one matching element, and never switches to
+another window or an invokable ancestor. Zero matches fail with `element_not_found`;
+duplicates fail with `ambiguous_selector`. A stale element or recycled window
+fails without acting; re-run `inspect` or `search` and choose a current selector.
+Without `--action`, a filtered invoke still tries the patterns in order on that
+one element.
 
 | Action | Operation |
 |--------|-----------|
@@ -631,7 +659,7 @@ transition. If the requested state is not reached, the command fails rather than
 continuing to toggle. A failed verification can leave the control changed; read
 `ToggleState` before deciding what to do next.
 
-Without `--action`, the existing automatic behavior is unchanged: try
+Without `--action` and without filters, the automatic behavior is unchanged: try
 InvokePattern, TogglePattern, SelectionItemPattern, then ExpandCollapsePattern
 (expand), with an invokable-ancestor retry when needed.
 

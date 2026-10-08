@@ -615,6 +615,21 @@ internal sealed partial class UiAutomationService : IUiAutomation
         return Task.FromResult<UiElement?>(result);
     }
 
+    public bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (selected.Context is not { } original || current.Context is not { } fresh)
+        {
+            throw new InvalidOperationException("Explicit query identity comparison requires retained UIA elements.");
+        }
+
+        // These reads fail if either provider went stale while the command waited its turn.
+        _ = s_getElementProcessId(original.AutomationElement);
+        _ = s_getElementProcessId(fresh.AutomationElement);
+        ct.ThrowIfCancellationRequested();
+        return s_compareElements(this, original.AutomationElement, fresh.AutomationElement);
+    }
+
     private List<(IUIAutomationElement Element, long Hwnd)> CollectExplicitMatches(
         IUIAutomationElement root, UiTarget? uiTarget, string query, bool allowSubstring, CancellationToken ct)
     {
