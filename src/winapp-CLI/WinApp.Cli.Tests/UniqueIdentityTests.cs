@@ -428,6 +428,67 @@ public class UniqueIdentityTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Unregister_ProjectInputFromParent_LeavesASiblingCheckoutsPlainRegistration()
+    {
+        // From the parent: `run .\a --unique-identity`, `run .\b`, then `unregister .\a`.
+        var a = _tempDirectory.CreateSubdirectory("a");
+        var csproj = Path.Join(a.FullName, "App.csproj");
+        File.WriteAllText(csproj, "<Project />");
+        File.WriteAllText(Path.Join(a.FullName, "Package.appxmanifest"), Manifest());
+        var derived = DevelopmentIdentityHelper.DeriveName(csproj, "Contoso.App");
+        _registration.FakeDevPackages =
+        [
+            new DevPackageInfo($"{derived}_1.0.0.0_x64__abc", derived, "1.0.0.0", Path.Join(a.FullName, "bin", "AppX"), IsDevelopmentMode: true, Publisher),
+            new DevPackageInfo("Contoso.App_1.0.0.0_x64__abc", "Contoso.App", "1.0.0.0", Path.Join(_tempDirectory.FullName, "b", "bin", "AppX"), IsDevelopmentMode: true, Publisher),
+        ];
+
+        var exitCode = await UnregisterAsync(csproj);
+
+        Assert.AreEqual(0, exitCode, TestAnsiConsole.Output);
+        Assert.AreEqual($"{derived}_1.0.0.0_x64__abc", _registration.UnregisterByFullNameCalls.Single().PackageFullName);
+    }
+
+    [TestMethod]
+    public async Task Unregister_BuildOutputFolder_UsesTheCurrentDirectorysManifestLikeRun()
+    {
+        // `run .\out --unique-identity` from a folder whose manifest sits beside the build output.
+        File.WriteAllText(Path.Join(_tempDirectory.FullName, "Package.appxmanifest"), Manifest());
+        var output = _tempDirectory.CreateSubdirectory("out");
+        var derived = DevelopmentIdentityHelper.DeriveName(output.FullName, "Contoso.App");
+        _registration.FakeDevPackages =
+        [
+            new DevPackageInfo($"{derived}_1.0.0.0_x64__abc", derived, "1.0.0.0", Path.Join(output.FullName, "AppX"), IsDevelopmentMode: true, Publisher),
+        ];
+
+        var exitCode = await UnregisterAsync(output.FullName);
+
+        Assert.AreEqual(0, exitCode, TestAnsiConsole.Output);
+        Assert.AreEqual($"{derived}_1.0.0.0_x64__abc", _registration.UnregisterByFullNameCalls.Single().PackageFullName);
+    }
+
+    [TestMethod]
+    public void Create_RejectsAPackageNameThatCouldInjectToolArguments()
+    {
+        var document = AppxManifestDocument.Parse(Manifest(name: "ab&quot; /cf &quot;C:\\evil.xml"));
+
+        var error = Assert.ThrowsExactly<InvalidOperationException>(() => DevelopmentIdentityHelper.Create(document, _tempDirectory.FullName));
+
+        StringAssert.Contains(error.Message, "not a valid package name");
+    }
+
+    [TestMethod]
+    public async Task ReindexIdentity_RejectsAnInvalidNameBeforeRunningMakePri()
+    {
+        var tools = new FakeBuildToolsService();
+        File.WriteAllText(Path.Join(_tempDirectory.FullName, "resources.pri"), "original");
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            new PriService(tools).ReindexIdentityAsync(_tempDirectory, "ab\" /cf \"x", TestTaskContext, TestContext.CancellationToken));
+
+        Assert.IsEmpty(tools.Invocations);
+    }
+
+    [TestMethod]
     public async Task Unregister_RejectsAnUnsupportedInputFile()
     {
         var file = Path.Join(_tempDirectory.FullName, "notes.txt");

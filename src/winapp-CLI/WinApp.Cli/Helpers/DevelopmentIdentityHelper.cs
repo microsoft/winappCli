@@ -79,6 +79,11 @@ internal static partial class DevelopmentIdentityHelper
             ?? throw new InvalidOperationException("The manifest must specify Identity/@Name to use --unique-identity.");
         var publisher = document.IdentityPublisher
             ?? throw new InvalidOperationException("The manifest must specify Identity/@Publisher to use --unique-identity.");
+        if (!IsValidPackageName(originalName))
+        {
+            throw new InvalidOperationException(
+                $"Identity/@Name '{originalName}' is not a valid package name. Use 3-50 letters, digits, periods, or hyphens.");
+        }
         var name = DeriveName(ownerPath, originalName);
         return new DevelopmentIdentity
         {
@@ -88,6 +93,10 @@ internal static partial class DevelopmentIdentityHelper
             OwnerPath = CanonicalizePath(ownerPath),
         };
     }
+
+    /// <summary>Windows package names: 3-50 ASCII letters, digits, periods, or hyphens.</summary>
+    public static bool IsValidPackageName(string name) =>
+        name.Length is >= 3 and <= 50 && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-');
 
     private const uint OpenExisting = 3;
     private const uint BackupSemantics = 0x02000000;

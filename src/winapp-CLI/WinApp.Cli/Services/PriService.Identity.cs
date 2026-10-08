@@ -25,6 +25,12 @@ internal partial class PriService
         TaskContext taskContext,
         CancellationToken cancellationToken = default)
     {
+        // The name goes on the makepri command line, so it must not carry quotes or switches.
+        if (!DevelopmentIdentityHelper.IsValidPackageName(packageName))
+        {
+            throw new ArgumentException($"'{packageName}' is not a valid package name.", nameof(packageName));
+        }
+
         var priPath = Path.Join(layout.FullName, "resources.pri");
         if (!File.Exists(priPath))
         {

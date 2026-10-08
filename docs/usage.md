@@ -1359,7 +1359,7 @@ winapp unregister [input] [options]
 
 **Arguments:**
 
-- `input` - The app to unregister: a .NET file-based app (a single `.cs`), a `.csproj` or `.vcxproj`, or the folder you passed to `winapp run`. A `.cs` file's identity is resolved the same way `winapp run` resolves it, so no manifest path is needed; for a project or folder, its manifest is read from that folder. Omit to use `--manifest` or auto-detect a manifest in the current directory. Cannot be combined with `--manifest`, which names the package a different way and can resolve to a different one.
+- `input` - The app to unregister: a .NET file-based app (a single `.cs`), a `.csproj` or `.vcxproj`, or the folder you passed to `winapp run`. A `.cs` file's identity is resolved the same way `winapp run` resolves it, so no manifest path is needed; for a project or folder, its manifest is read from that folder (or, for a folder, from the current directory, as `run` does). With an input, only registrations under that input's folder are removed. Omit to use `--manifest` or auto-detect a manifest in the current directory. Cannot be combined with `--manifest`, which names the package a different way and can resolve to a different one.
 
 **Options:**
 

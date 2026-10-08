@@ -234,6 +234,10 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
             // The paths a --unique-identity run could have derived this app's identity from.
             var owners = new List<string>();
 
+            // An explicit input names one app, so only its own folder is trusted. Trusting the current
+            // directory too would match a sibling checkout's registration when run from their parent.
+            var explicitInput = input != null;
+
             if (input != null && !isSingleFile)
             {
                 var isFolder = Directory.Exists(input.FullName);
@@ -246,9 +250,16 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
                 var appDirectory = isFolder ? input.FullName : input.DirectoryName!;
                 manifest = ManifestHelper.FindManifest(appDirectory);
+                if (!manifest.Exists && isFolder)
+                {
+                    // Same fallback as `run <folder>`: a build-output folder can use the manifest in the current directory.
+                    manifest = ManifestHelper.FindManifest(currentDirectoryProvider.GetCurrentDirectory());
+                }
                 if (!manifest.Exists)
                 {
-                    return FailWith($"No manifest found in '{appDirectory}'. Use --manifest to specify it.", isJson);
+                    return FailWith(
+                        $"No manifest found in '{appDirectory}' or the current directory. Run from the folder that holds the manifest, or pass --manifest instead of an input.",
+                        isJson);
                 }
 
                 // `run` on a folder that holds a project derives from the project file instead.
@@ -347,12 +358,15 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 // manifest into the INPUT's AppX directory rather than registering from the manifest's
                 // own folder. Trusting only the manifest directory would refuse to clean up
                 // `run . --manifest C:\shared\custom.appxmanifest`, whose layout is under the project.
-                if (resolvedManifest.DirectoryName is { Length: > 0 } manifestDirectory)
+                if (!explicitInput)
                 {
-                    trustedRoots.Add(manifestDirectory);
-                }
+                    if (resolvedManifest.DirectoryName is { Length: > 0 } manifestDirectory)
+                    {
+                        trustedRoots.Add(manifestDirectory);
+                    }
 
-                trustedRoots.Add(currentDirectoryProvider.GetCurrentDirectory());
+                    trustedRoots.Add(currentDirectoryProvider.GetCurrentDirectory());
+                }
 
                 // Without an explicit input, try the folders and projects a run from here would have used.
                 if (owners.Count == 0)
