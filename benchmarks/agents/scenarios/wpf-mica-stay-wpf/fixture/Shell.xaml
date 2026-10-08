@@ -1,0 +1,6 @@
+<Window x:Class="Ashford.Ops.Shell" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Ashford Ops" Width="1100" Height="700">
+  <DockPanel>
+    <StackPanel x:Name="NavBar" DockPanel.Dock="Left" Width="220" Background="#F3F3F3" />
+    <Frame x:Name="Content" />
+  </DockPanel>
+</Window>

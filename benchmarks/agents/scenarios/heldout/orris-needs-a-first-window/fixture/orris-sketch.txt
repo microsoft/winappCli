@@ -1,0 +1,6 @@
+Orris Clock
+Language: C#
+UI: WinUI 3
+Initial screen: empty timer list and an Add timer button
+No project files exist yet.
+Workstation prerequisites have been checked by the team.

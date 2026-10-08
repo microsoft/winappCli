@@ -1,0 +1,7 @@
+<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <FlipView x:Name="PhotoDeck" AutomationProperties.AutomationId="PhotoDeck" AutomationProperties.Name="Photo deck">
+  <TextBlock Text="Harbor" />
+  <TextBlock Text="Orchard" />
+ </FlipView>
+</Grid>

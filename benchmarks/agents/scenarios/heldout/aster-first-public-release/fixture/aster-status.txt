@@ -1,0 +1,3 @@
+Local x64 app starts and drawing works.
+No distributable candidate has been produced.
+This is a first submission, not an update.
