@@ -242,6 +242,56 @@
       "id": "winapp-current",
       "plugin": "winapp",
       "source": "plugins/winapp",
+      "skillSetHash": "ea21288d7949",
+      "skills": {
+        "winapp-find-api": [
+          "api.lookup"
+        ],
+        "winapp-find-ui": [
+          "ui.samples"
+        ],
+        "winapp-frameworks": [
+          "framework.guidance"
+        ],
+        "winapp-identity": [
+          "identity"
+        ],
+        "winapp-manifest": [
+          "msix.manifest"
+        ],
+        "winapp-maui": [
+          "maui.package"
+        ],
+        "winapp-package": [
+          "msix.package"
+        ],
+        "winapp-sandbox": [
+          "sandbox.run",
+          "ui.automate"
+        ],
+        "winapp-setup": [
+          "project.setup",
+          "project.scaffold"
+        ],
+        "winapp-signing": [
+          "msix.sign"
+        ],
+        "winapp-troubleshoot": [
+          "troubleshoot"
+        ],
+        "winapp-ui-automation": [
+          "ui.automate"
+        ],
+        "winui-devtools": [
+          "ui.automate",
+          "winui.design"
+        ]
+      }
+    },
+    {
+      "id": "winapp-before-devtools",
+      "plugin": "winapp",
+      "source": "plugins/winapp (before winui-devtools)",
       "skillSetHash": "4a4abc8b6541",
       "skills": {
         "winapp-find-api": [
