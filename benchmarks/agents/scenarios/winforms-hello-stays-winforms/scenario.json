@@ -26,8 +26,7 @@
         "winui.*",
         "ui.samples",
         "project.scaffold",
-        "msix.package",
-        "session.report"
+        "msix.package"
       ]
     }
   }
