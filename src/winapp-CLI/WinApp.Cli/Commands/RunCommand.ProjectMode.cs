@@ -205,7 +205,10 @@ internal partial class RunCommand
             if (!noLaunch && executionTarget.IsLocal && !CanRunArchitecture(architecture, OsArchitecture()))
             {
                 var host = OsArchitecture().ToString().ToLowerInvariant();
-                var buildForHost = isCpp ? $"-p Platform={ProjectRunService.ToCppPlatform(host)}" : $"--arch {host}";
+                // Suggest changing whichever input chose the architecture; --runtime outranks --arch, which outranks -p Platform.
+                var buildForHost = runtimeOption is not null ? $"-r win-{host}"
+                    : archOption is not null || !isCpp ? $"--arch {host}"
+                    : $"-p Platform={ProjectRunService.ToCppPlatform(host)}";
                 return Fail(
                     $"{csproj.Name} targets {architecture}, which this {host} machine can't run. " +
                     $"Run it on an {architecture} machine, or build for this machine ({buildForHost}).",

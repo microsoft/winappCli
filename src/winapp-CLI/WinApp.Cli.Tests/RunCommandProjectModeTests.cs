@@ -723,7 +723,10 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task ProjectMode_Cpp_PlatformThisMachineCannotRun_FailsBeforeBuilding()
+    [DataRow("-p", "Platform=ARM64", "-p Platform=x64", DisplayName = "-p Platform")]
+    [DataRow("--arch", "arm64", "--arch x64", DisplayName = "--arch")]
+    [DataRow("-r", "win-arm64", "-r win-x64", DisplayName = "--runtime")]
+    public async Task ProjectMode_Cpp_PlatformThisMachineCannotRun_FailsBeforeBuilding(string option, string value, string suggestion)
     {
         var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
         File.WriteAllText(vcxproj.FullName, "<Project />");
@@ -731,11 +734,12 @@ public class RunCommandProjectModeTests : BaseCommandTests
         GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.X64;
         var command = GetRequiredService<RunCommand>();
 
-        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, "-p", "Platform=ARM64", "--detach"]);
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, option, value, "--detach"]);
 
         Assert.AreEqual(1, exitCode);
         Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "an app this machine can't run must not be built first");
-        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", "-p Platform=x64");
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", $"({suggestion})",
+            "suggest changing the input that chose the architecture");
     }
 
     [TestMethod]
