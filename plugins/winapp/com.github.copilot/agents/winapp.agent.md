@@ -75,7 +75,7 @@ Need to run or automate the app somewhere other than the user's own desktop?
 
 Want to inspect or interact with a running app's UI?
 ├─ See element tree → winapp ui inspect -a <appname>
-├─ See only clickable elements → winapp ui inspect -a <appname> --interactive
+├─ See only actionable elements → winapp ui inspect -a <appname> --interactive
 ├─ Find specific elements → winapp ui search <selector> -a <appname>
 ├─ Click/activate an element → winapp ui invoke <selector> -a <appname>
 ├─ Perform one exact UIA action (no fallback) → winapp ui invoke <selector> -a <appname> --action <invoke|select|toggle|toggle-on|toggle-off|expand|collapse>
@@ -384,7 +384,7 @@ rebuild per symbol. A single subject keeps the original payload shape; a batch r
 
 **Key subcommands:**
 - `ui status -a <app>` — connect and show app info
-- `ui inspect -a <app> [--depth N] [--interactive] [--hide-disabled] [--hide-offscreen]` — view element tree with semantic slugs and 2-space indentation. `--interactive` filters to invokable elements only (auto-depth 8) — ideal for discovering clickable elements
+- `ui inspect -a <app> [--depth N] [--interactive] [--hide-disabled] [--hide-offscreen]` — view element tree with semantic slugs and 2-space indentation. `--interactive` filters to elements you can invoke, click, or set-value (auto-depth 8) — ideal for discovering what to act on
 - `ui search <selector> -a <app> [--max N]` — find elements; output shows semantic slugs. Surfaces invokable ancestor for all non-invokable results
 - `ui get-property <selector> -a <app> [-p <prop>]` — read UIA properties (including ToggleState, Value, IsSelected, ExpandCollapseState)
 - `ui screenshot -a <app> [--output file.png] [--json] [--focus] [--capture-screen]` — capture window as PNG. Default uses Windows.Graphics.Capture (composited surface — preserves rounded corners and works while occluded), with PrintWindow as fallback. Use `--focus` to bring the window to the foreground first; use `--capture-screen` for popup overlays not owned by the target window. **`--capture-screen` needs exactly one window** — it reads whatever is in front, and only one window can be. `-w <hwnd>` selects one: that window's screen region, including any dialog or overlay visibly on top of it. If `-a` matches several top-level or owned windows there is no such selection and it fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`. If a capture reports `foreground_not_target`, the window could not be brought to the front — do the same thing: list the windows and target one with `-w <hwnd>`.
