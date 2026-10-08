@@ -254,11 +254,11 @@ Need to know whether a Windows/WinRT API exists, or what a type/enum actually of
 **Purpose:** Remove a development package registration created by `winapp run` / `create-debug-identity`. Store- or MSIX-installed packages are never removed.
 **When to use:** To clean up a registration, or when a stale one is causing install/launch failures.
 **Key options:**
-- `<input>` — the same `.cs`, `.csproj`, `.sln`/`.slnx`, or folder passed to `run` (nothing is built). Works whether or not the run used `--unique-identity`; winapp removes only the registration it recorded for that app.
+- `<input>` — the `.cs`, `.csproj`/`.vcxproj`, or folder passed to `run` (nothing is built). Also finds the name a `--unique-identity` run derived from that input, so no extra flag is needed.
 - `--manifest <path>` — manifest identifying the package (default: auto-detect)
-- `--output-appx-directory <path>` — the layout folder the run registered; use it when the app has several layouts or its source was deleted
-- `--force` — applies only to registrations without a winapp record (for example, from older winapp versions or `create-debug-identity`): skips the install-location check. It has **no effect** on registrations recorded by `winapp run`, which are removed only when their recorded owner and identity match. See `winapp-identity`.
-- `--on sandbox` — remove the app's winapp-owned registration from the guest. Accepts the same app inputs as `run` (input, `--manifest`, `--output-appx-directory`); does not support `--force` or `--prune`. See `winapp-sandbox` for cleanup.
+- `--output-appx-directory <path>` — the layout folder the run registered, when the run used one
+- `--force` — skip the check that the package was registered from under this app's folders. It matches by package name, so it can remove another checkout's or another publisher's same-named package and its app data; prefer passing the right input. Don't use it to clear a conflict between worktrees; use `run --unique-identity` instead (see `winapp-identity`).
+- `--on sandbox` — remove the app's winapp-owned registration from the guest. Takes a manifest, project, or folder (not a `.cs` file); does not support `--force`. See `winapp-sandbox` for cleanup.
 - `--json` — machine-readable output
 
 ### `winapp target`
@@ -519,7 +519,7 @@ When the user encounters an error, check these common causes:
 | "appxmanifest.xml not found" | Running `package`/`create-debug-identity` without manifest | Run `winapp init` or `winapp manifest generate` first |
 | "Publisher mismatch" | Certificate subject ≠ manifest Publisher | Regenerate cert with `--manifest` flag |
 | "Access denied" / "elevation required" | `cert install` without admin | Run terminal as Administrator |
-| "Package installation failed" | Stale registration or untrusted cert | Run `Get-AppxPackage <name> \| Remove-AppxPackage`, ensure cert is trusted |
+| "Package installation failed" | Stale registration or untrusted cert | Ensure the cert is trusted (`winapp cert install`). If an earlier `winapp run` registration is in the way, remove it with `winapp unregister <input>` rather than deleting packages by name. See `winapp-troubleshoot` |
 | "Certificate not trusted" | Dev cert not installed | Run `winapp cert install ./devcert.pfx` as admin |
 | "Build tools not found" | First run, tools not downloaded | winapp auto-downloads tools; ensure internet access |
 | Windows APIs fail at runtime | Debug identity not registered | Register debug identity after build and before launching: `winapp create-debug-identity <exe>` (or `npx winapp node add-electron-debug-identity` for Electron) — this is **mandatory** for any app using identity-requiring APIs |

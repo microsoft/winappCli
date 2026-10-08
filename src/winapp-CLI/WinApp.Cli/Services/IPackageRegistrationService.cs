@@ -139,16 +139,13 @@ internal interface IPackageRegistrationService
     IReadOnlyList<RegisteredPackageIdentity> FindInstalledPackagesByName(string packageName);
 
     /// <summary>
-    /// Finds all installed packages matching the given name, including signed packages.
-    /// Callers must inspect IsDevelopmentMode before applying development-package removal policy.
-    /// Returns the exact full name, publisher, family, and install location for safety checks.
+    /// Finds all installed packages matching the given name that were registered in
+    /// development mode (sideloaded). Returns package metadata including the full name
+    /// and install location for safety checks.
     /// </summary>
     /// <param name="packageName">The package identity name to search for.</param>
-    /// <returns>A list of matching installed packages.</returns>
+    /// <returns>A list of matching dev-mode packages.</returns>
     List<DevPackageInfo> FindDevPackages(string packageName);
-
-    /// <summary>All packages, including signed packages, registered at this exact canonical location.</summary>
-    List<DevPackageInfo> FindPackagesAtLocation(string location);
 
     /// <summary>
     /// Finds every development-mode package whose install location no longer resolves — a registration
@@ -179,7 +176,7 @@ internal sealed record RegisteredPackageIdentity(
     string Architecture);
 
 /// <summary>
-/// Live package metadata used to prove development registration ownership.
+/// Information about a development-mode registered package.
 /// </summary>
 internal sealed record DevPackageInfo(
     string FullName,
@@ -187,5 +184,4 @@ internal sealed record DevPackageInfo(
     string Version,
     string? InstallLocation,
     bool IsDevelopmentMode,
-    string? Publisher = null,
-    string? PackageFamilyName = null);
+    string? Publisher = null);

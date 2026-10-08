@@ -40,8 +40,7 @@ internal partial class RunCommand
             // non-dev-mode registration, or a different install location -- is refused outright.
             // There is no fallback path here that registers or unregisters to "fix" a mismatch.
             var candidates = packageRegistrationService.FindDevPackages(packageName)
-                .Where(candidate => candidate.IsDevelopmentMode &&
-                    string.Equals(candidate.Publisher, publisher, StringComparison.Ordinal))
+                .Where(candidate => candidate.IsDevelopmentMode)
                 .ToList();
 
             if (candidates.Count != 1)
@@ -65,7 +64,7 @@ internal partial class RunCommand
                     isJson);
             }
 
-            var packageFullName = candidate.FullName;
+            var packageFullName = appLauncherService.GetPackageFullName(familyName);
 
             // Guarded exactly like the local (non-sandbox) run's own AUMID activation, which this
             // mirrors: an activation failure is a normal, expected outcome (the app may simply
@@ -117,12 +116,14 @@ internal partial class RunCommand
         {
             try
             {
-                var installedFullPath = DevelopmentIdentityHelper.CanonicalizePath(installed);
-                var expectedFullPath = DevelopmentIdentityHelper.CanonicalizePath(expected);
+                var installedFullPath = Path.GetFullPath(installed)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var expectedFullPath = Path.GetFullPath(expected)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
                 return string.Equals(installedFullPath, expectedFullPath, StringComparison.OrdinalIgnoreCase);
             }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
                 // Any failure normalizing either path is treated as a mismatch: this verb only ever
                 // refuses on uncertainty, it never falls back to registering or unregistering.

@@ -38,13 +38,9 @@ internal partial class RunCommand
         /// <see cref="RunUnpackagedProjectAsync"/> so both reject the exact same set (issue #676).
         /// </summary>
         private static List<string> CollectUnpackagedIncompatibleOptions(
-            bool noLaunch, bool withAlias, bool withoutAlias, bool unregisterOnExit, bool clean, FileInfo? manifest, DirectoryInfo? outputAppXDirectory, string? executable, bool uniqueIdentity = false)
+            bool noLaunch, bool withAlias, bool withoutAlias, bool unregisterOnExit, bool clean, FileInfo? manifest, DirectoryInfo? outputAppXDirectory, string? executable, bool uniqueIdentity)
         {
             var rejected = new List<string>();
-            if (uniqueIdentity)
-            {
-                rejected.Add("--unique-identity");
-            }
             if (noLaunch)
             {
                 rejected.Add("--no-launch");
@@ -80,6 +76,10 @@ internal partial class RunCommand
             {
                 // --executable selects an entry within an MSIX layout; unusable for an unpackaged app.
                 rejected.Add("--executable");
+            }
+            if (uniqueIdentity)
+            {
+                rejected.Add("--unique-identity");
             }
             return rejected;
         }

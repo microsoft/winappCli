@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using WinApp.Cli.ExecutionTargets.Abstractions;
-using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.ExecutionTargets.Orchestration;
 
@@ -168,23 +167,7 @@ internal sealed class GuestApplicationRunner(TargetDeploymentService deployments
 
     /// <summary>Records which guest package this deployment owns.</summary>
     public DeploymentState CommitPackage(ExecutionTargetRef target, DeploymentState state, PackageOwnership package) =>
-        deployments.CommitPackage(target, state, package with
-        {
-            Identity = package.Identity is { } identity
-                ? identity with { Revision = state.Revision + 1 }
-                : null,
-        });
-
-    /// <summary>Finds current guest registrations by their host owner and optional host layout.</summary>
-    public IReadOnlyList<DeploymentState> FindOwnedDeployments(
-        PreparedTarget target, string canonicalOwner, string? hostLayout) =>
-        [
-            .. deployments.List(target.Reference).Where(state =>
-                state.IsForEpoch(target.Epoch) &&
-                state.Package is { Identity: { } identity } package &&
-                HostPathsEqual(identity.OwnerPath, canonicalOwner) &&
-                (hostLayout is null || HostPathsEqual(package.HostLayoutPath, hostLayout))),
-        ];
+        deployments.CommitPackage(target, state, package);
 
     /// <summary>
     /// Reconciles host ownership claims with the package Windows actually has registered.
@@ -232,98 +215,29 @@ internal sealed class GuestApplicationRunner(TargetDeploymentService deployments
             claims);
     }
 
-    /// <summary>Proves ownership and removes a replaced registration before changing guest files.</summary>
+    /// <summary>Repairs a stale pre-registration journal before redeploying its files.</summary>
     public async Task ReconcilePackageBeforeRegistrationAsync(
         PreparedTarget target,
-        string deploymentId,
-        PackageOwnership desired,
-        bool clean,
+        string packageName,
+        string publisher,
+        string packageFamilyName,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
         target.RequireMutationLease();
 
-        var claims = FindPackageClaims(target.Reference, target.Epoch,
-            desired.PackageName, desired.Publisher, desired.PackageFamilyName);
-        var actual = await target.Operations.GetRegisteredPackageAsync(
-            desired.PackageName, desired.Publisher, desired.PackageFamilyName,
+        var reconciliation = await ReconcilePackageForUnregisterAsync(
+            target,
+            packageName,
+            publisher,
+            packageFamilyName,
             cancellationToken).ConfigureAwait(false);
 
-        if (actual is not null)
+        if (reconciliation is { Actual: { } actual, Owner: { } owner })
         {
-            var matching = actual.IsDevelopmentMode ? FindMatchingClaims(target, claims, actual) : [];
-            var owner = matching.FirstOrDefault(state =>
-                string.Equals(state.DeploymentId, deploymentId, StringComparison.Ordinal) &&
-                SameHostOwnership(state.Package!, desired));
-            if (owner is null)
-            {
-                throw RegistrationConflict(desired, actual);
-            }
-
-            TransferPackageOwnership(target.Reference, owner, claims, actual);
-        }
-        else
-        {
-            ClearPackageClaims(target.Reference, claims);
-        }
-
-        var existing = deployments.ReadCurrent(target.Reference, target.Epoch, deploymentId);
-        if (existing?.Package is not { } previous)
-        {
-            return;
-        }
-
-        if (!HostPathsEqual(previous.Identity?.OwnerPath, desired.Identity?.OwnerPath))
-        {
-            throw ExecutionTargetException.Create(
-                ExecutionTargetErrorCodes.PackageConflict,
-                "This deployment is owned by a different host source.",
-                userAction: "Run from the source that owns the deployment, or use --unique-identity.");
-        }
-
-        if (clean || RegistrationIdentityChanged(previous, desired))
-        {
-            var preserveAppData = !clean || !string.Equals(
-                previous.PackageFamilyName, desired.PackageFamilyName, StringComparison.OrdinalIgnoreCase);
-            await UnregisterOwnedPackageAsync(target,
-                previous.PackageName, previous.Publisher, previous.PackageFamilyName,
-                existing.DeploymentId, existing.Revision, cancellationToken, preserveAppData).ConfigureAwait(false);
+            TransferPackageOwnership(target.Reference, owner, reconciliation.Claims, actual);
         }
     }
-
-    private static bool HostPathsEqual(string? left, string? right) =>
-        left is not null && right is not null &&
-        string.Equals(DevelopmentIdentityHelper.CanonicalizePath(left),
-            DevelopmentIdentityHelper.CanonicalizePath(right), StringComparison.OrdinalIgnoreCase);
-
-    private static bool SameHostOwnership(PackageOwnership previous, PackageOwnership desired) =>
-        HostPathsEqual(previous.Identity?.OwnerPath, desired.Identity?.OwnerPath) &&
-        HostPathsEqual(previous.HostLayoutPath, desired.HostLayoutPath);
-
-    private static bool RegistrationIdentityChanged(PackageOwnership previous, PackageOwnership desired) =>
-        !string.Equals(previous.PackageFamilyName, desired.PackageFamilyName, StringComparison.OrdinalIgnoreCase) ||
-        previous.Identity is not { } prior ||
-        desired.Identity is not { } next ||
-        !string.Equals(prior.Mode, next.Mode, StringComparison.Ordinal) ||
-        !string.Equals(prior.Version, next.Version, StringComparison.Ordinal) ||
-        !string.Equals(prior.Architecture, next.Architecture, StringComparison.OrdinalIgnoreCase) ||
-        !string.Equals(prior.ResourceId, next.ResourceId, StringComparison.OrdinalIgnoreCase);
-
-    private static ExecutionTargetException RegistrationConflict(
-        PackageOwnership desired, GuestPackageRegistration actual) =>
-        ExecutionTargetException.Create(
-            actual.IsDevelopmentMode
-                ? ExecutionTargetErrorCodes.PackageConflict
-                : ExecutionTargetErrorCodes.ProvisionedPackageConflict,
-            $"The package family '{desired.PackageFamilyName}' is already registered outside this host owner and layout.",
-            userAction: desired.Identity?.Mode == "Unique"
-                ? "Unregister it from its owning source and layout, then retry."
-                : "Use --unique-identity to run this source alongside the existing registration.",
-            context: new Dictionary<string, string>
-            {
-                ["packageFullName"] = actual.FullName,
-                ["registeredLocation"] = actual.RegisteredLocation ?? "(unknown)",
-            });
 
     /// <summary>
     /// Unregisters one proven winapp-owned package and clears its claims only after Windows confirms
@@ -336,37 +250,10 @@ internal sealed class GuestApplicationRunner(TargetDeploymentService deployments
         string packageFamilyName,
         string? requiredDeploymentId,
         long? requiredRevision,
-        CancellationToken cancellationToken,
-        bool preserveAppData = false)
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
         target.RequireMutationLease();
-
-        if (preserveAppData &&
-            target.Capabilities.DevelopmentIdentityVersion != ExecutionTargetCapabilities.CurrentDevelopmentIdentityVersion)
-        {
-            throw ExecutionTargetException.Create(
-                ExecutionTargetErrorCodes.AgentIncompatible,
-                "The running Windows Sandbox agent cannot preserve application data during replacement. No package was removed.",
-                userAction: "Save any guest work and close Windows Sandbox, then retry with this winapp version to start a compatible agent.");
-        }
-
-        if (requiredDeploymentId is not null)
-        {
-            var selected = deployments.ReadCurrent(target.Reference, target.Epoch, requiredDeploymentId);
-            if (selected?.Package is null)
-            {
-                return null;
-            }
-
-            if (requiredRevision is not null && selected.Revision != requiredRevision)
-            {
-                throw ExecutionTargetException.Create(
-                    ExecutionTargetErrorCodes.PackageConflict,
-                    "A newer run replaced this deployment's package registration.",
-                    userAction: "Leave the newer registration in place, or unregister it explicitly.");
-            }
-        }
 
         var reconciliation = await ReconcilePackageForUnregisterAsync(
             target,
@@ -402,7 +289,6 @@ internal sealed class GuestApplicationRunner(TargetDeploymentService deployments
                 packageFamilyName,
                 actual.FullName,
                 actual.RegisteredLocation!,
-                preserveAppData,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -570,20 +456,13 @@ internal sealed class GuestApplicationRunner(TargetDeploymentService deployments
         IReadOnlyList<DeploymentState> claims,
         GuestPackageRegistration actual)
     {
-        var committedOwner = CommitPackage(
+        var committedOwner = deployments.CommitPackage(
             target,
             owner,
             owner.Package! with
             {
                 PackageFullName = actual.FullName,
                 RegisteredLocation = actual.RegisteredLocation!,
-                Identity = owner.Package!.Identity is { } identity
-                    ? identity with
-                    {
-                        PackageFullName = actual.FullName,
-                        LayoutPath = actual.RegisteredLocation!,
-                    }
-                    : null,
             });
 
         foreach (var stale in claims)

@@ -13,13 +13,6 @@ namespace WinApp.Cli.Tests;
 internal class FakeMsixService : IMsixService
 {
     public MsixIdentityResult FakeIdentityResult { get; set; } = new("TestPackage", "CN=TestPublisher", "TestApp");
-    public DevelopmentIdentity? FakeDevelopmentIdentity
-    {
-        get => FakeIdentityResult.Identity;
-        set => FakeIdentityResult = value is null
-            ? FakeIdentityResult with { Identity = null }
-            : new MsixIdentityResult(value.EffectivePackageName, value.Publisher, value.ApplicationId) { Identity = value };
-    }
     public List<(string ManifestPath, bool Clean)> AddLooseLayoutCalls { get; } = [];
     public List<(string InputDirectory, string OutputDirectory)> AddLooseLayoutDirectoryCalls { get; } = [];
     public List<(string? RuntimeArch, string? ProjectFile, string? Framework, bool NoRestore)> AddLooseLayoutRuntimeCalls { get; } = [];
@@ -37,13 +30,14 @@ internal class FakeMsixService : IMsixService
     public List<string?> AddLooseLayoutRuntimeIdentifierCalls { get; } = [];
     public List<string?> AddLooseLayoutRecipeCalls { get; } = [];
 
+    /// <summary>Records the identity options passed to each layout call (local and target).</summary>
+    public List<DevelopmentIdentityOptions?> DevelopmentIdentityCalls { get; } = [];
+
     /// <summary>Records the <c>projectAssetsFile</c> passed to each <see cref="EnsureWindowsAppRuntimeInstalledAsync"/> call.</summary>
     public List<string?> EnsureRuntimeInstalledAssetsFileCalls { get; } = [];
 
     /// <summary>Records the <c>ensureExecutionAlias</c> flag passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<bool> AddLooseLayoutEnsureAliasCalls { get; } = [];
-    public List<DevelopmentIdentityOptions?> AddLooseLayoutDevelopmentIdentityCalls { get; } = [];
-    public List<DevelopmentIdentityOptions?> MaterializeDevelopmentIdentityCalls { get; } = [];
     public List<(string? ProjectFile, string? Architecture, string? Framework, bool NoRestore)> EnsureRuntimeInstalledCalls { get; } = [];
     public List<(string? EntryPoint, string? ManifestPath, bool NoInstall, bool KeepIdentity)> AddSparseIdentityCalls { get; } = [];
     public Exception? ExceptionToThrow { get; set; }
@@ -118,11 +112,11 @@ internal class FakeMsixService : IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
-        DevelopmentIdentityOptions? developmentIdentity = null,
         FileInfo? appxRecipe = null,
+        DevelopmentIdentityOptions? developmentIdentity = null,
         CancellationToken cancellationToken = default)
     {
-        AddLooseLayoutDevelopmentIdentityCalls.Add(developmentIdentity);
+        DevelopmentIdentityCalls.Add(developmentIdentity);
         AddLooseLayoutCalls.Add((appxManifestPath.FullName, clean));
         AddLooseLayoutDirectoryCalls.Add((inputDirectory.FullName, outputAppXDirectory.FullName));
         LayoutReconciliations.Add(reconciliation);
@@ -166,11 +160,11 @@ internal class FakeMsixService : IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
-        DevelopmentIdentityOptions? developmentIdentity = null,
         FileInfo? appxRecipe = null,
+        DevelopmentIdentityOptions? developmentIdentity = null,
         CancellationToken cancellationToken = default)
     {
-        MaterializeDevelopmentIdentityCalls.Add(developmentIdentity);
+        DevelopmentIdentityCalls.Add(developmentIdentity);
         MaterializeLooseLayoutCalls.Add((appxManifestPath.FullName, outputAppXDirectory.FullName));
         LayoutReconciliations.Add(reconciliation);
         AddLooseLayoutRecipeCalls.Add(appxRecipe?.FullName);

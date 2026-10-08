@@ -150,6 +150,11 @@ internal interface IMsixService
     /// explicitly is what makes the AOT layout the published one. When null, the recipe is probed for in
     /// <paramref name="inputDirectory"/> as before.
     /// </param>
+    /// <param name="developmentIdentity">
+    /// With <see cref="DevelopmentIdentityOptions.UniqueIdentity"/>, stages and registers a name derived from
+    /// <see cref="DevelopmentIdentityOptions.OwnerPath"/> instead of the manifest's, and renames authored
+    /// execution aliases to match. The source manifest is never changed.
+    /// </param>
     public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(
         FileInfo appxManifestPath,
         DirectoryInfo inputDirectory,
@@ -165,8 +170,8 @@ internal interface IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
-        DevelopmentIdentityOptions? developmentIdentity = null,
         FileInfo? appxRecipe = null,
+        DevelopmentIdentityOptions? developmentIdentity = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -194,8 +199,8 @@ internal interface IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
-        DevelopmentIdentityOptions? developmentIdentity = null,
         FileInfo? appxRecipe = null,
+        DevelopmentIdentityOptions? developmentIdentity = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

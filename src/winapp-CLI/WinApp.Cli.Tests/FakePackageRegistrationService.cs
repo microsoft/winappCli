@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using WinApp.Cli.Services;
-using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Tests;
 
@@ -44,7 +43,6 @@ internal class FakePackageRegistrationService : IPackageRegistrationService
     /// Defaults to empty list.
     /// </summary>
     public List<DevPackageInfo> FakeDevPackages { get; set; } = [];
-    public bool ObserveLooseRegistrations { get; set; } = true;
 
     public Task RegisterLooseLayoutAsync(string manifestPath, CancellationToken cancellationToken = default)
     {
@@ -53,17 +51,6 @@ internal class FakePackageRegistrationService : IPackageRegistrationService
             throw RegisterLooseLayoutThrows;
         }
         RegisterLooseLayoutCalls.Add(manifestPath);
-        if (ObserveLooseRegistrations)
-        {
-            var document = AppxManifestDocument.Load(manifestPath);
-            var name = document.IdentityName!;
-            var publisher = document.IdentityPublisher!;
-            FakeDevPackages.Add(new DevPackageInfo(
-                DevelopmentIdentityHelper.ComputeFullName(document), name,
-                document.GetIdentityElement()!.Attribute("Version")!.Value,
-                Path.GetDirectoryName(manifestPath), true, publisher,
-                DevelopmentIdentityHelper.ComputeFamilyName(name, publisher)));
-        }
         return Task.CompletedTask;
     }
 
@@ -127,10 +114,6 @@ internal class FakePackageRegistrationService : IPackageRegistrationService
         }
         OnUnregisterByFullName?.Invoke(packageFullName, preserveAppData);
         UnregisterByFullNameTokenCancelled.Add(cancellationToken.IsCancellationRequested);
-        if (FakeUnregisterByFullNameResult)
-        {
-            FakeDevPackages.RemoveAll(package => string.Equals(package.FullName, packageFullName, StringComparison.OrdinalIgnoreCase));
-        }
         return FakeUnregisterByFullNameResult;
     }
 
@@ -274,13 +257,13 @@ internal class FakePackageRegistrationService : IPackageRegistrationService
         {
             throw FindDevPackagesThrows;
         }
-        return FakeDevPackages.Where(package => string.Equals(package.Name, packageName, StringComparison.OrdinalIgnoreCase)).ToList();
+        return MatchByName
+            ? [.. FakeDevPackages.Where(package => string.Equals(package.Name, packageName, StringComparison.OrdinalIgnoreCase))]
+            : FakeDevPackages;
     }
 
-    public List<DevPackageInfo> FindPackagesAtLocation(string location) =>
-        FakeDevPackages.Where(package => package.InstallLocation is { Length: > 0 } installed &&
-            string.Equals(DevelopmentIdentityHelper.CanonicalizePath(installed),
-                DevelopmentIdentityHelper.CanonicalizePath(location), StringComparison.OrdinalIgnoreCase)).ToList();
+    /// <summary>When true, <see cref="FindDevPackages"/> returns only packages with the requested name, as Windows does.</summary>
+    public bool MatchByName { get; set; }
 
     /// <summary>
     /// When set, <see cref="FindOrphanedDevPackages"/> returns these values. Defaults to empty list.

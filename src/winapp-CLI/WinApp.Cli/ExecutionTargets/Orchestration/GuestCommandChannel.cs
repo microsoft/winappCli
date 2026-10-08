@@ -515,7 +515,6 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
         string packageFamilyName,
         string packageFullName,
         string expectedRegisteredLocation,
-        bool preserveAppData,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageFamilyName);
@@ -536,7 +535,6 @@ internal sealed class GuestCommandChannel : IAsyncDisposable, ITargetOperationEx
                     PackageFamilyName = packageFamilyName,
                     PackageFullName = packageFullName,
                     ExpectedRegisteredLocation = expectedRegisteredLocation,
-                    PreserveAppData = preserveAppData,
                 },
                 cancellationToken).ConfigureAwait(false);
 

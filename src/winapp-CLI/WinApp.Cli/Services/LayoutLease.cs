@@ -3,7 +3,6 @@
 
 using System.Security.Cryptography;
 using System.Text;
-using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
@@ -41,10 +40,9 @@ internal sealed class LayoutLease : IDisposable
     /// Claims <paramref name="layoutDirectory"/> until the returned lease is disposed.
     /// </summary>
     /// <remarks>
-    /// When winapp can't write its lock directory (for example, in a sandbox that only allows
+    /// When winapp can't write its state directory (for example, in a sandbox that only allows
     /// writes to the project), the run proceeds without a claim rather than failing: concurrent runs
-    /// into one layout are rare, and refusing every run there would be worse. Package ownership
-    /// changes stay serialized by <see cref="AcquireFamilies"/>, which never proceeds unlocked.
+    /// into one layout are rare, and refusing every run there would be worse.
     /// </remarks>
     /// <exception cref="TimeoutException">Another winapp process held the layout for too long.</exception>
     internal static LayoutLease Acquire(
@@ -52,45 +50,24 @@ internal sealed class LayoutLease : IDisposable
         DirectoryInfo layoutDirectory,
         CancellationToken cancellationToken,
         TimeSpan? timeout = null)
-        => AcquireLayoutIn(LockDirectory("layout"), layoutDirectory, cancellationToken, timeout);
-
-    /// <summary>Claims a layout using an explicit lock directory; <see cref="Acquire"/> supplies the shared one.</summary>
-    internal static LayoutLease AcquireLayoutIn(
-        string lockDirectory,
-        DirectoryInfo layoutDirectory,
-        CancellationToken cancellationToken,
-        TimeSpan? timeout = null)
     {
-        var canonical = DevelopmentIdentityHelper.CanonicalizePath(layoutDirectory.FullName);
-        return AcquireKey(lockDirectory, "layout", canonical, cancellationToken, timeout, proceedUnlockedIfUnwritable: true);
-    }
+        var stateDirectory = Path.Combine(winappStateRoot.FullName, "layout-locks");
 
-    // Shared across worktrees: different project state roots can refer to the same layout or family.
-    private static string LockDirectory(string kind)
-        => Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "winapp", kind + "-locks");
-
-    private static LayoutLease AcquireKey(
-        string stateDirectory,
-        string kind,
-        string canonical,
-        CancellationToken cancellationToken,
-        TimeSpan? timeout = null,
-        bool proceedUnlockedIfUnwritable = false)
-    {
-        DevelopmentRegistrationStore.EnsureRealPath(stateDirectory);
         try
         {
             Directory.CreateDirectory(stateDirectory);
         }
-        catch (Exception ex) when (proceedUnlockedIfUnwritable && ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return new LayoutLease(null);
         }
 
-        // Hashed so the name is a fixed length no matter how long the key is, and
+        // Hashed so the name is a fixed length no matter how deep the layout is, and
         // case-insensitively, so two spellings of one Windows path do not become two locks.
+        var canonical = Path.TrimEndingDirectorySeparator(Path.GetFullPath(layoutDirectory.FullName));
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToUpperInvariant())));
-        var lockPath = Path.Join(stateDirectory, key + ".lock");
+        var lockPath = Path.Combine(stateDirectory, key + ".lock");
+
         var deadline = DateTime.UtcNow + (timeout ?? DefaultTimeout);
         var consecutiveDenials = 0;
 
@@ -100,7 +77,6 @@ internal sealed class LayoutLease : IDisposable
 
             try
             {
-                DevelopmentRegistrationStore.EnsureRealPath(lockPath);
                 // DeleteOnClose keeps the state directory from growing a file per layout ever built.
                 return new LayoutLease(new FileStream(
                     lockPath,
@@ -110,7 +86,7 @@ internal sealed class LayoutLease : IDisposable
                     bufferSize: 1,
                     FileOptions.DeleteOnClose));
             }
-            catch (UnauthorizedAccessException) when (proceedUnlockedIfUnwritable && ++consecutiveDenials > 1)
+            catch (UnauthorizedAccessException) when (++consecutiveDenials > 1)
             {
                 // A held lock is a sharing violation (IOException). Access denied is only transient
                 // while a released lock file is being deleted, so a repeat means winapp can't write here.
@@ -126,7 +102,7 @@ internal sealed class LayoutLease : IDisposable
                 if (DateTime.UtcNow >= deadline)
                 {
                     throw new TimeoutException(
-                        $"Another winapp process is using the app {kind} '{canonical}'. Wait for it to finish, " +
+                        $"Another winapp process is using the app layout at '{canonical}'. Wait for it to finish, " +
                         $"or use --output-appx-directory to give this run a layout of its own.");
                 }
 
@@ -136,36 +112,4 @@ internal sealed class LayoutLease : IDisposable
     }
 
     public void Dispose() => _stream?.Dispose();
-
-    internal static IDisposable AcquireFamilies(IEnumerable<string> familyNames, CancellationToken cancellationToken)
-    {
-        var leases = new List<LayoutLease>();
-        try
-        {
-            foreach (var family in familyNames.Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
-            {
-                leases.Add(AcquireKey(LockDirectory("family"), "family", family, cancellationToken));
-            }
-            return new FamilyLeases(leases);
-        }
-        catch
-        {
-            foreach (var lease in leases)
-            {
-                lease.Dispose();
-            }
-            throw;
-        }
-    }
-
-    private sealed class FamilyLeases(List<LayoutLease> leases) : IDisposable
-    {
-        public void Dispose()
-        {
-            foreach (var lease in leases.AsEnumerable().Reverse())
-            {
-                lease.Dispose();
-            }
-        }
-    }
 }

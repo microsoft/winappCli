@@ -36,7 +36,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
     {
         InputArgument = new Argument<FileInfo>("input")
         {
-            Description = "App folder, .csproj, .sln, .slnx, or .cs file to unregister: the same input you passed to 'winapp run'. Nothing is built. Works whether or not the run used --unique-identity. Omit to use the current directory, --manifest, or --output-appx-directory. Cannot be combined with --manifest.",
+            Description = "The app whose registration should be removed: a .cs file-based app, a .csproj or .vcxproj, or the folder you passed to 'winapp run'. Works whether or not the run used --unique-identity. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest.",
             Arity = ArgumentArity.ZeroOrOne
         };
 
@@ -47,17 +47,17 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
         ForceOption = new Option<bool>("--force")
         {
-            Description = "Skip the install-location check for registrations winapp has no record of (from create-debug-identity or an older winapp version). Has no effect on registrations recorded by 'winapp run'. Unrecorded registrations are matched by package name only, so a same-named package from another publisher can also be removed, with its app data. With --prune, skips the confirmation prompt."
+            Description = "Skip the install-location directory check and unregister even if the package was registered from a different project tree. Candidates are matched by Identity/@Name alone, so with --force a same-named package from a different publisher is also removed, along with its application data — prefer --prune for registrations whose files are gone. With --prune, also skips the confirmation prompt."
         };
 
         PruneOption = new Option<bool>("--prune")
         {
-            Description = "Remove development registrations whose files are gone and that winapp has no record of. Lists them and asks before removing; pass --force to skip the prompt. To remove a registration recorded by 'winapp run', pass its app input or --output-appx-directory instead. Cannot be combined with an input or --manifest."
+            Description = "Remove every development-mode registration whose files are gone. These can never launch — Windows keeps the identity and its Start menu entry, but activation silently does nothing. Lists what it found and asks before removing; pass --force to skip the prompt. Cannot be combined with an input or --manifest."
         };
 
         PropertyOption = new Option<string[]>("--property", "-p")
         {
-            Description = "MSBuild property (Name=Value) used when evaluating the app input to find the app. Repeatable. Pass the same properties the run used (e.g. -p WinAppPackageName=...).",
+            Description = "MSBuild property (Name=Value) used when resolving a .cs file-based app's identity. Repeatable. Pass the same identity-affecting properties the run used (e.g. -p WinAppPackageName=...), since a command-line property overrides the file's own #:property directives. Only applies to a .cs input.",
             // ZeroOrMore, not OneOrMore: OneOrMore lets System.CommandLine reject a valueless -p with
             // plain-text help before the handler runs, which breaks the --json contract scripts rely on.
             // The handler detects the missing value itself and reports it in the requested format.
@@ -67,22 +67,22 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
         OutputAppXDirectoryOption = new Option<DirectoryInfo>("--output-appx-directory")
         {
-            Description = "AppX layout folder the run registered. Use it when the app has several registered layouts or its source was deleted. With --on, pass the folder on this machine, not the Sandbox path."
+            Description = "The AppX layout directory the package was registered from. Only needed when the run used --output-appx-directory, since nothing on the package records which run option produced its layout; without it the registration looks like it came from a different tree and is skipped."
         };
 
         ConfigurationOption = new Option<string>("--configuration", "-c")
         {
-            Description = "Configuration used when evaluating the app input to find the app (default: Debug). Pass the same configuration the run used."
+            Description = "Build configuration used when resolving a .cs file-based app's identity (default: Debug). Pass the same configuration the run used: a Directory.Build.props beside the .cs can set WinAppPackageName or WinAppManifestPath conditionally on $(Configuration). Only applies to a .cs input."
         };
 
         ArchOption = new Option<string>("--arch")
         {
-            Description = "Target architecture (x64, arm64, x86) used when evaluating the app input to find the app (default: the current process architecture). Pass the same architecture the run used."
+            Description = "Target architecture (x64, arm64, x86) used when resolving a .cs file-based app's identity (default: the current process architecture). Pass the same architecture the run used, since a Directory.Build.props can key identity off $(RuntimeIdentifier). Only applies to a .cs input."
         };
 
         RuntimeOption = new Option<string>("--runtime", "-r")
         {
-            Description = "Target .NET runtime identifier (e.g. win-x64) used when evaluating the app input to find the app. Only its architecture is used, and it overrides --arch."
+            Description = "Target .NET runtime identifier (e.g. win-x64) used when resolving a .cs file-based app's identity. Only its architecture is used, and it overrides --arch. Only applies to a .cs input."
         };
 
     }
@@ -109,23 +109,9 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
         ExecutionTargetOrchestrator orchestrator,
         GuestApplicationRunner guestApplicationRunner,
         IAnsiConsole ansiConsole,
-        ILogger<UnregisterCommand> logger,
-        IWinappDirectoryService winappDirectoryService,
-        IDeploymentStateStore deploymentStateStore) : AsynchronousCommandLineAction
+        ILogger<UnregisterCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                return await InvokeCoreAsync(parseResult, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                return FailWith(ex.Message, parseResult.GetValue(WinAppRootCommand.JsonOption));
-            }
-        }
-
-        private async Task<int> InvokeCoreAsync(ParseResult parseResult, CancellationToken cancellationToken)
         {
             var input = parseResult.GetValue(InputArgument);
             var manifest = parseResult.GetValue(ManifestOption);
@@ -182,7 +168,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 return await PruneOrphanedRegistrationsAsync(force, isJson, cancellationToken);
             }
 
-            if (!target.IsLocal && force)
+            if (!target.IsLocal && input is not null && ProjectRunService.IsSingleFileApp(input))
             {
                 return TargetOutput.RejectOptions(
                     ansiConsole,
@@ -190,8 +176,8 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                     new ExecutionTargetErrorInfo
                     {
                         Code = ExecutionTargetErrorCodes.TargetInvalidArguments,
-                        Message = "'--force' is not supported with '--on'. Target packages are removed only when winapp can prove ownership.",
-                        UserAction = "Retry without '--force'.",
+                        Message = "A .cs file-based app cannot currently be used with 'unregister --on'.",
+                        UserAction = "Pass the manifest that identifies the deployed package instead.",
                     });
             }
 
@@ -205,12 +191,14 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                     isJson);
             }
 
-            // A manifest states its identity; classification inputs only apply to an app input.
+            var isSingleFile = input != null && ProjectRunService.IsSingleFileApp(input);
+
+            // These only participate in resolving a file-based app's identity; a manifest states it.
             if ((properties.Length > 0 || configuration != null || archOption != null || runtimeOption != null)
-                && input == null)
+                && !isSingleFile)
             {
                 return FailWith(
-                    "--property, --configuration, --arch and --runtime require an app input (directory, .csproj, solution, or .cs file). A manifest already declares its identity.",
+                    "--property, --configuration, --arch and --runtime only apply to a .cs file-based app, whose identity is evaluated from its #:property directives. A manifest already declares its identity.",
                     isJson);
             }
 
@@ -224,7 +212,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
             // bypasses the --json contract entirely. A mistyped or already-deleted path is exactly the case
             // cleanup automation has to parse. RunCommand's input and --manifest dropped that validator for
             // the same reason.
-            if (input != null && !input.Exists && !Directory.Exists(input.FullName) && outputAppXDirectory == null)
+            if (input != null && !input.Exists && !Directory.Exists(input.FullName))
             {
                 return FailWith($"'{input.FullName}' does not exist.", isJson);
             }
@@ -234,100 +222,8 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 return FailWith($"'{manifest.FullName}' does not exist.", isJson);
             }
 
-            if (!RunCommand.Handler.TryResolveArchitecture(archOption, runtimeOption, out var architecture, out var archError))
-            {
-                return FailWith(archError!, isJson);
-            }
-
-            RunInputResolution? inputResolution = null;
-            string? canonicalOwner = null;
-            if (input != null || (manifest == null && outputAppXDirectory == null))
-            {
-                FileSystemInfo appInput = input == null
-                    ? new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory())
-                    : Directory.Exists(input.FullName) ? new DirectoryInfo(input.FullName) : input;
-                if (appInput is FileInfo source &&
-                    source.Extension.ToLowerInvariant() is not (".cs" or ".csproj" or ".sln" or ".slnx"))
-                {
-                    return FailWith($"'{source.Name}' is not a supported app input. Pass a directory, .csproj, .sln, .slnx, or .cs file, or use --manifest.", isJson);
-                }
-
-                if (!appInput.Exists && outputAppXDirectory != null)
-                {
-                    // A deleted solution cannot identify which project it selected. Layout-only cleanup
-                    // does not need that source; a named .cs/.csproj still constrains the recorded owner.
-                    if (appInput.Extension.ToLowerInvariant() is ".sln" or ".slnx")
-                    {
-                        return FailWith("The solution no longer exists. Omit the input and pass --output-appx-directory to select its recorded layout.", isJson);
-                    }
-                    canonicalOwner = DevelopmentIdentityHelper.CanonicalizePath(appInput.FullName);
-                }
-                else
-                {
-                    inputResolution = await projectRunService.ResolveInputAsync(
-                        appInput, cancellationToken,
-                        classificationInputs: new ProjectClassificationInputs(configuration ?? "Debug", architecture, null, properties));
-                    canonicalOwner = DevelopmentIdentityHelper.CanonicalizePath(
-                        inputResolution.SingleFile?.FullName ?? inputResolution.Csproj?.FullName ?? inputResolution.ProjectDirectory.FullName);
-                }
-            }
-
-            var stateRoot = winappDirectoryService.GetGlobalWinappDirectory();
-            if (outputAppXDirectory is not null)
-            {
-                outputAppXDirectory = new DirectoryInfo(DevelopmentIdentityHelper.ResolvePathForIo(outputAppXDirectory.FullName));
-            }
-            if (target.IsLocal)
-            {
-                var selected = outputAppXDirectory != null
-                    ? DevelopmentRegistrationStore.Read(outputAppXDirectory)
-                    : null;
-                if (selected == null && outputAppXDirectory != null)
-                {
-                    selected = DevelopmentRegistrationStore.FindAll(stateRoot)
-                        .SingleOrDefault(record => SamePath(record.Identity.LayoutPath, outputAppXDirectory.FullName));
-                }
-                if (selected != null)
-                {
-                    if (canonicalOwner != null && !SamePath(selected.Identity.OwnerPath, canonicalOwner))
-                    {
-                        return FailWith("The selected layout belongs to a different app. Pass its own input or omit the input to select only --output-appx-directory.", isJson);
-                    }
-                    if (manifest != null && !MatchesManifest(selected.Identity, await ReadManifestIdentityAsync(manifest, cancellationToken)))
-                    {
-                        return FailWith("The selected layout's recorded identity does not match --manifest. Pass that layout's manifest, or omit --manifest and use only --output-appx-directory.", isJson);
-                    }
-                    return await RemoveManagedRegistrationAsync(stateRoot, selected, isJson, cancellationToken);
-                }
-
-                if (canonicalOwner != null)
-                {
-                    var records = DevelopmentRegistrationStore.FindByOwner(stateRoot, canonicalOwner)
-                        .Where(record => outputAppXDirectory == null || SamePath(record.Identity.LayoutPath, outputAppXDirectory.FullName))
-                        .ToList();
-                    if (records.Count > 1)
-                    {
-                        return FailWith(AmbiguousLayouts(records.Select(record => record.Identity.LayoutPath)), isJson);
-                    }
-                    if (records.Count == 1)
-                    {
-                        return await RemoveManagedRegistrationAsync(stateRoot, records[0], isJson, cancellationToken);
-                    }
-                }
-            }
-            else if (manifest == null)
-            {
-                return await UnregisterOnTargetAsync(null, canonicalOwner, outputAppXDirectory?.FullName, null, isJson, cancellationToken);
-            }
-
-            if (manifest == null && inputResolution == null && outputAppXDirectory != null)
-            {
-                return ReportNoRegistration(isJson);
-            }
-
             string packageName;
             MsixIdentityResult? targetIdentity = null;
-            FileInfo? selectedManifest = null;
 
             // A registration legitimately belongs to more than one directory: `run` copies an explicit
             // --manifest into the input's own AppX layout, and --output-appx-directory puts that layout
@@ -335,8 +231,45 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
             // picking one — is what keeps the guard strict without rejecting valid registrations.
             var trustedRoots = new List<string>();
 
-            if (inputResolution?.Mode == WinAppRunMode.SingleFile)
+            // The paths a --unique-identity run could have derived this app's identity from.
+            var owners = new List<string>();
+
+            if (input != null && !isSingleFile)
             {
+                var isFolder = Directory.Exists(input.FullName);
+                if (!isFolder && input.Extension.ToLowerInvariant() is not (".csproj" or ".vcxproj"))
+                {
+                    return FailWith(
+                        $"'{input.Name}' is not an app input. Pass a .cs file, a .csproj or .vcxproj, the folder you passed to 'winapp run', or use --manifest.",
+                        isJson);
+                }
+
+                var appDirectory = isFolder ? input.FullName : input.DirectoryName!;
+                manifest = ManifestHelper.FindManifest(appDirectory);
+                if (!manifest.Exists)
+                {
+                    return FailWith($"No manifest found in '{appDirectory}'. Use --manifest to specify it.", isJson);
+                }
+
+                // `run` on a folder that holds a project derives from the project file instead.
+                owners.Add(input.FullName);
+                if (isFolder)
+                {
+                    owners.AddRange(Directory.EnumerateFiles(appDirectory, "*.csproj").Concat(Directory.EnumerateFiles(appDirectory, "*.vcxproj")));
+                }
+                trustedRoots.Add(appDirectory);
+                input = null;
+            }
+
+            if (input != null)
+            {
+
+                // Same resolution run uses: --runtime's arch beats --arch, else the process arch.
+                if (!RunCommand.Handler.TryResolveArchitecture(archOption, runtimeOption, out var architecture, out var archError))
+                {
+                    return FailWith(archError!, isJson);
+                }
+
                 var identityInputs = new SingleFileIdentityInputs(
                     configuration ?? "Debug",
                     architecture,
@@ -346,7 +279,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 SingleFileIdentityResolution resolved;
                 try
                 {
-                    resolved = await projectRunService.ResolveSingleFileIdentityAsync(inputResolution.SingleFile!, identityInputs, cancellationToken);
+                    resolved = await projectRunService.ResolveSingleFileIdentityAsync(input, identityInputs, cancellationToken);
                 }
                 catch (ProjectRunException ex)
                 {
@@ -361,7 +294,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                     {
                         logger.LogInformation(
                             "{UISymbol} '{File}' is an unpackaged app (WindowsPackageType=None), so it has no registration to remove.",
-                            UiSymbols.Note, inputResolution.SingleFile!.Name);
+                            UiSymbols.Note, input.Name);
                     }
                     else
                     {
@@ -372,6 +305,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 }
 
                 packageName = resolved.PackageName;
+                owners.Add(input.FullName);
 
                 // A file-based app's layout lives in the SDK's own %TEMP%\dotnet\runfile\<stem>-<hash>
                 // directory, never under the user's working directory. That is strictly more precise than
@@ -392,23 +326,18 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 }
                 else
                 {
-                    resolvedManifest = ManifestHelper.FindManifest(
-                        inputResolution?.ProjectDirectory.FullName ?? currentDirectoryProvider.GetCurrentDirectory());
+                    resolvedManifest = ManifestHelper.FindManifest(currentDirectoryProvider.GetCurrentDirectory());
                     if (!resolvedManifest.Exists)
                     {
-                        if (input != null)
-                        {
-                            return ReportNoRegistration(isJson);
-                        }
                         return FailWith(
-                            "No manifest found and winapp has no recorded registration for this app. Pass an app input, --manifest, or --output-appx-directory.",
+                            "No manifest found in the current directory. Pass a .cs file-based app, or use --manifest to specify the path.",
                             isJson);
                     }
                 }
 
                 // Parse package name from manifest
-                selectedManifest = resolvedManifest;
-                var identity = await ReadManifestIdentityAsync(resolvedManifest, cancellationToken);
+                var manifestContent = await File.ReadAllTextAsync(resolvedManifest.FullName, Encoding.UTF8, cancellationToken);
+                var identity = MsixService.ParseAppxManifestAsync(manifestContent);
                 targetIdentity = identity;
                 packageName = identity.PackageName;
 
@@ -423,7 +352,17 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                     trustedRoots.Add(manifestDirectory);
                 }
 
-                trustedRoots.Add(inputResolution?.ProjectDirectory.FullName ?? currentDirectoryProvider.GetCurrentDirectory());
+                trustedRoots.Add(currentDirectoryProvider.GetCurrentDirectory());
+
+                // Without an explicit input, try the folders and projects a run from here would have used.
+                if (owners.Count == 0)
+                {
+                    foreach (var root in trustedRoots.Distinct(StringComparer.OrdinalIgnoreCase).Where(Directory.Exists))
+                    {
+                        owners.Add(root);
+                        owners.AddRange(Directory.EnumerateFiles(root, "*.csproj").Concat(Directory.EnumerateFiles(root, "*.vcxproj")));
+                    }
+                }
             }
 
             // --output-appx-directory relocates the registered layout, so the caller has to be able to
@@ -437,42 +376,30 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
             // state never decides what happens on that target.
             if (!target.IsLocal)
             {
+                if (force)
+                {
+                    return TargetOutput.RejectOptions(
+                        ansiConsole,
+                        isJson,
+                        new ExecutionTargetErrorInfo
+                        {
+                            Code = ExecutionTargetErrorCodes.TargetInvalidArguments,
+                            Message =
+                                "'--force' is not supported with '--on'. Target packages are removed only when winapp can prove ownership.",
+                            UserAction = "Retry without '--force'.",
+                        });
+                }
+
                 return await UnregisterOnTargetAsync(
-                    targetIdentity, canonicalOwner, outputAppXDirectory?.FullName, selectedManifest,
+                    targetIdentity ?? throw new InvalidOperationException(
+                        "Target unregister requires a manifest-derived package identity."),
+                    UniqueNames(packageName, owners),
                     isJson,
                     cancellationToken);
             }
 
-            var managedRegistrations = DevelopmentRegistrationStore.FindAll(stateRoot);
-            if (selectedManifest != null && targetIdentity != null)
-            {
-                var manifestDirectory = new DirectoryInfo(
-                    DevelopmentIdentityHelper.ResolvePathForIo(selectedManifest.Directory!.FullName));
-                var adjacent = DevelopmentRegistrationStore.Read(manifestDirectory);
-                var scoped = managedRegistrations
-                    .Concat(adjacent == null ? [] : new[] { adjacent })
-                    .Where(record => outputAppXDirectory != null
-                            ? SamePath(record.Identity.LayoutPath, outputAppXDirectory.FullName)
-                            : BelongsToManifest(record.Identity, selectedManifest))
-                    .DistinctBy(record => record.Identity.LayoutPath, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                var matches = scoped.Where(record => MatchesManifest(record.Identity, targetIdentity)).ToList();
-                if (matches.Count > 1)
-                {
-                    return FailWith(AmbiguousLayouts(matches.Select(record => record.Identity.LayoutPath)), isJson);
-                }
-                if (matches.Count == 1)
-                {
-                    return await RemoveManagedRegistrationAsync(stateRoot, matches[0], isJson, cancellationToken);
-                }
-                if (scoped.Count > 0)
-                {
-                    return FailWith("The registration winapp recorded for this app does not match --manifest. Pass the app input or --output-appx-directory instead.", isJson);
-                }
-            }
-
-            // Search for both the exact name and the .debug variant
-            var namesToCheck = new[] { packageName, $"{packageName}.debug" };
+            // The exact name, the .debug variant, and any --unique-identity name derived from this app's paths.
+            var namesToCheck = new[] { packageName, $"{packageName}.debug" }.Concat(UniqueNames(packageName, owners)).ToList();
 
             var unregistered = new List<string>();
             var skipped = new List<string>();
@@ -487,19 +414,6 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
                 foreach (var pkg in packages)
                 {
-                    // Legacy name/.debug matching must never become a back door into an owned run,
-                    // including when --force bypasses the legacy directory-tree guard.
-                    if (FindManagedRegistration(managedRegistrations, pkg) != null)
-                    {
-                        skipped.Add(pkg.FullName);
-                        removalFailed = true;
-                        if (!isJson)
-                        {
-                            logger.LogError("{UISymbol} {FullName}: registered by 'winapp run' from another app or layout. Unregister it with that app's input or --output-appx-directory; --force does not apply.", UiSymbols.Error, pkg.FullName);
-                        }
-                        continue;
-                    }
-
                     if (!pkg.IsDevelopmentMode)
                     {
                         if (!isJson)
@@ -574,9 +488,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
             if (isJson)
             {
-                PrintJson(unregistered, skipped, errorMessage: removalFailed
-                    ? "One or more registrations could not be removed. For a registration made by 'winapp run', pass that app's input or --output-appx-directory; --force does not apply."
-                    : null);
+                PrintJson(unregistered, skipped, errorMessage: null);
             }
             else if (unregistered.Count == 0 && skipped.Count == 0)
             {
@@ -589,91 +501,19 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
             // guard doing its job, and it already tells the user to pass --force.
             return removalFailed ? 1 : 0;
 
-        }
-
-        private static bool SamePath(string left, string right) =>
-            string.Equals(DevelopmentIdentityHelper.CanonicalizePath(left),
-                DevelopmentIdentityHelper.CanonicalizePath(right), StringComparison.OrdinalIgnoreCase);
-
-        private static bool MatchesManifest(DevelopmentIdentity identity, MsixIdentityResult manifest) =>
-            string.Equals(identity.Publisher, manifest.Publisher, StringComparison.Ordinal)
-            && (string.Equals(identity.OriginalPackageName, manifest.PackageName, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(identity.EffectivePackageName, manifest.PackageName, StringComparison.OrdinalIgnoreCase));
-
-        private static bool BelongsToManifest(DevelopmentIdentity identity, FileInfo manifest)
-        {
-            var owner = identity.OwnerPath;
-            var ownerDirectory = Path.GetExtension(owner).ToLowerInvariant() is ".cs" or ".csproj"
-                ? Path.GetDirectoryName(owner)!
-                : owner;
-            return SamePath(manifest.DirectoryName!, ownerDirectory)
-                || SamePath(manifest.DirectoryName!, identity.LayoutPath);
-        }
-
-        private static string AmbiguousLayouts(IEnumerable<string> layouts) =>
-            "This app has more than one registered layout. Pass --output-appx-directory to pick one: "
-            + string.Join(", ", layouts.Order(StringComparer.OrdinalIgnoreCase).Select(path => $"'{path}'")) + ".";
-
-        private static async Task<MsixIdentityResult> ReadManifestIdentityAsync(FileInfo manifest, CancellationToken cancellationToken) =>
-            MsixService.ParseAppxManifestAsync(await File.ReadAllTextAsync(manifest.FullName, Encoding.UTF8, cancellationToken));
-
-        private static DevelopmentRegistration? FindManagedRegistration(
-            IReadOnlyList<DevelopmentRegistration> registrations, DevPackageInfo package)
-        {
-            var recorded = registrations.FirstOrDefault(record =>
-                string.Equals(record.Identity.PackageFullName, package.FullName, StringComparison.OrdinalIgnoreCase)
-                || (string.Equals(record.Identity.EffectivePackageName, package.Name, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(record.Identity.Publisher, package.Publisher, StringComparison.Ordinal)));
-            return recorded ?? (string.IsNullOrWhiteSpace(package.InstallLocation)
-                ? null
-                : DevelopmentRegistrationStore.Read(new DirectoryInfo(package.InstallLocation)));
-        }
-
-        private async Task<int> RemoveManagedRegistrationAsync(
-            DirectoryInfo stateRoot, DevelopmentRegistration registration, bool isJson, CancellationToken cancellationToken)
-        {
-            var removed = await DevelopmentRegistrationStore.RemoveOwnedAsync(
-                packageRegistrationService, stateRoot, registration, false, cancellationToken);
-            if (!removed)
+            int FailWith(string message, bool json)
             {
-                return ReportNoRegistration(isJson);
-            }
+                if (json)
+                {
+                    PrintJson([], [], message);
+                }
+                else
+                {
+                    logger.LogError("{UISymbol} {Message}", UiSymbols.Error, message);
+                }
 
-            if (isJson)
-            {
-                PrintJson([registration.Identity.PackageFullName!], [], errorMessage: null);
+                return 1;
             }
-            else
-            {
-                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Check} Unregistered {registration.Identity.PackageFullName}");
-            }
-            return 0;
-        }
-
-        private int ReportNoRegistration(bool isJson)
-        {
-            if (isJson)
-            {
-                PrintJson([], [], errorMessage: null);
-            }
-            else
-            {
-                logger.LogInformation("{UISymbol} No registration recorded by 'winapp run' was found for this app.", UiSymbols.Note);
-            }
-            return 0;
-        }
-
-        private int FailWith(string message, bool isJson)
-        {
-            if (isJson)
-            {
-                PrintJson([], [], message);
-            }
-            else
-            {
-                logger.LogError("{UISymbol} {Message}", UiSymbols.Error, message);
-            }
-            return 1;
         }
 
         /// <summary>
@@ -695,6 +535,9 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
         /// non-interactive run requires it rather than silently assuming consent.
         /// </para>
         /// </remarks>
+        private static IEnumerable<string> UniqueNames(string packageName, IEnumerable<string> owners) =>
+            owners.Select(owner => DevelopmentIdentityHelper.DeriveName(owner, packageName)).Distinct(StringComparer.OrdinalIgnoreCase);
+
         private async Task<int> PruneOrphanedRegistrationsAsync(bool force, bool isJson, CancellationToken cancellationToken)
         {
             var orphans = packageRegistrationService.FindOrphanedDevPackages();
@@ -743,22 +586,11 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
             var unregistered = new List<string>();
             var skipped = new List<string>();
-            var managedRegistrations = DevelopmentRegistrationStore.FindAll(winappDirectoryService.GetGlobalWinappDirectory());
 
             foreach (var orphan in orphans)
             {
                 try
                 {
-                    if (FindManagedRegistration(managedRegistrations, orphan) != null)
-                    {
-                        skipped.Add(orphan.FullName);
-                        if (!isJson)
-                        {
-                            logger.LogError("{UISymbol} {FullName}: registered by 'winapp run'. Unregister it with its app input or --output-appx-directory.", UiSymbols.Error, orphan.FullName);
-                        }
-                        continue;
-                    }
-
                     // By full name, not identity name: prune targets exactly the registrations it listed,
                     // so a same-named package that IS still installed from a live location is untouched.
                     //
@@ -797,9 +629,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
             if (isJson)
             {
-                PrintJson(unregistered, skipped, errorMessage: skipped.Count > 0
-                    ? "Some registrations could not be removed. Remove registrations recorded by 'winapp run' by passing their app input or --output-appx-directory."
-                    : null);
+                PrintJson(unregistered, skipped, errorMessage: null);
             }
 
             // A sweep that could not remove everything it listed must not report success: scripts would
@@ -817,6 +647,19 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
 
             return 0;
 
+            int FailWith(string message, bool json)
+            {
+                if (json)
+                {
+                    PrintJson([], [], message);
+                }
+                else
+                {
+                    logger.LogError("{UISymbol} {Message}", UiSymbols.Error, message);
+                }
+
+                return 1;
+            }
         }
 
         private void PrintJson(List<string> unregistered, List<string> skipped, string? errorMessage)

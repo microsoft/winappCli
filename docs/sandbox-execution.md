@@ -88,9 +88,6 @@ Application data is preserved unless you request `--clean`. An incomplete deploy
 does not launch; retrying rebuilds its guest copy. If build files change while winapp is
 preparing them, finish the build and retry.
 
-If Sandbox is running an older agent that can't keep app data while re-registering the
-app, winapp stops instead of deleting the data. Save your work in Sandbox, close it, and
-retry so winapp starts an updated agent.
 
 Warm UI commands report only their result, without repeating a Sandbox preparation
 message. Sandbox startup and connection recovery still report progress. Use `--verbose` for
@@ -327,15 +324,15 @@ a link is refused. Copy the real files or directories instead.
 
 ```powershell
 winapp unregister . --on sandbox
-winapp unregister .\counter.cs --on sandbox
 ```
 
-Pass the same input you passed to `run`, with or without `--unique-identity`. This removes
-only the matching development package registered by winapp in the current Sandbox.
+Pass the project or folder you passed to `run`, with or without `--unique-identity`, or a
+manifest. This removes only the matching development package registered by winapp in the
+current Sandbox.
 An externally installed package is left alone, even if its identity matches.
 `--force` is not supported with `--on`; it cannot bypass ownership checks.
-See [unregister](usage.md#unregister) for all inputs, including cleanup after the source
-is deleted. Unpackaged apps have no package registration to remove.
+A `.cs` input isn't supported with `--on`; pass its manifest instead. Unpackaged apps have no
+package registration to remove.
 
 The Sandbox remains running, even after you close its window. Manage its lifetime with
 Windows Sandbox's own CLI:

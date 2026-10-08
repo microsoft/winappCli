@@ -51,7 +51,7 @@ winapp ui screenshot --on sandbox -a MyApp -o .\result.png
 
 For parallel packaged worktrees, opt into
 `winapp run . --unique-identity --on sandbox --detach --json`. Use the returned
-`Identity` and `UiTargetArgs`. All copies share one Sandbox. See
+`UiTargetArgs`; the derived package name is printed during the run. All copies share one Sandbox. See
 [unique identity for parallel checkouts](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts).
 
 ## Coordinate a recording with actions
@@ -143,12 +143,10 @@ linked sources and paths through destination links are rejected. Deployment reje
 
 ```powershell
 winapp unregister . --on sandbox
-winapp unregister .\counter.cs --on sandbox
 ```
 
-Pass the same input as `run`, with or without `--unique-identity`. This does not stop
-the Sandbox. See [unregister](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unregister) for all inputs and cleanup after the source
-is deleted.
+Pass the project or folder you passed to `run` (with or without `--unique-identity`),
+or its manifest; a `.cs` input isn't supported here. This does not stop the Sandbox.
 Never use `--force` to bypass target ownership.
 
 Follow the error's `userAction`, not just its exit number: infrastructure failures and

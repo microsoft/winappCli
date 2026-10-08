@@ -230,7 +230,7 @@ The `.msix` contains only the manifest — binaries and assets are resolved from
 |-------|-------|----------|
 | "Package.appxmanifest not found" | No manifest in input folder or current dir | Run `winapp init` or `winapp manifest generate` first |
 | "Publisher mismatch" | Cert publisher ≠ manifest publisher | Regenerate cert with `winapp cert generate --manifest`, or edit manifest |
-| "Package installation failed" | Cert not trusted or stale package | Run `winapp cert install ./devcert.pfx` (admin), then `Get-AppxPackage <name> \| Remove-AppxPackage` |
+| "Package installation failed" | Cert not trusted or stale package | Run `winapp cert install ./devcert.pfx` (admin). If an earlier `winapp run` registration is in the way, remove it with `winapp unregister <input>` rather than deleting packages by name |
 | "makeappx not found" | Build tools not downloaded | Run `winapp update` or `winapp tool makeappx --help` to trigger download |
 
 ## CLI reference

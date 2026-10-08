@@ -164,9 +164,7 @@ public class GuestCommandServerTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task UnregisterPackage_RemovesOnlyTheExactFullName(bool preserveAppData)
+    public async Task UnregisterPackage_RemovesOnlyTheExactFullName()
     {
         var packages = new FakePackageRegistrationService();
         var launcher = new FakeAppLauncherService
@@ -180,12 +178,11 @@ public class GuestCommandServerTests
             "Contoso.MyApp_abc",
             "Contoso.MyApp_2.0.0.0_arm64__abc",
             FakeLayout,
-            preserveAppData,
             harness.Token);
 
         Assert.HasCount(1, packages.UnregisterByFullNameCalls);
         Assert.AreEqual(
-            ("Contoso.MyApp_2.0.0.0_arm64__abc", preserveAppData),
+            ("Contoso.MyApp_2.0.0.0_arm64__abc", false),
             packages.UnregisterByFullNameCalls[0]);
         Assert.HasCount(0, packages.UnregisterCalls);
     }
@@ -206,7 +203,6 @@ public class GuestCommandServerTests
                 "Contoso.MyApp_abc",
                 "Contoso.MyApp_2.0.0.0_arm64__abc",
                 FakeLayout,
-                preserveAppData: false,
                 harness.Token));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.PackageConflict, failure.Error.Code);

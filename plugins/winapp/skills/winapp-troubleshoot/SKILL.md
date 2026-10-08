@@ -24,8 +24,8 @@ Use this skill when:
 | "Certificate file already exists" | `devcert.pfx` already present | Use `winapp cert generate --if-exists overwrite` or `--if-exists skip` |
 | "Manifest already exists" | `Package.appxmanifest` already present | Use `winapp manifest generate --if-exists overwrite` or edit manifest directly |
 | `run` / `create-debug-identity` registration error `0x800704EC` | Developer Mode is disabled | Enable it in **Settings → Privacy & security → For developers**, or `Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense -Value 1`, then retry |
-| `run` registration conflict | Another folder already registered this package (same name and publisher) | Opt into `winapp run . --unique-identity` for supported packaged apps, or explicitly unregister your previous layout. `--force` does not apply |
-| `create-debug-identity` registration error `0x80073CFB` | An earlier `create-debug-identity` registration is still present | Run `winapp unregister --manifest .\Package.appxmanifest`, then retry. See [registrations without a winapp record](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#registrations-without-a-winapp-record) |
+| Two worktrees of the same app keep replacing each other's registration | Both copies share one package identity | Run each with `winapp run . --unique-identity` (supported packaged apps) so each gets its own identity and app data |
+| `run` / `create-debug-identity` registration error `0x80073CFB` | Package already registered with a conflicting identity | Run `winapp unregister` with your app's input, then retry. Use `--force` only if you are sure the same-named package registered elsewhere is yours |
 | App's Start menu entry launches nothing, silently | Package still registered after its files were deleted | Run `winapp unregister --prune` to remove every dev registration whose files are gone |
 | "winapp can't write the API index" / "can't install the Microsoft Store Developer CLI" | `%USERPROFILE%\.winapp` isn't writable (for example, an agent sandbox) | Set `WINAPP_CLI_CACHE_DIRECTORY` to a writable folder, such as one inside the project, and retry. Other commands keep working without it |
 
@@ -106,7 +106,7 @@ For full details, see the [Debugging Guide](https://github.com/microsoft/WinAppC
 | `cert install` | Certificate file + admin | Machine certificate store |
 | `create-debug-identity` | `Package.appxmanifest` + exe + trusted cert | Registers sparse package with Windows |
 | `run` | Build output folder + `Package.appxmanifest`; **or** a `.csproj`/`.vcxproj`/`.sln` (C++ needs Visual Studio or Build Tools with the C++ workload); **or** a `.cs` file-based app (no manifest needed — one is generated) | Registers loose layout package, launches app |
-| `unregister` | The same input passed to `run` (`.cs`, `.csproj`/`.vcxproj`, `.sln`/`.slnx`, or folder), or `--manifest` | Removes the development registration that `run` or `create-debug-identity` created |
+| `unregister` | The same input passed to `run` (`.cs`, `.csproj`/`.vcxproj`, or folder), or `--manifest` | Removes the development registration that `run` or `create-debug-identity` created |
 | `package` | Build output + `Package.appxmanifest` | `.msix` file |
 | `sign` | File + certificate | Signed file (in-place) |
 | `create-external-catalog` | Directory with executables | `CodeIntegrityExternal.cat` |

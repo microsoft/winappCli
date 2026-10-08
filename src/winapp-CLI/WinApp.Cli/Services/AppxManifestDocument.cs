@@ -256,256 +256,54 @@ internal class AppxManifestDocument
     #region Development Identity
 
     /// <summary>
-    /// Rejects package shapes and public registrations that cannot safely coexist under a new name.
-    /// This allowlist deliberately does not treat an unfamiliar namespace or category as harmless.
+    /// Rejects manifests that a new package name can't keep separate between copies: anything but a
+    /// single-application package, and any system-wide registration. Execution aliases are allowed
+    /// because they are renamed; in-process WinRT classes are allowed because they are package-scoped.
     /// </summary>
     public void ValidateUniqueIdentitySupport()
     {
-        var root = _document.Root
-            ?? throw UnsupportedIdentity(null, "a Windows 10 application Package root is required");
-        if (root.Name != DefaultNs + "Package")
+        var root = _document.Root;
+        if (root?.Name != DefaultNs + "Package")
         {
-            throw UnsupportedIdentity(root, "only a Windows 10 application Package is supported, not a bundle");
+            throw UnsupportedIdentity("only a package manifest is supported, not a bundle");
         }
-        if (root.Elements(DefaultNs + "Identity").Count() != 1)
+        if (root.Descendants(DefaultNs + "Application").Count() != 1)
         {
-            throw UnsupportedIdentity(root, "exactly one Identity is required");
-        }
-        var applications = root.Descendants().Where(e => e.Name.LocalName == "Application").ToList();
-        if (root.Elements(DefaultNs + "Applications").Count() != 1 || applications.Count != 1
-            || applications[0].Name != DefaultNs + "Application"
-            || applications[0].Parent != root.Element(DefaultNs + "Applications"))
-        {
-            throw UnsupportedIdentity(root, "exactly one application in Applications is supported");
-        }
-        if (IdentityResourceId == "~")
-        {
-            throw UnsupportedIdentity(GetIdentityElement(), "bundle identities are not supported");
-        }
-
-        foreach (var element in root.DescendantsAndSelf())
-        {
-            if (element.Name.LocalName is "Bundle" or "MainPackageDependency" or "MainBundleDependency"
-                or "OptionalPackage" or "ExternalLocation")
-            {
-                throw UnsupportedIdentity(element, "bundle, optional, and external-content packages are not supported");
-            }
-            if (element.Name.LocalName is "AllowExternalContent" or "Framework" or "ResourcePackage")
-            {
-                var expectedNamespace = element.Name.LocalName == "AllowExternalContent" ? Uap10Ns : DefaultNs;
-                if (element.Name.Namespace != expectedNamespace || element.Parent != GetPropertiesElement()
-                    || element.Value.Trim() is not ("false" or "0"))
-                {
-                    throw UnsupportedIdentity(element, "sparse/external-content, framework, and resource packages are not supported");
-                }
-            }
-            if (element.Attributes().Any(a => !a.IsNamespaceDeclaration && a.Name.LocalName == "ExternalLocation"))
-            {
-                throw UnsupportedIdentity(element, "external locations are not supported");
-            }
-        }
-
-        var validatedExtensions = new HashSet<XElement>();
-        foreach (var extensions in root.Descendants().Where(e => e.Name.LocalName == "Extensions"))
-        {
-            if (extensions.Name != DefaultNs + "Extensions"
-                || (extensions.Parent != root && extensions.Parent != applications[0]))
-            {
-                throw UnsupportedIdentity(extensions, "the extension namespace or placement is not supported");
-            }
-            foreach (var extension in extensions.Elements())
-            {
-                var category = extension.Attribute("Category")?.Value;
-                if (category == "windows.appExecutionAlias" && extensions.Parent == applications[0])
-                {
-                    ValidateUniqueAliasExtension(extension);
-                }
-                else if (category == "windows.activatableClass.inProcessServer" && extensions.Parent == root)
-                {
-                    ValidateUniqueInProcessExtension(extension);
-                }
-                else
-                {
-                    throw UnsupportedIdentity(extension, $"extension category '{category ?? "(missing)"}' is not supported");
-                }
-                validatedExtensions.Add(extension);
-            }
+            throw UnsupportedIdentity("exactly one Application is supported");
         }
         foreach (var element in root.Descendants())
         {
-            if ((element.Name.LocalName == "Extension" && !validatedExtensions.Contains(element))
-                || (element.Name.LocalName is "AppExecutionAlias" or "ExecutionAlias"
-                    && !element.Ancestors().Any(validatedExtensions.Contains)))
+            if (element.Name.LocalName is "MainPackageDependency" or "ExternalLocation"
+                || (element.Name.LocalName is "AllowExternalContent" or "Framework" or "ResourcePackage"
+                    && element.Value.Trim() is "true" or "1"))
             {
-                throw UnsupportedIdentity(element, "the extension namespace or placement is not supported");
+                throw UnsupportedIdentity("sparse, optional, framework, and resource packages are not supported");
             }
-        }
-
-        var originalName = IdentityName
-            ?? throw UnsupportedIdentity(GetIdentityElement(), "Identity/@Name is required");
-        var originalFamily = DevelopmentIdentityHelper.ComputeFamilyName(originalName,
-            IdentityPublisher ?? throw UnsupportedIdentity(GetIdentityElement(), "Identity/@Publisher is required"));
-        foreach (var element in root.DescendantsAndSelf())
-        {
-            foreach (var value in element.Attributes().Where(a => !a.IsNamespaceDeclaration).Select(a => a.Value)
-                .Concat(element.Nodes().OfType<XText>().Select(text => text.Value)))
+            if (element.Name.LocalName == "Extension"
+                && element.Attribute("Category")?.Value is not ("windows.appExecutionAlias" or "windows.activatableClass.inProcessServer"))
             {
-                DevelopmentIdentityHelper.ValidateResourceReference(value, originalName, originalFamily);
+                throw UnsupportedIdentity($"extension category '{element.Attribute("Category")?.Value ?? "(missing)"}' registers something every copy would share");
             }
         }
     }
 
-    /// <summary>Changes only the staged package name and the supported authored alias attributes.</summary>
+    /// <summary>Renames the package and its authored execution aliases. Call on a staged copy only.</summary>
     public void ApplyDevelopmentIdentity(DevelopmentIdentity identity)
     {
-        ArgumentNullException.ThrowIfNull(identity);
-        if (identity.Mode == "Original")
+        IdentityName = identity.PackageName;
+        foreach (var alias in _document.Descendants().Where(e => e.Name.LocalName == "ExecutionAlias"))
         {
-            return;
-        }
-        if (identity.Mode != "Unique")
-        {
-            throw new InvalidOperationException($"Unknown development identity mode '{identity.Mode}'.");
-        }
-        ValidateUniqueIdentitySupport();
-        if (IdentityName != identity.OriginalPackageName || IdentityPublisher != identity.Publisher
-            || IdentityVersion != identity.Version || (IdentityProcessorArchitecture ?? "neutral") != identity.Architecture
-            || (IdentityResourceId ?? string.Empty) != identity.ResourceId || ApplicationId != identity.ApplicationId)
-        {
-            throw new InvalidOperationException("The development identity does not match the original manifest. Prepare the identity from the current source manifest again.");
-        }
-        if (DevelopmentIdentityHelper.ComputeFamilyName(identity.EffectivePackageName, identity.Publisher) != identity.PackageFamilyName)
-        {
-            throw new InvalidOperationException("The development identity's package family does not match its name and publisher.");
-        }
-        var aliasAttributes = GetFirstApplicationElement()!.Descendants()
-            .Where(e => e.Name.LocalName == "ExecutionAlias"
-                && (e.Name.Namespace == Uap5Ns || e.Name.Namespace == DesktopNs))
-            .Select(e => e.Attribute("Alias")!).ToList();
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var originalNames = aliasAttributes.Select(a => a.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (identity.Aliases.Count != aliasAttributes.Count)
-        {
-            throw new InvalidOperationException("The development identity must rename every authored execution alias.");
-        }
-        foreach (var alias in aliasAttributes)
-        {
-            if (!identity.Aliases.TryGetValue(alias.Value, out var effective)
-                || originalNames.Contains(effective)
-                || !ExecutionAliasResolver.IsSafeAliasName(effective) || !names.Add(effective))
+            if (alias.Attribute("Alias")?.Value is { } name && identity.Aliases.TryGetValue(name, out var renamed))
             {
-                throw new InvalidOperationException($"No distinct, safe unique execution alias was prepared for '{alias.Value}'.");
-            }
-        }
-
-        IdentityName = identity.EffectivePackageName;
-        foreach (var alias in aliasAttributes)
-        {
-            alias.Value = identity.Aliases[alias.Value];
-        }
-    }
-
-    private static void ValidateUniqueAliasExtension(XElement extension)
-    {
-        var ns = extension.Name.Namespace;
-        if (extension.Name.LocalName != "Extension" || (ns != Uap5Ns && ns != DesktopNs))
-        {
-            throw UnsupportedIdentity(extension, "only plain uap5 or desktop execution-alias extensions are supported");
-        }
-        ValidateUniqueAttributes(extension, "Category", "Executable", "EntryPoint", "StartPage", "RuntimeType",
-            Uap10Ns + "RuntimeBehavior", Uap10Ns + "TrustLevel");
-        var containers = extension.Elements().ToList();
-        if (containers.Count != 1 || containers[0].Name != ns + "AppExecutionAlias")
-        {
-            throw UnsupportedIdentity(extension, "exactly one plain AppExecutionAlias is required");
-        }
-        var container = containers[0];
-        ValidateUniqueAttributes(container,
-            (XNamespace)"http://schemas.microsoft.com/appx/manifest/desktop/windows10/4" + "Subsystem",
-            (XNamespace)"http://schemas.microsoft.com/appx/manifest/iot/windows10/2" + "Subsystem",
-            Uap10Ns + "Subsystem");
-        if (container.Attributes().Any(a => !a.IsNamespaceDeclaration && a.Value is not ("console" or "windows")))
-        {
-            throw UnsupportedIdentity(container, "Subsystem must be console or windows");
-        }
-        if (!container.HasElements)
-        {
-            throw UnsupportedIdentity(container, "at least one execution alias is required");
-        }
-        foreach (var alias in container.Elements())
-        {
-            if (alias.Name != ns + "ExecutionAlias" || alias.HasElements)
-            {
-                throw UnsupportedIdentity(alias, "only plain ExecutionAlias elements without additional public contracts are supported");
-            }
-            ValidateUniqueAttributes(alias, "Alias");
-            if (!ExecutionAliasResolver.IsSafeAliasName(alias.Attribute("Alias")?.Value))
-            {
-                throw UnsupportedIdentity(alias, "Alias must be a safe .exe filename");
+                alias.SetAttributeValue("Alias", renamed);
             }
         }
     }
 
-    private static void ValidateUniqueInProcessExtension(XElement extension)
-    {
-        if (extension.Name != DefaultNs + "Extension")
-        {
-            throw UnsupportedIdentity(extension, "only foundation-namespace, package-scoped in-process WinRT registration is supported");
-        }
-        ValidateUniqueAttributes(extension, "Category");
-        var servers = extension.Elements().ToList();
-        if (servers.Count != 1 || servers[0].Name != DefaultNs + "InProcessServer")
-        {
-            throw UnsupportedIdentity(extension, "exactly one foundation InProcessServer is required");
-        }
-        var server = servers[0];
-        ValidateUniqueAttributes(server);
-        var paths = server.Elements(DefaultNs + "Path").ToList();
-        if (paths.Count != 1 || string.IsNullOrWhiteSpace(paths[0].Value) || paths[0].HasElements
-            || !server.Elements(DefaultNs + "ActivatableClass").Any())
-        {
-            throw UnsupportedIdentity(server, "a Path and in-process ActivatableClass registrations are required");
-        }
-        ValidateUniqueAttributes(paths[0]);
-        foreach (var child in server.Elements())
-        {
-            if (child == paths[0])
-            {
-                continue;
-            }
-            if (child.Name != DefaultNs + "ActivatableClass" || child.HasElements)
-            {
-                throw UnsupportedIdentity(child, "only ordinary in-process WinRT classes are supported, not packaged COM servers");
-            }
-            ValidateUniqueAttributes(child, "ActivatableClassId", "ThreadingModel");
-            if (string.IsNullOrWhiteSpace(child.Attribute("ActivatableClassId")?.Value)
-                || child.Attribute("ThreadingModel")?.Value is not ("both" or "STA" or "MTA"))
-            {
-                throw UnsupportedIdentity(child, "ActivatableClassId and a valid ThreadingModel are required");
-            }
-        }
-    }
-
-    private static void ValidateUniqueAttributes(XElement element, params XName[] supported)
-    {
-        var unsupported = element.Attributes().FirstOrDefault(a => !a.IsNamespaceDeclaration && !supported.Contains(a.Name));
-        if (unsupported != null)
-        {
-            throw UnsupportedIdentity(element, $"attribute '{unsupported.Name}' is not supported");
-        }
-    }
-
-    private static InvalidOperationException UnsupportedIdentity(XElement? element, string reason)
-    {
-        var category = element?.AncestorsAndSelf().Select(e => e.Attribute("Category")?.Value).FirstOrDefault(v => v != null);
-        return new InvalidOperationException(
-            $"--unique-identity cannot transform element '{element?.Name.ToString() ?? "(missing Package)"}'"
-            + (category == null ? string.Empty : $" (category '{category}')")
-            + $": {reason}. Remove the unsupported declaration or run without --unique-identity.");
-    }
+    private static InvalidOperationException UnsupportedIdentity(string reason) =>
+        new($"--unique-identity can't be used with this manifest: {reason}. Run without --unique-identity to test it.");
 
     #endregion
-
     #region Application Properties
 
     /// <summary>

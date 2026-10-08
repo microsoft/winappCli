@@ -101,25 +101,6 @@ public class GuestLaunchCommandTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task SameNameAndLayoutWithDifferentPublisher_RefusesLaunch()
-    {
-        var layout = Path.Join(_tempDirectory.FullName, "layout");
-        _fakePackageRegistrationService.FakeDevPackages =
-        [
-            new DevPackageInfo("Pkg_1.0.0.0_x64__other", "Pkg", "1.0.0.0", layout,
-                IsDevelopmentMode: true, Publisher: "CN=Other"),
-        ];
-
-        var exitCode = await GetRequiredService<RunCommand.Handler>().InvokeAsync(
-            Parse("Pkg", "CN=Test", "App", layout, layout, json: true).Value,
-            TestContext.CancellationToken);
-
-        Assert.AreEqual(1, exitCode);
-        Assert.AreEqual(0, _fakeAppLauncherService.LaunchCalls.Count);
-        AssertNoMutationCalls();
-    }
-
-    [TestMethod]
     public async Task ExactLayoutMatch_Launches_WithNoMutationCallsWhatsoever()
     {
         var layout = Path.Join(_tempDirectory.FullName, "layout");
@@ -127,7 +108,7 @@ public class GuestLaunchCommandTests : BaseCommandTests
 
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("Pkg_1.0.0.0_x64__abc123", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true, Publisher: "CN=Test"),
+            new DevPackageInfo("Pkg_1.0.0.0_x64__abc123", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true),
         ];
 
         var handler = GetRequiredService<RunCommand.Handler>();
@@ -158,7 +139,7 @@ public class GuestLaunchCommandTests : BaseCommandTests
 
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("Pkg_1.0.0.0_x64__wait", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true, Publisher: "CN=Test"),
+            new DevPackageInfo("Pkg_1.0.0.0_x64__wait", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true),
         ];
         _fakeAppLauncherService.FakeProcessId = uint.MaxValue;
 
@@ -197,7 +178,7 @@ public class GuestLaunchCommandTests : BaseCommandTests
 
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("Pkg_2.0.0.0_x64__def456", "Pkg", "2.0.0.0", layoutB, IsDevelopmentMode: true, Publisher: "CN=Test"),
+            new DevPackageInfo("Pkg_2.0.0.0_x64__def456", "Pkg", "2.0.0.0", layoutB, IsDevelopmentMode: true),
         ];
 
         var handler = GetRequiredService<RunCommand.Handler>();
@@ -242,8 +223,8 @@ public class GuestLaunchCommandTests : BaseCommandTests
         // guess which one is "right" by mutating toward it -- it refuses.
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("Pkg_1.0.0.0_x64__aaa", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true, Publisher: "CN=Test"),
-            new DevPackageInfo("Pkg_1.0.0.0_arm64__bbb", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true, Publisher: "CN=Test"),
+            new DevPackageInfo("Pkg_1.0.0.0_x64__aaa", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true),
+            new DevPackageInfo("Pkg_1.0.0.0_arm64__bbb", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true),
         ];
 
         var handler = GetRequiredService<RunCommand.Handler>();
@@ -267,7 +248,7 @@ public class GuestLaunchCommandTests : BaseCommandTests
 
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("Pkg_1.0.0.0_x64__ccc", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: false, Publisher: "CN=Test"),
+            new DevPackageInfo("Pkg_1.0.0.0_x64__ccc", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: false),
         ];
 
         var handler = GetRequiredService<RunCommand.Handler>();
@@ -289,7 +270,7 @@ public class GuestLaunchCommandTests : BaseCommandTests
 
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("Pkg_1.0.0.0_x64__ddd", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true, Publisher: "CN=Test"),
+            new DevPackageInfo("Pkg_1.0.0.0_x64__ddd", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true),
         ];
 
         var handler = GetRequiredService<RunCommand.Handler>();
@@ -312,7 +293,7 @@ public class GuestLaunchCommandTests : BaseCommandTests
         var payload = _tempDirectory.CreateSubdirectory("inferredAliasPayload").FullName;
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("Pkg_1.0.0.0_x64__ddd", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true, Publisher: "CN=Test"),
+            new DevPackageInfo("Pkg_1.0.0.0_x64__ddd", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true),
         ];
 
         var parsed = Parse("Pkg", "CN=Test", "App", layout, payload, preferAlias: true, detach: false);
@@ -338,7 +319,7 @@ public class GuestLaunchCommandTests : BaseCommandTests
 
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("Pkg_2.0.0.0_x64__eee", "Pkg", "2.0.0.0", layoutB, IsDevelopmentMode: true, Publisher: "CN=Test"),
+            new DevPackageInfo("Pkg_2.0.0.0_x64__eee", "Pkg", "2.0.0.0", layoutB, IsDevelopmentMode: true),
         ];
 
         var handler = GetRequiredService<RunCommand.Handler>();
@@ -367,7 +348,7 @@ public class GuestLaunchCommandTests : BaseCommandTests
 
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("Pkg_1.0.0.0_x64__fff", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true, Publisher: "CN=Test"),
+            new DevPackageInfo("Pkg_1.0.0.0_x64__fff", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true),
         ];
         _fakeAppLauncherService.LaunchByAumidThrows = new InvalidOperationException("activation refused");
 
@@ -407,7 +388,7 @@ public class GuestLaunchCommandTests : BaseCommandTests
 
         _fakePackageRegistrationService.FakeDevPackages =
         [
-            new DevPackageInfo("Pkg_1.0.0.0_x64__ggg", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true, Publisher: "CN=Test"),
+            new DevPackageInfo("Pkg_1.0.0.0_x64__ggg", "Pkg", "1.0.0.0", layout, IsDevelopmentMode: true),
         ];
         _fakeAppLauncherService.LaunchByAumidThrows = new InvalidOperationException("activation refused");
 

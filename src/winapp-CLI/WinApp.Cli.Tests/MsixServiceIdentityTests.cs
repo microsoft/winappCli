@@ -1167,7 +1167,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
         {
             var elapsed = System.Diagnostics.Stopwatch.StartNew();
 
-            using (LayoutLease.AcquireLayoutIn(locks.FullName, layout, TestContext.CancellationToken, TimeSpan.FromSeconds(30)))
+            using (LayoutLease.Acquire(stateRoot, layout, TestContext.CancellationToken, TimeSpan.FromSeconds(30)))
             {
             }
 
@@ -1838,7 +1838,7 @@ public class MsixServiceIdentityTests : BaseCommandTests
     public async Task RegisterLooseLayoutPackageAsync_Success_DelegatesToRegistrationService()
     {
         var manifest = new FileInfo(Path.Combine(_tempDirectory.FullName, "appxmanifest.xml"));
-        await File.WriteAllTextAsync(manifest.FullName, BuildRawManifest(), TestContext.CancellationToken);
+        await File.WriteAllTextAsync(manifest.FullName, "manifest", TestContext.CancellationToken);
 
         await _msixService.RegisterLooseLayoutPackageAsync(manifest, TestTaskContext, cancellationToken: TestContext.CancellationToken);
 
