@@ -18,7 +18,7 @@ renames or merges skills can still be scored. They come in two sets:
 
 | Set | Scenarios | Use |
 |---|---|---|
-| `dev` (default) | 67 | Iterate on descriptions and structure freely. Never cite it as proof. |
+| `dev` (default) | 68 | Iterate on descriptions and structure freely. Never cite it as proof. |
 | `heldout` | 40, each with 2 paraphrases (120 prompts) | Release and decision checks only. See [Held-out set](#held-out-set). |
 
 ```powershell
@@ -38,10 +38,10 @@ pwsh benchmarks\agents\run.ps1 -Plan
 # Print the expanded run list and session count without calling a model
 pwsh benchmarks\agents\run.ps1 -Plan
 
-# Recommended first step: a quick dev baseline (one model, one iteration: 172 sessions)
+# Recommended first step: a quick dev baseline (one model, one iteration: 178 sessions)
 pwsh benchmarks\agents\run.ps1 -Model claude-sonnet-5.5 -Iterations 1
 
-# Then the full dev matrix (3 models x 3 iterations: 1548 sessions)
+# Then the full dev matrix (3 models x 3 iterations: 1602 sessions)
 pwsh benchmarks\agents\run.ps1
 
 # Check scenario prompts for leaked skill vocabulary and unrealistic fixtures (no model calls)
@@ -95,9 +95,10 @@ comma-separated values (`-Scenario a,b`), including through `pwsh -File`.
    fixture and load skills. Output streams straight to files.
 5. Reads the session's persisted `events.jsonl` and records the skills the agent invoked, the size
    of the skill content delivered to the model, tokens, AI credits, turns, tool calls (including
-   denied ones), `winapp` commands the agent tried to run or named in its final answer, the selected
-   agent, duration, and exit status. Missing values are `null` with a reason, never 0. If the
-   workspace changed, the run is a `harness_error`.
+   denied ones), `winapp` commands the agent tried to run or named in its final answer (and, separately,
+   the ones it tried in a shell call that was denied), the selected agent, duration, and exit status.
+   Missing values are `null` with a reason, never 0. If the workspace changed, the run is a
+   `harness_error`.
 6. Maps the invoked skills to capabilities with `capabilities.json`, evaluates the scenario's
    expectations, scores the final response against the answer signals (see
    [Routing and answer](#routing-and-answer)), appends a line to `runs.jsonl`, and deletes the
@@ -180,10 +181,20 @@ response. `forbid` regexes fail the answer. For a scenario:
 |---|---|
 | `pass` | Every capability of a primary alternative met its signals |
 | `partial` | Some signals of a primary or acceptable capability were met, but no full alternative |
+| `blocked` | The response alone is `partial` or `fail`, but the `winapp` commands the agent tried in a denied shell call would have passed: it knew the command and didn't tell the user |
 | `fail` | No signals were met (and every alternative could be checked), or a `forbid` pattern matched |
 | `n/a` | No primary capability has signals, a miss can't be judged because another alternative has no signals, or the run recorded nothing to score |
 
 Scenarios that need no plugin (`"primary": []`) pass when the response names no `winapp` command.
+
+`blocked` exists because the benchmark denies the shell: an agent that runs the right command, gets
+denied, and then answers "blocked" without repeating the command would otherwise look the same as an
+agent that never knew the command. A blocked answer counts as scored but not passed, so it does not
+change answer pass rates; it is reported as its own count. Only the command name is recorded, not its
+arguments, so a signal that needs an argument (for example `--on sandbox`) can't be met by a tried
+command. Runs recorded before denied commands were captured derive them: commands recorded for the run
+that its final response doesn't name came from shell calls, and count when the run had a denied shell
+call.
 
 Signals are deliberately small and objective: the `winapp` command for capabilities that have one,
 and a key term for a few that do not (`Microsoft.UI.Xaml` for a WinUI port, a `--version` check for
@@ -197,8 +208,9 @@ arguments, and contain no prose, so only signal groups made entirely of `winapp 
 are checked; the rest are `n/a`. Runs recorded before commands were captured stay `n/a`.
 
 `summary.md` shows routing and answer side by side per set, model, cohort, and primary capability,
-plus a 2 x 2 table (routed and answered, routed only, answered only, neither). `-Compare` adds
-answer columns and the same 2 x 2 for each side.
+plus a routing x answer table: routed and answered, routed and blocked, routed only, answered only,
+blocked only, and neither. `-Compare` adds answer and answer-blocked columns and the same table for
+each side.
 
 ### Rescoring after changing expectations
 

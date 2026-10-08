@@ -1,6 +1,6 @@
 ---
 name: winui-devtools
-description: Read and change a running WinUI 3 app live with winapp devtools, without modifying source. Use to change, translate, or restyle the running UI, set text or any property at runtime, inspect the live XAML visual tree, properties and bindings, diagnose bindings, or act on review comments left in the app. For clicking, typing, and reading values in any app, use winapp-ui-automation.
+description: Read and change a running WinUI 3 app live with winapp devtools. Use when inspecting the live XAML tree or bindings, changing text, styles or any property at runtime, diagnosing a binding, or acting on comments left in the app. Not for clicking or typing in an app; use winapp-ui-automation.
 ---
 
 ## Start with the target

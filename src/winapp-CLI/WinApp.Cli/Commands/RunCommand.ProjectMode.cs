@@ -200,6 +200,27 @@ internal partial class RunCommand
                 architecture = platformArch;
             }
 
+            // Fail before a potentially minutes-long build that could only end in a launch this machine can't
+            // perform. --no-launch still builds, and a remote execution target has its own architecture.
+            if (!noLaunch && executionTarget.IsLocal && !CanRunArchitecture(architecture, OsArchitecture()))
+            {
+                var host = OsArchitecture().ToString().ToLowerInvariant();
+                // Suggest changing whichever input chose the architecture; --runtime outranks --arch, which outranks -p Platform.
+                var buildForHost = runtimeOption is not null ? $"-r win-{host}"
+                    : archOption is not null || !isCpp ? $"--arch {host}"
+                    : $"-p Platform={ProjectRunService.ToCppPlatform(host)}";
+                if (isCpp && (runtimeOption is not null || archOption is not null)
+                    && ProjectRunService.CppArchitectureFromProperties(properties) is not null)
+                {
+                    // A matching -p Platform must change too, or the build rejects the pair as conflicting.
+                    buildForHost += $" -p Platform={ProjectRunService.ToCppPlatform(host)}";
+                }
+                return Fail(
+                    $"{csproj.Name} targets {architecture}, which this {host} machine can't run. " +
+                    $"Run it on an {architecture} machine, or build for this machine ({buildForHost}).",
+                    isJson);
+            }
+
             // Immediate, persistent context line (UX): the pre-build steps below each spawn dotnet and can
             // take several silent seconds. Print WHAT we're about to run — and, when the input was
             // ambiguous, WHY this project was chosen — so the run never looks hung. Suppressed for --json
@@ -509,9 +530,12 @@ internal partial class RunCommand
                 // A cross-arch apphost (e.g. an arm64 build on an x64 host) fails here with an opaque
                 // Win32 "not a valid application" error. If the resolved arch can't run on this machine,
                 // enrich the message with actionable guidance instead of surfacing the raw OS error.
-                var detail = resolution.Architecture is { Length: > 0 } arch && !CanCurrentOsRunArchitecture(arch)
-                    ? BuildArchMismatchMessage(arch, RunFailure.Describe(ex))
-                    : RunFailure.Describe(ex);
+                var detail = ex is System.ComponentModel.Win32Exception { NativeErrorCode: ErrorElevationRequired }
+                    ? $"{Path.GetFileName(exePath)} requires administrator rights (its manifest sets requireAdministrator). " +
+                      "Run winapp from an elevated terminal, or lower the app's UAC execution level for this configuration."
+                    : resolution.Architecture is { Length: > 0 } arch && !CanCurrentOsRunArchitecture(arch)
+                        ? BuildArchMismatchMessage(arch, RunFailure.Describe(ex))
+                        : RunFailure.Describe(ex);
                 logger.LogError("{UISymbol} Failed to launch '{Exe}': {Message}", UiSymbols.Error, exePath, detail);
                 if (isJson)
                 {
@@ -584,9 +608,17 @@ internal partial class RunCommand
         /// x86 host runs x86 only. Unknown monikers are treated as runnable so a genuine launch error still
         /// surfaces normally rather than being masked by a false "wrong architecture" message.
         /// </summary>
-        internal static bool CanCurrentOsRunArchitecture(string targetArch)
+        internal static bool CanCurrentOsRunArchitecture(string targetArch) =>
+            CanRunArchitecture(targetArch, RuntimeInformation.OSArchitecture);
+
+        /// <summary>ERROR_ELEVATION_REQUIRED: the executable's manifest asks for administrator rights.</summary>
+        private const int ErrorElevationRequired = 740;
+
+        /// <summary>The OS architecture. A seam so tests can pin the host regardless of the machine running them.</summary>
+        internal Func<Architecture> OsArchitecture { get; set; } = () => RuntimeInformation.OSArchitecture;
+
+        internal static bool CanRunArchitecture(string targetArch, Architecture os)
         {
-            var os = RuntimeInformation.OSArchitecture;
             return targetArch.ToLowerInvariant() switch
             {
                 "arm64" => os == Architecture.Arm64,

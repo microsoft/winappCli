@@ -226,7 +226,7 @@ internal sealed partial class ProjectRunService
                 failures.Observe(line);
                 Console.Error.WriteLine(NugetErrorMessage.Redact(line));
             }, cancellationToken);
-            return ThrowIfPrerequisiteMissing(project, redirected.ExitCode, failures);
+            return await ExplainBuildFailureAsync(msbuild, project, properties, redirected.ExitCode, failures, cancellationToken);
         }
 
         ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} Building {project.Name} ({options.Configuration} | {ToCppPlatform(options.Architecture)})...");
@@ -277,13 +277,62 @@ internal sealed partial class ProjectRunService
             }, cancellationToken)).ExitCode;
         }
 
-        exitCode = ThrowIfPrerequisiteMissing(project, exitCode, failures);
+        exitCode = await ExplainBuildFailureAsync(msbuild, project, properties, exitCode, failures, cancellationToken);
         if (exitCode == 0)
         {
             PrintBuildSucceeded(project, options, stopwatch.Elapsed);
         }
 
         return exitCode;
+    }
+
+    /// <summary>
+    /// Replaces a failed build's exit code with an explanation when the cause is a missing prerequisite:
+    /// a toolset or Windows SDK, or vcpkg packages a <c>vcpkg.json</c> project can't get because vcpkg isn't
+    /// integrated with MSBuild (outside Visual Studio that needs <c>vcpkg integrate install</c>).
+    /// </summary>
+    private async Task<int> ExplainBuildFailureAsync(
+        string msbuild,
+        FileInfo project,
+        IReadOnlyList<string> properties,
+        int exitCode,
+        CppBuildFailureCollector failures,
+        CancellationToken cancellationToken)
+    {
+        exitCode = ThrowIfPrerequisiteMissing(project, exitCode, failures);
+        if (exitCode == 0 || !failures.MissingInclude || FindVcpkgManifest(project.Directory) is null)
+        {
+            return exitCode;
+        }
+
+        // vcpkg.targets defines _ZVcpkgRoot; it is empty when nothing imported vcpkg into this build.
+        const string vcpkgRootProperty = "_ZVcpkgRoot";
+        var evaluation = await msBuildService.RunAsync(
+            msbuild, [project.FullName, "-nologo", .. properties, $"-getProperty:{vcpkgRootProperty}"], onLine: null, cancellationToken);
+        if (evaluation.ExitCode == 0
+            && string.IsNullOrWhiteSpace(MsBuildPropertyReader.Parse(evaluation.StandardOutput, [vcpkgRootProperty]).GetValueOrDefault(vcpkgRootProperty)))
+        {
+            throw new ProjectRunException(
+                $"Build failed for {project.Name}. Headers are missing and the project uses vcpkg (vcpkg.json), but vcpkg " +
+                "isn't integrated with MSBuild. Run 'vcpkg integrate install' once (e.g. from a Developer PowerShell), then try again.");
+        }
+
+        return exitCode;
+    }
+
+    /// <summary>The nearest <c>vcpkg.json</c> at or above <paramref name="directory"/>, as vcpkg's manifest mode finds it.</summary>
+    internal static FileInfo? FindVcpkgManifest(DirectoryInfo? directory)
+    {
+        for (var current = directory; current is not null; current = current.Parent)
+        {
+            var manifest = new FileInfo(Path.Join(current.FullName, "vcpkg.json"));
+            if (manifest.Exists)
+            {
+                return manifest;
+            }
+        }
+
+        return null;
     }
 
     private static int ThrowIfPrerequisiteMissing(FileInfo project, int exitCode, CppBuildFailureCollector failures)
@@ -458,10 +507,18 @@ internal sealed partial class ProjectRunService
     /// Watches MSBuild output for the errors that mean a prerequisite is missing, so the failure can say
     /// what to install instead of leaving the user with a raw MSBuild code.
     /// </summary>
-    internal sealed class CppBuildFailureCollector
+    internal sealed partial class CppBuildFailureCollector
     {
         private int _missingToolset;
         private int _missingWindowsSdk;
+        private int _missingInclude;
+        private string? _missingWindowsSdkVersion;
+
+        /// <summary>True when the compiler reported a header it couldn't find (C1083).</summary>
+        public bool MissingInclude => Volatile.Read(ref _missingInclude) == 1;
+
+        [System.Text.RegularExpressions.GeneratedRegex(@"Windows SDK version (\d+\.\d+\.\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+        private static partial System.Text.RegularExpressions.Regex MissingWindowsSdkVersionRegex();
 
         /// <summary>True for the MSBuild error lines winapp replaces with its own explanation.</summary>
         public static bool IsPrerequisiteError(string line) =>
@@ -476,7 +533,16 @@ internal sealed partial class ProjectRunService
             }
             else if (line.Contains("error MSB8036", StringComparison.OrdinalIgnoreCase))
             {
+                if (MissingWindowsSdkVersionRegex().Match(line) is { Success: true } match)
+                {
+                    Interlocked.CompareExchange(ref _missingWindowsSdkVersion, match.Groups[1].Value, null);
+                }
+
                 Interlocked.Exchange(ref _missingWindowsSdk, 1);
+            }
+            else if (line.Contains("error C1083: Cannot open include file", StringComparison.OrdinalIgnoreCase))
+            {
+                Interlocked.Exchange(ref _missingInclude, 1);
             }
         }
 
@@ -493,8 +559,11 @@ internal sealed partial class ProjectRunService
                 }
                 if (Volatile.Read(ref _missingWindowsSdk) == 1)
                 {
-                    hints.Add("The Windows SDK version this project targets is not installed (MSB8036). " +
-                        "Install it with the Visual Studio Installer or winget (e.g. winget install Microsoft.WindowsSDK.10.0.26100), " +
+                    var version = Volatile.Read(ref _missingWindowsSdkVersion);
+                    hints.Add((version is null
+                            ? "The Windows SDK version this project targets is not installed (MSB8036). "
+                            : $"The Windows SDK {version} this project targets is not installed (MSB8036). ") +
+                        $"Install it with the Visual Studio Installer or winget (e.g. winget install Microsoft.WindowsSDK.{version ?? "10.0.26100"}), " +
                         "or build against an installed one with -p:WindowsTargetPlatformVersion=<version>.");
                 }
 
