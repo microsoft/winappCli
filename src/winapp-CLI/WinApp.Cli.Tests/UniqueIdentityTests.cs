@@ -59,7 +59,7 @@ public class UniqueIdentityTests : BaseCommandTests
         """;
 
     /// <summary>Writes an MSBuild-style build output (manifest, exe, recipe) and returns its manifest.</summary>
-    private FileInfo WriteBuildOutput(DirectoryInfo output, string manifest)
+    private static FileInfo WriteBuildOutput(DirectoryInfo output, string manifest)
     {
         output.Create();
         var manifestFile = new FileInfo(Path.Join(output.FullName, "AppxManifest.xml"));
