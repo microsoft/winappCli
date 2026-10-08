@@ -38,8 +38,22 @@ inline std::wstring QuoteArgument(const std::wstring& text)
     return out + L"\"";
 }
 
-inline std::wstring SourceLabel(const std::wstring& file, unsigned int line)
+inline std::wstring SourceLeaf(const std::wstring& path)
 {
+    const size_t slash = path.find_last_of(L"/\\");
+    return slash == std::wstring::npos ? path : path.substr(slash + 1);
+}
+
+// Where a comment points: the live element's own declaration while it is on screen (the stored file name when it
+// is the same file), otherwise the stored creation location, which may have moved since.
+inline std::wstring SourceLabel(const std::wstring& file, unsigned int line,
+    const std::wstring& liveFile = L"", unsigned int liveLine = 0)
+{
+    if (!liveFile.empty()) {
+        const auto leaf = SourceLeaf(liveFile);
+        const auto shown = _wcsicmp(SourceLeaf(file).c_str(), leaf.c_str()) == 0 ? file : leaf;
+        return shown + (liveLine ? L":" + std::to_wstring(liveLine) : L"");
+    }
     if (file.empty()) return L"";
     return L"Historical: " + file + (line ? L":" + std::to_wstring(line) : L"");
 }

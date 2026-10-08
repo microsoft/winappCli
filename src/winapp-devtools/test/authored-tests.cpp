@@ -745,6 +745,11 @@ static void Test_ExactCommentTextAndHistoricalLabels()
         "M3: clear/blank detection is independent from exact saved text");
     ACheck(DevToolsCommentText::SourceLabel(L"HomePage.xaml", 7) == L"Historical: HomePage.xaml:7",
         "M6: stored line 7 is explicitly historical when the rebuilt live element moves to line 12");
+    ACheck(DevToolsCommentText::SourceLabel(L"Pages\\HomePage.xaml", 7, L"ms-appx:///Pages/HomePage.xaml", 7) ==
+            L"Pages\\HomePage.xaml:7",
+        "a comment whose element is on screen shows its current declaration, not a historical label");
+    ACheck(DevToolsCommentText::SourceLabel(L"HomePage.xaml", 7, L"ms-appx:///HomePage.xaml", 12) == L"HomePage.xaml:12",
+        "an on-screen element that moved shows where it is now");
     ACheck(DevToolsCommentText::SourceLabel(L"", 7).empty(),
         "M6: no captured file does not manufacture source coordinates");
     ACheck(DevToolsCommentText::SavedStatus(false, true) == L"Saved." &&

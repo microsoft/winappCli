@@ -143,13 +143,23 @@ struct CommentCopyPathSink : DevToolsSinkBase
     size_t idx = 0;
 };
 
+// The live element's own source while it is on screen; otherwise the stored creation location.
+static std::wstring CommentWhere(const DevToolsWindowComment& c, bool live)
+{
+    std::wstring file;
+    unsigned int line = 0, column = 0;
+    const InstanceHandle wire = live && g_ctx.sourceFn && g_anchorWireFn ? g_anchorWireFn(c.anchor.c_str()) : 0;
+    if (!wire || !g_ctx.sourceFn(wire, file, line, column)) file.clear();
+    return DevToolsCommentText::SourceLabel(c.file, c.line, file, line);
+}
+
 // Accessible row name includes note, target, location and current state in reading order.
 static std::wstring CommentRowAccessibleName(const DevToolsWindowComment& c, bool live, bool done)
 {
     std::wstring n = c.text;
     if (!c.element.empty()) n += L" \u00B7 " + c.element;
-    if (!c.file.empty()) {
-        n += L", " + DevToolsCommentText::SourceLabel(c.file, c.line);
+    if (const auto where = CommentWhere(c, live && !done); !where.empty()) {
+        n += L", " + where;
     }
     if (done)       n += L", resolved";
     else if (!live) n += std::wstring(L", ") + DevToolsCommentText::AbsentLabel(!c.anchor.empty());
@@ -161,7 +171,7 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
 {
     const bool done = (c.status == L"resolved");
     const std::wstring i = std::to_wstring(idx);
-    const std::wstring where = DevToolsCommentText::SourceLabel(c.file, c.line);
+    const std::wstring where = CommentWhere(c, live && !done);
     // Qualify every action's accessible name with its comment; the visible label stays the short verb.
     const std::wstring subject = DevToolsXmlEscape(c.text.size() > 40 ? c.text.substr(0, 40) + L"\u2026" : c.text);
 
