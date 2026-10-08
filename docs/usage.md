@@ -827,7 +827,9 @@ winapp run .\counter.cs --unique-identity --on sandbox --detach
 ```
 
 The identity is derived from the path of the `.csproj`, `.cs` file, or input folder, so
-the same path always gets the same identity and keeps its app data. The name is the
+the same path always gets the same identity and keeps its app data. A moved or renamed
+checkout gets a new identity; remove the old registration first with `winapp unregister`,
+or afterwards with `winapp unregister --prune`. The name is the
 manifest's name followed by `.w` and a 24-character hash, for example
 `Contoso.App.w3f2a…`. Only the staged copy of the manifest changes; your source manifest
 is not modified.
