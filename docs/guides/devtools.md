@@ -48,7 +48,8 @@ workflow and commands; each command's `--help` shows examples.
 
 ### Turn DevTools on or off
 
-`winapp run` starts DevTools for a WinUI project (`UseWinUI` in the `.csproj`). It
+`winapp run` starts DevTools for a WinUI project: a `.csproj` with `UseWinUI`, or a
+C++ `.vcxproj` that uses the Windows App SDK and has XAML pages. It
 prints one line saying so and how to turn it off. It doesn't start DevTools:
 
 - in CI (when the `CI` environment variable is set);
@@ -149,7 +150,7 @@ winapp run . --aot
 ```
 
 Native inspection and comments remain available. Managed binding diagnosis and
-binding source writes require the CLR and are unavailable in Native AOT apps.
+binding source writes require the CLR and are unavailable in Native AOT and C++ apps.
 
 By default, DevTools inspects apps on this machine. To inspect inside Windows
 Sandbox, use the [Sandbox workflow](devtools-advanced.md#inspect-inside-windows-sandbox). Never pass a
