@@ -111,7 +111,7 @@ public class FrameworkUdkSecurityTests
         var called = false;
         var result = XamlDiagnosticsInjector.RunWorker(
             [XamlDiagnosticsInjector.InternalVerb, "123", "agent", source, "{}"],
-            () => false, (_, _, _, _) => { called = true; return 0; });
+            () => false, (_, _, _, _) => { called = true; return 0; }, () => "agent");
         Assert.AreEqual(1, result);
         Assert.IsFalse(called);
     }
@@ -131,7 +131,8 @@ public class FrameworkUdkSecurityTests
                 Assert.AreEqual("agent", tap);
                 Assert.AreEqual("{}", data);
                 return unchecked((int)0x80070490);
-            });
+            },
+            () => "agent");
         Assert.AreEqual(0, result);
     }
 
@@ -144,7 +145,8 @@ public class FrameworkUdkSecurityTests
         Assert.AreEqual(1, XamlDiagnosticsInjector.RunWorker(
             [XamlDiagnosticsInjector.InternalVerb, pid, "agent", source, "{}"],
             () => throw new AssertFailedException("Policy applied to invalid input"),
-            (_, _, _, _) => throw new AssertFailedException("Invalid injection")));
+            (_, _, _, _) => throw new AssertFailedException("Invalid injection"),
+            () => throw new AssertFailedException("Invalid input reached engine resolution.")));
     }
 
     [TestMethod]
@@ -197,7 +199,8 @@ public class FrameworkUdkSecurityTests
         Assert.AreEqual(1, XamlDiagnosticsInjector.RunWorker(
             [XamlDiagnosticsInjector.InternalVerb, "123", "agent.dll", source, new string('x', 260)],
             () => throw new AssertFailedException("Invalid envelope reached loader policy."),
-            (_, _, _, _) => throw new AssertFailedException("Invalid envelope reached injection.")));
+            (_, _, _, _) => throw new AssertFailedException("Invalid envelope reached injection."),
+            () => throw new AssertFailedException("Invalid envelope reached engine resolution.")));
     }
 
     [TestMethod]
@@ -225,6 +228,61 @@ public class FrameworkUdkSecurityTests
         }
     }
 
+    // The worker is a hidden verb of a signed binary, so it must never load a DLL its caller chose: only the
+    // engine shipped next to winapp.exe (or its hash-verified staged copy) may be injected.
+    [TestMethod]
+    [DataRow(@"C:\Windows\System32\version.dll")]
+    [DataRow(@"C:\elsewhere\WinApp.DevTools.Native.dll")]
+    [DataRow("WinApp.DevTools.Native.dll")]
+    public void Worker_RejectsAnyAgentButTheBundledEngine(string requested)
+    {
+        var engine = Path.Combine(root, "engine", "WinApp.DevTools.Native.dll");
+        // RunWorker reports every exception as exit 1, so record what was reached instead of throwing from it.
+        bool policy = false, injected = false;
+        Assert.AreEqual(1, XamlDiagnosticsInjector.RunWorker(
+            [XamlDiagnosticsInjector.InternalVerb, "123", requested, source, "{}"],
+            () => policy = true, (_, _, _, _) => { injected = true; return 0; }, () => engine));
+        Assert.IsFalse(policy, "a foreign agent reached loader policy");
+        Assert.IsFalse(injected, "a foreign agent reached injection");
+    }
+
+    [TestMethod]
+    public void Worker_InjectsTheBundledEngine()
+    {
+        var engine = Path.Combine(root, "engine", "WinApp.DevTools.Native.dll");
+        string? injected = null;
+        Assert.AreEqual(0, XamlDiagnosticsInjector.RunWorker(
+            [XamlDiagnosticsInjector.InternalVerb, "123", engine.ToUpperInvariant(), source, "{}"],
+            () => true, (_, tap, _, _) => { injected = tap; return 0; }, () => engine));
+        Assert.AreEqual(engine, injected);
+    }
+
+    [TestMethod]
+    public async Task ProgramWorker_RefusesAnArbitraryDll()
+    {
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        try
+        {
+            Console.SetOut(output);
+            Console.SetError(error);
+            Assert.AreEqual(1, await Program.RunAsync(
+                [XamlDiagnosticsInjector.InternalVerb, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    @"C:\Windows\System32\version.dll", source, "{}"]));
+            Assert.AreEqual(string.Empty, output.ToString());
+            // The test host has no engine beside it, so the refusal may name that instead; either way it stops before
+            // the framework UDK is opened, let alone the requested DLL.
+            Assert.IsTrue(error.ToString().Contains("only loads the DevTools engine", StringComparison.Ordinal) ||
+                error.ToString().Contains("The DevTools engine is missing", StringComparison.Ordinal), error.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
     [TestMethod]
     [DataRow("agent")]
     [DataRow("framework")]

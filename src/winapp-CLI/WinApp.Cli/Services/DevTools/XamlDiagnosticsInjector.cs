@@ -92,10 +92,10 @@ internal static unsafe partial class XamlDiagnosticsInjector
     }
 
     internal static int RunWorker(string[] args) =>
-        RunWorker(args, () => SetDefaultDllDirectories(System32Search), InjectInWorker);
+        RunWorker(args, () => SetDefaultDllDirectories(System32Search), InjectInWorker, DevToolsArtifacts.StageTap);
 
     internal static int RunWorker(string[] args, Func<bool> restrictSearch,
-        Func<uint, string, string, string, int> inject)
+        Func<uint, string, string, string, int> inject, Func<string> bundledAgent)
     {
         try
         {
@@ -105,13 +105,20 @@ internal static unsafe partial class XamlDiagnosticsInjector
                 throw new IOException("Invalid internal DevTools injection request.");
             }
             ValidateTransport(args[2], args[3], args[4]);
+            // A hidden verb of a signed binary must not load a DLL its caller chose. The worker resolves the engine
+            // itself, exactly as the parent did: the one shipped next to winapp.exe, or its hash-verified staged copy.
+            var agent = bundledAgent();
+            if (!string.Equals(Path.GetFullPath(args[2]), Path.GetFullPath(agent), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("The DevTools injection worker only loads the DevTools engine bundled with this winapp.");
+            }
             // Per-load flags do not govern delay imports or later LoadLibrary calls. This policy
             // intentionally lasts until worker exit, never affecting the parent CLI.
             if (!restrictSearch())
             {
                 throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not restrict DevTools runtime dependency loading to System32.");
             }
-            var hr = inject(pid, args[2], args[3], args[4]);
+            var hr = inject(pid, agent, args[3], args[4]);
             Console.Out.WriteLine(hr.ToString(CultureInfo.InvariantCulture));
             return 0;
         }
