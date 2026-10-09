@@ -31,7 +31,7 @@ internal sealed partial class ProjectRunService
         WarnOnOverriddenFlags(options);
         var workingDirectory = csproj.Directory
             ?? new DirectoryInfo(Directory.GetCurrentDirectory());
-        (options, _, var csWinRTMetadata) =
+        (options, _, var csWinRTMetadata, _) =
             await PrepareBuildInputsAsync(
                 csproj,
                 options,

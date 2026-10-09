@@ -40,7 +40,10 @@ internal sealed partial class ProjectRunService
 
         public int ExitCode { get; set; }
 
-        /// <summary>Redacted output of this invocation.</summary>
+        /// <summary>
+        /// Redacted output of this invocation: every line when the step is summarized (a failure prints them),
+        /// otherwise only the error lines that decide whether retrying projects one by one can help.
+        /// </summary>
         public List<string> Lines { get; } = [];
 
         /// <summary>
@@ -73,6 +76,9 @@ internal sealed partial class ProjectRunService
         public List<(int AfterInvocations, string Message)> PendingWarnings { get; } = [];
 
         public bool Announced { get; set; }
+
+        /// <summary>Whether any restore output in this step needed redaction (it quoted a credential).</summary>
+        public bool OutputRedacted { get; set; }
 
         public void Warn(string message)
         {
@@ -188,15 +194,25 @@ internal sealed partial class ProjectRunService
         step.Invocations.Add(invocation);
         var display = RedactSecretsForDisplay(arguments);
 
-        // Every mode keeps the redacted lines: a failed solution restore's errors decide whether retrying
-        // projects one by one can help, and a summarized step prints them afterwards.
+        // A summarized step keeps every redacted line to print after a failure. Modes that already showed the
+        // output keep only the error lines, which decide whether retrying projects one by one can help.
+        var keepAll = step.Mode == RestoreOutputMode.Summarized;
         var gate = new object();
         Action<string> Capture(Action<string>? forward) => line =>
         {
             var redacted = NugetErrorMessage.Redact(line);
             lock (gate)
             {
-                invocation.Lines.Add(redacted);
+                if (!string.Equals(redacted, line, StringComparison.Ordinal))
+                {
+                    step.OutputRedacted = true;
+                }
+
+                if (keepAll || RestoreErrorLineRegex().IsMatch(redacted))
+                {
+                    invocation.Lines.Add(redacted);
+                }
+
                 forward?.Invoke(redacted);
             }
         };

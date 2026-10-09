@@ -3819,7 +3819,7 @@ public class ProjectRunServiceTests
             RunDotnetStreamingHandler = (args, onOut, _) =>
             {
                 onOut?.Invoke("  Determining projects to restore...");
-                onOut?.Invoke($"C:\\src\\Server.csproj : warning NU1803: source https://feed.example/v3/index.json?sig=RESTORE_SECRET uses http [{args.Split(' ')[1]}]");
+                onOut?.Invoke($"C:\\src\\Server.csproj : warning NU1901: Package 'X' 1.0.0 has a known low severity vulnerability, https://github.com/advisories/GHSA-test [{args.Split(' ')[1]}]");
                 return 0;
             },
         };
@@ -3846,9 +3846,7 @@ public class ProjectRunServiceTests
 
         var output = console.Output;
         StringAssert.Contains(output, "Restored App and 1 solution project with 1 warning(s)");
-        Assert.AreEqual(1, Regex.Count(output, "warning NU1803"), "each restore warning is shown once");
-        StringAssert.Contains(output, "https://feed.example/v3/index.json?<redacted>");
-        Assert.IsFalse(output.Contains("RESTORE_SECRET", StringComparison.Ordinal));
+        Assert.AreEqual(1, Regex.Count(output, "warning NU1901"), "each restore warning is shown once");
         Assert.IsFalse(output.Contains("Determining projects", StringComparison.Ordinal),
             "a successful restore's progress chatter stays hidden");
         Assert.IsFalse(output.Contains("dotnet restore", StringComparison.Ordinal),
@@ -3874,6 +3872,65 @@ public class ProjectRunServiceTests
 
         Assert.IsNotNull(outcome.Resolution);
         StringAssert.Contains(console.Output, "Restored App[1] in");
+    }
+
+    [TestMethod]
+    public async Task RunBuildPassAsync_RealTerminalWithSecretInArguments_StreamsAndRedactsInsteadOfInheriting()
+    {
+        // A project target can print a property, so a credential passed with -p must never reach inherited stdio.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetStreamingHandler = (_, onOut, _) =>
+            {
+                onOut?.Invoke("warning : feed https://feed.example/v3/index.json?sig=ARG_SECRET");
+                return 0;
+            },
+        };
+        using var console = new TestConsole();
+        var service = new ProjectRunService(dotnet, NewDetection(dotnet), new FakeCsWinRTMetadataShimService(), console, new LevelLogger<ProjectRunService>(LogLevel.Information), new FakeMSBuildService())
+        {
+            NativeTerminalGateOverrideForTests = () => true,
+        };
+        var options = new ProjectRunOptions(
+            "Debug", "x64", null, NoBuild: false, NoRestore: true,
+            Properties: ["RestoreSources=https://feed.example/v3/index.json?sig=ARG_SECRET"]);
+
+        var exit = await service.RunBuildPassAsync(csproj, options, _tempDir, csWinRTMetadataFolder: null, CancellationToken.None);
+
+        Assert.AreEqual(0, exit);
+        Assert.IsEmpty(dotnet.InheritedCalls, "a build whose arguments carry a credential must not inherit the console");
+        StringAssert.Contains(dotnet.StreamingCalls.Single(), "-tl:off");
+        Assert.IsFalse(console.Output.Contains("ARG_SECRET", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_RealTerminalRestoreQuotedACredential_BuildStreamsThroughRedaction()
+    {
+        // The build replays restore warnings from project.assets.json. If restore output needed redaction, the
+        // build's would too, so it must not run on inherited stdio.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetStreamingHandler = (args, onOut, _) =>
+            {
+                onOut?.Invoke("App.csproj : warning NU1801: Unable to load the service index for source https://feed.example/v3/index.json?sig=REPLAYED");
+                return 0;
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out var console);
+        service.NativeTerminalGateOverrideForTests = () => true;
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.IsEmpty(dotnet.InheritedCalls, "the build must stream through winapp's redaction");
+        var build = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal));
+        StringAssert.Contains(build, "--no-restore", "the separate restore still covers the build");
+        StringAssert.Contains(build, "-tl:off");
+        Assert.IsFalse(console.Output.Contains("REPLAYED", StringComparison.Ordinal));
     }
 
     [TestMethod]

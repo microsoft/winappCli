@@ -189,12 +189,13 @@ internal sealed partial class ProjectRunService(
 
     /// <summary>
     /// Runs the pre-build steps — effective-framework pinning, the CsWinRT metadata shim, and the
-    /// pre-build restores (whole-solution when applicable, plus the target on an interactive terminal)
-    /// — before the build pass. Returns the (possibly framework-pinned) options, the build-pass options
-    /// (with <c>NoRestore</c> set when a pre-restore already covered the target), and the resolved CsWinRT
-    /// metadata folder (or null).
+    /// pre-build restores (the solution's other projects when applicable, plus the target on an interactive
+    /// terminal) — before the build pass. Returns the (possibly framework-pinned) options, the build-pass
+    /// options (with <c>NoRestore</c> set when a pre-restore already covered the target), the resolved CsWinRT
+    /// metadata folder (or null), and whether restore output needed redaction: the build replays restore
+    /// warnings, so its output then needs redacting too.
     /// </summary>
-    private async Task<(ProjectRunOptions Options, ProjectRunOptions BuildOptions, string? CsWinRTMetadata)>
+    private async Task<(ProjectRunOptions Options, ProjectRunOptions BuildOptions, string? CsWinRTMetadata, bool RedactBuildOutput)>
         PrepareBuildInputsAsync(
             FileInfo csproj,
             ProjectRunOptions options,
@@ -236,6 +237,7 @@ internal sealed partial class ProjectRunService(
                 cancellationToken);
         }
         var buildOptions = options;
+        var redactBuildOutput = false;
 
         // When the target lives in a solution, restore the solution's other managed projects up front so
         // build-dependency siblings that aren't ProjectReferences (e.g. a COM server) have project.assets.json
@@ -273,8 +275,11 @@ internal sealed partial class ProjectRunService(
                 var subject = DescribeRestoreSubject(csproj, restoresTarget, plan?.ManagedSiblings.Count ?? 0);
                 var verbosity = ResolveRestoreVerbosity(logger, options.Json);
 
+                RestoreStep? restoreStep = null;
                 var targetRestored = await RunRestoreStepAsync(subject, options, workingDir, async step =>
                 {
+                    restoreStep = step;
+
                     // (1) Restore the owning solution's managed siblings. The target always restores on its own:
                     // a solution-scoped restore can't carry its Platform (MSB4126) or RuntimeIdentifier.
                     if (plan is not null)
@@ -317,10 +322,14 @@ internal sealed partial class ProjectRunService(
                     return false;
                 }, cancellationToken);
 
+                // The build replays restore warnings (from project.assets.json), so if restore output quoted
+                // something winapp had to redact, the build's output must go through winapp too.
+                redactBuildOutput = restoreStep?.OutputRedacted == true;
+
                 if (publish)
                 {
                     csWinRTMetadata ??= ResolveCsWinRTMetadataShim(options, shimFramework);
-                    return (options, options with { NoRestore = true }, csWinRTMetadata);
+                    return (options, options with { NoRestore = true }, csWinRTMetadata, redactBuildOutput);
                 }
 
                 if (targetRestored)
@@ -335,7 +344,7 @@ internal sealed partial class ProjectRunService(
             }
         }
 
-        return (options, buildOptions, csWinRTMetadata);
+        return (options, buildOptions, csWinRTMetadata, redactBuildOutput);
     }
 
     /// <inheritdoc />
@@ -377,9 +386,9 @@ internal sealed partial class ProjectRunService(
         // Restores never look frozen: on an interactive terminal they run behind a spinner with elapsed time
         // (a slow or unreachable feed can take minutes), elsewhere their output streams live. Property
         // discovery stays buffered because winapp parses it.
-        var (preparedOptions, buildOptions, csWinRTMetadata) = preparation is null
+        var (preparedOptions, buildOptions, csWinRTMetadata, redactBuildOutput) = preparation is null
             ? await PrepareBuildInputsAsync(csproj, options, workingDir, cancellationToken)
-            : (preparation.Options, preparation.Options, preparation.CsWinRTMetadata);
+            : (preparation.Options, preparation.Options, preparation.CsWinRTMetadata, false);
         options = preparedOptions;
 
         // Reject a non-runnable project (e.g. a class library) before building it — the post-build
@@ -408,7 +417,7 @@ internal sealed partial class ProjectRunService(
         // after targets execute: a separate evaluation cannot recover target-assigned PublishDir.
         if (!publish && !options.NoBuild)
         {
-            var buildExit = await RunBuildPassAsync(csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken);
+            var buildExit = await RunBuildPassAsync(csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken, redactBuildOutput);
             if (buildExit != 0)
             {
                 // dotnet's diagnostics were already streamed live; log the summary and propagate the exit code.
@@ -693,7 +702,7 @@ internal sealed partial class ProjectRunService(
     {
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
         ThrowIfReferencesCppProject(csproj, packaging: true);
-        (_, options, var metadata) = await PrepareBuildInputsAsync(
+        (_, options, var metadata, _) = await PrepareBuildInputsAsync(
             csproj, options, workingDir, cancellationToken, publish: true);
         var props = await EvaluatePreparedPropertiesAsync(csproj, options, workingDir, metadata, cancellationToken);
         return new ProjectPackagePreparation(
@@ -877,13 +886,17 @@ internal sealed partial class ProjectRunService(
     /// </list>
     /// The exact (sanitized) dotnet invocation is printed before the build under <c>--verbose</c>, and after
     /// it when the build fails, so a failure is always reproducible without cluttering a successful run.
+    /// Output goes through winapp, not inherited stdio, whenever it may quote a secret: when the build may
+    /// restore, when its arguments carry a credential (a target can echo a property), or when
+    /// <paramref name="redactOutput"/> reports that the restore it replays warnings from needed redaction.
     /// </summary>
     internal async Task<int> RunBuildPassAsync(
         FileInfo csproj,
         ProjectRunOptions options,
         DirectoryInfo workingDir,
         string? csWinRTMetadataFolder,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool redactOutput = false)
     {
         var verbosity = ResolveBuildVerbosity(logger, options.Json);
 
@@ -907,9 +920,16 @@ internal sealed partial class ProjectRunService(
                 cancellationToken: cancellationToken);
         }
 
-        // A build without --no-restore may emit authenticated NuGet source URLs. Keep that path streamed
-        // through winapp so credentials can be redacted; native inherited stdio is safe only for build-only output.
-        var nativeTerminal = UsesNativeTerminalBuild(options) && options.NoRestore;
+        // Inherited stdio bypasses winapp's redaction, so dotnet gets the console only when nothing the build
+        // prints can quote a secret: no restore (which may emit authenticated NuGet source URLs), no credential
+        // in the arguments, and no redacted text in the restore output the build replays as warnings.
+        var nativeTerminal = UsesNativeTerminalBuild(options) && options.NoRestore && !redactOutput;
+        if (nativeTerminal)
+        {
+            var nativeArgs = BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, nativeTerminal: true);
+            nativeTerminal = string.Equals(RedactSecretsForDisplay(nativeArgs), nativeArgs, StringComparison.Ordinal);
+        }
+
         var buildArgs = BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, nativeTerminal);
         var command = $"dotnet {RedactSecretsForDisplay(buildArgs)}";
         var verbose = logger.IsEnabled(LogLevel.Debug);

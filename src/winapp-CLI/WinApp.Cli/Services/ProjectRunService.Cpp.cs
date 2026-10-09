@@ -269,7 +269,8 @@ internal sealed partial class ProjectRunService
 
         if (exitCode != 0 && !verbose)
         {
-            PrintFailedCommand(commandDisplay);
+            // The exact (redacted) invocation, so the failure can be reproduced outside winapp.
+            PrintFailedCommand(fullCommand);
         }
 
         exitCode = await ExplainBuildFailureAsync(msbuild, project, properties, exitCode, failures, cancellationToken);
