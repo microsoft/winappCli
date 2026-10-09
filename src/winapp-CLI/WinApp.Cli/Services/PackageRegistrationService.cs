@@ -552,14 +552,37 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
     //  * RemovePackage - has no real-default test: removing a non-existent package has no
     //    observable effect and its failure mode (throw vs error-result) is host-dependent, so such
     //    a test would be vacuous or flaky. The warning / no-warning logic is covered via the seam.
+
+    /// <summary>
+    /// Awaits a PackageManager operation and then leaves the thread that completed it.
+    /// </summary>
+    /// <remarks>
+    /// The WinRT task bridge completes the task from inside the operation's Completed callback, and
+    /// with no synchronization context the caller's whole async chain (including app activation in
+    /// <c>winapp run</c>) would continue inline on that callback. The deployment stack waits for the
+    /// callback to return, so with several deployments in flight that can deadlock forever (#1035).
+    /// <see cref="Task.Yield"/> queues the rest to the thread pool so the callback returns at once.
+    /// </remarks>
+    internal static async Task<T> OffDeploymentCallbackAsync<T>(Task<T> operation)
+    {
+        try
+        {
+            return await operation;
+        }
+        finally
+        {
+            await Task.Yield();
+        }
+    }
+
     private static async Task<DeploymentOutcome> DefaultRegisterLoose(Uri manifestUri, CancellationToken cancellationToken)
     {
         var pm = new PackageManager();
-        var result = await pm.RegisterPackageAsync(
+        var result = await OffDeploymentCallbackAsync(pm.RegisterPackageAsync(
             manifestUri,
             null,
             DeploymentOptions.DevelopmentMode | DeploymentOptions.ForceApplicationShutdown
-        ).AsTask(cancellationToken);
+        ).AsTask(cancellationToken));
         return new DeploymentOutcome(result.IsRegistered, result.ErrorText, result.ExtendedErrorCode?.HResult);
     }
 
@@ -572,7 +595,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
             DeveloperMode = true,
             ForceUpdateFromAnyVersion = true,
         };
-        var result = await pm.RegisterPackageByUriAsync(manifestUri, options).AsTask(cancellationToken);
+        var result = await OffDeploymentCallbackAsync(pm.RegisterPackageByUriAsync(manifestUri, options).AsTask(cancellationToken));
         return new DeploymentOutcome(result.IsRegistered, result.ErrorText, result.ExtendedErrorCode?.HResult);
     }
 
@@ -619,7 +642,7 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         var removalOptions = preserveAppData
             ? RemovalOptions.PreserveApplicationData
             : RemovalOptions.None;
-        var result = await pm.RemovePackageAsync(packageFullName, removalOptions).AsTask(cancellationToken);
+        var result = await OffDeploymentCallbackAsync(pm.RemovePackageAsync(packageFullName, removalOptions).AsTask(cancellationToken));
         return new RemovalOutcome(result.ErrorText);
     }
 
@@ -629,13 +652,13 @@ internal sealed class PackageRegistrationService(ILogger<PackageRegistrationServ
         CancellationToken cancellationToken)
     {
         var pm = new PackageManager();
-        var result = await pm.AddPackageAsync(
+        var result = await OffDeploymentCallbackAsync(pm.AddPackageAsync(
             packageUri,
             null,
             forceApplicationShutdown
                 ? DeploymentOptions.ForceApplicationShutdown
                 : DeploymentOptions.None
-        ).AsTask(cancellationToken);
+        ).AsTask(cancellationToken));
         return new InstallOutcome(result.ErrorText, result.ExtendedErrorCode?.HResult);
     }
 

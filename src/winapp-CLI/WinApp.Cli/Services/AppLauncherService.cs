@@ -24,8 +24,27 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
     [SupportedOSPlatform("windows8.0")]
     public uint LaunchByAumid(string aumid, string? arguments = null)
     {
-        return ActivateApplicationImpl(aumid, arguments);
+        // IApplicationActivationManager.ActivateApplication has no timeout of its own and can block
+        // indefinitely, so run it off-thread and give up after ActivationTimeout. A timed-out call
+        // is abandoned on a background thread, which does not keep the process alive.
+        var activation = Task.Run(() => ActivateApplicationImpl(aumid, arguments));
+        try
+        {
+            return activation.WaitAsync(ActivationTimeout).GetAwaiter().GetResult();
+        }
+        catch (TimeoutException) when (!activation.IsCompleted)
+        {
+            throw new TimeoutException(
+                $"Windows did not finish activating '{aumid}' within {ActivationTimeout.TotalSeconds:0} seconds. " +
+                "The package is registered; try launching it again, or check Event Viewer > Applications and Services Logs > " +
+                "Microsoft > Windows > AppModel-Runtime for activation errors.");
+        }
     }
+
+    /// <summary>
+    /// Upper bound on a single AUMID activation. Overridable in tests.
+    /// </summary>
+    internal TimeSpan ActivationTimeout { get; set; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// COM activation seam. Defaults to the real <see cref="IApplicationActivationManager"/>;
