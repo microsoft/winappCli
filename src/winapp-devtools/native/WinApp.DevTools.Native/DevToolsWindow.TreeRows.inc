@@ -404,6 +404,18 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
             std::wstring aname = identity;
             if (!n.preview.empty()) { aname += L" "; aname += n.preview; }
             setAutomationText(nodeBtn, aname, L"TreeNode" + std::to_wstring(i), L"tree item");
+            // The caption ends in an ellipsis when the row is too narrow; the tooltip holds all of it.
+            std::wstring full = g_treeShortType[i];
+            if (!n.name.empty()) full += L"  #" + n.name;
+            if (!n.preview.empty()) full += L"  \u201C" + n.preview + L"\u201D";
+            try {
+                winrt::Windows::Foundation::IInspectable rowObject{ nullptr };
+                winrt::copy_from_abi(rowObject, nodeBtn);
+                auto row = rowObject.as<DevToolsX::DependencyObject>();
+                DevToolsXC::ToolTipService::SetToolTip(row, winrt::box_value(winrt::hstring(full)));
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.rows row %zu: tooltip not set hr=0x%08X", i, e.code().value);
+            }
             setTreeItemPosition(nodeBtn, a);
             setGridColumn(nodeBtn, 1);
         }

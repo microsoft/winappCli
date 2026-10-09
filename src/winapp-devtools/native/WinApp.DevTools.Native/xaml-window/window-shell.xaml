@@ -176,7 +176,7 @@
                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                    AutomationProperties.AutomationId="FocusNotice"/>
       </Border>
-      <ScrollViewer x:Name="TreeScroll" Grid.Row="3" ZoomMode="Disabled" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto">
+      <ScrollViewer x:Name="TreeScroll" Grid.Row="3" ZoomMode="Disabled" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="8">
           <TextBlock x:Name="TreeHeader" Margin="4,4,4,10" Text="$TREEHEADER$" Style="{StaticResource CaptionTextBlockStyle}"
                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" CharacterSpacing="60"/>

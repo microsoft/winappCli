@@ -138,6 +138,17 @@ static void TestToolbarContract()
                      xaml.find("AutomationProperties.Name=\"Show comment markers\"") != std::string::npos &&
                      overlay.find("DevToolsToggleMarkersText") == std::string::npos,
                  "Show comment markers is a checked toggle whose label never flips");
+    // A deep row's label must end in an ellipsis, with the full text in a tooltip, rather than be cut mid-character:
+    // a horizontally scrolling tree measures its rows at unlimited width, so their text is never trimmed.
+    const size_t treeScrollAt = windowShell.find("x:Name=\"TreeScroll\"");
+    const std::string treeScroll = treeScrollAt == std::string::npos ? std::string()
+        : windowShell.substr(treeScrollAt, windowShell.find('>', treeScrollAt) - treeScrollAt);
+    CheckToolbar(treeScroll.find("HorizontalScrollMode=\"Disabled\"") != std::string::npos &&
+                     treeScroll.find("HorizontalScrollBarVisibility=\"Disabled\"") != std::string::npos,
+                 "the visual tree does not scroll sideways, so its row labels are width-bound");
+    CheckToolbar(window.find("DevToolsPutTextTrimming(ctb, (int)DevToolsX::TextTrimming::CharacterEllipsis);") != std::string::npos &&
+                     window.find("ToolTipService::SetToolTip(row, winrt::box_value(winrt::hstring(full)));") != std::string::npos,
+                 "a tree row's label ends in an ellipsis and its tooltip holds the full label");
     CheckToolbar(xaml.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
                      selectionPanel.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
                      windowShell.find("FontFamily=\"Segoe MDL2 Assets\"") == std::string::npos &&
