@@ -151,32 +151,6 @@ winapp create-debug-identity .\bin\Debug\myapp.exe
 
 For full details including IDE setup examples, see the [Debugging Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/debugging.md).
 
-## Production sparse packaging (`init --sparse` / `pack` / `embed-identity`)
-
-`create-debug-identity` is for **developer-time debugging** (requires Developer Mode, registers a raw manifest). For **production** — shipping identity to an app distributed by an existing installer (Inno Setup, WiX, NSIS) — use the sparse packaging workflow, which produces a signed identity-only `.msix`:
-
-```powershell
-# 1. Create the sparse identity manifest for your exe (skips SDK install)
-winapp init --exe ./bin/Release/MyApp.exe --sparse --use-defaults
-
-# 2. Build and sign the identity-only .msix (just the manifest, no binaries)
-winapp pack ./sparse/appxmanifest.xml --cert ./devcert.pfx
-
-# 3. Embed the <msix> identity element into the exe's fusion manifest
-winapp embed-identity ./bin/Release/MyApp.exe
-```
-
-Then your installer registers the package against the install directory:
-`Add-AppxPackage -Path MyApp.identity.msix -ExternalLocation <install-dir>`.
-
-Assets are resolved from the external (install) location at runtime, **not** bundled into the `.msix`. `winapp embed-identity` also supports an XML mode (`winapp embed-identity ./app.manifest`) for updating a checked-in side-by-side manifest. See the [Sparse Packaging Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/sparse.md) and the [sparse-app sample](https://github.com/microsoft/WinAppCli/tree/main/samples/sparse-app).
-
-## Related skills
-- Need a manifest? See `winapp-manifest` to generate `Package.appxmanifest`
-- Need a certificate? See `winapp-signing` — a trusted cert is required for identity registration
-- Ready for full MSIX distribution? See `winapp-package` to create an installer
-- Having issues? See `winapp-troubleshoot` for common error solutions
-
 ## Troubleshooting
 | Error | Cause | Solution |
 |-------|-------|----------|
@@ -185,6 +159,37 @@ Assets are resolved from the external (install) location at runtime, **not** bun
 | "Access denied" | Cert not trusted or permission issue | Run `winapp cert install ./devcert.pfx` as admin |
 | APIs still fail after registration | App launched before registration completed | Close app, re-run `create-debug-identity`, then relaunch |
 
-## CLI reference
+## Debugging by framework
+
+| Framework | Recommended command | Notes |
+|-----------|-------------------|-------|
+| **.NET** | `winapp run .\bin\x64\Debug\<tfm>\win-x64\` | Build with `dotnet build -c Debug -p:Platform=x64` first; GUI apps launch via AUMID, console apps automatically via an execution alias |
+| **C++** | `winapp run .\MyApp.vcxproj` (Visual Studio project) or `winapp run .\build\Debug` (CMake output) | The `.vcxproj` is built with MSBuild first; console apps are detected and launched via an execution alias automatically |
+| **Rust** | `winapp run .\target\debug` | Console apps are detected and launched via an execution alias automatically |
+| **Flutter** | `winapp run .\build\windows\x64\runner\Debug` | GUI app — plain `winapp run` works |
+| **Tauri** | `winapp run .\dist` | Stage exe to `dist/` first (avoids copying entire `target/` tree); GUI app |
+| **Electron** | `npx winapp node add-electron-debug-identity` | Uses Electron-specific identity registration; `winapp run` is **not** recommended for Electron |
+
+**Key rules:**
+- **GUI apps** (Flutter, Tauri, WPF): use `winapp run <build-output>` — launches via AUMID activation
+- **Console apps** (C++, Rust, .NET console): plain `winapp run <build-output>` — winapp detects a console app from the built binary's PE subsystem and launches it via an execution alias, so stdin/stdout reach your terminal. It stages the required `uap5:ExecutionAlias` into the AppX layout itself, so no manifest edit is needed. Pass `--without-alias` to force AUMID activation instead (the app then prints nothing); `--with-alias` only forces an alias for a *windowed* app
+- **Electron**: different mechanism — uses `npx winapp node add-electron-debug-identity` because `electron.exe` is in `node_modules/`, not your build output
+- **Startup debugging (any framework)**: use `winapp create-debug-identity <exe>` so your IDE can F5-launch the exe with identity from the first instruction
+
+For full debugging scenarios and IDE setup, see the [Debugging Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/debugging.md).
+
+## Load when
+
+| Read | When |
+|---|---|
+| `references/run-project-mode.md` | Running a .csproj or .vcxproj with `winapp run` (build inputs, arguments, output), or choosing run vs create-debug-identity in detail |
+| `references/single-file-apps.md` | The app is a single `.cs` file-based app (`#:property`, capabilities, aliases) |
+| `references/production-sparse.md` | Shipping identity next to an existing installer or exe (`init --sparse`, `pack`, `embed-identity`) |
+
+## Related skills
+
+- `winapp-manifest` — declare the extension or capability the feature needs
+- `winapp-setup` — Electron and other framework specifics
+- `winapp-troubleshoot` — registration errors
 
 Run `winapp <command> --help` for current command options, or `winapp --cli-schema` for the complete machine-readable command schema.

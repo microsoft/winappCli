@@ -74,7 +74,7 @@ Get via `DispatcherQueue.GetForCurrentThread()`. No `Application.Current.Dispatc
 Delete custom `ObservableObject`/`RelayCommand`/`DelegateCommand`. Use CommunityToolkit.Mvvm:
 - `INotifyPropertyChanged` base → `ObservableObject` with `[ObservableProperty]` partial properties (fix MVVMTK0045; don't keep fields)
 - Custom `RelayCommand` → `[RelayCommand]` attribute
-- Prefer `{x:Bind}` for known types; keep runtime `{Binding}`/`DisplayMemberPath` where needed. See `winui-packaging`'s `references/sourcegen-patterns.md` for binding modes, `x:DataType`, and AOT-safe runtime binding.
+- Prefer `{x:Bind}` for known types; keep runtime `{Binding}`/`DisplayMemberPath` where needed. For binding modes, `x:DataType`, and AOT-safe runtime binding, load the `winui-packaging` skill and read its `sourcegen-patterns.md` reference.
 - `DynamicResource` → `{ThemeResource}`
 
 #### Step 8: Replace Resources

@@ -42,7 +42,7 @@ Use the installed package's diagnostic help links for rule details. Check inheri
 ### Native AOT / Trimming (When Intended)
 
 - [ ] The published artifact was tested (a Release JIT run is not AOT validation), with IL/CsWinRT warnings fixed rather than suppressed
-- [ ] ABI-crossing types are partial; JSON and runtime bindings use source generation — see `winui-packaging`'s `references/sourcegen-patterns.md`
+- [ ] ABI-crossing types are partial; JSON and runtime bindings use source generation — load the `winui-packaging` skill and read its `sourcegen-patterns.md` reference
 
 ### Accessibility
 
@@ -89,6 +89,18 @@ After reviewing, summarize:
 2. **Severity:** Error (must fix), Warning (should fix), or Note (could improve)
 3. **Suggested fixes:** Specific code changes for each issue
 
-### References
+## Load when
 
-For detailed rules with code examples, see `references/quality-rules.md` — covers performance deep dives (x:Phase, layout optimization), security (PasswordVault, DPAPI, WebView2 hardening), accessibility (keyboard nav, screen readers), code quality (.editorconfig, naming), and globalization (x:Uid patterns, RTL, pluralization).
+| Read | When |
+|---|---|
+| `references/performance.md` | Reviewing performance (x:Load, x:Phase, virtualization, threading, async) |
+| `references/security.md` | Reviewing secrets, encryption, input validation, WebView2, networking |
+| `references/accessibility.md` | Reviewing automation properties, keyboard, screen readers, contrast |
+| `references/code-quality.md` | Reviewing analyzers, .editorconfig, naming, file organization |
+| `references/globalization.md` | Reviewing .resw, x:Uid, ResourceLoader, culture formatting, RTL |
+
+## Related skills
+
+- `winui-design` — XAML rules referenced by the checklist
+- `winui-dev-workflow` — analyzer setup and builds
+- `winui-packaging` — Native AOT and source-generator patterns

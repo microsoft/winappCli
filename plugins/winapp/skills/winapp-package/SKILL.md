@@ -120,8 +120,10 @@ winapp cert install ./devcert.pfx
 # Install the MSIX
 Add-AppxPackage ./myapp.msix
 
-# Uninstall if needed
-Get-AppxPackage *myapp* | Remove-AppxPackage
+# Uninstall if needed: look up this package by its exact Identity Name from Package.appxmanifest,
+# confirm with the user that it's the one to remove, then remove only that PackageFullName
+Get-AppxPackage -Name <IdentityName>
+Remove-AppxPackage <PackageFullName>
 ```
 
 ## Recommended workflow
