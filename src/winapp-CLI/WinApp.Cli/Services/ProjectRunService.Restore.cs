@@ -349,8 +349,8 @@ internal sealed partial class ProjectRunService
     /// that lists only the managed siblings winapp resolved to local files. The solution itself is never
     /// handed to <c>dotnet restore</c>: MSBuild would also open entries winapp skipped, such as missing,
     /// native, or UNC paths (the last would authenticate to whoever serves the share). A solution that lists
-    /// <c>.etp</c> entries isn't handed to MSBuild at all, since MSBuild opens those even through a filter; its
-    /// siblings restore one by one. Otherwise siblings are restored one by one only when the
+    /// <c>.etp</c> or <c>%</c>-escaped entries isn't handed to MSBuild at all, since MSBuild would follow those
+    /// past winapp's checks even through a filter; its siblings restore one by one. Otherwise siblings are restored one by one only when the
     /// filtered restore fails. Build-mode restores are best-effort; package preparation stops on a failed
     /// dependency restore.
     /// </summary>
@@ -369,7 +369,7 @@ internal sealed partial class ProjectRunService
         if (!plan.CanUseSolutionFilter)
         {
             // Reading this solution would make MSBuild open entries winapp didn't vet, so leave it out entirely.
-            logger.LogDebug("{UISymbol} {Solution} lists .etp entries; restoring its projects individually.", UiSymbols.Note, solution.Name);
+            logger.LogDebug("{UISymbol} {Solution} lists .etp or escaped entries; restoring its projects individually.", UiSymbols.Note, solution.Name);
             await RestoreSiblingsIndividuallyAsync(step, plan.ManagedSiblings, options, publish, cancellationToken);
             return;
         }

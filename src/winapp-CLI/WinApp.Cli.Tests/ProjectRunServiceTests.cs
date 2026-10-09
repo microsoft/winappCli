@@ -3586,11 +3586,12 @@ public class ProjectRunServiceTests
     [DataRow("App.sln", "")]
     [DataRow("App.slnx", "Local.etp")]
     [DataRow("App.slnx", "Local&#46;etp")] // XML character reference: only the parsed path spells .etp
-    public async Task BuildAndResolveAsync_SolutionWithEtpEntry_RestoresSiblingsWithoutReadingTheSolution(string solutionName, string etpEntry)
+    [DataRow("App.slnx", "link%5CLib.csproj")] // MSBuild decodes %5C, so it would open link\Lib.csproj
+    public async Task BuildAndResolveAsync_SolutionWithEtpOrEscapedEntry_RestoresSiblingsWithoutReadingTheSolution(string solutionName, string etpEntry)
     {
         // MSBuild opens every .etp entry a solution lists, and the files it references, even through a
-        // solution filter, and those can name a share. Such a solution never reaches MSBuild; its siblings
-        // restore one by one.
+        // solution filter, and decodes %XX escapes in entries, so it could reach a share winapp never vetted.
+        // Such a solution never reaches MSBuild; its siblings restore one by one.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         WriteProjectsAt("Server/Server.csproj");
         var solution = solutionName.EndsWith(".slnx", StringComparison.Ordinal)

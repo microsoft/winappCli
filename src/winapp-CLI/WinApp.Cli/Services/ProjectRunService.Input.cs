@@ -539,7 +539,7 @@ internal sealed partial class ProjectRunService
     /// <param name="CanUseSolutionFilter">
     /// Whether MSBuild can read the solution without opening entries winapp didn't vet. MSBuild opens every
     /// <c>.etp</c> entry a solution lists, and the files it references, even through a solution filter, and
-    /// those paths can name a share.
+    /// it decodes <c>%XX</c> escapes in entries; either can lead it to a share.
     /// </param>
     internal sealed record SolutionRestorePlan(
         IReadOnlyList<FileInfo> ManagedSiblings,
@@ -601,10 +601,10 @@ internal sealed partial class ProjectRunService
             }
         }
 
-        // Check the raw text (a .sln path has no escape syntax) and the parsed entries (a .slnx path can be
-        // spelled with XML character references).
+        // Check the raw text and the parsed entries (a .slnx path can be spelled with XML character references).
+        // MSBuild also decodes %XX escapes in an entry, so the file it opens may not be the one vetted above.
         var canUseSolutionFilter = !text.Contains(".etp", StringComparison.OrdinalIgnoreCase)
-            && !entries.Any(entry => entry.Contains(".etp", StringComparison.OrdinalIgnoreCase));
+            && !entries.Any(entry => entry.Contains(".etp", StringComparison.OrdinalIgnoreCase) || entry.Contains('%'));
 
         return new SolutionRestorePlan(siblings, siblingEntries, missing, canUseSolutionFilter);
     }
