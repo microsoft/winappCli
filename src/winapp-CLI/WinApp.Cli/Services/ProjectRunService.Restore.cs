@@ -4,6 +4,8 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml;
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using WinApp.Cli.Helpers;
@@ -610,12 +612,69 @@ internal sealed partial class ProjectRunService
         !json && !logger.IsEnabled(LogLevel.Information) ? "quiet" : null;
 
     /// <summary>
-    /// Whether a <c>--no-restore</c> build of <paramref name="project"/> may print a credential: the build
-    /// replays the warnings the last restore stored in <c>obj\project.assets.json</c>, which can quote an
-    /// authenticated feed URL. True when one of them would need redaction, or when the file can't be read
-    /// (for example, a project that relocates <c>obj</c>), so winapp can't tell.
+    /// Whether a <c>--no-restore</c> build of <paramref name="project"/> may print a credential. The build replays
+    /// the warnings each project in its <c>ProjectReference</c> closure stored in <c>obj\project.assets.json</c>
+    /// at its last restore, and those can quote an authenticated feed URL. True when one of them would need
+    /// redaction, or when winapp can't tell: an assets file it can't read (for example, a relocated <c>obj</c>),
+    /// a reference it can't resolve, or references added by a <c>Directory.Build.props</c>/<c>.targets</c>.
     /// </summary>
     internal static bool AssetsLogNeedsRedaction(FileInfo project)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { project.FullName };
+        var queue = new Queue<FileInfo>();
+        queue.Enqueue(project);
+        var checkedBuildFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (ProjectAssetsLogNeedsRedaction(current) || BuildFilesAddProjectReferences(current, checkedBuildFiles))
+            {
+                return true;
+            }
+
+            XDocument document;
+            try
+            {
+                document = XDocument.Load(current.FullName);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
+            {
+                return true;
+            }
+
+            // Build-only references (analyzers, generators) still build, and so replay their own assets log.
+            foreach (var element in document.Descendants().Where(e => e.Name.LocalName == "ProjectReference"))
+            {
+                var include = element.Attribute("Include")?.Value;
+                if (string.IsNullOrWhiteSpace(include))
+                {
+                    continue;
+                }
+
+                foreach (var segment in include.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!TryResolveReferencePath(current, segment, out var reference))
+                    {
+                        return true;
+                    }
+
+                    if (visited.Add(reference.FullName))
+                    {
+                        if (visited.Count > MaxProjectReferenceClosure)
+                        {
+                            return true;
+                        }
+
+                        queue.Enqueue(reference);
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool ProjectAssetsLogNeedsRedaction(FileInfo project)
     {
         var assets = Path.Join(project.DirectoryName, "obj", "project.assets.json");
         try
@@ -631,6 +690,7 @@ internal sealed partial class ProjectRunService
             {
                 if (log.ValueKind == JsonValueKind.Object
                     && log.TryGetProperty("message", out var message)
+                    && message.ValueKind == JsonValueKind.String
                     && message.GetString() is { } text
                     && !string.Equals(NugetErrorMessage.Redact(text), text, StringComparison.Ordinal))
                 {
@@ -644,5 +704,35 @@ internal sealed partial class ProjectRunService
         {
             return true;
         }
+    }
+
+    /// <summary>Whether a <c>Directory.Build.props</c>/<c>.targets</c> above <paramref name="project"/> mentions <c>ProjectReference</c>.</summary>
+    private static bool BuildFilesAddProjectReferences(FileInfo project, HashSet<string> checkedFiles)
+    {
+        for (var directory = project.Directory; directory is not null; directory = directory.Parent)
+        {
+            foreach (var name in (ReadOnlySpan<string>)["Directory.Build.props", "Directory.Build.targets"])
+            {
+                var path = Path.Join(directory.FullName, name);
+                if (!checkedFiles.Add(path) || !File.Exists(path))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (File.ReadAllText(path).Contains("ProjectReference", StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

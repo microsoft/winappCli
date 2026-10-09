@@ -3968,6 +3968,49 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task BuildAndResolveAsync_RealTerminalNoRestore_ReferencedProjectsAssetsLogQuotesACredential_Streams()
+    {
+        // The build replays every referenced project's assets log too, not just the target's.
+        var csproj = WriteFile("App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net8.0-windows10.0.19041.0</TargetFramework></PropertyGroup>
+              <ItemGroup><ProjectReference Include="Lib\Lib.csproj" /></ItemGroup>
+            </Project>
+            """);
+        WriteFileAt(Path.Join("obj", "project.assets.json"), """{"version":3,"logs":[]}""");
+        WriteFileAt(Path.Join("Lib", "Lib.csproj"), """<Project Sdk="Microsoft.NET.Sdk" />""");
+        WriteFileAt(Path.Join("Lib", "obj", "project.assets.json"),
+            """{"version":3,"logs":[{"code":"NU1801","level":"Warning","message":"Unable to load https://feed.example/v3/index.json?sig=LIB_SECRET"}]}""");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+        service.NativeTerminalGateOverrideForTests = () => true;
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: true, Properties: []);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.IsEmpty(dotnet.InheritedCalls, "a referenced project's replayed credential must go through redaction");
+    }
+
+    [TestMethod]
+    [DataRow("$(Root)Lib.csproj", DisplayName = "unresolvable reference")]
+    [DataRow("Missing\\Missing.csproj", DisplayName = "missing reference")]
+    public void AssetsLogNeedsRedaction_ReferenceWinappCantCheck_IsTreatedAsNeedingRedaction(string include)
+    {
+        var csproj = WriteFile("App.csproj", $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup><ProjectReference Include="{include}" /></ItemGroup>
+            </Project>
+            """);
+        WriteFileAt(Path.Join("obj", "project.assets.json"), """{"version":3,"logs":[]}""");
+
+        Assert.IsTrue(ProjectRunService.AssetsLogNeedsRedaction(csproj));
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_RealTerminalRestoreFails_ShowsOutputAndCommandAndSkipsBuild()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
