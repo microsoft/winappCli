@@ -4,8 +4,6 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Xml;
-using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using WinApp.Cli.Helpers;
@@ -529,7 +527,7 @@ internal sealed partial class ProjectRunService
     {
         var path = Path.Join(
             Path.GetTempPath(),
-            $"winapp-restore-{Path.GetFileNameWithoutExtension(solution.Name)}-{Guid.NewGuid():N}.slnf");
+            $"winapp-restore-{Guid.NewGuid():N}.slnf");
         using (var stream = File.Create(path))
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
         {
@@ -610,152 +608,4 @@ internal sealed partial class ProjectRunService
 
     private static string? ResolveRestoreVerbosity(ILogger logger, bool json) =>
         !json && !logger.IsEnabled(LogLevel.Information) ? "quiet" : null;
-
-    /// <summary>
-    /// Whether a <c>--no-restore</c> build of <paramref name="project"/> may print a credential. The build replays
-    /// the warnings each project in its <c>ProjectReference</c> closure stored in <c>obj\project.assets.json</c>
-    /// at its last restore, and those can quote an authenticated feed URL. True when one of them would need
-    /// redaction, or when winapp can't tell: an assets file it can't read, a reference it can't resolve, or a
-    /// <c>-p</c> property, environment variable, project or <c>Directory.Build.props</c>/<c>.targets</c> that may
-    /// add references or move the assets file somewhere else.
-    /// </summary>
-    internal static bool AssetsLogNeedsRedaction(FileInfo project, IReadOnlyList<string> properties)
-    {
-        foreach (var name in AssetsLocationProperties)
-        {
-            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(name))
-                || properties.Any(p => p.Split('=', 2)[0].Trim().Equals(name, StringComparison.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-        }
-
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { project.FullName };
-        var queue = new Queue<FileInfo>();
-        queue.Enqueue(project);
-        var checkedBuildFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            if (ProjectAssetsLogNeedsRedaction(current) || BuildFilesMayChangeAssets(current, checkedBuildFiles))
-            {
-                return true;
-            }
-
-            XDocument document;
-            try
-            {
-                document = XDocument.Load(current.FullName);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
-            {
-                return true;
-            }
-
-            if (document.Descendants().Any(e => AssetsLocationProperties.Contains(e.Name.LocalName, StringComparer.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-
-            // Build-only references (analyzers, generators) still build, and so replay their own assets log.
-            foreach (var element in document.Descendants().Where(e => e.Name.LocalName == "ProjectReference"))
-            {
-                var include = element.Attribute("Include")?.Value;
-                if (string.IsNullOrWhiteSpace(include))
-                {
-                    continue;
-                }
-
-                foreach (var segment in include.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                {
-                    if (!TryResolveReferencePath(current, segment, out var reference))
-                    {
-                        return true;
-                    }
-
-                    if (visited.Add(reference.FullName))
-                    {
-                        if (visited.Count > MaxProjectReferenceClosure)
-                        {
-                            return true;
-                        }
-
-                        queue.Enqueue(reference);
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool ProjectAssetsLogNeedsRedaction(FileInfo project)
-    {
-        var assets = Path.Join(project.DirectoryName, "obj", "project.assets.json");
-        try
-        {
-            using var stream = File.OpenRead(assets);
-            using var document = JsonDocument.Parse(stream);
-            if (!document.RootElement.TryGetProperty("logs", out var logs) || logs.ValueKind != JsonValueKind.Array)
-            {
-                return false;
-            }
-
-            foreach (var log in logs.EnumerateArray())
-            {
-                if (log.ValueKind == JsonValueKind.Object
-                    && log.TryGetProperty("message", out var message)
-                    && message.ValueKind == JsonValueKind.String
-                    && message.GetString() is { } text
-                    && !string.Equals(NugetErrorMessage.Redact(text), text, StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return true;
-        }
-    }
-
-    /// <summary>MSBuild properties that move the <c>project.assets.json</c> a build reads away from <c>obj\</c>.</summary>
-    private static readonly string[] AssetsLocationProperties = ["BaseIntermediateOutputPath", "MSBuildProjectExtensionsPath", "ProjectAssetsFile"];
-
-    /// <summary>
-    /// Whether a <c>Directory.Build.props</c>/<c>.targets</c> above <paramref name="project"/> mentions
-    /// <c>ProjectReference</c> or a property that relocates the assets file.
-    /// </summary>
-    private static bool BuildFilesMayChangeAssets(FileInfo project, HashSet<string> checkedFiles)
-    {
-        for (var directory = project.Directory; directory is not null; directory = directory.Parent)
-        {
-            foreach (var name in (ReadOnlySpan<string>)["Directory.Build.props", "Directory.Build.targets"])
-            {
-                var path = Path.Join(directory.FullName, name);
-                if (!checkedFiles.Add(path) || !File.Exists(path))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    var text = File.ReadAllText(path);
-                    if (text.Contains("ProjectReference", StringComparison.OrdinalIgnoreCase)
-                        || AssetsLocationProperties.Any(name => text.Contains(name, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        return true;
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
 }

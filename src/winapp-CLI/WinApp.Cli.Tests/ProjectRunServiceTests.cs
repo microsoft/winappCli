@@ -3934,25 +3934,17 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    [DataRow("NU1801: Unable to load https://feed.example/v3/index.json?sig=ASSETS_SECRET", false, DisplayName = "credential in assets log")]
-    [DataRow("NU1901: Package 'X' has a known vulnerability, https://github.com/advisories/GHSA-x", true, DisplayName = "clean assets log")]
-    [DataRow(null, false, DisplayName = "no assets file")]
-    public async Task BuildAndResolveAsync_RealTerminalNoRestore_InheritsOnlyWhenReplayedWarningsAreClean(string? logMessage, bool inherits)
+    public async Task BuildAndResolveAsync_RealTerminalUserNoRestore_StreamsThroughRedaction()
     {
-        // A --no-restore build replays the warnings stored in obj\project.assets.json by a restore winapp never
-        // saw, so dotnet gets the console only when none of them would need redaction.
+        // A --no-restore build replays warnings stored by a restore winapp never saw, anywhere in the build graph,
+        // so it never inherits the console.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
-        if (logMessage is not null)
-        {
-            WriteFileAt(Path.Join("obj", "project.assets.json"), $$"""{"version":3,"logs":[{"code":"NU1801","level":"Warning","message":"{{logMessage}}"}]}""");
-        }
-
         var dotnet = new FakeDotNetService
         {
             RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
             RunDotnetStreamingHandler = (_, onOut, _) =>
             {
-                onOut?.Invoke(logMessage ?? "warning NU1801: https://user:ASSETS_SECRET@feed.example/v3/index.json");
+                onOut?.Invoke("Lib.csproj : warning NU1801: Unable to load https://feed.example/v3/index.json?sig=REPLAYED_SECRET");
                 return 0;
             },
         };
@@ -3963,74 +3955,32 @@ public class ProjectRunServiceTests
         var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
         Assert.IsNotNull(outcome.Resolution);
-        Assert.AreEqual(inherits ? 1 : 0, dotnet.InheritedCalls.Count);
-        Assert.IsFalse(console.Output.Contains("ASSETS_SECRET", StringComparison.Ordinal));
+        Assert.IsEmpty(dotnet.InheritedCalls);
+        Assert.IsFalse(dotnet.StreamingCalls.Any(a => a.StartsWith("restore ", StringComparison.Ordinal)));
+        StringAssert.Contains(console.Output, "?<redacted>");
+        Assert.IsFalse(console.Output.Contains("REPLAYED_SECRET", StringComparison.Ordinal));
     }
 
     [TestMethod]
-    public async Task BuildAndResolveAsync_RealTerminalNoRestore_ReferencedProjectsAssetsLogQuotesACredential_Streams()
+    public async Task BuildAndResolveAsync_LongSolutionName_SolutionFilterNameStaysShort()
     {
-        // The build replays every referenced project's assets log too, not just the target's.
-        var csproj = WriteFile("App.csproj", """
-            <Project Sdk="Microsoft.NET.Sdk">
-              <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net8.0-windows10.0.19041.0</TargetFramework></PropertyGroup>
-              <ItemGroup><ProjectReference Include="Lib\Lib.csproj" /></ItemGroup>
-            </Project>
-            """);
-        WriteFileAt(Path.Join("obj", "project.assets.json"), """{"version":3,"logs":[]}""");
-        WriteFileAt(Path.Join("Lib", "Lib.csproj"), """<Project Sdk="Microsoft.NET.Sdk" />""");
-        WriteFileAt(Path.Join("Lib", "obj", "project.assets.json"),
-            """{"version":3,"logs":[{"code":"NU1801","level":"Warning","message":"Unable to load https://feed.example/v3/index.json?sig=LIB_SECRET"}]}""");
+        // The temporary filter's name must not grow with the solution's, or a long valid name exceeds NTFS limits.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
+        var solution = WriteFile(new string('S', 150) + ".slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var dotnet = new FakeDotNetService
         {
             RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
         };
         var service = NewServiceWith(dotnet, LogLevel.Information, out _);
-        service.NativeTerminalGateOverrideForTests = () => true;
-        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: true, Properties: []);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
 
         var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
         Assert.IsNotNull(outcome.Resolution);
-        Assert.IsEmpty(dotnet.InheritedCalls, "a referenced project's replayed credential must go through redaction");
+        var filter = WindowsCommandLine.SplitArguments(dotnet.StreamingCalls.Single(a => a.Contains(".slnf", StringComparison.Ordinal)))[1];
+        Assert.IsLessThan(60, Path.GetFileName(filter).Length);
     }
-
-    [TestMethod]
-    [DataRow("$(Root)Lib.csproj", DisplayName = "unresolvable reference")]
-    [DataRow("Missing\\Missing.csproj", DisplayName = "missing reference")]
-    public void AssetsLogNeedsRedaction_ReferenceWinappCantCheck_IsTreatedAsNeedingRedaction(string include)
-    {
-        var csproj = WriteFile("App.csproj", $"""
-            <Project Sdk="Microsoft.NET.Sdk">
-              <ItemGroup><ProjectReference Include="{include}" /></ItemGroup>
-            </Project>
-            """);
-        WriteFileAt(Path.Join("obj", "project.assets.json"), """{"version":3,"logs":[]}""");
-
-        Assert.IsTrue(ProjectRunService.AssetsLogNeedsRedaction(csproj, []));
-    }
-
-    [TestMethod]
-    [DataRow("property", DisplayName = "-p:BaseIntermediateOutputPath")]
-    [DataRow("project", DisplayName = "project sets MSBuildProjectExtensionsPath")]
-    [DataRow("buildProps", DisplayName = "Directory.Build.props sets BaseIntermediateOutputPath")]
-    public void AssetsLogNeedsRedaction_RelocatedAssetsFile_IsTreatedAsNeedingRedaction(string source)
-    {
-        // The build reads the relocated assets file, so a clean obj\project.assets.json proves nothing.
-        var csproj = WriteFile("App.csproj", source == "project"
-            ? """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><MSBuildProjectExtensionsPath>ext\</MSBuildProjectExtensionsPath></PropertyGroup></Project>"""
-            : """<Project Sdk="Microsoft.NET.Sdk" />""");
-        WriteFileAt(Path.Join("obj", "project.assets.json"), """{"version":3,"logs":[]}""");
-        if (source == "buildProps")
-        {
-            WriteFile("Directory.Build.props", """<Project><PropertyGroup><BaseIntermediateOutputPath>customobj\</BaseIntermediateOutputPath></PropertyGroup></Project>""");
-        }
-
-        string[] properties = source == "property" ? ["BaseIntermediateOutputPath=customobj\\"] : [];
-
-        Assert.IsTrue(ProjectRunService.AssetsLogNeedsRedaction(csproj, properties));
-    }
-
     [TestMethod]
     public async Task BuildAndResolveAsync_RealTerminalRestoreFails_ShowsOutputAndCommandAndSkipsBuild()
     {

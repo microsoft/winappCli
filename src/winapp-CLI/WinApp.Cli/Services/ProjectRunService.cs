@@ -237,13 +237,10 @@ internal sealed partial class ProjectRunService(
                 cancellationToken);
         }
         var buildOptions = options;
-        var redactBuildOutput = false;
 
-        // With --no-restore, winapp never sees the restore whose warnings the build replays, so check them.
-        if (options.NoRestore && !options.NoBuild && !publish && !aotPublish && UsesNativeTerminalBuild(options))
-        {
-            redactBuildOutput = AssetsLogNeedsRedaction(csproj, options.Properties);
-        }
+        // A --no-restore build replays the warnings stored by a restore winapp never saw, and those can quote an
+        // authenticated feed URL anywhere in the build graph, so its output always goes through winapp's redaction.
+        var redactBuildOutput = options.NoRestore;
 
         // When the target lives in a solution, restore the solution's other managed projects up front so
         // build-dependency siblings that aren't ProjectReferences (e.g. a COM server) have project.assets.json
