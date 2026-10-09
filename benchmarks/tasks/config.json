@@ -1,0 +1,16 @@
+{
+  "models": ["claude-sonnet-5.5", "claude-opus-5.5", "gpt-6.1-sol"],
+  "configurations": ["none", "winapp", "winui", "both", "both-agent"],
+  "iterations": 2,
+  "copilotVersion": null,
+  "sandboxMemoryMB": 8192,
+  "creditsPerRunEstimate": 15,
+  "winapp": {
+    "localBuild": "../../artifacts/cli/win-x64",
+    "release": "v0.7.1"
+  },
+  "plugins": {
+    "winapp": "../../plugins/winapp",
+    "winui": "../../plugins/winui/agent-plugin"
+  }
+}

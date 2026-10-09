@@ -1,0 +1,11 @@
+{
+  "prompt": "I want to start a new WinUI 3 desktop app called NoteTaker, right here in this empty folder. I don't have Visual Studio on this machine, only the .NET SDK. Please set up the starter project and make sure it builds with `dotnet build`.",
+  "cluster": "Toolchain and SDK setup",
+  "workspace": "C:\\src\\NoteTaker",
+  "timeoutMinutes": 25,
+  "checks": [
+    "winui-project (required): a .csproj under the folder uses WinUI (UseWinUI true and a Microsoft.WindowsAppSDK reference)",
+    "named-notetaker: the project is named NoteTaker",
+    "builds (required): `dotnet build` of that project succeeds when the checker runs it"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "prompt": "I'm trying to sign dist\\Northwind.Viewer_1.4.0.0_x64.msix with our cert certs\\northwind.pfx (password is in certs\\password.txt) and signtool keeps failing with:\n\nSignTool Error: An unexpected internal error has occurred.\nError information: \"Error: SignerSign() failed.\" (-2147024885/0x8007000b)\n\nThe app's files and manifest are in the layout folder. Can you fix whatever is wrong so the package gets signed with that cert, and then install it here so I can check it works?",
+  "cluster": "Signing",
+  "workspace": "C:\\src\\northwind-viewer",
+  "timeoutMinutes": 20,
+  "checks": [
+    "msix-built (required): an .msix exists under the project folder",
+    "signed-by-pfx (required): its signer is the certificate in certs\\northwind.pfx",
+    "publisher-matches (required): the package's Publisher equals the certificate subject",
+    "installed (required): Northwind.Viewer is installed and its app runs SimpleApp.exe",
+    "launches (required): activating the installed app starts it from the package"
+  ]
+}

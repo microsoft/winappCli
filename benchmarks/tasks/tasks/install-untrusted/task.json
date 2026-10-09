@@ -1,0 +1,13 @@
+{
+  "prompt": "I'm trying to install our internal test build, Contoso.Notes_1.0.0.0_x64.msix (it's in this folder), on this PC. Double-clicking it fails with \"This app package's publisher certificate could not be verified. Contact your system administrator or the app developer to obtain a new package with verified certificates. The root certificate and all intermediate certificates of the signature must be trusted (0x800B0109)\". Can you get it installed?",
+  "cluster": "Signing",
+  "workspace": "C:\\src\\notes-test",
+  "timeoutMinutes": 15,
+  "pilot": true,
+  "lintAllow": ["publisher certificate", "root certificate", "intermediate certificates"],
+  "checks": [
+    "installed (required): Contoso.Notes is installed for the user and its app runs SimpleApp.exe",
+    "launches (required): activating the installed app starts it from the package",
+    "package-unchanged: the .msix the user had is unchanged (fixed by trusting its signer, not by re-signing)"
+  ]
+}

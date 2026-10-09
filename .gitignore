@@ -226,3 +226,4 @@ devcert.pfx
 # Local agent benchmark results
 /benchmarks/agents/results/
 /benchmarks/agents/experiments/
+/benchmarks/tasks/results/

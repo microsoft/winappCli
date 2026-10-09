@@ -1,0 +1,13 @@
+{
+  "prompt": "I'm packaging Litware Clock by hand. The app files and AppxManifest.xml are in the layout folder, and `makeappx pack /d layout /p LitwareClock.msix` fails with:\n\nMakeAppx : error: Error info: error C00CE169: App manifest validation error: The app manifest must be valid as per schema: Line 6, Column 57, Reason: '2.1.0' violates pattern constraint of '(0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])(\\.(0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])){3}'.\nThe attribute 'Version' with value '2.1.0' failed to parse.\nMakeAppx : error: 0x80080204 - The specified package format is not valid: The package manifest is not valid.\n\nThis is version 2.1 of the app. Please fix the layout so it packs, and produce LitwareClock.msix in this folder.",
+  "cluster": "MSIX packaging",
+  "workspace": "C:\\src\\litware-clock",
+  "timeoutMinutes": 15,
+  "lintAllow": ["manifest validation", "package format"],
+  "checks": [
+    "layout-packs (required): the checker's own `makeappx pack` of layout\\ succeeds",
+    "version-kept (required): the manifest Version is 2.1.x.x (2.1.0.0 expected)",
+    "visual-elements-kept (required): the Application still has VisualElements with Square44x44Logo and Square150x150Logo",
+    "msix-built: LitwareClock.msix (or another .msix) was produced"
+  ]
+}

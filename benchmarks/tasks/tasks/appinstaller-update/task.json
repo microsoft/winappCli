@@ -1,0 +1,16 @@
+{
+  "prompt": "We publish Contoso Notes as an MSIX at https://downloads.contoso.com/notes/ (the current build is dist\\Contoso.Notes_1.2.0.0_x64.msix, and that's the file name it has on the server). Right now people have to download each new version by hand. I want installed copies to check for a newer version every time the app is launched and update themselves. Please create the file we need to publish next to the MSIX and put it in dist\\.",
+  "cluster": "Auto-update and App Installer",
+  "workspace": "C:\\src\\contoso-notes-release",
+  "timeoutMinutes": 15,
+  "checks": [
+    "appinstaller-exists (required): an .appinstaller file exists under the folder",
+    "appinstaller-xml (required): it is an <AppInstaller> document in an App Installer schema namespace",
+    "appinstaller-self-uri (required): its Uri is an .appinstaller URL under https://downloads.contoso.com/notes/",
+    "appinstaller-version (required): it has a four-part Version",
+    "appinstaller-main-package (required): MainPackage Name, Publisher, Version, and architecture match the MSIX",
+    "appinstaller-package-uri (required): MainPackage Uri is https://downloads.contoso.com/notes/Contoso.Notes_1.2.0.0_x64.msix",
+    "appinstaller-onlaunch (required): UpdateSettings has OnLaunch",
+    "appinstaller-every-launch (required): OnLaunch has HoursBetweenUpdateChecks=\"0\" (the default is 24 hours)"
+  ]
+}

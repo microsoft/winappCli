@@ -1,0 +1,16 @@
+{
+  "prompt": "I have a small WinForms app in this folder (TaskBoard). I want to hand it to a few testers as an MSIX installer. Please build a signed .msix for it and install it on this machine so I can confirm it actually installs and launches.",
+  "cluster": "MSIX packaging",
+  "workspace": "C:\\src\\TaskBoard",
+  "timeoutMinutes": 25,
+  "pilot": true,
+  "lintAllow": ["msix installer"],
+  "checks": [
+    "msix-built (required): an .msix or .msixbundle exists under the project folder",
+    "msix-signed (required): it carries an Authenticode signature",
+    "msix-trusted: the signature chain is trusted on this machine",
+    "installed (required): a new package whose application runs TaskBoard.exe is installed for the user",
+    "installed-matches-msix: the installed package has the identity of the built .msix",
+    "launches (required): activating the installed app starts TaskBoard.exe from the package"
+  ]
+}

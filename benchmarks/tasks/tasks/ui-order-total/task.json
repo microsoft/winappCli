@@ -1,0 +1,11 @@
+{
+  "prompt": "The Order Calculator app is open on this PC. Please type 7 in Quantity and 13 in Unit price, click Calculate, and save the total it shows into total.txt in this folder (just the number).",
+  "cluster": "UI automation, run and debug",
+  "workspace": "C:\\src\\fabrikam-orders",
+  "timeoutMinutes": 15,
+  "interactive": true,
+  "checks": [
+    "calculated (required): the running app logged a Calculate click with quantity 7 and unit price 13",
+    "total-saved (required): total.txt holds the total the app displayed for that calculation"
+  ]
+}
