@@ -103,13 +103,19 @@ Describe 'winapp run architecture matrix' {
                 $process = Get-Process -Id $run.ProcessId -ErrorAction SilentlyContinue
                 if ($windowed) {
                     $process | Should -Not -BeNullOrEmpty -Because "the app must still be running after launch:`n$tail"
+                    # Hold the handle so the exit code stays readable if the app exits.
+                    $null = $process.Handle
                     $deadline = [DateTime]::UtcNow.AddSeconds(30)
                     while ([DateTime]::UtcNow -lt $deadline -and -not $process.HasExited -and $process.MainWindowHandle -eq [IntPtr]::Zero) {
                         Start-Sleep -Milliseconds 250
                         $process.Refresh()
                     }
-                    $process.HasExited | Should -BeFalse -Because 'the app must survive startup'
+                    $exitNote = if ($process.HasExited) { "exit code 0x{0:X8}" -f $process.ExitCode } else { '' }
+                    $process.HasExited | Should -BeFalse -Because "the app must survive startup ($exitNote)"
                     $process.MainWindowHandle | Should -Not -Be ([IntPtr]::Zero) -Because 'the app must show a window within 30 seconds'
+                    # A missing runtime makes the app host show an error dialog instead of the app's window.
+                    $class = Get-WindowClassName $process.MainWindowHandle
+                    $class | Should -Not -Be '#32770' -Because "the window must be the app's, not an error dialog ('$($process.MainWindowTitle)')"
                 }
                 if ($process -and -not $process.HasExited) { $exe = $process.Path }
             }

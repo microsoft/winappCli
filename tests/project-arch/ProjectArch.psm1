@@ -97,7 +97,7 @@ function Get-ProjectArchFixtures {
     $fixtures += @(
         @{ Id = 'R18-nested-edpr'; Sdk = '1.8'; ExpectRid = $true; App = (New-AppSpec @{ Refs = @('LibW') }); Libs = @(@{ Name = 'LibW'; Kind = 'winui'; Refs = @('LibP'); Extra = @{ EnableDynamicPlatformResolution = 'true' } }, @{ Name = 'LibP'; Kind = 'plain' }); Why = 'EnableDynamicPlatformResolution on a referenced project (needs the RID)' }
         @{ Id = 'R19-ref-hardcoded-rid'; Sdk = '1.8'; ExpectRid = $true; App = (New-AppSpec @{ Refs = @('LibW') }); Libs = @(@{ Name = 'LibW'; Kind = 'winui'; Extra = @{ RuntimeIdentifier = 'win-x86' } }); Why = 'Referenced project with a hard-coded RuntimeIdentifier for another arch (needs the RID)' }
-        @{ Id = 'R20-ref-rid-from-platform'; Sdk = '1.8'; ExpectRid = $true; App = (New-AppSpec @{ Refs = @('LibW') }); Libs = @(@{ Name = 'LibW'; Kind = 'winui'; Platforms = 'X86;X64;ARM64'; Extra = @{ RuntimeIdentifier = 'win-$(Platform)' } }); Why = 'Referenced project with RuntimeIdentifier=win-$(Platform) and upper-case platforms (needs the RID)' }
+        @{ Id = 'R20-ref-rid-from-platform'; Sdk = '1.8'; ExpectRid = $true; App = (New-AppSpec @{ Platforms = 'X86;X64;ARM64'; Refs = @('LibW') }); Libs = @(@{ Name = 'LibW'; Kind = 'winui'; Platforms = 'X86;X64;ARM64'; Extra = @{ RuntimeIdentifier = 'win-$(Platform)' } }); Why = 'Referenced project with RuntimeIdentifier=win-$(Platform) and upper-case platforms (needs the RID)' }
         @{ Id = 'R21-ref-exe'; Sdk = '1.8'; App = (New-AppSpec @{ Refs = @('Helper') }); Libs = @(@{ Name = 'Helper'; Kind = 'exe' }); Why = 'Referenced helper executable' }
     )
 
@@ -415,6 +415,41 @@ function Test-CanLaunchArchitecture([string]$Architecture) {
 
 <#
 .SYNOPSIS
+    Returns the Win32 class name of a window (for example '#32770' for a dialog box).
+#>
+function Get-WindowClassName([IntPtr]$Handle) {
+    if (-not ('ProjectArch.NativeWindow' -as [type])) {
+        Add-Type -Namespace ProjectArch -Name NativeWindow -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern int GetClassName(System.IntPtr hWnd, System.Text.StringBuilder className, int maxCount);
+'@
+    }
+    $builder = [System.Text.StringBuilder]::new(256)
+    $null = [ProjectArch.NativeWindow]::GetClassName($Handle, $builder, $builder.Capacity)
+    $builder.ToString()
+}
+
+<#
+.SYNOPSIS
+    Describes the processes started under $ParentId (recursively), for diagnosing a run that never exits.
+#>
+function Get-ProcessTreeDescription([int]$ParentId) {
+    $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $queue = [System.Collections.Generic.Queue[int]]::new()
+    $queue.Enqueue($ParentId)
+    while ($queue.Count -gt 0) {
+        $id = $queue.Dequeue()
+        foreach ($child in @($all | Where-Object { $_.ParentProcessId -eq $id })) {
+            $lines.Add("  child of ${id}: $($child.ProcessId) $($child.Name) $($child.CommandLine)")
+            $queue.Enqueue([int]$child.ProcessId)
+        }
+    }
+    if ($lines.Count -eq 0) { '  (no child processes)' } else { $lines -join "`n" }
+}
+
+<#
+.SYNOPSIS
     Runs `winapp run` for a generated fixture with a hard timeout, so a hang fails one fixture instead of
     the whole job. Launches the app (--detach) when this machine can run the architecture.
 #>
@@ -437,7 +472,9 @@ function Invoke-ProjectArchRun {
         -WorkingDirectory $Root -NoNewWindow -PassThru -RedirectStandardOutput $logPath -RedirectStandardError $errorPath
     $null = $process.Handle
     $timedOut = -not $process.WaitForExit($TimeoutMinutes * 60 * 1000)
+    $hangDiagnostics = ''
     if ($timedOut) {
+        $hangDiagnostics = "winapp (PID $($process.Id)) did not exit. Process tree:`n$(Get-ProcessTreeDescription $process.Id)"
         & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null
     }
     else {
@@ -455,7 +492,7 @@ function Invoke-ProjectArchRun {
         TimedOut = $timedOut
         Launched = $launch
         ProcessId = $processId
-        Output = "$stdout`n$stderr"
+        Output = "$stdout`n$stderr`n$hangDiagnostics"
     }
 }
 
@@ -469,4 +506,4 @@ function Remove-ProjectArchRun([hashtable]$Fixture, $Run) {
         Remove-AppxPackage -ErrorAction SilentlyContinue
 }
 
-Export-ModuleMember -Function Get-ProjectArchFixtures, New-ProjectArchFixture, Get-PeArchitecture, Test-CanLaunchArchitecture, Invoke-ProjectArchRun, Remove-ProjectArchRun, Get-FixtureIdentityName
+Export-ModuleMember -Function Get-ProjectArchFixtures, New-ProjectArchFixture, Get-PeArchitecture, Get-WindowClassName, Test-CanLaunchArchitecture, Invoke-ProjectArchRun, Remove-ProjectArchRun, Get-FixtureIdentityName

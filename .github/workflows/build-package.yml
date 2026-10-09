@@ -416,6 +416,26 @@ jobs:
         name: cli-binaries
         path: artifacts/cli
 
+    # The -x86 fixtures launch framework-dependent x86 apps. setup-dotnet sets DOTNET_ROOT to the x64 install,
+    # which an x86 app host would also use, so point DOTNET_ROOT_X86 at x86 runtimes (installed if missing).
+    - name: Prepare x86 .NET runtimes
+      run: |
+        $dir = Join-Path ${env:ProgramFiles(x86)} 'dotnet'
+        $installer = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
+        foreach ($runtime in @(@{ Name = 'dotnet'; Folder = 'Microsoft.NETCore.App' }, @{ Name = 'windowsdesktop'; Folder = 'Microsoft.WindowsDesktop.App' })) {
+          foreach ($channel in '8.0', '10.0') {
+            $present = @(Get-ChildItem (Join-Path $dir "shared\$($runtime.Folder)") -Directory -Filter "$channel.*" -ErrorAction SilentlyContinue)
+            $names = if ($present) { $present.Name -join ', ' } else { 'none' }
+            Write-Host "x86 $($runtime.Folder) $channel present: $names"
+            if ($present.Count -eq 0) {
+              if (-not (Test-Path $installer)) { Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $installer }
+              $install = @{ Channel = $channel; Runtime = $runtime.Name; Architecture = 'x86'; InstallDir = $dir }
+              & $installer @install
+            }
+          }
+        }
+        "DOTNET_ROOT_X86=$dir" >> $env:GITHUB_ENV
+
     - name: Run architecture matrix
       env:
         SHARD: ${{ matrix.shard }}
