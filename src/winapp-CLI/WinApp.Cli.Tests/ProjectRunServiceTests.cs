@@ -3555,6 +3555,46 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void ComputeSolutionRestorePlan_UncEntry_BlocksWholeSolutionRestore()
+    {
+        // A whole-solution restore hands every listed path to MSBuild, which would open a UNC entry and
+        // authenticate to whoever serves the share. A rejected entry must force the filtered restore instead.
+        var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
+        WriteProjectsAt("src/Server/Server.csproj");
+        var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", @"src\Server\Server.csproj", @"\\attacker.example\share\Evil.csproj"));
+
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+
+        Assert.IsTrue(plan.HasRejectedProjects);
+        Assert.IsFalse(plan.CanRestoreWholeSolution, "a rejected entry must never reach MSBuild through the solution");
+        CollectionAssert.AreEqual(new List<string> { @"src\Server\Server.csproj" }, plan.ManagedSiblingEntries.ToList());
+        Assert.AreEqual(0, plan.MissingProjects.Count, "a rejected entry isn't reported as missing from disk");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_SolutionWithUncEntry_RestoresThroughFilterWithoutIt()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
+        var solution = WriteFile("App.sln", SlnListing("App.csproj", @"Server\Server.csproj", @"\\attacker.example\share\Evil.csproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsFalse(dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
+            "the solution itself must not be restored while it lists a UNC project");
+        var filter = dotnet.SolutionFilterContents.Single();
+        StringAssert.Contains(filter, @"Server\\Server.csproj");
+        Assert.IsFalse(filter.Contains("attacker.example", StringComparison.Ordinal), "the UNC entry is left out of the filter");
+        Assert.IsFalse(dotnet.StreamingCalls.Any(a => a.Contains("attacker.example", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public void WriteSolutionFilter_SelectsEntriesFromTheSolution()
     {
         var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", @"src\Server\Server.csproj"));

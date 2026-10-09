@@ -537,18 +537,23 @@ internal sealed partial class ProjectRunService
     /// The same projects as the solution spells them, which a solution filter must repeat verbatim.
     /// </param>
     /// <param name="MissingProjects">Listed projects that aren't on disk, as the solution spells them.</param>
+    /// <param name="HasRejectedProjects">
+    /// The solution lists a rooted or reparse-redirected project path that winapp won't touch.
+    /// </param>
     internal sealed record SolutionRestorePlan(
         bool AllManaged,
         IReadOnlyList<FileInfo> ManagedSiblings,
         IReadOnlyList<string> ManagedSiblingEntries,
-        IReadOnlyList<string> MissingProjects)
+        IReadOnlyList<string> MissingProjects,
+        bool HasRejectedProjects = false)
     {
         /// <summary>
         /// A single <c>dotnet restore &lt;sln&gt;</c> works only when every listed project exists and is
         /// managed: <c>dotnet restore</c> can't handle native projects without Visual Studio, and a missing
-        /// one fails the whole restore with <c>MSB3202</c>.
+        /// one fails the whole restore with <c>MSB3202</c>. A rejected entry, such as a UNC path, must not reach
+        /// MSBuild either: opening it would authenticate to whoever serves the share.
         /// </summary>
-        public bool CanRestoreWholeSolution => AllManaged && MissingProjects.Count == 0;
+        public bool CanRestoreWholeSolution => AllManaged && MissingProjects.Count == 0 && !HasRejectedProjects;
     }
 
     /// <summary>
@@ -583,12 +588,19 @@ internal sealed partial class ProjectRunService
         var siblings = new List<FileInfo>();
         var siblingEntries = new List<string>();
         var missing = new List<string>();
+        var rejected = false;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var relative in projectPaths)
         {
             // TryResolve rejects rooted and reparse-redirected entries, so File.Exists below never probes a share.
             var full = TryResolveSolutionRelativePath(solutionDir, relative);
-            if (full is null || !seen.Add(full))
+            if (full is null)
+            {
+                rejected = true;
+                continue;
+            }
+
+            if (!seen.Add(full))
             {
                 continue;
             }
@@ -606,7 +618,7 @@ internal sealed partial class ProjectRunService
             }
         }
 
-        return new SolutionRestorePlan(projectPaths.All(IsManagedProjectPath), siblings, siblingEntries, missing);
+        return new SolutionRestorePlan(projectPaths.All(IsManagedProjectPath), siblings, siblingEntries, missing, rejected);
     }
 
     /// <summary>
