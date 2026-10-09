@@ -13,77 +13,29 @@ The Windows App Development CLI (winapp CLI) is a command-line tool for building
 
 ## Key benefits of winapp CLI
 
-:::row:::
-    :::column:::
-        ![A command prompt icon on a raised tile over a blue pixel wave](images/card-create-and-run.png)
-    :::column-end:::
-    :::column span="2":::
-        **Create and run WinUI apps from the terminal**<br>
-         `winapp new` creates a WinUI app from the official templates, including blank, NavigationView, TabView, and MVVM starters. `winapp run` builds the project, installs the matching Windows App Runtime, and launches the app, whether it's packaged or unpackaged.
-         <br>
-         [Build your first WinUI app](https://learn.microsoft.com/windows/apps/get-started/start-here)
-    :::column-end:::
-:::row-end:::
+**Create and run WinUI apps from the terminal**
 
-:::row:::
-    :::column:::
-        ![A bug icon on a raised tile over a diagonal band of blue pixels](images/card-debugging.png)
-    :::column-end:::
-    :::column span="2":::
-        **Debug with package identity and crash diagnostics**<br>
-         Run your app with package identity so you can test notifications, on-device AI, and other APIs that require identity. Add `--debug-output` to capture debug messages and crash dumps. For WinUI crashes, winapp decodes stowed exceptions to point you at the XAML event handler that failed.
-         <br>
-         [Debugging with package identity](debugging.md)
-    :::column-end:::
-:::row-end:::
+`winapp new` creates a WinUI app from the official templates, including blank, NavigationView, TabView, and MVVM starters. `winapp run` builds the project, installs the matching Windows App Runtime, and launches the app, whether it's packaged or unpackaged. [Build your first WinUI app](https://learn.microsoft.com/windows/apps/get-started/start-here)
 
-:::row:::
-    :::column:::
-        ![A chat bubble with sparkles icon on a raised tile over a blue pixel wave](images/card-coding-agents.png)
-    :::column-end:::
-    :::column span="2":::
-        **Ground AI coding agents in real WinUI code**<br>
-         `winapp find-ui` returns working XAML and C# from the WinUI 3 Gallery and the Windows Community Toolkit. `winapp find-api` inspects the Windows Runtime APIs your project references. Agents use them to generate code from real samples and metadata instead of guessing.
-         <br>
-         [Use winapp CLI with AI agents](#use-winapp-cli-with-ai-agents)
-    :::column-end:::
-:::row-end:::
+**Debug with package identity and crash diagnostics**
 
-:::row:::
-    :::column:::
-        ![A pointer and touch icon on a raised tile over a diagonal band of blue pixels](images/card-automated-testing.png)
-    :::column-end:::
-    :::column span="2":::
-        **Automate and test your app's UI**<br>
-         `winapp ui` inspects and interacts with running apps through UI Automation, and captures screenshots and recordings. Run your app in Windows Sandbox to test it in a clean environment.
-         <br>
-         [UI automation](ui-automation.md)
-    :::column-end:::
-:::row-end:::
+Run your app with package identity so you can test notifications, on-device AI, and other APIs that require identity. Add `--debug-output` to capture debug messages and crash dumps. For WinUI crashes, winapp decodes stowed exceptions to point you at the XAML event handler that failed. [Debugging with package identity](debugging.md)
 
-:::row:::
-    :::column:::
-        ![A package icon on a raised tile over a blue pixel wave](images/card-packaging.png)
-    :::column-end:::
-    :::column span="2":::
-        **Package, sign, and ship**<br>
-         `winapp pack` builds your project, packages it as MSIX, and signs it in one step. Generate development certificates locally, sign release builds with Azure Trusted Signing, and install winapp CLI on GitHub Actions or Azure DevOps runners.
-         <br>
-         [Package your app](usage.md#pack)
-    :::column-end:::
-:::row-end:::
+**Ground AI coding agents in real WinUI code**
 
-:::row:::
-    :::column:::
-        ![A puzzle piece icon on a raised tile over a diagonal band of blue pixels](images/card-any-framework.png)
-    :::column-end:::
-    :::column span="2":::
-        **Bring Windows features to any framework**<br>
-         Add the Windows SDK and Windows App SDK, package identity, and MSIX packaging to apps built with .NET, C++, Electron, Flutter, Rust, or Tauri, without changing your build system.
-         <br>
-         [See supported frameworks](#supported-frameworks)
-    :::column-end:::
-:::row-end:::
+`winapp find-ui` returns working XAML and C# from the WinUI 3 Gallery and the Windows Community Toolkit. `winapp find-api` inspects the Windows Runtime APIs your project references. Agents use them to generate code from real samples and metadata instead of guessing. [Use winapp CLI with AI agents](#use-winapp-cli-with-ai-agents)
+
+**Automate and test your app's UI**
+
+`winapp ui` inspects and interacts with running apps through UI Automation, and captures screenshots and recordings. Run your app in Windows Sandbox to test it in a clean environment. [UI automation](ui-automation.md)
+
+**Package, sign, and ship**
+
+`winapp pack` builds your project, packages it as MSIX, and signs it in one step. Generate development certificates locally, sign release builds with Azure Trusted Signing, and install winapp CLI on GitHub Actions or Azure DevOps runners. [Package your app](usage.md#pack)
+
+**Bring Windows features to any framework**
+
+Add the Windows SDK and Windows App SDK, package identity, and MSIX packaging to apps built with .NET, C++, Electron, Flutter, Rust, or Tauri, without changing your build system. [See supported frameworks](#supported-frameworks)
 
 ## Get started with WinUI
 
