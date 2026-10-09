@@ -470,7 +470,7 @@ internal sealed partial class ProjectRunService
             {
                 doc = XDocument.Load(current.FullName);
             }
-            catch
+            catch (Exception ex) when (ex is System.Xml.XmlException or IOException or UnauthorizedAccessException)
             {
                 continue;
             }
