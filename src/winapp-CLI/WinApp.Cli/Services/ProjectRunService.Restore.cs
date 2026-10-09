@@ -345,15 +345,14 @@ internal sealed partial class ProjectRunService
     /// <summary>
     /// Restores the owning solution's managed sibling projects before the target build so build-dependency
     /// siblings that aren't <c>ProjectReference</c>s still have a <c>project.assets.json</c> (NETSDK1004
-    /// parity with VS / <c>dotnet build &lt;sln&gt;</c>). When every listed project is managed and on disk,
-    /// a single <c>dotnet restore &lt;sln&gt;</c> covers the whole graph and this returns
-    /// <see langword="true"/>. Otherwise (a native or missing project, which fail a whole-solution restore,
-    /// or an inferred publish profile that belongs only to the target), one restore runs over a temporary
-    /// solution filter listing just the managed siblings on disk. Only when that fails are siblings
-    /// restored one by one. Build-mode restores are best-effort; package preparation stops on a failed
-    /// dependency restore.
+    /// parity with VS / <c>dotnet build &lt;sln&gt;</c>). One restore runs over a temporary solution filter
+    /// that lists only the managed siblings winapp resolved to local files. The solution itself is never
+    /// handed to <c>dotnet restore</c>: MSBuild would also open entries winapp skipped, such as missing,
+    /// native, or UNC paths (the last would authenticate to whoever serves the share). Only when the filtered
+    /// restore fails are siblings restored one by one. Build-mode restores are best-effort; package
+    /// preparation stops on a failed dependency restore.
     /// </summary>
-    private async Task<bool> RestoreSolutionSiblingsAsync(
+    private async Task RestoreSolutionSiblingsAsync(
         RestoreStep step,
         SolutionRestorePlan plan,
         ProjectRunOptions options,
@@ -362,48 +361,32 @@ internal sealed partial class ProjectRunService
     {
         if (options.Solution is not { } solution || plan.ManagedSiblings.Count == 0)
         {
-            return false;
+            return;
         }
 
+        // An inferred PublishProfile belongs only to the selected app, so siblings restore without it.
+        var siblingOptions = options with { PublishProfile = null };
         var verbosity = ResolveRestoreVerbosity(logger, options.Json);
-        RestoreInvocation solutionRestore;
-        FileInfo? filter = null;
-        var restoresWholeSolution = plan.CanRestoreWholeSolution && string.IsNullOrWhiteSpace(options.PublishProfile);
-        if (restoresWholeSolution)
+        var filter = WriteSolutionFilter(solution, plan.ManagedSiblingEntries);
+        logger.LogDebug(
+            "{UISymbol} Restoring {Count} solution projects through solution filter {Filter} for build-dependency parity.",
+            UiSymbols.Note, plan.ManagedSiblings.Count, filter.FullName);
+        RestoreInvocation filterRestore;
+        try
         {
-            // Closest to VS: one restore over the whole solution pulls the target and every sibling.
-            logger.LogDebug("{UISymbol} Restoring solution before build for build-dependency parity.", UiSymbols.Note);
-            solutionRestore = await RunRestoreAsync(step, BuildRestorePassArguments(solution, options, verbosity), cancellationToken);
-            if (solutionRestore.ExitCode == 0)
-            {
-                return true;
-            }
+            filterRestore = await RunRestoreAsync(
+                step, BuildRestorePassArguments(filter, siblingOptions, verbosity), cancellationToken);
         }
-        else
+        catch
         {
-            // An inferred PublishProfile belongs only to the selected app, so siblings restore without it
-            // and the target restores separately under the profile.
-            var siblingOptions = options with { PublishProfile = null };
-            filter = WriteSolutionFilter(solution, plan.ManagedSiblingEntries);
-            logger.LogDebug(
-                "{UISymbol} Restoring {Count} solution projects through solution filter {Filter} for build-dependency parity.",
-                UiSymbols.Note, plan.ManagedSiblings.Count, filter.FullName);
-            try
-            {
-                solutionRestore = await RunRestoreAsync(
-                    step, BuildRestorePassArguments(filter, siblingOptions, verbosity), cancellationToken);
-            }
-            catch
-            {
-                TryDeleteFile(filter.FullName);
-                throw;
-            }
+            TryDeleteFile(filter.FullName);
+            throw;
+        }
 
-            if (solutionRestore.ExitCode == 0)
-            {
-                TryDeleteFile(filter.FullName);
-                return false;
-            }
+        if (filterRestore.ExitCode == 0)
+        {
+            TryDeleteFile(filter.FullName);
+            return;
         }
 
         // Don't defer to the target-only build restore (that leaves non-ProjectReference managed siblings
@@ -412,35 +395,32 @@ internal sealed partial class ProjectRunService
         // the other projects are already restored and retrying one by one would only repeat the errors.
         try
         {
-            var scope = restoresWholeSolution ? "Solution restore" : "Restore of the solution's projects";
-            if (FailedOnlyWithPackageErrors(solutionRestore.Lines))
+            if (FailedOnlyWithPackageErrors(filterRestore.Lines))
             {
                 // Package preparation still restores the target's exact publish graph next, and that restore
                 // decides: an error here may come from a framework or platform the publish doesn't use.
                 step.Warn(
-                    $"{UiSymbols.Warning} {scope} failed (exit code {solutionRestore.ExitCode}); continuing with the build, which will report any unresolved dependency errors.");
-                return false;
+                    $"{UiSymbols.Warning} Restore of the solution's projects failed (exit code {filterRestore.ExitCode}); continuing with the build, which will report any unresolved dependency errors.");
+                return;
             }
 
             step.Warn(
-                $"{UiSymbols.Warning} {scope} failed (exit code {solutionRestore.ExitCode}); retrying {plan.ManagedSiblings.Count} project(s) individually.");
+                $"{UiSymbols.Warning} Restore of the solution's projects failed (exit code {filterRestore.ExitCode}); retrying {plan.ManagedSiblings.Count} project(s) individually.");
 
-            // Each failing project reports its own output, which may differ from the solution-level failure
-            // (that one may have stopped before reaching it), so the solution-level output isn't repeated.
-            solutionRestore.ReportFailure = false;
+            // Each failing project reports its own output, which may differ from the filtered restore's
+            // (that one may have stopped before reaching it), so the filtered restore's output isn't repeated.
+            filterRestore.ReportFailure = false;
             await RestoreSiblingsIndividuallyAsync(step, plan.ManagedSiblings, options, publish, cancellationToken);
-            return false;
         }
         finally
         {
             // A failed filter restore whose command is shown keeps its filter, so that command can be rerun.
-            if (filter is not null && !ShowsFailedCommand(step, solutionRestore))
+            if (!ShowsFailedCommand(step, filterRestore))
             {
                 TryDeleteFile(filter.FullName);
             }
         }
     }
-
     /// <summary>Whether a failed invocation's <c>Command:</c> line reaches the user in this step's output mode.</summary>
     private static bool ShowsFailedCommand(RestoreStep step, RestoreInvocation invocation) => step.Mode switch
     {
@@ -563,10 +543,6 @@ internal sealed partial class ProjectRunService
             "{UISymbol} Skipping {Projects} listed in {Solution} that {Verb} on disk ({Example}).",
             UiSymbols.Info, projects, solution.Name, verb, example);
     }
-
-    private static bool HasEffectivePlatform(ProjectRunOptions options) =>
-        !string.IsNullOrWhiteSpace(options.Platform)
-        || UserSpecifiesProperty(options.Properties, "Platform");
 
     private void WriteRestoreFallbackWarning(ProjectRunOptions options, string message)
     {

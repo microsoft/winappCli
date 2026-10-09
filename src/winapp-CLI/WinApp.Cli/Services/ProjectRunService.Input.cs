@@ -531,30 +531,15 @@ internal sealed partial class ProjectRunService
     /// <summary>
     /// What a solution build must restore besides the target.
     /// </summary>
-    /// <param name="AllManaged">Every listed project is a restorable managed type.</param>
     /// <param name="ManagedSiblings">Managed projects on disk, excluding the target, in solution order.</param>
     /// <param name="ManagedSiblingEntries">
     /// The same projects as the solution spells them, which a solution filter must repeat verbatim.
     /// </param>
     /// <param name="MissingProjects">Listed projects that aren't on disk, as the solution spells them.</param>
-    /// <param name="HasRejectedProjects">
-    /// The solution lists a rooted or reparse-redirected project path that winapp won't touch.
-    /// </param>
     internal sealed record SolutionRestorePlan(
-        bool AllManaged,
         IReadOnlyList<FileInfo> ManagedSiblings,
         IReadOnlyList<string> ManagedSiblingEntries,
-        IReadOnlyList<string> MissingProjects,
-        bool HasRejectedProjects = false)
-    {
-        /// <summary>
-        /// A single <c>dotnet restore &lt;sln&gt;</c> works only when every listed project exists and is
-        /// managed: <c>dotnet restore</c> can't handle native projects without Visual Studio, and a missing
-        /// one fails the whole restore with <c>MSB3202</c>. A rejected entry, such as a UNC path, must not reach
-        /// MSBuild either: opening it would authenticate to whoever serves the share.
-        /// </summary>
-        public bool CanRestoreWholeSolution => AllManaged && MissingProjects.Count == 0 && !HasRejectedProjects;
-    }
+        IReadOnlyList<string> MissingProjects);
 
     /// <summary>
     /// Computes the restore plan for a solution build. VS (and <c>dotnet build &lt;sln&gt;</c>) restore the
@@ -563,7 +548,7 @@ internal sealed partial class ProjectRunService
     /// siblings lack a <c>project.assets.json</c> and the build fails with <c>NETSDK1004</c>. Enumerates the
     /// solution's listed projects from its text (no shell-out) and returns the managed siblings on disk to
     /// restore, excluding the target, plus the listed projects that are missing (for example, in an
-    /// uninitialized git submodule).
+    /// uninitialized git submodule). Rooted and reparse-redirected entries are left out entirely.
     /// </summary>
     internal static SolutionRestorePlan ComputeSolutionRestorePlan(FileInfo solution, FileInfo target)
     {
@@ -574,20 +559,16 @@ internal sealed partial class ProjectRunService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return new SolutionRestorePlan(true, [], [], []);
+            return new SolutionRestorePlan([], [], []);
         }
 
         var solutionDir = solution.Directory?.FullName ?? Directory.GetCurrentDirectory();
-        var entries = string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
-            ? ExtractSlnxAllProjectPaths(text)
-            : ExtractSlnAllProjectPaths(text);
-
-        // MSBuild opens every typed solution entry whatever its extension, so check them all, not only the
-        // projects below. TryResolve rejects rooted and reparse-redirected paths without touching them.
-        var rejected = entries.Any(entry => TryResolveSolutionRelativePath(solutionDir, entry) is null);
-
-        // Drop classic-.sln solution-folder entries (their "path" is the folder name, no ...proj extension).
-        var projectPaths = entries.Where(p => p.EndsWith("proj", StringComparison.OrdinalIgnoreCase)).ToList();
+        var projectPaths = (string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
+                ? ExtractSlnxAllProjectPaths(text)
+                : ExtractSlnAllProjectPaths(text))
+            // Drop classic-.sln solution-folder entries (their "path" is the folder name, no ...proj extension).
+            .Where(p => p.EndsWith("proj", StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         var siblings = new List<FileInfo>();
         var siblingEntries = new List<string>();
@@ -595,13 +576,12 @@ internal sealed partial class ProjectRunService
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var relative in projectPaths)
         {
-            // Rejected entries are skipped here, so File.Exists below never probes a share.
+            // TryResolve rejects rooted and reparse-redirected entries, so File.Exists below never probes a share.
             var full = TryResolveSolutionRelativePath(solutionDir, relative);
             if (full is null || !seen.Add(full))
             {
                 continue;
             }
-
             if (!File.Exists(full))
             {
                 missing.Add(relative);
@@ -615,7 +595,7 @@ internal sealed partial class ProjectRunService
             }
         }
 
-        return new SolutionRestorePlan(projectPaths.All(IsManagedProjectPath), siblings, siblingEntries, missing, rejected);
+        return new SolutionRestorePlan(siblings, siblingEntries, missing);
     }
 
     /// <summary>

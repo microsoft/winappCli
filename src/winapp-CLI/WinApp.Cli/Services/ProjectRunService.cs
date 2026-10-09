@@ -237,7 +237,7 @@ internal sealed partial class ProjectRunService(
         }
         var buildOptions = options;
 
-        // When the target lives in a solution, restore the whole solution's managed projects up front so
+        // When the target lives in a solution, restore the solution's other managed projects up front so
         // build-dependency siblings that aren't ProjectReferences (e.g. a COM server) have project.assets.json
         // (else NETSDK1004) — matching VS / `dotnet build <sln>`. Gated on actually building + restore not opted out.
         if (!options.NoBuild && !options.NoRestore)
@@ -269,22 +269,22 @@ internal sealed partial class ProjectRunService(
 
             if (restoresSiblings || publish || shimNeedsRestore || separateTargetRestore)
             {
-                var restoresTarget = publish || shimNeedsRestore || separateTargetRestore
-                    || (plan!.CanRestoreWholeSolution && string.IsNullOrWhiteSpace(options.PublishProfile));
+                var restoresTarget = publish || shimNeedsRestore || separateTargetRestore;
                 var subject = DescribeRestoreSubject(csproj, restoresTarget, plan?.ManagedSiblings.Count ?? 0);
                 var verbosity = ResolveRestoreVerbosity(logger, options.Json);
 
                 var targetRestored = await RunRestoreStepAsync(subject, options, workingDir, async step =>
                 {
-                    // (1) Restore the owning solution's managed siblings. Build mode may reuse this restore;
-                    // package preparation must also restore the selected project's exact publish inputs.
-                    var restoredWholeSolution = plan is not null
-                        && await RestoreSolutionSiblingsAsync(step, plan, options, publish, cancellationToken);
+                    // (1) Restore the owning solution's managed siblings. The target always restores on its own:
+                    // a solution-scoped restore can't carry its Platform (MSB4126) or RuntimeIdentifier.
+                    if (plan is not null)
+                    {
+                        await RestoreSolutionSiblingsAsync(step, plan, options, publish, cancellationToken);
+                    }
 
                     if (publish)
                     {
-                        // A solution can map Release to Debug for this project. Always refresh its publish
-                        // graph directly before reading signing policy, even after a successful solution restore.
+                        // Restore the selected project's exact publish graph before signing policy is read.
                         var publishRestore = await RunRestoreAsync(
                             step, BuildRestorePassArguments(csproj, options, verbosity, pinFramework: true), cancellationToken);
                         if (publishRestore.ExitCode != 0)
@@ -292,14 +292,6 @@ internal sealed partial class ProjectRunService(
                             throw new ProjectRunException($"Publish restore failed for '{csproj.Name}' (exit code {publishRestore.ExitCode}).");
                         }
 
-                        return true;
-                    }
-
-                    // A project-scoped restore mirrors Platform and RuntimeIdentifier and fully covers the build.
-                    // A solution-scoped restore omits Platform (MSB4126) and only adds -r to RuntimeIdentifiers,
-                    // so a platform- or RID-specific build must restore the target again.
-                    if (restoredWholeSolution && !HasEffectivePlatform(options) && options.OmitRuntimeIdentifier)
-                    {
                         return true;
                     }
 

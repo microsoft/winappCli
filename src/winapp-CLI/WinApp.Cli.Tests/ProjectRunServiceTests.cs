@@ -2166,7 +2166,7 @@ public class ProjectRunServiceTests
             Assert.AreEqual(true, preparation.Signing!.SigningEnabled,
                 "Signing must reflect the selected project's Release graph, not the solution's mapped Debug graph.");
             Assert.HasCount(2, dotnet.StreamingCalls);
-            StringAssert.StartsWith(dotnet.StreamingCalls[0], $"restore {solution.FullName}");
+            StringAssert.Contains(dotnet.StreamingCalls[0], ".slnf", "the solution's other projects restore through a solution filter");
             StringAssert.StartsWith(dotnet.StreamingCalls[1], $"restore {csproj.FullName}");
             StringAssert.Contains(dotnet.StreamingCalls[1], "-p:Configuration=Release");
             StringAssert.Contains(dotnet.StreamingCalls[1], "-p:_IsPublishing=true");
@@ -3402,7 +3402,7 @@ public class ProjectRunServiceTests
     #region ComputeSolutionRestorePlan (ISSUE-1: build-dependency sibling restore, NETSDK1004 parity)
 
     [TestMethod]
-    public void ComputeSolutionRestorePlan_SlnxListedSibling_IncludedTargetExcludedAllManaged()
+    public void ComputeSolutionRestorePlan_SlnxListedSibling_IncludedTargetExcluded()
     {
         // The out-of-process server (Files.App.Server class) is a first-class <Project> in the .slnx even
         // though it's only a <BuildDependency> — not a ProjectReference — of the target. It must land in
@@ -3412,9 +3412,8 @@ public class ProjectRunServiceTests
         var solution = WriteFile("App.slnx", SlnxListing("src/App/App.csproj", "src/Server/Server.csproj"));
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
-        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
+        var siblings = plan.ManagedSiblings;
 
-        Assert.IsTrue(allManaged, "every listed project is a managed .csproj");
         Assert.AreEqual(1, siblings.Count);
         Assert.AreEqual(Path.Combine(_tempDir.FullName, "src", "Server", "Server.csproj"), siblings[0].FullName);
         Assert.IsFalse(siblings.Any(s => string.Equals(s.FullName, target.FullName, StringComparison.OrdinalIgnoreCase)),
@@ -3439,9 +3438,8 @@ public class ProjectRunServiceTests
         var solution = WriteFile("App.slnx", slnx);
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
-        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
+        var siblings = plan.ManagedSiblings;
 
-        Assert.IsTrue(allManaged);
         Assert.AreEqual(1, siblings.Count, "the BuildDependency element must not add a second Server entry");
         Assert.AreEqual(Path.Combine(_tempDir.FullName, "src", "Server", "Server.csproj"), siblings[0].FullName);
     }
@@ -3454,27 +3452,24 @@ public class ProjectRunServiceTests
         var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", @"src\Server\Server.csproj"));
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
-        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
+        var siblings = plan.ManagedSiblings;
 
-        Assert.IsTrue(allManaged);
         Assert.AreEqual(1, siblings.Count);
         Assert.AreEqual(Path.Combine(_tempDir.FullName, "src", "Server", "Server.csproj"), siblings[0].FullName);
     }
 
     [TestMethod]
-    public void ComputeSolutionRestorePlan_NativeSibling_ExcludedAndNotAllManaged()
+    public void ComputeSolutionRestorePlan_NativeSibling_Excluded()
     {
-        // A native .vcxproj can't be `dotnet restore`d on a VS-less box, so it's excluded from the set and
-        // flips AllManaged to false (the caller then restores managed siblings individually).
+        // A native .vcxproj can't be `dotnet restore`d on a VS-less box, so it's excluded from the set.
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
         WriteProjectsAt("src/Managed/Managed.csproj", "src/Native/Native.vcxproj");
         var solution = WriteFile("App.slnx",
             SlnxListing("src/App/App.csproj", "src/Managed/Managed.csproj", "src/Native/Native.vcxproj"));
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
-        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
+        var siblings = plan.ManagedSiblings;
 
-        Assert.IsFalse(allManaged, "a native .vcxproj must flip AllManaged to false");
         Assert.AreEqual(1, siblings.Count, "only the managed sibling is restorable");
         Assert.AreEqual(Path.Combine(_tempDir.FullName, "src", "Managed", "Managed.csproj"), siblings[0].FullName);
         Assert.IsFalse(siblings.Any(s => s.FullName.EndsWith(".vcxproj", StringComparison.OrdinalIgnoreCase)),
@@ -3482,32 +3477,29 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public void ComputeSolutionRestorePlan_OnlyTarget_EmptySiblingsAllManaged()
+    public void ComputeSolutionRestorePlan_OnlyTarget_EmptySiblings()
     {
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
         var solution = WriteFile("App.slnx", SlnxListing("src/App/App.csproj"));
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
-        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
+        var siblings = plan.ManagedSiblings;
 
-        Assert.IsTrue(allManaged);
         Assert.AreEqual(0, siblings.Count, "a solution that lists only the target has no extra siblings to restore");
     }
 
     [TestMethod]
     public void ComputeSolutionRestorePlan_VbprojAndFsprojSiblings_TreatedAsManaged()
     {
-        // .vbproj/.fsproj are dotnet-restorable managed types too, so they stay in the set and keep
-        // AllManaged true.
+        // .vbproj/.fsproj are dotnet-restorable managed types too, so they stay in the set.
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
         WriteProjectsAt("src/Vb/Vb.vbproj", "src/Fs/Fs.fsproj");
         var solution = WriteFile("App.slnx",
             SlnxListing("src/App/App.csproj", "src/Vb/Vb.vbproj", "src/Fs/Fs.fsproj"));
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
-        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
+        var siblings = plan.ManagedSiblings;
 
-        Assert.IsTrue(allManaged);
         Assert.AreEqual(2, siblings.Count);
         CollectionAssert.AreEquivalent(
             new[]
@@ -3522,15 +3514,14 @@ public class ProjectRunServiceTests
     public void ComputeSolutionRestorePlan_ClassicSlnSolutionFolder_Ignored()
     {
         // A classic .sln solution-folder entry has a "path" equal to its name (no ...proj extension). It
-        // must not be counted as a project — otherwise it would spuriously flip AllManaged.
+        // must not be counted as a project.
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
         WriteProjectsAt("src/Server/Server.csproj");
         var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", "Solution Items", @"src\Server\Server.csproj"));
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
-        var (allManaged, siblings) = (plan.AllManaged, plan.ManagedSiblings);
+        var siblings = plan.ManagedSiblings;
 
-        Assert.IsTrue(allManaged, "the solution-folder entry is not a project and must not flip AllManaged");
         Assert.AreEqual(1, siblings.Count);
         Assert.AreEqual(Path.Combine(_tempDir.FullName, "src", "Server", "Server.csproj"), siblings[0].FullName);
     }
@@ -3551,24 +3542,19 @@ public class ProjectRunServiceTests
         CollectionAssert.AreEqual(new List<string> { "src/Server/Server.csproj" }, plan.ManagedSiblingEntries.ToList(),
             "a solution filter must repeat entries exactly as the solution spells them");
         Assert.AreEqual(1, plan.ManagedSiblings.Count);
-        Assert.IsFalse(plan.CanRestoreWholeSolution, "a missing project fails a whole-solution restore");
     }
 
     [TestMethod]
-    [DataRow(@"\\attacker.example\share\Evil.csproj")]
-    [DataRow(@"\\attacker.example\share\Evil.txt")] // MSBuild opens typed entries whatever their extension
-    public void ComputeSolutionRestorePlan_UncEntry_BlocksWholeSolutionRestore(string uncEntry)
+    public void ComputeSolutionRestorePlan_UncEntry_LeftOutOfTheFilter()
     {
-        // A whole-solution restore hands every listed path to MSBuild, which would open a UNC entry and
-        // authenticate to whoever serves the share. A rejected entry must force the filtered restore instead.
+        // MSBuild would open a UNC entry and authenticate to whoever serves the share, so it never reaches
+        // the solution filter, and it isn't reported as missing either.
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
         WriteProjectsAt("src/Server/Server.csproj");
-        var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", @"src\Server\Server.csproj", uncEntry));
+        var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", @"src\Server\Server.csproj", @"\\attacker.example\share\Evil.csproj"));
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
 
-        Assert.IsTrue(plan.HasRejectedProjects);
-        Assert.IsFalse(plan.CanRestoreWholeSolution, "a rejected entry must never reach MSBuild through the solution");
         CollectionAssert.AreEqual(new List<string> { @"src\Server\Server.csproj" }, plan.ManagedSiblingEntries.ToList());
         Assert.AreEqual(0, plan.MissingProjects.Count, "a rejected entry isn't reported as missing from disk");
     }
@@ -3589,7 +3575,7 @@ public class ProjectRunServiceTests
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
         Assert.IsFalse(dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
-            "the solution itself must not be restored while it lists a UNC project");
+            "the solution itself is never handed to dotnet restore, so MSBuild can't open entries winapp skipped");
         var filter = dotnet.SolutionFilterContents.Single();
         StringAssert.Contains(filter, @"Server\\Server.csproj");
         Assert.IsFalse(filter.Contains("attacker.example", StringComparison.Ordinal), "the UNC entry is left out of the filter");
@@ -3649,12 +3635,11 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public async Task BuildAndResolveAsync_SolutionAllManaged_RestoresWholeSolutionThenLetsRidBuildRestoreTarget()
+    public async Task BuildAndResolveAsync_Solution_RestoresSiblingsThenLetsBuildRestoreTarget()
     {
-        // ISSUE-1: when the owning solution is all-managed, one `dotnet restore <sln>` restores every
-        // build-dependency sibling before the build. This project builds with a RID, and a solution restore
-        // only adds -r to RuntimeIdentifiers (dotnet build -r restores with RuntimeIdentifier set), so the
-        // build must still restore the target itself.
+        // ISSUE-1: one restore over the solution's other managed projects runs before the build. Off an
+        // interactive terminal the build restores the target itself, since a solution-scoped restore can't
+        // carry the target's Platform or RuntimeIdentifier.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
@@ -3677,9 +3662,9 @@ public class ProjectRunServiceTests
         var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
         Assert.IsNotNull(outcome.Resolution);
-        Assert.IsTrue(commandArgs.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
-            "the whole solution should be restored up front for build-dependency parity");
-        StringAssert.Contains(console.Output, "Restoring App and 1 solution project...",
+        Assert.IsTrue(commandArgs.Any(a => a.StartsWith("restore ", StringComparison.Ordinal) && a.Contains(".slnf", StringComparison.Ordinal)),
+            "the solution's other projects should be restored up front for build-dependency parity");
+        StringAssert.Contains(console.Output, "Restoring 1 solution project...",
             "the restore phase should be announced before dotnet starts");
         StringAssert.Contains(console.Output, longRestoreLine,
             "restore output should stream live without Spectre wrapping the subprocess line");
@@ -3688,7 +3673,7 @@ public class ProjectRunServiceTests
             $"{longRestoreLine}\n\nAFTER-BLANK",
             "the streaming fake should preserve genuine blank subprocess lines without inventing CRLF blanks");
         Assert.IsFalse(dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal)).Contains("--no-restore", StringComparison.Ordinal),
-            "a solution restore does not set RuntimeIdentifier, so it cannot stand in for a RID build's own restore");
+            "a solution-scoped restore can't stand in for the target's own restore");
     }
 
     [TestMethod]
@@ -3735,9 +3720,9 @@ public class ProjectRunServiceTests
 
         Assert.IsNotNull(outcome.Resolution);
         var solutionRestore = dotnet.StreamingCalls.Single(
-            args => args.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal));
+            args => args.StartsWith("restore ", StringComparison.Ordinal) && args.Contains(".slnf", StringComparison.Ordinal));
         Assert.IsFalse(solutionRestore.Contains("-p:Platform=", StringComparison.Ordinal),
-            "solution restore must omit Platform to avoid MSB4126");
+            "a solution-scoped restore must omit Platform to avoid MSB4126");
         var build = dotnet.StreamingCalls.Single(
             args => args.StartsWith($"build {csproj.FullName}", StringComparison.Ordinal));
         StringAssert.Contains(build, "-p:Platform=x64",
@@ -3765,9 +3750,9 @@ public class ProjectRunServiceTests
 
         Assert.IsNotNull(outcome.Resolution);
         var solutionRestore = dotnet.StreamingCalls.Single(
-            args => args.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal));
+            args => args.StartsWith("restore ", StringComparison.Ordinal) && args.Contains(".slnf", StringComparison.Ordinal));
         Assert.IsFalse(solutionRestore.Contains("-p:Platform=", StringComparison.Ordinal),
-            "solution restore must omit the user Platform to avoid MSB4126");
+            "a solution-scoped restore must omit the user Platform to avoid MSB4126");
         var build = dotnet.StreamingCalls.Single(
             args => args.StartsWith($"build {csproj.FullName}", StringComparison.Ordinal));
         StringAssert.Contains(build, "-p:Platform=x64",
@@ -3804,7 +3789,7 @@ public class ProjectRunServiceTests
 
         Assert.IsNotNull(outcome.Resolution);
         Assert.IsTrue(
-            dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
+            dotnet.StreamingCalls.Any(a => a.StartsWith("restore ", StringComparison.Ordinal) && a.Contains(".slnf", StringComparison.Ordinal)),
             "interactive restore must stream through winapp so output can be redacted");
         Assert.IsTrue(
             dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal)),
@@ -3987,7 +3972,7 @@ public class ProjectRunServiceTests
 
         Assert.IsNotNull(outcome.Resolution);
         var restoreArgs = dotnet.StreamingCalls.Single(
-            args => args.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal));
+            args => args.StartsWith("restore ", StringComparison.Ordinal) && args.Contains(".slnf", StringComparison.Ordinal));
         StringAssert.Contains(restoreArgs, "-v quiet",
             "--quiet must apply quiet verbosity to the restore created by the project-run pipeline");
     }
@@ -4022,7 +4007,7 @@ public class ProjectRunServiceTests
         }
 
         var restoreArgs = dotnet.StreamingCalls.Single(
-            args => args.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal));
+            args => args.StartsWith("restore ", StringComparison.Ordinal) && args.Contains(".slnf", StringComparison.Ordinal));
         Assert.IsFalse(restoreArgs.Contains(" -v ", StringComparison.Ordinal),
             "--json must preserve dotnet's default restore verbosity in the project-run pipeline");
     }
@@ -4175,7 +4160,7 @@ public class ProjectRunServiceTests
     [TestMethod]
     public async Task BuildAndResolveAsync_WholeSolutionRestoreFails_FallsBackToPerSiblingRestore()
     {
-        // C25: an all-managed solution restores as a whole first, but if that whole-solution restore FAILS
+        // C25: the solution's managed siblings restore together first, but if that restore FAILS
         // the managed siblings must still be restored individually (the NETSDK1004 case this pre-step exists
         // to prevent) rather than silently deferring to the target-only build restore.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
@@ -4188,10 +4173,10 @@ public class ProjectRunServiceTests
             RunDotnetCommandHandler = a =>
             {
                 commandArgs.Add(a);
-                // Fail only the whole-solution restore; everything else (per-sibling restore, evaluate) succeeds.
-                if (a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal))
+                // Fail only the solution-filter restore; everything else (per-sibling restore, evaluate) succeeds.
+                if (a.StartsWith("restore ", StringComparison.Ordinal) && a.Contains(".slnf", StringComparison.Ordinal))
                 {
-                    return (1, string.Empty, "simulated whole-solution restore failure");
+                    return (1, string.Empty, "simulated solution-filter restore failure");
                 }
 
                 return (0, PackagedPropertiesJson(), string.Empty);
@@ -4205,10 +4190,10 @@ public class ProjectRunServiceTests
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
-        Assert.IsTrue(commandArgs.Any(a => a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
-            "the all-managed whole-solution restore must be attempted first");
+        Assert.IsTrue(commandArgs.Any(a => a.StartsWith("restore ", StringComparison.Ordinal) && a.Contains(".slnf", StringComparison.Ordinal)),
+            "the solution-filter restore must be attempted first");
         Assert.IsTrue(commandArgs.Any(a => a.StartsWith("restore ", StringComparison.Ordinal) && a.Contains(serverSibling)),
-            "after the whole-solution restore fails, the managed sibling must be restored individually (NETSDK1004 guard)");
+            "after the solution-filter restore fails, the managed sibling must be restored individually (NETSDK1004 guard)");
         Assert.IsTrue(logger.Entries.Any(entry =>
                 entry.Level == LogLevel.Warning
                 && entry.Message.Contains("retrying 1 project(s) individually", StringComparison.Ordinal)),
