@@ -77,6 +77,149 @@ public sealed class XamlTriageRunnerTests
         }
     }
 
+    /// <summary>
+    /// Runs with input verification bypassed, for tests that drive the real engine from system32 with a
+    /// stand-in provider and script, which the child would otherwise (correctly) refuse.
+    /// </summary>
+    private static (int ExitCode, string StdOut, string StdErr) RunTrustingInputs(string[] args)
+    {
+        var saved = XamlTriageRunner.VerifyInputs;
+        XamlTriageRunner.VerifyInputs = (bin, jsProvider, ext) => new XamlTriageRunner.VerifiedTriageInputs(bin, jsProvider, ext, []);
+        try
+        {
+            return RunCaptured(args);
+        }
+        finally
+        {
+            XamlTriageRunner.VerifyInputs = saved;
+        }
+    }
+
+    /// <summary>
+    /// The child must not trust its arguments: started directly, a signed winapp would otherwise load any
+    /// DLL it is pointed at. A stand-in dbgeng.dll is refused before anything is loaded.
+    /// </summary>
+    [TestMethod]
+    public void Run_UnsignedEngine_IsRefusedBeforeLoading()
+    {
+        var bin = Path.Join(_tempDir, "bin");
+        Directory.CreateDirectory(bin);
+        File.WriteAllText(Path.Join(bin, "dbgeng.dll"), "not a Microsoft-signed engine");
+        var jsProvider = Path.Join(bin, "JsProvider.dll");
+        File.WriteAllText(jsProvider, "not a Microsoft-signed provider");
+        var ext = Path.Join(_tempDir, "ext.js");
+        File.WriteAllText(ext, "// ext");
+        var dump = Path.Join(_tempDir, "x.dmp");
+        File.WriteAllText(dump, "not a dump");
+
+        var (exit, _, stderr) = RunCaptured(
+            [XamlTriageRunner.InternalVerb, "--dump", dump, "--bin", bin, "--ext", ext, "--jsprovider", jsProvider]);
+
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(stderr, "must be Microsoft-signed debugger files");
+    }
+
+    [TestMethod]
+    public void VerifyInputsForLoad_ScriptOtherThanThePinnedExtension_IsRefusedAndReleasesTheBinaries()
+    {
+        var ext = Path.Join(_tempDir, "evil.js");
+        File.WriteAllText(ext, "host.namespace.Debugger.Utility.Control.ExecuteCommand('.load C:\\\\evil.dll');");
+        var binariesHold = new TrackingDisposable();
+        var binaries = new ResolvedTriageBinaries(_tempDir, Path.Join(_tempDir, "JsProvider.dll"), false, "test") { Holds = [binariesHold] };
+
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+            () => XamlTriageRunner.VerifyInputsForLoad(_tempDir, binaries.JsProviderPath, ext, (_, _) => binaries));
+
+        StringAssert.Contains(ex.Message, "not the pinned WinUI debugger extension");
+        Assert.IsTrue(binariesHold.Disposed, "the refused run must not keep the debugger files held");
+    }
+
+    private sealed class TrackingDisposable : IDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public void Dispose() => Disposed = true;
+    }
+
+    [TestMethod]
+    public void StageVerifiedBinaries_CopiesOnlyTheVerifiedFiles()
+    {
+        // DbgEng loads default extension DLLs it finds beside the engine, so a DLL planted next to the
+        // verified ones must not follow them into the folder the engine runs from.
+        var source = Path.Join(_tempDir, "source");
+        Directory.CreateDirectory(Path.Join(source, "winext"));
+        foreach (var name in new[] { "dbgeng.dll", "JsProvider.dll", "exts.dll", @"winext\exts.dll" })
+        {
+            File.WriteAllText(Path.Join(source, name), name);
+        }
+
+        using var original = HoldTrusting(source, Path.Join(source, "JsProvider.dll"));
+        string? stageDir = null;
+        try
+        {
+            using var staged = XamlTriageRunner.StageVerifiedBinaries(original, HoldTrusting);
+            stageDir = staged.BinDir;
+            Assert.AreNotEqual(source, staged.BinDir);
+            CollectionAssert.AreEquivalent(
+                StagedEngineFiles,
+                Directory.EnumerateFileSystemEntries(staged.BinDir).Select(Path.GetFileName).ToArray());
+        }
+        finally
+        {
+            if (stageDir is not null)
+            {
+                Directory.Delete(stageDir, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void StageVerifiedBinaries_LocksTheFolderAgainstAdditions()
+    {
+        // Administrators keep full control, so an elevated test process is not denied.
+        if (new System.Security.Principal.WindowsPrincipal(System.Security.Principal.WindowsIdentity.GetCurrent())
+            .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator))
+        {
+            Assert.Inconclusive("Running elevated; the lock only denies non-administrators.");
+        }
+
+        var source = Path.Join(_tempDir, "source");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(Path.Join(source, "dbgeng.dll"), "dbgeng");
+        File.WriteAllText(Path.Join(source, "JsProvider.dll"), "provider");
+
+        using var original = HoldTrusting(source, Path.Join(source, "JsProvider.dll"));
+        string? stageDir = null;
+        try
+        {
+            using var staged = XamlTriageRunner.StageVerifiedBinaries(original, HoldTrusting);
+            stageDir = staged.BinDir;
+
+            // Not even this user can add the default-extension DLLs DbgEng would load from there.
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => File.WriteAllText(Path.Join(staged.BinDir, "exts.dll"), "x"));
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => Directory.CreateDirectory(Path.Join(staged.BinDir, "winext")));
+        }
+        finally
+        {
+            if (stageDir is not null)
+            {
+                Directory.Delete(stageDir, recursive: true);
+            }
+        }
+    }
+
+    private static ResolvedTriageBinaries HoldTrusting(string dir, string jsProvider) =>
+        new(dir, jsProvider, false, "test")
+        {
+            Holds =
+            [
+                VerifiedTool.Open(new FileInfo(Path.Join(dir, "dbgeng.dll")), (_, _) => true, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+                VerifiedTool.Open(new FileInfo(jsProvider), (_, _) => true, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+            ],
+        };
+
+    private static readonly string[] StagedEngineFiles = ["dbgeng.dll", "JsProvider.dll"];
+
     [TestMethod]
     public void Run_NoArgsBeyondVerb_ReturnsTwoAndExplains()
     {
@@ -127,9 +270,9 @@ public sealed class XamlTriageRunnerTests
     [TestMethod]
     public void Run_AllArgsButUnusableBin_ReturnsOne()
     {
-        // With all required args supplied but a bin directory that has no dbgeng.dll, the engine cannot
-        // be created, RunDbgEngExtension throws, and Run's catch maps it to exit code 1. This also
-        // exercises the --jsprovider and --symbols switch arms.
+        // With all required args supplied but a bin directory that has no dbgeng.dll, input verification
+        // refuses it and Run's catch maps that to exit code 1. This also exercises the --jsprovider and
+        // --symbols switch arms.
         var dump = Path.Combine(_tempDir, "garbage.dmp");
         File.WriteAllText(dump, "not a dump");
         var emptyBin = Path.Combine(_tempDir, "empty-bin");
@@ -249,7 +392,7 @@ public sealed class XamlTriageRunnerTests
             File.WriteAllText(ext, "// ext");
             var bogusJsProvider = Path.Combine(_tempDir, "NoSuchJsProvider.dll");
 
-            var (exit, stdout, _) = RunCaptured(
+            var (exit, stdout, _) = RunTrustingInputs(
                 [XamlTriageRunner.InternalVerb, "--dump", dump, "--bin", system32, "--ext", ext, "--jsprovider", bogusJsProvider]);
 
             if (exit != 0)
