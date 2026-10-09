@@ -3583,6 +3583,30 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task BuildAndResolveAsync_SlnWithEtpEntry_RestoresSiblingsWithoutReadingTheSolution()
+    {
+        // MSBuild's classic .sln parser opens every .etp entry, even through a solution filter, and that path
+        // can name a share. Such a solution never reaches MSBuild; its siblings restore one by one.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
+        var solution = WriteFile("App.sln", SlnListing("App.csproj", @"Server\Server.csproj", @"\\attacker.example\share\Evil.etp"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        var restores = dotnet.StreamingCalls.Where(a => a.StartsWith("restore ", StringComparison.Ordinal)).ToList();
+        Assert.IsFalse(restores.Any(a => a.Contains(".slnf", StringComparison.Ordinal) || a.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)),
+            "neither the solution nor a filter over it may reach MSBuild");
+        Assert.IsTrue(restores.Any(a => a.StartsWith($"restore {Path.Join(_tempDir.FullName, "Server", "Server.csproj")}", StringComparison.Ordinal)),
+            "the sibling restores on its own");
+    }
+
+    [TestMethod]
     public void WriteSolutionFilter_SelectsEntriesFromTheSolution()
     {
         var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", @"src\Server\Server.csproj"));

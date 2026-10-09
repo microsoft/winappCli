@@ -536,10 +536,16 @@ internal sealed partial class ProjectRunService
     /// The same projects as the solution spells them, which a solution filter must repeat verbatim.
     /// </param>
     /// <param name="MissingProjects">Listed projects that aren't on disk, as the solution spells them.</param>
+    /// <param name="CanUseSolutionFilter">
+    /// Whether MSBuild can read the solution without opening entries winapp didn't vet. MSBuild's classic
+    /// <c>.sln</c> parser opens every <c>.etp</c> entry it lists, even through a solution filter, and that path
+    /// can name a share.
+    /// </param>
     internal sealed record SolutionRestorePlan(
         IReadOnlyList<FileInfo> ManagedSiblings,
         IReadOnlyList<string> ManagedSiblingEntries,
-        IReadOnlyList<string> MissingProjects);
+        IReadOnlyList<string> MissingProjects,
+        bool CanUseSolutionFilter = true);
 
     /// <summary>
     /// Computes the restore plan for a solution build. VS (and <c>dotnet build &lt;sln&gt;</c>) restore the
@@ -595,7 +601,11 @@ internal sealed partial class ProjectRunService
             }
         }
 
-        return new SolutionRestorePlan(siblings, siblingEntries, missing);
+        // A raw substring check: .sln paths have no escape syntax, so an entry MSBuild treats as .etp spells it.
+        var canUseSolutionFilter = string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
+            || !text.Contains(".etp", StringComparison.OrdinalIgnoreCase);
+
+        return new SolutionRestorePlan(siblings, siblingEntries, missing, canUseSolutionFilter);
     }
 
     /// <summary>
