@@ -21,9 +21,15 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
 
     public IReadOnlyList<string> Examples { get; } =
     [
-        "winapp devtools comments add --from-element <selector> -a <app> --text \"<text>\"",
+        "winapp devtools comments add <selector> -a <app> --text \"<text>\"",
     ];
 
+    public static Argument<string?> SelectorArgument { get; } = new("selector")
+    {
+        Description = "Element to comment on in a running DevTools app (requires --app), the same as --from-element: " +
+            "the selector printed in brackets, an x:Name, an AutomationId, or a handle.",
+        Arity = ArgumentArity.ZeroOrOne,
+    };
     public static Option<string> TextOption { get; } = new("--text", "-t") { Description = "The comment text (required).", Required = true };
     public static Option<string?> IdOption { get; } = new("--id") { Description = "Create or replace the comment with this ID." };
     public static Option<string?> KindOption { get; } = new("--kind") { Description = "Triage: visual | binding | behavior | a11y | other." };
@@ -51,6 +57,7 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
     public DevToolsCommentsAddCommand()
         : base("add", "Author a source-anchored UI review comment into .winapp/ui-comments.json.")
     {
+        Arguments.Add(SelectorArgument);
         Options.Add(TextOption);
         Options.Add(IdOption);
         Options.Add(KindOption);
@@ -108,6 +115,12 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             CapturedElement? captured = null;
             var fromSelection = parseResult.GetValue(FromSelectionOption);
             var fromElement = Nullify(parseResult.GetValue(FromElementOption));
+            var selector = Nullify(parseResult.GetValue(SelectorArgument));
+            if (selector is not null && fromElement is not null)
+            {
+                return Task.FromResult(Fail(ansiConsole, json, "Pass the element once: as <selector> or with --from-element."));
+            }
+            fromElement ??= selector;
             var app = parseResult.GetValue(AppOption);
             uint? appPid = null;
             if (fromSelection && fromElement is not null)

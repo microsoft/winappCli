@@ -103,7 +103,7 @@ says so instead. When compiler output is missing, DevTools may show a **likely s
 A comment on it is saved only after you confirm it:
 
 ```powershell
-winapp devtools comments add --from-element <element> --app 12345 --text "Review this" --confirm-likely-source
+winapp devtools comments add <element> --app 12345 --text "Review this" --confirm-likely-source
 ```
 
 `diagnose-binding` evaluates path and types at that moment, not change notifications. It
@@ -119,7 +119,7 @@ a C++ app from its build output, keeps them in the folder you ran `winapp run` f
 shows them in its list and count but can't place markers.
 
 ```powershell
-winapp devtools comments add -a 12345 --from-element SaveButton --text "Make this label clearer"
+winapp devtools comments add SaveButton -a 12345 --text "Make this label clearer"
 ```
 
 - `--from-selection` comments on the element picked in the toolbar.

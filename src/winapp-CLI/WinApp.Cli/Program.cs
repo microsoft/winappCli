@@ -478,8 +478,8 @@ internal static class Program
 
         // The same code every other malformed winapp command line returns. This is a parse mistake,
         // not a failure to reach a target, and conflating the two would make an unknown option look
-        // like an unavailable machine.
-        return TargetOutput.InvalidCommandLineExitCode;
+        // like an unavailable machine. The in-app comment writer gets the code its other parse errors use.
+        return parsedArgs.GetValue(WinAppRootCommand.GuestCommentsOption) is not null ? 2 : TargetOutput.InvalidCommandLineExitCode;
     }
 
     /// <summary>

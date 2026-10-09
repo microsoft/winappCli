@@ -56,16 +56,47 @@ public class CommentUnlinkedTests
         return agent;
     }
 
-    private static async Task<(int Exit, string Output)> AddAsync(FakeDevToolsProtocolAgent agent, CommentStore store, string cwd)
+    private static async Task<(int Exit, string Output)> AddAsync(FakeDevToolsProtocolAgent agent, CommentStore store, string cwd,
+        string[]? target = null)
     {
         var console = new TestConsole();
         // The in-app writer runs in the app's working directory, which is its build output.
         var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
             new CommentTestTargetResolver(agent.Pid), new FixedDirectory(cwd), console,
             NullLogger<DevToolsCommentsAddCommand>.Instance);
-        var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(
-            ["--app", agent.Pid.ToString(), "--from-element", "2", "--text", "this looks off"]));
+        var parsed = new DevToolsCommentsAddCommand().Parse(
+            [.. target ?? ["--from-element", "2"], "--app", agent.Pid.ToString(), "--text", "this looks off"]);
+        Assert.IsEmpty(parsed.Errors, string.Join("; ", parsed.Errors.Select(e => e.Message)));
+        var exit = await handler.InvokeAsync(parsed);
         return (exit, console.Output);
+    }
+
+    // Like get-property and set-property, the element can be named positionally.
+    [TestMethod]
+    public async Task APositionalSelector_CommentsOnThatElementLikeFromElement()
+    {
+        using var agent = Agent(JsonSerializer.Serialize(new { sourceRoot = "", commentRoot = _root.FullName }));
+        var store = new CommentStore();
+
+        var (exit, console) = await AddAsync(agent, store, _root.FullName, ["2"]);
+
+        Assert.AreEqual(0, exit, console);
+        var comment = store.Load(store.GetStorePath(_root)).Comments.Single();
+        Assert.AreEqual("ShippedPill", comment.Anchor.Identity.Name, "the selector captured the same element --from-element does");
+    }
+
+    [TestMethod]
+    public async Task APositionalSelectorAndFromElement_AreRejectedTogether()
+    {
+        using var agent = Agent(JsonSerializer.Serialize(new { sourceRoot = "", commentRoot = _root.FullName }));
+        var console = new TestConsole();
+        var handler = new DevToolsCommentsAddCommand.Handler(new CommentStore(), new CommentAnchorResolver(),
+            new CommentPusher(new CommentStore()), new CommentTestTargetResolver(agent.Pid), new FixedDirectory(_root.FullName),
+            console, NullLogger<DevToolsCommentsAddCommand>.Instance);
+        var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(
+            ["2", "--from-element", "2", "--app", agent.Pid.ToString(), "--text", "note"]));
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(console.Output, "Pass the element once");
     }
 
     [TestMethod]
