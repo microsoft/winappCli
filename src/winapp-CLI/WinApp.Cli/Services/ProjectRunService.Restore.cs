@@ -367,6 +367,7 @@ internal sealed partial class ProjectRunService
 
         var verbosity = ResolveRestoreVerbosity(logger, options.Json);
         RestoreInvocation solutionRestore;
+        FileInfo? filter = null;
         var restoresWholeSolution = plan.CanRestoreWholeSolution && string.IsNullOrWhiteSpace(options.PublishProfile);
         if (restoresWholeSolution)
         {
@@ -383,11 +384,10 @@ internal sealed partial class ProjectRunService
             // An inferred PublishProfile belongs only to the selected app, so siblings restore without it
             // and the target restores separately under the profile.
             var siblingOptions = options with { PublishProfile = null };
-            var filter = WriteSolutionFilter(solution, plan.ManagedSiblingEntries);
+            filter = WriteSolutionFilter(solution, plan.ManagedSiblingEntries);
             logger.LogDebug(
                 "{UISymbol} Restoring {Count} solution projects through solution filter {Filter} for build-dependency parity.",
                 UiSymbols.Note, plan.ManagedSiblings.Count, filter.FullName);
-            // A failed restore keeps the filter so the command printed with its output can be rerun.
             try
             {
                 solutionRestore = await RunRestoreAsync(
@@ -410,25 +410,44 @@ internal sealed partial class ProjectRunService
         // unrestored — the NETSDK1004 case this prevents); restore each sibling instead. NuGet restores every
         // project it can and reports package failures per project, so when its errors are the only ones,
         // the other projects are already restored and retrying one by one would only repeat the errors.
-        var scope = restoresWholeSolution ? "Solution restore" : "Restore of the solution's projects";
-        if (FailedOnlyWithPackageErrors(solutionRestore.Lines))
+        try
         {
-            // Package preparation still restores the target's exact publish graph next, and that restore
-            // decides: an error here may come from a framework or platform the publish doesn't use.
+            var scope = restoresWholeSolution ? "Solution restore" : "Restore of the solution's projects";
+            if (FailedOnlyWithPackageErrors(solutionRestore.Lines))
+            {
+                // Package preparation still restores the target's exact publish graph next, and that restore
+                // decides: an error here may come from a framework or platform the publish doesn't use.
+                step.Warn(
+                    $"{UiSymbols.Warning} {scope} failed (exit code {solutionRestore.ExitCode}); continuing with the build, which will report any unresolved dependency errors.");
+                return false;
+            }
+
             step.Warn(
-                $"{UiSymbols.Warning} {scope} failed (exit code {solutionRestore.ExitCode}); continuing with the build, which will report any unresolved dependency errors.");
+                $"{UiSymbols.Warning} {scope} failed (exit code {solutionRestore.ExitCode}); retrying {plan.ManagedSiblings.Count} project(s) individually.");
+
+            // Each failing project reports its own output, which may differ from the solution-level failure
+            // (that one may have stopped before reaching it), so the solution-level output isn't repeated.
+            solutionRestore.ReportFailure = false;
+            await RestoreSiblingsIndividuallyAsync(step, plan.ManagedSiblings, options, publish, cancellationToken);
             return false;
         }
-
-        step.Warn(
-            $"{UiSymbols.Warning} {scope} failed (exit code {solutionRestore.ExitCode}); retrying {plan.ManagedSiblings.Count} project(s) individually.");
-
-        // Each failing project reports its own output, which may differ from the solution-level failure
-        // (that one may have stopped before reaching it), so the solution-level output isn't repeated.
-        solutionRestore.ReportFailure = false;
-        await RestoreSiblingsIndividuallyAsync(step, plan.ManagedSiblings, options, publish, cancellationToken);
-        return false;
+        finally
+        {
+            // A failed filter restore whose command is shown keeps its filter, so that command can be rerun.
+            if (filter is not null && !ShowsFailedCommand(step, solutionRestore))
+            {
+                TryDeleteFile(filter.FullName);
+            }
+        }
     }
+
+    /// <summary>Whether a failed invocation's <c>Command:</c> line reaches the user in this step's output mode.</summary>
+    private static bool ShowsFailedCommand(RestoreStep step, RestoreInvocation invocation) => step.Mode switch
+    {
+        RestoreOutputMode.Streamed => true,
+        RestoreOutputMode.Summarized => invocation.ReportFailure,
+        _ => step.Options.Json,
+    };
 
     /// <summary>
     /// True when restore output reports at least one error and every error is a NuGet package error

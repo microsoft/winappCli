@@ -4095,6 +4095,42 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task BuildAndResolveAsync_RealTerminalFilteredRestoreRecoveredIndividually_DeletesTheFilter()
+    {
+        // On an interactive terminal, a solution-filter restore that per-project restores recover from is
+        // never shown, so its temporary filter must not be left behind.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("A/A.csproj", "Native/Native.vcxproj");
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "A/A.csproj", "Native/Native.vcxproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetStreamingHandler = (args, onOut, _) =>
+            {
+                if (!args.Contains(".slnf", StringComparison.Ordinal))
+                {
+                    return 0;
+                }
+
+                onOut?.Invoke(@"C:\src\A\A.csproj : error MSB4019: The imported project ""x.props"" was not found.");
+                return 1;
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out var console);
+        service.NativeTerminalGateOverrideForTests = () => true;
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        var filter = WindowsCommandLine.SplitArguments(dotnet.StreamingCalls.First(a => a.Contains(".slnf", StringComparison.Ordinal)))[1];
+        Assert.IsFalse(File.Exists(filter), "a filter whose command is never shown is deleted");
+        Assert.IsFalse(console.Output.Contains(".slnf", StringComparison.Ordinal), "the recovered filter restore isn't reported");
+        Assert.IsTrue(dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {Path.Combine(_tempDir.FullName, "A", "A.csproj")}", StringComparison.Ordinal)),
+            "the sibling is retried on its own");
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_WholeSolutionRestoreFails_FallsBackToPerSiblingRestore()
     {
         // C25: an all-managed solution restores as a whole first, but if that whole-solution restore FAILS
