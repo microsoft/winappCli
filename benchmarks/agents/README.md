@@ -1,7 +1,8 @@
 # Agent plugin benchmark (local)
 
-Measures which skills GitHub Copilot CLI loads for realistic developer requests, and how many
-tokens it uses, under different plugin configurations:
+Measures which skills GitHub Copilot CLI loads for realistic developer requests, how many tokens it
+uses, and (for the demand set) whether the answer solves the developer's problem, under different
+plugin configurations:
 
 | Configuration | Plugins installed |
 |---|---|
@@ -14,12 +15,13 @@ Use it to baseline the current plugins, check that a moved or restructured plugi
 same way, and compare skill restructuring candidates.
 
 Scenarios expect **capabilities** (`msix.sign`, `api.lookup`, ...), not skill names, so a plugin that
-renames or merges skills can still be scored. They come in two sets:
+renames or merges skills can still be scored. They come in three sets:
 
 | Set | Scenarios | Use |
 |---|---|---|
 | `dev` (default) | 67 | Iterate on descriptions and structure freely. Never cite it as proof. |
 | `heldout` | 38, each with 2 paraphrases (114 prompts) | Release and decision checks only. See [Held-out set](#held-out-set). |
+| `demand` | 60, sampled from real developer problems | Outcome checks: graded against a frozen rubric, not by which skill loaded. See [Demand set](#demand-set). |
 
 ```powershell
 pwsh benchmarks\agents\run.ps1 -Plan
@@ -59,7 +61,7 @@ pwsh benchmarks\agents\run.ps1 -Configuration winui,both -WinUIPlugin C:\src\my-
 
 | Parameter | Default (`config.json`) | Notes |
 |---|---|---|
-| `-Set <dev\|heldout\|all>` | `dev` | Which scenario set to run. `-Lint` checks every set unless `-Set` is given |
+| `-Set <dev\|heldout\|demand\|all>` | `dev` | Which scenario set to run. `-Lint` checks every set unless `-Set` is given |
 | `-Scenario <id[]>` | all in the set | Scenario ids; a base id selects its paraphrases too |
 | `-Variant <name[]>` | all | Paraphrase filter: `base`, `novice`, `terse` |
 | `-Configuration <none\|winapp\|winui\|both[]>` | each scenario's list | Filters a scenario's `configurations` |
@@ -94,12 +96,15 @@ comma-separated values (`-Scenario a,b`), including through `pwsh -File`.
    access denied, built-in MCP servers disabled, and custom instructions off. The agent can read the
    fixture and load skills. Output streams straight to files.
 5. Reads the session's persisted `events.jsonl` and records the skills the agent invoked, the size
-   of the skill content delivered to the model, tokens, AI credits, turns, tool calls (including
+   of the skill content delivered to the model, the other files inside a skill folder it read (its
+   references, as `<skill>/<path>`, with their approximate size, and separately the reads that were
+   denied), tokens, AI credits, turns, tool calls (including
    denied ones), `winapp` commands the agent tried to run or named in its final answer (and, separately,
    the ones it tried in a shell call that was denied), the selected agent, duration, and exit status.
    Missing values are `null` with a reason, never 0. If the workspace changed, the run is a
    `harness_error`.
-6. Maps the invoked skills to capabilities with `capabilities.json`, evaluates the scenario's
+6. Maps the invoked skills and the references read to capabilities with `capabilities.json`,
+   evaluates the scenario's
    expectations, scores the final response against the answer signals (see
    [Routing and answer](#routing-and-answer)), appends a line to `runs.jsonl`, and deletes the
    temporary folders.
@@ -126,6 +131,9 @@ How to read the token columns:
 - **Skill context** is the skill content delivered to the model (characters / 4). It is an
   approximation, not a tokenizer count, but it is the number that changes when a skill grows,
   shrinks, or stops loading.
+- **Reference reads** (`skillFileTokensApprox` in `runs.jsonl`) is the size of the files inside skill
+  folders the agent read on top of `SKILL.md` (characters / 4). Add it to skill context for the skill
+  text a run actually loaded; a skill split into a smaller core plus references should lower the sum.
 - **Repeated deliveries** count the times a skill already delivered in a session was delivered
   again, and the skill context those repeats added. They show in the totals and in each row. When a
   repeated skill's size is unknown, the tokens show as `unknown` or `partial`.
@@ -186,6 +194,8 @@ response. `forbid` regexes fail the answer. For a scenario:
 | `n/a` | No primary capability has signals, a miss can't be judged because another alternative has no signals, or the run recorded nothing to score |
 
 Scenarios that need no plugin (`"primary": []`) pass when the response names no `winapp` command.
+Scenarios that expect and forbid nothing (the [demand set](#demand-set)) are `n/a`; their rubric grades
+the answer instead.
 
 `blocked` exists because the benchmark denies the shell: an agent that runs the right command, gets
 denied, and then answers "blocked" without repeating the command would otherwise look the same as an
@@ -236,8 +246,8 @@ pwsh benchmarks\agents\run.ps1 -Compare results\baseline-a,results\baseline-b -C
 ```
 
 `comparison.md` has one row per model and one per (model, scenario, configuration) cell with the
-pass rate, mean skill context, mean input tokens, and mean AI credits per run on each side, the
-change, and repeated deliveries. Only cells present on both sides are compared. Both sides are
+pass rate, mean skill context, mean input tokens, mean AI credits, and mean reference reads per run
+on each side, the change, and repeated deliveries. Only cells present on both sides are compared. Both sides are
 re-evaluated in memory against the current scenario expectations; the folders are not modified.
 
 - Pass rates use the same format as `summary.md`: `pass`, `partial`, and `fail` are scored (`partial`
@@ -252,7 +262,8 @@ re-evaluated in memory against the current scenario expectations; the folders ar
   capability. It then tests something different on each side, so it is left out of the per-model
   pass rate. Renaming or merging skills does not change the check when the capability map covers it.
 - `-Scenario` and `-Model` must name values present in the compared results.
-- Runs recorded before repeated deliveries were measured show `-` for them.
+- Runs recorded before repeated deliveries were measured show `-` for them, and runs recorded before
+  reference reads were tracked show `n/a` for those.
 
 ## Recommended workflow for a plugin change
 
@@ -261,10 +272,13 @@ re-evaluated in memory against the current scenario expectations; the folders ar
 2. Confirm with all three models x 3 iterations on the scenarios the change affects plus the
    near-miss and trap cohorts, and compare again.
 3. Before shipping, run the held-out set once on both sides (`-Set heldout`) and compare. Ship only
-   if the held-out set improves or holds.
+   if the held-out set improves or holds. For a change to skill content or structure, also run the
+   demand set on both sides and grade it (see [Demand set](#demand-set)); routing can move while
+   outcomes don't, and the reverse.
 4. Set `-MaxCredits` on long runs. To measure a plugin agent, pass `-Agent` on both sides.
 5. If the change renames, merges, or splits skills, add a map for the new skill set to
-   `capabilities.json` first (see [Capabilities](#capabilities)).
+   `capabilities.json` first (see [Capabilities](#capabilities)). When content moves from `SKILL.md`
+   into a reference file, map the file so its capabilities count only when it's read.
 
 With 3 iterations per cell, only a 0/3 versus 3/3 swing in a single cell is a signal; the per-model
 rows are more reliable.
@@ -279,11 +293,27 @@ that serve it, and maps each plugin's skills to capabilities:
   "skills": { "winapp-signing": ["msix.sign"], "winapp-sandbox": ["sandbox.run", "ui.automate"] } }
 ```
 
-A map applies to a run when every skill it names is installed; if several maps of one plugin apply,
-the one naming the most skills wins. `skillSetHash` identifies the skill-name set the map was written
+A map applies to a run when every skill (and file, below) it names is installed; if several maps of
+one plugin apply, the one naming the most keys wins. `skillSetHash` identifies the skill-name set the map was written
 for. `run.ps1` warns when no map matches a plugin's current skills, and the tests fail when the repo
 plugins change their skill names without a map update. For a candidate that renames, merges, or
-splits skills, add a map for its skill set; the existing maps keep scoring older results. When a
+splits skills, add a map for its skill set; the existing maps keep scoring older results.
+
+A key can also name a file inside a skill, as `<skill>/<path>`:
+
+```json
+"skills": { "winapp-setup": ["project.setup"], "winapp-setup/references/new-winui-app.md": ["project.scaffold"] }
+```
+
+The file's capabilities count only in runs where the agent read that file, so content moved from
+`SKILL.md` into a reference is credited only when the model actually opened it. Each run records the
+files its plugins ship (`skillFilesInstalled`), and a map with file keys applies only when those
+files are installed. So a candidate that splits a skill into new reference files keeps the same
+skill names as the baseline but still gets its own map, while baseline runs keep the old one. If a
+split only moves content into a file the baseline already ships, the two maps can't be told apart;
+score each side from its own branch. Runs recorded before installed files were tracked use maps
+without file keys. File keys don't count toward `maxSkills`, and a file whose skill carries a forbidden
+capability is unusable, like its skill. When a
 skill is removed, remove its map entry, any capability only it provided, and the scenarios that
 expected that capability. Older runs that had it installed are then scored by the remaining map,
 and runs of the removed scenarios are left out of pass rates (scored ones as `scenario_removed`).
@@ -352,7 +382,7 @@ with the few files the prompt needs:
 `-Lint` compares each prompt, plus its fixture file names, with every skill and agent description of
 the plugins being run:
 
-| Rule | Held-out | Dev |
+| Rule | Held-out and demand | Dev |
 |---|---|---|
 | `leak-bigram`: shares a distinctive two-word phrase (one that appears in at most 3 descriptions) | error | warning |
 | `leak-jaccard`: content-word overlap with one description above 0.10 | error | warning |
@@ -362,7 +392,8 @@ the plugins being run:
 | `leak-answer`: the prompt already contains an answer signal of its own primary or acceptable capabilities | error | warning |
 
 The dev set keeps a few prompts that warn on purpose: explicit-command scenarios name the command,
-and some older prompts stay unchanged so earlier results remain comparable. Framework, product, and generic project words ("WinUI app", "Windows desktop", "Microsoft Store",
+and some older prompts stay unchanged so earlier results remain comparable. In the held-out and
+demand sets, `explicit-command` scenarios may name winapp, and their leak findings are warnings. Framework, product, and generic project words ("WinUI app", "Windows desktop", "Microsoft Store",
 "MSIX") are not counted as leakage: a developer naming their own stack is not echoing a description.
 
 ## Held-out set
@@ -381,9 +412,90 @@ Treat it as gated:
   descriptions. If a held-out scenario is wrong, fix its expectation and say so in the change.
 - A description change ships only if it improves or holds the held-out results.
 
+## Demand set
+
+`scenarios\demand\` holds 60 scenarios sampled in proportion to what Windows desktop developers
+actually ask about. Each answer is graded against the scenario's rubric by two LLM judges, so the
+set measures whether the developer's problem got solved, not which skill loaded. A correct answer
+that doesn't use winapp can still be solved.
+
+Where the scenarios came from (`demand-meta\`):
+
+| File | Contents |
+|---|---|
+| `problems.jsonl` | 300 real problems from GitHub issues (WindowsAppSDK, microsoft-ui-xaml, winappCli, electron-builder, Tauri, Flutter, MAUI, ...) and Stack Overflow, each with its source URL and cluster |
+| `dropped.jsonl` | Problems left out, with the reason (outdated, not Windows, not a concrete problem, ...) |
+| `clusters.json`, `clusters.md` | 27 problem clusters and each one's estimated share of demand |
+| `sampling.md` | The source problem and URL for each scenario |
+| `writer-spec.md` | The instructions scenario writers followed. They never saw the plugins |
+| `review-log.md` | Changes from the independent review of every rubric against its source and the docs |
+
+Each scenario folder has a `rubric.json` next to `scenario.json`:
+
+| Field | Meaning |
+|---|---|
+| `cluster`, `framework` | Demand cluster and the developer's stack |
+| `goal` | What a successful answer achieves |
+| `must_include` | Specific points a solved answer covers |
+| `must_not` | Wrong or unsafe advice; any one caps the verdict at partial |
+| `acceptable_alternatives` | Other correct approaches (signtool, MSBuild, Visual Studio, ...) |
+| `solved`, `partial` | What each verdict means for this scenario |
+| `sources`, `verified_with` | The source thread and the docs each point was checked against |
+
+Loading a scenario without a complete rubric fails. Demand scenarios expect no capabilities, so
+their routing status is `n/a`; the outcome comes from the judges.
+
+The rubrics were committed before any run. Treat them like the held-out set: don't edit a rubric to
+make a candidate pass or copy prompt wording into skill descriptions. If a rubric is wrong, fix it,
+say so in the change, and regrade both sides into a new judge folder.
+
+### Running and grading
+
+```powershell
+# 1. Run the baseline and the candidate. One model and one iteration in the both configuration is
+#    60 sessions per side; all 4 configurations are 240.
+pwsh benchmarks\agents\run.ps1 -Set demand -Configuration both -Model claude-sonnet-5.5 -Iterations 1 -OutDir benchmarks\agents\results\dm-base-sonnet-i1
+pwsh benchmarks\agents\run.ps1 -Set demand -Configuration both -Model claude-sonnet-5.5 -Iterations 1 -WinAppPlugin C:\src\candidate\plugins\winapp -OutDir benchmarks\agents\results\dm-cand-sonnet-i1
+
+# 2. Grade every answer with both judges (cached; rerun to grade only new answers)
+pwsh benchmarks\agents\judge.ps1 -Results benchmarks\agents\results\dm-base-sonnet-i1,benchmarks\agents\results\dm-cand-sonnet-i1 -OutDir benchmarks\agents\results\dm-judge -MaxCredits 300
+
+# 3. Tables: outcome per candidate and model, paired difference with a 95% CI, by cluster, judge agreement
+'{ "base": ["dm-base-sonnet-i1"], "cand": ["dm-cand-sonnet-i1"] }' | Set-Content benchmarks\agents\results\spec.json
+pwsh benchmarks\agents\demand-analyze.ps1 -Spec benchmarks\agents\results\spec.json -Judgments benchmarks\agents\results\dm-judge\judgments.jsonl -Clusters benchmarks\agents\demand-meta\clusters.json -Out benchmarks\agents\results\demand.md
+```
+
+`judge.ps1` shows how many batches it would run with `-Plan`. It grades in batches of up to 6
+answers to one scenario, with the answering model, plugin, and configuration hidden and the order
+shuffled. Each judge runs in an empty Copilot home with shell, writes, and URLs denied. Every
+answer gets a verdict from every judge (default `claude-opus-5.5` and `gpt-6.1-sol`), so no model
+is graded only by its own family. Empty answers are `unsolved` without a judge. A batch whose reply
+isn't one valid verdict per answer is retried once and then reported as failed (exit code 1); rerun
+to grade what's missing. `-MaxCredits` is a hard cap: each attempt reserves an estimate before it
+starts, so parallel batches can't overshoot it, and every attempt's cost is kept in `spend.jsonl`
+in `-OutDir`, so reruns count earlier spending, failed batches included. Judgments append to `judgments.jsonl` in `-OutDir`, keyed by result folder
+name and line, so use unique result folder names. With full batches of 6, grading costs about 1.2
+AI credits per answer per judge; smaller batches cost more per answer.
+
+How to read `demand-analyze.ps1` output:
+
+- **Score** is the mean over judges of solved = 1, partial = 0.5, unsolved = 0. An answer counts only
+  when every judge in `-Judge` (default: the same two) graded it. **Cluster-weighted** weights each cluster's mean by its demand share
+  (`-Clusters`).
+- **Paired difference** pairs runs by scenario, model, and iteration and resamples scenarios
+  (2,000 bootstrap samples) for the 95% interval. Treat an interval that includes 0 as no change.
+  With 60 scenarios, 3 models, and 2 iterations the interval is about ±0.03.
+- **Judge agreement** reports exact agreement, Cohen's kappa, and how often each judge favors its
+  own model family. `-Calibration <file>` writes 15 random graded answers with their rubric and both
+  verdicts for a spot check.
+
 ## Limits
 
-- Shell, file writes, and URLs are denied, so this measures routing and skill loading, not whether
-  the agent completes the task. Models still try those tools; the attempts show up as denied calls.
+- Shell, file writes, and URLs are denied, so this measures routing, skill loading, and the final
+  answer, not whether the agent completes the task. Models still try those tools; the attempts show
+  up as denied calls.
 - Local only, Copilot CLI only, no CI integration, sequential runs.
 - Results vary between runs; use several iterations before drawing conclusions.
+- Demand-set judges agree moderately (kappa about 0.56 in the first full run), and the Opus judge
+  grades more leniently than the GPT judge. Compare candidates by paired differences, not raw
+  scores, and spot-check with `-Calibration`.

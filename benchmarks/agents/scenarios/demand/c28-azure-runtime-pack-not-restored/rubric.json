@@ -1,0 +1,30 @@
+{
+  "cluster": "c28",
+  "framework": "WPF",
+  "goal": "Make the Azure DevOps build restore the win-x64 runtime packs needed by the .NET 8 Windows desktop/MSIX build.",
+  "must_include": [
+    "Identifies NETSDK1112 as a restore/build mismatch for the `win-x64` runtime packs, not a missing .NET SDK installation.",
+    "Changes the project from singular `<RuntimeIdentifier>win-x64</RuntimeIdentifier>` to `<RuntimeIdentifiers>win-x64</RuntimeIdentifiers>` or otherwise ensures restore is performed with `win-x64` before the VSBuild step.",
+    "Keeps the pipeline build platform aligned with the RID, for example `platform: x64` with `win-x64`.",
+    "Adds or verifies an explicit restore step that runs after `UseDotNet@2` and before building if the pipeline does not rely on VSBuild restore."
+  ],
+  "must_not": [
+    "Tell them to install a desktop runtime manually on the hosted agent as the fix.",
+    "Downgrade the project back to .NET 7 without addressing RID restore.",
+    "Clear NuGet caches or retry the pipeline as the main solution."
+  ],
+  "acceptable_alternatives": [
+    "`dotnet restore -r win-x64` before MSBuild/VSBuild.",
+    "`msbuild /restore /p:RuntimeIdentifier=win-x64` with the same configuration and platform used for packaging.",
+    "Publish self-contained with `-r win-x64` when that matches the app's deployment plan."
+  ],
+  "solved": "The CI restore downloads `Microsoft.NETCore.App.Runtime.win-x64` and `Microsoft.WindowsDesktop.App.Runtime.win-x64`, and the .NET 8 package build proceeds past NETSDK1112.",
+  "partial": "The answer says to restore for win-x64 but does not update the project or pipeline so restore and build use the same RID/platform.",
+  "sources": ["https://stackoverflow.com/questions/77644744/net-8-in-azure-devops-gives-error-netsdk1112-the-runtime-pack-for-microsoft-n"],
+  "verified_with": [
+    "https://api.stackexchange.com/2.3/questions/77644744?site=stackoverflow&filter=withbody",
+    "https://api.stackexchange.com/2.3/questions/77644744/answers?site=stackoverflow&filter=withbody",
+    "https://learn.microsoft.com/en-us/dotnet/core/rid-catalog"
+  ],
+  "notes": "The accepted Stack Overflow answer fixes this repro by using `RuntimeIdentifiers` so restore includes the runtime pack."
+}

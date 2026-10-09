@@ -1,0 +1,21 @@
+{
+  "id": "c04-maui-hybridwebview-arm64-anycpu",
+  "description": "A .NET MAUI HybridWebView page crashes on Windows on ARM when the project is built as Any CPU, from https://github.com/dotnet/maui/issues/26116.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "Our MAUI app opens on x64 Windows, but on a Surface Laptop with Snapdragon it crashes as soon as I navigate to the HybridWebView page. A clean sample does it too.\n\n```\nUnhandled exception in App.g.i.cs\nMessage: \"%1 is not a valid Win32 application.\"\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

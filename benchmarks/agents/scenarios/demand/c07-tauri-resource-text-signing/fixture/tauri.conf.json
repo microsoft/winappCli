@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Northstar Ledger",
+  "version": "2.8.0",
+  "identifier": "com.northstar.ledger",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi"],
+    "resources": {
+      "packaging/README.md": "README.md"
+    },
+    "windows": {
+      "certificateThumbprint": "92F3134C706ED9E5A1A1A2A9B418D6652B4CC91E",
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com"
+    }
+  }
+}

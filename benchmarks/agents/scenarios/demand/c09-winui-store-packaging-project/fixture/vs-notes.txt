@@ -1,0 +1,13 @@
+Environment:
+  Visual Studio 2022 17.1
+  Windows App SDK 1.0.0
+
+Solution Explorer:
+  Solution 'HarborNotes' (1 of 1 project)
+    HarborNotes
+      Dependencies
+      App.xaml
+      MainWindow.xaml
+      Package.appxmanifest
+
+Right-click HarborNotes > Publish shows Folder publish and profile options. There is no separate package project node.

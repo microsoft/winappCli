@@ -1,0 +1,10 @@
+{
+  "id": "c14-folderpicker-selfcontained-element-not-found",
+  "description": "A self-contained packaged Windows App SDK preview app gets Element not found from FolderPicker, based on https://github.com/microsoft/WindowsAppSDK/issues/5749.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My packaged WinUI app throws Element not found when I call FolderPicker.PickSingleFolderAsync. It only happens when I publish self-contained; unpackaged works.",
+  "configurations": ["none", "winapp", "winui", "both"],
+  "fixture": "fixture",
+  "expect": { "capabilities": { "primary": [], "acceptable": [], "forbid": [] } }
+}

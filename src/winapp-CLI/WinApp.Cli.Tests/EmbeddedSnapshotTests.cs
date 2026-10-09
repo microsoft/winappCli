@@ -35,15 +35,30 @@ public class EmbeddedSnapshotTests
     private const double MinCodeRetention = 0.90;
 
     /// <summary>
-    /// Serving floors for the Gallery corpus, measured at 327 scenarios / 115 controls /
-    /// 290 XAML / 116 C# after sanitizing on the bake that introduced the published index.
-    /// Set roughly 10% below that so ordinary upstream churn doesn't fail the build, while
-    /// a partial or broken upstream publish does.
+    /// Serving floors for the Gallery corpus, measured at 344 scenarios / 118 controls /
+    /// 309 XAML / 133 C# after sanitizing. Set roughly 10% below that so ordinary upstream
+    /// churn doesn't fail the next bake, while a partial or broken upstream publish does.
+    /// These read the committed snapshot, so they only move when someone re-bakes.
     /// </summary>
-    private const int MinGalleryScenarios = 295;
-    private const int MinGalleryControls = 105;
-    private const int MinGalleryXaml = 260;
-    private const int MinGalleryCSharp = 100;
+    private const int MinGalleryScenarios = 309;
+    private const int MinGalleryControls = 106;
+    private const int MinGalleryXaml = 278;
+    private const int MinGalleryCSharp = 119;
+
+    /// <summary>
+    /// Serving floors for the Toolkit corpus, measured at 125 scenarios / 53 controls /
+    /// 125 XAML / 37 C# after sanitizing. Set roughly 10% below that, on the same reasoning
+    /// as the Gallery floors above. The Toolkit corpus is smaller, so these are tighter in
+    /// absolute terms — losing one component here is a visible loss of coverage, not churn.
+    ///
+    /// Take the numbers from the sanitized snapshot rather than the index's raw sample
+    /// count: sanitizing can strip a scenario's code, which is why the C# figure is well
+    /// under the scenario count.
+    /// </summary>
+    private const int MinToolkitScenarios = 112;
+    private const int MinToolkitControls = 47;
+    private const int MinToolkitXaml = 112;
+    private const int MinToolkitCSharp = 33;
 
     // ------------------------------------------------------------------
     // Build gates: the committed snapshot must match the code that reads it
@@ -386,9 +401,205 @@ public class EmbeddedSnapshotTests
     }
 
     // ------------------------------------------------------------------
-    // Load order: the snapshot is a floor, never a ceiling
+    // Corpus guards: the Toolkit corpus must be pasteable, not just present
     // ------------------------------------------------------------------
 
+    [TestMethod]
+    public void ToolkitCorpus_MeetsItsServingFloors()
+    {
+        // Same contract as the Gallery floors above: a floor, not an equality. The Toolkit
+        // corpus is read from the index the Toolkit publishes, so these floors do double duty
+        // — they also catch a fetch or a bake that silently stopped producing samples. A
+        // component the Toolkit stops publishing now shows up as a smaller index rather than
+        // as a failed scrape, and either way the corpus shrinks without anything throwing.
+        var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var controls = scenarios.Select(s => s.ControlId).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var xaml = scenarios.Count(s => !string.IsNullOrWhiteSpace(s.Xaml));
+        var csharp = scenarios.Count(s => !string.IsNullOrWhiteSpace(s.CSharp));
+
+        var observed = $"observed {scenarios.Length} scenarios / {controls} controls / " +
+                       $"{xaml} XAML / {csharp} C# after sanitizing";
+
+        Assert.IsTrue(scenarios.Length >= MinToolkitScenarios,
+            $"the Toolkit corpus collapsed to {scenarios.Length} scenarios (floor {MinToolkitScenarios}). {observed}");
+        Assert.IsTrue(controls >= MinToolkitControls,
+            $"the Toolkit corpus collapsed to {controls} controls (floor {MinToolkitControls}). {observed}");
+        Assert.IsTrue(xaml >= MinToolkitXaml,
+            $"only {xaml} Toolkit scenarios still serve XAML (floor {MinToolkitXaml}). {observed}");
+        Assert.IsTrue(csharp >= MinToolkitCSharp,
+            $"only {csharp} Toolkit scenarios still serve C# (floor {MinToolkitCSharp}). {observed}");
+    }
+
+    [TestMethod]
+    public void ToolkitCorpus_ServesNoScenarioWithoutCode()
+    {
+        // Same failure as its Gallery counterpart: a scenario search ranks and the user can
+        // ask for by id, which then answers with a header and no sample.
+        var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var empty = scenarios.Where(s => !HasCode(s)).Select(s => s.Id).ToList();
+
+        Assert.AreEqual(0, empty.Count,
+            $"{empty.Count} Toolkit scenarios are served with no code at all: {string.Join(", ", empty.Take(10))}. " +
+            "Each one is a fetchable id that returns nothing useful.");
+    }
+
+    [TestMethod]
+    public void ToolkitCorpus_ServesNoUnbackedEventHandler()
+    {
+        // Toolkit samples wire XAML events to code-behind methods, and a scenario split out
+        // of a multi-instance sample carries no code-behind at all — so without the strip in
+        // ToolkitProvider.NormalizeForPaste those scenarios hand the user markup that fails
+        // to compile with "handler not found". The count guards above all pass without it.
+        var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var unbacked = scenarios
+            .Where(s => !string.IsNullOrEmpty(s.Xaml)
+                        && ControlSnippetText.StripUnbackedEventHandlers(s.Xaml!, s.CSharp) != s.Xaml)
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, unbacked.Count,
+            $"{unbacked.Count} Toolkit samples wire a XAML event to a handler they don't define: " +
+            $"{string.Join(", ", unbacked.Take(10))}. Pasting one of these does not compile.");
+    }
+
+    [TestMethod]
+    public void ToolkitCorpus_ServesNoToolkitPrivateSymbol()
+    {
+        // A Toolkit sample is source from the Toolkit's own sample app: it declares itself in
+        // an experiment namespace, names itself after a sample class, and carries the
+        // [ToolkitSample…] attributes its docs generator consumes. Any of those left in a
+        // snippet is either uncompilable or an instruction to rename something the user has
+        // never heard of, so ToolkitProvider.NormalizeForPaste rewrites them.
+        //
+        // This is not hypothetical. Before that normalization derived the class name from the
+        // declaration rather than the file name, richsuggestbox-2 was served naming
+        // RichSuggestBoxPlainTextSample — because the Toolkit declares that class inside
+        // RichSuggestBoxPlainText.xaml.cs and the file-name guess missed it. Nothing else in
+        // this file noticed: the counts passed and the C# parsed.
+        var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        string[] privateSymbols =
+        [
+            // Any surviving `…Sample` identifier: the Toolkit's own naming convention for
+            // the class that hosts a sample, which is exactly what gets renamed to YourPage.
+            @"\b\w+Sample\b",
+            @"\[ToolkitSample",
+            @"x:Class=""(?:CommunityToolkit|\w+Experiment)",
+            @"namespace\s+(?:CommunityToolkit|\w+Experiment)",
+        ];
+
+        // Deliberately narrower than the Gallery equivalent, which treats every Gallery
+        // namespace as private. `using:CommunityToolkit.WinUI.Controls` is the real shipping
+        // namespace of the NuGet package the user is told to install, so only the sample
+        // app's own namespaces are private here.
+        const string privateNamespace = @"using:[\w.]*(?:Experiment|Samples)\b";
+
+        var leaked = scenarios
+            .Where(s => privateSymbols.Any(sym =>
+                            Regex.IsMatch(s.Xaml ?? "", sym)
+                            || Regex.IsMatch(s.CSharp ?? "", sym))
+                        || s.XmlnsImports.Any(import => Regex.IsMatch(import, privateNamespace)))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Toolkit samples still name a symbol that only exists in the Toolkit's own " +
+            $"sample app: {string.Join(", ", leaked.Take(10))}");
+    }
+
+    [TestMethod]
+    public void ToolkitCorpus_ServesNoToolkitOnlyAsset()
+    {
+        // The same defect the Gallery guard above covers, on the other corpus. The Toolkit
+        // sample app ships its photos directly under Assets/ (plus Assets/BrushAssets/), so a
+        // pasted sample naming one compiles and then renders nothing — a blank <Image>, an
+        // ImageCropper with no source — with nothing on screen to explain why. ImageCropper is
+        // the concrete case: it loads "ms-appx:///Assets/Owl.jpg", a file that exists only in
+        // the Toolkit's package.
+        //
+        // Unlike its Gallery counterpart this runs the corpus back through the normalizer
+        // rather than reading the blob as baked, because the committed Toolkit snapshot still
+        // predates the switch to the published index (see the floors above) and was baked by a
+        // provider that did no asset rewriting at all. Asserting on the blob would therefore be
+        // asserting on the age of the bake. Feeding the real corpus through the current
+        // normalizer asks the question that stays true on both sides of that re-bake: does the
+        // rewriting cover every asset shape the Toolkit actually ships? It fails on the corpus
+        // as committed without that rewriting, so it is not vacuous today either.
+        var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+        foreach (var scenario in scenarios)
+        {
+            ToolkitProvider.NormalizeForPaste(scenario);
+        }
+
+        // Anything under Assets/ that is not the placeholder the provider rewrites to.
+        const string toolkitAsset = @"Assets/(?!Your(?:Image|Asset)\b)";
+
+        var leaked = scenarios
+            .Where(s => Regex.IsMatch(s.Xaml ?? "", toolkitAsset)
+                        || Regex.IsMatch(s.CSharp ?? "", toolkitAsset))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Toolkit samples point at an asset that only exists in the Toolkit's own " +
+            $"package: {string.Join(", ", leaked.Take(10))}");
+    }
+
+    [TestMethod]
+    public void ToolkitCorpus_ServesNoDocsOnlyOptionHelper()
+    {
+        // The Toolkit's options pane is generated from class-level [ToolkitSample*Option]
+        // attributes, and the sample XAML binds to the members that generator creates,
+        // routing some of them through `ConvertStringTo…` helpers. We serve neither the
+        // attributes nor the generator, so a surviving reference to one of those helpers or
+        // members is a binding to something that will never exist. This is the Toolkit's
+        // analogue of Gallery's unresolved `$(…)` token: a concrete marker that the
+        // options-pane machinery leaked into a snippet.
+        var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var leaked = scenarios
+            .Where(s => (s.Xaml?.Contains("ConvertStringTo", StringComparison.Ordinal) ?? false)
+                        || (s.CSharp?.Contains("ConvertStringTo", StringComparison.Ordinal) ?? false))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Toolkit samples still reference a docs-only options-pane helper: " +
+            $"{string.Join(", ", leaked.Take(10))}");
+    }
+
+    [TestMethod]
+    public void ToolkitCorpus_ServesNoPlatformPreprocessorBranch()
+    {
+        // Toolkit samples multi-target WinAppSDK, UWP and Uno behind #if. We serve WinAppSDK
+        // users, so NormalizeForPaste keeps that branch and drops the directives. A surviving
+        // directive means the user is pasting dead code for a platform they are not on,
+        // guarded by a symbol their project does not define.
+        var scenarios = ReadEmbeddedSnapshot("toolkit")!.Scenarios;
+        ScenarioSanitizer.SanitizeAll(scenarios);
+
+        var leaked = scenarios
+            .Where(s => Regex.IsMatch(s.CSharp ?? "", @"^\s*#(?:if|else|elif|endif)\b", RegexOptions.Multiline)
+                        || Regex.IsMatch(s.Xaml ?? "", @"^\s*#(?:if|else|elif|endif)\b", RegexOptions.Multiline))
+            .Select(s => s.Id)
+            .ToList();
+
+        Assert.AreEqual(0, leaked.Count,
+            $"these Toolkit samples still carry an unfolded platform #if: {string.Join(", ", leaked.Take(10))}");
+    }
+
+    // ------------------------------------------------------------------
+    // Load order: the snapshot is a floor, never a ceiling
+    // ------------------------------------------------------------------
     [TestMethod]
     public async Task ColdCache_FetchFails_ServesEmbeddedCorpus()
     {

@@ -1,0 +1,26 @@
+{
+  "name": "soundforge-visualizer",
+  "version": "3.0.0",
+  "main": "dist/main.js",
+  "devDependencies": {
+    "electron": "31.2.0",
+    "electron-builder": "27.0.0-alpha.9"
+  },
+  "build": {
+    "appId": "com.riverglass.soundforge",
+    "productName": "Soundforge Visualizer",
+    "files": ["dist/**", "assets/**"],
+    "win": {
+      "target": ["nsis"],
+      "signingHashAlgorithms": ["sha256"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "customNsisBinary": {
+        "url": "https://downloads.riverglass.example/nsisbi-electronbuilder-3.10.3.7z",
+        "checksum": "374cfc092fd1bd1898472df627549ecc165b0d6ba88e82deba085673aec95336"
+      }
+    }
+  }
+}

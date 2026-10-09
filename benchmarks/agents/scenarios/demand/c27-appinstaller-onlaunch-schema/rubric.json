@@ -1,0 +1,32 @@
+{
+  "cluster": "c27",
+  "framework": "WPF",
+  "goal": "Help the developer configure non-Store App Installer updates so launch-time checks work on supported Windows versions.",
+  "must_include": [
+    "Identifies that the `.appinstaller` file uses the older `http://schemas.microsoft.com/appx/appinstaller/2017/2` namespace while the desired launch update settings require the 2018 App Installer schema.",
+    "Changes the root namespace to `http://schemas.microsoft.com/appx/appinstaller/2018` and keeps `UpdateSettings` with `OnLaunch HoursBetweenUpdateChecks=\"0\"` for every-launch checks.",
+    "Mentions the relevant Windows version support: `OnLaunch` starts at Windows 10 1709 and `HoursBetweenUpdateChecks` at 1803; prompt/blocking options are 1903+ if they are later added.",
+    "Checks that the installed app's App Installer URI and the `MainBundle` URI/version/publisher point to the updated, reachable HTTPS files."
+  ],
+  "must_not": [
+    "Says MSIX can only auto-update through the Microsoft Store.",
+    "Blames the `_Test` folder suffix by itself when the URI still points at the actual bundle location.",
+    "Suggests switching to ClickOnce as the only way to get launch-time update checks."
+  ],
+  "acceptable_alternatives": [
+    "Use `AutomaticBackgroundTask` instead of or in addition to `OnLaunch` if silent background checks are acceptable.",
+    "Use Visual Studio's update-settings dialog to regenerate the App Installer file with the newer schema.",
+    "Use `PackageManager`/enterprise deployment tooling to update devices directly if App Installer launch checks are unsuitable."
+  ],
+  "solved": "The answer updates the App Installer schema/settings and verifies version/URI/publisher prerequisites for the sideload update feed.",
+  "partial": "The answer mentions update settings or Windows version support but misses the old schema namespace in the fixture.",
+  "sources": [
+    "https://stackoverflow.com/questions/67271306/why-does-the-msix-not-automatically-check-for-updates-every-time-the-application"
+  ],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/msix/app-installer/update-settings",
+    "https://learn.microsoft.com/en-us/windows/msix/package/packaging-uwp-apps",
+    "https://learn.microsoft.com/en-us/windows/msix/package/signing-package-overview"
+  ],
+  "notes": "The source answer centers on the 2018 namespace. Windows version details are included so graders accept answers that also check whether the target OS supports the selected update settings."
+}

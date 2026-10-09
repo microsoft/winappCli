@@ -28,6 +28,7 @@ public class SampleIndexTests
     private static readonly string[] FlexKeywords = ["css layout", "flexbox"];
     private static readonly string[] ButtonRelated = ["HyperlinkButton", "ToggleButton"];
     private static readonly string[] ButtonXmlns = ["xmlns:controls=\"using:CommunityToolkit.WinUI.Controls\""];
+    private static readonly string[] HelpersUsings = ["CommunityToolkit.WinUI.Helpers"];
 
     /// <summary>
     /// A control whose scenarios populate every field the contract models, including the
@@ -288,6 +289,7 @@ public class SampleIndexTests
 
         Assert.AreEqual(1, scenarios.Length);
         Assert.IsNull(scenarios[0].CSharp, "usings alone are not a sample");
+        Assert.AreEqual(0, scenarios[0].Usings.Length, "imports describe code; this sample has none");
     }
 
     [TestMethod]
@@ -743,11 +745,48 @@ public class SampleIndexTests
     }
 
     [TestMethod]
+    public void Parse_CarriesControlLevelUsingsWithoutPuttingThemInTheCode()
+    {
+        // The published code is a class-body fragment, so a `using` prepended to it is not
+        // valid C# where it lands. Carry the namespaces as data; the renderer gives them
+        // their own line.
+        const string Json = """
+        {
+          "schemaVersion": 1,
+          "source": "gallery",
+          "controls": [
+            {
+              "id": "button",
+              "name": "Button",
+              "usings": ["CommunityToolkit.WinUI.Helpers"],
+              "samples": [
+                { "header": "One", "code": "var a = 1;" },
+                { "header": "Two", "code": "var b = 2;" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var (scenarios, _, _) = SampleIndexParser.Parse(Json, "gallery");
+
+        Assert.AreEqual(2, scenarios.Length);
+        foreach (var s in scenarios)
+        {
+            CollectionAssert.AreEqual(HelpersUsings, s.Usings);
+            Assert.IsFalse(s.CSharp!.Contains("using "), "usings must not be folded into code");
+        }
+        Assert.AreEqual("var a = 1;", scenarios[0].CSharp);
+        Assert.AreEqual("var b = 2;", scenarios[1].CSharp);
+    }
+
+    [TestMethod]
     public void Parse_DropsAnOversizedUsingsBlockRatherThanCopyingItOntoEverySample()
     {
         // One control-level using longer than the cap, on a control with several samples:
-        // the prefix is what gets multiplied, so it is dropped while the samples survive.
-        var huge = new string('x', 9 * 1024);
+        // the array is copied onto every sample, so it is dropped while the samples survive.
+        // Letters only, so it is still a valid namespace name and would pass sanitizing.
+        var huge = new string('N', 9 * 1024);
         var json = $$"""
         {
           "schemaVersion": 1,
@@ -771,31 +810,8 @@ public class SampleIndexTests
         Assert.AreEqual(2, scenarios.Length);
         Assert.AreEqual("var a = 1;", scenarios[0].CSharp);
         Assert.AreEqual("var b = 2;", scenarios[1].CSharp);
+        Assert.AreEqual(0, scenarios[0].Usings.Length);
+        Assert.AreEqual(0, scenarios[1].Usings.Length);
     }
 
-    [TestMethod]
-    public void Parse_KeepsANormalUsingsBlockOnEverySample()
-    {
-        const string Json = """
-        {
-          "schemaVersion": 1,
-          "source": "gallery",
-          "controls": [
-            {
-              "id": "button",
-              "name": "Button",
-              "usings": ["Microsoft.UI.Xaml.Controls"],
-              "samples": [
-                { "header": "One", "code": "var a = 1;" }
-              ]
-            }
-          ]
-        }
-        """;
-
-        var (scenarios, _, _) = SampleIndexParser.Parse(Json, "gallery");
-
-        Assert.AreEqual(1, scenarios.Length);
-        Assert.AreEqual("using Microsoft.UI.Xaml.Controls;\n\nvar a = 1;", scenarios[0].CSharp);
-    }
 }
