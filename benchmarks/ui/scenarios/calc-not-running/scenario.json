@@ -1,0 +1,11 @@
+{
+  "id": "calc-not-running",
+  "app": "calculator",
+  "description": "Calculator is not running; the agent has to launch exactly one instance.",
+  "prompt": "Open the Windows Calculator app and use it to work out 123 + 456, so that the answer is showing in Calculator's display. Leave Calculator open when you're done.",
+  "allowedLaunches": 1,
+  "checks": [
+    { "type": "instanceCount", "equals": 1 },
+    { "type": "value", "instance": "only", "key": "display", "equals": "579" }
+  ]
+}

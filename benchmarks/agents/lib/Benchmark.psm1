@@ -352,6 +352,12 @@ function Read-SessionEvents {
         skillFileTokensApprox        = $null
         # The last non-empty assistant message: the answer the user sees.
         finalResponse          = $null
+        # Wall time covered by at least one running tool call (overlapping calls count once).
+        toolTimeMs             = $null
+        # Time spent waiting on the model API, as reported by session.shutdown.
+        apiDurationMs          = $null
+        # session.start to the last event.
+        sessionDurationMs      = $null
         sessionShutdown        = $false
         eventCount             = 0
         unparsedLines          = 0
@@ -374,12 +380,35 @@ function Read-SessionEvents {
     $skillFileCalls = @{}
     $skillFileChars = 0L
     $lastMessage = $null
+    $toolStart = @{}
+    $toolIntervals = [System.Collections.Generic.List[object]]::new()
+    $firstTime = $null
+    $lastTime = $null
     foreach ($line in [System.IO.File]::ReadLines($Path)) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try { $ev = $line | ConvertFrom-Json -AsHashtable -Depth 64 }
         catch { $r.unparsedLines++; continue }
         $r.eventCount++
         $data = if ($ev.ContainsKey('data') -and $ev.data -is [System.Collections.IDictionary]) { $ev.data } else { @{} }
+        $at = $null
+        if ($ev.ContainsKey('timestamp')) {
+            $ts = $ev.timestamp
+            if ($ts -is [datetime]) { $at = [datetimeoffset]$ts.ToUniversalTime() }
+            elseif ($ts -is [string]) {
+                $parsed = [datetimeoffset]::MinValue
+                if ([datetimeoffset]::TryParse($ts, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal, [ref]$parsed)) { $at = $parsed }
+            }
+        }
+        if ($at) {
+            if (-not $firstTime) { $firstTime = $at }
+            $lastTime = $at
+            $callId = $data.ContainsKey('toolCallId') ? [string]$data.toolCallId : $null
+            if ($callId -and $ev.type -eq 'tool.execution_start') { $toolStart[$callId] = $at }
+            elseif ($callId -and $ev.type -eq 'tool.execution_complete' -and $toolStart.ContainsKey($callId)) {
+                $toolIntervals.Add(@($toolStart[$callId], $at))
+                $toolStart.Remove($callId)
+            }
+        }
         switch ($ev.type) {
             'session.start' {
                 if ($data.ContainsKey('copilotVersion')) { $r.copilotVersion = $data.copilotVersion }
@@ -450,6 +479,7 @@ function Read-SessionEvents {
                 $r.sessionShutdown = $true
                 if ($data.ContainsKey('totalNanoAiu') -and $null -ne $data.totalNanoAiu) { $r.aiCredits = [Math]::Round([double]$data.totalNanoAiu / 1e9, 3) }
                 if ($data.ContainsKey('totalPremiumRequests')) { $r.premiumRequests = $data.totalPremiumRequests }
+                if ($data.ContainsKey('totalApiDurationMs') -and $null -ne $data.totalApiDurationMs) { $r.apiDurationMs = [int64]$data.totalApiDurationMs }
                 if ($data.ContainsKey('modelMetrics') -and $data.modelMetrics -is [System.Collections.IDictionary] -and $data.modelMetrics.Count -gt 0) {
                     # inputTokens is the full prompt size; cacheRead/cacheWrite are the cached portions of it.
                     $usage = [ordered]@{ input = 0L; output = 0L; cacheRead = 0L; cacheWrite = 0L; reasoning = 0L }
@@ -473,6 +503,22 @@ function Read-SessionEvents {
         $r.toolCalls = $tools
         foreach ($c in Get-WinappCommands -Text (@($commandText) + @($lastMessage))) { $r.winappCommands.Add($c) }
         $r.winappCommandsDenied = [string[]]@(Get-WinappCommands -Text @($deniedCommandText))
+        if ($firstTime -and $lastTime) { $r.sessionDurationMs = [int64]($lastTime - $firstTime).TotalMilliseconds }
+        # Calls still running at the end (e.g. a timeout) are left out rather than guessed.
+        if ($tools -eq 0) { $r.toolTimeMs = 0L }
+        elseif ($toolIntervals.Count) {
+            $total = 0.0
+            $curStart = $null; $curEnd = $null
+            foreach ($iv in $toolIntervals | Sort-Object { $_[0] }) {
+                if ($null -eq $curEnd -or $iv[0] -gt $curEnd) {
+                    if ($null -ne $curEnd) { $total += ($curEnd - $curStart).TotalMilliseconds }
+                    $curStart = $iv[0]; $curEnd = $iv[1]
+                }
+                elseif ($iv[1] -gt $curEnd) { $curEnd = $iv[1] }
+            }
+            $total += ($curEnd - $curStart).TotalMilliseconds
+            $r.toolTimeMs = [int64][Math]::Round($total)
+        }
         $r.skillFileTokensApprox = [int64][Math]::Round($skillFileChars / 4)
         $chars = 0L
         $repeatChars = 0L
@@ -1655,7 +1701,7 @@ function Get-ComparisonReport {
 Export-ModuleMember -Function Get-ScenarioDefinitions, Read-ScenarioRubric, Get-PluginSkillNames, Get-PluginSkillFiles, Get-ConfigurationPlugins, New-ChildEnvironment,
 Invoke-LoggedProcess, Get-FileTail, Read-SessionEvents, Get-DirectorySnapshot, Compare-DirectorySnapshot, Test-Expectations,
 Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands, Get-BareSkillName, Get-ComparisonReport,
-Get-CreditSpend, Compare-PreflightSkills, Format-PassRate,
+Get-CreditSpend, Compare-PreflightSkills, Format-PassRate, Format-Count,
 Get-ShortHash, Get-SkillSetHash, Read-CapabilityMap, Get-CapabilityMap, Set-CapabilityMap, Resolve-SkillCapabilities,
 Test-CapabilityExpectations, Test-AnswerExpectations, Test-ScenarioExpectations, Add-EvaluationFields, Get-StatusStats,
 Get-RoutingAnswerMatrix, Get-DeniedWinappCommands

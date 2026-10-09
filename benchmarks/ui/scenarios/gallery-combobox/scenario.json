@@ -1,0 +1,16 @@
+{
+  "id": "gallery-combobox",
+  "app": "gallery",
+  "description": "Navigate from the Gallery home page to the ComboBox sample and select an item.",
+  "prompt": "The \"WinUI 3 Gallery (UI Benchmark)\" app is open on its home page. Go to its ComboBox sample page and, in the \"Colors\" combo box there, pick Green. Leave the app open.",
+  "setup": {
+    "instances": [
+      { "role": "main", "target": true, "waitFor": ["controlsSearchBox"] }
+    ]
+  },
+  "checks": [
+    { "type": "instanceCount", "equals": 1 },
+    { "type": "alive", "instance": "main" },
+    { "type": "value", "instance": "main", "key": "colors", "equals": "Green" }
+  ]
+}

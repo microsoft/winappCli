@@ -1,0 +1,6 @@
+{
+  "name": "none",
+  "displayName": "No plugin",
+  "description": "No plugin or skills, and the winapp CLI hidden from PATH; the agent improvises (for example with PowerShell and UI Automation).",
+  "hideCommands": ["winapp"]
+}

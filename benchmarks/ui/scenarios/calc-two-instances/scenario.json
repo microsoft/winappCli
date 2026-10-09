@@ -1,0 +1,19 @@
+{
+  "id": "calc-two-instances",
+  "app": "calculator",
+  "description": "Two Calculator windows; the target shows 42 and was opened first, so the other one is on top. Only the target may change.",
+  "prompt": "I have two Calculator windows open. In the one that currently shows 42, add 537 so that it shows the total. Don't change the other Calculator window, and leave both open.",
+  "setup": {
+    "instances": [
+      { "role": "answer", "target": true, "enter": "42" },
+      { "role": "other", "enter": "17" }
+    ]
+  },
+  "checks": [
+    { "type": "instanceCount", "equals": 2 },
+    { "type": "alive", "instance": "answer" },
+    { "type": "alive", "instance": "other" },
+    { "type": "value", "instance": "answer", "key": "display", "equals": "579" },
+    { "type": "value", "instance": "other", "key": "display", "equals": "17" }
+  ]
+}
