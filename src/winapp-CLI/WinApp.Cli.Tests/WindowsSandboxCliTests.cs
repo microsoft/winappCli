@@ -337,6 +337,50 @@ public class WindowsSandboxCliTests
             captured.ArgumentList.ToArray());
     }
 
+    /// <summary>
+    /// A new Sandbox is opened the way Start opens one: the client alias beside <c>wsb.exe</c>, with
+    /// no arguments, shown normally because that process is the window that owns the Sandbox.
+    /// </summary>
+    [TestMethod]
+    public async Task LaunchAsync_OpensTheClientBesideWsbWithNoArguments()
+    {
+        if (WindowsSandboxHostProbe.ResolveTrustedAlias() is not { } wsb)
+        {
+            Assert.Inconclusive("wsb.exe is not installed on this machine.");
+            return;
+        }
+
+        System.Diagnostics.ProcessStartInfo? captured = null;
+        _cli.ConnectLauncher = startInfo =>
+        {
+            captured = startInfo;
+            return null;
+        };
+
+        using var attempt = await _cli.LaunchAsync(_ => { }, TestContext.CancellationTokenSource.Token);
+
+        Assert.IsNotNull(captured);
+        Assert.AreEqual(
+            Path.Join(Path.GetDirectoryName(wsb), WindowsSandboxCli.ClientExecutableName),
+            captured.FileName);
+        Assert.IsFalse(captured.UseShellExecute);
+        Assert.AreEqual(System.Diagnostics.ProcessWindowStyle.Normal, captured.WindowStyle);
+        Assert.IsFalse(captured.RedirectStandardOutput);
+        Assert.IsEmpty(captured.ArgumentList);
+        Assert.IsEmpty(captured.Arguments);
+    }
+
+    [TestMethod]
+    public async Task LaunchAsync_WithoutTheClientAliasBesideWsb_ReportsWindowsSandboxAsNotInstalled()
+    {
+        // An ordinary file named wsb.exe has no client alias beside it, so nothing is launched.
+        _cli.UseExecutable(Path.Join(Environment.SystemDirectory, "wsb.exe"));
+        _cli.ConnectLauncher = _ => throw new AssertFailedException("Nothing may be launched.");
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => _cli.LaunchAsync(_ => { }, TestContext.CancellationTokenSource.Token));
+    }
+
     [TestMethod]
     public async Task ConnectAsync_ReportsOwnershipBeforeWatchingForImmediateFailure()
     {

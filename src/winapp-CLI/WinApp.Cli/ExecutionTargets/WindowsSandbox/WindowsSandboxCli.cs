@@ -77,43 +77,6 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
     }
 
     /// <inheritdoc/>
-    public async Task<string> StartAsync(
-        string instanceId,
-        string? configuration,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
-
-        List<string> arguments = ["start", "--id", instanceId, "--raw"];
-        if (!string.IsNullOrWhiteSpace(configuration))
-        {
-            arguments.Add("--config");
-            arguments.Add(configuration);
-        }
-
-        var result = await RunAsync(arguments, cancellationToken).ConfigureAwait(false);
-        var payload = Deserialize(result.StandardOutput, WindowsSandboxCliJsonContext.Default.WsbEnvironmentList);
-
-        // Accept either shape: a bare root ID, or the same list wrapper `list` uses.
-        var id = payload?.Id ?? payload?.WindowsSandboxEnvironments?.FirstOrDefault()?.Id;
-
-        // A start that reports nothing has still, on this host, sometimes created the instance the
-        // caller asked for. The caller assigned the ID, so it can reconcile that exact one rather
-        // than guessing -- but it must be told the report was missing, not handed the ID back as if
-        // wsb had confirmed it.
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            throw ExecutionTargetException.Create(
-                ExecutionTargetErrorCodes.StartFailed,
-                "Windows Sandbox started but did not report an instance ID.",
-                userAction: "Retry the command. If it keeps failing, restart the host.",
-                context: new Dictionary<string, string> { ["requestedId"] = instanceId });
-        }
-
-        return id;
-    }
-
-    /// <inheritdoc/>
     public Task StopAsync(string id, CancellationToken cancellationToken) =>
         RunAsync(["stop", "--id", id, "--raw"], cancellationToken);
 
@@ -267,6 +230,86 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
             startInfo.ArgumentList.Add(argument);
         }
 
+        return await LaunchClientAsync(
+            startInfo,
+            onLaunched,
+            exitCode => ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.NoInteractiveSession,
+                "The Windows Sandbox client could not connect to the Sandbox.",
+                userAction: "Retry the command. If it keeps failing, close the Sandbox and try again.",
+                context: new Dictionary<string, string>
+                {
+                    ["sandboxId"] = id,
+                    ["exitCode"] = exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                }),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<SandboxConnectAttempt> LaunchAsync(
+        Action<SandboxConnectAttempt> onLaunched,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(onLaunched);
+
+        if (ClientExecutable is not { } executable)
+        {
+            throw NotInstalled();
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // No arguments, which is how Start opens Windows Sandbox: a new Sandbox, with the default
+        // configuration winapp has always used, owned by this window. The window style is left alone
+        // because this process is the window; the controller moves it behind the user's window.
+        var startInfo = new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            FileName = executable,
+        };
+
+        return await LaunchClientAsync(
+            startInfo,
+            onLaunched,
+            exitCode => ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.StartFailed,
+                "Windows Sandbox could not start.",
+                userAction: "Retry the command. If it keeps failing, open Windows Sandbox from Start to see why.",
+                context: new Dictionary<string, string>
+                {
+                    ["exitCode"] = exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                }),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The Windows Sandbox client's execution alias, beside the trusted <c>wsb.exe</c> alias.
+    /// </summary>
+    /// <remarks>
+    /// <c>wsb connect</c> starts this same alias by name. Resolving it from the folder the trusted
+    /// <c>wsb.exe</c> came from, and requiring it to be an alias too, keeps the client to the same
+    /// location <c>wsb.exe</c> was trusted for.
+    /// </remarks>
+    private string? ClientExecutable =>
+        Executable is { } wsb &&
+        Path.GetDirectoryName(wsb) is { } folder &&
+        Path.Join(folder, ClientExecutableName) is var client &&
+        WindowsSandboxHostProbe.IsExecutionAlias(client)
+            ? client
+            : null;
+
+    /// <summary>The Windows Sandbox client executable that owns a Sandbox's window.</summary>
+    internal const string ClientExecutableName = WindowsSandboxWindowController.RemoteSessionProcessName + ".exe";
+
+    /// <summary>
+    /// Starts a long-lived client process and reports it before watching for an immediate failure.
+    /// </summary>
+    private async Task<SandboxConnectAttempt> LaunchClientAsync(
+        ProcessStartInfo startInfo,
+        Action<SandboxConnectAttempt> onLaunched,
+        Func<int, ExecutionTargetException> failedExit,
+        CancellationToken cancellationToken)
+    {
         Process? client;
 
         using (StandardHandleInheritance.Suppress())
@@ -280,7 +323,7 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
         }
 
         // The handle stays open past this method so the caller can attribute client windows to this
-        // exact launcher. Only a connect that turns out to have failed releases it here.
+        // exact launcher. Only a launch that turns out to have failed releases it here.
         var attempt = SandboxConnectAttempt.From(client);
         var transferred = false;
 
@@ -328,15 +371,7 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
 
             if (exitCode != 0)
             {
-                throw ExecutionTargetException.Create(
-                    ExecutionTargetErrorCodes.NoInteractiveSession,
-                    "The Windows Sandbox client could not connect to the Sandbox.",
-                    userAction: "Retry the command. If it keeps failing, close the Sandbox and try again.",
-                    context: new Dictionary<string, string>
-                    {
-                        ["sandboxId"] = id,
-                        ["exitCode"] = exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    });
+                throw failedExit(exitCode);
             }
 
             // The launcher exited cleanly, which is one of the shapes a healthy connect takes: the
