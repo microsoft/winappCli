@@ -158,6 +158,18 @@ public class ProjectRunServiceTests
         }
     }
 
+    // A failed filtered restore keeps its temporary solution filter in %TEMP% so the printed command can be
+    // rerun. Tests that make it fail delete those filters once the run completes.
+    private static void DeleteKeptSolutionFilters(FakeDotNetService dotnet)
+    {
+        foreach (var filter in dotnet.StreamingCalls
+            .SelectMany(call => WindowsCommandLine.SplitArguments(call))
+            .Where(token => token.EndsWith(".slnf", StringComparison.OrdinalIgnoreCase)))
+        {
+            File.Delete(filter);
+        }
+    }
+
     // Minimal classic .sln listing the given project paths (relative to the solution dir, backslashes).
     private static string SlnListing(params string[] relativeProjectPaths)
     {
@@ -4220,6 +4232,7 @@ public class ProjectRunServiceTests
         var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
 
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+        DeleteKeptSolutionFilters(dotnet);
 
         Assert.IsTrue(commandArgs.Any(a => a.StartsWith("restore ", StringComparison.Ordinal) && a.Contains(".slnf", StringComparison.Ordinal)),
             "the solution-filter restore must be attempted first");
@@ -4254,6 +4267,7 @@ public class ProjectRunServiceTests
             "Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
 
         var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+        DeleteKeptSolutionFilters(dotnet);
 
         Assert.IsNotNull(outcome.Resolution, "the best-effort sibling restore must defer the final result to the build");
         Assert.IsTrue(logger.Entries.Any(entry =>
