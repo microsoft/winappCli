@@ -1,0 +1,33 @@
+{
+  "cluster": "c05",
+  "framework": "WinUI3",
+  "goal": "Help the developer remove the MSIX duplicate-payload condition caused by Release trimming while preserving normal package generation.",
+  "must_include": [
+    "Connects APPX1101 to two package payload entries ending at the same destination path `Starboard.pdb`, not to a duplicate source file in the repository root.",
+    "Calls out the fixture's Release-only `<PublishTrimmed>true</PublishTrimmed>` as the setting to test first because the source issue's workaround was to turn trimming off.",
+    "Recommends disabling trimming for the packaged WinUI Release build, or pinning/downgrading Windows App SDK to a version not affected by the packaging regression if trimming is required.",
+    "Keeps `GenerateAppxPackageOnBuild=true` or the normal packaging target; the fix is not to skip packaging."
+  ],
+  "must_not": [
+    "Tells them to delete all `.pdb` files from source control or from `obj` as the permanent fix.",
+    "Suggests renaming the generated PDB to bypass APPX1101 without addressing duplicate package items.",
+    "Blames Store certification or certificate signing for this build-time payload collision."
+  ],
+  "acceptable_alternatives": [
+    "Condition `PublishTrimmed` to false when `GenerateAppxPackageOnBuild` is true.",
+    "Temporarily pin Microsoft.WindowsAppSDK to 1.5.240428000 while tracking the packaging bug.",
+    "Add a targeted MSBuild item removal only if it removes one duplicate package item and leaves symbols intentionally configured."
+  ],
+  "solved": "The answer identifies Release trimming as the likely trigger and gives a concrete property/version/package-item change that removes the duplicate destination payload.",
+  "partial": "The answer explains APPX1101 as a duplicate package destination but does not use the trimming evidence or gives only cleanup commands.",
+  "sources": [
+    "https://github.com/microsoft/microsoft-ui-xaml/issues/9634"
+  ],
+  "verified_with": [
+    "https://github.com/microsoft/microsoft-ui-xaml/issues/9634",
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/single-project-msix",
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/ci-for-winui3",
+    "https://learn.microsoft.com/en-us/dotnet/core/deploying/trimming/trim-self-contained"
+  ],
+  "notes": "The upstream issue remained open for some versions; grade disabling trimming and known-good SDK pinning as valid workarounds for this fixture."
+}

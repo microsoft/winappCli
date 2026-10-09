@@ -1,0 +1,10 @@
+{
+  "id": "c17-winui3-no-xaml-designer",
+  "description": "A developer moving from UWP to WinUI 3 cannot find the XAML designer view, based on https://stackoverflow.com/questions/70292470/where-is-the-designer-view-in-winui-3.",
+  "set": "demand",
+  "cohort": "vague",
+  "prompt": "I'm moving an old UWP screen over to a WinUI 3 desktop project and Visual Studio only gives me XAML text for MainWindow.xaml. Am I missing a designer option somewhere, or is my project set up wrong?",
+  "configurations": ["none", "winapp", "winui", "both"],
+  "fixture": "fixture",
+  "expect": { "capabilities": { "primary": [], "acceptable": [], "forbid": [] } }
+}

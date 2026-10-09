@@ -22,7 +22,7 @@
 [CmdletBinding()]
 param(
     [string[]]$Scenario,
-    [ValidateSet('dev', 'heldout', 'all')]
+    [ValidateSet('dev', 'heldout', 'demand', 'all')]
     [string]$Set = 'dev',
     [string[]]$Variant,
     [string[]]$Configuration,
@@ -189,6 +189,7 @@ function Get-PluginInfo {
         Sha     = $sha
         Dirty   = $dirty
         Skills  = @(Get-PluginSkillNames -PluginPath $Path)
+        SkillFiles = @(Get-PluginSkillFiles -PluginPath $Path)
     }
 }
 
@@ -391,6 +392,7 @@ function Invoke-BenchmarkRun {
 
         # 1. Install plugins into the isolated home.
         $installed = [System.Collections.Generic.List[string]]::new()
+        $installedFiles = [System.Collections.Generic.List[string]]::new()
         foreach ($name in Get-ConfigurationPlugins $Run.Configuration) {
             $p = $plugins[$name]
             $r = & $invoke "install-$name" @('plugin', 'install', $p.Path)
@@ -400,7 +402,10 @@ function Invoke-BenchmarkRun {
                 return $record
             }
             foreach ($skill in $p.Skills) { $installed.Add($skill) }
+            foreach ($file in $p.SkillFiles) { $installedFiles.Add($file) }
         }
+        # The reference files installed with the skills select file-level capability maps.
+        $record.skillFilesInstalled = @($installedFiles)
 
         # 2. Preflight: plugin skills present must match the configuration exactly.
         $r = & $invoke 'skill-list' @('skill', 'list', '--json')
@@ -467,6 +472,9 @@ function Invoke-BenchmarkRun {
         $record.winappCommands = @($parsed.winappCommands)
         $record.winappCommandsDenied = $parsed.winappCommandsDenied
         $record.selectedAgent = $parsed.selectedAgent
+        $record.skillFilesRead = @($parsed.skillFilesRead)
+        $record.skillFilesDenied = @($parsed.skillFilesDenied)
+        $record.skillFileTokensApprox = $parsed.skillFileTokensApprox
         $record.finalResponse = $parsed.finalResponse
 
         if ($record.workspaceChanges) {
@@ -487,7 +495,7 @@ function Invoke-BenchmarkRun {
             $record.reason = 'no persisted events.jsonl found in the isolated COPILOT_HOME'
         }
         else {
-            $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills $record.skillsLoaded -InstalledSkills @($installed) `
+            $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @(@($record.skillsLoaded) + @($record.skillFilesRead) | Where-Object { $_ }) -InstalledSkills @(@($installed) + @($installedFiles)) `
                 -WinappCommands $record.winappCommands -SkillContextTokens $record.skillContextTokensApprox -Response $record.finalResponse `
                 -DeniedCommands $record.winappCommandsDenied
             $record.status = $eval.Status

@@ -1,0 +1,32 @@
+{
+  "cluster": "c07",
+  "framework": "Electron",
+  "goal": "Help the developer stop cross-platform native prebuild files from being sent to the Windows Authenticode signer while preserving Windows code signing.",
+  "must_include": [
+    "Points out that the signer is being invoked on `prebuilds/linux-x64` and `prebuilds/darwin-x64+arm64`, which are not Windows PE binaries.",
+    "Recommends upgrading to a fixed electron-builder version such as 24.6.3 or newer, or pinning to the last known-good version as a temporary workaround.",
+    "If staying on the affected version, excludes/prunes non-Windows native prebuilds from the packaged Windows app or signs only Windows signable extensions instead of every `.node` file.",
+    "Does not remove the Windows x64 native dependency unless the app no longer needs it at runtime."
+  ],
+  "must_not": [
+    "Says `.node` files can never be signed on Windows; the issue is the Linux/Darwin prebuilds being selected.",
+    "Suggests turning off ASAR unpacking for the native module as the primary fix.",
+    "Treats this as a certificate password or timestamp-server failure."
+  ],
+  "acceptable_alternatives": [
+    "Run the Windows packaging/signing job on a Windows runner so SignTool handles the Windows binaries, while still pruning non-Windows prebuilds.",
+    "Use electron-builder file filters or an after-pack hook to keep only `prebuilds/win32-x64` for the Windows artifact.",
+    "Use a custom signing hook that skips files whose platform folder is not `win32-*`."
+  ],
+  "solved": "The answer identifies the platform-mismatched native prebuilds and gives a concrete upgrade or filtering path that keeps required Windows binaries signed.",
+  "partial": "The answer recognizes that non-Windows `.node` files are being signed but only suggests disabling signing completely or gives no durable filtering/upgrade action.",
+  "sources": [
+    "https://github.com/electron-userland/electron-builder/issues/7652"
+  ],
+  "verified_with": [
+    "https://github.com/electron-userland/electron-builder/issues/7652",
+    "https://www.electron.build/docs/win",
+    "https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool"
+  ],
+  "notes": "Issue commenters reported 24.6.3 fixed the original osslsigncode unrecognized-file failure; later native-build failures should be treated separately."
+}

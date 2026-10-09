@@ -1,0 +1,21 @@
+{
+  "id": "c07-tauri-resource-text-signing",
+  "description": "Tauri 2.5 signs a text resource during MSI bundling and SignTool rejects it, based on https://github.com/tauri-apps/tauri/issues/13341.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "After bumping the Tauri CLI to 2.5.0 our signed Windows MSI build started failing. The only unusual resource is a bundled README file.\n\nSignTool Error: This file format cannot be signed because it is not recognized.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}
