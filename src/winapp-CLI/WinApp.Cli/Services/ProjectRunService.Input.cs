@@ -578,29 +578,26 @@ internal sealed partial class ProjectRunService
         }
 
         var solutionDir = solution.Directory?.FullName ?? Directory.GetCurrentDirectory();
-        var projectPaths = (string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
-                ? ExtractSlnxAllProjectPaths(text)
-                : ExtractSlnAllProjectPaths(text))
-            // Drop classic-.sln solution-folder entries (their "path" is the folder name, no ...proj extension).
-            .Where(p => p.EndsWith("proj", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var entries = string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
+            ? ExtractSlnxAllProjectPaths(text)
+            : ExtractSlnAllProjectPaths(text);
+
+        // MSBuild opens every typed solution entry whatever its extension, so check them all, not only the
+        // projects below. TryResolve rejects rooted and reparse-redirected paths without touching them.
+        var rejected = entries.Any(entry => TryResolveSolutionRelativePath(solutionDir, entry) is null);
+
+        // Drop classic-.sln solution-folder entries (their "path" is the folder name, no ...proj extension).
+        var projectPaths = entries.Where(p => p.EndsWith("proj", StringComparison.OrdinalIgnoreCase)).ToList();
 
         var siblings = new List<FileInfo>();
         var siblingEntries = new List<string>();
         var missing = new List<string>();
-        var rejected = false;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var relative in projectPaths)
         {
-            // TryResolve rejects rooted and reparse-redirected entries, so File.Exists below never probes a share.
+            // Rejected entries are skipped here, so File.Exists below never probes a share.
             var full = TryResolveSolutionRelativePath(solutionDir, relative);
-            if (full is null)
-            {
-                rejected = true;
-                continue;
-            }
-
-            if (!seen.Add(full))
+            if (full is null || !seen.Add(full))
             {
                 continue;
             }

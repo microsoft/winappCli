@@ -3555,13 +3555,15 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public void ComputeSolutionRestorePlan_UncEntry_BlocksWholeSolutionRestore()
+    [DataRow(@"\\attacker.example\share\Evil.csproj")]
+    [DataRow(@"\\attacker.example\share\Evil.txt")] // MSBuild opens typed entries whatever their extension
+    public void ComputeSolutionRestorePlan_UncEntry_BlocksWholeSolutionRestore(string uncEntry)
     {
         // A whole-solution restore hands every listed path to MSBuild, which would open a UNC entry and
         // authenticate to whoever serves the share. A rejected entry must force the filtered restore instead.
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
         WriteProjectsAt("src/Server/Server.csproj");
-        var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", @"src\Server\Server.csproj", @"\\attacker.example\share\Evil.csproj"));
+        var solution = WriteFile("App.sln", SlnListing(@"src\App\App.csproj", @"src\Server\Server.csproj", uncEntry));
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
 
