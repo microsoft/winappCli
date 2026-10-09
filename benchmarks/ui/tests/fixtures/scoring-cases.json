@@ -1,0 +1,155 @@
+[
+  {
+    "name": "calc-running: the result is showing in the one Calculator",
+    "scenario": "calc-running",
+    "before": { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "0", "mode": "standard" } } ], "related": [] },
+    "after":  { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "579", "mode": "standard" } } ], "related": [] },
+    "expect": { "status": "pass", "failures": [], "collateral": [] }
+  },
+  {
+    "name": "calc-running: the agent opened a second Calculator and used it",
+    "scenario": "calc-running",
+    "before": { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "0", "mode": "standard" } } ], "related": [] },
+    "after":  { "instances": [
+      { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "0", "mode": "standard" } },
+      { "pid": 200, "startTime": "t200", "alive": true, "values": { "display": "579", "mode": "standard" } }
+    ], "related": [] },
+    "expect": { "status": "fail", "failures": ["expected 1 calculator instance(s), found 2", "display of the 'main' instance is '0'"], "collateral": ["extra-instance"] }
+  },
+  {
+    "name": "calc-running: the agent closed Calculator and reopened it",
+    "scenario": "calc-running",
+    "before": { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "0", "mode": "standard" } } ], "related": [] },
+    "after":  { "instances": [
+      { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": false },
+      { "pid": 300, "startTime": "t300", "alive": true, "values": { "display": "579", "mode": "standard" } }
+    ], "related": [] },
+    "expect": { "status": "fail", "failures": ["the 'main' instance is no longer running", "display: the 'main' instance is no longer running"], "collateral": ["extra-instance", "app-closed"] }
+  },
+  {
+    "name": "calc-running: a reused pid with a different start time is a new process",
+    "scenario": "calc-running",
+    "before": { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "0", "mode": "standard" } } ], "related": [] },
+    "after":  { "instances": [ { "pid": 100, "startTime": "t999", "alive": true, "values": { "display": "579", "mode": "standard" } } ], "related": [] },
+    "expect": { "status": "fail", "failures": ["the 'main' instance is no longer running", "display: the 'main' instance is no longer running"], "collateral": ["extra-instance", "app-closed"] }
+  },
+  {
+    "name": "calc-running: the display could not be read",
+    "scenario": "calc-running",
+    "before": { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "0", "mode": "standard" } } ], "related": [] },
+    "after":  { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": null, "mode": null }, "error": "no window" } ], "related": [] },
+    "expect": { "status": "fail", "failures": ["display of the 'main' instance is (unreadable)"], "collateral": [], "notes": ["pid 100: no window"] }
+  },
+  {
+    "name": "calc-running: an untouched Calculator the benchmark does not own is ignored",
+    "scenario": "calc-running",
+    "before": { "instances": [
+      { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "0", "mode": "standard" } },
+      { "pid": 900, "startTime": "t900", "launchedBy": "foreign", "alive": true, "values": { "display": "8", "mode": "standard" } }
+    ], "related": [] },
+    "after":  { "instances": [
+      { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "579", "mode": "standard" } },
+      { "pid": 900, "startTime": "t900", "launchedBy": "foreign", "alive": true, "values": { "display": "8", "mode": "standard" } }
+    ], "related": [] },
+    "expect": { "status": "pass", "failures": [], "collateral": [] }
+  },
+  {
+    "name": "calc-running: changing a Calculator the benchmark does not own is collateral",
+    "scenario": "calc-running",
+    "before": { "instances": [
+      { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "0", "mode": "standard" } },
+      { "pid": 900, "startTime": "t900", "launchedBy": "foreign", "alive": true, "values": { "display": "8", "mode": "standard" } }
+    ], "related": [] },
+    "after":  { "instances": [
+      { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "579", "mode": "standard" } },
+      { "pid": 900, "startTime": "t900", "launchedBy": "foreign", "alive": true, "values": { "display": "579", "mode": "standard" } }
+    ], "related": [] },
+    "expect": { "status": "fail", "failures": [], "collateral": ["wrong-window-modified"] }
+  },
+  {
+    "name": "calc-not-running: one launched Calculator shows the result",
+    "scenario": "calc-not-running",
+    "before": { "instances": [], "related": [] },
+    "after":  { "instances": [ { "pid": 400, "startTime": "t400", "alive": true, "values": { "display": "579", "mode": "standard" } } ], "related": [] },
+    "expect": { "status": "pass", "failures": [], "collateral": [] }
+  },
+  {
+    "name": "calc-not-running: two launches",
+    "scenario": "calc-not-running",
+    "before": { "instances": [], "related": [] },
+    "after":  { "instances": [
+      { "pid": 400, "startTime": "t400", "alive": true, "values": { "display": "0", "mode": "standard" } },
+      { "pid": 401, "startTime": "t401", "alive": true, "values": { "display": "579", "mode": "standard" } }
+    ], "related": [] },
+    "expect": { "status": "fail", "failures": ["expected 1 calculator instance(s), found 2", "display: expected exactly one calculator instance, found 2"], "collateral": ["extra-instance"] }
+  },
+  {
+    "name": "calc-two-instances: only the window showing 42 changed",
+    "scenario": "calc-two-instances",
+    "before": { "instances": [
+      { "pid": 100, "startTime": "t100", "role": "answer", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "42", "mode": "standard" } },
+      { "pid": 101, "startTime": "t101", "role": "other", "launchedBy": "harness", "alive": true, "values": { "display": "17", "mode": "standard" } }
+    ], "related": [] },
+    "after":  { "instances": [
+      { "pid": 100, "startTime": "t100", "role": "answer", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "579", "mode": "standard" } },
+      { "pid": 101, "startTime": "t101", "role": "other", "launchedBy": "harness", "alive": true, "values": { "display": "17", "mode": "standard" } }
+    ], "related": [] },
+    "expect": { "status": "pass", "failures": [], "collateral": [] }
+  },
+  {
+    "name": "calc-two-instances: the agent changed the wrong window",
+    "scenario": "calc-two-instances",
+    "before": { "instances": [
+      { "pid": 100, "startTime": "t100", "role": "answer", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "42", "mode": "standard" } },
+      { "pid": 101, "startTime": "t101", "role": "other", "launchedBy": "harness", "alive": true, "values": { "display": "17", "mode": "standard" } }
+    ], "related": [] },
+    "after":  { "instances": [
+      { "pid": 100, "startTime": "t100", "role": "answer", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "42", "mode": "standard" } },
+      { "pid": 101, "startTime": "t101", "role": "other", "launchedBy": "harness", "alive": true, "values": { "display": "554", "mode": "standard" } }
+    ], "related": [] },
+    "expect": { "status": "fail", "failures": ["display of the 'answer' instance is '42'", "display of the 'other' instance is '554'"], "collateral": ["wrong-window-modified"] }
+  },
+  {
+    "name": "calc-minimized-scientific: restored by the harness to read it, still scientific",
+    "scenario": "calc-minimized-scientific",
+    "before": { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "minimized": true, "values": { "display": "0", "mode": "scientific" } } ], "related": [] },
+    "after":  { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "minimized": false, "restored": true, "values": { "display": "579", "mode": "scientific" } } ], "related": [] },
+    "expect": { "status": "pass", "failures": [], "collateral": [], "notes": ["pid 100 was minimized; the harness restored it to read its state"] }
+  },
+  {
+    "name": "calc-minimized-scientific: switched to Standard mode",
+    "scenario": "calc-minimized-scientific",
+    "before": { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "minimized": true, "values": { "display": "0", "mode": "scientific" } } ], "related": [] },
+    "after":  { "instances": [ { "pid": 100, "startTime": "t100", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "display": "579", "mode": "standard" } } ], "related": [] },
+    "expect": { "status": "fail", "failures": ["mode of the 'main' instance is 'standard'"], "collateral": [] }
+  },
+  {
+    "name": "gallery-combobox: Green selected",
+    "scenario": "gallery-combobox",
+    "before": { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "colors": null, "toggleWork": null, "dialogOpen": false } } ], "related": [] },
+    "after":  { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "colors": "Green", "toggleWork": null, "dialogOpen": false } } ], "related": [] },
+    "expect": { "status": "pass", "failures": [], "collateral": [] }
+  },
+  {
+    "name": "gallery-combobox: the Store Gallery was opened as well",
+    "scenario": "gallery-combobox",
+    "before": { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "colors": null } } ], "related": [] },
+    "after":  { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "colors": "Green" } } ],
+                "related": [ { "pid": 777, "startTime": "t777", "name": "WinUIGallery", "path": "C:\\Program Files\\WindowsApps\\Microsoft.WinUI3ControlsGallery\\WinUIGallery.exe" } ] },
+    "expect": { "status": "fail", "failures": [], "collateral": ["wrong-app-launched"] }
+  },
+  {
+    "name": "gallery-dialog-left-open: dialog dismissed and switch on",
+    "scenario": "gallery-dialog-left-open",
+    "before": { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "dialogOpen": true, "toggleWork": null } } ], "related": [] },
+    "after":  { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "dialogOpen": false, "toggleWork": true } } ], "related": [] },
+    "expect": { "status": "pass", "failures": [], "collateral": [] }
+  },
+  {
+    "name": "gallery-dialog-left-open: the dialog is still open",
+    "scenario": "gallery-dialog-left-open",
+    "before": { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "dialogOpen": true, "toggleWork": null } } ], "related": [] },
+    "after":  { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "dialogOpen": true, "toggleWork": null } } ], "related": [] },
+    "expect": { "status": "fail", "failures": ["dialogOpen of the 'main' instance is 'true'", "toggleWork of the 'main' instance is (unreadable)"], "collateral": [] }
+  }
+]

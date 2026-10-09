@@ -1,0 +1,95 @@
+{
+  "repeat": 20,
+  "warmup": 1,
+  "sequenceRepeat": 3,
+  "timeoutSeconds": 60,
+  "operations": [
+    { "id": "startup", "op": "version", "note": "Process start and exit, no UI work." },
+    { "id": "list-windows", "op": "list-windows", "scenario": "calc-running" },
+    { "id": "search", "op": "search", "scenario": "calc-running", "selector": "Equals" },
+    { "id": "inspect-calculator", "op": "inspect", "scenario": "calc-running" },
+    { "id": "inspect-gallery", "op": "inspect", "scenario": "gallery-combobox" },
+    { "id": "get-property", "op": "get-property", "scenario": "calc-running", "selector": "CalculatorResults", "property": "Name" },
+    { "id": "get-value", "op": "get-value", "scenario": "calc-running", "selector": "CalculatorResults" },
+    { "id": "invoke", "op": "invoke", "scenario": "calc-running", "selector": "num1Button" },
+    { "id": "wait-for", "op": "wait-for", "scenario": "calc-running", "selector": "CalculatorResults", "timeout": 5000 },
+    { "id": "focus", "op": "focus", "scenario": "calc-running", "selector": "num5Button" },
+    { "id": "screenshot", "op": "screenshot", "scenario": "calc-running" },
+    { "id": "set-value", "op": "set-value", "scenario": "gallery-combobox", "selector": "controlsSearchBox", "value": "Button" }
+  ],
+  "sequences": [
+    {
+      "id": "calc-add",
+      "scenario": "calc-running",
+      "description": "Read the window, enter 123 + 456 =, read the result.",
+      "steps": [
+        { "op": "inspect" },
+        { "op": "invoke", "selector": "num1Button" },
+        { "op": "invoke", "selector": "num2Button" },
+        { "op": "invoke", "selector": "num3Button" },
+        { "op": "invoke", "selector": "plusButton" },
+        { "op": "invoke", "selector": "num4Button" },
+        { "op": "invoke", "selector": "num5Button" },
+        { "op": "invoke", "selector": "num6Button" },
+        { "op": "invoke", "selector": "equalButton" },
+        { "op": "get-value", "selector": "CalculatorResults" }
+      ]
+    },
+    {
+      "id": "calc-two-instances",
+      "scenario": "calc-two-instances",
+      "description": "Add 537 in the Calculator that shows 42, leaving the other one alone.",
+      "steps": [
+        { "op": "get-value", "instance": "answer", "selector": "CalculatorResults" },
+        { "op": "invoke", "instance": "answer", "selector": "plusButton" },
+        { "op": "invoke", "instance": "answer", "selector": "num5Button" },
+        { "op": "invoke", "instance": "answer", "selector": "num3Button" },
+        { "op": "invoke", "instance": "answer", "selector": "num7Button" },
+        { "op": "invoke", "instance": "answer", "selector": "equalButton" },
+        { "op": "get-value", "instance": "answer", "selector": "CalculatorResults" }
+      ]
+    },
+    {
+      "id": "calc-minimized-scientific",
+      "scenario": "calc-minimized-scientific",
+      "description": "Bring the minimized Calculator back, then enter 123 + 456 =.",
+      "steps": [
+        { "op": "focus", "selector": "CalculatorResults" },
+        { "op": "invoke", "selector": "num1Button" },
+        { "op": "invoke", "selector": "num2Button" },
+        { "op": "invoke", "selector": "num3Button" },
+        { "op": "invoke", "selector": "plusButton" },
+        { "op": "invoke", "selector": "num4Button" },
+        { "op": "invoke", "selector": "num5Button" },
+        { "op": "invoke", "selector": "num6Button" },
+        { "op": "invoke", "selector": "equalButton" },
+        { "op": "get-value", "selector": "CalculatorResults" }
+      ]
+    },
+    {
+      "id": "gallery-combobox",
+      "scenario": "gallery-combobox",
+      "description": "Navigate from Home to the ComboBox page and pick Green.",
+      "steps": [
+        { "op": "invoke", "selector": "Basic input" },
+        { "op": "invoke", "selector": "ComboBox" },
+        { "op": "wait-for", "selector": "Combo1", "timeout": 10000 },
+        { "op": "invoke", "selector": "Combo1", "action": "expand" },
+        { "op": "invoke", "selector": "Green" },
+        { "op": "get-value", "selector": "Combo1" }
+      ]
+    },
+    {
+      "id": "gallery-dialog",
+      "scenario": "gallery-dialog-left-open",
+      "description": "Dismiss the open dialog, navigate to ToggleSwitch, and turn on Toggle work.",
+      "steps": [
+        { "op": "invoke", "selector": "Cancel" },
+        { "op": "invoke", "selector": "Basic input" },
+        { "op": "invoke", "selector": "ToggleSwitch" },
+        { "op": "wait-for", "selector": "ToggleSwitch2", "timeout": 10000 },
+        { "op": "invoke", "selector": "ToggleSwitch2", "action": "toggle-on" }
+      ]
+    }
+  ]
+}
