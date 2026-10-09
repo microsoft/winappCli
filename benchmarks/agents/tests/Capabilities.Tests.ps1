@@ -115,6 +115,25 @@ Describe 'Test-CapabilityExpectations' {
     It 'scores renamed skills through the candidate map' {
         (Test-CapabilityExpectations -Expect (New-CapExpect -primary 'msix.sign') -LoadedSkills 'winapp-ship' -InstalledSkills @('winapp-ship') -Map $map).Status | Should -Be 'pass'
     }
+
+    It 'credits a reference file capability only when the file was read' {
+        $p = Join-Path $TestDrive 'files.json'
+        @{
+            capabilities = @{ 'msix.package' = @{ description = 'p'; commands = @() }; 'msix.sign' = @{ description = 's'; commands = @() }; 'winui.design' = @{ description = 'd'; commands = @() } }
+            maps         = @(@{ id = 'f'; plugin = 'winapp'; source = 't'; skillSetHash = 'f'; skills = @{ 'winapp-ship' = @('msix.package'); 'winapp-ship/references/signing.md' = @('msix.sign'); 'winui-x' = @('winui.design'); 'winui-x/references/sign.md' = @('msix.sign') } })
+        } | ConvertTo-Json -Depth 6 | Set-Content $p
+        $m = Read-CapabilityMap -Path $p
+        $r = Resolve-SkillCapabilities -InstalledSkills @('winapp-ship', 'winui-x') -Map $m
+        $r.Maps | Should -Be @('f')
+        $r.FileKeys.Count | Should -Be 2
+        $e = New-CapExpect -primary 'msix.sign' -max 1
+        (Test-CapabilityExpectations -Expect $e -LoadedSkills 'winapp-ship' -InstalledSkills @('winapp-ship', 'winui-x') -Map $m).Status | Should -Be 'fail'
+        (Test-CapabilityExpectations -Expect $e -LoadedSkills 'winapp-ship', 'winapp-ship/references/signing.md' -InstalledSkills @('winapp-ship', 'winui-x') -Map $m).Status | Should -Be 'pass'
+        # A file under a skill that carries a forbidden capability is not usable.
+        $f = New-CapExpect -primary 'msix.sign' -forbid 'winui.*'
+        $r2 = Test-CapabilityExpectations -Expect $f -LoadedSkills @() -InstalledSkills @('winui-x') -Map $m
+        $r2.ExpectedInstalled | Should -BeFalse
+    }
 }
 
 Describe 'Test-ScenarioExpectations' {

@@ -22,7 +22,7 @@
 [CmdletBinding()]
 param(
     [string[]]$Scenario,
-    [ValidateSet('dev', 'heldout', 'all')]
+    [ValidateSet('dev', 'heldout', 'demand', 'all')]
     [string]$Set = 'dev',
     [string[]]$Variant,
     [string[]]$Configuration,
@@ -467,6 +467,9 @@ function Invoke-BenchmarkRun {
         $record.winappCommands = @($parsed.winappCommands)
         $record.winappCommandsDenied = $parsed.winappCommandsDenied
         $record.selectedAgent = $parsed.selectedAgent
+        $record.skillFilesRead = @($parsed.skillFilesRead)
+        $record.skillFilesDenied = @($parsed.skillFilesDenied)
+        $record.skillFileTokensApprox = $parsed.skillFileTokensApprox
         $record.finalResponse = $parsed.finalResponse
 
         if ($record.workspaceChanges) {
@@ -487,7 +490,7 @@ function Invoke-BenchmarkRun {
             $record.reason = 'no persisted events.jsonl found in the isolated COPILOT_HOME'
         }
         else {
-            $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills $record.skillsLoaded -InstalledSkills @($installed) `
+            $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @(@($record.skillsLoaded) + @($record.skillFilesRead) | Where-Object { $_ }) -InstalledSkills @($installed) `
                 -WinappCommands $record.winappCommands -SkillContextTokens $record.skillContextTokensApprox -Response $record.finalResponse `
                 -DeniedCommands $record.winappCommandsDenied
             $record.status = $eval.Status
