@@ -290,9 +290,10 @@ internal sealed partial class ProjectRunService(
                         return true;
                     }
 
-                    // A project-scoped restore mirrors Platform and fully covers the build. A solution-scoped
-                    // restore omits Platform to avoid MSB4126, so a platform-specific build must restore again.
-                    if (restoredWholeSolution && !HasEffectivePlatform(options))
+                    // A project-scoped restore mirrors Platform and RuntimeIdentifier and fully covers the build.
+                    // A solution-scoped restore omits Platform (MSB4126) and only adds -r to RuntimeIdentifiers,
+                    // so a platform- or RID-specific build must restore the target again.
+                    if (restoredWholeSolution && !HasEffectivePlatform(options) && options.OmitRuntimeIdentifier)
                     {
                         return true;
                     }

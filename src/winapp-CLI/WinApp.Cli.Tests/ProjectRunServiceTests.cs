@@ -3607,10 +3607,12 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public async Task BuildAndResolveAsync_SolutionAllManaged_RestoresWholeSolutionThenBuildsNoRestore()
+    public async Task BuildAndResolveAsync_SolutionAllManaged_RestoresWholeSolutionThenLetsRidBuildRestoreTarget()
     {
-        // ISSUE-1: when the owning solution is all-managed, one `dotnet restore <sln>` restores the target
-        // and every build-dependency sibling before the build, and the build pass skips its own restore.
+        // ISSUE-1: when the owning solution is all-managed, one `dotnet restore <sln>` restores every
+        // build-dependency sibling before the build. This project builds with a RID, and a solution restore
+        // only adds -r to RuntimeIdentifiers (dotnet build -r restores with RuntimeIdentifier set), so the
+        // build must still restore the target itself.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         WriteProjectsAt("Server/Server.csproj");
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
@@ -3643,8 +3645,34 @@ public class ProjectRunServiceTests
             console.Output.ReplaceLineEndings("\n"),
             $"{longRestoreLine}\n\nAFTER-BLANK",
             "the streaming fake should preserve genuine blank subprocess lines without inventing CRLF blanks");
-        StringAssert.Contains(dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal)), "--no-restore",
-            "the build pass should skip its own restore since the solution restore already covered the target");
+        Assert.IsFalse(dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal)).Contains("--no-restore", StringComparison.Ordinal),
+            "a solution restore does not set RuntimeIdentifier, so it cannot stand in for a RID build's own restore");
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolveAsync_RealTerminalRidBuildInSolution_RestoresTargetWithRuntimeIdentifier()
+    {
+        // The solution restore can't stand in for a RID build's restore, so the separate target restore must
+        // run with RuntimeIdentifier set, as `dotnet build -r` would, before the --no-restore build.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("Server/Server.csproj");
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = a => a.Contains("--getProperty:EnableDynamicPlatformResolution", StringComparison.Ordinal)
+                ? (0, """{"Properties":{"RuntimeIdentifier":"","EnableDynamicPlatformResolution":"true"}}""", string.Empty)
+                : (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+        service.NativeTerminalGateOverrideForTests = () => true;
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        var targetRestore = dotnet.StreamingCalls.Single(a => a.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal));
+        StringAssert.Contains(targetRestore, "-r win-x64 -p:RuntimeIdentifier=win-x64");
+        StringAssert.Contains(dotnet.InheritedCalls.Single(), "--no-restore");
     }
 
     [TestMethod]
