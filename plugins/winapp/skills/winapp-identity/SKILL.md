@@ -1,7 +1,10 @@
 ---
 name: winapp-identity
-description: Enable Windows package identity for desktop apps to access Windows APIs like push notifications, background tasks, share target, and startup tasks. Use when adding Windows notifications, background tasks, or other identity-requiring Windows features to a desktop app.
+description: "Give a desktop app (WPF, WinForms, Electron, C++, Rust) package identity so identity-only Windows APIs work: push notifications, background tasks, share target, startup tasks. Use when adding such a feature, or running and debugging with identity (winapp run, create-debug-identity)."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:

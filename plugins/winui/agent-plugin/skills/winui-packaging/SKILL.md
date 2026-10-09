@@ -1,7 +1,9 @@
 ---
 name: winui-packaging
-description: "MSIX packaging, code signing, and distribution for WinUI 3 apps with WinApp CLI 0.7+ — SDK-native project packaging, Native AOT, certificates, self-contained deployment, CI/CD, and Microsoft Store handoff. Use when preparing for release, creating MSIX installers, managing certificates, setting up CI/CD packaging, or publishing to the Microsoft Store."
+description: "MSIX packaging, signing, and Microsoft Store publishing for WinUI 3 apps with WinApp CLI 0.7+: project packaging, Native AOT, certificates, self-contained deployment, CI/CD. Use when releasing or publishing a WinUI app. Not for WPF, WinForms, or Electron apps that only reference the Windows App SDK."
 ---
+
+**Scope: WinUI 3 apps only.** The Windows App SDK is not WinUI. A WPF, WinForms, Electron, or other app that references the Windows App SDK (for notifications, packaging, or other APIs) is not a WinUI app; keep its framework and don't apply this skill unless the task is to port it to WinUI 3. A WinUI 3 project has `<UseWinUI>true</UseWinUI>` or uses `Microsoft.UI.Xaml`.
 
 Requires **WinApp CLI 0.7+**. For analyzer setup, see `winui-dev-workflow`.
 
