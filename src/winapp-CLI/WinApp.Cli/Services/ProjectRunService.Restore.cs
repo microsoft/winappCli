@@ -348,9 +348,9 @@ internal sealed partial class ProjectRunService
     /// parity with VS / <c>dotnet build &lt;sln&gt;</c>). One restore runs over a temporary solution filter
     /// that lists only the managed siblings winapp resolved to local files. The solution itself is never
     /// handed to <c>dotnet restore</c>: MSBuild would also open entries winapp skipped, such as missing,
-    /// native, or UNC paths (the last would authenticate to whoever serves the share). A classic <c>.sln</c>
-    /// that lists <c>.etp</c> entries isn't handed to MSBuild at all, since its parser opens those even through
-    /// a filter; its siblings restore one by one. Otherwise siblings are restored one by one only when the
+    /// native, or UNC paths (the last would authenticate to whoever serves the share). A solution that lists
+    /// <c>.etp</c> entries isn't handed to MSBuild at all, since MSBuild opens those even through a filter; its
+    /// siblings restore one by one. Otherwise siblings are restored one by one only when the
     /// filtered restore fails. Build-mode restores are best-effort; package preparation stops on a failed
     /// dependency restore.
     /// </summary>

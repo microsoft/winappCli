@@ -537,9 +537,9 @@ internal sealed partial class ProjectRunService
     /// </param>
     /// <param name="MissingProjects">Listed projects that aren't on disk, as the solution spells them.</param>
     /// <param name="CanUseSolutionFilter">
-    /// Whether MSBuild can read the solution without opening entries winapp didn't vet. MSBuild's classic
-    /// <c>.sln</c> parser opens every <c>.etp</c> entry it lists, even through a solution filter, and that path
-    /// can name a share.
+    /// Whether MSBuild can read the solution without opening entries winapp didn't vet. MSBuild opens every
+    /// <c>.etp</c> entry a solution lists, and the files it references, even through a solution filter, and
+    /// those paths can name a share.
     /// </param>
     internal sealed record SolutionRestorePlan(
         IReadOnlyList<FileInfo> ManagedSiblings,
@@ -569,12 +569,12 @@ internal sealed partial class ProjectRunService
         }
 
         var solutionDir = solution.Directory?.FullName ?? Directory.GetCurrentDirectory();
-        var projectPaths = (string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
-                ? ExtractSlnxAllProjectPaths(text)
-                : ExtractSlnAllProjectPaths(text))
-            // Drop classic-.sln solution-folder entries (their "path" is the folder name, no ...proj extension).
-            .Where(p => p.EndsWith("proj", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var entries = string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
+            ? ExtractSlnxAllProjectPaths(text)
+            : ExtractSlnAllProjectPaths(text);
+
+        // Drop classic-.sln solution-folder entries (their "path" is the folder name, no ...proj extension).
+        var projectPaths = entries.Where(p => p.EndsWith("proj", StringComparison.OrdinalIgnoreCase)).ToList();
 
         var siblings = new List<FileInfo>();
         var siblingEntries = new List<string>();
@@ -601,9 +601,10 @@ internal sealed partial class ProjectRunService
             }
         }
 
-        // A raw substring check: .sln paths have no escape syntax, so an entry MSBuild treats as .etp spells it.
-        var canUseSolutionFilter = string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
-            || !text.Contains(".etp", StringComparison.OrdinalIgnoreCase);
+        // Check the raw text (a .sln path has no escape syntax) and the parsed entries (a .slnx path can be
+        // spelled with XML character references).
+        var canUseSolutionFilter = !text.Contains(".etp", StringComparison.OrdinalIgnoreCase)
+            && !entries.Any(entry => entry.Contains(".etp", StringComparison.OrdinalIgnoreCase));
 
         return new SolutionRestorePlan(siblings, siblingEntries, missing, canUseSolutionFilter);
     }

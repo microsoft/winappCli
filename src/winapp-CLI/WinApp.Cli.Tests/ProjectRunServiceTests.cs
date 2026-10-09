@@ -3583,13 +3583,19 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public async Task BuildAndResolveAsync_SlnWithEtpEntry_RestoresSiblingsWithoutReadingTheSolution()
+    [DataRow("App.sln", "")]
+    [DataRow("App.slnx", "Local.etp")]
+    [DataRow("App.slnx", "Local&#46;etp")] // XML character reference: only the parsed path spells .etp
+    public async Task BuildAndResolveAsync_SolutionWithEtpEntry_RestoresSiblingsWithoutReadingTheSolution(string solutionName, string etpEntry)
     {
-        // MSBuild's classic .sln parser opens every .etp entry, even through a solution filter, and that path
-        // can name a share. Such a solution never reaches MSBuild; its siblings restore one by one.
+        // MSBuild opens every .etp entry a solution lists, and the files it references, even through a
+        // solution filter, and those can name a share. Such a solution never reaches MSBuild; its siblings
+        // restore one by one.
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         WriteProjectsAt("Server/Server.csproj");
-        var solution = WriteFile("App.sln", SlnListing("App.csproj", @"Server\Server.csproj", @"\\attacker.example\share\Evil.etp"));
+        var solution = solutionName.EndsWith(".slnx", StringComparison.Ordinal)
+            ? WriteFile(solutionName, SlnxListing("App.csproj", "Server/Server.csproj", etpEntry))
+            : WriteFile(solutionName, SlnListing("App.csproj", @"Server\Server.csproj", @"\\attacker.example\share\Evil.etp"));
         var dotnet = new FakeDotNetService
         {
             RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
