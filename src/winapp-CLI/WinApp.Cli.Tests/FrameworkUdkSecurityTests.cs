@@ -28,6 +28,14 @@ public class FrameworkUdkSecurityTests
     [TestCleanup]
     public void Cleanup() => Directory.Delete(root, recursive: true);
 
+    private string Engine()
+    {
+        var engine = Path.Combine(root, "engine", "WinApp.DevTools.Native.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(engine)!);
+        File.WriteAllText(engine, "engine");
+        return engine;
+    }
+
     [TestMethod]
     [DataRow(@"\\server\share\Microsoft.Internal.FrameworkUdk.dll")]
     [DataRow(@"\\?\C:\Microsoft.Internal.FrameworkUdk.dll")]
@@ -111,7 +119,7 @@ public class FrameworkUdkSecurityTests
         var called = false;
         var result = XamlDiagnosticsInjector.RunWorker(
             [XamlDiagnosticsInjector.InternalVerb, "123", "agent", source, "{}"],
-            () => false, (_, _, _, _) => { called = true; return 0; }, () => "agent");
+            () => false, (_, _, _, _) => { called = true; return 0; }, Engine, _ => true);
         Assert.AreEqual(1, result);
         Assert.IsFalse(called);
     }
@@ -120,19 +128,20 @@ public class FrameworkUdkSecurityTests
     public void Worker_PolicyPrecedesInjection_AndPreservesHresult()
     {
         var restricted = false;
+        var engine = Engine();
         var result = XamlDiagnosticsInjector.RunWorker(
-            [XamlDiagnosticsInjector.InternalVerb, "123", "agent", source, "{}"],
+            [XamlDiagnosticsInjector.InternalVerb, "123", engine, source, "{}"],
             () => restricted = true,
             (pid, tap, udk, data) =>
             {
                 Assert.IsTrue(restricted);
                 Assert.AreEqual(123u, pid);
                 Assert.AreEqual(source, udk);
-                Assert.AreEqual("agent", tap);
+                Assert.AreEqual(engine, tap);
                 Assert.AreEqual("{}", data);
                 return unchecked((int)0x80070490);
             },
-            () => "agent");
+            () => engine, _ => true);
         Assert.AreEqual(0, result);
     }
 
@@ -146,7 +155,7 @@ public class FrameworkUdkSecurityTests
             [XamlDiagnosticsInjector.InternalVerb, pid, "agent", source, "{}"],
             () => throw new AssertFailedException("Policy applied to invalid input"),
             (_, _, _, _) => throw new AssertFailedException("Invalid injection"),
-            () => throw new AssertFailedException("Invalid input reached engine resolution.")));
+            () => throw new AssertFailedException("Invalid input reached engine resolution."), _ => true));
     }
 
     [TestMethod]
@@ -200,7 +209,7 @@ public class FrameworkUdkSecurityTests
             [XamlDiagnosticsInjector.InternalVerb, "123", "agent.dll", source, new string('x', 260)],
             () => throw new AssertFailedException("Invalid envelope reached loader policy."),
             (_, _, _, _) => throw new AssertFailedException("Invalid envelope reached injection."),
-            () => throw new AssertFailedException("Invalid envelope reached engine resolution.")));
+            () => throw new AssertFailedException("Invalid envelope reached engine resolution."), _ => true));
     }
 
     [TestMethod]
@@ -236,30 +245,63 @@ public class FrameworkUdkSecurityTests
     [DataRow("WinApp.DevTools.Native.dll")]
     public void Worker_RejectsAnyAgentButTheBundledEngine(string requested)
     {
-        var engine = Path.Combine(root, "engine", "WinApp.DevTools.Native.dll");
+        var engine = Engine();
         // RunWorker reports every exception as exit 1, so record what was reached instead of throwing from it.
         bool policy = false, injected = false;
         Assert.AreEqual(1, XamlDiagnosticsInjector.RunWorker(
             [XamlDiagnosticsInjector.InternalVerb, "123", requested, source, "{}"],
-            () => policy = true, (_, _, _, _) => { injected = true; return 0; }, () => engine));
+            () => policy = true, (_, _, _, _) => { injected = true; return 0; }, () => engine, _ => true));
         Assert.IsFalse(policy, "a foreign agent reached loader policy");
         Assert.IsFalse(injected, "a foreign agent reached injection");
     }
 
     [TestMethod]
-    public void Worker_InjectsTheBundledEngine()
+    public void Worker_InjectsTheBundledEngine_HeldAgainstReplacement()
     {
-        var engine = Path.Combine(root, "engine", "WinApp.DevTools.Native.dll");
+        var engine = Engine();
         string? injected = null;
+        var replaceable = true;
         Assert.AreEqual(0, XamlDiagnosticsInjector.RunWorker(
             [XamlDiagnosticsInjector.InternalVerb, "123", engine.ToUpperInvariant(), source, "{}"],
-            () => true, (_, tap, _, _) => { injected = tap; return 0; }, () => engine));
+            () => true,
+            (_, tap, _, _) =>
+            {
+                injected = tap;
+                try { using var _ = File.Open(tap, FileMode.Open, FileAccess.Write, FileShare.ReadWrite); }
+                catch (IOException) { replaceable = false; }
+                return 0;
+            },
+            () => engine, _ => true));
         Assert.AreEqual(engine, injected);
+        Assert.IsFalse(replaceable, "the engine could be rewritten between its check and the injection");
     }
+
+    // A copy of the signed winapp beside another DLL of the engine's name must not load it.
+    [TestMethod]
+    public void Worker_RefusesAnEngineNotSignedLikeWinapp()
+    {
+        var engine = Engine();
+        bool policy = false, injected = false;
+        Assert.AreEqual(1, XamlDiagnosticsInjector.RunWorker(
+            [XamlDiagnosticsInjector.InternalVerb, "123", engine, source, "{}"],
+            () => policy = true, (_, _, _, _) => { injected = true; return 0; }, () => engine, _ => false));
+        Assert.IsFalse(policy || injected);
+    }
+
+    [TestMethod]
+    [DataRow(false, false, true)]   // unsigned development build: not checked
+    [DataRow(true, true, true)]     // shipped build with its own engine
+    [DataRow(true, false, false)]   // signed winapp beside a DLL it didn't ship
+    public void EngineMustBeSignedLikeWinapp(bool cliSigned, bool engineSigned, bool trusted) =>
+        Assert.AreEqual(trusted, XamlDiagnosticsInjector.EngineSignedLikeCli(@"C:\w\winapp.exe", @"C:\w\WinApp.DevTools.Native.dll",
+            path => path.EndsWith("winapp.exe", StringComparison.Ordinal) ? cliSigned : engineSigned));
 
     [TestMethod]
     public async Task ProgramWorker_RefusesAnArbitraryDll()
     {
+        // The engine the worker resolves for itself, beside the test assembly; the class runs serially.
+        var bundled = DevToolsArtifacts.TapPath;
+        Assert.IsFalse(File.Exists(bundled), "the test output already holds an engine");
         var originalOut = Console.Out;
         var originalError = Console.Error;
         using var output = new StringWriter();
@@ -268,19 +310,18 @@ public class FrameworkUdkSecurityTests
         {
             Console.SetOut(output);
             Console.SetError(error);
+            File.WriteAllText(bundled, "engine");
             Assert.AreEqual(1, await Program.RunAsync(
                 [XamlDiagnosticsInjector.InternalVerb, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     @"C:\Windows\System32\version.dll", source, "{}"]));
             Assert.AreEqual(string.Empty, output.ToString());
-            // The test host has no engine beside it, so the refusal may name that instead; either way it stops before
-            // the framework UDK is opened, let alone the requested DLL.
-            Assert.IsTrue(error.ToString().Contains("only loads the DevTools engine", StringComparison.Ordinal) ||
-                error.ToString().Contains("The DevTools engine is missing", StringComparison.Ordinal), error.ToString());
+            StringAssert.Contains(error.ToString(), "only loads the DevTools engine");
         }
         finally
         {
             Console.SetOut(originalOut);
             Console.SetError(originalError);
+            File.Delete(bundled);
         }
     }
     [TestMethod]

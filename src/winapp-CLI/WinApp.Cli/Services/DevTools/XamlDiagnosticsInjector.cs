@@ -5,6 +5,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging.Abstractions;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services.DevTools;
 
@@ -92,10 +94,12 @@ internal static unsafe partial class XamlDiagnosticsInjector
     }
 
     internal static int RunWorker(string[] args) =>
-        RunWorker(args, () => SetDefaultDllDirectories(System32Search), InjectInWorker, DevToolsArtifacts.StageTap);
+        RunWorker(args, () => SetDefaultDllDirectories(System32Search), InjectInWorker, DevToolsArtifacts.StageTap,
+            agent => EngineSignedLikeCli(CliImagePath(), agent,
+                path => AuthenticodeVerifier.IsTrustedMicrosoftSigned(path, NullLogger.Instance)));
 
     internal static int RunWorker(string[] args, Func<bool> restrictSearch,
-        Func<uint, string, string, string, int> inject, Func<string> bundledAgent)
+        Func<uint, string, string, string, int> inject, Func<string> bundledAgent, Func<string, bool> engineTrusted)
     {
         try
         {
@@ -111,6 +115,12 @@ internal static unsafe partial class XamlDiagnosticsInjector
             if (!string.Equals(Path.GetFullPath(args[2]), Path.GetFullPath(agent), StringComparison.OrdinalIgnoreCase))
             {
                 throw new IOException("The DevTools injection worker only loads the DevTools engine bundled with this winapp.");
+            }
+            // Held without write or delete sharing until injection returns, so the checked engine is the one loaded.
+            using var pinned = new FileStream(agent, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (!engineTrusted(agent))
+            {
+                throw new IOException("The DevTools engine beside winapp isn't signed like winapp. Reinstall winapp.");
             }
             // Per-load flags do not govern delay imports or later LoadLibrary calls. This policy
             // intentionally lasts until worker exit, never affecting the parent CLI.
@@ -128,6 +138,18 @@ internal static unsafe partial class XamlDiagnosticsInjector
             return 1;
         }
     }
+
+    // Shipped builds sign winapp and every DLL beside it. A path check alone would accept any DLL placed next to a copy
+    // of the signed winapp, so a signed winapp loads only a signed engine. Unsigned development builds aren't checked.
+    internal static bool EngineSignedLikeCli(string? cliImage, string agent, Func<string, bool> isSigned) =>
+        cliImage is null || !isSigned(cliImage) || isSigned(agent);
+
+    // The signed image running this code: winapp.exe, or winapp.dll when the dotnet host runs it.
+    private static string? CliImagePath() =>
+        Environment.ProcessPath is { } process &&
+        string.Equals(Path.GetFileNameWithoutExtension(process), "dotnet", StringComparison.OrdinalIgnoreCase)
+            ? Path.Combine(AppContext.BaseDirectory, typeof(XamlDiagnosticsInjector).Assembly.GetName().Name + ".dll")
+            : Environment.ProcessPath;
 
     internal static void ValidateTransport(string tapDllPath, string frameworkUdkPath, string initializationData)
     {
