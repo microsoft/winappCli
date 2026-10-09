@@ -126,7 +126,9 @@ Assert-BuildSucceeded 'DevTools agreement and generation'
 & (Join-Path $PSScriptRoot 'gen-xaml-resources.ps1') `
     -XamlDir (Join-Path $nativeDir 'xaml-window') -OutFile (Join-Path $nativeDir 'DevToolsWindowXaml.g.h')
 $projectionInclude = Ensure-CppWinRTProjection -NativeDir $nativeDir
-$optFlags = if ($Configuration -eq 'Release') { '/O2 /DNDEBUG' } else { '/Od' }
+# /Gy /Gw with /OPT:REF /OPT:ICF below drop unreferenced code and fold identical C++/WinRT instantiations;
+# /DEBUG alone would turn that folding off. Halves the engine's size.
+$optFlags = if ($Configuration -eq 'Release') { '/O2 /Gy /Gw /DNDEBUG' } else { '/Od' }
 $sources = @(
     'DevToolsTap.cpp', 'DevToolsSurface.cpp', 'DevToolsProtocol.cpp', 'DevToolsProtocolSchema.cpp', 'DevToolsTrust.cpp',
     'DevToolsSourcePath.cpp', 'DevToolsEvents.cpp', 'DevToolsOverlay.cpp', 'DevToolsRead.cpp', 'DevToolsWindow.cpp',
@@ -137,7 +139,7 @@ $sources = @(
 )
 $flags = "/nologo /MP /std:c++20 /W3 /WX /MT /EHsc /Zi /DUNICODE $optFlags /I`"$projectionInclude`""
 $libs = 'ole32.lib oleaut32.lib uuid.lib runtimeobject.lib advapi32.lib user32.lib gdi32.lib shell32.lib dbghelp.lib dwmapi.lib winmm.lib WindowsApp.lib'
-$cl = "rc /nologo /fo DevToolsTap.res DevToolsTap.rc && cl $flags /LD $($sources -join ' ') DevToolsTap.def DevToolsTap.res /Fe:WinApp.DevTools.Native.dll /Fd:WinApp.DevTools.Native.pdb /link /DEBUG /PDB:WinApp.DevTools.Native.pdb $libs"
+$cl = "rc /nologo /fo DevToolsTap.res DevToolsTap.rc && cl $flags /LD $($sources -join ' ') DevToolsTap.def DevToolsTap.res /Fe:WinApp.DevTools.Native.dll /Fd:WinApp.DevTools.Native.pdb /link /DEBUG /OPT:REF /OPT:ICF /PDB:WinApp.DevTools.Native.pdb $libs"
 Write-Host "Building win-$Arch with $VcVars"
 & $env:ComSpec /c "call `"$VcVars`" >nul && cd /d `"$nativeDir`" && $cl"
 Assert-BuildSucceeded 'Native inspector build'
