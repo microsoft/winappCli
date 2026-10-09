@@ -392,7 +392,9 @@ the **legacy** Copilot manifest format (no `$schema`) so that
 `copilot plugin install microsoft/WinAppCli` and the awesome-copilot listing keep
 resolving the repo as a plugin; adding `$schema` there would make its nested
 `skills`/`agents` paths unknown fields that clients must ignore.
-`generate-llm-docs.ps1` keeps every manifest's `version` field in sync with the CLI version.
+`generate-llm-docs.ps1` keeps every manifest's `version` field, winapp and WinUI alike, in
+sync with `version.json`; the list is in `scripts/plugin-version-manifests.ps1`, and
+`validate-llm-docs.ps1` fails on drift. Never set a plugin version by hand.
 
 `scripts/validate-plugin-package.ps1` enforces all of the above: the closed manifest
 schema, the plugin name constraints, the Copilot agent's location, the Claude `agents`

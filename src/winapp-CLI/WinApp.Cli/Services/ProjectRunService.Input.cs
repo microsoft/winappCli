@@ -197,7 +197,8 @@ internal sealed partial class ProjectRunService
                 $"No runnable app project found in '{dir.FullName}' ({FormatProjectNameList(csprojs.Select(p => p.Name))}). 'winapp run' requires an executable project (OutputType Exe or WinExe).");
         }
 
-        var dirCandidates = dirApps.Count > 0 ? dirApps : dirTests;
+        // C++ apps lose auto-selection to C# apps but stay valid --project choices, so list them too.
+        var dirCandidates = dirApps.Count > 0 ? [.. dirApps, .. vcxprojs.Where(IsCppApplicationProject)] : dirTests;
         var dirCandidateList = FormatProjectNameList(dirCandidates.Select(p => p.Name));
         var dirReason = dirApps.Count > 1
             ? $"Multiple runnable app projects found in '{dir.FullName}' ({dirCandidateList})"
@@ -683,7 +684,10 @@ internal sealed partial class ProjectRunService
             return new RunInputResolution(WinAppRunMode.Folder, null, solutionDir);
         }
 
-        var candidatePool = apps.Count > 0 ? apps : (tests.Count > 0 ? tests : [.. projects, .. cppProjects]);
+        var candidatePool = apps.Count > 0
+            // C++ apps lose auto-selection to C# apps but stay valid --project choices, so list them too.
+            ? apps.Concat(cppProjects.Where(IsCppApplicationProject)).DistinctBy(p => p.FullName, StringComparer.OrdinalIgnoreCase).ToList()
+            : (tests.Count > 0 ? tests : [.. projects, .. cppProjects]);
         var candidateList = FormatProjectNameList(candidatePool.Select(p => p.Name));
         string reason;
         if (apps.Count > 1)
