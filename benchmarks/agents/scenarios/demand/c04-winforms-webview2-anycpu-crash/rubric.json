@@ -1,0 +1,29 @@
+{
+  "cluster": "c04",
+  "framework": "WinForms",
+  "goal": "Diagnose the early WebView2 WinForms load crash as a prerelease/runtime/architecture setup issue and give a concrete modernization path.",
+  "must_include": [
+    "Flags `Microsoft.Web.WebView2` 0.9.515-prerelease and `PlatformTarget` AnyCPU/Prefer32Bit as risky evidence in the fixture.",
+    "Recommends targeting a concrete architecture (`x86` or `x64`) that matches the installed WebView2 runtime/native loader, not leaving this sample on Any CPU.",
+    "Recommends moving off the old prerelease package to a current WebView2 SDK/runtime combination where possible.",
+    "Mentions that production WebView2 apps should depend on/distribute the WebView2 Runtime, not the normal Edge browser executable."
+  ],
+  "must_not": [
+    "Tell the developer to edit generated designer code as the primary fix.",
+    "Recommend keeping the app on an obsolete prerelease WebView2 package indefinitely.",
+    "Claim `Controls.Add` is inherently unsafe for WebView2 controls."
+  ],
+  "acceptable_alternatives": [
+    "Use x64 instead of x86 when the installed runtime and deployment are x64.",
+    "Create the WebView2 environment explicitly if the app also needs a writable user data folder."
+  ],
+  "solved": "The answer fixes the architecture/prerelease mismatch by selecting a concrete target platform and updating/aligning WebView2 SDK and runtime.",
+  "partial": "The answer suggests installing or updating WebView2 but ignores the Any CPU architecture problem in the project.",
+  "sources": ["https://stackoverflow.com/questions/61885845/microsoft-edge-webview2-sample-crashes-on-load"],
+  "verified_with": [
+    "https://api.stackexchange.com/2.3/questions/61885845?order=desc&sort=activity&site=stackoverflow&filter=withbody",
+    "https://api.stackexchange.com/2.3/questions/61885845/answers?order=desc&sort=votes&site=stackoverflow&filter=withbody",
+    "https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution"
+  ],
+  "notes": "This uses an old prerelease WebView2 failure because the root-cause pattern is still useful: architecture and runtime/SKD alignment before investigating app code."
+}

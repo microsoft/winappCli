@@ -1,0 +1,34 @@
+{
+  "cluster": "c11",
+  "framework": "other",
+  "goal": "Help the developer recover an App Installer update feed affected by the known Delivery Optimization version-number bug and choose safer future versioning.",
+  "must_include": [
+    "Recognizes this as a Delivery Optimization/App Installer client-side caching issue triggered by the version digit-count/file-length change, not as invalid `.appinstaller` XML or a certificate mismatch.",
+    "Gives a concrete way to avoid the bad transition for the next feed update, such as moving from `1.0.10.0` to `1.1.0.0`, keeping the `.appinstaller` byte length stable with padding, or moving users to a fresh App Installer feed URI.",
+    "Tells affected users or support to restart the Delivery Optimization service (`DoSvc`) or reboot to clear the broken client-side state.",
+    "Preserves a valid App Installer update channel by updating the `.appinstaller` version/package URI or feed URI rather than making direct `.msix` installs the steady-state update path."
+  ],
+  "must_not": [
+    "Removes `UpdateSettings` permanently to make the file install once but stop automatic updates.",
+    "Claims the fix is to install the `.msix` directly, which breaks the App Installer association for future updates.",
+    "Blames the certificate publisher mismatch when the fixture's publisher values already match.",
+    "Suggests downgrading to a lower package version without `ForceUpdateFromAnyVersion` or another downgrade plan."
+  ],
+  "acceptable_alternatives": [
+    "Adopt a calendar/build version pattern that keeps segment widths stable within a release line.",
+    "Pad the App Installer XML (for example with a comment) or otherwise keep its byte length stable so DoSvc does not reuse a stale range for the same URL.",
+    "Create a fresh App Installer association at a new feed URI if support cannot repair the broken client state quickly.",
+    "Use Microsoft Store or enterprise management updates instead of a raw App Installer feed if the organization already uses those channels."
+  ],
+  "solved": "The answer identifies the Delivery Optimization/App Installer caching issue caused by the version/file-size transition, gives a concrete safe next feed change and DoSvc/reboot recovery step, and preserves an update channel.",
+  "partial": "The answer suggests changing the version or feed file but misses either the DoSvc recovery step or the need to keep a real update association.",
+  "sources": [
+    "https://stackoverflow.com/questions/64381453/appinstaller-xml-issue"
+  ],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/msix/app-installer/app-installer-file-overview",
+    "https://learn.microsoft.com/en-us/windows/msix/app-installer/update-settings",
+    "https://learn.microsoft.com/en-us/windows/msix/app-installer/app-installer-root"
+  ],
+  "notes": "The version digit-count workaround and DoSvc restart come from the accepted Stack Overflow answer; another high-scored source answer documents the stale HTTP range/file-size cache mechanism. Microsoft Learn verifies the App Installer file/update mechanics, not that Delivery Optimization bug."
+}

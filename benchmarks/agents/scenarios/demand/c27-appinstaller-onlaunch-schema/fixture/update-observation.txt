@@ -1,0 +1,12 @@
+Installed package:
+  Name: WingateField.SurveyDesk
+  Version: 1.0.1.0
+  Publisher: CN=Wingate Field Tools
+
+Web files:
+  https://downloads.wingatefield.io/SurveyDesk.Setup.appinstaller returns 200
+  https://downloads.wingatefield.io/SurveyDesk.Setup_1.0.2.0_Test/SurveyDesk.Setup_1.0.2.0_x64.msixbundle returns 200
+
+Observed:
+  Launching from Start opens version 1.0.1.0 with no update prompt.
+  Double-clicking the web .appinstaller offers update to 1.0.2.0.

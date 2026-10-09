@@ -1,0 +1,21 @@
+{
+  "id": "c06-nsis-split-arch-installers",
+  "description": "Electron-builder creates a combined NSIS installer when multiple Windows architectures are built, based on https://github.com/electron-userland/electron-builder/issues/8298.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My Windows release now builds x64 and arm64, but the output includes a combined installer and that breaks our native module story. I only want separate installers per architecture.\n\n```\n• building target=nsis file=release/ScoutDesk Setup 2.4.0.exe archs=x64, arm64\n• building target=nsis file=release/ScoutDesk Setup 2.4.0-arm64.exe archs=arm64\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

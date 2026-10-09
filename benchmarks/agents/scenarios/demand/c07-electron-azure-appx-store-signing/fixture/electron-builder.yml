@@ -1,0 +1,17 @@
+appId: com.asterialabs.aurora
+productName: Aurora Desk
+directories:
+  output: dist
+win:
+  target:
+    - appx
+  azureSignOptions:
+    endpoint: https://neu.codesigning.azure.net
+    codeSigningAccountName: asteria-prod-signing
+    certificateProfileName: public-trust
+    publisherName: Asteria Labs
+appx:
+  identityName: AsteriaLabs.AuroraDesk
+  publisher: CN=Asteria Labs
+  publisherDisplayName: Asteria Labs
+  displayName: Aurora Desk

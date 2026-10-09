@@ -1,0 +1,30 @@
+{
+  "cluster": "c23",
+  "framework": "Tauri",
+  "goal": "Stabilize the Windows Tauri v2 CI build by invalidating stale Rust/Tauri generated build output without throwing away all useful caching.",
+  "must_include": [
+    "Uses the log's `failed to read plugin permissions` line to focus on stale or incompatible generated files under `src-tauri\\target`, not a missing frontend asset.",
+    "Recommends clearing the affected `src-tauri\\target` build output or the GitHub Actions Rust cache at least once after the Tauri v2 beta/RC capability change.",
+    "Suggests narrowing the cache key to include `src-tauri\\Cargo.lock`, Tauri config/capability files, and the target triple, or excluding `src-tauri\\target\\*\\build` from cache restore.",
+    "Mentions that building with an explicit Windows target such as `-t x86_64-pc-windows-msvc` can isolate output into `target\\x86_64-pc-windows-msvc\\release` and was a useful workaround for some projects."
+  ],
+  "must_not": [
+    "Tells the developer to create empty permission files just to satisfy the missing path.",
+    "Removes the capability system or grants every permission as the fix.",
+    "Treats this as a WebView2 runtime installation problem."
+  ],
+  "acceptable_alternatives": [
+    "Temporarily disable Windows Rust target caching while retaining Node package caching.",
+    "Delete only `src-tauri\\target\\release\\build` or `src-tauri\\target\\debug\\build` before the Tauri step.",
+    "Run `pnpm tauri build -t x86_64-pc-windows-msvc` while tracking the upstream issue."
+  ],
+  "solved": "The answer gives a concrete cache invalidation or cache-key change that prevents stale generated Tauri permission output from being reused in Windows CI.",
+  "partial": "The answer says to clear the cache but does not explain which generated output is stale or how to avoid repeated slow full rebuilds.",
+  "sources": ["https://github.com/tauri-apps/tauri/issues/9045"],
+  "verified_with": [
+    "https://v2.tauri.app/security/capabilities/",
+    "https://v2.tauri.app/distribute/",
+    "https://github.com/tauri-apps/tauri/issues/9045"
+  ],
+  "notes": "The source issue involved Tauri v2 beta builds. The scenario rewards diagnosing stale generated permission artifacts and scoped cache invalidation rather than disabling all caching permanently."
+}

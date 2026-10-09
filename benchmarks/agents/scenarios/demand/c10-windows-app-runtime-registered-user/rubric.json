@@ -1,0 +1,32 @@
+{
+  "cluster": "c10",
+  "framework": "WinUI3",
+  "goal": "Help the developer diagnose and fix a framework-dependent unpackaged WinUI app whose required Windows App Runtime is staged but not usable by the launching user.",
+  "must_include": [
+    "Checks that the Windows App Runtime major/minor required by the app is installed for the same user context that launches the app, not merely present somewhere on the machine.",
+    "Uses `Get-AppxPackage micro*win*app*run*` from a normal prompt and `Get-AppxPackage micro*win*app*run* -AllUsers` from an elevated prompt to distinguish registered users from packages only staged for `S-1-5-18` or another account.",
+    "Explains that an elevated runtime install provisions/stages packages for all users, while a non-elevated install registers only the current user, so installer elevation and launch user matter.",
+    "Offers a concrete remediation: run the correct architecture/version Windows App Runtime installer elevated for all-users deployment, repair per-user registration for affected users, or ship the unpackaged app self-contained with `<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>`."
+  ],
+  "must_not": [
+    "Assumes that installing any newer Windows App Runtime line is sufficient for an app built against version 1.5.",
+    "Treats `All install operations successful` as proof that the runtime is registered for the launching user.",
+    "Tells users to always run the application elevated to bypass the bootstrapper error.",
+    "Suggests deleting the app's local data as the primary fix."
+  ],
+  "acceptable_alternatives": [
+    "Convert to an MSIX packaged app with an explicit Windows App SDK framework dependency.",
+    "Use the Windows App SDK deployment API/bootstrapper logging to gather the same package-registration evidence.",
+    "Align all projects to one Windows App SDK package version if the solution contains mixed Windows App SDK references."
+  ],
+  "solved": "The answer identifies user/package registration as the likely gap, gives the exact PowerShell checks, and provides an install or self-contained deployment fix that stops the repeated runtime prompt.",
+  "partial": "The answer recognizes a Windows App Runtime deployment issue but only says to reinstall the runtime, without checking user registration or offering self-contained deployment.",
+  "sources": [
+    "https://github.com/microsoft/WindowsAppSDK/issues/4268"
+  ],
+  "verified_with": [
+    "https://github.com/microsoft/WindowsAppSDK/issues/4268",
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/deployment-architecture"
+  ],
+  "notes": "Use the source thread for the exact `Get-AppxPackage` diagnostic wording and the self-contained workaround; the official deployment architecture verifies framework-dependent, unpackaged, bootstrapper, and provisioning concepts."
+}

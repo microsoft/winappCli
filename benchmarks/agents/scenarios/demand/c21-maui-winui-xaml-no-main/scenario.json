@@ -1,0 +1,21 @@
+{
+  "id": "c21-maui-winui-xaml-no-main",
+  "description": "A migrated .NET MAUI Windows project with native WinUI XAML fails with CS5001/no AppxManifest when default MAUI items are disabled without the corresponding WinUI item setup, based on https://github.com/dotnet/maui/issues/21559.",
+  "set": "demand",
+  "cohort": "trap",
+  "prompt": "I'm adding our old UWP/WinUI views into a .NET MAUI Windows target. The only way I got past XAML errors was disabling default MAUI items, but now Windows either says `Program does not contain a static 'Main' method suitable for an entry point` or `no AppxManifest is specified`; should I add my own `Main` method?",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

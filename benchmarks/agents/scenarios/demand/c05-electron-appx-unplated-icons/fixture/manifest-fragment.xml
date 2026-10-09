@@ -1,0 +1,10 @@
+<Applications>
+  <Application Id="RivetConsole" Executable="Rivet Console.exe" EntryPoint="Windows.FullTrustApplication">
+    <uap:VisualElements
+      DisplayName="Rivet Console"
+      Square44x44Logo="Assets\Square44x44Logo.png"
+      Square150x150Logo="Assets\Square150x150Logo.png"
+      Description="Rivet Console"
+      BackgroundColor="#2c2c2c" />
+  </Application>
+</Applications>
