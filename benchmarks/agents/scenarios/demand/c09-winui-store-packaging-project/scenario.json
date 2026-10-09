@@ -1,0 +1,21 @@
+{
+  "id": "c09-winui-store-packaging-project",
+  "description": "A WinUI 3 developer cannot find the Microsoft Store packaging option because the solution has no packaging project, based on https://stackoverflow.com/questions/71308139/publish-winui-3-app-in-microsoft-store-windows-11.",
+  "set": "demand",
+  "cohort": "implicit",
+  "prompt": "I started a WinUI 3 desktop app in Visual Studio 2022 and I want to upload it to the Microsoft Store like I used to do with UWP. I only see normal publish options on the app project, not the Store package upload flow. What am I missing?",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

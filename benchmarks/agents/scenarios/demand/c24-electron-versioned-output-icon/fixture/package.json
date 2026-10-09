@@ -1,0 +1,12 @@
+{
+  "name": "gardenbox-notes",
+  "version": "0.0.0",
+  "main": "electron/main.js",
+  "scripts": {
+    "dist:win": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "41.10.6",
+    "electron-builder": "24.6.3"
+  }
+}

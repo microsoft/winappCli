@@ -1,0 +1,21 @@
+{
+  "id": "c26-wpf-wapproj-minversion-mismatch",
+  "description": "A WPF packaging project reports a processor architecture mismatch when creating a Store package, based on https://stackoverflow.com/questions/74466154/packaging-project-fails-with-mismatch-between-the-processor-architecture-etc.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "A WPF .NET 6 app runs fine from F5, but the Windows Application Packaging Project fails when I create the Store package. The package wizard picks `Neutral - Release (AnyCPU)` and then I get a mismatch between `MSIL` and `bin\\x86\\Release\\net6.0-windows10.0.19041.0\\win-x86\\NorthPier.dll`. What should I change in the package project?",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

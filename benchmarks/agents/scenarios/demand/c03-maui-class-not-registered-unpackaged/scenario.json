@@ -1,0 +1,21 @@
+{
+  "id": "c03-maui-class-not-registered-unpackaged",
+  "description": "A MAUI Windows app throws `Class not registered` in the Windows App SDK DeploymentManager auto-initializer when launched on a new machine, based on https://stackoverflow.com/questions/79315506/class-not-registered-when-trying-to-run-maui-app.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I'm trying to run a MAUI Windows app from a repo that worked on another laptop, but this machine throws before the app initializes: `System.Runtime.InteropServices.COMException HResult=0x80040154 Message=Class not registered` at `Microsoft.Windows.ApplicationModel.WindowsAppRuntime.DeploymentInitializeOptions..ctor()` and then `DeploymentManagerCS.AutoInitialize.AccessWindowsAppSDK()`. Installing the x64 runtime did not change it.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

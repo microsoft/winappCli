@@ -1,0 +1,10 @@
+[package]
+name = "lane-desk"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = "2.0.0-alpha.4"
+
+[dependencies]
+tauri = { version = "2.0.0-alpha.8", features = ["dialog"] }

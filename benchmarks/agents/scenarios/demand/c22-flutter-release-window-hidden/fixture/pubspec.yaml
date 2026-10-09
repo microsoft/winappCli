@@ -1,0 +1,13 @@
+name: riverdesk
+description: A small Windows desktop client.
+version: 1.0.0+7
+
+environment:
+  sdk: ">=2.19.0 <3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
