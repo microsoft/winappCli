@@ -1,0 +1,21 @@
+{
+  "id": "c15-rust-toast-debug-identity-elevated",
+  "description": "A Rust app using the winapp CLI can show toasts through `winapp run --with-alias` but not after `create-debug-identity`, based on https://github.com/microsoft/winappCli/issues/352.",
+  "set": "demand",
+  "cohort": "explicit-command",
+  "prompt": "I'm showing a toast from a Rust app with the winapp CLI. `winapp create-debug-identity .\\target\\debug\\tide-alert.exe` then running the exe gives `Error showing notification: The notification platform is unavailable. (0x803E0105)`, but `winapp run .\\target\\debug --with-alias` works. Running as admin also happens to work, but I don't want that as the requirement.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

@@ -81,6 +81,13 @@ internal sealed class Scenario
     /// controls in Microsoft.Windows.*, Microsoft.UI.Windowing, etc. Empty when unknown
     /// or when the standard Microsoft.UI.Xaml.Controls namespace is enough.</summary>
     [JsonPropertyName("apiNamespace")] public string? ApiNamespace { get; set; }
+    /// <summary>C# namespaces the control's samples import, from the index's control-level
+    /// <c>usings</c> (index sources only). Rendered as its own "Namespace:" line rather than
+    /// prepended to <see cref="CSharp"/>: the sample is a class-body fragment, so a `using`
+    /// placed inside it sits where C# does not allow one. Carries the imports a consumer
+    /// cannot infer — a source parser cannot see the host project's global usings, so treat
+    /// this as the non-obvious imports rather than a complete set.</summary>
+    [JsonPropertyName("usings")] public string[] Usings { get; set; } = [];
     /// <summary>Official documentation links (API reference, guidelines, etc.) (Gallery only).</summary>
     [JsonPropertyName("docs")] public DocLink[] Docs { get; set; } = [];
 }

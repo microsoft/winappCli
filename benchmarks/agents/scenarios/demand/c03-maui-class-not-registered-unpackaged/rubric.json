@@ -1,0 +1,35 @@
+{
+  "cluster": "c03",
+  "framework": "MAUI",
+  "goal": "Get the MAUI Windows app launching by matching its package type and Visual Studio launch profile to the intended unpackaged run mode.",
+  "must_include": [
+    "Uses the stack trace to focus on Windows App SDK deployment/package initialization, not general COM registration.",
+    "For an unpackaged local run, adds `<WindowsPackageType>None</WindowsPackageType>` to the Windows app project.",
+    "Changes the Windows launch profile from `MsixPackage` to `Project` or selects the unpackaged launch profile in Visual Studio.",
+    "If the app is meant to be packaged instead, says to register/deploy the MSIX package and its Windows App SDK runtime dependencies rather than using the unpackaged launch settings."
+  ],
+  "must_not": [
+    "Tell them to run `regsvr32` on Windows App SDK DLLs.",
+    "Treat reinstalling the Visual C++ redistributable as the primary fix.",
+    "Set `WindowsPackageType=None` while continuing to launch the `MsixPackage` profile."
+  ],
+  "acceptable_alternatives": [
+    "Create a separate unpackaged debug profile instead of editing the existing profile.",
+    "Use Visual Studio's unpackaged start target dropdown if it updates `launchSettings.json` equivalently.",
+    "Keep the packaged profile and fix package registration when package identity is required.",
+    "the winapp CLI's equivalent local unpackaged run command (`winapp run . -p WindowsPackageType=None --arch x64`) for debugging without the MSIX launch profile."
+  ],
+  "solved": "The project and launch profile agree on unpackaged or packaged mode, and the app starts without the `DeploymentInitializeOptions` class-not-registered failure.",
+  "partial": "The answer adds `WindowsPackageType=None` but does not address the `MsixPackage` launch profile or packaged-mode alternative.",
+  "sources": [
+    "https://stackoverflow.com/questions/79315506/class-not-registered-when-trying-to-run-maui-app"
+  ],
+  "verified_with": [
+    "https://api.stackexchange.com/2.3/questions/79315506?site=stackoverflow&filter=withbody",
+    "https://api.stackexchange.com/2.3/questions/79315506/answers?site=stackoverflow&filter=withbody",
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/unpackage-winui-app",
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/project-properties",
+    "docs\\usage.md#project-mode-net-sdk-projects"
+  ],
+  "notes": "The Stack Overflow answer identifies `WindowsPackageType=None` and changing `launchSettings.json` from `MsixPackage` to `Project` for this shape."
+}

@@ -1,0 +1,16 @@
+Developer machine:
+  Flutter 3.16.0 stable
+  Dart 3.2.0
+  Windows 10.0.19045
+
+Affected customer machine:
+  The process appears for a few seconds in Task Manager and exits.
+  No Flutter framework error is logged.
+  Replacing `.ceil()` with `.toInt()` avoids the immediate repro but later a fresh counter app also exits on the same PC.
+
+Maintainer diagnostic requested:
+  dart.exe --target-unknown-cpu test.dart
+  dart.exe test.dart
+
+Later tester report:
+  Flutter 3.19.5 runs the same ceil sample in debug and release.

@@ -1,0 +1,30 @@
+{
+  "cluster": "c12",
+  "framework": "WinUI3",
+  "goal": "Help the developer remove stale `win10-*` runtime identifiers from a .NET 8 WinUI multi-architecture build without hiding a real RID-asset problem.",
+  "must_include": [
+    "Explains that .NET 8 uses the portable RID graph by default and recommends portable Windows RIDs: `win-x86`, `win-x64`, and `win-arm64`.",
+    "Finds and updates all remaining `win10-*` references, including publish profiles or packaging-project files, not only the main `.csproj`.",
+    "Treats `<UseRidGraph>true</UseRidGraph>` as a temporary compatibility workaround for older Windows App SDK/tooling, not the preferred long-term fix.",
+    "Recommends updating Windows App SDK to a servicing version that no longer needs the workaround when possible."
+  ],
+  "must_not": [
+    "Suppresses NETSDK1206 or turns off warnings without fixing the stale runtime identifiers.",
+    "Uses invalid casing such as `win-ARM64` or invents `windows-arm64`.",
+    "Removes ARM64 from the build to silence the warning.",
+    "Changes `TargetFramework` from `net8.0-windows...` back to .NET 7 as the primary fix."
+  ],
+  "acceptable_alternatives": [
+    "Use `UseRidGraph` only to unblock a pinned Windows App SDK 1.4.2/older-tooling release while scheduling a package update.",
+    "Regenerate publish profiles from current Visual Studio tooling after verifying the resulting files use portable RIDs.",
+    "Build each architecture separately with explicit `RuntimeIdentifier=win-<arch>` if the packaging pipeline cannot use `RuntimeIdentifiers` cleanly."
+  ],
+  "solved": "The answer identifies the stale `win10-*` RIDs outside the main project and gives a portable-RID update plan for x86, x64, and ARM64, with `UseRidGraph` only as a temporary workaround.",
+  "partial": "The answer says to replace `win10-*` with `win-*` but does not look beyond the main `.csproj` or treats `UseRidGraph` as the final fix.",
+  "sources": ["https://github.com/microsoft/microsoft-ui-xaml/issues/9107"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/dotnet/core/rid-catalog",
+    "https://learn.microsoft.com/en-us/dotnet/core/compatibility/sdk/8.0/rid-graph"
+  ],
+  "notes": "Another writer covers Electron, Flutter, and Tauri ARM64 problems; this scenario is intentionally WinUI/.NET focused."
+}

@@ -1,0 +1,21 @@
+{
+  "id": "c04-winui-single-file-renamed-resources",
+  "description": "A WinUI 3 self-contained single-file publish crashes with XamlParseException after the published executable is renamed, from https://github.com/microsoft/WindowsAppSDK/issues/6248.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My packaged bits run until I rename the published exe for branding, then the app dies before the first window opens. I changed `NorthstarShell.exe` to `NorthstarShellLauncher.exe` in `bin\\publish`.\n\n```\nMicrosoft.UI.Xaml.Markup.XamlParseException: XAML parsing failed.\n   at Microsoft.UI.Xaml.Application.LoadComponent(Object, Uri, ComponentResourceLocation)\n   at NorthstarShell.MainWindow.InitializeComponent()\n   at NorthstarShell.App.OnLaunched(LaunchActivatedEventArgs args)\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

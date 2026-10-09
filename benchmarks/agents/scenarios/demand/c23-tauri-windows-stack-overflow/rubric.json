@@ -1,0 +1,31 @@
+{
+  "cluster": "c23",
+  "framework": "Tauri",
+  "goal": "Keep the Tauri v2 Windows app's required permissions while avoiding the Windows main-thread stack overflow.",
+  "must_include": [
+    "Recognizes that Windows' default executable stack is smaller (1 MB by default for MSVC-linked x64/x86/ARM64 EXEs) and the generated Tauri context can overflow it when many permissions/commands are present.",
+    "Adds a Cargo configuration such as `.cargo\\config.toml` with `[target.x86_64-pc-windows-msvc] rustflags = [\"-C\", \"link-arg=/STACK:8000000\"]` for the MSVC Windows target, adjusted for the actual target triple if needed.",
+    "Alternatively, wraps `tauri::generate_context!()` in a spawned thread or `std::thread::Builder::new().stack_size(...)` before passing the context to `.run(...)`.",
+    "Keeps required permissions and Rust registrations unless the app truly no longer needs them."
+  ],
+  "must_not": [
+    "Deletes capabilities or command registrations merely because reducing generated code hides the overflow.",
+    "Puts the Cargo target rustflags in `Cargo.toml` instead of `.cargo\\config.toml` or the build environment.",
+    "Claims the problem is caused by WebView2 because it only happens on Windows."
+  ],
+  "acceptable_alternatives": [
+    "Set `RUSTFLAGS=-C link-arg=/STACK:8000000` in the Windows build environment.",
+    "Use a larger stack size than 8 MB if the project still overflows and memory impact is acceptable.",
+    "For GNU Windows targets, use the equivalent linker argument such as `-C link-arg=-Wl,--stack,8000000`."
+  ],
+  "solved": "The answer provides a persistent Windows-target stack-size fix or context-thread workaround and does not remove needed app capabilities.",
+  "partial": "The answer says to increase stack size but gives no target-specific Cargo/MSVC mechanism or puts it in the wrong file.",
+  "sources": ["https://github.com/tauri-apps/tauri/issues/9882"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/cpp/build/reference/stack-stack-allocations?view=msvc-170",
+    "https://doc.rust-lang.org/cargo/reference/config.html",
+    "https://v2.tauri.app/security/capabilities/",
+    "https://github.com/tauri-apps/tauri/issues/9882"
+  ],
+  "notes": "The issue thread reports both the linker stack-size workaround and the generated-context thread workaround. The grader should accept either if applied to Windows builds correctly."
+}

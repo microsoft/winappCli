@@ -1,0 +1,21 @@
+{
+  "id": "c25-winforms-webview2-new-window",
+  "description": "A WinForms WebView2 opens target-blank links in a separate Edge/WebView window instead of staying inside the app, based on https://stackoverflow.com/questions/66191200/how-to-prevent-webview2edge-based-to-open-a-new-window.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "In my WinForms app, links inside the embedded browser can open a new window outside my form. I want either to block those popups or keep them inside the same embedded browser, not launch a separate window.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

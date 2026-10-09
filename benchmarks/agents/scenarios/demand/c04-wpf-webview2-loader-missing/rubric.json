@@ -1,0 +1,29 @@
+{
+  "cluster": "c04",
+  "framework": "WPF",
+  "goal": "Explain that the deployed app is missing the WebView2 native loader files and tell the developer how to include the correct runtime folder.",
+  "must_include": [
+    "Identifies the missing `runtimes\\win-x64\\native\\WebView2Loader.dll` (or matching architecture folder) in the deployed output.",
+    "Says the managed WebView2 assemblies alone are insufficient; WebView2 native loader files must ship with the app and the WebView2 Runtime must be present on the client.",
+    "Recommends publishing/copying the complete build output or configuring the installer to include the `runtimes` folder rather than manually copying a random DLL into the NuGet cache.",
+    "Checks architecture consistency between `PlatformTarget` and the `win-x86`/`win-x64`/`win-arm64` native loader folder."
+  ],
+  "must_not": [
+    "Tell the developer to install Microsoft Edge Stable as the production WebView2 runtime dependency.",
+    "Recommend copying WebView2Loader.dll into the global NuGet package directory.",
+    "Ignore the deployment folder contents and focus only on the XAML control declaration."
+  ],
+  "acceptable_alternatives": [
+    "Update the Microsoft.Web.WebView2 NuGet package if an old package is failing to lay out the runtime files.",
+    "Use a fixed-version WebView2 Runtime distribution as long as the required app files and matching native loader are included."
+  ],
+  "solved": "The answer tells the developer to include the correct WebView2 runtime/native loader files in deployment and verify matching architecture/runtime installation.",
+  "partial": "The answer mentions installing WebView2 Runtime but misses the missing `runtimes` folder in the app payload.",
+  "sources": ["https://stackoverflow.com/questions/71855131/system-dllnotfoundexception-unable-to-load-dll-webview2loader-dll-the-specifi"],
+  "verified_with": [
+    "https://api.stackexchange.com/2.3/questions/71855131?order=desc&sort=activity&site=stackoverflow&filter=withbody",
+    "https://api.stackexchange.com/2.3/questions/71855131/answers?order=desc&sort=votes&site=stackoverflow&filter=withbody",
+    "https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution#files-to-ship-with-the-app"
+  ],
+  "notes": "The Stack Overflow answers disagree on package update versus missing files; the fixture specifically shows a deployment folder missing the native runtimes directory."
+}

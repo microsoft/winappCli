@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 
 $script:ValidConfigurations = @('none', 'winapp', 'winui', 'both')
-$script:ValidSets = @('dev', 'heldout')
+$script:ValidSets = @('dev', 'heldout', 'demand')
 # Implicit routing results leave out explicit-command scenarios (the prompt names the command).
 $script:ValidCohorts = @('implicit', 'error', 'vague', 'followup', 'explicit-command', 'near-miss', 'trap')
 $script:CapabilityMap = $null
@@ -17,6 +17,22 @@ function Split-ListArgument {
     param([AllowNull()][AllowEmptyCollection()][string[]]$Value)
     if (-not $Value) { return @() }
     return @($Value | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+function Read-ScenarioRubric {
+    # A rubric.json grades a scenario's final answer (see judge.ps1). Returns $null when the file
+    # does not exist and throws when it is incomplete.
+    param([Parameter(Mandatory)][string]$Path, [string]$ScenarioId)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    $r = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json -AsHashtable
+    foreach ($key in 'cluster', 'goal', 'solved', 'partial') {
+        if (-not $r.ContainsKey($key) -or -not ($r[$key] -is [string]) -or -not $r[$key].Trim()) { throw "Rubric for '$ScenarioId' needs a non-empty '$key'." }
+    }
+    foreach ($key in 'must_include', 'must_not', 'sources') {
+        if (-not $r.ContainsKey($key) -or -not @($r[$key] | Where-Object { $_ -is [string] -and $_.Trim() }).Count) { throw "Rubric for '$ScenarioId' needs at least one '$key' entry." }
+    }
+    foreach ($key in 'acceptable_alternatives', 'verified_with') { if (-not $r.ContainsKey($key)) { $r[$key] = @() } }
+    return $r
 }
 
 function Get-ScenarioDefinitions {
@@ -43,6 +59,8 @@ function Get-ScenarioDefinitions {
         if (-not $s.ContainsKey('cohort') -or $s.cohort -notin $script:ValidCohorts) {
             throw "Scenario '$($s.id)' needs a cohort: $($script:ValidCohorts -join ', ')."
         }
+        $rubric = Read-ScenarioRubric -Path (Join-Path $dir 'rubric.json') -ScenarioId $s.id
+        if ($set -eq 'demand' -and -not $rubric) { throw "Scenario '$($s.id)' is in the demand set and needs a rubric.json next to scenario.json." }
         $expect = $s.expect
         $caps = $null
         if ($expect.ContainsKey('capabilities') -and $expect.capabilities) {
@@ -86,6 +104,7 @@ function Get-ScenarioDefinitions {
                 RoutingSnapshot  = [bool]($s.ContainsKey('routingSnapshot') -and $s.routingSnapshot)
                 LeakAllow        = @(if ($s.ContainsKey('leakAllow')) { $s.leakAllow })
                 ScenarioFile     = $file.FullName
+                Rubric           = $rubric
                 TimeoutMinutes   = if ($s.ContainsKey('timeoutMinutes')) { $s.timeoutMinutes } else { $null }
                 Expect           = $expectObject
             }
@@ -114,6 +133,24 @@ function Get-PluginSkillNames {
         $name
     }
     return @($names | Sort-Object -Unique)
+}
+
+function Get-PluginSkillFiles {
+    # Files a plugin's skills ship besides SKILL.md (references, scripts, assets), as
+    # "<skill folder>/<relative path>", the same form recorded for reads (skillFilesRead).
+    param([Parameter(Mandatory)][string]$PluginPath)
+
+    $skillsDir = Join-Path $PluginPath 'skills'
+    if (-not (Test-Path -LiteralPath $skillsDir)) { return @() }
+    $files = foreach ($dir in Get-ChildItem -LiteralPath $skillsDir -Directory) {
+        if (-not (Test-Path -LiteralPath (Join-Path $dir.FullName 'SKILL.md'))) { continue }
+        $root = $dir.FullName.TrimEnd('\') + '\'
+        foreach ($f in Get-ChildItem -LiteralPath $dir.FullName -Recurse -File) {
+            $rel = $f.FullName.Substring($root.Length) -replace '\\', '/'
+            if ($rel -ne 'SKILL.md') { "$($dir.Name)/$rel" }
+        }
+    }
+    return @($files | Sort-Object -Unique)
 }
 
 function Get-ConfigurationPlugins {
@@ -308,6 +345,11 @@ function Read-SessionEvents {
         # winapp CLI commands from shell calls that were denied: tried, but never ran.
         winappCommandsDenied   = $null
         selectedAgent          = $null
+        # Files inside a skill folder other than SKILL.md (references, assets) that the agent read,
+        # as "<skill>/<relative path>", and their approximate tokens (result characters / 4).
+        skillFilesRead               = [System.Collections.Generic.List[string]]::new()
+        skillFilesDenied             = [System.Collections.Generic.List[string]]::new()
+        skillFileTokensApprox        = $null
         # The last non-empty assistant message: the answer the user sees.
         finalResponse          = $null
         # Wall time covered by at least one running tool call (overlapping calls count once).
@@ -335,6 +377,8 @@ function Read-SessionEvents {
     $skillContentLength = @{}
     $deliveries = [System.Collections.Generic.List[hashtable]]::new()
     $commandText = [System.Collections.Generic.List[string]]::new()
+    $skillFileCalls = @{}
+    $skillFileChars = 0L
     $lastMessage = $null
     $toolStart = @{}
     $toolIntervals = [System.Collections.Generic.List[object]]::new()
@@ -410,8 +454,20 @@ function Read-SessionEvents {
                     $commandText.Add($data.arguments.command)
                     if ($data.ContainsKey('toolCallId')) { $toolCommands[[string]$data.toolCallId] = $data.arguments.command }
                 }
+                if ($data.arguments -is [System.Collections.IDictionary] -and $data.arguments.ContainsKey('path') -and $data.arguments.path -is [string] -and
+                    $data.ContainsKey('toolCallId') -and $data.arguments.path -match '[\\/]skills[\\/]([^\\/]+)[\\/](.+)$' -and $Matches[2] -ne 'SKILL.md') {
+                    $skillFileCalls[[string]$data.toolCallId] = "$($Matches[1])/$($Matches[2] -replace '\\', '/')"
+                }
             }
             'tool.execution_complete' {
+                $fileKey = $data.ContainsKey('toolCallId') -and $skillFileCalls.ContainsKey([string]$data.toolCallId) ? $skillFileCalls[[string]$data.toolCallId] : $null
+                if ($fileKey) {
+                    if ($data.ContainsKey('success') -and $data.success -eq $true) {
+                        if (-not $r.skillFilesRead.Contains($fileKey)) { $r.skillFilesRead.Add($fileKey) }
+                        if ($data.result -is [System.Collections.IDictionary] -and $data.result.content -is [string]) { $skillFileChars += $data.result.content.Length }
+                    }
+                    elseif ($data.error -is [System.Collections.IDictionary] -and $data.error.code -eq 'denied' -and -not $r.skillFilesDenied.Contains($fileKey)) { $r.skillFilesDenied.Add($fileKey) }
+                }
                 if ($data.ContainsKey('success') -and $data.success -eq $false -and $data.error -is [System.Collections.IDictionary] -and $data.error.code -eq 'denied') {
                     $id = [string]$data.toolCallId
                     $tn = $toolNames.ContainsKey($id) ? $toolNames[$id] : '(unknown)'
@@ -463,6 +519,7 @@ function Read-SessionEvents {
             $total += ($curEnd - $curStart).TotalMilliseconds
             $r.toolTimeMs = [int64][Math]::Round($total)
         }
+        $r.skillFileTokensApprox = [int64][Math]::Round($skillFileChars / 4)
         $chars = 0L
         $repeatChars = 0L
         $repeats = 0
@@ -635,20 +692,26 @@ function Set-CapabilityMap {
 }
 
 function Resolve-SkillCapabilities {
-    # A plugin map applies when every skill it names is installed. When several maps of one plugin
-    # apply, the one naming the most skills wins. Installed skills no applied map names are unmapped.
+    # A plugin map applies when every key it names is installed. When several maps of one plugin
+    # apply, the one naming the most keys wins. Installed skills no applied map names are unmapped.
+    # A map key "<skill>/<file>" maps a file inside a skill (a reference): its capabilities count only
+    # when the agent read that file. $InstalledSkills lists installed files the same way, so a map with
+    # file keys applies only to a plugin that ships those files. That separates a candidate that splits
+    # a skill into new reference files from the baseline with the same skill names; runs recorded
+    # without their installed files never select a map with file keys.
     param([AllowEmptyCollection()][string[]]$InstalledSkills = @(), $Map = (Get-CapabilityMap))
     $installed = @($InstalledSkills | Select-Object -Unique)
     $applied = foreach ($g in ($Map.Maps | Group-Object Plugin)) {
-        $g.Group | Where-Object { $m = $_; -not @($m.Skills.Keys | Where-Object { $_ -notin $installed }) } |
+        $g.Group | Where-Object { -not @($_.Skills.Keys | Where-Object { $_ -notin $installed }) } |
             Sort-Object { $_.Skills.Count } -Descending -Stable | Select-Object -First 1
     }
     $skillCaps = @{}
     foreach ($m in @($applied)) { foreach ($s in $m.Skills.Keys) { $skillCaps[$s] = @($m.Skills[$s]) } }
     [pscustomobject]@{
         SkillCapabilities = $skillCaps
+        FileKeys          = @($skillCaps.Keys | Where-Object { $_ -like '*/*' })
         Maps              = @($applied | ForEach-Object Id)
-        Unmapped          = @($installed | Where-Object { -not $skillCaps.ContainsKey($_) })
+        Unmapped          = @($installed | Where-Object { $_ -notlike '*/*' -and -not $skillCaps.ContainsKey($_) })
     }
 }
 
@@ -668,10 +731,21 @@ function Test-CapabilityExpectations {
     $resolved = Resolve-SkillCapabilities -InstalledSkills $InstalledSkills -Map $Map
     $skillCaps = $resolved.SkillCapabilities
     $loaded = @($LoadedSkills | Select-Object -Unique)
+    $loadedSkillCount = @($loaded | Where-Object { $_ -notlike '*/*' }).Count
+    # Installed reference files ("<skill>/<file>") are units like skills; reading one adds its
+    # capabilities. A file whose skill carries a forbidden capability is not usable either, since
+    # reading it loads the skill.
+    $InstalledSkills = @(@($InstalledSkills) + @($resolved.FileKeys) | Select-Object -Unique)
+    $isForbiddenUnit = {
+        param($key)
+        $parent = ($key -split '/', 2)[0]
+        $units = @($skillCaps[$key]) + @(if ($key -ne $parent -and $skillCaps.ContainsKey($parent)) { $skillCaps[$parent] })
+        [bool]@($units | Where-Object { Test-SkillMatch $_ $c.Forbid }).Count
+    }
     $installedCaps = @($InstalledSkills | Where-Object { $skillCaps.ContainsKey($_) } | ForEach-Object { $skillCaps[$_] } | Select-Object -Unique)
     # A capability only reachable through a skill that also carries a forbidden capability cannot be
     # met without failing, so it does not count as installed for the primary check.
-    $usableCaps = @($InstalledSkills | Where-Object { $skillCaps.ContainsKey($_) -and -not @($skillCaps[$_] | Where-Object { Test-SkillMatch $_ $c.Forbid }) } |
+    $usableCaps = @($InstalledSkills | Where-Object { $skillCaps.ContainsKey($_) -and -not (& $isForbiddenUnit $_) } |
             ForEach-Object { $skillCaps[$_] } | Select-Object -Unique)
     $loadedCaps = @($loaded | Where-Object { $skillCaps.ContainsKey($_) } | ForEach-Object { $skillCaps[$_] } | Select-Object -Unique)
     $failures = [System.Collections.Generic.List[string]]::new()
@@ -683,8 +757,8 @@ function Test-CapabilityExpectations {
         $by = @($loaded | Where-Object { $skillCaps.ContainsKey($_) -and @($skillCaps[$_] | Where-Object { $_ -in $forbidden }) })
         $failures.Add("forbidden capability loaded: $($forbidden -join ', ') (via $($by -join ', '))")
     }
-    if ($null -ne $Expect.MaxSkills -and $loaded.Count -gt $Expect.MaxSkills) {
-        $failures.Add("loaded $($loaded.Count) skills, max $($Expect.MaxSkills)")
+    if ($null -ne $Expect.MaxSkills -and $loadedSkillCount -gt $Expect.MaxSkills) {
+        $failures.Add("loaded $loadedSkillCount skills, max $($Expect.MaxSkills)")
     }
 
     $primaryInstalled = @($c.Primary | Where-Object { $alt = @($_); -not @($alt | Where-Object { $_ -notin $usableCaps }) })
@@ -790,6 +864,8 @@ function Test-AnswerExpectations {
     $named = if ($basis -eq 'response') { @(Get-WinappCommands -Text @($Response)) } else { @($WinappCommands) }
 
     if (-not $c.Primary.Count) {
+        # Nothing expected and nothing forbidden: the scenario is graded only by its rubric (judge.ps1).
+        if (-not @($c.Acceptable).Count -and -not @($c.Forbid).Count) { return & $none 'no capability expectations (graded by rubric)' }
         if ($named) { return & $done 'fail' @("named winapp commands for a task that needs none: $($named -join ', ')") }
         return & $done 'pass' @()
     }
@@ -863,7 +939,9 @@ function Test-ScenarioExpectations {
         $r = Test-CapabilityExpectations -Expect $Expect -LoadedSkills $LoadedSkills -InstalledSkills $InstalledSkills -Map $Map
     }
     else {
-        $legacy = Test-Expectations -Expect $Expect -LoadedSkills $LoadedSkills -InstalledSkills $InstalledSkills
+        # Skill-name expectations predate reference files; they see only skills.
+        $legacy = Test-Expectations -Expect $Expect -LoadedSkills @($LoadedSkills | Where-Object { $_ -notlike '*/*' }) `
+            -InstalledSkills @($InstalledSkills | Where-Object { $_ -notlike '*/*' })
         $r = [pscustomobject]@{
             Status = $legacy.Status; Passed = $legacy.Passed; NotApplicable = $legacy.NotApplicable
             ExpectedInstalled = [bool]@($legacy.AppliedChecks -split ',' | Where-Object { $_ -and $_ -notlike '!*' }).Count
@@ -1286,12 +1364,12 @@ function Invoke-Rescore {
                     $rec.expectationNotes = @($rec.expectationNotes) + 'prompt changed since this run; status not rescored'
                 }
                 else {
-                    $installed = @(if ($rec.preflight) { $rec.preflight.expectedSkills })
+                    $installed = @(@(if ($rec.preflight) { $rec.preflight.expectedSkills }) + @(Get-RecordValue $rec 'skillFilesInstalled') | Where-Object { $_ })
                     $cmds = $rec.ContainsKey('winappCommands') -and $null -ne $rec.winappCommands ? [string[]]@($rec.winappCommands) : $null
                     $response = $rec.ContainsKey('finalResponse') ? $rec.finalResponse : $null
                     $denied = Get-DeniedWinappCommands -Recorded ($rec.ContainsKey('winappCommandsDenied') -and $null -ne $rec.winappCommandsDenied ? [string[]]@($rec.winappCommandsDenied) : $null) `
                         -WinappCommands $cmds -Response $response -DeniedToolCalls ($rec.ContainsKey('deniedToolCalls') ? $rec.deniedToolCalls : $null)
-                    $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @($rec.skillsLoaded) -InstalledSkills $installed `
+                    $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @(@($rec.skillsLoaded) + @(Get-RecordValue $rec 'skillFilesRead') | Where-Object { $_ }) -InstalledSkills $installed `
                         -WinappCommands $cmds `
                         -SkillContextTokens ($rec.ContainsKey('skillContextTokensApprox') ? $rec.skillContextTokensApprox : $null) `
                         -Response $response -DeniedCommands $denied
@@ -1359,7 +1437,7 @@ function Read-ComparisonRuns {
             }
             elseif ($s -and $status -in 'pass', 'fail', 'n/a', 'partial') {
                 $pre = Get-RecordValue $rec 'preflight'
-                $installed = @(if ($pre) { $pre.expectedSkills })
+                $installed = @(@(if ($pre) { $pre.expectedSkills }) + @(Get-RecordValue $rec 'skillFilesInstalled') | Where-Object { $_ })
                 # Get-RecordValue would unroll an empty command list to $null ("not recorded").
                 $cmds = $null
                 $cmdProp = $rec.PSObject.Properties['winappCommands']
@@ -1367,7 +1445,7 @@ function Read-ComparisonRuns {
                 $deniedProp = $rec.PSObject.Properties['winappCommandsDenied']
                 $denied = Get-DeniedWinappCommands -Recorded ($deniedProp -and $null -ne $deniedProp.Value ? [string[]]@($deniedProp.Value) : $null) `
                     -WinappCommands $cmds -Response (Get-RecordValue $rec 'finalResponse') -DeniedToolCalls (Get-RecordValue $rec 'deniedToolCalls')
-                $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @($rec.skillsLoaded) -InstalledSkills $installed `
+                $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @(@($rec.skillsLoaded) + @(Get-RecordValue $rec 'skillFilesRead') | Where-Object { $_ }) -InstalledSkills $installed `
                     -WinappCommands $cmds -Response (Get-RecordValue $rec 'finalResponse') -DeniedCommands $denied
                 $status = $eval.Status
                 $answer = $eval.Answer
@@ -1388,6 +1466,7 @@ function Read-ComparisonRuns {
                 PrimaryCapabilities = @($primaryCaps | Where-Object { $_ })
                 AppliedChecks = $applied
                 Ctx          = Get-RecordValue $rec 'skillContextTokensApprox'
+                RefTokens    = Get-RecordValue $rec 'skillFileTokensApprox'
                 Input        = if ($tokens) { $tokens.input } else { $null }
                 Credits      = Get-RecordValue $rec 'aiCredits'
                 Repeats      = Get-RecordValue $rec 'skillRepeatDeliveries'
@@ -1416,6 +1495,7 @@ function Get-ComparisonStats {
         # The expectation checks that applied (empty for n/a runs); differs when a candidate adds or removes an expected skill.
         Checks   = @($done | ForEach-Object { $_.AppliedChecks } | Select-Object -Unique | Sort-Object) -join ';'
         Ctx      = & $mean @($done | ForEach-Object { $_.Ctx })
+        RefTokens = & $mean @($done | ForEach-Object { $_.RefTokens })
         Input    = & $mean @($done | ForEach-Object { $_.Input })
         Credits  = & $mean @($done | ForEach-Object { $_.Credits })
         Repeats  = if ($rep) { [int](($rep | ForEach-Object { $_.Repeats } | Measure-Object -Sum).Sum) } else { $null }
@@ -1491,7 +1571,8 @@ function Get-ComparisonReport {
         "$(& $num $bs.Input) → $(& $num $cs.Input) | $(& $ratio $bs.Input $cs.Input) | " +
         "$(& $num $bs.Credits -Credits) → $(& $num $cs.Credits -Credits) | $(& $ratio $bs.Credits $cs.Credits) | $(& $repText $bs $cs) | " +
         "$(& $ansText $bs) → $(& $ansText $cs) | $(& $ansDelta $bs $cs) | " +
-        "$(if ($bs.AnswerScored -or $cs.AnswerScored) { "$($bs.AnswerBlocked) → $($cs.AnswerBlocked)" } else { 'n/a' }) |"
+        "$(if ($bs.AnswerScored -or $cs.AnswerScored) { "$($bs.AnswerBlocked) → $($cs.AnswerBlocked)" } else { 'n/a' }) | " +
+        "$(& $num $bs.RefTokens) → $(& $num $cs.RefTokens) | $(& $ratio $bs.RefTokens $cs.RefTokens) |"
     }
     $source = {
         param($dirs, $runs)
@@ -1501,8 +1582,8 @@ function Get-ComparisonReport {
         $names = if ($parents.Count -eq 1) { "$(($dirs | ForEach-Object { Split-Path $_ -Leaf }) -join ', ') in $($parents[0])" } else { $dirs -join ', ' }
         "$names ($($runs.Count) runs$(if ($agents) { "; agent $($agents -join ', ')" }))"
     }
-    $header = '| Pass (base → cand) | Δ pass | Skill context/run (~tokens) | Δ | Input/run | Δ | AI credits/run | Δ | Repeated deliveries | Answer (base → cand) | Δ answer | Answer blocked |'
-    $rule = '|---|---|---|---|---|---|---|---|---|---|---|---|'
+    $header = '| Pass (base → cand) | Δ pass | Skill context/run (~tokens) | Δ | Input/run | Δ | AI credits/run | Δ | Repeated deliveries | Answer (base → cand) | Δ answer | Answer blocked | Reference reads/run (~tokens) | Δ |'
+    $rule = '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|'
 
     $md = [System.Collections.Generic.List[string]]::new()
     $md.Add('# Benchmark comparison')
@@ -1617,7 +1698,7 @@ function Get-ComparisonReport {
     return ($md -join "`n")
 }
 
-Export-ModuleMember -Function Get-ScenarioDefinitions, Get-PluginSkillNames, Get-ConfigurationPlugins, New-ChildEnvironment,
+Export-ModuleMember -Function Get-ScenarioDefinitions, Read-ScenarioRubric, Get-PluginSkillNames, Get-PluginSkillFiles, Get-ConfigurationPlugins, New-ChildEnvironment,
 Invoke-LoggedProcess, Get-FileTail, Read-SessionEvents, Get-DirectorySnapshot, Compare-DirectorySnapshot, Test-Expectations,
 Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands, Get-BareSkillName, Get-ComparisonReport,
 Get-CreditSpend, Compare-PreflightSkills, Format-PassRate, Format-Count,

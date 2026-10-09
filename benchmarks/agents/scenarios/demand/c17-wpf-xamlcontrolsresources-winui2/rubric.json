@@ -1,0 +1,29 @@
+{
+  "cluster": "c17",
+  "framework": "WPF",
+  "goal": "Identify that the WinUI 2 resource dictionary being used is not directly valid inside a WPF App.xaml and point to the correct options.",
+  "must_include": [
+    "Says `Microsoft.UI.Xaml` 2.x and `XamlControlsResources` are WinUI 2 resources for UWP/XAML Islands scenarios, not a direct WPF resource dictionary.",
+    "Explains that WPF's `App.xaml` uses WPF XAML namespaces, so `xmlns=\"using:Microsoft.UI.Xaml.Controls\"` cannot resolve there as shown.",
+    "Recommends removing the WinUI resource entry from the WPF resources unless the app is explicitly hosting WinUI through XAML Islands or moving the UI to WinUI 3.",
+    "Keeps WPF styling separate by using WPF ResourceDictionary/Theme resources for WPF controls."
+  ],
+  "must_not": [
+    "Claims the fix is only to downgrade or upgrade the `Microsoft.UI.Xaml` package version.",
+    "Suggests adding the WinUI 2 namespace to WPF without a XAML Islands host.",
+    "Tells the developer to copy UWP `App.xaml` markup unchanged into WPF."
+  ],
+  "acceptable_alternatives": [
+    "Use XAML Islands to host selected WinUI controls from a WPF app.",
+    "Port the screen to a WinUI 3 desktop app if the app should be built with WinUI controls throughout.",
+    "Use WPF equivalents or a WPF control library instead of WinUI controls."
+  ],
+  "solved": "The answer removes the invalid WinUI 2 `XamlControlsResources` assumption for WPF and gives a valid path: WPF resources, XAML Islands, or a real WinUI 3 migration.",
+  "partial": "The answer notices that the namespace is wrong but does not explain the WPF versus WinUI 2/UWP boundary.",
+  "sources": ["https://stackoverflow.com/questions/62541270/the-tag-xamlcontrolsresources-does-not-exist-in-xml-namespace-usingmicrosoft"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/uwp/get-started/winui2/",
+    "https://learn.microsoft.com/en-us/windows/apps/winui/winui3/"
+  ],
+  "notes": "The source question predates current WinUI 3 releases; do not preserve the old prediction that WinUI 3 would make this exact WPF App.xaml markup valid."
+}

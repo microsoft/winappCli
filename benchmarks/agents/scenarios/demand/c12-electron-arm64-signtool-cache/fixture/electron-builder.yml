@@ -1,0 +1,18 @@
+appId: app.luminary.deck
+productName: Luminary Deck
+directories:
+  output: dist
+files:
+  - build
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - arm64
+  executableName: LuminaryDeck
+  signingHashAlgorithms:
+    - sha256
+nsis:
+  oneClick: false
+  perMachine: false

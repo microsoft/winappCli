@@ -1,0 +1,7 @@
+Application: HarborAudit.exe
+Framework Version: v6.0.31
+Description: The process was terminated due to an unhandled exception.
+Exception Info: System.DllNotFoundException: Dll was not found.
+   at Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateCoreWebView2EnvironmentWithOptions(String browserExecutableFolder, String userDataFolder, ICoreWebView2EnvironmentOptions options, ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler environment_created_handler)
+   at Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(String browserExecutableFolder, String userDataFolder, CoreWebView2EnvironmentOptions options)
+   at HarborAudit.Views.BrowserView.InitializeAsync()

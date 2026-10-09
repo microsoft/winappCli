@@ -1,0 +1,21 @@
+{
+  "id": "c04-winui-hot-reload-toolbar-av",
+  "description": "A WinUI 3 app hits an access violation in Microsoft_UI_Windowing_Core while debugging with the XAML Hot Reload in-app toolbar enabled, from https://github.com/microsoft/microsoft-ui-xaml/issues/8806.",
+  "set": "demand",
+  "cohort": "trap",
+  "prompt": "This only happens under the VS debugger, about ten seconds after opening our second window. The same branch runs if I start without debugging.\n\n```\nExceptionAddress: Microsoft_UI_Windowing_Core!Api::ReunionApi32::GetWindowFeatureImpl+0x20\nExceptionCode: c0000005 (Access violation)\nAttempt to read from address 0000000000000030\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}
