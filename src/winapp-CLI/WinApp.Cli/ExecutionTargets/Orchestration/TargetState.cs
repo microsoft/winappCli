@@ -50,10 +50,10 @@ internal sealed record TargetState
     /// Instance ID winapp assigned to a start it has not yet confirmed.
     /// </summary>
     /// <remarks>
-    /// Written <em>before</em> the provider is asked to start anything, which is the whole point: a
-    /// start that fails after creating an instance leaves no other evidence of which instance was
-    /// winapp's. Cleared once ownership is recorded, and left in place across a crash so the next
-    /// command reconciles that exact ID rather than inferring one from a list.
+    /// Written only by winapp 0.7.1 and earlier, before asking <c>wsb start</c> for that ID, so a
+    /// start that failed after creating an instance could still be identified. Newer versions open a
+    /// Sandbox in its own window and never write it, but still read it so a record left by a crash
+    /// in an older version is reconciled to that exact ID rather than inferred from a list.
     /// </remarks>
     public string? PendingInstanceId { get; init; }
 
