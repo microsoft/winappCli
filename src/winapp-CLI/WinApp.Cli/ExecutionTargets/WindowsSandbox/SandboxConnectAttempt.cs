@@ -69,10 +69,12 @@ internal sealed class SandboxConnectAttempt : IDisposable
     internal Task<SandboxClientWindow?>? Placement { get; set; }
 
     /// <summary>
-    /// Whether the client winapp launched directly showed Windows Sandbox's error page instead of a
-    /// session, for example "Only one running instance of Windows Sandbox is allowed".
+    /// Whether the client winapp launched directly showed Windows Sandbox's error page, such as "Only
+    /// one running instance of Windows Sandbox is allowed", while no other Sandbox window was open.
+    /// The Sandbox that won the singleton then has no window at all, as when started by
+    /// <c>wsb start</c>.
     /// </summary>
-    internal bool ShowedError { get; set; }
+    internal bool LostToWindowlessSandbox { get; set; }
 
     /// <summary>Wraps a launched connect process, keeping its ID reserved.</summary>
     /// <remarks>

@@ -278,12 +278,15 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             }
 
             // A client winapp launched itself is a single window, so its error page is final: it
-            // will never show a session.
+            // will never show a session. Another Sandbox won, and unless some other Sandbox window
+            // is open, such as one opened from Start at the same moment, that Sandbox has none.
             if (clients.Any(candidate =>
                     candidate.Surface == SandboxClientSurface.TerminalError &&
                     IsLauncher(candidate.Window, ownership)))
             {
-                attempt.ShowedError = true;
+                attempt.LostToWindowlessSandbox = !clients.Any(candidate =>
+                    candidate.Surface != SandboxClientSurface.TerminalError &&
+                    !IsLauncher(candidate.Window, ownership));
                 return null;
             }
 

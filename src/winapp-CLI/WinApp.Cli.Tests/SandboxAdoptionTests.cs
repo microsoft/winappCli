@@ -697,7 +697,7 @@ public class SandboxAdoptionTests
     public async Task OpenedSandboxWhoseWindowLostTheRace_IsConnectedWhenNobodyIsAttached()
     {
         using var harness = new AdoptionHarness();
-        harness.Cli.LaunchShowsError = true;
+        harness.Cli.LaunchLosesToWindowlessSandbox = true;
         harness.Cli.Session = GuestSessionAvailability.NoLoginSession;
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
@@ -940,16 +940,16 @@ public class SandboxAdoptionTests
             Operations.Add($"launch:{LaunchedId}");
             _running.Add(LaunchedId);
             var attempt = SandboxConnectAttempt.ForLauncher(LauncherProcessId, LauncherStartTicks);
-            attempt.ShowedError = LaunchShowsError;
+            attempt.LostToWindowlessSandbox = LaunchLosesToWindowlessSandbox;
             onLaunched(attempt);
             return Task.FromResult(attempt);
         }
 
         /// <summary>
         /// When set, the window winapp launches shows "Only one running instance of Windows Sandbox
-        /// is allowed": another Sandbox won the singleton, and the one listed is that one.
+        /// is allowed" and no other Sandbox window is open: a headless Sandbox won the singleton.
         /// </summary>
-        public bool LaunchShowsError { get; set; }
+        public bool LaunchLosesToWindowlessSandbox { get; set; }
 
         /// <summary>The ID Windows gives the Sandbox a launched window opens.</summary>
         public string LaunchedId { get; set; } = "sandbox-launched";

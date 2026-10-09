@@ -1316,7 +1316,7 @@ internal sealed class WindowsSandboxBackend(
             placed => opened = placed,
             cancellationToken).ConfigureAwait(false);
 
-        _openedSandbox = launched is not { ShowedError: true };
+        _openedSandbox = launched is not { LostToWindowlessSandbox: true };
         return opened;
     }
 
