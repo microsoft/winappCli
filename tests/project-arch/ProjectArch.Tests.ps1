@@ -19,6 +19,9 @@
 
 .PARAMETER Shard
     'N/M' runs every M-th fixture starting at N (1-based), for splitting the suite across CI runners.
+
+.PARAMETER DumpDirectory
+    When set, a winapp run that times out is dumped here (full memory) before it is stopped.
 #>
 param(
     [string]$WinappPath,
@@ -28,6 +31,7 @@ param(
     [string]$Shard,
     [string]$WorkRoot = (Join-Path ([IO.Path]::GetTempPath()) 'winapp-project-arch'),
     [int]$TimeoutMinutes = 15,
+    [string]$DumpDirectory,
     [switch]$SkipCleanup
 )
 
@@ -84,7 +88,7 @@ Describe 'winapp run architecture matrix' {
         $run = $null
         try {
             New-ProjectArchFixture -Fixture $fixture -Root $root
-            $run = Invoke-ProjectArchRun -Fixture $fixture -Root $root -Winapp $script:winapp -Architecture $arch -TimeoutMinutes $TimeoutMinutes
+            $run = Invoke-ProjectArchRun -Fixture $fixture -Root $root -Winapp $script:winapp -Architecture $arch -TimeoutMinutes $TimeoutMinutes -DumpDirectory $DumpDirectory
             $tail = Get-OutputTail $run.Output
 
             $run.TimedOut | Should -BeFalse -Because "winapp run must finish within $TimeoutMinutes minutes:`n$tail"

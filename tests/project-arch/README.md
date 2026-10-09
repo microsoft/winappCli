@@ -34,6 +34,7 @@ Invoke-Pester -Container $container -Output Detailed
 | `Shard` | all | `N/M`: every M-th fixture starting at N, used by CI |
 | `WorkRoot` | `%TEMP%\winapp-project-arch` | where fixtures are generated |
 | `TimeoutMinutes` | `15` | per-fixture limit for `winapp run` |
+| `DumpDirectory` | none | write a full-memory dump of a `winapp run` that times out (CI uploads these on failure) |
 | `SkipCleanup` | off | keep generated fixtures and `winapp-run.log` |
 
 Requirements: Windows with Developer Mode, the .NET 10 SDK plus the .NET 8 runtime (some fixtures target `net8.0`), the x86 .NET 8 and 10 runtimes for the `-x86` fixtures, Pester 5, and access to nuget.org. If `DOTNET_ROOT` points at your native .NET install, also set `DOTNET_ROOT_X86` to the x86 install (for example `C:\Program Files (x86)\dotnet`); otherwise unpackaged x86 apps load the wrong runtime and exit at startup. Fixtures run one at a time; each generated package is unregistered and its folder deleted afterwards. An architecture the machine can't run (for example `arm64` on an x64 host) is built and registered with `--no-launch`, and only the executable architecture is checked.

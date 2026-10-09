@@ -450,6 +450,33 @@ function Get-ProcessTreeDescription([int]$ParentId) {
 
 <#
 .SYNOPSIS
+    Writes a full-memory dump of a process (for a stack of a run that never exits) and returns a description.
+#>
+function Save-ProcessDump([System.Diagnostics.Process]$Process, [string]$Path) {
+    if (-not ('ProjectArch.NativeDump' -as [type])) {
+        Add-Type -Namespace ProjectArch -Name NativeDump -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("dbghelp.dll", SetLastError = true)]
+public static extern bool MiniDumpWriteDump(System.IntPtr hProcess, int processId, Microsoft.Win32.SafeHandles.SafeFileHandle hFile,
+    int dumpType, System.IntPtr exceptionParam, System.IntPtr userStreamParam, System.IntPtr callbackParam);
+'@
+    }
+    try {
+        New-Item -ItemType Directory -Path (Split-Path $Path) -Force | Out-Null
+        $file = [IO.File]::Create($Path)
+        try {
+            # MiniDumpWithFullMemory | WithHandleData | WithUnloadedModules | WithThreadInfo
+            $ok = [ProjectArch.NativeDump]::MiniDumpWriteDump($Process.Handle, $Process.Id, $file.SafeFileHandle, 0x1026,
+                [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero)
+            $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        }
+        finally { $file.Dispose() }
+        if ($ok) { "Dump: $Path" } else { "Dump failed (Win32 error $err)" }
+    }
+    catch { "Dump failed: $($_.Exception.Message)" }
+}
+
+<#
+.SYNOPSIS
     Runs `winapp run` for a generated fixture with a hard timeout, so a hang fails one fixture instead of
     the whole job. Launches the app (--detach) when this machine can run the architecture.
 #>
@@ -459,7 +486,8 @@ function Invoke-ProjectArchRun {
         [Parameter(Mandatory)][string]$Root,
         [Parameter(Mandatory)][string]$Winapp,
         [Parameter(Mandatory)][string]$Architecture,
-        [int]$TimeoutMinutes = 15
+        [int]$TimeoutMinutes = 15,
+        [string]$DumpDirectory
     )
 
     $launch = Test-CanLaunchArchitecture $Architecture
@@ -475,6 +503,9 @@ function Invoke-ProjectArchRun {
     $hangDiagnostics = ''
     if ($timedOut) {
         $hangDiagnostics = "winapp (PID $($process.Id)) did not exit. Process tree:`n$(Get-ProcessTreeDescription $process.Id)"
+        if ($DumpDirectory) {
+            $hangDiagnostics += "`n" + (Save-ProcessDump $process (Join-Path $DumpDirectory "$($Fixture.Id)-winapp.dmp"))
+        }
         & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null
     }
     else {

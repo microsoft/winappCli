@@ -181,7 +181,7 @@ Describe 'Partial reruns replace only owned artifacts' {
             Get-UploadSteps $sampleWorkflow
             Get-UploadSteps $reportAction
         )
-        $uploads.Count | Should -Be 13
+        $uploads.Count | Should -Be 14
         foreach ($upload in $uploads) {
             $upload | Should -Match '(?m)^        overwrite: true\r?$' -Because $upload
         }
@@ -200,12 +200,14 @@ Describe 'Partial reruns replace only owned artifacts' {
             foreach ($lane in @('Cli-1', 'Cli-2', 'Auxiliary', 'UIAutomation')) {
                 $laneName.Replace('${{ matrix.lane }}', $lane)
             }
-            $shardUpload = @(Get-UploadSteps (Get-JobText $buildWorkflow 'project-arch'))
-            $shardUpload.Count | Should -Be 1
-            $shardName = [regex]::Match($shardUpload[0], '(?m)^        name: (.+?)\r?$').Groups[1].Value
+            $shardUploads = @(Get-UploadSteps (Get-JobText $buildWorkflow 'project-arch'))
+            $shardUploads.Count | Should -Be 2
             $shards = [regex]::Match((Get-JobText $buildWorkflow 'project-arch'), '(?m)^        shard: \[(.+)\]').Groups[1].Value
-            foreach ($shard in ($shards -split ', ')) {
-                $shardName.Replace('${{ matrix.shard }}', $shard)
+            foreach ($shardUpload in $shardUploads) {
+                $shardName = [regex]::Match($shardUpload, '(?m)^        name: (.+?)\r?$').Groups[1].Value
+                foreach ($shard in ($shards -split ', ')) {
+                    $shardName.Replace('${{ matrix.shard }}', $shard)
+                }
             }
             $sampleUpload = @(Get-UploadSteps (Get-JobText $sampleWorkflow 'test-sample'))
             $sampleUpload.Count | Should -Be 1
@@ -218,7 +220,7 @@ Describe 'Partial reruns replace only owned artifacts' {
                 [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
             }
         )
-        $names.Count | Should -Be 31
+        $names.Count | Should -Be 35
         @($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count | Should -Be 0
         @($names | Group-Object | Where-Object Count -GT 1).Count | Should -Be 0
         (Get-JobText $sampleWorkflow 'build') | Should -Match 'if: \$\{\{ !inputs.use-existing-artifacts \}\}'

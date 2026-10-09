@@ -447,6 +447,7 @@ jobs:
           WinappPath = 'artifacts/cli/win-x64'
           Architecture = 'x64'
           Shard = "$env:SHARD/4"
+          DumpDirectory = 'artifacts/TestResults/project-arch-dumps'
         }
         $config = New-PesterConfiguration
         $config.Run.Container = $container
@@ -465,6 +466,16 @@ jobs:
         path: artifacts/TestResults/project-arch-${{ matrix.shard }}.xml
         if-no-files-found: error
         overwrite: true
+
+    - name: Upload hang dumps
+      if: failure()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: project-arch-dumps-${{ matrix.shard }}
+        path: artifacts/TestResults/project-arch-dumps
+        if-no-files-found: ignore
+        overwrite: true
+        retention-days: 7
 
   # Retain the original required check, but only turn it green after every lane.
   build-and-package:
