@@ -180,6 +180,41 @@ internal sealed partial class UiAutomationService : IUiAutomation
         return results;
     }
 
+    /// <summary>The root of WinUI DevTools' in-app toolbar and markers, which inspect and search leave out.</summary>
+    internal const string DevToolsChromeAutomationId = "DevToolsOverlay";
+
+    private static bool IsDevToolsChrome(IUIAutomationElement element) =>
+        string.Equals(SafeGetBstr(() => element.get_CurrentAutomationId()), DevToolsChromeAutomationId, StringComparison.Ordinal);
+
+    // Every element under the DevTools pane in this window, found downward from the pane: its children are reported by
+    // the pane, so walking up from one would not reach it.
+    private HashSet<string> DevToolsChromeIdentities(IUIAutomationElement windowRoot)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            var pane = windowRoot.FindFirst(TreeScope.TreeScope_Descendants, _automation.CreatePropertyCondition(
+                UIA_PROPERTY_ID.UIA_AutomationIdPropertyId, ComVariant.Create(DevToolsChromeAutomationId)));
+            var all = pane?.FindAll(TreeScope.TreeScope_Subtree, _automation.CreateTrueCondition());
+            for (var i = 0; all is not null && i < all.get_Length(); i++)
+            {
+                if (TryGetElementIdentity(all.GetElement(i)) is { } id) { ids.Add(id); }
+            }
+        }
+        catch (COMException)
+        {
+            // No pane, or it went away: nothing to leave out.
+        }
+        return ids;
+    }
+
+    private List<IUIAutomationElement> WithoutDevToolsChrome(IUIAutomationElement windowRoot, List<IUIAutomationElement> found)
+    {
+        if (found.Count == 0) { return found; }
+        var chrome = DevToolsChromeIdentities(windowRoot);
+        return chrome.Count == 0 ? found : found.Where(e => TryGetElementIdentity(e) is not { } id || !chrome.Contains(id)).ToList();
+    }
+
     public Task<UiElement[]> InspectAsync(UiTarget uiTarget, string? elementId, int depth, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -480,7 +515,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         ct.ThrowIfCancellationRequested();
         if (selector.HasConstraints)
         {
-            return Task.FromResult(SearchConstrained(uiTarget, selector, maxResults, ct: ct));
+            return Task.FromResult(SearchConstrained(uiTarget, selector, maxResults, ct: ct, excludeDevToolsChrome: true));
         }
 
         _logger.LogDebug("Searching in process {Pid}", uiTarget.ProcessId);
@@ -512,9 +547,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
         if (selector.Query is not null)
         {
             var exactMatches = FindExactAutomationIdMatches(root, selector.Query, maxResults, ct);
-            var found = exactMatches.Count > 0
+            var found = WithoutDevToolsChrome(root, exactMatches.Count > 0
                 ? exactMatches
-                : FindPreferredQueryMatches(root, selector, maxResults, ct);
+                : FindPreferredQueryMatches(root, selector, maxResults, ct));
             foreach (var el in found)
             {
                 var uiEl = ToUiElement(el, "", ref nextElementId);
@@ -551,9 +586,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     {
                         var remaining = maxResults - mainResults.Count;
                         var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, remaining, ct);
-                        var windowFound = exactMatches.Count > 0
+                        var windowFound = WithoutDevToolsChrome(windowRoot, exactMatches.Count > 0
                             ? exactMatches
-                            : FindPreferredQueryMatches(windowRoot, selector, remaining, ct);
+                            : FindPreferredQueryMatches(windowRoot, selector, remaining, ct));
                         foreach (var el in windowFound)
                         {
                             var uiEl = ToUiElement(el, "", ref nextElementId);
@@ -2634,6 +2669,12 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 // Keep walking when a provider cannot report the native handle. The independent
                 // HWND is still emitted below, matching the previous best-effort COM behavior.
             }
+        }
+
+        // DevTools' chrome is not the app's; inspecting the pane itself (depth 0) still shows it.
+        if (currentDepth > 0 && IsDevToolsChrome(element))
+        {
+            return;
         }
 
         var uiElement = ToUiElement(element, path, ref nextElementId);

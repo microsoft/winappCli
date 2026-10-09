@@ -167,6 +167,10 @@ static DevToolsLayerRoot* LayerRootFor(IXamlDiagnostics* diag, IInspectable* ele
         });
         panel.Children().Append(entry.root);
         entry.bridge = DevToolsXCP::Popup();
+        // The Popup itself is only a carrier: without this it shows up as an empty, zero-size "Popup" window
+        // around the DevToolsOverlay pane. Raw keeps it out of the control view; its child stays reachable.
+        winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetAccessibilityView(
+            entry.bridge, DevToolsXAP::AccessibilityView::Raw);
         entry.bridge.Child(winrt::make<DevToolsLayerBridge>(entry.root));
         for (const winrt::Windows::Foundation::IInspectable& part : { winrt::Windows::Foundation::IInspectable(entry.bridge),
                  entry.bridge.Child().as<winrt::Windows::Foundation::IInspectable>() }) {

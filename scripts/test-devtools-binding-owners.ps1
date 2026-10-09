@@ -163,10 +163,18 @@ function Wait-CommentStatus([string]$App, [string]$Expected) {
     throw "Comment status did not become '$Expected': $($status.properties.Name)"
 }
 function Nodes($Items) { foreach ($item in $Items) { $item; Nodes $item.children } }
+# A whole-window `winapp ui inspect` leaves DevTools' own chrome out; these checks need the app and the chrome, so the
+# chrome pane is inspected too. Without a pane, an element-rooted inspect falls back to the window, so keep only a
+# result rooted at the pane.
+function Inspect-WithChrome {
+    $tree = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+    $chrome = Invoke-Cli @('ui', 'inspect', 'DevToolsOverlay', '-a', $app, '--depth', '40')
+    [pscustomobject]@{ windows = @($tree.windows) + @($chrome.windows | Where-Object { $_.elements -and $_.elements[0].automationId -eq 'DevToolsOverlay' }) }
+}
 # Turns on the toolbar's comment mode. A collapsed toolbar opens under the pointer and collapses again once the next
 # click moves the pointer away.
 function Enter-CommentMode {
-    $shown = @((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows | ForEach-Object { Nodes $_.elements } |
+    $shown = @((Inspect-WithChrome).windows | ForEach-Object { Nodes $_.elements } |
         Where-Object { $_.automationId -eq 'DevToolsProtoComments' -and -not $_.isOffscreen })
     if ($shown.Count -eq 0) {
         $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
@@ -225,13 +233,16 @@ try {
         Check ($windows.beta -eq 0 -and $windows.unsupported -eq 0) 'probe fixture owns one application window'
         $app = [string]$owned.Id
         $window = [string]$windows.alpha
-        $baseline = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+        $baseline = Inspect-WithChrome
         $baseline | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $evidence 'overlay-baseline-uia.json')
         $sameNames = Invoke-Cli @('ui', 'search', 'Alpha', '-a', $app)
         Check (-not $sameNames.hasMore -and @($sameNames.matches | Where-Object { $_.type -eq 'Text' -and $_.name -eq 'Alpha' }).Count -eq 2) 'distinct same-named fixture controls remain separate'
         $null = Invoke-Cli @('devtools', 'call', 'Overlay.show', '-a', $app)
         $overlayState = Invoke-Cli @('devtools', 'call', 'Overlay.getState', '-a', $app)
         Check ($overlayState.result.host -eq 'uiLayer') 'overlay chrome is hosted in the XAML diagnostics UI layer'
+        $plain = @((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows |
+            Where-Object { [string]$_.hwnd -eq $window } | ForEach-Object { Nodes $_.elements })
+        Check ($plain.Count -gt 0 -and @($plain | Where-Object { $_.automationId -like 'DevTools*' -or $_.className -eq 'Popup' }).Count -eq 0) 'a plain winapp ui inspect shows the app without DevTools chrome or its host popup'
         $surfaces = Invoke-Cli @('devtools', 'call', 'Surface.list', '-a', $app)
         $surfaceTree = Invoke-Cli @('devtools', 'inspect', [string]$surfaces.result.surfaces[0].rootHandle, '-a', $app, '--all', '--depth', '30')
         Check (@(Nodes $surfaceTree.elements | Where-Object name -eq 'WindowHeading').Count -eq 1) 'the surface root is the window content, not its popup layer'
@@ -246,7 +257,7 @@ try {
         Check ($selection.result.handle -eq [string]$heading[0].handle) 'pick settled on the exact owned authored heading'
         $openFocus = Invoke-Cli @('ui', 'get-focused', '-a', $app)
         Check ($openFocus.element.automationId -eq 'DevToolsSelComment') 'an in-app pick puts keyboard focus in the comment box'
-        $peek = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+        $peek = Inspect-WithChrome
         $peek | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $evidence 'overlay-peek-uia.json')
         $all = @($peek.windows | ForEach-Object { Nodes $_.elements })
         Check (@($all | Where-Object hasMoreChildren -eq $true).Count -eq 0) 'flyout UIA observation is not depth-limited'
@@ -281,19 +292,19 @@ try {
         $null = Invoke-Cli @('ui', 'focus', 'DevToolsProtoRailL', '-a', $app) -AllowedError 'focus_not_acquired'
         $focused = Invoke-Cli @('ui', 'get-focused', '-a', $app)
         Check ($focused.hasFocus -and $focused.element.automationId -eq 'DevToolsProtoPick') 'keyboard focus opens the toolbar and reaches its first action'
-        $expanded = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+        $expanded = Inspect-WithChrome
         $expanded | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $evidence 'overlay-expanded-uia.json')
         $expandedNodes = @($expanded.windows | ForEach-Object { Nodes $_.elements })
         Check (@($expandedNodes | Where-Object { $_.automationId -eq 'DevToolsProtoPill' -and -not $_.isOffscreen }).Count -eq 1 -and
             @($expandedNodes | Where-Object { $_.automationId -eq 'DevToolsProtoRailL' -and -not $_.isOffscreen }).Count -eq 0) 'keyboard expansion exposes the bar without a second visible pill'
         $null = Invoke-Cli @('devtools', 'call', 'Overlay.hide', '-a', $app)
-        $hidden = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+        $hidden = Inspect-WithChrome
         $hiddenNodes = @($hidden.windows | ForEach-Object { Nodes $_.elements })
         Check (@($hiddenNodes | Where-Object {
             -not $_.isOffscreen -and $_.automationId -match '^DevTools(ProtoPill|ProtoRailL|Snap)'
         }).Count -eq 0) 'explicit hide removes toolbar halves and snap targets'
         $null = Invoke-Cli @('devtools', 'call', 'Overlay.show', '-a', $app)
-        $restored = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+        $restored = Inspect-WithChrome
         $restoredNodes = @($restored.windows | ForEach-Object { Nodes $_.elements })
         Check (@($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoPill' -and -not $_.isOffscreen }).Count -eq 1 -and
             @($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoRailL' -and -not $_.isOffscreen }).Count -eq 0) 'show restores the previously expanded toolbar state'
@@ -339,7 +350,7 @@ try {
                 Start-Sleep -Milliseconds 200
             } while ([DateTime]::UtcNow -lt $writerDeadline)
             Check ($writers.Count -eq 0) 'owned comment writer finished before failure observation and normal cleanup'
-            $failedSave = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+            $failedSave = Inspect-WithChrome
             $failedSave | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $evidence 'comment-failure-uia.json')
             $failedSaveNodes = @($failedSave.windows | ForEach-Object { Nodes $_.elements })
             $draft = Invoke-Cli @('ui', 'get-property', 'DevToolsSelComment', '-a', $app, '-p', 'Value')
@@ -425,7 +436,7 @@ try {
         Check ($narrow.Count -eq 1) 'one authored narrow control is available for conditional observations'
         $null = Invoke-Cli @('devtools', 'comments', 'add', '--app', $app, '--from-element',
             [string]$narrow[0].handle, '--id', 'owned-narrow-pin', '--text', 'Owned narrow pin observation')
-        $pins = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+        $pins = Inspect-WithChrome
         $pins | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $evidence 'narrow-pin-uia.json')
         $pinNodes = @($pins.windows | ForEach-Object { Nodes $_.elements })
         $narrowBox = @($pinNodes | Where-Object { $_.automationId -eq 'NarrowCommentProbe' -and -not $_.isOffscreen })
@@ -441,7 +452,7 @@ try {
             return $path
         }
         function Toggle-Markers {
-            $shownMenu = @((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows | ForEach-Object { Nodes $_.elements } |
+            $shownMenu = @((Inspect-WithChrome).windows | ForEach-Object { Nodes $_.elements } |
                 Where-Object { $_.automationId -eq 'DevToolsProtoCommentsMenu' -and -not $_.isOffscreen })
             if ($shownMenu.Count -eq 0) {
                 $null = Invoke-Cli @('ui', 'hover', 'DevToolsProtoRailL', '-a', $app)
@@ -486,7 +497,7 @@ try {
         $picked = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
         Check ($picked.result.handle -eq [string]$heading[0].handle -and
             @((Invoke-Cli @('ui', 'list-windows', '-a', $app)) | Where-Object title -like 'WinApp DevTools*').Count -eq 1) 'pick mode opens the inspector on the picked element'
-        Check (@((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows | ForEach-Object { Nodes $_.elements } |
+        Check (@((Inspect-WithChrome).windows | ForEach-Object { Nodes $_.elements } |
             Where-Object automationId -eq 'DevToolsSelComment').Count -eq 0) 'pick mode opens no comment flyout'
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
         Check ((Invoke-Cli @('ui', 'get-property', 'DevToolsProtoPick', '-a', $app, '-p', 'ToggleState')).properties.ToggleState -eq 'Off') 'Select element reports its Off state to UI Automation'
@@ -566,7 +577,7 @@ try {
         $null = Invoke-Cli @('devtools', 'set-property', [string]$rootPanel[0].selector, 'Margin', '48,40,0,0', '-a', $app)
         try {
             Start-Sleep -Milliseconds 500
-            $offset = @((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows | ForEach-Object { Nodes $_.elements })
+            $offset = @((Inspect-WithChrome).windows | ForEach-Object { Nodes $_.elements })
             $headingBox = @($offset | Where-Object { $_.automationId -eq 'WindowHeading' })
             $highlight = @($offset | Where-Object { $_.automationId -eq 'WinAppDevToolsHighlight' -and -not $_.isOffscreen })
             Check ($headingBox.Count -eq 1 -and $highlight.Count -eq 1 -and
@@ -578,7 +589,7 @@ try {
 
         # A windowed app menu drawn over the toolbar takes the click; the toolbar under it does not.
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
-        $beforeMenu = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+        $beforeMenu = Inspect-WithChrome
         $toolbarHalf = @($beforeMenu.windows | ForEach-Object { Nodes $_.elements } | Where-Object {
             $_.automationId -in @('DevToolsProtoRailL', 'DevToolsProtoPill') -and -not $_.isOffscreen })
         Check ($toolbarHalf.Count -eq 1) 'one visible toolbar half before the menu overlap probe'
@@ -595,7 +606,7 @@ try {
         $menuDeadline = [DateTime]::UtcNow.AddSeconds(3)
         while (-not (Test-Path -LiteralPath ($report + '.menu')) -and [DateTime]::UtcNow -lt $menuDeadline) { Start-Sleep -Milliseconds 100 }
         Check (Test-Path -LiteralPath ($report + '.menu')) 'a click on an app menu drawn over the toolbar reaches the app'
-        $afterMenu = Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')
+        $afterMenu = Inspect-WithChrome
         Check (@($afterMenu.windows | ForEach-Object { Nodes $_.elements } | Where-Object {
             $_.automationId -eq $toolbarHalf[0].automationId -and -not $_.isOffscreen }).Count -eq 1) 'the toolbar under the menu did not react to the click'
 
