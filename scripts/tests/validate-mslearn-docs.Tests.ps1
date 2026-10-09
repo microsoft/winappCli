@@ -219,7 +219,7 @@ Describe 'port-mslearn-docs: generated toc.yml + guides index' {
     }
 
     It 'lists the overview as the first entry' {
-        $script:Toc | Should -Match '(?m)^- name: winapp CLI overview'
+        $script:Toc | Should -Match '(?m)^- name: Overview\r?\n  href: index\.md'
     }
 
     It 'nests the Electron guides under the Framework guides subtree' {
