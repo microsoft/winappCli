@@ -1,0 +1,11 @@
+{
+  "prompt": "This folder has a small command-line tool, ContosoNotes. We're going to ship it as an MSIX. After someone installs it, I want them to be able to just type `contoso-notes` in any terminal to run it. Please set that up, install it on this machine, and check that `contoso-notes --version` works from a new terminal.",
+  "cluster": "Package identity and manifest",
+  "workspace": "C:\\src\\ContosoNotes",
+  "timeoutMinutes": 25,
+  "checks": [
+    "installed (required): a new package whose application is ContosoNotes.exe is installed",
+    "alias-declared (required): the installed manifest declares the execution alias contoso-notes.exe",
+    "alias-runs (required): `contoso-notes --version` in a new process prints 'ContosoNotes 1.2.0'"
+  ]
+}

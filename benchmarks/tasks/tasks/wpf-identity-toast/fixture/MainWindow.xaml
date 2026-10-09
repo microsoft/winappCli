@@ -1,0 +1,11 @@
+<Window x:Class="PingNotifier.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PingNotifier" Height="220" Width="420">
+    <StackPanel Margin="16">
+        <TextBlock Text="Monitored host" />
+        <TextBox x:Name="HostBox" Text="contoso.com" Margin="0,4,0,12" />
+        <Button Content="Test notification" Click="OnTestClick" Width="140" HorizontalAlignment="Left" />
+        <TextBlock x:Name="Status" Margin="0,12,0,0" TextWrapping="Wrap" />
+    </StackPanel>
+</Window>

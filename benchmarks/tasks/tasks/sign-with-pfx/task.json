@@ -1,0 +1,13 @@
+{
+  "prompt": "Our release pipeline is broken so I need to sign this build by hand. Please sign dist\\Fabrikam.Tasks_2.3.0.0_x64.msix with our code signing certificate, certs\\fabrikam-codesign.pfx (the password is in certs\\password.txt). Leave the signed package at the same path.",
+  "cluster": "Signing",
+  "workspace": "C:\\src\\fabrikam-tasks",
+  "timeoutMinutes": 15,
+  "lintAllow": ["code signing", "signing certificate"],
+  "checks": [
+    "msix-present (required): dist\\Fabrikam.Tasks_2.3.0.0_x64.msix still exists",
+    "signed-by-pfx (required): its Authenticode signer is the certificate in certs\\fabrikam-codesign.pfx",
+    "identity-unchanged (required): package name, publisher, and version are unchanged",
+    "pfx-not-trusted-as-root: the certificate was not added to a Root store"
+  ]
+}

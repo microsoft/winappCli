@@ -1,0 +1,12 @@
+{
+  "prompt": "NoteViewer (this folder) opens our .ctnote files. We're going to ship it as an MSIX, and when people install it I want it registered as the app that opens .ctnote files, so double-clicking a .ctnote file opens it in NoteViewer. Please set that up and install it on this machine so I can try it with sample.ctnote.",
+  "cluster": "Package identity and manifest",
+  "workspace": "C:\\src\\NoteViewer",
+  "timeoutMinutes": 25,
+  "checks": [
+    "installed (required): a new package whose application is NoteViewer.exe is installed",
+    "file-type-declared (required): the installed manifest declares a file type association for .ctnote",
+    "file-type-registered (required): Windows registered the package as a handler (HKCU\\Software\\Classes\\.ctnote\\OpenWithProgids has an AppX ProgID)",
+    "launches: activating the installed app starts NoteViewer.exe from the package"
+  ]
+}

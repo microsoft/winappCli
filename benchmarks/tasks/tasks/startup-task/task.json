@@ -1,0 +1,11 @@
+{
+  "prompt": "SyncTray (in this folder) is a little tray app that keeps a folder in sync. We distribute it as an MSIX. It needs to start automatically when the user signs in to Windows, without them having to launch it. Can you add that and install the package here?",
+  "cluster": "Package identity and manifest",
+  "workspace": "C:\\src\\SyncTray",
+  "timeoutMinutes": 25,
+  "checks": [
+    "installed (required): a new package whose application is SyncTray.exe is installed",
+    "startup-task-declared (required): the installed manifest has a windows.startupTask extension for SyncTray.exe with Enabled=\"true\"",
+    "launches: activating the installed app starts SyncTray.exe from the package"
+  ]
+}
