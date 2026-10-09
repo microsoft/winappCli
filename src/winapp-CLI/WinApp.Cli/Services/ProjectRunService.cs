@@ -308,8 +308,9 @@ internal sealed partial class ProjectRunService(
                         return false;
                     }
 
+                    // Pin the framework like the build's -f, so a --no-restore build finds its assets.
                     var targetRestore = await RunRestoreAsync(
-                        step, BuildRestorePassArguments(csproj, options, verbosity), cancellationToken);
+                        step, BuildRestorePassArguments(csproj, options, verbosity, pinFramework: true), cancellationToken);
                     if (targetRestore.ExitCode == 0)
                     {
                         return true;

@@ -3934,6 +3934,27 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task BuildAndResolveAsync_RealTerminalFrameworkOverride_SeparateRestorePinsTheFramework()
+    {
+        // The --no-restore build passes -f, so the separate restore must restore that framework's graph, or a
+        // project whose file targets another framework fails with NETSDK1005.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+        service.NativeTerminalGateOverrideForTests = () => true;
+        var options = new ProjectRunOptions("Debug", "x64", "net8.0-windows10.0.19041.0", NoBuild: false, NoRestore: false, Properties: []);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        var restore = dotnet.StreamingCalls.Single(a => a.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal));
+        StringAssert.Contains(restore, "-p:TargetFramework=net8.0-windows10.0.19041.0");
+        StringAssert.Contains(dotnet.InheritedCalls.Single(), "-f net8.0-windows10.0.19041.0");
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_RealTerminalUserNoRestore_StreamsThroughRedaction()
     {
         // A --no-restore build replays warnings stored by a restore winapp never saw, anywhere in the build graph,
