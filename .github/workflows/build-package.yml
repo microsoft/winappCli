@@ -344,10 +344,143 @@ jobs:
         if-no-files-found: warn
         overwrite: true
 
+  # Decides whether a PR needs the architecture matrix: it builds and launches 45 real apps, so docs-only
+  # and unrelated PRs skip it. Pushes to main and manual runs always run it.
+  project-arch-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 2
+
+    - name: Check for project-mode changes
+      id: check
+      shell: pwsh
+      env:
+        IS_PR: ${{ github.event_name == 'pull_request' }}
+      run: |
+        if ($env:IS_PR -ne 'true') {
+          "run=true" >> $env:GITHUB_OUTPUT
+          return
+        }
+        # The PR checkout is a merge commit; its first parent is the base branch.
+        $changed = @(git diff --name-only HEAD^1 HEAD)
+        if ($LASTEXITCODE -ne 0) { throw 'Could not list the files this PR changes.' }
+        $patterns = @(
+          '^src/winapp-CLI/WinApp\.Cli/Services/(ProjectRunService|ProjectDetectionService|DotNetService|PackageRegistrationService|AppLauncherService|MsixService)'
+          '^src/winapp-CLI/WinApp\.Cli/Commands/RunCommand'
+          '^src/winapp-CLI/WinApp\.Cli/Models/ProjectRun'
+          '^src/winapp-CLI/WinApp\.Cli/Helpers/(RunArchHelper|MsBuildPropertyReader)'
+          '^tests/project-arch/'
+          '^\.github/workflows/build-package\.yml$'
+          '^global\.json$'
+        )
+        $relevant = @($changed | Where-Object { $file = $_; @($patterns | Where-Object { $file -match $_ }).Count -gt 0 })
+        Write-Host "Project-mode changes: $(if ($relevant) { $relevant -join ', ' } else { 'none' })"
+        "run=$(($relevant.Count -gt 0).ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  # Generated .NET projects covering how `winapp run` conveys the target architecture to MSBuild.
+  # Fixtures run one at a time per shard; see tests/project-arch/README.md.
+  project-arch:
+    needs: [build-artifacts, project-arch-changes]
+    if: needs.project-arch-changes.outputs.run == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    name: project-arch (${{ matrix.shard }}/4)
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Enable Windows Developer Mode
+      run: |
+        reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v "AllowDevelopmentWithoutDevLicense" /d 1 /f
+
+    # Some fixtures target net8.0 and must launch on its runtime.
+    - name: Setup .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        dotnet-version: |
+          8.0.x
+          10.0.x
+
+    - name: Download CLI binaries
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-binaries
+        path: artifacts/cli
+
+    # The -x86 fixtures launch framework-dependent x86 apps. setup-dotnet sets DOTNET_ROOT to the x64 install,
+    # which an x86 app host would also use, so point DOTNET_ROOT_X86 at x86 runtimes (installed if missing).
+    - name: Prepare x86 .NET runtimes
+      run: |
+        $dir = Join-Path ${env:ProgramFiles(x86)} 'dotnet'
+        $installer = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
+        foreach ($runtime in @(@{ Name = 'dotnet'; Folder = 'Microsoft.NETCore.App' }, @{ Name = 'windowsdesktop'; Folder = 'Microsoft.WindowsDesktop.App' })) {
+          foreach ($channel in '8.0', '10.0') {
+            $present = @(Get-ChildItem (Join-Path $dir "shared\$($runtime.Folder)") -Directory -Filter "$channel.*" -ErrorAction SilentlyContinue)
+            $names = if ($present) { $present.Name -join ', ' } else { 'none' }
+            Write-Host "x86 $($runtime.Folder) $channel present: $names"
+            if ($present.Count -eq 0) {
+              if (-not (Test-Path $installer)) { Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $installer }
+              $install = @{ Channel = $channel; Runtime = $runtime.Name; Architecture = 'x86'; InstallDir = $dir }
+              & $installer @install
+            }
+          }
+        }
+        "DOTNET_ROOT_X86=$dir" >> $env:GITHUB_ENV
+
+    - name: Run architecture matrix
+      env:
+        SHARD: ${{ matrix.shard }}
+      run: |
+        $pester = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $pester) { throw 'Pester 5 is required.' }
+        Import-Module $pester -Force
+        $container = New-PesterContainer -Path tests/project-arch/ProjectArch.Tests.ps1 -Data @{
+          WinappPath = 'artifacts/cli/win-x64'
+          Architecture = 'x64'
+          Shard = "$env:SHARD/4"
+          DumpDirectory = 'artifacts/TestResults/project-arch-dumps'
+        }
+        $config = New-PesterConfiguration
+        $config.Run.Container = $container
+        $config.Run.Exit = $true
+        $config.Output.Verbosity = 'Detailed'
+        $config.TestResult.Enabled = $true
+        $config.TestResult.OutputPath = "artifacts/TestResults/project-arch-$env:SHARD.xml"
+        $config.TestResult.OutputFormat = 'JUnitXml'
+        Invoke-Pester -Configuration $config
+
+    - name: Upload test results
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: project-arch-results-${{ matrix.shard }}
+        path: artifacts/TestResults/project-arch-${{ matrix.shard }}.xml
+        if-no-files-found: error
+        overwrite: true
+
+    - name: Upload hang dumps
+      if: failure()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: project-arch-dumps-${{ matrix.shard }}
+        path: artifacts/TestResults/project-arch-dumps
+        if-no-files-found: ignore
+        overwrite: true
+        retention-days: 7
+
   # Retain the original required check, but only turn it green after every lane.
   build-and-package:
     if: always()
-    needs: [build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics]
+    needs: [build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics, project-arch-changes, project-arch]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs
@@ -358,7 +491,9 @@ jobs:
       run: |
         $results = $env:NEEDS_JSON | ConvertFrom-Json -AsHashtable
         foreach ($job in $results.Keys) {
-          $expected = if ($job -eq 'samples' -and $env:IS_PR -ne 'true') { 'skipped' } else { 'success' }
+          $expected = if ($job -eq 'samples' -and $env:IS_PR -ne 'true') { 'skipped' }
+            elseif ($job -eq 'project-arch' -and $results['project-arch-changes'].outputs.run -ne 'true') { 'skipped' }
+            else { 'success' }
           if ($results[$job].result -ne $expected) {
             throw "$job did not meet the required outcome: $($results[$job].result) (expected $expected)"
           }

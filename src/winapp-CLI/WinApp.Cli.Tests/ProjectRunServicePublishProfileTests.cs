@@ -505,7 +505,7 @@ public sealed class ProjectRunServicePublishProfileTests
     }
 
     [TestMethod]
-    public async Task TrimmedFrameworkDependentBuild_SelectsProfileBeforeBuild()
+    public async Task TrimmedFrameworkDependentBuild_PlatformSelectsProjectProfile()
     {
         WriteFile("Library\\Library.csproj", """
             <Project Sdk="Microsoft.NET.Sdk">
@@ -525,6 +525,42 @@ public sealed class ProjectRunServicePublishProfileTests
         var dotnet = new FakeDotNetService
         {
             RunDotnetCommandHandler = ProfileEvaluationHandler(app, publishTrimmed: true),
+        };
+        var service = NewService(dotnet);
+
+        var outcome = await service.BuildAndResolveAsync(app, Options("arm64"), CancellationToken.None);
+
+        // The global Platform lets the project's own win-$(Platform) profile apply, so winapp neither
+        // injects a profile nor a RID that would reach the AnyCPU library.
+        Assert.IsNotNull(outcome.Resolution);
+        var build = dotnet.StreamingCalls.Single();
+        StringAssert.Contains(build, "-p:Platform=ARM64");
+        Assert.IsFalse(build.Contains("-p:PublishProfile=", StringComparison.Ordinal));
+        Assert.IsFalse(build.Contains(" -r ", StringComparison.Ordinal));
+        StringAssert.Contains(dotnet.StringInvocations.Last(), "-p:Platform=ARM64");
+    }
+
+    [TestMethod]
+    public async Task TrimmedFrameworkDependentBuildOnRidPath_SelectsProfileBeforeBuild()
+    {
+        WriteFile("Library\\Library.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+                <Platform>AnyCPU</Platform>
+              </PropertyGroup>
+            </Project>
+            """);
+        var app = WriteApp("""
+            <ItemGroup>
+              <ProjectReference Include="Library\Library.csproj" />
+            </ItemGroup>
+            """);
+        WriteProfile("win-arm64.pubxml", "ARM64", "win-arm64");
+
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = ProfileEvaluationHandler(app, publishTrimmed: true, dynamicPlatformResolution: true),
         };
         var service = NewService(dotnet);
 
@@ -615,7 +651,7 @@ public sealed class ProjectRunServicePublishProfileTests
 
         var dotnet = new FakeDotNetService
         {
-            RunDotnetCommandHandler = ProfileEvaluationHandler(app, publishTrimmed: true),
+            RunDotnetCommandHandler = ProfileEvaluationHandler(app, publishTrimmed: true, dynamicPlatformResolution: true),
         };
         var service = NewService(dotnet);
         var options = Options("arm64") with { Solution = solution };
@@ -677,7 +713,8 @@ public sealed class ProjectRunServicePublishProfileTests
                 app,
                 publishTrimmed: true,
                 currentProfile: "release-anycpu.pubxml",
-                candidateProfile: "release-arm64.pubxml"),
+                candidateProfile: "release-arm64.pubxml",
+                dynamicPlatformResolution: true),
         };
         var service = NewService(dotnet);
 
@@ -726,7 +763,8 @@ public sealed class ProjectRunServicePublishProfileTests
                 app,
                 publishTrimmed: true,
                 currentProfile: "imported-anycpu.pubxml",
-                candidateProfile: "imported-arm64.pubxml"),
+                candidateProfile: "imported-arm64.pubxml",
+                dynamicPlatformResolution: true),
         };
         var service = NewService(dotnet);
 
@@ -768,7 +806,8 @@ public sealed class ProjectRunServicePublishProfileTests
                     useCandidate ? "win-arm64.pubxml" : "win-anycpu.pubxml",
                     imported: useCandidate,
                     selfContained: useCandidate,
-                    publishTrimmed: true);
+                    publishTrimmed: true,
+                    dynamicPlatformResolution: true);
                 properties["WindowsPackageType"] = useCandidate ? "MSIX" : "None";
                 return (0, PropertiesJson(properties), string.Empty);
             },
@@ -826,7 +865,8 @@ public sealed class ProjectRunServicePublishProfileTests
         bool enableMsixTooling = true,
         string targetFramework = "net10.0-windows10.0.26100.0",
         string platform = "ARM64",
-        string runtimeIdentifier = "win-arm64")
+        string runtimeIdentifier = "win-arm64",
+        bool dynamicPlatformResolution = false)
     {
         var root = Path.Join(app.Directory!.FullName, "Properties", "PublishProfiles")
             + Path.DirectorySeparatorChar;
@@ -834,6 +874,7 @@ public sealed class ProjectRunServicePublishProfileTests
         var fullPath = Path.Join(root, name + ".pubxml");
         return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
+            ["EnableDynamicPlatformResolution"] = dynamicPlatformResolution.ToString(),
             ["TargetDir"] = _tempDirectory.FullName,
             ["RunCommand"] = string.Empty,
             ["WindowsPackageType"] = "MSIX",
@@ -855,13 +896,16 @@ public sealed class ProjectRunServicePublishProfileTests
         };
     }
 
+    // dynamicPlatformResolution models a project that keeps `winapp run` on the RID path, the only build
+    // path where winapp still infers an architecture-specific publish profile.
     private Func<string, (int ExitCode, string Output, string Error)> ProfileEvaluationHandler(
         FileInfo app,
         bool publishTrimmed = false,
         bool publishAot = false,
         bool enableMsixTooling = true,
         string currentProfile = "win-anycpu.pubxml",
-        string candidateProfile = "win-arm64.pubxml") =>
+        string candidateProfile = "win-arm64.pubxml",
+        bool dynamicPlatformResolution = false) =>
         arguments =>
         {
             var useCandidate = arguments.Contains("-p:Platform=ARM64", StringComparison.Ordinal)
@@ -873,7 +917,8 @@ public sealed class ProjectRunServicePublishProfileTests
                 selfContained: useCandidate,
                 publishTrimmed,
                 publishAot,
-                enableMsixTooling);
+                enableMsixTooling,
+                dynamicPlatformResolution: dynamicPlatformResolution);
             return (0, PropertiesJson(properties), string.Empty);
         };
 

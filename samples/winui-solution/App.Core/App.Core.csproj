@@ -6,7 +6,8 @@
     "PRI file not found" failure when a consumer forces a global -p:Platform=<arch> together with
     -p:EnableDynamicPlatformResolution=true: EDPR negotiates this library's compile down to AnyCPU
     (bin\Debug\...) while the forced Platform keeps the app's PRI-outputs lookup at bin\<arch>\...
-    Conveying arch via -r <rid> only (winapp project mode) keeps both sides consistent.
+    Without EDPR a global Platform reaches this library too, so both sides stay consistent; winapp
+    project mode conveys the arch with -r <rid> instead for projects that enable EDPR.
   -->
   <PropertyGroup>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>

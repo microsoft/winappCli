@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
 using System.Xml.Linq;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
@@ -8,14 +9,13 @@ using WinApp.Cli.Models;
 namespace WinApp.Cli.Services;
 
 /// <summary>
-/// Decides whether project mode injects an explicit MSBuild <c>Platform</c> (<c>-p:Platform=&lt;arch&gt;</c>).
-/// Arch is normally conveyed by the RID alone, but older WindowsAppSDK targets hard-reject the default
-/// <c>Platform=AnyCPU</c> (self-contained: "The platform 'AnyCPU' is not supported for Self Contained
-/// mode"; packaged: "app host exe cannot be ProcessorArchitecture neutral"). Injecting the Platform fixes
-/// those, but a GLOBAL Platform also flows into every <c>ProjectReference</c> and desyncs a
-/// no-<c>&lt;Platforms&gt;</c> (implicit-AnyCPU) WinUI library → MSB3030/PRI252. So we inject ONLY when the
-/// target and its whole ProjectReference closure declare a <c>&lt;Platforms&gt;</c> that includes the arch —
-/// otherwise we fall back to the safe RID-only default.
+/// Decides how project mode conveys the target architecture to MSBuild. <c>winapp run</c> builds use a
+/// global <c>Platform</c> alone, as Visual Studio does (<see cref="ResolveBuildArchitectureAsync"/>).
+/// Publish passes (<c>winapp pack</c>, <c>--aot</c>) and projects that can't honor a Platform-only build use
+/// <see cref="ResolvePlatformInjection"/>: the RID conveys the arch, plus an explicit Platform only when the
+/// target and its whole ProjectReference closure declare a <c>&lt;Platforms&gt;</c> including the arch.
+/// Older WindowsAppSDK targets hard-reject the default <c>Platform=AnyCPU</c> for self-contained and packaged
+/// builds, which is why that path still injects a Platform when it is provably safe.
 /// </summary>
 internal sealed partial class ProjectRunService
 {
@@ -98,6 +98,287 @@ internal sealed partial class ProjectRunService
             Platform = token ?? options.Platform,
             OmitRuntimeIdentifier = omitRid,
         };
+    }
+
+    /// <summary>
+    /// Resolves how a <c>winapp run</c> build conveys the target architecture. Visual Studio builds with a
+    /// global <c>Platform</c> and no global <c>RuntimeIdentifier</c>, and that is the default here: a
+    /// global RID reaches every project MSBuild touches, and the MSIX/MRT packaging targets query
+    /// references without removing it, so a RID-agnostic library gets built twice (with and without the
+    /// RID) and packaging fails with APPX1101/PRI175/PRI252/MSB3030. Before committing, the project and every
+    /// project it references are evaluated under that Platform; the existing RID-based resolution
+    /// (<see cref="ResolvePlatformInjection"/>) is kept when an evaluation fails, when any project in the graph
+    /// sets its own conflicting <c>RuntimeIdentifier</c> or enables <c>EnableDynamicPlatformResolution</c>, for
+    /// an explicit exact <c>-p RuntimeIdentifier</c>, for a user <c>-p:Platform</c> that doesn't name the
+    /// <c>--arch</c> architecture, and for a cross-architecture build whose graph references an analyzer or
+    /// source-generator project.
+    /// </summary>
+    private async Task<ProjectRunOptions> ResolveBuildArchitectureAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        DirectoryInfo workingDir,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrEmpty(options.ExactRuntimeIdentifier))
+        {
+            return ResolvePlatformInjection(csproj, options);
+        }
+
+        // A user -p:Platform is authoritative and already forwarded; it can carry the architecture alone only
+        // when it names --arch. Otherwise keep the RID so --arch still decides what gets built.
+        string? platform;
+        if (TryGetUserProperty(options.Properties, "Platform", out var userPlatform))
+        {
+            if (!string.Equals(RunArchHelper.NormalizeArchitecture(userPlatform), options.Architecture, StringComparison.OrdinalIgnoreCase))
+            {
+                return ResolvePlatformInjection(csproj, options);
+            }
+
+            platform = null;
+        }
+        else
+        {
+            // Use the project's own <Platforms> token for the arch (preserving casing such as ARM64), else the
+            // canonical arch name.
+            platform = FindArchPlatformToken(csproj, options.Architecture) ?? options.Architecture;
+        }
+
+        var platformOnly = options with { Platform = platform, OmitRuntimeIdentifier = true };
+
+        var graph = await ProbeReferenceGraphAsync(csproj, platformOnly, workingDir, cancellationToken);
+        if (graph is null)
+        {
+            return ResolvePlatformInjection(csproj, options);
+        }
+
+        if (graph.ConflictingRuntimeIdentifierProject is not null || graph.DynamicPlatformResolutionProject is not null)
+        {
+            logger.LogDebug(
+                "{UISymbol} {Project} sets its own RuntimeIdentifier or EnableDynamicPlatformResolution; using the existing RID-based resolution.",
+                UiSymbols.Note, graph.ConflictingRuntimeIdentifierProject ?? graph.DynamicPlatformResolutionProject);
+
+            // The existing resolution drops the RID for a reference graph that removes it. Keep that for
+            // dynamic platform resolution, but a project's own conflicting RuntimeIdentifier would then win
+            // and build the wrong architecture (NETSDK1032), so it must always get the RID.
+            var resolved = ResolvePlatformInjection(csproj, options);
+            return graph.ConflictingRuntimeIdentifierProject is not null
+                ? resolved with { OmitRuntimeIdentifier = false }
+                : resolved;
+        }
+
+        // A global Platform also reaches project-referenced analyzers and source generators, building them for
+        // the target architecture. The compiler runs on the SDK's architecture, so for a cross-architecture
+        // build it can't load them (CS8034). Visual Studio avoids this by mapping such projects to Any CPU.
+        if (graph.HasBuildOnlyReference
+            && !string.Equals(RunArchHelper.ArchitectureFromRid(graph.SdkRuntimeIdentifier), options.Architecture, StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogDebug(
+                "{UISymbol} A project-referenced analyzer must load in the {SdkRid} compiler; using the existing RID-based resolution for --arch {Arch}.",
+                UiSymbols.Note, graph.SdkRuntimeIdentifier, options.Architecture);
+            return ResolvePlatformInjection(csproj, options);
+        }
+
+        return platformOnly;
+    }
+
+    /// <summary>What the Platform-only decision needs from the evaluated <c>ProjectReference</c> graph.</summary>
+    /// <param name="SdkRuntimeIdentifier">The .NET SDK's RID (the compiler's architecture).</param>
+    /// <param name="ConflictingRuntimeIdentifierProject">The first project that sets a RuntimeIdentifier other than win-&lt;arch&gt;.</param>
+    /// <param name="DynamicPlatformResolutionProject">The first project that enables EnableDynamicPlatformResolution.</param>
+    /// <param name="HasBuildOnlyReference">True when any project references an analyzer or source-generator project.</param>
+    internal sealed record ReferenceGraphProbe(
+        string SdkRuntimeIdentifier,
+        string? ConflictingRuntimeIdentifierProject,
+        string? DynamicPlatformResolutionProject,
+        bool HasBuildOnlyReference);
+
+    // Bounds concurrent `dotnet msbuild` evaluations while walking a large reference graph.
+    private const int MaxConcurrentGraphEvaluations = 4;
+
+    /// <summary>
+    /// Evaluates <paramref name="csproj"/> and every managed project it references (transitively, through
+    /// runtime references) under the Platform-only globals, using MSBuild's own evaluation so properties and
+    /// <c>ProjectReference</c> items from imports, conditions and <c>$(…)</c> paths are all seen. Returns
+    /// <see langword="null"/> when any evaluation fails, so the caller keeps the RID-based resolution.
+    /// </summary>
+    private async Task<ReferenceGraphProbe?> ProbeReferenceGraphAsync(
+        FileInfo csproj,
+        ProjectRunOptions platformOnly,
+        DirectoryInfo workingDir,
+        CancellationToken cancellationToken)
+    {
+        string? sdkRid = null;
+        string? conflictingRid = null;
+        string? dynamicPlatformResolution = null;
+        var buildOnlyReference = false;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { csproj.FullName };
+        var level = new List<FileInfo> { csproj };
+        using var throttle = new SemaphoreSlim(MaxConcurrentGraphEvaluations);
+
+        while (level.Count > 0)
+        {
+            (FileInfo Project, string? Output)[] evaluations;
+            try
+            {
+                evaluations = await Task.WhenAll(level.Select(async project =>
+                {
+                    await throttle.WaitAsync(cancellationToken);
+                    try
+                    {
+                        return (Project: project, Output: await EvaluateArchitectureProbeAsync(
+                            project, platformOnly, includeFramework: project == csproj, workingDir, cancellationToken));
+                    }
+                    finally
+                    {
+                        throttle.Release();
+                    }
+                }));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Awaiting canceled tasks surfaces TaskCanceledException; callers expect the token's own exception.
+                cancellationToken.ThrowIfCancellationRequested();
+                throw;
+            }
+
+            var next = new List<FileInfo>();
+            foreach (var (project, output) in evaluations)
+            {
+                if (output is null)
+                {
+                    return null;
+                }
+
+                var props = MsBuildPropertyReader.Parse(output, ArchitectureProbeProperties);
+                sdkRid ??= GetProp(props, "NETCoreSdkRuntimeIdentifier");
+                if (conflictingRid is null && HasConflictingRuntimeIdentifier(props, platformOnly.Architecture))
+                {
+                    conflictingRid = project.Name;
+                }
+
+                if (dynamicPlatformResolution is null && IsTrue(GetProp(props, "EnableDynamicPlatformResolution")))
+                {
+                    dynamicPlatformResolution = project.Name;
+                }
+
+                foreach (var reference in MsBuildPropertyReader.ParseItemMetadata(output, "ProjectReference"))
+                {
+                    if (IsBuildOnlyReference(reference))
+                    {
+                        buildOnlyReference = true;
+                        continue;
+                    }
+
+                    var fullPath = GetProp(reference, "FullPath");
+                    if (string.IsNullOrEmpty(fullPath)
+                        || !IsManagedProjectPath(fullPath)
+                        || !File.Exists(fullPath)
+                        || !visited.Add(fullPath))
+                    {
+                        continue;
+                    }
+
+                    if (visited.Count > MaxProjectReferenceClosure)
+                    {
+                        return null;
+                    }
+
+                    next.Add(new FileInfo(fullPath));
+                }
+            }
+
+            level = next;
+        }
+
+        return new ReferenceGraphProbe(sdkRid ?? string.Empty, conflictingRid, dynamicPlatformResolution, buildOnlyReference);
+    }
+
+    private static bool IsBuildOnlyReference(IReadOnlyDictionary<string, string> reference) =>
+        string.Equals(GetProp(reference, "OutputItemType"), "Analyzer", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(GetProp(reference, "ReferenceOutputAssembly"), "false", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Runs one evaluate-only probe and returns its stdout, or <see langword="null"/> when dotnet could not run
+    /// or the evaluation failed.
+    /// </summary>
+    private async Task<string?> EvaluateArchitectureProbeAsync(
+        FileInfo project,
+        ProjectRunOptions platformOnly,
+        bool includeFramework,
+        DirectoryInfo workingDir,
+        CancellationToken cancellationToken)
+    {
+        var args = BuildArchitectureProbeArguments(project, platformOnly, includeFramework);
+        logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(args));
+        try
+        {
+            var (exitCode, stdout, _) = await dotNetService.RunDotnetCommandAsync(workingDir, args, cancellationToken);
+            if (exitCode == 0)
+            {
+                return stdout;
+            }
+
+            logger.LogDebug("{UISymbol} Evaluating {Project} for a Platform-only build exited {ExitCode}; conveying the architecture with the RID.", UiSymbols.Note, project.Name, exitCode);
+            return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            logger.LogDebug("{UISymbol} Could not evaluate {Project} for a Platform-only build; conveying the architecture with the RID.", UiSymbols.Note, project.Name);
+            return null;
+        }
+    }
+
+    private static readonly string[] ArchitectureProbeProperties = ["RuntimeIdentifier", "EnableDynamicPlatformResolution", "NETCoreSdkRuntimeIdentifier"];
+
+    /// <summary>
+    /// Builds the evaluate-only <c>dotnet msbuild</c> arguments that read the properties and project
+    /// references deciding whether a Platform-only build is honored, under the same globals the build pass
+    /// will use. A referenced project is evaluated without the app's pinned <c>TargetFramework</c>.
+    /// </summary>
+    internal static string BuildArchitectureProbeArguments(FileInfo csproj, ProjectRunOptions options, bool includeFramework = true)
+    {
+        var tokens = new List<string> { "msbuild", csproj.FullName };
+        foreach (var property in ForwardableProperties(options.Properties))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        AppendSolutionProperties(tokens, options);
+        tokens.Add($"-p:Configuration={options.Configuration}");
+        if (!string.IsNullOrWhiteSpace(options.Platform))
+        {
+            tokens.Add($"-p:Platform={options.Platform}");
+        }
+
+        if (includeFramework && !string.IsNullOrWhiteSpace(options.Framework))
+        {
+            tokens.Add($"-p:TargetFramework={options.Framework}");
+        }
+
+        foreach (var property in ArchitectureProbeProperties)
+        {
+            tokens.Add($"--getProperty:{property}");
+        }
+
+        tokens.Add("--getItem:ProjectReference");
+        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// True when the project sets its own <c>RuntimeIdentifier</c> other than <c>win-&lt;arch&gt;</c>; only a
+    /// global RID overrides it. A hard-coded RID fails a Platform-only build with NETSDK1032, and
+    /// <c>win-$(Platform)</c> with an upper-case Platform with NETSDK1083. A RID that is exactly
+    /// <c>win-&lt;arch&gt;</c> (e.g. from a <c>win-$(Platform)</c> publish profile) agrees with the Platform.
+    /// </summary>
+    private static bool HasConflictingRuntimeIdentifier(IReadOnlyDictionary<string, string> properties, string architecture)
+    {
+        var projectRid = GetProp(properties, "RuntimeIdentifier");
+        return !string.IsNullOrEmpty(projectRid)
+            && !string.Equals(projectRid, RunArchHelper.ToRuntimeIdentifier(architecture), StringComparison.Ordinal);
     }
 
     /// <summary>

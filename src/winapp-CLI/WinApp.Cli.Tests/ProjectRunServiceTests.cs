@@ -2618,6 +2618,355 @@ public class ProjectRunServiceTests
         Assert.IsFalse(args.Contains("net8.0", StringComparison.Ordinal), "conflicting user -p:TargetFramework must be dropped");
     }
 
+    #region ResolveBuildArchitectureAsync (winapp run builds convey the arch with Platform)
+
+    private const string ArchitectureProbeMarker = "--getProperty:EnableDynamicPlatformResolution";
+
+    private FakeDotNetService ArchitectureProbeDotnet(string probeProperties, int probeExitCode = 0) => new()
+    {
+        RunDotnetCommandHandler = a => a.Contains(ArchitectureProbeMarker, StringComparison.Ordinal)
+            ? (probeExitCode, "{\"Properties\":{" + probeProperties + "}}", string.Empty)
+            : (0, PackagedPropertiesJson(), string.Empty),
+    };
+
+    private static string BuildPass(FakeDotNetService dotnet) =>
+        dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal));
+
+    [TestMethod]
+    public async Task RunBuild_ByDefault_ConveysArchitectureWithPlatformOnly()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureProbeDotnet("""
+            "RuntimeIdentifier":"","EnableDynamicPlatformResolution":""
+            """);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions("arm64"), CancellationToken.None);
+
+        var build = BuildPass(dotnet);
+        StringAssert.Contains(build, "-p:Platform=arm64");
+        Assert.IsFalse(build.Contains(" -r ", StringComparison.Ordinal), "a global RID would reach RID-agnostic references");
+        var evaluate = dotnet.StringInvocations.Last();
+        StringAssert.Contains(evaluate, "-p:Platform=arm64", "the output evaluation must match the build");
+        Assert.IsFalse(evaluate.Contains("RuntimeIdentifier=", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task RunBuild_PreservesDeclaredPlatformToken()
+    {
+        var csproj = WriteFile("App.csproj", PlatformAwareExeCsproj);
+        var dotnet = ArchitectureProbeDotnet("""
+            "RuntimeIdentifier":""
+            """);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions("arm64"), CancellationToken.None);
+
+        StringAssert.Contains(BuildPass(dotnet), "-p:Platform=ARM64");
+        StringAssert.Contains(
+            dotnet.StringInvocations.First(a => a.Contains(ArchitectureProbeMarker, StringComparison.Ordinal)),
+            "-p:Platform=ARM64",
+            "the probe must evaluate the Platform the build will use");
+    }
+
+    [TestMethod]
+    [DataRow("win-arm64", "", false, DisplayName = "Project RID matching win-<arch> keeps Platform only")]
+    [DataRow("win-x64", "", true, DisplayName = "Hard-coded RID for another arch keeps the RID")]
+    [DataRow("win-ARM64", "", true, DisplayName = "Non-canonical RID casing keeps the RID")]
+    [DataRow("", "true", true, DisplayName = "Dynamic platform resolution keeps the RID")]
+    public async Task RunBuild_ProjectThatCannotHonorPlatformOnly_KeepsRuntimeIdentifier(string projectRid, string edpr, bool expectRid)
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureProbeDotnet($$"""
+            "RuntimeIdentifier":"{{projectRid}}","EnableDynamicPlatformResolution":"{{edpr}}"
+            """);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions("arm64"), CancellationToken.None);
+
+        var build = BuildPass(dotnet);
+        Assert.AreEqual(expectRid, build.Contains("-r win-arm64", StringComparison.Ordinal), build);
+        Assert.AreEqual(!expectRid, build.Contains("-p:Platform=arm64", StringComparison.Ordinal), build);
+    }
+
+    [TestMethod]
+    public async Task RunBuild_ProbeFailure_KeepsRuntimeIdentifier()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureProbeDotnet(string.Empty, probeExitCode: 1);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions("arm64"), CancellationToken.None);
+
+        StringAssert.Contains(BuildPass(dotnet), "-r win-arm64");
+    }
+
+    [TestMethod]
+    public async Task RunBuild_UserPlatform_IsForwardedOnceWithoutRid()
+    {
+        var csproj = WriteFile("App.csproj", PlatformAwareExeCsproj);
+        var dotnet = ArchitectureProbeDotnet("""
+            "RuntimeIdentifier":""
+            """);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions("x64", "Platform=x64"), CancellationToken.None);
+
+        var build = BuildPass(dotnet);
+        Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(build, "-p:Platform="), build);
+        StringAssert.Contains(build, "-p:Platform=x64");
+        Assert.IsFalse(build.Contains(" -r ", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task RunBuild_ExactRuntimeIdentifier_SkipsProbeAndKeepsRid()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureProbeDotnet("""
+            "RuntimeIdentifier":""
+            """);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(
+            csproj, PlatformOptions("arm64") with { ExactRuntimeIdentifier = "win-arm64" }, CancellationToken.None);
+
+        StringAssert.Contains(BuildPass(dotnet), "-r win-arm64");
+        Assert.IsFalse(dotnet.StringInvocations.Any(a => a.Contains(ArchitectureProbeMarker, StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    [DataRow("win-x86", "", true, DisplayName = "Conflicting project RID keeps the RID despite the split graph")]
+    [DataRow("", "true", false, DisplayName = "Dynamic platform resolution keeps the split graph's RID-free build")]
+    public async Task RunBuild_RidFallbackWithRidSplitGraph(string projectRid, string edpr, bool expectRid)
+    {
+        // The graph removes RuntimeIdentifier on one edge, which makes the existing resolution drop the RID.
+        // Only a project that sets its own conflicting RID must still get -r win-<arch> (else NETSDK1032);
+        // forcing it back for dynamic platform resolution builds the shared project twice (MSB3030).
+        var app = WriteRidSplitGraph(stripRidOnMiddleEdge: true);
+        var dotnet = ArchitectureProbeDotnet($$"""
+            "RuntimeIdentifier":"{{projectRid}}","EnableDynamicPlatformResolution":"{{edpr}}"
+            """);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(app, PlatformOptions("arm64"), CancellationToken.None);
+
+        var build = BuildPass(dotnet);
+        Assert.AreEqual(expectRid, build.Contains("-r win-arm64", StringComparison.Ordinal), build);
+        StringAssert.Contains(build, "-p:Platform=ARM64");
+    }
+
+    [TestMethod]
+    [DataRow("plain", "arm64", false, DisplayName = "Plain reference graph conveys the architecture with Platform")]
+    [DataRow("edpr", "arm64", true, DisplayName = "Referenced project with dynamic platform resolution keeps the RID")]
+    [DataRow("rid", "arm64", true, DisplayName = "Referenced project with its own conflicting RID keeps the RID")]
+    [DataRow("generator", "x86", true, DisplayName = "Generator behind a library keeps the RID for a cross-architecture build")]
+    [DataRow("generator", "arm64", false, DisplayName = "Generator behind a library uses Platform for a native build")]
+    public async Task RunBuild_ReferenceGraphDecidesArchitectureCarrier(string scenario, string arch, bool expectRid)
+    {
+        // App -> Lib -> (Gen as analyzer, or Leaf). Properties come from MSBuild evaluation of each project, so
+        // values set by imports or on referenced projects count.
+        var graph = new Dictionary<string, (string Properties, (string Project, bool BuildOnly)[] References)>
+        {
+            ["App"] = ("", [("Lib", false)]),
+            ["Lib"] = (scenario switch
+            {
+                "edpr" => "\"EnableDynamicPlatformResolution\":\"true\"",
+                "rid" => "\"RuntimeIdentifier\":\"win-x86\"",
+                _ => "",
+            }, scenario == "generator" ? [("Gen", true)] : [("Leaf", false)]),
+            ["Leaf"] = ("", []),
+        };
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureGraphDotnet(graph);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions(arch), CancellationToken.None);
+
+        var build = BuildPass(dotnet);
+        Assert.AreEqual(expectRid, build.Contains($"-r win-{arch}", StringComparison.Ordinal), build);
+        Assert.AreEqual(!expectRid, build.Contains($"-p:Platform={arch}", StringComparison.Ordinal), build);
+    }
+
+    private static readonly string[] DiamondRuntimeProjects = ["App", "A", "B", "Shared"];
+
+    [TestMethod]
+    public async Task RunBuild_ReferenceGraph_EvaluatesEachRuntimeProjectOnceAndSkipsAnalyzers()
+    {
+        // Diamond: App -> A, App -> B, A -> Shared, B -> Shared; App -> Gen as an analyzer.
+        var graph = new Dictionary<string, (string Properties, (string Project, bool BuildOnly)[] References)>
+        {
+            ["App"] = ("", [("A", false), ("B", false), ("Gen", true)]),
+            ["A"] = ("", [("Shared", false)]),
+            ["B"] = ("", [("Shared", false)]),
+            ["Shared"] = ("", []),
+        };
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureGraphDotnet(graph);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions("arm64"), CancellationToken.None);
+
+        var evaluated = dotnet.StringInvocations
+            .Where(a => a.Contains(ArchitectureProbeMarker, StringComparison.Ordinal))
+            .Select(a => Path.GetFileNameWithoutExtension(a.Split(' ')[1]))
+            .ToList();
+        CollectionAssert.AreEquivalent(DiamondRuntimeProjects, evaluated);
+        StringAssert.Contains(BuildPass(dotnet), "-p:Platform=arm64");
+        Assert.IsTrue(dotnet.StringInvocations.Where(a => a.Contains(ArchitectureProbeMarker, StringComparison.Ordinal) && !a.Contains("App.csproj", StringComparison.Ordinal))
+            .All(a => !a.Contains("-p:TargetFramework=", StringComparison.Ordinal)), "referenced projects are evaluated without the app's pinned framework");
+    }
+
+    [TestMethod]
+    public async Task RunBuild_ReferencedProjectProbeFailure_KeepsRid()
+    {
+        var graph = new Dictionary<string, (string Properties, (string Project, bool BuildOnly)[] References)>
+        {
+            ["App"] = ("", [("Lib", false)]),
+            ["Lib"] = ("", []),
+        };
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureGraphDotnet(graph, failingProject: "Lib");
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions("arm64"), CancellationToken.None);
+
+        StringAssert.Contains(BuildPass(dotnet), "-r win-arm64");
+    }
+
+    /// <summary>
+    /// A fake whose architecture probe answers per project with its properties and <c>ProjectReference</c>
+    /// items (written to disk so their <c>FullPath</c> exists), like <c>dotnet msbuild --getItem</c>.
+    /// </summary>
+    private FakeDotNetService ArchitectureGraphDotnet(
+        Dictionary<string, (string Properties, (string Project, bool BuildOnly)[] References)> graph,
+        string? failingProject = null)
+    {
+        var projectNames = graph.Keys
+            .Concat(graph.Values.SelectMany(v => v.References.Select(r => r.Project)))
+            .Distinct()
+            .Where(name => name != "App");
+        foreach (var name in projectNames)
+        {
+            WriteFileAt($@"{name}\{name}.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        }
+
+        string PathOf(string name) => name == "App"
+            ? Path.Join(_tempDir.FullName, "App.csproj")
+            : Path.Join(_tempDir.FullName, name, $"{name}.csproj");
+
+        return new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (!args.Contains(ArchitectureProbeMarker, StringComparison.Ordinal))
+                {
+                    return (0, PackagedPropertiesJson(), string.Empty);
+                }
+
+                var name = graph.Keys.Single(n => args.StartsWith($"msbuild {PathOf(n)} ", StringComparison.Ordinal));
+                if (name == failingProject)
+                {
+                    return (1, string.Empty, "error");
+                }
+
+                var (properties, references) = graph[name];
+                var items = references.Select(r => r.BuildOnly
+                    ? new Dictionary<string, string> { ["Identity"] = PathOf(r.Project), ["FullPath"] = PathOf(r.Project), ["OutputItemType"] = "Analyzer", ["ReferenceOutputAssembly"] = "false" }
+                    : new Dictionary<string, string> { ["Identity"] = PathOf(r.Project), ["FullPath"] = PathOf(r.Project) });
+                var propertiesJson = "{\"NETCoreSdkRuntimeIdentifier\":\"win-arm64\"" + (properties.Length > 0 ? "," + properties : "") + "}";
+                var itemsJson = System.Text.Json.JsonSerializer.Serialize(items);
+                return (0, "{\"Properties\":" + propertiesJson + ",\"Items\":{\"ProjectReference\":" + itemsJson + "}}", string.Empty);
+            },
+        };
+    }
+
+    [TestMethod]
+    public async Task RunBuild_UserPlatformForAnotherArch_KeepsRid()
+    {
+        var csproj = WriteFile("App.csproj", PlatformAwareExeCsproj);
+        var dotnet = ArchitectureProbeDotnet("""
+            "RuntimeIdentifier":""
+            """);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions("arm64", "Platform=x64"), CancellationToken.None);
+
+        StringAssert.Contains(BuildPass(dotnet), "-r win-arm64", "--arch must still decide the build architecture");
+        Assert.IsFalse(dotnet.StringInvocations.Any(a => a.Contains(ArchitectureProbeMarker, StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    [DataRow(false, DisplayName = "RID-only layout from an earlier winapp")]
+    [DataRow(true, DisplayName = "Platform + RID layout from an earlier winapp")]
+    public async Task RunNoBuild_FindsEarlierRidOutput(bool withPlatform)
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var ridSegments = withPlatform ? new[] { "bin", "arm64", "Debug", "net10.0", "win-arm64" } : ["bin", "Debug", "net10.0", "win-arm64"];
+        var existing = Directory.CreateDirectory(Path.Join([_tempDir.FullName, .. ridSegments])).FullName + Path.DirectorySeparatorChar;
+        var missing = Path.Join(_tempDir.FullName, "bin", "missing") + Path.DirectorySeparatorChar;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = a =>
+            {
+                if (a.Contains(ArchitectureProbeMarker, StringComparison.Ordinal))
+                {
+                    return (0, """{"Properties":{"RuntimeIdentifier":""}}""", string.Empty);
+                }
+
+                var matches = a.Contains("RuntimeIdentifier=win-arm64", StringComparison.Ordinal)
+                    && a.Contains("-p:Platform=", StringComparison.Ordinal) == withPlatform;
+                var dir = (matches ? existing : missing).Replace("\\", "\\\\");
+                return (0, $$"""{ "Properties": { "TargetDir": "{{dir}}", "RunCommand": "", "WindowsPackageType": "MSIX", "OutputType": "WinExe", "WindowsAppSDKSelfContained": "" } }""", string.Empty);
+            },
+        };
+        var service = NewServiceWith(dotnet, out _);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, PlatformOptions("arm64") with { NoBuild = true }, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.AreEqual(existing, outcome.Resolution.TargetDir, "--no-build must still find output built with a RID");
+    }
+
+    [TestMethod]
+    public async Task PackPreparation_KeepsRuntimeIdentifierWithoutProbe()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureProbeDotnet("""
+            "RuntimeIdentifier":""
+            """);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.PreparePackageAsync(
+            csproj, new ProjectRunOptions("Release", "arm64", null, false, false, []), CancellationToken.None);
+
+        StringAssert.Contains(dotnet.StreamingCalls.Single(a => a.StartsWith("restore ", StringComparison.Ordinal)), "-r win-arm64");
+        Assert.IsFalse(dotnet.StringInvocations.Any(a => a.Contains(ArchitectureProbeMarker, StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void BuildArchitectureProbeArguments_MirrorsBuildGlobals()
+    {
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj"));
+        var options = new ProjectRunOptions(
+            "Release", "arm64", "net10.0-windows10.0.26100.0", false, false,
+            ["Flavor=Retail", "RuntimeIdentifier=win-x64"], Solution: solution, Platform: "ARM64", OmitRuntimeIdentifier: true);
+
+        var args = ProjectRunService.BuildArchitectureProbeArguments(csproj, options);
+
+        StringAssert.StartsWith(args, $"msbuild {csproj.FullName}");
+        StringAssert.Contains(args, "-p:Configuration=Release");
+        StringAssert.Contains(args, "-p:Platform=ARM64");
+        StringAssert.Contains(args, "-p:TargetFramework=net10.0-windows10.0.26100.0");
+        StringAssert.Contains(args, "-p:Flavor=Retail");
+        StringAssert.Contains(args, "-p:SolutionDir=");
+        StringAssert.Contains(args, "--getProperty:RuntimeIdentifier");
+        StringAssert.Contains(args, ArchitectureProbeMarker);
+        Assert.IsFalse(args.Contains("win-x64", StringComparison.Ordinal), "a user RID is a dedicated flag, not forwarded");
+    }
+
+    #endregion
+
     #region ResolvePlatformInjection (conditional -p:Platform for AnyCPU-rejecting WindowsAppSDK targets)
 
     // A single-project WinUI app declaring <Platforms> that includes the arch (real-world: IconExtractor's
@@ -3500,6 +3849,8 @@ public class ProjectRunServiceTests
     {
         // ISSUE-1: when the owning solution is all-managed, one `dotnet restore <sln>` restores the target
         // and every build-dependency sibling before the build, and the build pass skips its own restore.
+        // That reuse applies to the RID path; dynamic platform resolution keeps this project on it (a
+        // Platform build restores again, see the PlatformSpecificSolutionRestore test).
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
         var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "Server/Server.csproj"));
         var longRestoreLine = "RESTORE-PROGRESS-" + new string('X', 120);
@@ -3510,8 +3861,13 @@ public class ProjectRunServiceTests
             RunDotnetCommandHandler = a =>
             {
                 commandArgs.Add(a);
-                return a.StartsWith("restore ", StringComparison.Ordinal)
-                    ? (0, restoreOutput, string.Empty)
+                if (a.StartsWith("restore ", StringComparison.Ordinal))
+                {
+                    return (0, restoreOutput, string.Empty);
+                }
+
+                return a.Contains("--getProperty:EnableDynamicPlatformResolution", StringComparison.Ordinal)
+                    ? (0, """{"Properties":{"RuntimeIdentifier":"","EnableDynamicPlatformResolution":"true"}}""", string.Empty)
                     : (0, PackagedPropertiesJson(), string.Empty);
             },
         };

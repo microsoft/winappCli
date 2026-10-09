@@ -17,9 +17,8 @@ This sample is a **multi-project Visual Studio solution** used to exercise
   **skipping `App.Core`** (a library) and **`App.Tests`**, with no ambiguity error.
 - Explicit project selection via `--project` when you want a specific project.
 - A **multi-project arch regression guard**: `App` references `App.Core`, which
-  declares no `<Platforms>`. A global `-p:Platform=<arch>` would desynchronize the
-  library's XAML/PRI output path from the app's lookup (`MSB3030`/`PRI252`), so a
-  green build here proves winapp keeps the two consistent.
+  declares no `<Platforms>`. A green build here proves the library's XAML/PRI output
+  and the app's lookup stay on one path (a mismatch fails with `MSB3030`/`PRI252`).
 
 ## The projects
 
@@ -30,12 +29,11 @@ This sample is a **multi-project Visual Studio solution** used to exercise
 | `App.Tests` | Test-shaped (skipped by auto-select) | `OutputType=WinExe`, `<ProjectCapability Include="TestContainer" />`, `MSTest.TestFramework` ref, **`IsTestProject` deliberately NOT set** |
 
 `App.Core` intentionally declares **no `<Platforms>`** (effective Platform `AnyCPU`).
-Because winapp only injects an explicit `-p:Platform=<arch>` when the target *and its
-whole `ProjectReference` closure* declare that arch, this sample builds with the
-architecture conveyed by `-r win-<arch>` alone — so the library's `Generic.xbf`/`.pri`
-and the consuming app agree on one output path. The solution maps `App.Core` to
-`Any CPU` for every configuration (the VS-canonical mapping for a no-`<Platforms>`
-library) so a plain `dotnet build WinUISolution.sln -p:Platform=<arch>` stays consistent too.
+`winapp run` builds with `-p:Platform=<arch>`, as Visual Studio does, so the library's
+`Generic.xbf`/`.pri` and the consuming app agree on one output path. The solution maps
+`App.Core` to `Any CPU` for every configuration (the VS-canonical mapping for a
+no-`<Platforms>` library) so a plain `dotnet build WinUISolution.sln -p:Platform=<arch>`
+stays consistent too.
 
 `App.Tests` intentionally does **not** set `IsTestProject`, so a naive check on that
 property (or on a `.Tests` name suffix) would miss it. `winapp run` classifies it from
