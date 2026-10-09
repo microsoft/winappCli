@@ -102,7 +102,7 @@ internal static class XamlTriageRunner
     internal static VerifiedTriageInputs VerifyInputsForLoad(
         string binDir, string jsProviderPath, string extPath, Func<string, string, ResolvedTriageBinaries?> holdBinaries)
     {
-        var binaries = holdBinaries(binDir, jsProviderPath)
+        using var binaries = holdBinaries(binDir, jsProviderPath)
             ?? throw new InvalidOperationException(
                 $"refusing to load the debugger from '{binDir}' and '{jsProviderPath}': they must be Microsoft-signed debugger files from the same build.");
         VerifiedTool script;
@@ -115,13 +115,7 @@ internal static class XamlTriageRunner
         }
         catch (BuildToolSignatureException)
         {
-            binaries.Dispose();
             throw new InvalidOperationException($"refusing to run '{extPath}': it is not the pinned WinUI debugger extension.");
-        }
-        catch
-        {
-            binaries.Dispose();
-            throw;
         }
 
         try
@@ -134,12 +128,9 @@ internal static class XamlTriageRunner
         }
         catch
         {
+            // The script hold is handed to the caller on success, so it is released here only on failure.
             script.Dispose();
             throw;
-        }
-        finally
-        {
-            binaries.Dispose();
         }
     }
 

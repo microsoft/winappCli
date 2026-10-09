@@ -102,14 +102,14 @@ public sealed class XamlTriageRunnerTests
     [TestMethod]
     public void Run_UnsignedEngine_IsRefusedBeforeLoading()
     {
-        var bin = Path.Combine(_tempDir, "bin");
+        var bin = Path.Join(_tempDir, "bin");
         Directory.CreateDirectory(bin);
-        File.WriteAllText(Path.Combine(bin, "dbgeng.dll"), "not a Microsoft-signed engine");
-        var jsProvider = Path.Combine(bin, "JsProvider.dll");
+        File.WriteAllText(Path.Join(bin, "dbgeng.dll"), "not a Microsoft-signed engine");
+        var jsProvider = Path.Join(bin, "JsProvider.dll");
         File.WriteAllText(jsProvider, "not a Microsoft-signed provider");
-        var ext = Path.Combine(_tempDir, "ext.js");
+        var ext = Path.Join(_tempDir, "ext.js");
         File.WriteAllText(ext, "// ext");
-        var dump = Path.Combine(_tempDir, "x.dmp");
+        var dump = Path.Join(_tempDir, "x.dmp");
         File.WriteAllText(dump, "not a dump");
 
         var (exit, _, stderr) = RunCaptured(
@@ -122,10 +122,10 @@ public sealed class XamlTriageRunnerTests
     [TestMethod]
     public void VerifyInputsForLoad_ScriptOtherThanThePinnedExtension_IsRefusedAndReleasesTheBinaries()
     {
-        var ext = Path.Combine(_tempDir, "evil.js");
+        var ext = Path.Join(_tempDir, "evil.js");
         File.WriteAllText(ext, "host.namespace.Debugger.Utility.Control.ExecuteCommand('.load C:\\\\evil.dll');");
         var binariesHold = new TrackingDisposable();
-        var binaries = new ResolvedTriageBinaries(_tempDir, Path.Combine(_tempDir, "JsProvider.dll"), false, "test") { Holds = [binariesHold] };
+        var binaries = new ResolvedTriageBinaries(_tempDir, Path.Join(_tempDir, "JsProvider.dll"), false, "test") { Holds = [binariesHold] };
 
         var ex = Assert.ThrowsExactly<InvalidOperationException>(
             () => XamlTriageRunner.VerifyInputsForLoad(_tempDir, binaries.JsProviderPath, ext, (_, _) => binaries));
@@ -146,17 +146,19 @@ public sealed class XamlTriageRunnerTests
     {
         // DbgEng loads default extension DLLs it finds beside the engine, so a DLL planted next to the
         // verified ones must not follow them into the folder the engine runs from.
-        var source = Path.Combine(_tempDir, "source");
-        Directory.CreateDirectory(Path.Combine(source, "winext"));
+        var source = Path.Join(_tempDir, "source");
+        Directory.CreateDirectory(Path.Join(source, "winext"));
         foreach (var name in new[] { "dbgeng.dll", "JsProvider.dll", "exts.dll", @"winext\exts.dll" })
         {
-            File.WriteAllText(Path.Combine(source, name), name);
+            File.WriteAllText(Path.Join(source, name), name);
         }
 
-        using var original = HoldTrusting(source, Path.Combine(source, "JsProvider.dll"));
-        var staged = XamlTriageRunner.StageVerifiedBinaries(original, HoldTrusting);
+        using var original = HoldTrusting(source, Path.Join(source, "JsProvider.dll"));
+        string? stageDir = null;
         try
         {
+            using var staged = XamlTriageRunner.StageVerifiedBinaries(original, HoldTrusting);
+            stageDir = staged.BinDir;
             Assert.AreNotEqual(source, staged.BinDir);
             CollectionAssert.AreEquivalent(
                 StagedEngineFiles,
@@ -164,8 +166,10 @@ public sealed class XamlTriageRunnerTests
         }
         finally
         {
-            staged.Dispose();
-            Directory.Delete(staged.BinDir, recursive: true);
+            if (stageDir is not null)
+            {
+                Directory.Delete(stageDir, recursive: true);
+            }
         }
     }
 
@@ -179,23 +183,28 @@ public sealed class XamlTriageRunnerTests
             Assert.Inconclusive("Running elevated; the lock only denies non-administrators.");
         }
 
-        var source = Path.Combine(_tempDir, "source");
+        var source = Path.Join(_tempDir, "source");
         Directory.CreateDirectory(source);
-        File.WriteAllText(Path.Combine(source, "dbgeng.dll"), "dbgeng");
-        File.WriteAllText(Path.Combine(source, "JsProvider.dll"), "provider");
+        File.WriteAllText(Path.Join(source, "dbgeng.dll"), "dbgeng");
+        File.WriteAllText(Path.Join(source, "JsProvider.dll"), "provider");
 
-        using var original = HoldTrusting(source, Path.Combine(source, "JsProvider.dll"));
-        var staged = XamlTriageRunner.StageVerifiedBinaries(original, HoldTrusting);
+        using var original = HoldTrusting(source, Path.Join(source, "JsProvider.dll"));
+        string? stageDir = null;
         try
         {
+            using var staged = XamlTriageRunner.StageVerifiedBinaries(original, HoldTrusting);
+            stageDir = staged.BinDir;
+
             // Not even this user can add the default-extension DLLs DbgEng would load from there.
-            Assert.ThrowsExactly<UnauthorizedAccessException>(() => File.WriteAllText(Path.Combine(staged.BinDir, "exts.dll"), "x"));
-            Assert.ThrowsExactly<UnauthorizedAccessException>(() => Directory.CreateDirectory(Path.Combine(staged.BinDir, "winext")));
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => File.WriteAllText(Path.Join(staged.BinDir, "exts.dll"), "x"));
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => Directory.CreateDirectory(Path.Join(staged.BinDir, "winext")));
         }
         finally
         {
-            staged.Dispose();
-            Directory.Delete(staged.BinDir, recursive: true);
+            if (stageDir is not null)
+            {
+                Directory.Delete(stageDir, recursive: true);
+            }
         }
     }
 
@@ -204,7 +213,7 @@ public sealed class XamlTriageRunnerTests
         {
             Holds =
             [
-                VerifiedTool.Open(new FileInfo(Path.Combine(dir, "dbgeng.dll")), (_, _) => true, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+                VerifiedTool.Open(new FileInfo(Path.Join(dir, "dbgeng.dll")), (_, _) => true, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
                 VerifiedTool.Open(new FileInfo(jsProvider), (_, _) => true, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
             ],
         };
