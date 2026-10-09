@@ -27,8 +27,9 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
   and finish its client setup/update. Do not repeatedly retry an unchanged prerequisite.
 - Connection or reconnect may briefly take focus; do not promise zero desktop interruption.
 - Existing Sandbox instances are reused and changed, not discarded. Never close one
-  or run `wsb stop` without user consent. Closing the Sandbox window does not end the
-  Sandbox; `wsb connect --id <id>` shows it again.
+  or run `wsb stop` without user consent. Closing the Sandbox window winapp opened asks
+  for confirmation, then ends the Sandbox and discards its state; the next command
+  starts a fresh one.
 
 ## Launch, inspect, act, verify
 
@@ -163,7 +164,7 @@ suppressed with `--quiet`/`--json`.
   window, `wsb list` then `wsb connect --id <id>`. Never stop it without consent.
 - Incompatible CLI: follow the error; upgrade the installed CLI through its install method,
   **not `winapp update`**. Obtain consent before stopping a Sandbox (`wsb stop --id <id>`)
-  for a version change; closing its window does not stop it.
+  for a version change; it works however the Sandbox was started.
 - Missing/unsupported runtime: use the named requirement and configuration in the error.
   Do not assume any newer same-major runtime is compatible or substitute architectures.
 - Folder share refused (`sandbox_transport_failed`, `0x80070005`): Sandbox shares as SYSTEM.

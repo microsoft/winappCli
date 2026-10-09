@@ -158,6 +158,41 @@ public class WindowsSandboxWindowControllerTests
         Assert.IsFalse(ambiguous);
     }
 
+    /// <summary>
+    /// When winapp opens a new Sandbox it launches the client itself, so the launcher is the window's
+    /// own process, identified by its ID and exact start time rather than by a parent.
+    /// </summary>
+    [TestMethod]
+    public void SelectOwnedClient_TakesTheClientWinappLaunchedDirectly()
+    {
+        var (client, ambiguous) = WindowsSandboxWindowController.SelectOwnedClient(
+            Ownership(),
+            [
+                Candidate(OtherLauncher, 100, parentProcessId: 1),
+                Candidate(OurLauncher, 200, parentProcessId: 1, startTicksUtc: LauncherStartTicks),
+            ]);
+
+        Assert.IsFalse(ambiguous);
+        Assert.IsNotNull(client);
+        Assert.AreEqual((nint)200, client.Handle);
+        Assert.AreEqual(OurLauncher, client.ProcessId);
+    }
+
+    /// <summary>
+    /// A process ID is a reusable number. A window whose process now has winapp's launcher ID but
+    /// started at a different moment is some other process that inherited the number.
+    /// </summary>
+    [TestMethod]
+    public void SelectOwnedClient_IgnoresAWindowWhoseProcessOnlySharesTheLaunchersId()
+    {
+        var (client, ambiguous) = WindowsSandboxWindowController.SelectOwnedClient(
+            Ownership(),
+            [Candidate(OurLauncher, 200, parentProcessId: 1, startTicksUtc: LauncherStartTicks - 1)]);
+
+        Assert.IsNull(client);
+        Assert.IsFalse(ambiguous);
+    }
+
     [TestMethod]
     public void ResolveClient_PrefersTheRecordedWindowWhileItIsStillOpen()
     {

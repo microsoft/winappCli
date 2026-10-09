@@ -699,48 +699,36 @@ public class SandboxAdoptionTests
     }
 
     /// <summary>
-    /// An instance winapp started itself connects unless the guest positively says it has a session.
+    /// A Sandbox winapp opened, but whose window it cannot prove is its own, is treated as adopted.
     /// </summary>
     /// <remarks>
-    /// <c>wsb start</c> attaches no client, so for a Created or RecoveredStart instance the absence
-    /// of one is known, not guessed. Skipping the connect on an inconclusive probe would leave the
-    /// agent — which runs as <c>ExistingLogin</c> — with no session to launch into, and the whole
-    /// heartbeat window would be spent discovering that.
+    /// That is what someone opening Windows Sandbox from Start in the same moment looks like: their
+    /// window holds the session and winapp's shows an error. So the conservative adoption rule
+    /// applies, and only a guest that confirms nobody is attached gets a client.
     /// </remarks>
     [TestMethod]
-    [DataRow((int)GuestSessionAvailability.Unknown, DisplayName = "probe could not answer")]
-    [DataRow((int)GuestSessionAvailability.NoLoginSession, DisplayName = "probe confirmed no session")]
-    public async Task CreatedInstance_ConnectsUnlessTheGuestSaysItHasASession(int session)
+    [DataRow((int)GuestSessionAvailability.Ready, 0, DisplayName = "guest has a session")]
+    [DataRow((int)GuestSessionAvailability.Unknown, 0, DisplayName = "probe could not answer")]
+    [DataRow((int)GuestSessionAvailability.NoLoginSession, 1, DisplayName = "probe confirmed no session")]
+    public async Task OpenedSandboxWithAnUnidentifiedWindow_IsConnectedOnlyWhenNobodyIsAttached(
+        int session,
+        int expectedConnects)
     {
         using var harness = new AdoptionHarness();
         harness.Cli.Session = (GuestSessionAvailability)session;
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
+        Assert.AreEqual(nameof(SandboxInstanceOrigin.Adopted), harness.ReadState()!.InstanceOrigin);
         Assert.AreEqual(
-            1,
-            harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)),
-            "A Sandbox winapp started headless needs exactly one client.");
-    }
-
-    [TestMethod]
-    public async Task CreatedInstance_WhoseGuestAlreadyHasASession_IsNotConnected()
-    {
-        // The client installer can open a Sandbox that winapp then recovers; if a session already
-        // exists, adding another client would duplicate it.
-        using var harness = new AdoptionHarness();
-        harness.Cli.Session = GuestSessionAvailability.Ready;
-
-        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
-
-        Assert.IsFalse(
-            harness.Cli.Operations.Any(op => op.StartsWith("connect:", StringComparison.Ordinal)));
+            expectedConnects,
+            harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)));
     }
 
     [TestMethod]
     public async Task RecoveredInstance_WithAnInconclusiveProbe_IsConnected()
     {
-        // Recovered from winapp's own unconfirmed start, so it was started headless too.
+        // Recovered from an older winapp's unconfirmed `wsb start`, so it was started headless.
         using var harness = new AdoptionHarness();
         harness.Cli.SetRunning(RecoveredInstanceId);
         harness.MarkPendingStart(RecoveredInstanceId);
@@ -919,12 +907,19 @@ public class SandboxAdoptionTests
             return Task.FromResult<IReadOnlyList<string>>([.. _running]);
         }
 
-        public Task<string> StartAsync(string instanceId, string? configuration, CancellationToken cancellationToken)
+        public Task<SandboxConnectAttempt> LaunchAsync(
+            Action<SandboxConnectAttempt> onLaunched,
+            CancellationToken cancellationToken)
         {
-            Operations.Add($"start:{instanceId}");
-            _running.Add(instanceId);
-            return Task.FromResult(instanceId);
+            Operations.Add($"launch:{LaunchedId}");
+            _running.Add(LaunchedId);
+            var attempt = SandboxConnectAttempt.ForLauncher(LauncherProcessId, LauncherStartTicks);
+            onLaunched(attempt);
+            return Task.FromResult(attempt);
         }
+
+        /// <summary>The ID Windows gives the Sandbox a launched window opens.</summary>
+        public string LaunchedId { get; set; } = "sandbox-launched";
 
         public Task StopAsync(string id, CancellationToken cancellationToken)
         {

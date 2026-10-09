@@ -13,11 +13,13 @@ namespace WinApp.Cli.ExecutionTargets.WindowsSandbox;
 /// <c>wsb connect</c> process that asked for it. That parentage is what makes ownership provable:
 /// a client whose parent is this launcher is the one winapp asked for, and a client whose parent is
 /// anything else belongs to another caller — a distinction that holds however the two connects
-/// happen to be interleaved.
+/// happen to be interleaved. When winapp opens a new Sandbox it launches the client itself, and then
+/// the launcher <em>is</em> the client.
 /// </remarks>
 /// <param name="LauncherProcessId">
-/// The <c>wsb connect</c> process winapp started. Valid only while the attempt that produced it is
-/// undisposed, which is what keeps Windows from recycling the number underneath the comparison.
+/// The <c>wsb connect</c> or client process winapp started. Valid only while the attempt that
+/// produced it is undisposed, which is what keeps Windows from recycling the number underneath the
+/// comparison.
 /// </param>
 /// <param name="StartTicksUtc">
 /// UTC ticks that launcher started. A process ID alone is a reusable number, and the parent ID

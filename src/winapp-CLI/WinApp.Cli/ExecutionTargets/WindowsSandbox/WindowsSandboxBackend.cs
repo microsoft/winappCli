@@ -216,9 +216,14 @@ internal sealed class WindowsSandboxBackend(
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var lease = await lifecycle.EnsureInstanceAsync(cancellationToken).ConfigureAwait(false);
+        var lease = await lifecycle.EnsureInstanceAsync(OpenSandboxAsync, cancellationToken).ConfigureAwait(false);
         _instanceId = lease.InstanceId;
         _adopted = lease.IsAdopted;
+        if (lease.Client is { } ownClient)
+        {
+            _client = ownClient;
+        }
+
         var reconnectAlreadyFailed = _failedReconnectEpoch == lease.Epoch;
         _failedReconnectEpoch = null;
 
@@ -267,13 +272,18 @@ internal sealed class WindowsSandboxBackend(
         // Real input and Windows Graphics Capture need a connected client, and connecting is also
         // what establishes the interactive login session the agent must run in.
         //
-        // Whether to connect is decided from what winapp knows plus what the guest reports.
+        // A Sandbox winapp just opened already has one: the window that owns it, which is signing in
+        // while the steps below run. Connecting another would put a second window on screen, and the
+        // session probe cannot tell "still signing in" from "nobody attached", so it is not asked.
         //
-        // An instance winapp started itself was started headless -- `wsb start` attaches no client --
-        // so for Created and RecoveredStart the absence of a client is not a guess. Only a positive
-        // "a session already exists" is allowed to skip the connect there; anything else, including
-        // a probe that could draw no conclusion, connects. Skipping on Unknown would leave the agent
-        // with no session to launch into and burn the whole heartbeat window discovering it.
+        // Otherwise, whether to connect is decided from what winapp knows plus what the guest
+        // reports.
+        //
+        // An instance an older winapp started with `wsb start` (RecoveredStart) was started headless,
+        // so the absence of a client is not a guess there. Only a positive "a session already exists"
+        // is allowed to skip the connect; anything else, including a probe that could draw no
+        // conclusion, connects. Skipping on Unknown would leave the agent with no session to launch
+        // into and burn the whole heartbeat window discovering it.
         //
         // Adoption is the opposite case and stays conservative. Measured on a live Sandbox:
         // `wsb connect` against an instance whose client is already attached starts a *second*
@@ -285,21 +295,27 @@ internal sealed class WindowsSandboxBackend(
         // Measured, not assumed: connecting a closed window here, before the privileged steps
         // below, made recovery slower (median 58 s against 34 s). The guest re-attaching its session
         // slowed the firewall step by about 16 s, far more than the one agent launch it saved.
-        var session = await cli
-            .ProbeInteractiveSessionAsync(lease.InstanceId, cancellationToken)
-            .ConfigureAwait(false);
+        bool clientAttached;
 
-        var startedHeadlessByWinapp =
-            lease.Origin is SandboxInstanceOrigin.Created or SandboxInstanceOrigin.RecoveredStart;
-
-        var connectedClient = startedHeadlessByWinapp
-            ? session is not GuestSessionAvailability.Ready
-            : session is GuestSessionAvailability.NoLoginSession;
-
-        if (connectedClient)
+        if (lease.Origin is SandboxInstanceOrigin.Created)
         {
-            await ConnectClientAsync(lease.InstanceId, cancellationToken)
+            clientAttached = true;
+        }
+        else
+        {
+            var session = await cli
+                .ProbeInteractiveSessionAsync(lease.InstanceId, cancellationToken)
                 .ConfigureAwait(false);
+
+            clientAttached = lease.Origin is SandboxInstanceOrigin.RecoveredStart
+                ? session is not GuestSessionAvailability.Ready
+                : session is GuestSessionAvailability.NoLoginSession;
+
+            if (clientAttached)
+            {
+                await ConnectClientAsync(lease.InstanceId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         // Once per generation, before the first application is ever deployed. Registering a loose
@@ -326,7 +342,7 @@ internal sealed class WindowsSandboxBackend(
             lease.InstanceId,
             bootstrap,
             lease.Epoch,
-            connectedClient,
+            clientAttached,
             cancellationToken).ConfigureAwait(false);
 
         if (!string.Equals(heartbeat.BinaryHash, agentHash, StringComparison.OrdinalIgnoreCase))
@@ -976,8 +992,9 @@ internal sealed class WindowsSandboxBackend(
                 ExecutionTargetErrorCodes.AgentIncompatible,
                 "A different version of winapp started the Windows Sandbox agent, and the Sandbox " +
                 "is still using its files, so this version could not replace them.",
-                // Stopped, not closed: closing the window leaves a Sandbox winapp started running, so
-                // its files stay in use.
+                // Stopped, not closed: an older winapp, or another tool, may have started this
+                // Sandbox with `wsb start`, and closing its window leaves that running with its files
+                // in use. `wsb stop` ends it whoever started it.
                 userAction: $"Save anything you need from the Sandbox, stop it with `wsb stop --id {instanceId}`, then run the command again to start a fresh agent.",
                 context: new Dictionary<string, string> { ["sandboxId"] = instanceId },
                 nextCommand: new ExecutionTargetNextCommand
@@ -1254,14 +1271,46 @@ internal sealed class WindowsSandboxBackend(
     /// and repeating it could duplicate a side effect.
     /// </remarks>
     /// <summary>Connects the interactive client and parks the window this connect created.</summary>
-    /// <remarks>
-    /// The connect is held open across the placement so its process ID cannot be recycled while the
-    /// controller is matching client windows against it. Which window belongs to this connect is
-    /// settled by parentage, so a client another caller opened at the same moment is never a
-    /// candidate — and when the evidence is missing, nothing is parked and nothing is recorded.
-    /// </remarks>
-    private async Task ConnectClientAsync(
+    private Task ConnectClientAsync(
         string instanceId,
+        CancellationToken cancellationToken) =>
+        OpenClientAsync(
+            (onLaunched, token) => cli.ConnectAsync(instanceId, onLaunched, token),
+            placed =>
+            {
+                _client = placed;
+                RememberClientWindow(placed);
+            },
+            cancellationToken);
+
+    /// <summary>
+    /// Opens a new Sandbox in its own window and returns that window once it shows a session.
+    /// </summary>
+    /// <remarks>
+    /// The window is not remembered here: the instance it belongs to is not known yet, so the
+    /// lifecycle records it together with the instance.
+    /// </remarks>
+    private async Task<SandboxClientWindow?> OpenSandboxAsync(CancellationToken cancellationToken)
+    {
+        SandboxClientWindow? opened = null;
+
+        await OpenClientAsync(cli.LaunchAsync, placed => opened = placed, cancellationToken)
+            .ConfigureAwait(false);
+
+        return opened;
+    }
+
+    /// <summary>Starts a client window and parks the one that launch created.</summary>
+    /// <remarks>
+    /// The launcher is held open across the placement so its process ID cannot be recycled while the
+    /// controller is matching client windows against it. Which window belongs to this launch is
+    /// settled by process identity, so a client another caller opened at the same moment is never a
+    /// candidate — and when the evidence is missing, nothing is parked and nothing is reported.
+    /// A window placed before the launch then fails is still reported, before the error propagates.
+    /// </remarks>
+    private async Task OpenClientAsync(
+        Func<Action<SandboxConnectAttempt>, CancellationToken, Task<SandboxConnectAttempt>> open,
+        Action<SandboxClientWindow> onPlaced,
         CancellationToken cancellationToken)
     {
         var windowSnapshot = windowController.Capture();
@@ -1271,8 +1320,7 @@ internal sealed class WindowsSandboxBackend(
 
         try
         {
-            attempt = await cli.ConnectAsync(
-                instanceId,
+            attempt = await open(
                 launched =>
                 {
                     attempt = launched;
@@ -1302,8 +1350,7 @@ internal sealed class WindowsSandboxBackend(
 
                     if (placed is not null)
                     {
-                        _client = placed;
-                        RememberClientWindow(placed);
+                        onPlaced(placed);
                     }
                 }
                 catch (OperationCanceledException) when (!connectCompleted)

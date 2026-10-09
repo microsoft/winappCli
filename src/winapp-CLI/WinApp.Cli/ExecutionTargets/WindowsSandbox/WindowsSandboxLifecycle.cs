@@ -16,7 +16,10 @@ namespace WinApp.Cli.ExecutionTargets.WindowsSandbox;
 /// </remarks>
 internal enum SandboxInstanceOrigin
 {
-    /// <summary>Started by this call.</summary>
+    /// <summary>
+    /// Started by this call, in its own window, so closing that window asks the user and then ends
+    /// it.
+    /// </summary>
     Created,
 
     /// <summary>
@@ -26,8 +29,9 @@ internal enum SandboxInstanceOrigin
     Reused,
 
     /// <summary>
-    /// A start winapp had assigned an ID to but never confirmed, reconciled to the live instance
-    /// with that exact ID.
+    /// A start an earlier winapp had assigned an ID to but never confirmed, reconciled to the live
+    /// instance with that exact ID. Only winapp 0.7.1 and earlier, which started Sandboxes with
+    /// <c>wsb start</c>, leave such a record behind.
     /// </summary>
     RecoveredStart,
 
@@ -54,11 +58,16 @@ internal sealed record SandboxReconciliation(
 /// <param name="Epoch">Its generation identity.</param>
 /// <param name="Origin">How winapp came to be using it.</param>
 /// <param name="IsWarm">Whether a previous command finished bootstrapping this exact epoch.</param>
+/// <param name="Client">
+/// The window that owns a Sandbox this call <see cref="SandboxInstanceOrigin.Created"/>; null for
+/// every other origin.
+/// </param>
 internal sealed record SandboxInstanceLease(
     string InstanceId,
     ExecutionTargetEpoch Epoch,
     SandboxInstanceOrigin Origin,
-    bool IsWarm = false)
+    bool IsWarm = false,
+    SandboxClientWindow? Client = null)
 {
     /// <summary>Whether winapp took over an instance it did not start.</summary>
     /// <remarks>
@@ -88,11 +97,12 @@ internal sealed record SandboxInstanceLease(
 /// instance is never stopped, by this type or any other.
 /// </para>
 /// <para>
-/// Ownership is established <em>before</em> the provider is asked to do anything. The instance ID is
-/// generated here and persisted as a pending start first, so a <c>wsb start</c> that fails after
-/// creating an instance can be reconciled against the exact ID winapp asked for. Recovering by
-/// looking for a new entry in <c>wsb list</c> would attribute whatever appeared to winapp, including
-/// a Sandbox somebody else started in the same second.
+/// A new Sandbox is opened the way Start opens one, in a window that owns it, so closing that window
+/// asks the user and then ends the Sandbox. Windows assigns that instance's ID, so it is found with
+/// <c>wsb list</c> and claimed as winapp's only when the window winapp launched is the one that
+/// reached a session. Windows allows one Sandbox, so that window's session is the listed instance.
+/// Anything less conclusive, such as someone opening a Sandbox from Start in the same moment, is
+/// recorded as adopted rather than created.
 /// </para>
 /// </remarks>
 internal sealed class WindowsSandboxLifecycle(
@@ -126,9 +136,6 @@ internal sealed class WindowsSandboxLifecycle(
 
     /// <summary>Clock seam, so reconciliation bounds are exercised without real time passing.</summary>
     internal Func<DateTimeOffset> UtcNow { get; set; } = () => DateTimeOffset.UtcNow;
-
-    /// <summary>Instance-ID generator seam; the default is cryptographically random.</summary>
-    internal Func<string> NewInstanceId { get; set; } = GenerateInstanceId;
 
     /// <summary>
     /// Classifies the managed instance by comparing persisted state against <c>wsb list</c>.
@@ -170,13 +177,22 @@ internal sealed class WindowsSandboxLifecycle(
     /// Returns a usable Sandbox: the one winapp already owns, one it can recover or take over, or a
     /// new one.
     /// </summary>
+    /// <param name="openSandbox">
+    /// Opens a new Sandbox in its own window and returns that window once it shows a session, or
+    /// null when the window winapp launched never got that far.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
     /// <remarks>
     /// Callers must already hold the target mutation lock: creating or taking over the singleton
     /// mutates it.
     /// </remarks>
     /// <exception cref="ExecutionTargetException">No instance could be obtained or prepared.</exception>
-    public async Task<SandboxInstanceLease> EnsureInstanceAsync(CancellationToken cancellationToken)
+    public async Task<SandboxInstanceLease> EnsureInstanceAsync(
+        Func<CancellationToken, Task<SandboxClientWindow?>> openSandbox,
+        CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(openSandbox);
+
         var state = stateStore.Read(_target);
         var running = await cli.ListAsync(cancellationToken).ConfigureAwait(false);
 
@@ -198,7 +214,7 @@ internal sealed class WindowsSandboxLifecycle(
                 IsWarm: string.Equals(state.BootstrappedEpoch, epoch.Value, StringComparison.Ordinal));
         }
 
-        // An unconfirmed start from this or an earlier process is resolved before anything new is
+        // An unconfirmed start recorded by winapp 0.7.1 or earlier is resolved before anything new is
         // attempted. Starting again while that instance is alive would ask a singleton to become two.
         if (state?.PendingInstanceId is { } pendingId)
         {
@@ -221,95 +237,87 @@ internal sealed class WindowsSandboxLifecycle(
                 : throw NoUsableCandidate(running);
         }
 
-        return await StartOwnedInstanceAsync(state, cancellationToken).ConfigureAwait(false);
+        return await OpenOwnedInstanceAsync(state, openSandbox, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Starts a Sandbox under an ID winapp assigned and recorded first.
+    /// Opens a new Sandbox in its own window and claims it when that window is provably winapp's.
     /// </summary>
     /// <remarks>
-    /// The pending record is committed before <c>wsb start</c> is called and is not removed when the
-    /// call fails. That is what makes a partial start recoverable both within this process and after
-    /// it dies: the next command finds the exact ID this one asked for and reconciles that, instead
-    /// of finding an instance it cannot account for.
+    /// <para>
+    /// Called only when nothing is running. Windows allows one Sandbox, so once the window winapp
+    /// launched shows a session, the one listed instance is that window's. The window is the evidence,
+    /// not the list: a new entry in <c>wsb list</c> alone would equally describe a Sandbox somebody
+    /// opened from Start in the same second, and winapp's own window would then be showing the
+    /// "only one instance" error instead of a session.
+    /// </para>
+    /// <para>
+    /// Without that evidence, an instance that is listed is still used, but recorded as adopted, so
+    /// nothing is ever claimed on a guess. Nothing is recorded before the instance exists: if this
+    /// command dies part-way, the next one finds the Sandbox running in its window and adopts it.
+    /// </para>
     /// </remarks>
-    private async Task<SandboxInstanceLease> StartOwnedInstanceAsync(
+    private async Task<SandboxInstanceLease> OpenOwnedInstanceAsync(
         TargetState? state,
+        Func<CancellationToken, Task<SandboxClientWindow?>> openSandbox,
         CancellationToken cancellationToken)
     {
-        var instanceId = NewInstanceId();
-        var revision = MarkPending(state, instanceId);
-        string reportedId;
-
         _progress.Report(StartingMessage);
 
-        // Only the provider call is inside the recovery scope. Everything after it -- the identity
-        // and reachability checks -- is winapp refusing an instance it will not claim, and funnelling
-        // those into "maybe it worked anyway" recovery would defeat the check that raised them.
-        try
+        var client = await openSandbox(cancellationToken).ConfigureAwait(false);
+
+        if (await WaitForSingleInstanceAsync(cancellationToken).ConfigureAwait(false) is not { } instanceId)
         {
-            reportedId = await cli.StartAsync(instanceId, configuration: null, cancellationToken)
-                .ConfigureAwait(false);
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.StartFailed,
+                "Windows Sandbox did not start.",
+                userAction: "Check the Windows Sandbox window for an error, close it, then retry. If it keeps failing, restart the host.",
+                example: "winapp run . --on sandbox");
         }
-        catch (ExecutionTargetException ex) when (IsSingletonInUse(ex))
+
+        if (client is null)
         {
-            // The singleton is already taken. That is a reuse situation, not a broken host, so the
-            // running instance is taken over rather than reported as a start failure.
+            _progress.Report(AdoptingMessage);
+
+            return Commit(instanceId, SandboxInstanceOrigin.Adopted, state?.Revision ?? 0);
+        }
+
+        return Commit(instanceId, SandboxInstanceOrigin.Created, state?.Revision ?? 0, client);
+    }
+
+    /// <summary>
+    /// Waits, within a bound, for exactly one instance to be listed and reachable.
+    /// </summary>
+    /// <returns>The instance, or null when none became usable in time.</returns>
+    /// <exception cref="ExecutionTargetException">More than one instance is running.</exception>
+    private async Task<string?> WaitForSingleInstanceAsync(CancellationToken cancellationToken)
+    {
+        var deadline = UtcNow() + StartReconciliationTimeout;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var running = await cli.ListAsync(cancellationToken).ConfigureAwait(false);
-            var current = stateStore.Read(_target);
 
-            if (SelectAdoptionCandidate(running, current) is not { } candidate)
+            if (running.Count > 1)
             {
-                throw;
+                throw AmbiguousInstances(running);
             }
 
-            return await AdoptRunningInstanceAsync(current, candidate, cancellationToken).ConfigureAwait(false);
-        }
-        catch (ExecutionTargetException)
-        {
-            // The instance may exist despite the failure -- 0x80070002 from `start` has been
-            // observed on a host that had already created and listed one. Only the exact assigned ID
-            // is reconciled, never "whatever is new in the list", and the pending record survives
-            // either way so a process that dies here still leaves the next command able to finish.
-            if (!await WaitForAssignedInstanceAsync(instanceId, cancellationToken).ConfigureAwait(false))
+            if (running.Count == 1 &&
+                await cli.IsResolvableAsync(running[0], cancellationToken).ConfigureAwait(false))
             {
-                throw;
+                return running[0];
             }
 
-            _progress.Report(RecoveringMessage);
+            if (UtcNow() >= deadline)
+            {
+                return null;
+            }
 
-            return Commit(
-                instanceId,
-                SandboxInstanceOrigin.RecoveredStart,
-                stateStore.Read(_target)?.Revision ?? revision);
+            await Delay(ReconciliationPollInterval, cancellationToken).ConfigureAwait(false);
         }
-
-        // A provider that hands back a different ID than the one it was given is not a provider
-        // whose instance winapp can claim to own. Refused rather than adopted, because the instance
-        // winapp asked for may also exist and preparing the wrong guest is worse than failing.
-        if (!string.Equals(reportedId, instanceId, StringComparison.OrdinalIgnoreCase))
-        {
-            throw ExecutionTargetException.Create(
-                ExecutionTargetErrorCodes.StartFailed,
-                "Windows Sandbox reported a different instance than the one winapp asked it to start.",
-                userAction: "Retry the command. If it keeps failing, restart the host.",
-                context: new Dictionary<string, string>
-                {
-                    ["requestedId"] = instanceId,
-                    ["reportedId"] = reportedId,
-                });
-        }
-
-        if (!await WaitForAssignedInstanceAsync(instanceId, cancellationToken).ConfigureAwait(false))
-        {
-            throw ExecutionTargetException.Create(
-                ExecutionTargetErrorCodes.StartFailed,
-                "Windows Sandbox started but the new instance did not become reachable.",
-                userAction: "Retry the command. If it keeps failing, restart the host.",
-                context: new Dictionary<string, string> { ["sandboxId"] = instanceId });
-        }
-
-        return Commit(instanceId, SandboxInstanceOrigin.Created, revision);
     }
 
     /// <summary>Resolves an unconfirmed start recorded by this or an earlier process.</summary>
@@ -490,35 +498,13 @@ internal sealed class WindowsSandboxLifecycle(
             example: "winapp run . --on sandbox");
     }
 
-    /// <summary>Whether a failure says the Sandbox singleton is already in use.</summary>
-    private static bool IsSingletonInUse(ExecutionTargetException exception) =>
-        exception.Error.Context?.GetValueOrDefault(WsbHResult.ContextKey)
-            == WsbHResult.Format(WsbHResult.AppSingleUse);
-
-    /// <summary>Records the intent to start a specific instance, before anything is started.</summary>
-    private long MarkPending(TargetState? state, string instanceId)
-    {
-        var committed = stateStore.Commit(
-            _target,
-            new TargetState
-            {
-                SchemaVersion = state?.SchemaVersion ?? 0,
-                Revision = 0,
-                TargetKind = _target.Kind,
-                TargetId = _target.Id,
-
-                // Ownership of any previous instance is deliberately not carried forward: this path
-                // only runs when there is nothing left to own.
-                PendingInstanceId = instanceId,
-                PendingStartedUtc = UtcNow(),
-            },
-            state?.Revision ?? 0);
-
-        return committed.Revision;
-    }
-
     /// <summary>Records ownership of <paramref name="instanceId"/> and clears the pending marker.</summary>
-    private SandboxInstanceLease Commit(string instanceId, SandboxInstanceOrigin origin, long expectedRevision)
+    /// <param name="client">The window that owns a Sandbox winapp opened, recorded as winapp's.</param>
+    private SandboxInstanceLease Commit(
+        string instanceId,
+        SandboxInstanceOrigin origin,
+        long expectedRevision,
+        SandboxClientWindow? client = null)
     {
         var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
 
@@ -533,10 +519,18 @@ internal sealed class WindowsSandboxLifecycle(
                 InstanceId = instanceId,
                 BootNonce = nonce,
                 InstanceOrigin = origin.ToString(),
+                ClientWindowHandle = client?.Handle,
+                ClientProcessId = client?.ProcessId,
+                ClientProcessStartTicksUtc = client?.StartTicksUtc,
+                ClientOwnedByWinapp = client is not null,
             },
             expectedRevision);
 
-        return new SandboxInstanceLease(instanceId, ExecutionTargetEpoch.Create(instanceId, nonce), origin);
+        return new SandboxInstanceLease(
+            instanceId,
+            ExecutionTargetEpoch.Create(instanceId, nonce),
+            origin,
+            Client: client);
     }
 
     /// <summary>Drops a pending marker for a start that provably produced nothing.</summary>
@@ -557,24 +551,6 @@ internal sealed class WindowsSandboxLifecycle(
         {
             // Another process may have committed first; its view is at least as current as this one.
         }
-    }
-
-    /// <summary>
-    /// Generates the instance ID winapp will claim.
-    /// </summary>
-    /// <remarks>
-    /// Cryptographically random and shaped as a version-4 UUID. Randomness is what makes the ID
-    /// unguessable, and therefore what makes "this exact ID is mine" a claim no other process can
-    /// accidentally or deliberately satisfy.
-    /// </remarks>
-    internal static string GenerateInstanceId()
-    {
-        var bytes = RandomNumberGenerator.GetBytes(16);
-
-        bytes[7] = (byte)((bytes[7] & 0x0F) | 0x40);
-        bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
-
-        return new Guid(bytes).ToString("D", CultureInfo.InvariantCulture);
     }
 
     /// <summary>
