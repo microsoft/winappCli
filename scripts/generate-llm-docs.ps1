@@ -81,13 +81,8 @@ Write-Host "[DOCS] Saved: $SchemaOutputPath" -ForegroundColor Green
 # Validation uses an explicit output path so it does not update tracked manifests.
 if ($SyncPluginVersions) {
     $PluginVersion = (Get-Content (Join-Path $ProjectRoot "version.json") | ConvertFrom-Json).version
-    $ManifestPaths = @(
-        (Join-Path $ProjectRoot "plugin.json"),
-        (Join-Path $ProjectRoot "plugins\winapp\plugin.json"),
-        (Join-Path $ProjectRoot "plugins\winapp\.claude-plugin\plugin.json"),
-        (Join-Path $ProjectRoot ".github\plugin\marketplace.json"),
-        (Join-Path $ProjectRoot ".claude-plugin\marketplace.json")
-    )
+    . (Join-Path $PSScriptRoot "plugin-version-manifests.ps1")
+    $ManifestPaths = Get-VersionedPluginManifests -ProjectRoot $ProjectRoot
 
     foreach ($manifestPath in $ManifestPaths) {
         if (-not (Test-Path $manifestPath)) {

@@ -2,6 +2,9 @@
 name: winapp-sandbox
 description: Run, debug, and UI-automate a Windows app in a persistent Windows Sandbox rather than the user's desktop. Use for disposable app testing, guest diagnostics, file transfer, and app or whole-desktop evidence. Builds remain on the host; connection and reconnect can briefly take focus.
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## Before acting
 
 - Confirm the user wants Sandbox execution. Do not drop `--on sandbox` to bypass an error.

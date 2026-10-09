@@ -1,7 +1,9 @@
 ---
 name: winapp-find-ui
-description: Agent-first search of WinUI 3 controls and samples for a working code example. Built primarily for AI coding agents to pull real, compiling WinUI markup into the editor instead of inventing it, and equally usable by hand. Use when building a WinUI 3 UI and you need to discover which control fits an intent (e.g. 'tabbed layout', 'a card with an image and title', 'swipeable list rows') and get a real code example from the WinUI Gallery or the Windows Community Toolkit (Gallery/Toolkit return XAML and/or C#). The microsoft-ui-reactor ReactorGallery is an opt-in source (C#-only declarative WinUI) searched only via --source reactor. WinUI-only — not WPF/WinForms. Distinct from 'winapp ui', which automates a running app's UI, and from 'winapp find-api', which searches the API surface (types, members, enums) a project references.
+description: Find the right WinUI 3 control and a real, compiling sample from the WinUI Gallery or Community Toolkit with winapp find-ui. Use when building WinUI UI and unsure which control fits (cards, tabs, swipe lists, inline messages) or when asked for a sample. Not for WPF, WinForms, or a running app.
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
 
 ## This is an agent-first command
 

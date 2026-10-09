@@ -1,7 +1,10 @@
 ---
 name: winapp-identity
-description: Enable Windows package identity for desktop apps, or give parallel packaged worktrees unique development identities. Use when adding identity-requiring Windows features, resolving development registration conflicts, or running copies of a packaged app side by side.
+description: "Give a desktop app (WPF, WinForms, Electron, C++, Rust) package identity so identity-only Windows APIs work: push notifications, background tasks, share target, startup tasks. Use when adding such a feature, running or debugging with identity, or running parallel worktrees side by side."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:

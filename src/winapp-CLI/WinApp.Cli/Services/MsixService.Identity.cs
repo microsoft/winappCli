@@ -587,7 +587,9 @@ internal partial class MsixService
 
         foreach (var entry in rawEntries)
         {
-            var sourcePath = entry.Attribute("Include")?.Value;
+            // MSBuild writes item specs escaped, e.g. "Program Files %28x86%29" for the Debug CRT.
+            var rawSourcePath = entry.Attribute("Include")?.Value;
+            var sourcePath = rawSourcePath is null ? null : Uri.UnescapeDataString(rawSourcePath);
             var rawPackagePath = entry.Element(msbuildNs + "PackagePath")?.Value;
 
             if (string.IsNullOrWhiteSpace(rawPackagePath))
