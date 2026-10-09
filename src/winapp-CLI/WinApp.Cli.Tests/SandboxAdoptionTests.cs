@@ -699,20 +699,20 @@ public class SandboxAdoptionTests
     }
 
     /// <summary>
-    /// A Sandbox winapp opened, but whose window it cannot prove is its own, is treated as adopted.
+    /// A Sandbox winapp opened, but whose window it cannot prove is its own, is used as adopted and
+    /// never given a second window.
     /// </summary>
     /// <remarks>
-    /// That is what someone opening Windows Sandbox from Start in the same moment looks like: their
-    /// window holds the session and winapp's shows an error. So the conservative adoption rule
-    /// applies, and only a guest that confirms nobody is attached gets a client.
+    /// That happens when winapp's window is slow to show a session, or when someone opens Windows
+    /// Sandbox from Start in the same moment. Either way a window is already attached, winapp's or
+    /// the one Start opened, and the guest may still be signing in, so even "no login session" does
+    /// not mean nobody is there. A <c>wsb connect</c> would put a second window on screen.
     /// </remarks>
     [TestMethod]
-    [DataRow((int)GuestSessionAvailability.Ready, 0, DisplayName = "guest has a session")]
-    [DataRow((int)GuestSessionAvailability.Unknown, 0, DisplayName = "probe could not answer")]
-    [DataRow((int)GuestSessionAvailability.NoLoginSession, 1, DisplayName = "probe confirmed no session")]
-    public async Task OpenedSandboxWithAnUnidentifiedWindow_IsConnectedOnlyWhenNobodyIsAttached(
-        int session,
-        int expectedConnects)
+    [DataRow((int)GuestSessionAvailability.Ready, DisplayName = "guest has a session")]
+    [DataRow((int)GuestSessionAvailability.Unknown, DisplayName = "probe could not answer")]
+    [DataRow((int)GuestSessionAvailability.NoLoginSession, DisplayName = "still signing in")]
+    public async Task OpenedSandboxWithAnUnidentifiedWindow_IsNeverGivenASecondWindow(int session)
     {
         using var harness = new AdoptionHarness();
         harness.Cli.Session = (GuestSessionAvailability)session;
@@ -720,9 +720,10 @@ public class SandboxAdoptionTests
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
         Assert.AreEqual(nameof(SandboxInstanceOrigin.Adopted), harness.ReadState()!.InstanceOrigin);
-        Assert.AreEqual(
-            expectedConnects,
-            harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)));
+        Assert.IsFalse(harness.ReadState()!.ClientOwnedByWinapp);
+        Assert.IsFalse(
+            harness.Cli.Operations.Any(op => op.StartsWith("connect:", StringComparison.Ordinal)),
+            "The Sandbox this command opened already has a window; a second must not be connected.");
     }
 
     [TestMethod]

@@ -128,6 +128,9 @@ internal sealed class WindowsSandboxBackend(
     private SandboxClientWindow? _client;
     private GuestBootstrapMaterial? _activeMaterial;
     private ExecutionTargetEpoch? _failedReconnectEpoch;
+
+    /// <summary>Whether this command opened a new Sandbox in its own window.</summary>
+    private bool _openedSandbox;
     private readonly ITargetProgress _progress = progress ?? NullTargetProgress.Instance;
 
     /// <summary>A cached endpoint must answer promptly; it is not an agent still starting up.</summary>
@@ -216,6 +219,7 @@ internal sealed class WindowsSandboxBackend(
     {
         ArgumentNullException.ThrowIfNull(options);
 
+        _openedSandbox = false;
         var lease = await lifecycle.EnsureInstanceAsync(OpenSandboxAsync, cancellationToken).ConfigureAwait(false);
         _instanceId = lease.InstanceId;
         _adopted = lease.IsAdopted;
@@ -272,9 +276,12 @@ internal sealed class WindowsSandboxBackend(
         // Real input and Windows Graphics Capture need a connected client, and connecting is also
         // what establishes the interactive login session the agent must run in.
         //
-        // A Sandbox winapp just opened already has one: the window that owns it, which is signing in
-        // while the steps below run. Connecting another would put a second window on screen, and the
-        // session probe cannot tell "still signing in" from "nobody attached", so it is not asked.
+        // A Sandbox this command just opened already has one: a window that owns it, which is
+        // signing in while the steps below run. Usually that is winapp's own window. If winapp could
+        // not identify it, because it was slow to show a session or someone opened Windows Sandbox
+        // from Start at the same moment, it is still a window, either winapp's or the one Start
+        // opened. Connecting another would put a second window on screen, and the session probe
+        // cannot tell "still signing in" from "nobody attached", so it is not asked.
         //
         // Otherwise, whether to connect is decided from what winapp knows plus what the guest
         // reports.
@@ -297,7 +304,7 @@ internal sealed class WindowsSandboxBackend(
         // slowed the firewall step by about 16 s, far more than the one agent launch it saved.
         bool clientAttached;
 
-        if (lease.Origin is SandboxInstanceOrigin.Created)
+        if (lease.Origin is SandboxInstanceOrigin.Created || _openedSandbox)
         {
             clientAttached = true;
         }
@@ -1292,6 +1299,7 @@ internal sealed class WindowsSandboxBackend(
     /// </remarks>
     private async Task<SandboxClientWindow?> OpenSandboxAsync(CancellationToken cancellationToken)
     {
+        _openedSandbox = true;
         SandboxClientWindow? opened = null;
 
         await OpenClientAsync(cli.LaunchAsync, placed => opened = placed, cancellationToken)
