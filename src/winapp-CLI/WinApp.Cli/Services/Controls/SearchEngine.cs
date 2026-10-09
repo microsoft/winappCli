@@ -86,6 +86,30 @@ internal sealed class SearchEngine
         ["toolkit", "communitytoolkit", "community"];
 
     /// <summary>
+    /// Namespaces a stock WinUI project already resolves, so repeating them on the
+    /// "Namespace:" line is noise rather than help. Verified empirically against
+    /// <c>dotnet new winui</c>: the generated page imports Microsoft.UI.Xaml and the project
+    /// enables ImplicitUsings, which supplies the System.* entries below — a probe
+    /// referencing all of them compiles with no additional using directives.
+    /// Microsoft.UI.Xaml.Controls is not implicit but is imported by every page template and
+    /// dominates both corpora, which is why the Gallery apiNamespace rule has always
+    /// filtered it. The value of this line is the long tail an agent cannot guess
+    /// (CommunityToolkit.WinUI.*, Microsoft.Windows.*, Microsoft.UI.Windowing).
+    /// </summary>
+    private static readonly HashSet<string> AmbientNamespaces = new(StringComparer.Ordinal)
+    {
+        "Microsoft.UI.Xaml",
+        "Microsoft.UI.Xaml.Controls",
+        "System",
+        "System.Collections.Generic",
+        "System.IO",
+        "System.Linq",
+        "System.Net.Http",
+        "System.Threading",
+        "System.Threading.Tasks",
+    };
+
+    /// <summary>
     /// Maps platform-intent query keywords → the core pattern id that should be boosted.
     /// Keys are lowercased single tokens that appear in the user's query (after Preprocess).
     /// We use this to nudge the *specific* curated pattern, not every core pattern.
@@ -132,11 +156,71 @@ internal sealed class SearchEngine
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Remove the control name from a scenario header, but only where it stands alone —
+    /// never where it is the prefix of a longer identifier.
+    /// </summary>
+    /// <remarks>
+    /// The strip exists so prose headers like "A simple ColorPicker" don't double-count
+    /// against the dedicated controlName field. A plain replace also eats the discriminating
+    /// prefix of a sibling type: header "ColorPickerButton" under control "ColorPicker"
+    /// collapses to "Button", and the only query that names the type exactly stops matching.
+    /// </remarks>
+    private static string StripControlName(string header, string controlName)
+    {
+        if (string.IsNullOrEmpty(header) || string.IsNullOrEmpty(controlName)) return header;
+
+        var sb = new System.Text.StringBuilder(header.Length);
+        int i = 0;
+        while (i < header.Length)
+        {
+            if (i + controlName.Length <= header.Length
+                && string.Compare(header, i, controlName, 0, controlName.Length, StringComparison.OrdinalIgnoreCase) == 0
+                && (i == 0 || !char.IsLetterOrDigit(header[i - 1]))
+                && (i + controlName.Length == header.Length || !char.IsLetterOrDigit(header[i + controlName.Length])))
+            {
+                i += controlName.Length;
+                continue;
+            }
+
+            sb.Append(header[i]);
+            i++;
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Index a scenario header as both its original text and its CamelCase split, so a
+    /// header that is a type name rather than prose is reachable by its parts.
+    /// </summary>
+    /// <remarks>
+    /// Toolkit helpers, converters and behaviors are grouped under an umbrella control
+    /// ("Converters", "Header Behaviors") and name the specific type in the header. Without
+    /// the split, BM25 sees "filesizetofriendlystringconverter" as one opaque token, so the
+    /// only query that finds it is the exact type name. Both forms are kept: the compact
+    /// token is what makes that exact-name query work today.
+    /// </remarks>
+    private static string ExpandHeaderForIndex(string header) =>
+        string.IsNullOrEmpty(header) ? header : $"{header} {SplitCamelCase(header)}";
+
+    /// <summary>
+    /// Add the CamelCase split of a query to the query itself, before anything lowercases it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Synonyms.Preprocess"/> lowercases first, so by the time a query reaches the
+    /// tokenizer its word boundaries are gone: "ColorPickerButton" is one token that matches
+    /// neither "color" nor "picker". The original is kept alongside the split so an exact
+    /// identifier still scores as an exact identifier.
+    /// </remarks>
+    private static string ExpandQueryForIndex(string query) =>
+        string.IsNullOrEmpty(query) ? query : $"{query} {SplitCamelCase(query)}";
+
     /// <summary>Two-layer search: find controls first, then pick best scenario.</summary>
     public List<SearchResult> Search(string query, int maxResults = 5)
     {
         // Phrase preprocessing: append merged tokens (e.g. "data grid" → keeps "data", "grid", adds "datagrid")
-        var preprocessed = Synonyms.Preprocess(query);
+        var preprocessed = Synonyms.Preprocess(ExpandQueryForIndex(query));
         var queryWords = BM25.Tokenize(preprocessed);
         if (queryWords.Length == 0) return [];
         var queryCompact = CompactQuery(query);   // e.g., "Color Picker Button" → "colorpickerbutton"
@@ -181,7 +265,7 @@ internal sealed class SearchEngine
                 (nameSplit, 2.5),
                 (string.Join(" ", keywords), 5.0),
                 (string.Join(" ", enrichTags), 3.0),
-                (scenarios[0].HeaderText, 1.5)
+                (ExpandHeaderForIndex(scenarios[0].HeaderText), 1.5)
             );
         }).ToArray();
 
@@ -265,7 +349,7 @@ internal sealed class SearchEngine
         string query, int maxControls = 3, int maxScenariosPerControl = 3,
         bool applyFloor = true, string? sourceFilter = null)
     {
-        var preprocessed = Synonyms.Preprocess(query);
+        var preprocessed = Synonyms.Preprocess(ExpandQueryForIndex(query));
         var queryWords = BM25.Tokenize(preprocessed);
         if (queryWords.Length == 0) return [];
         var queryCompact = CompactQuery(query);
@@ -326,8 +410,8 @@ internal sealed class SearchEngine
             // bias: every scenario contributes equally; BM25's TF saturation handles repeats.
             string CleanHeader(string h)
             {
-                var stripped = h.Replace(controlName, "", StringComparison.OrdinalIgnoreCase);
-                return string.Join(" ", StopWords.FilterTagList(BM25.Tokenize(stripped)));
+                var stripped = StripControlName(h, controlName);
+                return string.Join(" ", StopWords.FilterTagList(BM25.Tokenize(ExpandHeaderForIndex(stripped))));
             }
             var allHeaders = string.Join(" ", scenarios.Select(s => CleanHeader(s.HeaderText)));
             // CamelCase-split control name: "TokenizingTextBox" → "tokenizing text box"
@@ -381,7 +465,12 @@ internal sealed class SearchEngine
         // control name exactly (e.g. "combobox", "togglesswitch"), the user already
         // knows what they want — don't pad the result list with weak siblings.
         // Show ONE control with more of its scenarios instead.
-        if (queryWords.Length == 1 && longestCompactMatch != null && longestCompactMatch == queryCompact)
+        //
+        // Count the user's own tokens, not queryWords: queryWords is built from the
+        // CamelCase-expanded query, and expanding a query that has no CamelCase to
+        // split appends a copy of it ("listview" -> "listview listview"), so every
+        // single-token query would otherwise read as two and never auto-tighten.
+        if (rawQueryTokens.Length == 1 && longestCompactMatch != null && longestCompactMatch == queryCompact)
         {
             maxControls = 1;
             maxScenariosPerControl = Math.Max(maxScenariosPerControl, 5);
@@ -483,7 +572,7 @@ internal sealed class SearchEngine
 
             // Score each scenario individually so we can present them in relevance order.
             var scenDocs = scenarios.Select(sc => BM25.BuildDoc(
-                (sc.HeaderText, 2.0),
+                (ExpandHeaderForIndex(sc.HeaderText), 2.0),
                 (sc.ControlName, 1.0)
             )).ToArray();
             var scenCorpus = BM25.BuildCorpus(scenDocs);
@@ -606,7 +695,7 @@ internal sealed class SearchEngine
         if (scenarios.Count == 1) return scenarios[0];
 
         var scenDocs = scenarios.Select(s => BM25.BuildDoc(
-            (s.HeaderText, 2.0),
+            (ExpandHeaderForIndex(s.HeaderText), 2.0),
             (s.ControlName, 1.0)
         )).ToArray();
         var corpus = BM25.BuildCorpus(scenDocs);
@@ -664,7 +753,30 @@ internal sealed class SearchEngine
         }
 
         if (scenario != null) return (FormatScenario(scenario), true, $"{scenario.Source}-{scenario.Id}");
-        return ($"Pattern '{id}' not found.", false, null);
+
+        // Sample ids are derived from the upstream index, so one saved from an earlier
+        // search can stop resolving when a control is renamed or its samples renumbered.
+        // Only source-prefixed ids get the hint: a bare word is more likely a typo than a
+        // stale id, and the generic message already covers that.
+        // Reactor is opt-in, so neither of the generic suggestions can recover one of its
+        // ids: a plain search and `--list` both skip the provider entirely, and `--source`
+        // can't be combined with `--list`. A scoped search is the only command that works.
+        var hint = expectedSource == null
+            ? ""
+            : ProviderRegistry.IsReactorSource(expectedSource)
+                ? $" Sample ids can change when the corpus is refreshed — run `winapp find-ui {SearchTermForStaleId(bareId)} --source {ProviderRegistry.ReactorSourceId}` to find the current one."
+                : $" Sample ids can change when the corpus is refreshed — run `winapp find-ui {SearchTermForStaleId(bareId)}` or `winapp find-ui --list` to find the current one.";
+        return ($"Pattern '{id}' not found.{hint}", false, null);
+    }
+
+    /// <summary>Turn the bare part of a stale id into a search term by dropping its
+    /// trailing scenario number (<c>colorpickerbutton-1</c> → <c>colorpickerbutton</c>),
+    /// so the suggested command searches the control rather than a number that no
+    /// longer exists.</summary>
+    private static string SearchTermForStaleId(string bareId)
+    {
+        int dash = bareId.LastIndexOf('-');
+        return dash > 0 && int.TryParse(bareId.AsSpan(dash + 1), out _) ? bareId[..dash] : bareId;
     }
 
     /// <summary>Parse the integer after the last <c>-</c> in <paramref name="id"/>,
@@ -783,10 +895,9 @@ internal sealed class SearchEngine
         };
         sb.AppendLine($"## {ControlHeader(s.ControlName, s.HeaderText)}{sourceTag}");
 
-        // Reactor: surface the (uniform) NuGet package. Any control-level `using`
-        // directives are already folded into the C# snippet, and the shared
-        // Microsoft.UI.Reactor api namespace is deliberately NOT emitted as a
-        // **Namespace:** line — all reactor controls share it, so it'd be pure noise.
+        // Reactor: surface the (uniform) NuGet package. The shared Microsoft.UI.Reactor api
+        // namespace is deliberately NOT emitted as a **Namespace:** line — all reactor
+        // controls share it, so it'd be pure noise. Per-control `usings` still are, below.
         if (s.Source == "reactor")
         {
             if (!string.IsNullOrEmpty(s.NuGetPackage))
@@ -805,18 +916,36 @@ internal sealed class SearchEngine
                     parts.Add($"`{ns}`");
                 sb.AppendLine($"**Setup:** {string.Join(" · ", parts)}");
             }
-
-            // Gallery non-default namespace hint — agents miss `using Microsoft.Windows.Notifications`
-            // and similar long-tail imports. Skip the dominant Microsoft.UI.Xaml.Controls (auto-imported
-            // in default templates) so 79/107 controls stay quiet. This is independent of the Setup
-            // line above: a sample can need both an xmlns declaration and a C# using.
-            if (s.Source == "gallery"
-                && !string.IsNullOrEmpty(s.ApiNamespace)
-                && s.ApiNamespace != "Microsoft.UI.Xaml.Controls")
-            {
-                sb.AppendLine($"**Namespace:** `{s.ApiNamespace}`");
-            }
         }
+
+        // C# imports, as their own line rather than prepended to the snippet: sample code is
+        // a class-body fragment, so a `using` glued to the front of it compiles neither as a
+        // file nor pasted into a class (CS1529). On its own line it merges into the target
+        // file's existing header, which is where the consumer has to put it anyway.
+        //
+        // Two complementary inputs, unioned: the control's `usings` (what its samples import)
+        // and the Gallery's apiNamespace (where the control type itself lives). A Gallery
+        // control routinely has both and they differ — appwindow imports only template
+        // namespaces but lives in Microsoft.UI.Windowing, so dropping either loses the hint.
+        // Ambient namespaces are filtered so the line carries only what an agent would miss.
+        //
+        // Scope: a producer parsing source sees only the `using` directives written in the
+        // sample file, not the host project's global usings, so treat this as the non-obvious
+        // imports rather than a complete set.
+        var imports = new List<string>(s.Usings.Length + 1);
+        foreach (var u in s.Usings)
+        {
+            if (!AmbientNamespaces.Contains(u) && !imports.Contains(u)) imports.Add(u);
+        }
+        if (s.Source == "gallery"
+            && !string.IsNullOrEmpty(s.ApiNamespace)
+            && s.ApiNamespace != "Microsoft.UI.Xaml.Controls"
+            && !imports.Contains(s.ApiNamespace))
+        {
+            imports.Add(s.ApiNamespace);
+        }
+        if (imports.Count > 0)
+            sb.AppendLine($"**Namespace:** {string.Join(" · ", imports.Select(u => $"`{u}`"))}");
 
         if (s.Xaml != null)
         {

@@ -1,0 +1,29 @@
+{
+  "cluster": "c14",
+  "framework": "WinUI3",
+  "goal": "Provide a WinUI 3 MVVM-friendly dialog pattern that supplies `XamlRoot` from the view and preserves the dialog view model state.",
+  "must_include": [
+    "Says `ContentDialog.XamlRoot` must be set before `ShowAsync` in WinUI 3, using the page's `XamlRoot` or the window root content's `XamlRoot`.",
+    "Keeps UI concepts such as `ContentDialog` and `XamlRoot` out of the domain view model, either by showing the dialog in the page code-behind or through a view/dialog service that receives a XAML root.",
+    "Uses the same `LibraryAddSongViewModel` instance that is bound to `LibraryAddSongControl` when reading the entered values or executing the save command.",
+    "Returns a data object/result from the dialog to `LibraryViewModel` rather than trying to scrape TextBox controls from another view model instance."
+  ],
+  "must_not": [
+    "Leaves `dialog.XamlRoot` unset.",
+    "Creates a second dialog content view model and then reads values from the first one.",
+    "Recommends `MessageDialog` as the primary WinUI 3 solution for custom XAML content."
+  ],
+  "acceptable_alternatives": [
+    "Handle the menu item's click in `LibraryPage.xaml.cs`, show the dialog there, and call a view model command with the resulting song.",
+    "Implement an `IDialogService` whose show method is initialized with the current `XamlRoot` by the view layer.",
+    "Create a `ContentDialog` subclass for `LibraryAddSongDialog` with its own view model and expose the result after `ShowAsync`."
+  ],
+  "solved": "The answer supplies `XamlRoot` from the view/window and uses one dialog view model instance so typed values are available when the primary button is accepted.",
+  "partial": "The answer sets `XamlRoot` but ignores the duplicate or disconnected dialog view model problem.",
+  "sources": ["https://stackoverflow.com/questions/78321069/how-to-display-a-contentdialog-in-winui-3-mvvm"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/dialogs-and-flyouts/dialogs",
+    "https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.contentdialog?view=windows-app-sdk-1.8"
+  ],
+  "notes": "The source question has multiple community answers; the rubric rewards the documented XamlRoot requirement and an MVVM boundary that preserves state."
+}

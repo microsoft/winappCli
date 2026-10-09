@@ -1,0 +1,21 @@
+{
+  "id": "c02-winui-packaged-anycpu-msix",
+  "description": "A packaged WinUI 3 build reports that an app host executable cannot be ProcessorArchitecture neutral, based on https://stackoverflow.com/questions/72980822/how-to-fix-a-packaged-winui3-app-build-what-makes-trouble-with-processorarchite.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "Our packaged WinUI 3 build fails in CI with `Packaged .NET applications with an app host exe cannot be ProcessorArchitecture neutral. Please specify a RuntimeIdentifier or a Platform other than AnyCPU.` The project has x86/x64/arm64 in the csproj, but the pipeline still trips over Any CPU.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

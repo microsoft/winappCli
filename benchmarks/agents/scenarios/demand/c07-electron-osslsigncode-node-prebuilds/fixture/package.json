@@ -1,0 +1,16 @@
+{
+  "name": "signal-ridge-client",
+  "version": "0.9.4846",
+  "private": true,
+  "scripts": {
+    "dist:win": "electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "utf-8-validate": "6.0.3",
+    "websocket": "1.0.34"
+  },
+  "devDependencies": {
+    "electron": "41.10.6",
+    "electron-builder": "24.4.0"
+  }
+}

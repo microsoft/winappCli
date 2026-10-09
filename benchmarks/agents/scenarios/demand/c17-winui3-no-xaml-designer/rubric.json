@@ -1,0 +1,29 @@
+{
+  "cluster": "c17",
+  "framework": "WinUI3",
+  "goal": "Explain why there is no visual XAML designer for this WinUI 3 desktop project and give practical design-time alternatives.",
+  "must_include": [
+    "Says the missing designer is expected for WinUI 3 XAML and is not caused by the shown project file or XAML markup.",
+    "Recommends editing XAML directly and using runtime aids such as XAML Hot Reload, Live Visual Tree, or the WinUI 3 Gallery/examples to iterate on layout.",
+    "Keeps the project as a WinUI 3 desktop app unless the developer explicitly chooses a different framework for designer support.",
+    "Mentions that UWP/WinUI 2 designer availability does not imply the same designer surface exists for WinUI 3 desktop apps."
+  ],
+  "must_not": [
+    "Claims installing a missing NuGet package will enable a WinUI 3 visual designer.",
+    "Tells the developer to convert back to UWP just to edit the XAML visually.",
+    "Invents a hidden Visual Studio command that opens a full WinUI 3 drag-and-drop designer."
+  ],
+  "acceptable_alternatives": [
+    "Use temporary prototype XAML in a UWP/WinUI 2 project and manually adapt it back to WinUI 3.",
+    "Use Blend or design tools only for assets and visual planning, not as a WinUI 3 XAML designer.",
+    "Use third-party XAML preview tooling if the answer clearly states it is not built into Visual Studio for WinUI 3."
+  ],
+  "solved": "The answer tells the developer that the project is not misconfigured, names WinUI 3's lack of a built-in visual XAML designer, and suggests at least one realistic workflow for layout iteration.",
+  "partial": "The answer says there is no designer but gives little or no practical replacement workflow.",
+  "sources": ["https://stackoverflow.com/questions/70292470/where-is-the-designer-view-in-winui-3"],
+  "verified_with": [
+    "https://github.com/microsoft/microsoft-ui-xaml/issues/3656",
+    "https://learn.microsoft.com/en-us/windows/apps/winui/winui3/"
+  ],
+  "notes": "Visual Studio and WinUI tooling change over time; grade against the fixture's WinUI 3 desktop project and the absence of a full visual designer, not against unrelated XAML editors."
+}

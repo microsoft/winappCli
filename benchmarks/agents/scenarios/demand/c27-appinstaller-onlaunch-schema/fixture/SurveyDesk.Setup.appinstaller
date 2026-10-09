@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppInstaller
+  Uri="https://downloads.wingatefield.io/SurveyDesk.Setup.appinstaller"
+  Version="1.0.2.0"
+  xmlns="http://schemas.microsoft.com/appx/appinstaller/2017/2">
+  <MainBundle
+    Name="WingateField.SurveyDesk"
+    Version="1.0.2.0"
+    Publisher="CN=Wingate Field Tools"
+    Uri="https://downloads.wingatefield.io/SurveyDesk.Setup_1.0.2.0_Test/SurveyDesk.Setup_1.0.2.0_x64.msixbundle" />
+  <UpdateSettings>
+    <OnLaunch HoursBetweenUpdateChecks="0" />
+  </UpdateSettings>
+</AppInstaller>

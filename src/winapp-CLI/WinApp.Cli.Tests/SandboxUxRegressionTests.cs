@@ -214,19 +214,34 @@ public class SandboxUxRegressionTests
             "A guest whose bootstrap never finished has no interactive session yet.");
     }
 
-    /// <summary>A first bootstrap still connects the client, because there is no session yet.</summary>
+    /// <summary>
+    /// A first bootstrap uses the window that opened the Sandbox and never connects a second one.
+    /// </summary>
+    /// <remarks>
+    /// winapp opens a new Sandbox the way Start does, so its window owns it: closing it asks the user,
+    /// then ends the Sandbox. A <c>wsb connect</c> on top would put a second window on screen, and
+    /// closing that one would leave the Sandbox running.
+    /// </remarks>
     [TestMethod]
-    public async Task FirstBootstrap_StillConnectsTheClient()
+    public async Task FirstBootstrap_UsesTheWindowThatOpenedTheSandbox()
     {
-        using var harness = new BackendHarness();
+        var client = new SandboxClientWindow((nint)0x2468, 4343, 1_000_000);
+        var windows = new PlacedWindowController(client);
+        using var harness = new BackendHarness(windows);
 
         await harness.RunUntilAgentLaunchAsync(
             TestContext.CancellationToken,
-            requireInteractiveDesktop: false);
+            requireInteractiveDesktop: true);
 
-        Assert.IsTrue(
+        Assert.AreEqual(1, harness.Cli.Operations.Count(op => op == "launch"));
+        Assert.IsFalse(
             harness.Cli.Operations.Any(op => op.StartsWith("connect", StringComparison.Ordinal)),
-            "A brand-new instance has no interactive session until a client connects.");
+            "The window that opened the Sandbox is its session; a second window must not be connected.");
+        Assert.IsFalse(
+            harness.Cli.Operations.Contains("probe-session"),
+            "A just-opened window is still signing in, so the session probe cannot say anything useful.");
+        Assert.AreEqual(client, harness.ReadClient(), "The owning window is recorded as winapp's.");
+        Assert.AreEqual(client, windows.Placed, "The owning window is moved behind the user's window.");
     }
 
     [TestMethod]
@@ -235,6 +250,7 @@ public class SandboxUxRegressionTests
         var client = new SandboxClientWindow((nint)0x1234, 4321, 638_900_000_000_000_000);
         var windows = new PlacedWindowController(client);
         using var harness = new BackendHarness(windows);
+        harness.MarkInstanceOwnedButNeverBootstrapped();
         harness.Cli.ConnectFailure = new OperationCanceledException(new CancellationToken(canceled: true));
 
         await Assert.ThrowsAsync<OperationCanceledException>(
@@ -252,6 +268,7 @@ public class SandboxUxRegressionTests
         var client = new SandboxClientWindow((nint)0x5678, 8765, 638_900_000_100_000_000);
         var windows = new PlacedWindowController(client);
         using var harness = new BackendHarness(windows);
+        harness.MarkInstanceOwnedButNeverBootstrapped();
         harness.Cli.ConnectFailure = ExecutionTargetException.Create(
             ExecutionTargetErrorCodes.NoInteractiveSession,
             "The Windows Sandbox client could not connect.");
@@ -800,11 +817,18 @@ public class SandboxUxRegressionTests
         public Task<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<string>>([.. _running]);
 
-        public Task<string> StartAsync(string instanceId, string? configuration, CancellationToken cancellationToken)
+        /// <summary>The ID Windows gives the Sandbox a launched window opens.</summary>
+        public string LaunchedId { get; set; } = "sandbox-launched";
+
+        public Task<SandboxConnectAttempt> LaunchAsync(
+            Action<SandboxConnectAttempt> onLaunched,
+            CancellationToken cancellationToken)
         {
-            Operations.Add("start");
-            _running.Add(instanceId);
-            return Task.FromResult(instanceId);
+            Operations.Add("launch");
+            _running.Add(LaunchedId);
+            var attempt = SandboxConnectAttempt.ForLauncher(4343, 1_000_000);
+            onLaunched(attempt);
+            return Task.FromResult(attempt);
         }
 
         public Task<bool> IsResolvableAsync(string id, CancellationToken cancellationToken) =>

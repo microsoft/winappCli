@@ -1,0 +1,2 @@
+ReportsPage.xaml.cs(22,55): error CS1061: 'Application' does not contain a definition for 'MainWindow' and no accessible extension method 'MainWindow' accepting a first argument of type 'Application' could be found.
+ReportsPage.xaml.cs(23,57): error CS1503: Argument 1: cannot convert from 'HarborMetrics.Pages.ReportsPage' to 'Microsoft.UI.Xaml.Window'

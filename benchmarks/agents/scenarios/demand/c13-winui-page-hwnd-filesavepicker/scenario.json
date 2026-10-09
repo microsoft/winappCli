@@ -1,0 +1,10 @@
+{
+  "id": "c13-winui-page-hwnd-filesavepicker",
+  "description": "A WinUI 3 page inside a NavigationView needs the main window HWND for a FileSavePicker, based on https://stackoverflow.com/questions/71432263/how-to-retrieve-the-window-handle-of-the-current-winui-3-mainwindow-from-a-page.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My save dialog works from MainWindow but not from ReportsPage inside a NavigationView. I tried casting Application.Current.MainWindow and then WinRT.Interop.WindowNative.GetWindowHandle(this), but the page is not a window and the picker fails.",
+  "configurations": ["none", "winapp", "winui", "both"],
+  "fixture": "fixture",
+  "expect": { "capabilities": { "primary": [], "acceptable": [], "forbid": [] } }
+}

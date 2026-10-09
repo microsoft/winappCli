@@ -1,0 +1,7 @@
+Previous successful feed entry:
+
+Package.appinstaller Version="1.0.9.9"
+MainPackage Version="1.0.9.9"
+MainPackage Uri="https://downloads.litwaregrid.example.com/helios/Helios.Workbench_1.0.9.9_x64.msix"
+
+The package identity name and publisher have not changed between releases.

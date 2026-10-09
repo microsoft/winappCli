@@ -782,6 +782,31 @@ public class SandboxAdoptionTests
         Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, failure.Error.Code);
     }
 
+    /// <summary>
+    /// When winapp's window loses the singleton to a Sandbox started headless, that Sandbox is
+    /// treated like any other adopted one, so it gets the one window it is missing.
+    /// </summary>
+    /// <remarks>
+    /// Measured live: a <c>wsb start</c> in the same moment as winapp's launch wins, winapp's window
+    /// shows "Only one running instance of Windows Sandbox is allowed", and the listed Sandbox has no
+    /// window at all. Assuming a window was attached made the agent wait out its full deadline and
+    /// fail.
+    /// </remarks>
+    [TestMethod]
+    public async Task OpenedSandboxWhoseWindowLostTheRace_IsConnectedWhenNobodyIsAttached()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.LaunchLosesToWindowlessSandbox = true;
+        harness.Cli.Session = GuestSessionAvailability.NoLoginSession;
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        Assert.AreEqual(nameof(SandboxInstanceOrigin.Adopted), harness.ReadState()!.InstanceOrigin);
+        Assert.AreEqual(
+            1,
+            harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)));
+    }
+
     [TestMethod]
     public async Task AdoptedInstance_WithAHealthyClient_IsNeverReconnected()
     {
@@ -798,48 +823,37 @@ public class SandboxAdoptionTests
     }
 
     /// <summary>
-    /// An instance winapp started itself connects unless the guest positively says it has a session.
+    /// A Sandbox winapp opened, but whose window it cannot prove is its own, is used as adopted and
+    /// never given a second window.
     /// </summary>
     /// <remarks>
-    /// <c>wsb start</c> attaches no client, so for a Created or RecoveredStart instance the absence
-    /// of one is known, not guessed. Skipping the connect on an inconclusive probe would leave the
-    /// agent — which runs as <c>ExistingLogin</c> — with no session to launch into, and the whole
-    /// heartbeat window would be spent discovering that.
+    /// That happens when winapp's window is slow to show a session, or when someone opens Windows
+    /// Sandbox from Start in the same moment. Either way a window is already attached, winapp's or
+    /// the one Start opened, and the guest may still be signing in, so even "no login session" does
+    /// not mean nobody is there. A <c>wsb connect</c> would put a second window on screen.
     /// </remarks>
     [TestMethod]
+    [DataRow((int)GuestSessionAvailability.Ready, DisplayName = "guest has a session")]
     [DataRow((int)GuestSessionAvailability.Unknown, DisplayName = "probe could not answer")]
-    [DataRow((int)GuestSessionAvailability.NoLoginSession, DisplayName = "probe confirmed no session")]
-    public async Task CreatedInstance_ConnectsUnlessTheGuestSaysItHasASession(int session)
+    [DataRow((int)GuestSessionAvailability.NoLoginSession, DisplayName = "still signing in")]
+    public async Task OpenedSandboxWithAnUnidentifiedWindow_IsNeverGivenASecondWindow(int session)
     {
         using var harness = new AdoptionHarness();
         harness.Cli.Session = (GuestSessionAvailability)session;
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
-        Assert.AreEqual(
-            1,
-            harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)),
-            "A Sandbox winapp started headless needs exactly one client.");
-    }
-
-    [TestMethod]
-    public async Task CreatedInstance_WhoseGuestAlreadyHasASession_IsNotConnected()
-    {
-        // The client installer can open a Sandbox that winapp then recovers; if a session already
-        // exists, adding another client would duplicate it.
-        using var harness = new AdoptionHarness();
-        harness.Cli.Session = GuestSessionAvailability.Ready;
-
-        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
-
+        Assert.AreEqual(nameof(SandboxInstanceOrigin.Adopted), harness.ReadState()!.InstanceOrigin);
+        Assert.IsFalse(harness.ReadState()!.ClientOwnedByWinapp);
         Assert.IsFalse(
-            harness.Cli.Operations.Any(op => op.StartsWith("connect:", StringComparison.Ordinal)));
+            harness.Cli.Operations.Any(op => op.StartsWith("connect:", StringComparison.Ordinal)),
+            "The Sandbox this command opened already has a window; a second must not be connected.");
     }
 
     [TestMethod]
     public async Task RecoveredInstance_WithAnInconclusiveProbe_IsConnected()
     {
-        // Recovered from winapp's own unconfirmed start, so it was started headless too.
+        // Recovered from an older winapp's unconfirmed `wsb start`, so it was started headless.
         using var harness = new AdoptionHarness();
         harness.Cli.SetRunning(RecoveredInstanceId);
         harness.MarkPendingStart(RecoveredInstanceId);
@@ -1022,12 +1036,26 @@ public class SandboxAdoptionTests
             return Task.FromResult<IReadOnlyList<string>>([.. _running]);
         }
 
-        public Task<string> StartAsync(string instanceId, string? configuration, CancellationToken cancellationToken)
+        public Task<SandboxConnectAttempt> LaunchAsync(
+            Action<SandboxConnectAttempt> onLaunched,
+            CancellationToken cancellationToken)
         {
-            Operations.Add($"start:{instanceId}");
-            _running.Add(instanceId);
-            return Task.FromResult(instanceId);
+            Operations.Add($"launch:{LaunchedId}");
+            _running.Add(LaunchedId);
+            var attempt = SandboxConnectAttempt.ForLauncher(LauncherProcessId, LauncherStartTicks);
+            attempt.LostToWindowlessSandbox = LaunchLosesToWindowlessSandbox;
+            onLaunched(attempt);
+            return Task.FromResult(attempt);
         }
+
+        /// <summary>
+        /// When set, the window winapp launches shows "Only one running instance of Windows Sandbox
+        /// is allowed" and no other Sandbox window is open: a headless Sandbox won the singleton.
+        /// </summary>
+        public bool LaunchLosesToWindowlessSandbox { get; set; }
+
+        /// <summary>The ID Windows gives the Sandbox a launched window opens.</summary>
+        public string LaunchedId { get; set; } = "sandbox-launched";
 
         public Task StopAsync(string id, CancellationToken cancellationToken)
         {

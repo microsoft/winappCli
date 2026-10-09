@@ -68,6 +68,15 @@ Describe 'Test-AnswerExpectations' {
         (Test-AnswerExpectations -Expect $e -WinappCommands @() -Map $map).Status | Should -Be 'pass'
     }
 
+    It 'leaves rubric-graded scenarios with no capability expectations n/a, whatever the answer names' {
+        $e = New-Expect
+        foreach ($resp in 'Use argparse.', 'Run winapp package first.') {
+            $r = Test-AnswerExpectations -Expect $e -Response $resp -Map $map
+            $r.Status | Should -Be 'n/a'
+            $r.Notes | Should -Match 'graded by rubric'
+        }
+    }
+
     It 'falls back to recorded winapp commands and checks only command signal groups' {
         $r = Test-AnswerExpectations -Expect (New-Expect -primary 'msix.sign') -WinappCommands @('cert generate') -Map $map
         $r.Status | Should -Be 'pass'

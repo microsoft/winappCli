@@ -1,0 +1,32 @@
+{
+  "name": "northstar-shell",
+  "version": "3.8.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "dist:win": "electron-builder --win msiWrapped nsis"
+  },
+  "devDependencies": {
+    "electron": "30.0.5",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "com.northstar.shell",
+    "productName": "Northstar Shell",
+    "win": {
+      "target": [
+        "msiWrapped",
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true
+    },
+    "msiWrapped": {
+      "oneClick": false,
+      "impersonate": true
+    }
+  }
+}
