@@ -4270,6 +4270,38 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task PreparePackageAsync_SolutionRestoreFailsWithPackageErrors_StopsPackaging()
+    {
+        // Package preparation must not publish with an unrestored solution dependency, whatever the error code.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        WriteProjectsAt("A/A.csproj");
+        var solution = WriteFile("App.slnx", SlnxListing("App.csproj", "A/A.csproj"));
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetStreamingHandler = (args, onOut, _) =>
+            {
+                if (!args.Contains(".slnf", StringComparison.Ordinal))
+                {
+                    return 0;
+                }
+
+                onOut?.Invoke(@"C:\src\A\A.csproj : error NU1101: Unable to find package X.");
+                return 1;
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out _);
+        var options = new ProjectRunOptions("Release", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Solution: solution);
+
+        var ex = await Assert.ThrowsAsync<ProjectRunException>(() => service.PreparePackageAsync(csproj, options, CancellationToken.None));
+        DeleteKeptSolutionFilters(dotnet);
+
+        StringAssert.Contains(ex.Message, "Publish restore failed");
+        Assert.IsFalse(dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal)),
+            "the target's publish restore must not run after a failed dependency restore");
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_RealTerminalFilteredRestoreRecoveredIndividually_DeletesTheFilter()
     {
         // On an interactive terminal, a solution-filter restore that per-project restores recover from is

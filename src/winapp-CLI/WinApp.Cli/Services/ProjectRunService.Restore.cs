@@ -423,8 +423,14 @@ internal sealed partial class ProjectRunService
         {
             if (FailedOnlyWithPackageErrors(filterRestore.Lines))
             {
-                // Package preparation still restores the target's exact publish graph next, and that restore
-                // decides: an error here may come from a framework or platform the publish doesn't use.
+                // Like a failed per-project restore, package preparation stops rather than publish with an
+                // unrestored solution dependency.
+                if (publish)
+                {
+                    throw new ProjectRunException(
+                        $"Publish restore failed for the solution's projects (exit code {filterRestore.ExitCode}).");
+                }
+
                 step.Warn(
                     $"{UiSymbols.Warning} Restore of the solution's projects failed (exit code {filterRestore.ExitCode}); continuing with the build, which will report any unresolved dependency errors.");
                 return;
