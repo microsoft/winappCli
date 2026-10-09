@@ -150,9 +150,8 @@ winapp devtools search --of-type TextBlock --with 'FontSize>=20' --fields 'Text,
 
 `set-property` reports the value before and after. Changes are live only: they don't
 edit your source and are gone when the app restarts. Setting a bound property replaces
-its binding until you restart the app; the output warns you. `diagnose-binding`
-evaluates a binding's path and types at that moment; add `--json` for every
-observation.
+its binding until you restart the app; the output warns you. `diagnose-binding` shows
+what a binding resolves to; add `--json` for every observation.
 
 Passwords never leave the app: password properties show as `<redacted>`, DevTools
 refuses to set them, and passwords in your XAML show as `******` in source previews

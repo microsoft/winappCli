@@ -201,6 +201,8 @@ binding** on a property you edited. `Binding.clearValue` (managed) and
 - **Staging refused:** a packaged winapp stages the engine in `%USERPROFILE%\.winapp\engine`;
   check that path isn't redirected by a link and isn't held by an app.
 - **Access denied:** run winapp as the app's user at the same or higher integrity.
+- **Transport limit:** the engine path beside `winapp.exe` must be under 260 characters;
+  install winapp at a shorter path.
 - **Sandbox launch failed:** keep the reported diagnostics path; don't reuse selectors
   from an earlier run. Set `WINAPP_DEVTOOLS_LOG=1` before launch for crash diagnostics
   (dumps may contain app memory).
