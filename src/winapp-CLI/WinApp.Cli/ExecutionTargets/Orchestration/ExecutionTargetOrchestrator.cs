@@ -210,6 +210,15 @@ internal sealed class ExecutionTargetOrchestrator(
     }
 
     /// <summary>
+    /// Reports whether this host meets the target's prerequisites, without changing anything.
+    /// </summary>
+    /// <returns>The readiness report, or null when this target does not describe its host.</returns>
+    public Task<TargetHostReadiness?> DescribeHostAsync(CancellationToken cancellationToken) =>
+        backend is IHostReadinessTarget host
+            ? host.DescribeHostAsync(cancellationToken)
+            : Task.FromResult<TargetHostReadiness?>(null);
+
+    /// <summary>
     /// Reports what the target looks like right now, without creating or repairing anything.
     /// </summary>
     /// <remarks>

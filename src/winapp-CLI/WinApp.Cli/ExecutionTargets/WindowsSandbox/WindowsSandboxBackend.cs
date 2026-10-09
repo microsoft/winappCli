@@ -37,7 +37,7 @@ internal sealed class WindowsSandboxBackend(
     IWindowsSandboxWindowController windowController,
     IWindowsSandboxSetup? setup = null,
     ITargetStateStore? stateStore = null,
-    ITargetProgress? progress = null) : IExecutionTargetBackend, IHostRenderedTarget, IInspectableTarget, IReconnectableTarget
+    ITargetProgress? progress = null) : IExecutionTargetBackend, IHostRenderedTarget, IInspectableTarget, IReconnectableTarget, IHostReadinessTarget
 {
     /// <summary>Guest path prefix the read-only bootstrap folder is mapped under.</summary>
     /// <remarks>
@@ -211,6 +211,10 @@ internal sealed class WindowsSandboxBackend(
             return TargetSupportResult.Unsupported(ex.Error);
         }
     }
+
+    /// <inheritdoc/>
+    public async Task<TargetHostReadiness?> DescribeHostAsync(CancellationToken cancellationToken) =>
+        setup is null ? null : await setup.DescribeHostAsync(cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc/>
     public async Task<TargetConnection> EnsureConnectedAsync(
