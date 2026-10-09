@@ -208,6 +208,20 @@ public class ProgramMainTests
         Assert.IsFalse(stderr.Contains("Did you mean", StringComparison.Ordinal),
             $"A non-dash unknown command must not trigger the single-dash typo hint. Got stderr: {stderr}");
     }
+
+    [TestMethod]
+    [DataRow(new[] { "cert", "bogus" })]
+    [DataRow(new[] { "init", "a", "b", "c" })]
+    [DataRow(new[] { "--verbose", "bogus" })]
+    public async Task Main_ParseError_ExitsOne(string[] args)
+    {
+        // Issue #1015: parse errors that print help must exit 1, not 0, so scripts
+        // and agents don't treat a rejected command line as success.
+        var (_, _, exitCode) = await ProgramMainTestHarness.InvokeProgramAsync(args);
+
+        Assert.AreEqual(1, exitCode,
+            $"Parse error for '{string.Join(" ", args)}' must exit with code 1.");
+    }
 }
 
 [TestClass]
