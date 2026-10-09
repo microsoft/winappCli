@@ -132,6 +132,8 @@ $OutDir = (Resolve-Path $OutDir).Path
 $resultsPath = Join-Path $OutDir 'perf-results.json'
 $summaryPath = Join-Path $OutDir 'summary.md'
 $ledgerPath = Join-Path $OutDir 'owned.json'
+# Before closing leftovers, so they too are switched back to the user's Calculator mode.
+[void](Initialize-CalculatorModeRecord -Path (Join-Path $PSScriptRoot 'results\.cache\calculator-mode.json'))
 if ($apps.Count) { Clear-OwnedLedger -Path $ledgerPath -Apps $apps -Config $config }
 
 function Get-ForeignReport {
@@ -338,6 +340,7 @@ finally {
     }
     $results.finished = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')
     Save-Results
+    if ($apps.ContainsKey('calculator')) { Complete-CalculatorModeRecord -Unfinished:(Test-Path -LiteralPath $ledgerPath) }
     if (-not $KeepArtifacts) { Remove-Item -Recurse -Force -LiteralPath $tempRoot -ErrorAction SilentlyContinue }
     Write-Host "Summary: $summaryPath"
 }

@@ -193,10 +193,11 @@ Each operation maps to the arguments for one process. Operations are `version`, 
 - The benchmark only closes processes it started, or that a run started, matched by process id. It never closes other windows.
 - It refuses to start while a target app is already open outside the benchmark. Close the app, or pass `-Force`; even then, those windows are never closed, but an agent might act on them.
 - If something it started can't be closed, it stops instead of running on a dirty desktop. Rerun with the same `-OutDir` to continue.
+- Calculator reopens in the last mode used. The benchmark records your mode before it changes it and switches every Calculator it closes back to that mode. If a run stops early, the record (`results\.cache\calculator-mode.json`) is kept so the next run still restores your mode.
 
 ## Tests
 
-The scenario and method schemas, scoring, resume logic, and reports are covered by Pester tests that don't touch the desktop:
+The scenario and method schemas, scoring, resume logic, reports, and the Calculator mode record are covered by Pester tests that don't touch the desktop:
 
 ```powershell
 Invoke-Pester -Path .\benchmarks\ui\tests

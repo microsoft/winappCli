@@ -71,6 +71,9 @@ $script:FrameByPid = @{}
 
 # Element that shows an app instance finished starting.
 $script:ReadyElement = @{ calculator = 'CalculatorResults'; gallery = 'controlsSearchBox' }
+# What a fresh launch waits for. Calculator reopens in the user's last mode, and only the calculator
+# modes have CalculatorResults (Date calculation and the converters don't); the nav button is in every mode.
+$script:LaunchElement = @{ calculator = 'TogglePaneButton'; gallery = 'controlsSearchBox' }
 $script:BidiMarks = '[\u200E\u200F\u202A-\u202E\u2066-\u2069]'
 
 #region App and process discovery
@@ -308,16 +311,39 @@ function Start-AppInstance {
     if (-not $new) { throw "$($AppInfo.DisplayName) did not start a new process within $TimeoutSeconds s (launched '$target')." }
     if ($new.Count -gt 1) { throw "$($AppInfo.DisplayName) started $($new.Count) processes ($(@($new.pid) -join ', ')); expected one." }
     $remaining = [Math]::Max(5, [int]($deadline - [DateTime]::UtcNow).TotalSeconds)
-    $ready = Wait-InstanceElement -ProcessId $new[0].pid -Selector $script:ReadyElement[$AppInfo.App] -TimeoutSeconds $remaining
+    $ready = Wait-InstanceElement -ProcessId $new[0].pid -Selector $script:LaunchElement[$AppInfo.App] -TimeoutSeconds $remaining
     [pscustomobject]@{ pid = $new[0].pid; startTime = $new[0].startTime; hwnd = $ready.Hwnd }
 }
 
+function Get-CalculatorMode {
+    # The mode a Calculator window shows (see Read-AppValue calculator.mode); $null when unreadable.
+    param([Parameter(Mandatory)][int]$ProcessId, [int]$TimeoutSeconds = 10)
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        $hwnd = Find-InstanceWindow -ProcessId $ProcessId
+        if ($hwnd) {
+            $mode = try { Read-AppValue -Root (Get-WindowElement $hwnd) -App calculator -Key mode } catch { $null }
+            if ($mode) { return $mode }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $null
+}
+
+function ConvertTo-CalculatorNavId {
+    # The nav item AutomationId for a mode as Read-AppValue reports it (standard -> Standard, date -> Date).
+    param([Parameter(Mandatory)][string]$Mode)
+    return (Get-Culture).TextInfo.ToTitleCase($Mode.ToLowerInvariant())
+}
+
 function Set-CalculatorMode {
-    param([Parameter(Mandatory)][int]$ProcessId, [Parameter(Mandatory)][ValidateSet('standard', 'scientific')][string]$Mode)
-    $hwnd = (Wait-InstanceElement -ProcessId $ProcessId -Selector 'CalculatorResults' -TimeoutSeconds 15).Hwnd
+    # Switches through the nav pane. Scenarios use standard or scientific; restoring the user's mode
+    # may need any other nav item (programmer, date, a converter).
+    param([Parameter(Mandatory)][int]$ProcessId, [Parameter(Mandatory)][string]$Mode)
+    $hwnd = (Wait-InstanceElement -ProcessId $ProcessId -Selector 'TogglePaneButton' -TimeoutSeconds 15).Hwnd
     if ((Read-AppValue -Root (Get-WindowElement $hwnd) -App calculator -Key mode) -eq $Mode) { return }
     Invoke-Element (Wait-InstanceElement -ProcessId $ProcessId -Selector 'TogglePaneButton' -TimeoutSeconds 10).Element
-    $item = Wait-InstanceElement -ProcessId $ProcessId -Selector ((Get-Culture).TextInfo.ToTitleCase($Mode)) -TimeoutSeconds 10
+    $item = Wait-InstanceElement -ProcessId $ProcessId -Selector (ConvertTo-CalculatorNavId $Mode) -TimeoutSeconds 10
     Invoke-Element $item.Element
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     while ([DateTime]::UtcNow -lt $deadline) {
@@ -354,6 +380,15 @@ function Invoke-InstanceSetup {
     $expect = [ordered]@{}
     if ($AppInfo.App -eq 'calculator') {
         $started = Start-AppInstance -AppInfo $AppInfo
+        if (-not $script:CalculatorRestoreMode) {
+            # The first Calculator the benchmark opens still shows the user's saved mode.
+            $saved = Get-CalculatorMode -ProcessId $started.pid
+            if ($saved) { [void](Register-CalculatorMode -Mode $saved) }
+            elseif (-not $script:CalculatorModeUnreadable) {
+                $script:CalculatorModeUnreadable = $true
+                Write-Warning "Could not read Calculator's current mode, so it can't be restored afterwards."
+            }
+        }
         $mode = if (& $get 'mode') { [string](& $get 'mode') } else { 'standard' }
         Set-CalculatorMode -ProcessId $started.pid -Mode $mode
         $expect['mode'] = $mode
@@ -441,20 +476,24 @@ function Get-AppSnapshot {
 
 function Stop-OwnedInstance {
     # Closes one process by pid, but only if it is still the same app process (name, install folder,
-    # start time). Calculator is first switched back to Standard mode, which it remembers across launches.
+    # start time). Calculator remembers its mode across launches, so it is first switched back to the
+    # mode recorded before the benchmark changed it (see Register-CalculatorMode).
     param([Parameter(Mandatory)]$AppInfo, [Parameter(Mandatory)][int]$ProcessId, [string]$StartTime)
     $p = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
     if (-not $p) { return 'gone' }
     $path = try { $p.Path } catch { $null }
     if ($p.ProcessName -ne $AppInfo.ProcessName -or -not $path -or -not $path.StartsWith($AppInfo.InstallLocation, [StringComparison]::OrdinalIgnoreCase)) { return 'not-ours' }
     if ($StartTime -and (Get-ProcessStartTime $p) -ne $StartTime) { return 'not-ours' }
-    if ($AppInfo.App -eq 'calculator') {
+    if ($AppInfo.App -eq 'calculator' -and $script:CalculatorRestoreMode) {
         try {
             $hwnd = Find-InstanceWindow -ProcessId $ProcessId
             if ($hwnd -and [UiBench.Native]::Minimized($hwnd)) { [void][UiBench.Native]::Show($hwnd, $script:SW_SHOWNOACTIVATE) }
-            Set-CalculatorMode -ProcessId $ProcessId -Mode standard
+            Set-CalculatorMode -ProcessId $ProcessId -Mode $script:CalculatorRestoreMode
         }
-        catch { Write-Verbose "Could not reset Calculator mode for pid $ProcessId`: $_" }
+        catch {
+            $script:CalculatorRestoreFailures++
+            Write-Warning "Could not switch Calculator (pid $ProcessId) back to $($script:CalculatorRestoreMode) mode: $($_.Exception.Message)"
+        }
     }
     Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
     if (-not $p.WaitForExit(15000)) { return 'still-running' }
@@ -584,7 +623,74 @@ function Stop-OwnedEntries {
 
 #endregion
 
+#region Calculator's saved mode
+
+# Calculator reopens in the last mode used, so a scenario that switches it to Scientific would change
+# the user's Calculator. The mode the first launched Calculator shows is recorded in a file, every
+# owned Calculator is switched back to it before it is closed, and the record is removed once the
+# benchmark finishes cleanly. A benchmark that stops early keeps the record, so the next one restores
+# the user's mode instead of recording the mode the interrupted run left behind.
+$script:CalculatorModeRecordPath = $null
+$script:CalculatorRestoreMode = $null
+$script:CalculatorRestoreFailures = 0
+$script:CalculatorModeUnreadable = $false
+
+function Initialize-CalculatorModeRecord {
+    [CmdletBinding()]
+    # Uses -Path for the record and loads the mode an unfinished benchmark recorded there; returns it,
+    # or $null when there is none (an unreadable record counts as none).
+    param([Parameter(Mandatory)][string]$Path)
+    $script:CalculatorModeRecordPath = $Path
+    $script:CalculatorRestoreMode = $null
+    $script:CalculatorRestoreFailures = 0
+    $script:CalculatorModeUnreadable = $false
+    if (Test-Path -LiteralPath $Path) {
+        try {
+            $mode = [string](Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json).mode
+            if ([string]::IsNullOrWhiteSpace($mode)) { throw 'no mode' }
+            $script:CalculatorRestoreMode = $mode
+        }
+        catch { Write-Warning "Ignoring unreadable Calculator mode record '$Path': $($_.Exception.Message)" }
+    }
+    return $script:CalculatorRestoreMode
+}
+
+function Register-CalculatorMode {
+    # Records the user's mode, read from the first Calculator the benchmark launches. The first
+    # recorded mode wins; returns the mode that will be restored.
+    param([Parameter(Mandatory)][string]$Mode)
+    if ($script:CalculatorRestoreMode) { return $script:CalculatorRestoreMode }
+    $script:CalculatorRestoreMode = $Mode
+    if ($script:CalculatorModeRecordPath) {
+        $dir = Split-Path -Parent $script:CalculatorModeRecordPath
+        if ($dir) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        [ordered]@{ mode = $Mode; recordedAt = (Get-Date).ToString('o') } | ConvertTo-Json |
+            Set-Content -LiteralPath $script:CalculatorModeRecordPath -Encoding utf8NoBOM
+    }
+    return $Mode
+}
+
+function Get-CalculatorRestoreMode { return $script:CalculatorRestoreMode }
+
+function Complete-CalculatorModeRecord {
+    [CmdletBinding()]
+    # Removes the record after a clean finish. Keeps it when a Calculator could not be switched back,
+    # or when -Unfinished (owned processes are still left to close), so the next benchmark restores it.
+    param([switch]$Unfinished)
+    $path = $script:CalculatorModeRecordPath
+    if (-not $path) { return }
+    if ($script:CalculatorRestoreFailures) {
+        Write-Warning "Calculator may not reopen in your $($script:CalculatorRestoreMode) mode; switch it back by hand. The next benchmark run also restores the mode recorded in '$path'."
+        return
+    }
+    if ($Unfinished) { return }
+    Remove-Item -LiteralPath $path -ErrorAction SilentlyContinue
+}
+
+#endregion
+
 Export-ModuleMember -Function Get-AppInfo, Get-AppProcesses, Find-InstanceWindow, Find-Element, Wait-InstanceElement, Invoke-Element,
-Read-AppValue, Get-AppKeys, Read-InstanceState, Start-AppInstance, Set-CalculatorMode, Wait-InstanceValues, Invoke-InstanceSetup,
-Get-ForeignInstances, Get-AppSnapshot, Stop-OwnedInstance, Save-OwnedLedger, Stop-RelatedProcess, Stop-OwnedEntry, Clear-OwnedLedger,
-Start-ScenarioInstances, Get-SetupSnapshot, Add-StartedProcesses, Stop-OwnedEntries
+Read-AppValue, Get-AppKeys, Read-InstanceState, Start-AppInstance, Get-CalculatorMode, ConvertTo-CalculatorNavId, Set-CalculatorMode,
+Wait-InstanceValues, Invoke-InstanceSetup, Get-ForeignInstances, Get-AppSnapshot, Stop-OwnedInstance, Save-OwnedLedger, Stop-RelatedProcess,
+Stop-OwnedEntry, Clear-OwnedLedger, Start-ScenarioInstances, Get-SetupSnapshot, Add-StartedProcesses, Stop-OwnedEntries,
+Initialize-CalculatorModeRecord, Register-CalculatorMode, Get-CalculatorRestoreMode, Complete-CalculatorModeRecord

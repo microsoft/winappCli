@@ -144,6 +144,8 @@ $OutDir = (Resolve-Path $OutDir).Path
 $runsPath = Join-Path $OutDir 'runs.jsonl'
 $ledgerPath = Join-Path $OutDir 'owned.json'
 function Save-Ledger([object[]]$Entries) { Save-OwnedLedger -Path $ledgerPath -Entries @($Entries) }
+# Before closing leftovers, so they too are switched back to the user's Calculator mode.
+[void](Initialize-CalculatorModeRecord -Path (Join-Path $PSScriptRoot 'results\.cache\calculator-mode.json'))
 Clear-OwnedLedger -Path $ledgerPath -Apps $apps -Config $config
 
 function Get-ForeignReport {
@@ -158,6 +160,7 @@ if ($foreignNow -and -not $Force) {
 
 if (-not $runPlan.Pending.Count) {
     Write-Host "All $($runPlan.Total) sessions in $OutDir are already finished."
+    if ($apps.ContainsKey('calculator')) { Complete-CalculatorModeRecord }
     Write-UiSummary -RunsPath $runsPath -SummaryPath (Join-Path $OutDir 'summary.md') -ScenarioOrder @($allScenarios.Id)
     Write-Host "Summary: $(Join-Path $OutDir 'summary.md')"
     return
@@ -516,6 +519,7 @@ foreach ($run in $pending) {
 }
 
 $header['Finished'] = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')
+if ($apps.ContainsKey('calculator')) { Complete-CalculatorModeRecord -Unfinished:(Test-Path -LiteralPath $ledgerPath) }
 Write-UiSummary -RunsPath $runsPath -SummaryPath (Join-Path $OutDir 'summary.md') -Header $header -ScenarioOrder @($allScenarios.Id)
 if (-not $KeepArtifacts) {
     Remove-Item -Recurse -Force -LiteralPath $tempRoot -ErrorAction SilentlyContinue
