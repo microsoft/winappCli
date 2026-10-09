@@ -1,0 +1,29 @@
+{
+  "id": "winui-find-element-source",
+  "description": "Running WinUI app: map an on-screen element back to the XAML file and line that creates it when the text is not in any XAML file.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "There's a little 'Preview' pill in the top-right of Lanternfish's main window and nobody remembers adding it. Searching the repo for the word finds nothing useful. The app is open right now. Which XAML file and line actually puts it on screen?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "winui.inspect"
+      ],
+      "acceptable": [
+        "winui.design"
+      ],
+      "forbid": [
+        "ui.test",
+        "msix.package",
+        "msix.sign",
+        "winui.migrate"
+      ]
+    }
+  }
+}

@@ -21,6 +21,7 @@
       "forbid": [
         "ui.automate",
         "ui.test",
+        "winui.inspect",
         "msix.package",
         "msix.sign",
         "winui.migrate"

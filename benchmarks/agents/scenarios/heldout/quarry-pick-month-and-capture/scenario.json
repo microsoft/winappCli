@@ -1,0 +1,39 @@
+{
+  "id": "quarry-pick-month-and-capture",
+  "description": "Trap: WinUI 3 project, but the request is to operate controls and capture the resulting dialog.",
+  "set": "heldout",
+  "cohort": "trap",
+  "persona": "6",
+  "framework": "WinUI 3",
+  "conflictingSignal": true,
+  "sources": [
+    "https://learn.microsoft.com/dotnet/framework/ui-automation/ui-automation-overview"
+  ],
+  "prompt": "Quarry Ledger is open on my desktop. Pick March in the month selector, press Export, and send me a picture of the dialog that comes up.",
+  "paraphrases": {
+    "novice": "I have Quarry Ledger open. Could you choose March from the month dropdown, hit the Export button, and show me an image of the popup it opens?",
+    "terse": "Quarry Ledger: month=March, Export, capture resulting dialog."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The open window is represented by its source files; the evaluated agent selects help rather than operating a live process.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "ui.automate"
+      ],
+      "forbid": [
+        "winui.inspect",
+        "winui.design",
+        "ui.test",
+        "winui.migrate",
+        "msix.package"
+      ]
+    }
+  }
+}

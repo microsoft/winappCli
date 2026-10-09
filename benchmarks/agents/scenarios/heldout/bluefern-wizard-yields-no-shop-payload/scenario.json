@@ -37,6 +37,7 @@
       ],
       "forbid": [
         "winui.design",
+        "winui.inspect",
         "winui.migrate",
         "winui.review",
         "winui.build",

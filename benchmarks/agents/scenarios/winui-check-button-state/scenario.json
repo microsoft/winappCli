@@ -1,0 +1,31 @@
+{
+  "id": "winui-check-button-state",
+  "description": "Trap: read an enabled state and visible text from a running WinUI window (UI Automation read, not XAML inspection).",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "Quick check on the running Lanternfish window: is the Sync button enabled at the moment, and what does the yellow banner above the list say?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "ui.automate"
+      ],
+      "acceptable": [
+        "ui.test"
+      ],
+      "forbid": [
+        "winui.inspect",
+        "winui.design",
+        "winui.migrate",
+        "msix.package",
+        "msix.sign"
+      ]
+    },
+    "maxSkills": 2
+  }
+}

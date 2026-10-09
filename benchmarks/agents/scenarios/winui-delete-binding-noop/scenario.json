@@ -17,6 +17,7 @@
       "acceptable": [
         "winui.review",
         "winui.build",
+        "winui.inspect",
         "ui.automate"
       ],
       "forbid": [

@@ -18,8 +18,8 @@ renames or merges skills can still be scored. They come in two sets:
 
 | Set | Scenarios | Use |
 |---|---|---|
-| `dev` (default) | 67 | Iterate on descriptions and structure freely. Never cite it as proof. |
-| `heldout` | 38, each with 2 paraphrases (114 prompts) | Release and decision checks only. See [Held-out set](#held-out-set). |
+| `dev` (default) | 74 | Iterate on descriptions and structure freely. Never cite it as proof. |
+| `heldout` | 41, each with 2 paraphrases (123 prompts) | Release and decision checks only. See [Held-out set](#held-out-set). |
 
 ```powershell
 pwsh benchmarks\agents\run.ps1 -Plan
@@ -38,10 +38,10 @@ pwsh benchmarks\agents\run.ps1 -Plan
 # Print the expanded run list and session count without calling a model
 pwsh benchmarks\agents\run.ps1 -Plan
 
-# Recommended first step: a quick dev baseline (one model, one iteration: 176 sessions)
+# Recommended first step: a quick dev baseline (one model, one iteration: 190 sessions)
 pwsh benchmarks\agents\run.ps1 -Model claude-sonnet-5.5 -Iterations 1
 
-# Then the full dev matrix (3 models x 3 iterations: 1584 sessions)
+# Then the full dev matrix (3 models x 3 iterations: 1710 sessions)
 pwsh benchmarks\agents\run.ps1
 
 # Check scenario prompts for leaked skill vocabulary and unrealistic fixtures (no model calls)
@@ -296,8 +296,11 @@ forbid `winui.*`. Mapping choices that affect scores:
 - `winui-design` provides `api.lookup` (it documents checking APIs against the project), so it can
   satisfy API-lookup scenarios in WinUI projects.
 - `winapp-sandbox` and `winui-ui-testing` both provide `sandbox.run` and `ui.automate`.
-- `winui-devtools` provides `ui.automate` and `winui.design` (it inspects and changes a running
-  WinUI app's XAML), so loading it in a non-WinUI scenario fails the `winui.*` forbid.
+- `winui-devtools` provides only `winui.inspect`: looking inside a running WinUI app's XAML (resolved
+  property values, bindings, the declaring XAML line, live edits, and review notes pinned to
+  elements). It does not provide `ui.automate`, so loading it for a click, type, read-text, or
+  screenshot task earns no routing credit, and scenarios where it is the wrong tool forbid
+  `winui.inspect`. Loading it in a non-WinUI scenario fails the `winui.*` forbid.
 - Only `winui-packaging` provides `store.publish`. In the `winapp` configuration a Store scenario is
   `n/a`; where it is installed, a run that loads only packaging guidance scores `partial`.
 
@@ -369,7 +372,7 @@ and some older prompts stay unchanged so earlier results remain comparable. Fram
 
 ## Held-out set
 
-`scenarios\heldout\` holds 38 scenarios, each with a `novice` and a `terse` paraphrase. They were
+`scenarios\heldout\` holds 41 scenarios, each with a `novice` and a `terse` paraphrase. They were
 written separately from the dev set, from public developer reports (GitHub issues, Stack Overflow,
 Microsoft Learn), personas, and plain capability definitions, without seeing any skill or agent
 description. Fixtures use randomized names. Every capability is a

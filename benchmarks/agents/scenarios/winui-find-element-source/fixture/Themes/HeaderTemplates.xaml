@@ -1,0 +1,13 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <DataTemplate x:Key="HeaderBadgeTemplate">
+    <Border CornerRadius="10" Padding="8,2" Background="{ThemeResource AccentFillColorDefaultBrush}">
+      <TextBlock Text="{Binding Label}" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+    </Border>
+  </DataTemplate>
+  <DataTemplate x:Key="StatusBadgeTemplate">
+    <Border CornerRadius="10" Padding="8,2" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+      <TextBlock Text="{Binding Label}" />
+    </Border>
+  </DataTemplate>
+</ResourceDictionary>

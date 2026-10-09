@@ -20,6 +20,7 @@
         "winui.migrate",
         "ui.automate",
         "ui.test",
+        "winui.inspect",
         "msix.package"
       ]
     }

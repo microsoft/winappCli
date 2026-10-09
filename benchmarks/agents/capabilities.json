@@ -188,6 +188,20 @@
         ]
       }
     },
+    "winui.inspect": {
+      "description": "Look inside a running WinUI 3 app's XAML: the live visual tree, the values properties actually resolve to, what a binding evaluates to, which XAML file and line declares an element, in-memory property edits, and review notes a person pins to elements for an agent to act on.",
+      "commands": [
+        "^devtools"
+      ],
+      "answer": {
+        "require": [
+          [
+            "winapp devtools\\b",
+            "--devtools\\b"
+          ]
+        ]
+      }
+    },
     "ui.test": {
       "description": "Write and run repeatable automated UI tests for a desktop app.",
       "commands": [
@@ -279,8 +293,7 @@
           "ui.automate"
         ],
         "winui-devtools": [
-          "ui.automate",
-          "winui.design"
+          "winui.inspect"
         ]
       }
     },

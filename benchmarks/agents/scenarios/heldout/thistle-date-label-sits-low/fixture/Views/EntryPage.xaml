@@ -1,0 +1,11 @@
+<Page x:Class="Thistledown.Views.EntryPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Padding="20" RowDefinitions="Auto,*">
+    <StackPanel Orientation="Horizontal" Spacing="12">
+      <TextBlock Text="{x:Bind Entry.Title}" Style="{StaticResource EntryTitleStyle}" />
+      <TextBlock Text="{x:Bind Entry.DateText}" Style="{StaticResource EntryMetaStyle}" />
+    </StackPanel>
+    <RichEditBox Grid.Row="1" Margin="0,16,0,0" />
+  </Grid>
+</Page>
