@@ -308,14 +308,15 @@ Describe 'Invoke-Rescore' {
         $r = Invoke-Rescore -ResultsDir $dir -Scenarios @($scenario)
 
         $r.Runs | Should -Be 5
-        $r.Changed | Should -Be 2
+        $r.Changed | Should -Be 3
         $r.Transitions['pass -> n/a'] | Should -Be 1
+        $r.Transitions['fail -> scenario_removed'] | Should -Be 1
         $rows = Get-Content $r.RunsPath | ConvertFrom-Json
-        $rows.status | Should -Be @('fail', 'pass', 'timeout', 'fail', 'n/a')
+        $rows.status | Should -Be @('fail', 'pass', 'timeout', 'scenario_removed', 'n/a')
         $rows[0].originalStatus | Should -Be 'pass'
-        $rows[3].expectationNotes | Should -Contain 'scenario no longer defined; status not rescored'
+        $rows[3].expectationNotes | Should -Contain 'scenario no longer defined; excluded'
         (Get-FileHash (Join-Path $dir 'runs.jsonl')).Hash | Should -Be $original.Hash
-        Get-Content -Raw $r.SummaryPath | Should -Match 'Status changes\*\*: 2 of 5 runs \(pass -> fail 1, pass -> n/a 1\)'
+        Get-Content -Raw $r.SummaryPath | Should -Match 'Status changes\*\*: 3 of 5 runs \(pass -> fail 1, fail -> scenario_removed 1, pass -> n/a 1\)'
     }
 }
 

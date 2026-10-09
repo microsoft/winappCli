@@ -15,8 +15,7 @@
         "sandbox.run"
       ],
       "forbid": [
-        "winui.migrate",
-        "session.report"
+        "winui.migrate"
       ]
     }
   }

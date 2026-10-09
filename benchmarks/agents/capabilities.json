@@ -231,10 +231,6 @@
           ]
         ]
       }
-    },
-    "session.report": {
-      "description": "Analyze a previous AI agent session and report what went wrong. Only when the user explicitly asks.",
-      "commands": []
     }
   },
   "maps": [
@@ -337,8 +333,8 @@
     {
       "id": "winui-current",
       "plugin": "winui",
-      "source": "plugins/winui/agent-plugin (win-dev-skills v0.7.1)",
-      "skillSetHash": "f9e7383f927d",
+      "source": "plugins/winui/agent-plugin (win-dev-skills v0.7.1 without winui-session-report)",
+      "skillSetHash": "178340ed41b9",
       "skills": {
         "winui-code-review": [
           "winui.review"
@@ -355,9 +351,6 @@
         "winui-packaging": [
           "winui.package",
           "store.publish"
-        ],
-        "winui-session-report": [
-          "session.report"
         ],
         "winui-setup": [
           "toolchain.prereqs"
