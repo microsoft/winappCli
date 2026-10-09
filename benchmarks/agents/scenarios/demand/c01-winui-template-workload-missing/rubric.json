@@ -1,0 +1,29 @@
+{
+  "cluster": "c01",
+  "framework": "WinUI3",
+  "goal": "Help the developer install the Visual Studio components that expose current WinUI 3 project templates.",
+  "must_include": [
+    "Says the missing template is an installation/workload issue, not a project-file problem.",
+    "Tells them to modify Visual Studio and install the current WinUI/Windows application development workload or the Windows App SDK template components for their Visual Studio version.",
+    "Mentions restarting Visual Studio after modifying the installation so the templates are reloaded.",
+    "For older Visual Studio 2022 layouts, distinguishes the C# template component from the C++ template component instead of assuming one covers both languages."
+  ],
+  "must_not": [
+    "Tell them to create a UWP project and later convert it to WinUI 3.",
+    "Tell them to fix this by editing the solution or adding a NuGet package to an empty project.",
+    "Require a command-line-only workflow when they are asking about Visual Studio templates."
+  ],
+  "acceptable_alternatives": [
+    "Use the Visual Studio Installer Modify flow.",
+    "Use a Visual Studio configuration file or winget configuration that installs the same workload/components.",
+    "Use the Microsoft Learn WinUI quickstart's Visual Studio setup instructions for the installed Visual Studio generation."
+  ],
+  "solved": "The answer names the missing Visual Studio workload/template components and gives a path to install them so WinUI 3 templates appear.",
+  "partial": "The answer recognizes that Visual Studio components are missing but does not specify the workload/template components or version caveat.",
+  "sources": ["https://stackoverflow.com/questions/70271811/where-is-winui3-in-visual-studio-2022"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/apps/get-started/start-here",
+    "https://api.stackexchange.com/2.3/questions/70271811/answers?site=stackoverflow&filter=withbody"
+  ],
+  "notes": "The Stack Overflow accepted answer describes the older Windows App SDK VSIX/template setup; current Microsoft Learn pages name a WinUI/Windows application development workload. Either is acceptable when matched to the Visual Studio version in the answer."
+}

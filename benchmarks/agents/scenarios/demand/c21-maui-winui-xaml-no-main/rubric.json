@@ -1,0 +1,31 @@
+{
+  "cluster": "c21",
+  "framework": "MAUI",
+  "goal": "Restore the generated MAUI/WinUI Windows entry point and manifest processing while keeping the migrated WinUI XAML classified correctly.",
+  "must_include": [
+    "Says not to add a hand-written `Program.Main`; MAUI/WinUI should generate the Windows entry point when project items and the manifest are configured correctly.",
+    "Explains that `<EnableDefaultMauiItems>false</EnableDefaultMauiItems>` disables MAUI's default item globs, so the project must either restore defaults or explicitly include the Windows package manifest and classify MAUI XAML as `MauiXaml` versus native WinUI XAML as `Page`.",
+    "Uses the migration guidance properties deliberately, including `<UseMaui>true</UseMaui>`, `<UseWinUI>true</UseWinUI>`, Windows platform/runtime settings, and a valid `Package.appxmanifest` entry point of `$targetentrypoint$` when packaging.",
+    "Mentions the .NET MAUI multi-project template as a lower-friction alternative when a Windows-specific WinUI head has many native XAML pages."
+  ],
+  "must_not": [
+    "Adds a console-style `static Main` to make CS5001 disappear.",
+    "Deletes the package manifest or sets `WindowsPackageType=None` without discussing whether the app is meant to be packaged.",
+    "Marks all XAML files as MAUI XAML when some are native WinUI `Page` files."
+  ],
+  "acceptable_alternatives": [
+    "Re-enable default MAUI items and move native WinUI XAML into a separate Windows head project.",
+    "Create a new .NET MAUI Multi-Project App and compare its item groups/binlog with the migrated project.",
+    "Explicitly include `Platforms\\Windows\\Package.appxmanifest` as `AppxManifest` if default items remain disabled."
+  ],
+  "solved": "The answer rejects a manual `Program.Main` and gives a coherent path: restore MAUI defaults, explicitly include/classify the manifest and XAML items, or move the Windows-native XAML into a MAUI multi-project Windows head.",
+  "partial": "The answer avoids adding `Program.Main` but only mentions one of the item-glob/manifest problem or the multi-project alternative.",
+  "sources": [
+    "https://github.com/dotnet/maui/issues/21559"
+  ],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/dotnet/maui/migration/uwp-projects?view=net-maui-8.0",
+    "https://github.com/dotnet/maui/issues/21559"
+  ],
+  "notes": "The upstream issue remained nuanced, but the official migration document describes why default MAUI items may be disabled and what manifest changes a migrated WinUI project needs."
+}

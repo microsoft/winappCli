@@ -1,0 +1,21 @@
+{
+  "id": "c05-electron-appx-unplated-icons",
+  "description": "Electron AppX package shows a plated/shrunken icon because unplated target-size assets are missing, based on https://github.com/electron-userland/electron-builder/issues/7811.",
+  "set": "demand",
+  "cohort": "vague",
+  "prompt": "The Windows package installs, but the Start/taskbar icon is tiny inside a colored square. The unpacked exe icon looks fine, so I think the package assets are wrong but I don't know which ones.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

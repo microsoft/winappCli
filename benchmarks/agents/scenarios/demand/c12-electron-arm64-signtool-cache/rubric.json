@@ -1,0 +1,29 @@
+{
+  "cluster": "c12",
+  "framework": "Electron",
+  "goal": "Sign the Electron Windows ARM64 build using a real ARM64-capable Windows signing toolchain or a supported non-ARM64 signing environment.",
+  "must_include": [
+    "Identifies that electron-builder's `winCodeSign-2.6.0` cache contains `windows-10\\x64\\signtool.exe` but not the `windows-10\\arm64\\signtool.exe` path requested on Windows ARM64.",
+    "Recommends pre-populating/replacing the cached `windows-10` signing-tool contents with matching ARM64 SignTool files from an installed Windows SDK, or using an x64 Windows signing runner until upstream toolsets include ARM64.",
+    "Adds or verifies SHA-256 signing configuration if SignTool reports a missing file digest algorithm, for example `signingHashAlgorithms: [\"sha256\"]` under the Windows signing config.",
+    "Keeps certificate material in environment variables or the Windows certificate store rather than committing a `.pfx` and password."
+  ],
+  "must_not": [
+    "Renames the x64 folder to `arm64` as a permanent production fix without noting that the binaries are the wrong architecture.",
+    "Disables signing for the ARM64 artifact and treats it as equivalent to signed x64 releases.",
+    "Changes the app target back to x64 while claiming an ARM64 package was produced."
+  ],
+  "acceptable_alternatives": [
+    "Build the ARM64 package on ARM64 but perform signing on an x64 Windows host if the artifacts can be transferred safely.",
+    "Use Azure Trusted Signing or another electron-builder-supported signing backend when it works on the chosen runner.",
+    "Use an upstream electron-builder toolset release that provides ARM64 Windows signing binaries."
+  ],
+  "solved": "The answer either supplies a correct ARM64 signing-tool cache/toolset or moves signing to a supported host/backend while still producing a signed ARM64 Windows artifact.",
+  "partial": "The answer notices the missing ARM64 `signtool.exe` but proposes only a brittle folder rename or disables signing.",
+  "sources": ["https://github.com/electron-userland/electron-builder/issues/9190"],
+  "verified_with": [
+    "https://www.electron.build/docs/features/code-signing/code-signing-win/",
+    "https://github.com/electron-userland/electron-builder/issues/9190"
+  ],
+  "notes": "Another writer covers .NET/MSIX ARM64; this scenario is intentionally Electron ARM64 signing."
+}

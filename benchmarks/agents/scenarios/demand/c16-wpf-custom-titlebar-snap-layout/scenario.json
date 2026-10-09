@@ -1,0 +1,21 @@
+{
+  "id": "c16-wpf-custom-titlebar-snap-layout",
+  "description": "A WPF app with a custom maximize button does not show Windows 11 Snap Layouts on hover, from https://stackoverflow.com/questions/69097246/how-to-support-for-windows-11-snap-layout-to-the-custom-maximize-restore-butto.",
+  "set": "demand",
+  "cohort": "implicit",
+  "prompt": "My WPF window has a custom title bar, and my maximize/restore button works, but Windows 11 Snap Layouts never appear when I hover that button. How can I keep the custom look without losing the OS snap menu?",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

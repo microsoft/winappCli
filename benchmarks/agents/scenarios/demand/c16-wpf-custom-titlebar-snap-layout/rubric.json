@@ -1,0 +1,30 @@
+{
+  "cluster": "c16",
+  "framework": "WPF",
+  "goal": "Explain how a custom WPF title bar can preserve the Windows 11 Snap Layout hover affordance or provide the closest supported workaround.",
+  "must_include": [
+    "Explains that Snap Layouts are tied to the OS-recognized non-client maximize button/hit-test behavior, not merely any WPF button that toggles `WindowState`.",
+    "Recommends preserving or exposing a real caption/maximize hit-test area, such as using `WindowChrome` hit-test behavior carefully or leaving the native caption button in place.",
+    "If using the XAML-only workaround, describes leaving a transparent/no-fill hit-test hole or region so hover can reach the WindowChrome/non-client maximize area while keeping custom visuals around it.",
+    "Mentions Win+Z as a fallback for users, but not as a full replacement for fixing the hover affordance."
+  ],
+  "must_not": [
+    "Claim Snap Layouts can be shown by calling a public WPF API from the custom button click handler.",
+    "Suggest simulating the Windows 11 Snap Layout flyout with a custom menu as an equivalent OS integration.",
+    "Remove resize/drag support from the custom title bar to solve the maximize hover issue."
+  ],
+  "acceptable_alternatives": [
+    "Use the native title bar/caption buttons and customize only allowed title-bar content.",
+    "Use a Win32 non-client hit-test implementation for the maximize button area if the app already owns its HWND message handling."
+  ],
+  "solved": "The answer ties Snap Layouts to native caption hit testing and gives a concrete WPF WindowChrome/native-titlebar approach that preserves the OS hover behavior.",
+  "partial": "The answer says the custom button blocks Snap Layouts but only offers Win+Z or a custom menu without a real title-bar integration path.",
+  "sources": ["https://stackoverflow.com/questions/69097246/how-to-support-for-windows-11-snap-layout-to-the-custom-maximize-restore-butto"],
+  "verified_with": [
+    "https://api.stackexchange.com/2.3/questions/69097246?order=desc&sort=activity&site=stackoverflow&filter=withbody",
+    "https://api.stackexchange.com/2.3/questions/69097246/answers?order=desc&sort=votes&site=stackoverflow&filter=withbody",
+    "https://learn.microsoft.com/en-us/dotnet/api/system.windows.shell.windowchrome.ishittestvisibleinchrome?view=windowsdesktop-10.0",
+    "https://learn.microsoft.com/en-us/windows/apps/develop/title-bar?tabs=wasdk"
+  ],
+  "notes": "The Stack Overflow answer describes an imperfect XAML-only workaround and links to broader WPF discussion; robust apps may prefer native caption preservation or explicit HWND hit testing."
+}

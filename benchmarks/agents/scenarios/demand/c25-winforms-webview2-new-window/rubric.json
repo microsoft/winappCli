@@ -1,0 +1,29 @@
+{
+  "cluster": "c25",
+  "framework": "WinForms",
+  "goal": "Show the developer how to intercept WebView2 new-window requests and either suppress them or redirect them to an in-app WebView2.",
+  "must_include": [
+    "Hooks `CoreWebView2.NewWindowRequested` after the control has been initialized with `EnsureCoreWebView2Async`.",
+    "For blocking popups, sets `CoreWebView2NewWindowRequestedEventArgs.Handled = true`.",
+    "For opening in the same embedded browser, assigns `e.NewWindow` to an existing `CoreWebView2` instance or navigates the current control explicitly and marks the request handled as appropriate.",
+    "Keeps the solution in WebView2 event handling rather than trying to manage external Edge windows after they appear."
+  ],
+  "must_not": [
+    "Uses `Process.Kill` or window-title automation to close new browser windows.",
+    "Adds JavaScript that removes every link target without handling `window.open()` and other new-window requests.",
+    "Subscribes to `NewWindowRequested` before `CoreWebView2` exists without awaiting initialization.",
+    "Tells them WebView2 cannot intercept new-window requests."
+  ],
+  "acceptable_alternatives": [
+    "Create a second in-app WebView2 tab/window and set `e.NewWindow` to that instance.",
+    "Cancel all new-window requests with `e.Handled = true` when the product requirement is no popups.",
+    "Use navigation filtering in addition to `NewWindowRequested` for domain allow-listing."
+  ],
+  "solved": "The answer provides a WinForms-compatible `NewWindowRequested` handler that is registered after initialization and either cancels or redirects target-blank/window.open requests inside the app.",
+  "partial": "The answer names `NewWindowRequested` but does not show when to hook it or how to block/redirect the event.",
+  "sources": ["https://stackoverflow.com/questions/66191200/how-to-prevent-webview2edge-based-to-open-a-new-window"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.core.corewebview2.newwindowrequested"
+  ],
+  "notes": "The accepted answer sets `e.NewWindow` to the existing `CoreWebView2`; blocking with `Handled=true` is also correct when that is the stated behavior."
+}

@@ -1,0 +1,35 @@
+{
+  "cluster": "c02",
+  "framework": "WinUI3",
+  "goal": "Align the packaged WinUI build's platform and runtime identifier so the app host is not built as architecture-neutral.",
+  "must_include": [
+    "Explains that packaged .NET apps with an app host cannot be built as AnyCPU/neutral because the package needs a concrete processor architecture.",
+    "Sets the solution/pipeline build platform to a concrete architecture such as `x64` instead of `Any CPU`.",
+    "Ensures the project has a matching Windows RID such as `win-x64` or a RuntimeIdentifiers list that includes the selected platform.",
+    "Checks the packaging profile or CI variables so `$(Platform)` resolves to the same architecture used by the app project."
+  ],
+  "must_not": [
+    "Tell them to ignore the error because AnyCPU is normal for managed code.",
+    "Remove `EnableMsixTooling` to get past the build.",
+    "Mix `PlatformTarget=x64` with an `Any CPU` solution configuration and call it fixed."
+  ],
+  "acceptable_alternatives": [
+    "Build separate x86, x64, and arm64 packages.",
+    "Generate an MSIX bundle containing architecture-specific packages.",
+    "Use Visual Studio Configuration Manager to set all projects to the same platform before mirroring that in CI.",
+    "the winapp CLI's equivalent project packaging command (`winapp pack .\\BeaconDesk.csproj --arch x64`) once the project is configured for MSIX packaging."
+  ],
+  "solved": "CI builds the package for a concrete architecture and the neutral app-host error is gone.",
+  "partial": "The answer says to use x64 but does not address both the CI/solution platform and the RID/package profile.",
+  "sources": [
+    "https://stackoverflow.com/questions/72980822/how-to-fix-a-packaged-winui3-app-build-what-makes-trouble-with-processorarchite"
+  ],
+  "verified_with": [
+    "https://api.stackexchange.com/2.3/questions/72980822?site=stackoverflow&filter=withbody",
+    "https://api.stackexchange.com/2.3/questions/72980822/answers?site=stackoverflow&filter=withbody",
+    "https://learn.microsoft.com/en-us/dotnet/core/rid-catalog",
+    "https://learn.microsoft.com/en-us/windows/msix/package/packaging-uwp-apps",
+    "docs\\usage.md#pack"
+  ],
+  "notes": "The source accepted community fix was to set all solution projects to x64; the rubric also accepts equivalent architecture-specific package builds."
+}

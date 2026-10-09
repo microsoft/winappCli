@@ -1,0 +1,16 @@
+Affected user launched Atlas Desk from the Start menu without elevation.
+
+Normal prompt:
+PS C:\Users\mika> Get-AppxPackage micro*win*app*run*
+
+Admin prompt:
+PS C:\Windows\System32> Get-AppxPackage micro*win*app*run* -AllUsers
+
+Name                   : Microsoft.WindowsAppRuntime.1.5
+Architecture           : X64
+Version                : 5001.70.1338.0
+PackageFullName        : Microsoft.WindowsAppRuntime.1.5_5001.70.1338.0_x64__8wekyb3d8bbwe
+PackageUserInformation : {S-1-5-18 [S-1-5-18]: Staged}
+
+Application event log:
+ERROR 0x80070005: Bootstrapper initialization failed while looking for version 1.5 (MSIX package version >= 5001.70.1338.0)

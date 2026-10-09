@@ -216,7 +216,7 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             ? Task.FromResult<SandboxClientWindow?>(null)
             : WaitAndPlaceAsync(
                 snapshot,
-                attempt.Ownership,
+                attempt,
                 EarlyPollInterval,
                 cancellationToken);
     }
@@ -244,22 +244,24 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             return null;
         }
 
-        return await WaitAndPlaceAsync(snapshot, attempt.Ownership, PollInterval, cancellationToken)
+        return await WaitAndPlaceAsync(snapshot, attempt, PollInterval, cancellationToken)
             .ConfigureAwait(false);
     }
 
     private async Task<SandboxClientWindow?> WaitAndPlaceAsync(
         WindowsSandboxWindowSnapshot snapshot,
-        SandboxConnectOwnership ownership,
+        SandboxConnectAttempt attempt,
         TimeSpan pollInterval,
         CancellationToken cancellationToken)
     {
+        var ownership = attempt.Ownership!;
         var deadline = UtcNow() + WindowTimeout;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var (client, ambiguous) = SelectOwnedClient(ownership, _listClients());
+            var clients = _listClients();
+            var (client, ambiguous) = SelectOwnedClient(ownership, clients);
 
             if (ambiguous)
             {
@@ -273,6 +275,19 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             {
                 _park(client, snapshot.ForegroundWindow);
                 return client;
+            }
+
+            // A client winapp launched itself is a single window, so its error page is final: it
+            // will never show a session. Another Sandbox won, and unless some other Sandbox window
+            // is open, such as one opened from Start at the same moment, that Sandbox has none.
+            if (clients.Any(candidate =>
+                    candidate.Surface == SandboxClientSurface.TerminalError &&
+                    IsLauncher(candidate.Window, ownership)))
+            {
+                attempt.LostToWindowlessSandbox = !clients.Any(candidate =>
+                    candidate.Surface != SandboxClientSurface.TerminalError &&
+                    !IsLauncher(candidate.Window, ownership));
+                return null;
             }
 
             if (UtcNow() >= deadline)
@@ -290,12 +305,18 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
     }
 
     /// <summary>
-    /// Picks the client the launcher in <paramref name="ownership"/> created.
+    /// Picks the client the launcher in <paramref name="ownership"/> created, or the launcher itself
+    /// when winapp started the client directly.
     /// </summary>
     /// <remarks>
     /// Selection is by parentage <em>and</em> age. A client another <c>wsb connect</c> created is not
     /// a weaker candidate here, it is not a candidate at all, so this returns the same answer whether
     /// that other client appeared before winapp's, after it, or never.
+    /// <para>
+    /// A client winapp launched itself, to open a new Sandbox, is the launcher: its own process ID and
+    /// exact start time are the proof, so no parent is involved. A <c>wsb connect</c> process never
+    /// owns a client window, so this cannot match one by mistake.
+    /// </para>
     /// <para>
     /// The age test is what keeps the parent ID honest. Windows records a client's parent ID once, at
     /// creation, and never revises it — a client outlives its launcher, and once that launcher's ID
@@ -326,9 +347,10 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             .Where(candidate =>
                 candidate.Surface != SandboxClientSurface.TerminalError &&
                 candidate.Window.Handle != 0 &&
-                candidate.ParentProcessId == ownership.LauncherProcessId &&
                 candidate.Window.StartTicksUtc != 0 &&
-                candidate.Window.StartTicksUtc >= ownership.StartTicksUtc)
+                (IsLauncher(candidate.Window, ownership) ||
+                    (candidate.ParentProcessId == ownership.LauncherProcessId &&
+                        candidate.Window.StartTicksUtc >= ownership.StartTicksUtc)))
             .ToList();
 
         return owned.Count switch
@@ -338,6 +360,11 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             _ => (null, true),
         };
     }
+
+    /// <summary>Whether a client window belongs to the very process winapp launched.</summary>
+    private static bool IsLauncher(SandboxClientWindow window, SandboxConnectOwnership ownership) =>
+        window.ProcessId == ownership.LauncherProcessId &&
+        window.StartTicksUtc == ownership.StartTicksUtc;
 
     /// <inheritdoc/>
     public SandboxClientWindow ResolveClient(SandboxClientWindow? remembered) =>

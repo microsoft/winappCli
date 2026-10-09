@@ -1,0 +1,21 @@
+{
+  "id": "c04-electron-builder-v27-custom-nsis-toolset",
+  "description": "An Electron Windows build with a custom NSIS fork fails after upgrading electron-builder to v27 because the custom NSIS config moved to toolsets, from https://github.com/electron-userland/electron-builder/issues/10274.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My Windows installer build started failing after I tried electron-builder 27. We use a patched NSIS for a 4 GiB asset-heavy app and I think the build is ignoring it now.\n\n```\n⨯ C:\\Users\\Me\\AppData\\Local\\electron-builder\\Cache\\nsis@1.2.1\\nsis-bundle-3.12-wfwns\\makensis.cmd process failed ERR_ELECTRON_BUILDER_CANNOT_EXECUTE\nExit code: 1\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}
