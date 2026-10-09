@@ -1,0 +1,10 @@
+{
+  "id": "c20-wpf-textrecognizer-keep-wpf",
+  "description": "A WPF app using Windows App SDK TextRecognizer on an Arm Copilot+ PC gets a catastrophic failure, based on https://github.com/microsoft/WindowsAppSDK/issues/5684.",
+  "set": "demand",
+  "cohort": "trap",
+  "prompt": "We have to keep this as a WPF line-of-business app, but I want to add modern on-device OCR. TextRecognizer.GetReadyState says NotReady, EnsureReadyAsync returns Failure with an empty message, and CreateAsync throws 'catastrophic failure' on a Snapdragon X Plus Windows 11 machine. Should I rewrite the UI in WinUI just for this feature?",
+  "configurations": ["none", "winapp", "winui", "both"],
+  "fixture": "fixture",
+  "expect": { "capabilities": { "primary": [], "acceptable": [], "forbid": [] } }
+}

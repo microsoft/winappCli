@@ -1,0 +1,21 @@
+{
+  "id": "c27-appinstaller-onlaunch-schema",
+  "description": "Sideloaded MSIX updates do not check on launch because the App Installer file uses an old schema namespace, based on https://stackoverflow.com/questions/67271306/why-does-the-msix-not-automatically-check-for-updates-every-time-the-application.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "We publish a WPF app as an MSIX to an Azure App Service, not through the Store. Users install from the `.appinstaller` link, but when I replace the bundle with 1.0.2 the installed app does not prompt on launch; clicking the web installer does see the update.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "cluster": "c01",
+  "framework": "C++/Win32",
+  "goal": "Explain the duplicate auto-initializer warning as a Windows App SDK package/tooling issue and choose a safe package-level fix.",
+  "must_include": [
+    "Connects the warning to `WindowsAppRuntimeAutoInitializer.cpp` being injected by Windows App SDK native auto-initializer targets, not to two user-authored files with the same name.",
+    "Checks the Windows App SDK NuGet version and recommends moving to a serviced version that contains the fix, such as 1.8.8 or the corresponding 2.0 servicing release.",
+    "Explains that the linker is ignoring the duplicate object, but the clean fix is to update the SDK package rather than renaming generated files.",
+    "If the team cannot update immediately, suggests treating it as a known SDK warning after verifying no initializer was manually added twice."
+  ],
+  "must_not": [
+    "Tell them to edit `WindowsAppSDK-Nuget-Native.AutoInitializer.targets` in the global NuGet cache.",
+    "Tell them to rename or delete `WindowsAppRuntimeAutoInitializer.cpp` under the package folder.",
+    "Disable all Windows App SDK initialization without checking whether the app is framework-dependent, unpackaged, or packaged."
+  ],
+  "acceptable_alternatives": [
+    "Pin back to a previous package version without the warning as a temporary workaround.",
+    "Move both projects forward together to the same fixed Windows App SDK servicing version.",
+    "Open or attach a binlog to the upstream issue if the warning persists on a fixed version."
+  ],
+  "solved": "The answer avoids editing generated SDK files and resolves or quarantines the warning by using a fixed Windows App SDK package version.",
+  "partial": "The answer correctly says the duplicate comes from Windows App SDK targets but does not identify package update/pinning as the safe remedy.",
+  "sources": ["https://github.com/microsoft/WindowsAppSDK/issues/5395"],
+  "verified_with": [
+    "https://github.com/microsoft/WindowsAppSDK/issues/5395",
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/release-channels",
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/project-properties"
+  ],
+  "notes": "The source issue was still active for 1.7-era packages and later comments state the fix landed in 1.8.8 with a 2.0 servicing fix following."
+}

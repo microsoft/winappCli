@@ -1,0 +1,34 @@
+{
+  "cluster": "c21",
+  "framework": "MAUI",
+  "goal": "Publish a .NET MAUI Windows package that runs on a clean customer machine without separately installing .NET or the Windows App SDK runtime.",
+  "must_include": [
+    "Explains that `--self-contained` covers the .NET runtime, while `<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>` covers the Windows App SDK framework/runtime files; both may be needed for a fully self-contained Windows package.",
+    "Sets `WindowsAppSDKSelfContained` in the MAUI app project file, not in class library projects, to avoid `GenerateAppManifestFromAppx` failures in non-app projects.",
+    "Publishes the MAUI app project, not the solution, with a concrete Windows TFM and x64/x86 runtime identifier or `RuntimeIdentifierOverride` appropriate to the target.",
+    "Notes that WinUI/Windows App SDK apps cannot become a single-file EXE; native runtime files remain in the package/output."
+  ],
+  "must_not": [
+    "Promises that `PublishSingleFile=true` will produce one working WinUI/MAUI Windows executable.",
+    "Uses `AnyCPU` for a self-contained Windows App SDK publish.",
+    "Solves the customer prompt by asking every customer to install the .NET Desktop Runtime manually."
+  ],
+  "acceptable_alternatives": [
+    "Use Visual Studio's package/publish workflow with equivalent self-contained settings.",
+    "Use the winapp CLI's equivalent project packaging route (`winapp pack <app>.csproj --self-contained` plus the matching .NET self-contained MSBuild property/RID) if it fits the build pipeline.",
+    "Use an unpackaged self-contained folder for non-Store channels if MSIX is not required.",
+    "Install the Windows App SDK redistributable separately only if the app deliberately remains framework-dependent."
+  ],
+  "solved": "The answer clearly separates .NET self-contained and Windows App SDK self-contained deployment and gives project/publish settings that produce a package runnable on a clean machine.",
+  "partial": "The answer adds only `--self-contained` or only `WindowsAppSDKSelfContained` and misses the other runtime dependency.",
+  "sources": [
+    "https://github.com/dotnet/maui/issues/19763"
+  ],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/dotnet/maui/windows/deployment/publish-cli?view=net-maui-8.0",
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/self-contained-deploy/deploy-self-contained-apps",
+    "https://github.com/dotnet/maui/issues/19763",
+    "docs\\usage.md#pack"
+  ],
+  "notes": "The issue discussion confirms that `--self-contained` increased the package with .NET files and `WindowsAppSDKSelfContained` added the Windows App SDK files needed on fresh Windows installations."
+}

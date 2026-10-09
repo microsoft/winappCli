@@ -1,0 +1,29 @@
+<Window
+    x:Class="SlateDesk.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+    Title="SlateDesk"
+    Width="1100"
+    Height="700"
+    WindowStyle="None">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome
+            CaptionHeight="40"
+            CornerRadius="0"
+            GlassFrameThickness="0"
+            ResizeBorderThickness="6" />
+    </shell:WindowChrome.WindowChrome>
+
+    <DockPanel>
+        <Grid DockPanel.Dock="Top" Height="40" Background="#20232A">
+            <TextBlock Margin="16,0,0,0" VerticalAlignment="Center" Foreground="White" Text="SlateDesk" />
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                <Button Width="46" Content="—" Click="Minimize_Click" />
+                <Button x:Name="MaxRestoreButton" Width="46" Content="□" Click="MaxRestore_Click" />
+                <Button Width="46" Content="×" Click="Close_Click" />
+            </StackPanel>
+        </Grid>
+        <Grid Background="#2B2F3A" />
+    </DockPanel>
+</Window>

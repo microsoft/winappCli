@@ -1,0 +1,21 @@
+{
+  "id": "c04-maui-flexlayout-image-layout-cycle",
+  "description": "A .NET MAUI Windows app crashes or hangs when a wrapping FlexLayout contains an image button and the window is too narrow, from https://github.com/dotnet/maui/issues/21548.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "On Windows our toolbar page sometimes freezes on startup and sometimes throws a layout-cycle crash after the window is resized narrow. It started after we moved from MAUI 8.0.7 to 8.0.10.\n\n```\nLayout cycle detected. Layout could not complete.\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

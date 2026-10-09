@@ -1,0 +1,21 @@
+{
+  "id": "c23-tauri-plugin-permissions-cache",
+  "description": "Tauri v2 Windows CI builds intermittently fail reading generated permissions after cached build output is reused, based on https://github.com/tauri-apps/tauri/issues/9045.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My Tauri v2 Windows build works locally but fails in GitHub Actions, and deleting the Actions cache sometimes makes it green again. I don't want to turn caching off forever because the job goes from about 6 minutes to almost 20 minutes.\n\n```\nerror: failed to run custom build command for `atlas-shell v0.0.0`\nCaused by:\n  process didn't exit successfully: `D:\\a\\atlas-shell\\src-tauri\\target\\release\\build\\atlas-shell-...\\build-script-build` (exit code: 1)\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

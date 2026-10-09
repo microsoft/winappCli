@@ -1,0 +1,17 @@
+Publish folder before setup.exe is installed:
+
+HarborAudit.exe
+HarborAudit.dll
+Microsoft.Web.WebView2.Core.dll
+Microsoft.Web.WebView2.Wpf.dll
+runtimes\win-x64\native\WebView2Loader.dll
+setup.exe
+HarborAudit.application
+
+Installed application folder after ClickOnce setup:
+
+HarborAudit.exe
+HarborAudit.dll
+Microsoft.Web.WebView2.Core.dll
+Microsoft.Web.WebView2.Wpf.dll
+HarborAudit.exe.config
