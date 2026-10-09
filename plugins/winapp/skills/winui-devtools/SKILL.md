@@ -104,7 +104,7 @@ If `get-source` labels a declaration **likely source**, show the declaration and
 its missing-evidence explanation to the user before capturing a source-anchored
 comment. Pass `--confirm-likely-source` only after that explicit confirmation;
 do not add it automatically to recover from a refused save. See
-[source attribution](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#find-and-inspect-an-element) for disk-matched and
+[source attribution](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#source-locations) for disk-matched and
 likely-source limits, including rebuild/hot-reload uncertainty.
 
 Saved list/get/update/delete use the host store without connecting to Sandbox.
@@ -157,11 +157,11 @@ an element even if another predicate value is unknown; without a mismatch, unkno
 values still block exact targeting. Check completeness and unevaluated candidates
 before acting. Query-targeted `get-property` and
 `set-property --value` require exactly one provable match; omit the positional
-selector. Follow the guide's [query targeting and timeout rules](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#read-or-change-one-query-selected-element);
+selector. Follow the [query targeting and timeout rules](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#query-targeting);
 use bounded failure diagnostics to identify unresolved candidates, not to bypass
 the uniqueness guard. Never retry an indeterminate write automatically.
-For disk-matched source declarations and their limits, follow the guide's
-[source-coordinate guidance](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#find-and-inspect-an-element)
+For disk-matched source declarations and their limits, follow the
+[source-coordinate guidance](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools-advanced.md#source-locations)
 before editing XAML or capturing a source-anchored comment.
 
 Use `set-property <selector> <property> <value>` for an authorized in-memory
