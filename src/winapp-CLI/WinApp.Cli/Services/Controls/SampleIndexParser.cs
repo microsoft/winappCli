@@ -25,6 +25,14 @@ using System.Text.Json;
 internal static class SampleIndexParser
 {
     /// <summary>
+    /// Ceiling on the total length of a control-level <c>usings</c> block, which is copied
+    /// onto every one of the control's samples. Generous next to real indexes — the largest
+    /// shipping control uses a few short namespace names — so it bounds the copy without
+    /// touching legitimate content.
+    /// </summary>
+    private const int MaxUsingsChars = 8 * 1024;
+
+    /// <summary>
     /// Map an index document to <see cref="Scenario"/>[] plus the two per-control search
     /// dictionaries. <paramref name="source"/> is stamped onto every scenario
     /// (<see cref="Scenario.Source"/>) rather than read from the document, so a source can
@@ -92,6 +100,12 @@ internal static class SampleIndexParser
             // file, not the host project's global usings, so this is the set of imports a
             // consumer cannot guess (CommunityToolkit.WinUI.*, Microsoft.UI.Reactor.*)
             // rather than everything the snippet references.
+            //
+            // The same array is stored on every sample and the cache serializes it once per
+            // scenario, so one oversized block multiplies far past the byte-capped fetch.
+            // Real usings are a handful of namespace names; anything past the limit is
+            // malformed or hostile, so drop the usings and keep the samples.
+            if (usings.Sum(u => (long)u.Length) > MaxUsingsChars) usings = [];
 
             if (!control.TryGetProperty(SampleIndexSchema.Samples, out var samples)
                 || samples.ValueKind != JsonValueKind.Array)

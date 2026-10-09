@@ -780,4 +780,38 @@ public class SampleIndexTests
         Assert.AreEqual("var b = 2;", scenarios[1].CSharp);
     }
 
+    [TestMethod]
+    public void Parse_DropsAnOversizedUsingsBlockRatherThanCopyingItOntoEverySample()
+    {
+        // One control-level using longer than the cap, on a control with several samples:
+        // the array is copied onto every sample, so it is dropped while the samples survive.
+        // Letters only, so it is still a valid namespace name and would pass sanitizing.
+        var huge = new string('N', 9 * 1024);
+        var json = $$"""
+        {
+          "schemaVersion": 1,
+          "source": "gallery",
+          "controls": [
+            {
+              "id": "button",
+              "name": "Button",
+              "usings": ["{{huge}}"],
+              "samples": [
+                { "header": "One", "code": "var a = 1;" },
+                { "header": "Two", "code": "var b = 2;" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var (scenarios, _, _) = SampleIndexParser.Parse(json, "gallery");
+
+        Assert.AreEqual(2, scenarios.Length);
+        Assert.AreEqual("var a = 1;", scenarios[0].CSharp);
+        Assert.AreEqual("var b = 2;", scenarios[1].CSharp);
+        Assert.AreEqual(0, scenarios[0].Usings.Length);
+        Assert.AreEqual(0, scenarios[1].Usings.Length);
+    }
+
 }
