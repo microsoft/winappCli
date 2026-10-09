@@ -135,6 +135,24 @@ function Get-PluginSkillNames {
     return @($names | Sort-Object -Unique)
 }
 
+function Get-PluginSkillFiles {
+    # Files a plugin's skills ship besides SKILL.md (references, scripts, assets), as
+    # "<skill folder>/<relative path>", the same form recorded for reads (skillFilesRead).
+    param([Parameter(Mandatory)][string]$PluginPath)
+
+    $skillsDir = Join-Path $PluginPath 'skills'
+    if (-not (Test-Path -LiteralPath $skillsDir)) { return @() }
+    $files = foreach ($dir in Get-ChildItem -LiteralPath $skillsDir -Directory) {
+        if (-not (Test-Path -LiteralPath (Join-Path $dir.FullName 'SKILL.md'))) { continue }
+        $root = $dir.FullName.TrimEnd('\') + '\'
+        foreach ($f in Get-ChildItem -LiteralPath $dir.FullName -Recurse -File) {
+            $rel = $f.FullName.Substring($root.Length) -replace '\\', '/'
+            if ($rel -ne 'SKILL.md') { "$($dir.Name)/$rel" }
+        }
+    }
+    return @($files | Sort-Object -Unique)
+}
+
 function Get-ConfigurationPlugins {
     param([Parameter(Mandatory)][string]$Configuration)
     switch ($Configuration) {
@@ -628,15 +646,18 @@ function Set-CapabilityMap {
 }
 
 function Resolve-SkillCapabilities {
-    # A plugin map applies when every skill it names is installed. When several maps of one plugin
-    # apply, the one naming the most skills wins. Installed skills no applied map names are unmapped.
+    # A plugin map applies when every key it names is installed. When several maps of one plugin
+    # apply, the one naming the most keys wins. Installed skills no applied map names are unmapped.
     # A map key "<skill>/<file>" maps a file inside a skill (a reference): its capabilities count only
-    # when the agent read that file. Such keys need only their skill installed.
+    # when the agent read that file. $InstalledSkills lists installed files the same way, so a map with
+    # file keys applies only to a plugin that ships those files. That separates a candidate that splits
+    # a skill into new reference files from the baseline with the same skill names; runs recorded
+    # without their installed files never select a map with file keys.
     param([AllowEmptyCollection()][string[]]$InstalledSkills = @(), $Map = (Get-CapabilityMap))
     $installed = @($InstalledSkills | Select-Object -Unique)
     $applied = foreach ($g in ($Map.Maps | Group-Object Plugin)) {
-        $g.Group | Where-Object { $m = $_; -not @($m.Skills.Keys | Where-Object { ($_ -split '/', 2)[0] -notin $installed }) } |
-            Sort-Object { @($_.Skills.Keys | Where-Object { $_ -notlike '*/*' }).Count } -Descending -Stable | Select-Object -First 1
+        $g.Group | Where-Object { -not @($_.Skills.Keys | Where-Object { $_ -notin $installed }) } |
+            Sort-Object { $_.Skills.Count } -Descending -Stable | Select-Object -First 1
     }
     $skillCaps = @{}
     foreach ($m in @($applied)) { foreach ($s in $m.Skills.Keys) { $skillCaps[$s] = @($m.Skills[$s]) } }
@@ -644,7 +665,7 @@ function Resolve-SkillCapabilities {
         SkillCapabilities = $skillCaps
         FileKeys          = @($skillCaps.Keys | Where-Object { $_ -like '*/*' })
         Maps              = @($applied | ForEach-Object Id)
-        Unmapped          = @($installed | Where-Object { -not $skillCaps.ContainsKey($_) })
+        Unmapped          = @($installed | Where-Object { $_ -notlike '*/*' -and -not $skillCaps.ContainsKey($_) })
     }
 }
 
@@ -665,8 +686,9 @@ function Test-CapabilityExpectations {
     $skillCaps = $resolved.SkillCapabilities
     $loaded = @($LoadedSkills | Select-Object -Unique)
     $loadedSkillCount = @($loaded | Where-Object { $_ -notlike '*/*' }).Count
-    # Reference files count as installed with their skill; reading one adds its capabilities. A file
-    # whose skill carries a forbidden capability is not usable either, since reading it loads the skill.
+    # Installed reference files ("<skill>/<file>") are units like skills; reading one adds its
+    # capabilities. A file whose skill carries a forbidden capability is not usable either, since
+    # reading it loads the skill.
     $InstalledSkills = @(@($InstalledSkills) + @($resolved.FileKeys) | Select-Object -Unique)
     $isForbiddenUnit = {
         param($key)
@@ -871,7 +893,9 @@ function Test-ScenarioExpectations {
         $r = Test-CapabilityExpectations -Expect $Expect -LoadedSkills $LoadedSkills -InstalledSkills $InstalledSkills -Map $Map
     }
     else {
-        $legacy = Test-Expectations -Expect $Expect -LoadedSkills $LoadedSkills -InstalledSkills $InstalledSkills
+        # Skill-name expectations predate reference files; they see only skills.
+        $legacy = Test-Expectations -Expect $Expect -LoadedSkills @($LoadedSkills | Where-Object { $_ -notlike '*/*' }) `
+            -InstalledSkills @($InstalledSkills | Where-Object { $_ -notlike '*/*' })
         $r = [pscustomobject]@{
             Status = $legacy.Status; Passed = $legacy.Passed; NotApplicable = $legacy.NotApplicable
             ExpectedInstalled = [bool]@($legacy.AppliedChecks -split ',' | Where-Object { $_ -and $_ -notlike '!*' }).Count
@@ -1294,7 +1318,7 @@ function Invoke-Rescore {
                     $rec.expectationNotes = @($rec.expectationNotes) + 'prompt changed since this run; status not rescored'
                 }
                 else {
-                    $installed = @(if ($rec.preflight) { $rec.preflight.expectedSkills })
+                    $installed = @(@(if ($rec.preflight) { $rec.preflight.expectedSkills }) + @(Get-RecordValue $rec 'skillFilesInstalled') | Where-Object { $_ })
                     $cmds = $rec.ContainsKey('winappCommands') -and $null -ne $rec.winappCommands ? [string[]]@($rec.winappCommands) : $null
                     $response = $rec.ContainsKey('finalResponse') ? $rec.finalResponse : $null
                     $denied = Get-DeniedWinappCommands -Recorded ($rec.ContainsKey('winappCommandsDenied') -and $null -ne $rec.winappCommandsDenied ? [string[]]@($rec.winappCommandsDenied) : $null) `
@@ -1367,7 +1391,7 @@ function Read-ComparisonRuns {
             }
             elseif ($s -and $status -in 'pass', 'fail', 'n/a', 'partial') {
                 $pre = Get-RecordValue $rec 'preflight'
-                $installed = @(if ($pre) { $pre.expectedSkills })
+                $installed = @(@(if ($pre) { $pre.expectedSkills }) + @(Get-RecordValue $rec 'skillFilesInstalled') | Where-Object { $_ })
                 # Get-RecordValue would unroll an empty command list to $null ("not recorded").
                 $cmds = $null
                 $cmdProp = $rec.PSObject.Properties['winappCommands']
@@ -1628,7 +1652,7 @@ function Get-ComparisonReport {
     return ($md -join "`n")
 }
 
-Export-ModuleMember -Function Get-ScenarioDefinitions, Read-ScenarioRubric, Get-PluginSkillNames, Get-ConfigurationPlugins, New-ChildEnvironment,
+Export-ModuleMember -Function Get-ScenarioDefinitions, Read-ScenarioRubric, Get-PluginSkillNames, Get-PluginSkillFiles, Get-ConfigurationPlugins, New-ChildEnvironment,
 Invoke-LoggedProcess, Get-FileTail, Read-SessionEvents, Get-DirectorySnapshot, Compare-DirectorySnapshot, Test-Expectations,
 Get-Median, Write-BenchmarkSummary, Invoke-Rescore, Split-ListArgument, Get-WinappCommands, Get-BareSkillName, Get-ComparisonReport,
 Get-CreditSpend, Compare-PreflightSkills, Format-PassRate,

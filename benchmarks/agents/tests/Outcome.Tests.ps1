@@ -165,6 +165,12 @@ Describe 'New-JudgeBatch' {
 }
 
 Describe 'Outcome scores' {
+    It 'defaults to two judges from different model families' {
+        $j = Get-DefaultJudge
+        $j.Count | Should -Be 2
+        @($j | ForEach-Object { ($_ -split '-')[0] } | Sort-Object -Unique).Count | Should -Be 2
+    }
+
     It 'maps verdicts to 1, 0.5, and 0' {
         Get-VerdictScore 'solved' | Should -Be 1.0
         Get-VerdictScore 'partial' | Should -Be 0.5

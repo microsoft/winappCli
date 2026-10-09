@@ -25,6 +25,8 @@ param(
     [string]$Calibration,
     [string]$Export,
     [string]$Baseline,
+    # Every one of these judges must grade an answer before it counts (default: judge.ps1's judges).
+    [string[]]$Judge,
     [string]$Title = 'Demand set',
     [int]$Boot = 2000
 )
@@ -49,7 +51,12 @@ foreach ($jp in $Judgments) {
         $verd["$($j.key)|$($j.judge)"] = $j
     }
 }
-$judges = @($verd.Values | ForEach-Object judge | Sort-Object -Unique)
+$judges = if ($Judge) { @(Split-ListArgument $Judge) } else { Get-DefaultJudge }
+$seen = @($verd.Values | ForEach-Object judge | Sort-Object -Unique)
+$extra = @($seen | Where-Object { $_ -notin $judges })
+if ($extra) { Write-Warning "Ignoring judgments from judges not in -Judge: $($extra -join ', ')" }
+$absent = @($judges | Where-Object { $_ -notin $seen })
+if ($absent) { Write-Warning "No judgments from $($absent -join ', '); no answer can be scored until every judge has graded it." }
 $specObj = Get-Content -Raw -LiteralPath $specPath | ConvertFrom-Json -AsHashtable
 if (-not $specObj.Count) { throw "Spec $specPath names no candidates." }
 if (-not $Baseline) { $Baseline = @($specObj.Keys)[0] }

@@ -21,10 +21,11 @@
 param(
     [Parameter(Mandatory)][string[]]$Results,
     [Parameter(Mandatory)][string]$OutDir,
-    [string[]]$Judge = @('claude-opus-5.5', 'gpt-6.1-sol'),
+    [string[]]$Judge,
     [int]$BatchSize = 6,
     [int]$Throttle = 6,
     [double]$MaxCredits = 0,
+    [double]$AttemptEstimate = 20,
     [int]$TimeoutMinutes = 8,
     [int]$Seed = 20261008,
     [switch]$Plan
@@ -35,7 +36,7 @@ $outcomePath = Join-Path $PSScriptRoot 'lib\Outcome.psm1'
 Import-Module $modulePath -Force
 Import-Module $outcomePath -Force
 $Results = Split-ListArgument $Results
-$Judge = Split-ListArgument $Judge
+$Judge = if ($Judge) { Split-ListArgument $Judge } else { Get-DefaultJudge }
 $byId = @{}
 foreach ($s in Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot 'scenarios')) { $byId[$s.Id] = $s }
 
@@ -113,7 +114,10 @@ $prepared = foreach ($b in $batches) {
 }
 
 $copilotExe = (Get-Command copilot -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-$budget = [hashtable]::Synchronized(@{ Spent = $spent; Max = $MaxCredits })
+# -MaxCredits holds across parallel workers: each attempt reserves an estimate before it starts (the
+# largest attempt cost seen so far, at least $AttemptEstimate) and none starts once spent plus
+# reserved credits would pass the limit.
+$budget = [hashtable]::Synchronized(@{ Spent = $spent; Reserved = 0.0; Estimate = [double]$AttemptEstimate; Max = $MaxCredits })
 $results = $prepared | ForEach-Object -ThrottleLimit $Throttle -Parallel {
     $p = $_
     Import-Module $using:modulePath -Force
@@ -121,8 +125,14 @@ $results = $prepared | ForEach-Object -ThrottleLimit $Throttle -Parallel {
     $b = $p.Batch
     $out = [ordered]@{ Id = $b.Id; Judge = $b.Judge; Scenario = $b.Scenario; Keys = $p.Keys; Verdicts = $null; Credits = 0.0; Error = $null }
     $bud = $using:budget
-    if ($bud.Max -and $bud.Spent -ge $bud.Max) { $out.Error = "skipped: -MaxCredits $($bud.Max) reached"; return ([pscustomobject]$out | ConvertTo-Json -Depth 8 -Compress) }
     foreach ($attempt in 1..2) {
+        $reserved = 0.0
+        [System.Threading.Monitor]::Enter($bud.SyncRoot)
+        try {
+            if (-not $bud.Max -or $bud.Spent + $bud.Reserved + $bud.Estimate -le $bud.Max) { $reserved = $bud.Estimate; $bud.Reserved += $reserved }
+        }
+        finally { [System.Threading.Monitor]::Exit($bud.SyncRoot) }
+        if ($bud.Max -and -not $reserved) { $out.Error = "skipped: -MaxCredits $($bud.Max) would be exceeded"; break }
         # Each attempt gets an empty Copilot home, like a benchmark run: no plugins, no login state.
         $copilotHome = Join-Path $p.Dir "home$attempt"
         New-Item -ItemType Directory -Force -Path $copilotHome | Out-Null
@@ -137,7 +147,9 @@ $results = $prepared | ForEach-Object -ThrottleLimit $Throttle -Parallel {
         $parsed = Read-SessionEvents -Path ($ev ? $ev.FullName : '')
         $credits = [double]($parsed.aiCredits ?? 0)
         $out.Credits += $credits
-        [System.Threading.Monitor]::Enter($bud.SyncRoot); try { $bud.Spent += $credits } finally { [System.Threading.Monitor]::Exit($bud.SyncRoot) }
+        [System.Threading.Monitor]::Enter($bud.SyncRoot)
+        try { $bud.Spent += $credits; $bud.Reserved -= $reserved; $bud.Estimate = [Math]::Max($bud.Estimate, $credits) }
+        finally { [System.Threading.Monitor]::Exit($bud.SyncRoot) }
         $reply = ConvertFrom-JudgeReply -Text ([string]$parsed.finalResponse) -Count $p.Keys.Count
         if ($reply.Verdicts) { $out.Verdicts = $reply.Verdicts; $out.Error = $null; break }
         $out.Error = "$($reply.Error) (exit $($r.ExitCode), timed out $($r.TimedOut))"

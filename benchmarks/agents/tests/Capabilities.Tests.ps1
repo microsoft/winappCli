@@ -47,10 +47,14 @@ Describe 'Capability map' {
     It 'has a map for the current skill set of each repo plugin' {
         $real = Read-CapabilityMap -Path (Join-Path $PSScriptRoot '..\capabilities.json')
         foreach ($p in @(@{ n = 'winapp'; path = 'plugins\winapp' }, @{ n = 'winui'; path = 'plugins\winui\agent-plugin' })) {
-            $skills = Get-PluginSkillNames -PluginPath (Join-Path $repoRoot $p.path)
-            $m = @($real.Maps | Where-Object { $_.Plugin -eq $p.n -and $_.SkillSetHash -eq (Get-SkillSetHash $skills) })
+            $pluginPath = Join-Path $repoRoot $p.path
+            $skills = Get-PluginSkillNames -PluginPath $pluginPath
+            # Maps of a skill set can differ by reference files; the one the current layout selects must cover every skill.
+            $resolved = Resolve-SkillCapabilities -InstalledSkills @(@($skills) + @(Get-PluginSkillFiles -PluginPath $pluginPath)) -Map $real
+            $m = @($real.Maps | Where-Object { $_.Plugin -eq $p.n -and $_.Id -in $resolved.Maps })
             $m.Count | Should -Be 1 -Because "capabilities.json must map the current '$($p.n)' skills; update skillSetHash and skills when they change"
-            @($m[0].Skills.Keys | Sort-Object) | Should -Be @($skills | Sort-Object)
+            $m[0].SkillSetHash | Should -Be (Get-SkillSetHash $skills)
+            @($m[0].Skills.Keys | Where-Object { $_ -notlike '*/*' } | Sort-Object) | Should -Be @($skills | Sort-Object)
         }
     }
 
@@ -123,16 +127,48 @@ Describe 'Test-CapabilityExpectations' {
             maps         = @(@{ id = 'f'; plugin = 'winapp'; source = 't'; skillSetHash = 'f'; skills = @{ 'winapp-ship' = @('msix.package'); 'winapp-ship/references/signing.md' = @('msix.sign'); 'winui-x' = @('winui.design'); 'winui-x/references/sign.md' = @('msix.sign') } })
         } | ConvertTo-Json -Depth 6 | Set-Content $p
         $m = Read-CapabilityMap -Path $p
-        $r = Resolve-SkillCapabilities -InstalledSkills @('winapp-ship', 'winui-x') -Map $m
+        $installed = @('winapp-ship', 'winui-x', 'winapp-ship/references/signing.md', 'winui-x/references/sign.md')
+        $r = Resolve-SkillCapabilities -InstalledSkills $installed -Map $m
         $r.Maps | Should -Be @('f')
         $r.FileKeys.Count | Should -Be 2
+        $r.Unmapped | Should -BeNullOrEmpty
         $e = New-CapExpect -primary 'msix.sign' -max 1
-        (Test-CapabilityExpectations -Expect $e -LoadedSkills 'winapp-ship' -InstalledSkills @('winapp-ship', 'winui-x') -Map $m).Status | Should -Be 'fail'
-        (Test-CapabilityExpectations -Expect $e -LoadedSkills 'winapp-ship', 'winapp-ship/references/signing.md' -InstalledSkills @('winapp-ship', 'winui-x') -Map $m).Status | Should -Be 'pass'
+        (Test-CapabilityExpectations -Expect $e -LoadedSkills 'winapp-ship' -InstalledSkills $installed -Map $m).Status | Should -Be 'fail'
+        (Test-CapabilityExpectations -Expect $e -LoadedSkills 'winapp-ship', 'winapp-ship/references/signing.md' -InstalledSkills $installed -Map $m).Status | Should -Be 'pass'
         # A file under a skill that carries a forbidden capability is not usable.
         $f = New-CapExpect -primary 'msix.sign' -forbid 'winui.*'
-        $r2 = Test-CapabilityExpectations -Expect $f -LoadedSkills @() -InstalledSkills @('winui-x') -Map $m
+        $r2 = Test-CapabilityExpectations -Expect $f -LoadedSkills @() -InstalledSkills @('winui-x', 'winui-x/references/sign.md') -Map $m
         $r2.ExpectedInstalled | Should -BeFalse
+    }
+
+    It 'tells a split candidate from a baseline with the same skill names by its installed files' {
+        $p = Join-Path $TestDrive 'split.json'
+        @{
+            capabilities = @{ 'project.setup' = @{ description = 's'; commands = @() }; 'project.scaffold' = @{ description = 'n'; commands = @() } }
+            maps         = @(
+                @{ id = 'baseline'; plugin = 'winapp'; source = 't'; skillSetHash = 'h'; skills = @{ 'winapp-setup' = @('project.setup', 'project.scaffold') } }
+                @{ id = 'split'; plugin = 'winapp'; source = 't'; skillSetHash = 'h'; skills = @{ 'winapp-setup' = @('project.setup'); 'winapp-setup/references/new-app.md' = @('project.scaffold') } }
+            )
+        } | ConvertTo-Json -Depth 6 | Set-Content $p
+        $m = Read-CapabilityMap -Path $p
+        $e = New-CapExpect -primary 'project.scaffold'
+        # Baseline plugin: no reference file installed, so the core skill carries scaffolding.
+        (Resolve-SkillCapabilities -InstalledSkills @('winapp-setup') -Map $m).Maps | Should -Be @('baseline')
+        (Test-CapabilityExpectations -Expect $e -LoadedSkills 'winapp-setup' -InstalledSkills @('winapp-setup') -Map $m).Status | Should -Be 'pass'
+        # Split candidate: the file is installed, so scaffolding counts only when it is read.
+        $split = @('winapp-setup', 'winapp-setup/references/new-app.md', 'winapp-setup/references/other.md')
+        (Resolve-SkillCapabilities -InstalledSkills $split -Map $m).Maps | Should -Be @('split')
+        (Test-CapabilityExpectations -Expect $e -LoadedSkills 'winapp-setup' -InstalledSkills $split -Map $m).Status | Should -Be 'fail'
+        (Test-CapabilityExpectations -Expect $e -LoadedSkills 'winapp-setup', 'winapp-setup/references/new-app.md' -InstalledSkills $split -Map $m).Status | Should -Be 'pass'
+    }
+
+    It 'lists a plugin''s skill files besides SKILL.md with forward slashes' {
+        $plugin = Join-Path $TestDrive 'plugin-files'
+        New-Item -ItemType Directory -Force -Path (Join-Path $plugin 'skills\a\references\deep'), (Join-Path $plugin 'skills\no-skill') | Out-Null
+        'x' | Set-Content (Join-Path $plugin 'skills\a\SKILL.md')
+        'x' | Set-Content (Join-Path $plugin 'skills\a\references\deep\r.md')
+        'x' | Set-Content (Join-Path $plugin 'skills\no-skill\notes.md')
+        Get-PluginSkillFiles -PluginPath $plugin | Should -Be @('a/references/deep/r.md')
     }
 }
 

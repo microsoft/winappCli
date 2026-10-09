@@ -293,8 +293,8 @@ that serve it, and maps each plugin's skills to capabilities:
   "skills": { "winapp-signing": ["msix.sign"], "winapp-sandbox": ["sandbox.run", "ui.automate"] } }
 ```
 
-A map applies to a run when every skill it names is installed; if several maps of one plugin apply,
-the one naming the most skills wins. `skillSetHash` identifies the skill-name set the map was written
+A map applies to a run when every skill (and file, below) it names is installed; if several maps of
+one plugin apply, the one naming the most keys wins. `skillSetHash` identifies the skill-name set the map was written
 for. `run.ps1` warns when no map matches a plugin's current skills, and the tests fail when the repo
 plugins change their skill names without a map update. For a candidate that renames, merges, or
 splits skills, add a map for its skill set; the existing maps keep scoring older results.
@@ -306,8 +306,13 @@ A key can also name a file inside a skill, as `<skill>/<path>`:
 ```
 
 The file's capabilities count only in runs where the agent read that file, so content moved from
-`SKILL.md` into a reference is credited only when the model actually opened it. File keys don't
-count toward choosing between maps or toward `maxSkills`, and a file whose skill carries a forbidden
+`SKILL.md` into a reference is credited only when the model actually opened it. Each run records the
+files its plugins ship (`skillFilesInstalled`), and a map with file keys applies only when those
+files are installed. So a candidate that splits a skill into new reference files keeps the same
+skill names as the baseline but still gets its own map, while baseline runs keep the old one. If a
+split only moves content into a file the baseline already ships, the two maps can't be told apart;
+score each side from its own branch. Runs recorded before installed files were tracked use maps
+without file keys. File keys don't count toward `maxSkills`, and a file whose skill carries a forbidden
 capability is unusable, like its skill. When a
 skill is removed, remove its map entry, any capability only it provided, and the scenarios that
 expected that capability. Older runs that had it installed are then scored by the remaining map,
@@ -466,14 +471,15 @@ shuffled. Each judge runs in an empty Copilot home with shell, writes, and URLs 
 answer gets a verdict from every judge (default `claude-opus-5.5` and `gpt-6.1-sol`), so no model
 is graded only by its own family. Empty answers are `unsolved` without a judge. A batch whose reply
 isn't one valid verdict per answer is retried once and then reported as failed (exit code 1); rerun
-to grade what's missing. Judgments append to `judgments.jsonl` in `-OutDir`, keyed by result folder
+to grade what's missing. `-MaxCredits` is a hard cap: each attempt reserves an estimate before it
+starts, so parallel batches can't overshoot it. Judgments append to `judgments.jsonl` in `-OutDir`, keyed by result folder
 name and line, so use unique result folder names. With full batches of 6, grading costs about 1.2
 AI credits per answer per judge; smaller batches cost more per answer.
 
 How to read `demand-analyze.ps1` output:
 
 - **Score** is the mean over judges of solved = 1, partial = 0.5, unsolved = 0. An answer counts only
-  when every judge graded it. **Cluster-weighted** weights each cluster's mean by its demand share
+  when every judge in `-Judge` (default: the same two) graded it. **Cluster-weighted** weights each cluster's mean by its demand share
   (`-Clusters`).
 - **Paired difference** pairs runs by scenario, model, and iteration and resamples scenarios
   (2,000 bootstrap samples) for the 95% interval. Treat an interval that includes 0 as no change.

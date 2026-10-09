@@ -4,6 +4,10 @@ Set-StrictMode -Version Latest
 # verdict scores, and the statistics demand-analyze.ps1 reports.
 
 $script:VerdictScore = @{ solved = 1.0; partial = 0.5; unsolved = 0.0 }
+# Two judges from different model families, so no answer is graded only by its own family.
+$script:DefaultJudges = @('claude-opus-5.5', 'gpt-6.1-sol')
+
+function Get-DefaultJudge { , @($script:DefaultJudges) }
 
 $script:JudgeTemplate = @'
 You are grading answers from AI coding assistants to a Windows app developer's request. Be strict, fair, and consistent. Grade each answer ONLY against the rubric below; do not reward length, confidence, or tool usage, and do not penalize an answer for using a different correct approach that the rubric lists as acceptable. The assistants could read the project files but could NOT run shell commands or edit files, so an answer that gives the developer correct, specific steps or commands to run counts the same as having run them. Telling the developer to run something themselves is fine.
@@ -230,5 +234,5 @@ function Get-JudgeAgreement {
     }
 }
 
-Export-ModuleMember -Function Get-VerdictScore, Get-FixtureText, New-JudgePrompt, ConvertFrom-JudgeReply, New-JudgeBatch,
+Export-ModuleMember -Function Get-DefaultJudge, Get-VerdictScore, Get-FixtureText, New-JudgePrompt, ConvertFrom-JudgeReply, New-JudgeBatch,
     Get-OutcomeScore, Get-ClusterWeightedMean, Get-PairedBootstrap, Get-JudgeAgreement
