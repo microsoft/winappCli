@@ -33,13 +33,42 @@ internal sealed class ProjectContextDetector : IProjectContextDetector
         {
             return new ProjectContext(
                 ProjectFamily.Cpp,
-                ProjectAppFramework.Unknown,
+                DetectCppFramework(projectFile),
                 ProjectTargetKind.SourceProject,
                 ProjectContextSource.ResolvedProject,
                 ProjectContextConfidence.High);
         }
 
         return ProjectContext.Unknown(ProjectTargetKind.SourceProject);
+    }
+
+    // A C++ WinUI 3 project (the Visual Studio templates and winapp's samples) sets UseWinUI; one that dropped the
+    // property still compiles XAML (an ApplicationDefinition or Page item) against the Windows App SDK it imports.
+    private static ProjectAppFramework DetectCppFramework(FileInfo projectFile)
+    {
+        try
+        {
+            if (!CanReadMetadata(projectFile))
+            {
+                return ProjectAppFramework.Unknown;
+            }
+
+            var document = XDocument.Load(projectFile.FullName);
+            var elements = document.Descendants().ToList();
+            var windowsAppSdk = elements.Any(element => element.Name.LocalName == "Import" &&
+                (element.Attribute("Project")?.Value ?? "").Contains("Microsoft.WindowsAppSDK", StringComparison.OrdinalIgnoreCase));
+            var useWinUI = elements.Any(element => element.Parent?.Name.LocalName == "PropertyGroup" &&
+                element.Name.LocalName == "UseWinUI" && element.Value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase));
+            var xaml = elements.Any(element => element.Name.LocalName is "ApplicationDefinition" or "Page" &&
+                (element.Attribute("Include")?.Value ?? "").EndsWith(".xaml", StringComparison.OrdinalIgnoreCase));
+            return useWinUI || (windowsAppSdk && xaml) ? ProjectAppFramework.WinUI
+                : windowsAppSdk ? ProjectAppFramework.WindowsAppSdk
+                : ProjectAppFramework.Unknown;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return ProjectAppFramework.Unknown;
+        }
     }
 
     public ProjectContext DetectDirectory(

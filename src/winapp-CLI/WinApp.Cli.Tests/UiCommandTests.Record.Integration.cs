@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 
 namespace WinApp.Cli.Tests;
@@ -93,6 +95,7 @@ public partial class UiCommandTests
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                CreateNoWindow = true,
             },
         };
         foreach (var argument in arguments)
@@ -100,20 +103,96 @@ public partial class UiCommandTests
             process.StartInfo.ArgumentList.Add(argument);
         }
 
+        var elapsed = Stopwatch.StartNew();
         process.Start();
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
+        var pid = process.Id;
+        var stdout = new StringBuilder();
+        var stderr = new StringBuilder();
+        using var stopReading = new CancellationTokenSource();
+        var reads = Task.WhenAll(
+            CaptureProcessOutputAsync(process.StandardOutput, stdout, stopReading.Token),
+            CaptureProcessOutputAsync(process.StandardError, stderr, stopReading.Token));
         using var timeoutCts = new CancellationTokenSource(timeout);
         try
         {
-            await process.WaitForExitAsync(timeoutCts.Token);
+            await Task.WhenAll(process.WaitForExitAsync(), reads).WaitAsync(timeoutCts.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
         {
-            process.Kill(entireProcessTree: true);
-            Assert.Fail($"Process timed out: {fileName} {string.Join(" ", arguments)}");
+            var timedOutAfter = elapsed.Elapsed;
+            var exitedAtDeadline = process.HasExited;
+            var cleanup = "already exited";
+            if (!exitedAtDeadline)
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                    cleanup = "kill requested";
+                }
+                catch (InvalidOperationException) when (process.HasExited)
+                {
+                    cleanup = "exited before kill";
+                }
+                catch (Win32Exception ex)
+                {
+                    cleanup = $"kill failed ({ex.NativeErrorCode}): {ex.Message}";
+                }
+                try
+                {
+                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (TimeoutException)
+                {
+                    cleanup += "; exit not observed within 5s";
+                }
+            }
+            stopReading.Cancel();
+            var drain = "stopped";
+            try
+            {
+                await reads.WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch (TimeoutException)
+            {
+                drain = "not stopped within 2s";
+            }
+            catch (IOException ex)
+            {
+                drain = $"failed: {ex.Message}";
+            }
+            Assert.Fail($"Process timed out: {fileName} {string.Join(" ", arguments)}\n" +
+                $"pid={pid}; deadlineMs={timeout.TotalMilliseconds:F0}; elapsedMs={timedOutAfter.TotalMilliseconds:F0}; " +
+                $"exitedAtDeadline={exitedAtDeadline}; exitedAfterCleanup={process.HasExited}; cleanup={cleanup}; outputDrain={drain}\n" +
+                $"stdout (captured, may be partial):\n{ProcessOutputSnapshot(stdout, 8192)}\n" +
+                $"stderr (captured, may be partial):\n{ProcessOutputSnapshot(stderr, 8192)}");
         }
 
-        return (process.ExitCode, await stdoutTask, await stderrTask);
+        return (process.ExitCode, ProcessOutputSnapshot(stdout), ProcessOutputSnapshot(stderr));
+    }
+
+    private static async Task CaptureProcessOutputAsync(StreamReader reader, StringBuilder output, CancellationToken stop)
+    {
+        var buffer = new char[4096];
+        try
+        {
+            int count;
+            while ((count = await reader.ReadAsync(buffer.AsMemory(), stop)) != 0)
+            {
+                lock (output) { output.Append(buffer, 0, count); }
+            }
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+        }
+    }
+
+    private static string ProcessOutputSnapshot(StringBuilder output, int limit = int.MaxValue)
+    {
+        lock (output)
+        {
+            return output.Length <= limit ? output.ToString() :
+                $"[truncated {output.Length - limit} preceding characters]\n" +
+                output.ToString(output.Length - limit, limit);
+        }
     }
 }

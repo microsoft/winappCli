@@ -228,6 +228,88 @@ public class InteractiveDesktopSchedulerTests
     // ------------------------------------------------------------------------- expiry and handoff
 
     [TestMethod]
+    [DataRow(-1)]
+    [DataRow(0)]
+    [DataRow(1)]
+    public void ContenderAdmission_UsesRecordedGraceDeadlineNotStoredOwnerKey(int offset)
+    {
+        var state = InteractiveDesktopState.CreateFresh();
+        var actor = Participant(100);
+        _scheduler.BeginParticipating(state, _probe, OwnerA, actor, UiTurnMode.DesktopExclusive);
+        _scheduler.CompleteCommand(state, _probe, actor, OwnerA, renewGrace: true);
+        var deadline = state.IdleExpiresTick64;
+        _clock.Advance(deadline - _clock.NowTicks64 + offset);
+
+        Assert.AreEqual(OwnerA.Key, state.Owner!.Key,
+            "the stored owner alone cannot prove that startup finished inside its grace");
+        var contender = Participant(200);
+        var admission = _scheduler.BeginParticipating(
+            state, _probe, OwnerB, contender, UiTurnMode.DesktopExclusive);
+        if (offset < 0)
+        {
+            Assert.AreEqual(UiAdmission.GlobalWaiter, admission.Admission);
+            Assert.AreEqual(OwnerA.Key, state.Owner!.Key);
+            Assert.AreEqual(contender.ProcessId, state.Waiters.Single().Pid);
+            _clock.Advance(1);
+            _scheduler.Normalize(state, _probe);
+        }
+        else
+        {
+            Assert.AreEqual(UiAdmission.OwnerCommandRunning, admission.Admission);
+            Assert.AreEqual(UiTurnAction.HandoffAfterIdle, admission.TurnAction);
+        }
+        Assert.AreEqual(OwnerB.Key, state.Owner!.Key);
+        Assert.AreEqual(UiCommandStatus.Running,
+            InteractiveDesktopScheduler.FindOwnerCommand(state, contender)!.Status);
+        Assert.IsEmpty(state.Waiters);
+        Assert.AreEqual(UiAdmission.Detached,
+            _scheduler.BeginObserve(state, _probe, OwnerA, Participant(101, "ui inspect")).Admission,
+            "a late A observation must not reacquire or extend B's turn");
+    }
+
+    [TestMethod]
+    public void TimelyObservationBurst_RenewsRecordedGraceAndEventuallyPromotesQueuedContender()
+    {
+        var state = InteractiveDesktopState.CreateFresh();
+        var actor = Participant(100);
+        _scheduler.BeginParticipating(state, _probe, OwnerA, actor, UiTurnMode.DesktopExclusive);
+        _scheduler.CompleteCommand(state, _probe, actor, OwnerA, renewGrace: true);
+        var contender = Participant(200);
+        Assert.AreEqual(UiAdmission.GlobalWaiter, _scheduler.BeginParticipating(
+            state, _probe, OwnerB, contender, UiTurnMode.DesktopExclusive).Admission);
+
+        for (var i = 0; i < 3; i++)
+        {
+            var deadline = state.IdleExpiresTick64;
+            _clock.Advance(deadline - _clock.NowTicks64 - 1);
+            var observation = Participant(101 + i, "ui inspect");
+            Assert.AreEqual(UiAdmission.OwnerCommandRunning,
+                _scheduler.BeginObserve(state, _probe, OwnerA, observation).Admission);
+            _clock.Advance(2);
+            _scheduler.Normalize(state, _probe);
+            Assert.AreEqual(OwnerA.Key, state.Owner!.Key, "an active observation survives the old deadline");
+            Assert.AreEqual(contender.ProcessId, state.Waiters.Single().Pid);
+            _scheduler.CompleteCommand(state, _probe, observation, OwnerA, renewGrace: true);
+            Assert.AreEqual(_clock.NowTicks64 + InteractiveDesktopScheduler.IdleGraceMs, state.IdleExpiresTick64,
+                "each completed same-owner observation starts a fresh normal grace");
+        }
+
+        _clock.Advance(state.IdleExpiresTick64 - _clock.NowTicks64 - 1);
+        _scheduler.Normalize(state, _probe);
+        Assert.AreEqual(OwnerA.Key, state.Owner!.Key);
+        Assert.AreEqual(contender.ProcessId, state.Waiters.Single().Pid);
+        _clock.Advance(1);
+        _scheduler.Normalize(state, _probe);
+        Assert.AreEqual(OwnerB.Key, state.Owner!.Key);
+        Assert.IsEmpty(state.Waiters);
+        Assert.AreEqual(UiCommandStatus.Running,
+            InteractiveDesktopScheduler.FindOwnerCommand(state, contender)!.Status);
+        _clock.Advance(1);
+        _scheduler.Normalize(state, _probe);
+        Assert.AreEqual(OwnerB.Key, state.Owner!.Key);
+    }
+
+    [TestMethod]
     public void BeginParticipating_AfterAnotherOwnersGraceExpired_ReportsHandoffAfterIdle()
     {
         // Spec §16 advertises a `handoff-after-idle` turn action. Taking over a turn that normalization

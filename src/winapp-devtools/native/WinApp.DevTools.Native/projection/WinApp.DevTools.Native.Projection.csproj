@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Restore-only inputs for build-devtools.ps1's C++/WinRT header generation.
+       Resolve metadata from project.assets.json; compile no code or CLI dependency here. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <NoBuild>true</NoBuild>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- We only want the winmds in the cache; skip the WinUI/analyzer/apphost machinery. -->
+    <UseWinUI>false</UseWinUI>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Meta-package: transitively brings Microsoft.WindowsAppSDK.WinUI /.Foundation /
+.InteractiveExperiences whose metadata\*.winmd are the projection inputs. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
+    <!-- Microsoft.Web.WebView2.Core.winmd is referenced by Microsoft.UI.Xaml.Controls.IWebView2. -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
+    <!-- The cppwinrt.exe projection generator. -->
+    <PackageReference Include="Microsoft.Windows.CppWinRT" Version="2.0.250303.1" />
+  </ItemGroup>
+
+</Project>

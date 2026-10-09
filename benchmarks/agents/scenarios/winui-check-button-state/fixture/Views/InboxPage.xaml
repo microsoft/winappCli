@@ -1,0 +1,13 @@
+<Page x:Class="Lanternfish.Views.InboxPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid RowDefinitions="Auto,Auto,*" Padding="16,12" RowSpacing="8">
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <TextBlock Text="Inbox" Style="{StaticResource SubtitleTextBlockStyle}" />
+      <Button x:Name="SyncButton" Content="Sync" Command="{x:Bind ViewModel.SyncCommand}" />
+    </StackPanel>
+    <InfoBar Grid.Row="1" Severity="Warning" IsOpen="{x:Bind ViewModel.HasWarning, Mode=OneWay}"
+             Message="{x:Bind ViewModel.WarningText, Mode=OneWay}" />
+    <ListView Grid.Row="2" ItemsSource="{x:Bind ViewModel.Messages}" />
+  </Grid>
+</Page>

@@ -111,32 +111,14 @@ internal partial class MsixService(
 
     /// <summary>
     /// Extracts execution alias names from an AppX manifest content.
-    /// Looks for uap5:ExecutionAlias or desktop:ExecutionAlias elements.
+    /// Reads desktop, uap5 and uap8 execution aliases in document order across the package.
     /// </summary>
     /// <param name="manifestContent">The content of the appxmanifest.xml file</param>
     /// <returns>List of alias names (e.g. "myapp.exe")</returns>
     public static List<string> ExtractExecutionAliases(string manifestContent)
     {
         var doc = AppxManifestDocument.Parse(manifestContent);
-        var aliases = new List<string>();
-        var root = doc.Document.Root;
-        if (root == null)
-        {
-            return aliases;
-        }
-
-        foreach (var element in root.Descendants()
-            .Where(e => e.Name.LocalName == "ExecutionAlias"
-                && (e.Name.Namespace == AppxManifestDocument.Uap5Ns || e.Name.Namespace == AppxManifestDocument.DesktopNs)))
-        {
-            var alias = element.Attribute("Alias")?.Value;
-            if (alias != null)
-            {
-                aliases.Add(alias);
-            }
-        }
-
-        return aliases;
+        return doc.Document.Root is { } root ? [.. AppxManifestDocument.ReadExecutionAliases(root)] : [];
     }
 
     /// <summary>

@@ -14,10 +14,78 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public partial class ExecutionTargetSelectionTests : BaseCommandTests
 {
-    /// <summary>The trees the design says accept a target in Stage 1.</summary>
-    private static readonly string[] Expected = ["run", "ui", "unregister"];
+    /// <summary>The trees that dispatch commands to an execution target.</summary>
+    private static readonly string[] Expected = ["run", "ui", "unregister", "devtools"];
 
     protected override IServiceCollection ConfigureServices(IServiceCollection services) => services;
+
+    [TestMethod]
+    [DataRow("ui inspect --on sandbox --help")]
+    [DataRow("ui inspect --on sandbox -h")]
+    [DataRow("ui inspect --on sandbox -?")]
+    [DataRow("ui inspect --on sandbox --depth notanumber")]
+    [DataRow("run --on sandbox --help")]
+    [DataRow("devtools inspect --on sandbox --help")]
+    public void MetaActionsAndParserErrors_DoNotRouteOrProvision(string arguments)
+    {
+        var parsed = GetRequiredService<WinAppRootCommand>().Parse(arguments);
+        Assert.IsFalse(ExecutionTargetSelection.IsCommandInvocation(parsed));
+        Assert.IsFalse(ExecutionTargetUiRouter.ShouldRoute(parsed));
+    }
+
+    [TestMethod]
+    [DataRow("list")]
+    [DataRow("get c1")]
+    [DataRow("update c1 --status stale")]
+    [DataRow("delete c1")]
+    public void SavedComments_RejectTargetsWithoutLiveWork(string command)
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        var local = root.Parse("devtools comments " + command);
+        Assert.IsEmpty(local.Errors);
+        Assert.IsNull(ExecutionTargetSelection.Validate(local));
+        Assert.IsFalse(ExecutionTargetDevToolsRouter.ShouldRoute(local));
+        foreach (var target in new[] { "local", "sandbox" })
+        {
+            var parsed = root.Parse($"devtools comments {command} --on {target}");
+            Assert.IsEmpty(parsed.Errors);
+            var error = ExecutionTargetSelection.Validate(parsed);
+            Assert.IsNotNull(error);
+            StringAssert.Contains(error.UserAction, "--source-root");
+            Assert.IsFalse(ExecutionTargetDevToolsRouter.ShouldRoute(parsed));
+        }
+    }
+
+    [TestMethod]
+    [DataRow("list")]
+    [DataRow("get c1")]
+    public void SavedCommentReads_ReadTheLocalStoreEvenWithAnApp(string command)
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        var parsed = root.Parse($"devtools comments {command} --app guest:{new string('a', 32)}");
+        Assert.IsEmpty(parsed.Errors);
+        Assert.IsFalse(ExecutionTargetDevToolsRouter.ShouldRoute(parsed), "--app names a local app's project; it never routes to a guest.");
+    }
+
+    [TestMethod]
+    [DataRow("update c1 --status stale")]
+    [DataRow("delete c1")]
+    public void ExplicitCommentRefresh_RemainsTargetAware(string command)
+    {
+        var parsed = GetRequiredService<WinAppRootCommand>().Parse(
+            $"devtools comments {command} --on sandbox --app guest:{new string('a', 32)}");
+        Assert.IsEmpty(parsed.Errors);
+        Assert.IsNull(ExecutionTargetSelection.Validate(parsed));
+        Assert.IsTrue(ExecutionTargetDevToolsRouter.ShouldRoute(parsed));
+    }
+
+    [TestMethod]
+    public void OrdinaryGuestInspection_StillRoutesBeforeLocalHandler()
+    {
+        var parsed = GetRequiredService<WinAppRootCommand>().Parse("ui inspect --on sandbox --json");
+        Assert.IsTrue(ExecutionTargetSelection.IsCommandInvocation(parsed));
+        Assert.IsTrue(ExecutionTargetUiRouter.ShouldRoute(parsed));
+    }
 
     /// <summary>
     /// Adding <c>ITargetAwareCommand</c> to a command is a public promise that it can run somewhere

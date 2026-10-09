@@ -1,6 +1,6 @@
 ---
 name: winapp-ui-automation
-description: "Inspect, drive, and verify a running Windows app UI with winapp ui (UI Automation): find elements, click, type, read text and values, wait for state, take screenshots. Works with WinUI, WPF, WinForms, Win32, and Electron. Use to check, test, or act on a live app."
+description: "Inspect, drive, and verify a running Windows app UI via winapp ui (UI Automation): find elements, click, type, read text/values, wait for state, take screenshots in WinUI, WPF, WinForms, Win32, or Electron apps. Use to check, test, or act on a live app; for WinUI XAML internals, use winui-devtools."
 ---
 
 **If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
@@ -10,9 +10,17 @@ description: "Inspect, drive, and verify a running Windows app UI with winapp ui
 - AI agents interacting with Windows applications (clicking buttons, reading text, taking screenshots)
 - Verifying UI state during development or testing
 - Automating UI workflows without Playwright or Selenium
-- Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs
+- Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs by what the user sees and can operate
+- Not for a WinUI 3 app's XAML internals (why a value or binding resolved the way it did, which XAML line made an element, live property edits, UI review comments): use `winui-devtools`
 
 ## Prerequisites
+For WinUI 3 XAML source/tree, bindings or dependency-property diagnosis and edits,
+use the `winui-devtools` skill and `winapp devtools`. It requires an attached
+target or explicit authorization to inject with `--attach`; a PID alone is not
+consent. An AutomationId works as a selector in both tools; generated slugs do
+not transfer to DevTools. Continue using `winapp ui`
+for cross-framework actions, screenshots, waits and accessibility.
+
 - For UIA mode (any app): No setup needed — works with any running Windows app
 - For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
 - `screenshot` is **not** in that group: it always takes an exclusive turn, so it queues behind other UI workflows, and capture can need a usable interactive desktop — the engine restores the target if it is minimized, and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used.

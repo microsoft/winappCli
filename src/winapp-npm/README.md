@@ -60,6 +60,7 @@ npx winapp --help
 
 - [`tool`](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#tool) - Access Windows SDK tools
 - [`get-winapp-path`](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#get-winapp-path) - Get paths to installed SDK components
+- [`config`](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#config) - Show or change your per-user winapp settings
 
 **Node.js/Electron Specific:**
 

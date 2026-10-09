@@ -29,6 +29,7 @@
       ],
       "forbid": [
         "winui.design",
+        "winui.inspect",
         "winui.migrate",
         "msix.sign",
         "msix.package"

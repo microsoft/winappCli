@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System.Formats.Asn1;
 using System.Security.Cryptography.X509Certificates;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Models;
+using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Tests;
 
@@ -37,6 +39,12 @@ public class AuthenticodeVerifierTests
     }
 
     [TestMethod]
+    public void IsMicrosoftSubject_CommonNameAlone_ReturnsFalse()
+    {
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject("CN=Microsoft Corporation"));
+    }
+
+    [TestMethod]
     public void IsMicrosoftSubject_MicrosoftOrganizationWithProductCommonName_ReturnsTrue()
     {
         // The arm64 SDK build tools ship under this subject, so the gate must accept a common name
@@ -44,6 +52,13 @@ public class AuthenticodeVerifierTests
         Assert.IsTrue(AuthenticodeVerifier.IsMicrosoftSubject(
             "CN=Microsoft Windows Kits Publisher, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"));
     }
+
+    [TestMethod]
+    [DataRow("CN=Microsoft Evil, O=Contoso")]
+    [DataRow("CN=Contoso, O=Microsoft Corporation Evil")]
+    [DataRow("CN=\"O=Microsoft Corporation\", O=Contoso")]
+    public void IsMicrosoftSubject_Lookalike_ReturnsFalse(string subject) =>
+        Assert.IsFalse(AuthenticodeVerifier.IsMicrosoftSubject(subject));
 
     [TestMethod]
     public void IsMicrosoftSubject_CaseInsensitive_ReturnsTrue()
@@ -343,6 +358,53 @@ public class AuthenticodeVerifierTests
             isMicrosoftSigner: _ => true);
 
         Assert.IsFalse(result, "An exception during verification must be caught and fail closed.");
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void MissingEmbeddedSignature_UsesCatalogTrustResult(bool catalogTrusted)
+    {
+        var called = false;
+        var result = AuthenticodeVerifier.IsTrustedMicrosoftSigned("snapshot.dll", NullLogger.Instance,
+            (_, _, _) => unchecked((int)0x800B0100),
+            _ => throw new AssertFailedException("An absent embedded signer must not be read."),
+            (path, _) => { Assert.AreEqual("snapshot.dll", path); called = true; return catalogTrusted; });
+        Assert.AreEqual(catalogTrusted, result);
+        Assert.IsTrue(called);
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(unchecked((int)0x800B010C))]
+    [DataRow(unchecked((int)0x80096010))]
+    [DataRow(unchecked((int)0x800B0109))]
+    public void EmbeddedFailureOrWrongSigner_CannotBeBypassedByCatalog(int status)
+    {
+        Assert.IsFalse(AuthenticodeVerifier.IsTrustedMicrosoftSigned("snapshot.dll", NullLogger.Instance,
+            (_, _, _) => status, _ => false,
+            (_, _) => throw new AssertFailedException("Catalog fallback must require an absent embedded signature.")));
+    }
+
+    [TestMethod]
+    public void CatalogException_IsUntrusted()
+    {
+        Assert.IsFalse(AuthenticodeVerifier.IsTrustedMicrosoftSigned("snapshot.dll", NullLogger.Instance,
+            (_, _, _) => unchecked((int)0x800B0100), _ => true,
+            (_, _) => throw new IOException("Catalog inaccessible")));
+    }
+
+    [TestMethod]
+    public async Task UnsignedCatalog_WithRealMember_IsRejectedWithoutInstallation()
+    {
+        var member = Path.Combine(_tempDir, "member.dll");
+        File.Copy(Path.Combine(Environment.SystemDirectory, "kernel32.dll"), member);
+        var catalog = Path.Combine(_tempDir, "untrusted.cat");
+        await new CodeIntegrityCatalogService(NullLogger<CodeIntegrityCatalogService>.Instance)
+            .CreateExternalCatalogAsync([_tempDir], false, false, false, IfExists.Error, new FileInfo(catalog));
+        Assert.IsTrue(File.Exists(catalog));
+        Assert.IsFalse(AuthenticodeVerifier.VerifyCatalogMember(member, catalog, NullLogger.Instance),
+            "Membership in an unsigned catalog must not establish trust.");
     }
 
     [TestMethod]

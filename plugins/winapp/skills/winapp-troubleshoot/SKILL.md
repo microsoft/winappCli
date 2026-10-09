@@ -30,6 +30,7 @@ Use this skill when:
 | Two worktrees of the same app keep replacing each other's registration | Both copies share one package identity | Run each with `winapp run . --unique-identity` (supported packaged apps) so each gets its own identity and app data |
 | `run` / `create-debug-identity` registration error `0x80073CFB` | Package already registered with a conflicting identity | Run `winapp unregister` with your app's input, then retry. Use `--force` only if you are sure the same-named package registered elsewhere is yours |
 | App's Start menu entry launches nothing, silently | Package still registered after its files were deleted | Run `winapp unregister --prune` to remove every dev registration whose files are gone |
+| `run` reports access denied or a file in use during a rebuild | Permissions or a file held open; access denied alone does not identify a lock owner | Check the reported paths and permissions. Close the running app and retry. Nothing is stopped automatically. |
 | "winapp can't write the API index" / "can't install the Microsoft Store Developer CLI" | `%USERPROFILE%\.winapp` isn't writable (for example, an agent sandbox) | Set `WINAPP_CLI_CACHE_DIRECTORY` to a writable folder, such as one inside the project, and retry. Other commands keep working without it |
 
 For `--unique-identity` errors about unsupported extensions or resources, see

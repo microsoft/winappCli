@@ -58,6 +58,8 @@ internal sealed class ExecutionTargetCapabilities
     /// Optional so a guest predating it degrades to a clear refusal instead of a wrong path.
     /// </remarks>
     public string? ManagedRoot { get; init; }
+
+    public Orchestration.GuestDevToolsCapabilities? DevTools { get; init; }
 }
 
 /// <summary>Source-generated serializer context for the capability payload.</summary>

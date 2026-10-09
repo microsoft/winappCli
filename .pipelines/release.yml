@@ -417,8 +417,9 @@ extends:
           # winappcli-*.zip, so a renamed archive would upload happily under the wrong name and
           # only 404 later. Assert them here, where they exist.
           - task: PowerShell@2
-            displayName: Verify portable archive names
+            displayName: Verify portable archive names and payloads
             inputs:
+              pwsh: true
               targetType: 'inline'
               errorActionPreference: 'stop'
               script: |
@@ -432,6 +433,22 @@ extends:
                     Write-Error "Portable archive 'winappcli-$arch.zip' is empty."
                     exit 1
                   }
+                  $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+                  try {
+                    foreach ($name in 'winapp.exe', 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'winapp-devtools-schema.json', 'WinApp.DevTools.Native.pdb') {
+                      $entries = @($archive.Entries | Where-Object { $_.FullName -ieq $name })
+                      if ($entries.Count -ne 1 -or $entries[0].FullName -cne $name -or $entries[0].Length -le 0) {
+                        throw "Portable archive winappcli-$arch.zip must contain exactly one nonempty root $name."
+                      }
+                      $source = "$(Pipeline.Workspace)\cli-binaries\win-$arch\$name"
+                      $stream = $entries[0].Open()
+                      try {
+                        if ((Get-FileHash -InputStream $stream).Hash -ne (Get-FileHash -LiteralPath $source).Hash) {
+                          throw "Portable archive winappcli-$arch.zip contains a stale or incorrect $name."
+                        }
+                      } finally { $stream.Dispose() }
+                    }
+                  } finally { $archive.Dispose() }
                   Write-Host "[ASSETS] ZIP: winappcli-$arch.zip"
                 }
 

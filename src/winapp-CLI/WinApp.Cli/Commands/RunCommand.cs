@@ -16,6 +16,7 @@ using WinApp.Cli.ExecutionTargets.Orchestration;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.DevTools;
 using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
@@ -253,6 +254,9 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         Options.Add(WithAliasOption);
         Options.Add(WithoutAliasOption);
         Options.Add(DebugOutputOption);
+        Options.Add(DevToolsOption);
+        Options.Add(GuestInspectorApplicationOption);
+        Options.Add(DevToolsSourcesOption);
         Options.Add(UnregisterOnExitOption);
         Options.Add(DetachOption);
         Options.Add(CleanOption);
@@ -283,27 +287,25 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         IManifestTemplateService manifestTemplateService,
         IManifestService manifestService,
         IProjectContextDetector projectContextDetector,
+        IDevToolsService devToolsService,
+        InspectorAliasLauncher inspectorAliasLauncher,
         ExecutionTargetOrchestrator executionTargetOrchestrator,
         GuestApplicationRunner guestApplicationRunner,
         TargetRuntimeService targetRuntimeService,
         IWinappDirectoryService winappDirectoryService,
-        ILogger<RunCommand> logger) : AsynchronousCommandLineAction
+        ILogger<RunCommand> logger,
+        GuestDevToolsHost? guestDevToolsHost = null,
+        IPriService? priService = null) : AsynchronousCommandLineAction
     {
         private bool _uniqueIdentityRequested;
         private DevelopmentIdentity? _runIdentity;
 
-        // Test seams for the execution-alias launch path. They isolate the two operating-system
-        // boundaries — resolving the Windows App Execution Alias proxy location and starting the
-        // resolved process — so tests can exercise all of the surrounding validation, debug,
-        // cancellation and error-handling logic without registering a real alias proxy under
-        // %LOCALAPPDATA%\Microsoft\WindowsApps or spawning the resolved binary. Both default to
-        // the production behavior, so runtime behavior is unchanged.
+        // Alias probes are substituted independently of IAppLauncherService in command tests.
         internal Func<string, FileInfo?> ResolveAliasProxy { get; set; } = alias => ExecutionAliasResolver.ResolveAliasPath(alias);
-        internal Func<ProcessStartInfo, Process?> ProcessStarter { get; set; } = Process.Start;
 
         /// <summary>
         /// Reads which package family owns an alias proxy, or null when that cannot be established.
-        /// A third OS boundary: the proxy is an <c>IO_REPARSE_TAG_APPEXECLINK</c> reparse point, which a
+        /// The proxy is an <c>IO_REPARSE_TAG_APPEXECLINK</c> reparse point, which a
         /// test cannot create, so tests substitute the answer rather than the file.
         /// </summary>
         internal Func<string, string?> ReadAliasOwner { get; set; } =
@@ -361,6 +363,13 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             var executionTarget = ExecutionTargetSelection.Resolve(parseResult);
             var isJson = parseResult.GetValue(WinAppRootCommand.JsonOption);
             var aot = parseResult.GetValue(AotOption);
+            var guestInspectorApplication = parseResult.GetValue(GuestInspectorApplicationOption);
+            if (guestInspectorApplication is not null &&
+                (!noLaunch || !executionTarget.IsLocal || parseResult.GetValue(DevToolsOption) is DevToolsMode.On or DevToolsMode.Headless ||
+                    string.IsNullOrWhiteSpace(guestInspectorApplication)))
+            {
+                return Fail("Guest inspector alias preparation is only valid during local register-only execution.", isJson);
+            }
 
             if (!TryResolveLayoutOutput(parseResult, out var layoutOutput, out var layoutOutputError))
             {
@@ -440,6 +449,25 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             }
 
             WarnIfNuGetCallerForwardedAWinAppOption(parseResult, passthroughArgs, isJson);
+
+            // Options DevTools can't work with fail only when DevTools was asked for; otherwise they turn the default off.
+            var requestedDevTools = parseResult.GetValue(DevToolsOption);
+            var explicitDevTools = requestedDevTools is DevToolsMode.On or DevToolsMode.Headless;
+            var sandboxDevToolsConflict = !executionTarget.IsLocal && (withAlias || debugOutput || unregisterOnExit);
+            if (explicitDevTools && sandboxDevToolsConflict)
+            {
+                return Fail("Sandbox DevTools uses a retained private launch and does not support --with-alias, --debug-output or --unregister-on-exit. App standard streams are suppressed.", isJson);
+            }
+
+            if (explicitDevTools && noLaunch)
+            {
+                return Fail("--devtools and --no-launch cannot be used together.", isJson);
+            }
+            if (explicitDevTools && withoutAlias)
+            {
+                return Fail("--devtools requires a private launch environment and cannot use --without-alias. " +
+                    "Launch normally and use 'winapp devtools attach --pid <pid>' for limited late inspection.", isJson);
+            }
 
             // Validate mutually exclusive options. Route through Fail so that under --json these
             // emit the structured error envelope instead of a plain-text banner (Change 2 / L5).
@@ -576,6 +604,30 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 return Fail(ex.Message, isJson);
             }
 
+            if (guestInspectorApplication is not null && inputResolution.Mode != WinAppRunMode.Folder)
+            {
+                return Fail("--guest-inspector-application requires a prebuilt registration layout, not a project or single-file app.", isJson);
+            }
+            if (explicitDevTools && !executionTarget.IsLocal && inputResolution.Mode != WinAppRunMode.Project)
+            {
+                return Fail("Sandbox DevTools requires a project with evaluated XAML sources for persistent host comments. Output-only and single-file inputs cannot establish that source owner.", isJson);
+            }
+
+            // A run DevTools could not start for (CI, --no-launch, --without-alias, a Sandbox run, a guest registration)
+            // stays plain unless DevTools was asked for, and only a WinUI project gets it by default. 'dotnet run'
+            // through the NuGet package hands winapp the build output and the project's framework.
+            dotnetRun = string.Equals(parseResult.GetValue(WinAppRootCommand.CallerOption), "nuget-package", StringComparison.Ordinal);
+            var winUIProject = inputResolution.Mode == WinAppRunMode.Project
+                ? projectContextDetector.DetectProject(inputResolution.Csproj!).Framework == ProjectAppFramework.WinUI
+                : dotnetRun && inputResolution.Mode == WinAppRunMode.Folder &&
+                    string.Equals(parseResult.GetValue(WinAppRootCommand.ProjectFrameworkOption), "winui", StringComparison.OrdinalIgnoreCase);
+            devToolsRun = DevToolsResolution.Resolve(requestedDevTools,
+                DevToolsResolution.IsCi(ReadCiVariable()),
+                noLaunch || withoutAlias || !executionTarget.IsLocal || guestInspectorApplication is not null,
+                winUIProject, requestedDevTools is null ? ReadDefaultMode() : null);
+            devToolsReported = requestedDevTools is not null || winUIProject;
+            DevToolsRunTelemetryScope.Set(devToolsRun);
+            AnnounceDefaultDevTools(isJson);
             ProjectContextEvent.Log("run", () =>
                 string.Equals(
                     parseResult.GetValue(WinAppRootCommand.CallerOption),
@@ -657,11 +709,15 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 withAlias, withoutAlias, noLaunch, detach, isJson,
                 outputType: DetectFolderOutputType(inputFolder, executable));
 
+            var nugetSources = devToolsRun.Enabled ? NuGetDevToolsSources.Read(parseResult.GetValue(DevToolsSourcesOption)) : null;
             return await ExecuteRunPipelineAsync(
                 inputFolder, manifest, layoutOutput, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: null, projectFile: null, framework: null, noRestore: false, selfContained: false,
-                folderAliasDecision, executionTarget, cancellationToken);
+                folderAliasDecision, executionTarget, cancellationToken, devTools: devToolsRun.Enabled,
+                showOverlay: devToolsRun.ShowToolbar, inspectorApplicationId: guestInspectorApplication,
+                devToolsSources: nugetSources?.Sources, devToolsCompilerArtifacts: nugetSources?.Compiler,
+                devToolsProject: nugetSources?.Project);
         }
 
         /// <summary>
@@ -751,7 +807,14 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             CancellationToken cancellationToken,
             Action? onRegistered = null,
             PackageGraphSource? packageGraph = null,
-            FileInfo? appxRecipe = null)
+            bool devTools = false,
+            bool showOverlay = true,
+            IReadOnlyList<string>? devToolsSources = null,
+            string? inspectorApplicationId = null,
+            FileInfo? appxRecipe = null,
+            bool nativeAot = false,
+            Services.DevTools.XamlCompilerArtifacts? devToolsCompilerArtifacts = null,
+            FileInfo? devToolsProject = null)
         {
             // A non-local target diverges here rather than later: everything below this point registers a
             // package and launches a process on this machine, which is exactly what running
@@ -761,7 +824,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 return await ExecutePackagedTargetRunAsync(
                     inputFolder, manifest, layoutOutput, appArgs,
                     noLaunch, aliasDecision, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
-                    runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, appxRecipe, cancellationToken);
+                    runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, appxRecipe, cancellationToken,
+                    devTools, showOverlay, devToolsSources, nativeAot, devToolsCompilerArtifacts);
             }
 
             // The identity is derived from the project or .cs file when there is one, otherwise the folder.
@@ -777,6 +841,10 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             string? aumid = null;
             string? errorMessage = null;
             DirectoryInfo? resolvedOutputDir = null;
+            InspectorAlias? inspectorAlias = null;
+            int[] replaced = [];
+            int[] closedForDevTools = [];
+            string? devToolsStepAside = null;
             var statusMessage = noLaunch ? "Registering packaged application..." : "Launching packaged application...";
             var success = await statusService.ExecuteWithStatusAsync(statusMessage, async (taskContext, cancellationToken) =>
             {
@@ -846,7 +914,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // launches something else — checking here means the run never reaches that state.
                     var effectiveAlias = aliasDecision;
                     string? resolvedAliasName = null;
-                    if (effectiveAlias.UseAlias)
+                    if (effectiveAlias.UseAlias && !devTools)
                     {
                         var probe = AppxManifestDocument.Load(resolvedManifest.FullName);
                         var probeFamily = string.IsNullOrEmpty(probe.IdentityName) || string.IsNullOrEmpty(probe.IdentityPublisher)
@@ -883,6 +951,30 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
                     // Step 2: Create and register the debug identity
                     taskContext.AddDebugMessage($"{UiSymbols.Package} Creating debug identity...");
+                    // DevTools must start the app itself: a running instance would either keep the old
+                    // files locked or receive this launch without DevTools, depending on the app.
+                    var runningBefore = ProcessesRunningFromLayout(outputAppXDirectory);
+                    if (devTools && runningBefore.Count > 0)
+                    {
+                        // Otherwise every second run of an edit loop would lose DevTools.
+                        if (runningBefore.All(CloseRunningProcess))
+                        {
+                            closedForDevTools = [.. runningBefore];
+                            runningBefore = [];
+                        }
+                        else if (devToolsRun.FailOpen)
+                        {
+                            devToolsStepAside = $"the app is already running (PID {string.Join(", ", runningBefore)}) and could not be closed.";
+                            devTools = false;
+                            effectiveAlias = AliasLaunchDecision.Aumid;
+                        }
+                    }
+                    if (devTools && runningBefore.Count > 0)
+                    {
+                        errorMessage = $"The app is already running (PID {string.Join(", ", runningBefore)}) and could not be closed. " +
+                            "DevTools needs to start it, so close it, then run again.";
+                        return (1, $"{UiSymbols.Error} {errorMessage}");
+                    }
                     var identityResult = await msixService.AddLooseLayoutIdentityAsync(
                         resolvedManifest,
                         inputFolder,
@@ -896,13 +988,16 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         framework,
                         noRestore,
                         selfContained,
-                        effectiveAlias.UseAlias,
+                        effectiveAlias.UseAlias && !devTools && inspectorApplicationId is null,
                         packageGraph,
-                        appxRecipe,
-                        developmentIdentity,
-                        cancellationToken);
+                        appxRecipe: appxRecipe,
+                        inspectorAlias: devTools || inspectorApplicationId is not null ? new InspectorAliasRequest(inspectorApplicationId) : null,
+                        developmentIdentity: developmentIdentity,
+                        cancellationToken: cancellationToken);
 
                     resolvedUseAlias = effectiveAlias.UseAlias;
+                    // Re-registering a changed package closes its running instances.
+                    replaced = [.. runningBefore.Where(ProcessHasExited)];
                     _runIdentity = identityResult.Identity;
                     if (_runIdentity is { } unique)
                     {
@@ -933,6 +1028,19 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     // which is why this runs before the launch rather than after.
                     onRegistered?.Invoke();
 
+                    if (inspectorApplicationId is not null &&
+                        (identityResult.InspectorAlias?.Target is null || identityResult.InspectorAlias.Error is not null))
+                    {
+                        throw new InvalidOperationException(identityResult.InspectorAlias?.Error ??
+                            "Guest registration did not prepare the requested application's inspector alias.");
+                    }
+
+                    if (devTools)
+                    {
+                        inspectorAlias = identityResult.InspectorAlias;
+                        return (0, $"{packageFamilyName} registered (AUMID: {aumid})");
+                    }
+
                     if (noLaunch)
                     {
                         return (0, $"{packageFamilyName} registered (AUMID: {aumid})");
@@ -959,8 +1067,8 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 }
                 catch (Exception error)
                 {
-                    errorMessage = error.Message;
-                    return (1, $"{UiSymbols.Error} Failed to launch application: {error.Message}");
+                    errorMessage = RunFailure.Describe(error);
+                    return (1, $"{UiSymbols.Error} Failed to launch application: {errorMessage}");
                 }
             }, cancellationToken);
 
@@ -973,6 +1081,21 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 return success;
             }
 
+            if (replaced.Length > 0 && !isJson)
+            {
+                ansiConsole.MarkupLineInterpolated(
+                    $"{UiSymbols.Note} Closed the running instance (PID {string.Join(", ", replaced)}) to update its registration.");
+            }
+            if (closedForDevTools.Length > 0 && !isJson)
+            {
+                ansiConsole.MarkupLineInterpolated(
+                    $"{UiSymbols.Note} Closed {closedForDevTools.Length} running instance(s) of this app (PID {string.Join(", ", closedForDevTools)}) so DevTools starts cold.");
+            }
+            if (devToolsStepAside is not null)
+            {
+                DevToolsStepsAside(devToolsStepAside, isJson);
+            }
+
             if (noLaunch)
             {
                 if (isJson)
@@ -980,6 +1103,33 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     PrintJson(aumid, processId: null, errorMessage: null);
                 }
                 return success;
+            }
+
+            if (devTools)
+            {
+                if (await RunInspectorAliasAsync(inspectorAlias, inputFolder, projectFile ?? devToolsProject, aumid, appArgs,
+                    debugOutput, useSymbols, detach, isJson, showOverlay, unregisterOnExit, packageName, packageFullName, cancellationToken,
+                    nativeAot, devToolsSources, devToolsCompilerArtifacts) is int inspected)
+                {
+                    return inspected;
+                }
+
+                // DevTools stepped aside before launching anything: launch the registered app as a plain run does.
+                resolvedUseAlias = false;
+                try
+                {
+                    processId = appLauncherService.LaunchByAumid(aumid!, appArgs);
+                }
+                catch (Exception error)
+                {
+                    errorMessage = RunFailure.Describe(error);
+                    logger.LogError("{UISymbol} Failed to launch application: {Message}", UiSymbols.Error, errorMessage);
+                    if (isJson)
+                    {
+                        PrintJson(aumid, processId: null, errorMessage);
+                    }
+                    return 1;
+                }
             }
 
             return await LaunchRegisteredApplicationAsync(
@@ -1124,17 +1274,22 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             return appExitCode;
         }
 
-        void PrintJson(string? aumid, uint? processId, string? errorMessage)
+        void PrintJson(string? aumid, uint? processId, string? errorMessage,
+            IReadOnlyList<Services.DevTools.XamlSourceExclusion>? sourceWarnings = null, string? sourceError = null,
+            GuestDevToolsRunInfo? devTools = null)
         {
             var result = new RunCommandResult
             {
                 AUMID = aumid,
                 ProcessId = processId,
                 Error = errorMessage,
+                SourceWarnings = Services.DevTools.XamlSourceExclusion.Collapse(sourceWarnings),
+                SourceError = sourceError,
+                DevTools = WithDevToolsMode(devTools),
                 Identity = _runIdentity,
             };
 
-            var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Default.RunCommandResult);
+            var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Output.RunCommandResult);
 
             // Write the machine-readable payload straight to the underlying stdout writer rather than
             // ansiConsole.WriteLine, which renders through Spectre's word-wrapping layer and injects raw
@@ -1255,6 +1410,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             ["--args"] = "WinAppLaunchArgs=<args>",
             ["--manifest"] = "WinAppManifestPath=<path>",
             ["--output-appx-directory"] = "WinAppLooseLayoutPath=<path>",
+            ["--devtools"] = "WinAppRunDevTools=<on|off|headless>",
         };
 
         /// <summary>
@@ -1311,31 +1467,6 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 ansiConsole.MarkupLineInterpolated(
                     $"{UiSymbols.Info} '{arg}' was passed to your application, not to winapp. To configure winapp, use -p:{replacement} instead.");
             }
-        }
-
-        /// <summary>
-        /// Builds the <see cref="ProcessStartInfo"/> used to launch an app via its execution
-        /// alias. Extracted so tests can verify that passthrough args (from <c>--args</c> /
-        /// <c>--</c>) are forwarded into <see cref="ProcessStartInfo.Arguments"/> without
-        /// having to spawn a real process.
-        /// </summary>
-        internal static ProcessStartInfo BuildAliasProcessStartInfo(string alias, string? appArgs)
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = alias,
-                UseShellExecute = false,
-                RedirectStandardInput = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false,
-            };
-
-            if (!string.IsNullOrEmpty(appArgs))
-            {
-                psi.Arguments = appArgs;
-            }
-
-            return psi;
         }
 
         /// <summary>
@@ -1448,11 +1579,6 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
             // An execution alias is a global name, so the proxy that exists may belong to a DIFFERENT
             // package — a second app declaring the same alias does not take it over. Launching it anyway
-            // would run someone else's app while reporting that this one was registered, so verify
-            // ownership first. This is the same hijack the absolute-path resolution above guards against,
-            // one layer up: there the risk is a stray a.exe on disk, here it is a stray a.exe alias.
-            // An execution alias is a global name, so the proxy that exists may belong to a DIFFERENT
-            // package — a second app declaring the same alias does not take it over. Launching it anyway
             // would run someone else's app while reporting that this one was registered, so ownership is
             // verified first, and an unreadable owner is treated as NOT ours: a file at that path which
             // is not a readable app-exec-link is exactly the hijack this guards against.
@@ -1485,36 +1611,25 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 }
             }
 
-            // Build the ProcessStartInfo via a static helper so the argument-forwarding
-            // contract is unit-testable without spawning a real process. The FileName is
-            // the fully-qualified WindowsApps path so CreateProcess does not consult CWD
-            // or PATH when launching.
-            var psi = BuildAliasProcessStartInfo(aliasFile.FullName, appArgs);
-
             try
             {
-                using var process = ProcessStarter(psi);
-                if (process == null)
-                {
-                    logger.LogError("{UISymbol} Failed to start process via execution alias '{Alias}' ({Path}).", UiSymbols.Error, alias, aliasFile.FullName);
-                    return 1;
-                }
+                using var process = appLauncherService.LaunchExecutable(aliasFile.FullName, appArgs);
 
                 if (targetSelector is not null)
                 {
                     WriteTargetLaunchConfirmation(
                         targetSelector,
-                        unchecked((uint)process.Id),
+                        process.ProcessId,
                         waitForExit: true);
                 }
 
                 if (debugOutput)
                 {
-                    var exitCode = await debugOutputService.RunDebugLoopAsync(unchecked((uint)process.Id), cancellationToken,
+                    var exitCode = await debugOutputService.RunDebugLoopAsync(process.ProcessId, cancellationToken,
                         useSymbols, symbolSearchPaths: [inputFolder.FullName]);
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        appLauncherService.TerminatePackageProcesses(packageFullName, unchecked((uint)process.Id));
+                        appLauncherService.TerminatePackageProcesses(packageFullName, process.ProcessId);
                     }
                     return exitCode;
                 }
@@ -1528,13 +1643,13 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 catch (OperationCanceledException)
                 {
                     // Ctrl+C — terminate all processes belonging to the package before exiting.
-                    appLauncherService.TerminatePackageProcesses(packageFullName, unchecked((uint)process.Id));
+                    appLauncherService.TerminatePackageProcesses(packageFullName, process.ProcessId);
                     return -1;
                 }
             }
             catch (Exception ex)
             {
-                logger.LogError("{UISymbol} Failed to launch via execution alias '{Alias}' ({Path}): {Error}", UiSymbols.Error, alias, aliasFile.FullName, ex.Message);
+                logger.LogError("{UISymbol} Failed to launch via execution alias '{Alias}' ({Path}): {Error}", UiSymbols.Error, alias, aliasFile.FullName, RunFailure.Describe(ex));
                 return 1;
             }
         }
@@ -1559,6 +1674,18 @@ internal sealed class RunCommandResult
     public string? AUMID { get; set; }
     public uint? ProcessId { get; set; }
     public string? Error { get; set; }
+
+    [JsonPropertyName("sourceWarnings")]
+    public IReadOnlyList<Services.DevTools.XamlSourceExclusion>? SourceWarnings { get; set; }
+
+    [JsonPropertyName("sourceError")]
+    public string? SourceError { get; set; }
+
+    [JsonPropertyName("appSelector")]
+    public string? AppSelector { get; set; }
+
+    [JsonPropertyName("devTools")]
+    public GuestDevToolsRunInfo? DevTools { get; set; }
 
     /// <summary>The derived identity, for <c>--unique-identity</c> runs only.</summary>
     public DevelopmentIdentity? Identity { get; set; }
@@ -1616,4 +1743,13 @@ internal sealed class ExecutionTargetInfo
     WriteIndented = true,
     NewLine = "\n",
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-internal partial class RunCommandJsonContext : JsonSerializerContext;
+internal partial class RunCommandJsonContext : JsonSerializerContext
+{
+    private static RunCommandJsonContext? s_output;
+
+    /// <summary>Relaxed escaping, so messages and paths keep their quotes and angle brackets.</summary>
+    internal static RunCommandJsonContext Output => s_output ??= new(new JsonSerializerOptions(Default.Options)
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    });
+}

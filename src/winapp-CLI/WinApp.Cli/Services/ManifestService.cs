@@ -586,16 +586,17 @@ internal partial class ManifestService(
         AddExecutionAliasOptions options,
         CancellationToken cancellationToken = default)
     {
-        XDocument doc;
+        AppxManifestDocument manifest;
         try
         {
-            doc = XDocument.Load(options.ManifestFile.FullName);
+            manifest = AppxManifestDocument.Load(options.ManifestFile.FullName);
         }
         catch (Exception ex)
         {
             return new AddExecutionAliasResult(AddExecutionAliasStatus.ManifestParseError, ErrorMessage: ex.Message);
         }
 
+        var doc = manifest.Document;
         var root = doc.Root;
         if (root == null)
         {
@@ -668,88 +669,10 @@ internal partial class ManifestService(
             return new AddExecutionAliasResult(AddExecutionAliasStatus.InvalidAliasName, AliasName: aliasName);
         }
 
-        // Check if the target Application already has any execution alias
-        var targetExtensions = targetApp.Element(AppxManifestDocument.DefaultNs + "Extensions");
-        if (targetExtensions != null)
+        var aliasResult = manifest.AddExecutionAlias(aliasName, options.AppId);
+        if (aliasResult.Status != AddExecutionAliasStatus.Added)
         {
-            var existingAliasElements = targetExtensions
-                .Elements(AppxManifestDocument.Uap5Ns + "Extension")
-                .Where(e => string.Equals(e.Attribute("Category")?.Value, "windows.appExecutionAlias", StringComparison.OrdinalIgnoreCase))
-                .Descendants(AppxManifestDocument.Uap5Ns + "ExecutionAlias")
-                .Select(e => e.Attribute("Alias")?.Value)
-                .Where(v => v != null)
-                .ToList();
-
-            if (existingAliasElements.Count > 0)
-            {
-                var existingAlias = existingAliasElements[0]!;
-                if (string.Equals(existingAlias, aliasName, StringComparison.OrdinalIgnoreCase))
-                {
-                    return new AddExecutionAliasResult(AddExecutionAliasStatus.AlreadyExists, AliasName: aliasName);
-                }
-                else
-                {
-                    return new AddExecutionAliasResult(AddExecutionAliasStatus.ConflictingAliasExists, AliasName: aliasName, ExistingAlias: existingAlias);
-                }
-            }
-        }
-
-        // Ensure uap5 namespace is declared on the Package element
-        if (root.GetNamespaceOfPrefix("uap5") == null)
-        {
-            root.Add(new XAttribute(XNamespace.Xmlns + "uap5", AppxManifestDocument.Uap5Ns));
-        }
-
-        // Ensure uap5 is in IgnorableNamespaces
-        var ignorableAttr = root.Attribute("IgnorableNamespaces");
-        if (ignorableAttr != null)
-        {
-            var namespaces = ignorableAttr.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (!namespaces.Contains("uap5", StringComparer.OrdinalIgnoreCase))
-            {
-                ignorableAttr.Value = ignorableAttr.Value + " uap5";
-            }
-        }
-
-        // Build the ExecutionAlias element
-        var aliasElement = new XElement(AppxManifestDocument.Uap5Ns + "ExecutionAlias", new XAttribute("Alias", aliasName));
-        
-        // Find or create the Extensions > uap5:Extension > uap5:AppExecutionAlias hierarchy
-        var extensions = targetApp.Element(AppxManifestDocument.DefaultNs + "Extensions");
-        if (extensions == null)
-        {
-            extensions = new XElement(AppxManifestDocument.DefaultNs + "Extensions");
-            targetApp.Add(extensions);
-        }
-
-        // Look for an existing uap5:Extension with Category="windows.appExecutionAlias"
-        var aliasExtension = extensions.Elements(AppxManifestDocument.Uap5Ns + "Extension")
-            .FirstOrDefault(e => string.Equals(
-                e.Attribute("Category")?.Value,
-                "windows.appExecutionAlias",
-                StringComparison.OrdinalIgnoreCase));
-
-        if (aliasExtension != null)
-        {
-            // Add to existing AppExecutionAlias block
-            var appExecAlias = aliasExtension.Element(AppxManifestDocument.Uap5Ns + "AppExecutionAlias");
-            if (appExecAlias != null)
-            {
-                appExecAlias.Add(aliasElement);
-            }
-            else
-            {
-                var newAppExecAlias = new XElement(AppxManifestDocument.Uap5Ns + "AppExecutionAlias", aliasElement);
-                aliasExtension.Add(newAppExecAlias);
-            }
-        }
-        else
-        {
-            // Create new Extension block
-            var newExtension = new XElement(AppxManifestDocument.Uap5Ns + "Extension",
-                new XAttribute("Category", "windows.appExecutionAlias"),
-                new XElement(AppxManifestDocument.Uap5Ns + "AppExecutionAlias", aliasElement));
-            extensions.Add(newExtension);
+            return aliasResult;
         }
 
         // Save with UTF-8 no BOM and proper indentation

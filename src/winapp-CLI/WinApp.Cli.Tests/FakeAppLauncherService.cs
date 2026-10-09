@@ -15,6 +15,8 @@ internal class FakeAppLauncherService : IAppLauncherService
 
     /// <summary>The stdio mode passed to the most recent <see cref="LaunchExecutable"/> call.</summary>
     public LaunchStdioMode? LastLaunchStdioMode { get; private set; }
+    public IReadOnlyDictionary<string, string?>? LastEnvironment { get; private set; }
+    public Func<ILaunchedProcess>? LaunchOverride { get; set; }
     public List<(string? PackageFullName, uint ProcessId)> TerminateCalls { get; } = [];
     public uint FakeProcessId { get; set; } = 12345;
 
@@ -50,7 +52,7 @@ internal class FakeAppLauncherService : IAppLauncherService
     /// <summary>When set, <see cref="LaunchExecutable"/> throws this instead of starting the process.</summary>
     public Exception? LaunchExecutableThrows { get; set; }
 
-    public ILaunchedProcess LaunchExecutable(string exePath, string? arguments = null, string? workingDirectory = null, LaunchStdioMode stdioMode = LaunchStdioMode.Inherit)
+    public ILaunchedProcess LaunchExecutable(string exePath, string? arguments = null, string? workingDirectory = null, LaunchStdioMode stdioMode = LaunchStdioMode.Inherit, IReadOnlyDictionary<string, string?>? environment = null)
     {
         if (LaunchExecutableThrows is not null)
         {
@@ -59,6 +61,11 @@ internal class FakeAppLauncherService : IAppLauncherService
 
         LaunchExecutableCalls.Add((exePath, arguments, workingDirectory));
         LastLaunchStdioMode = stdioMode;
+        LastEnvironment = environment;
+        if (LaunchOverride is not null)
+        {
+            return LaunchOverride();
+        }
         LastLaunchedProcess = new FakeLaunchedProcess(FakeProcessId, FakeExitCode);
         return LastLaunchedProcess;
     }
@@ -137,16 +144,51 @@ internal class FakeAppLauncherService : IAppLauncherService
 /// </summary>
 internal sealed class FakeLaunchedProcess(uint processId, int exitCode) : ILaunchedProcess
 {
+    private TaskCompletionSource _exit = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private volatile bool _hasExited = true;
     public bool Disposed { get; private set; }
     public bool Killed { get; private set; }
 
     public uint ProcessId => processId;
+    public long? StartTicksUtc { get; set; }
+    public int CloseRequests { get; private set; }
+    public Func<bool>? CloseOverride { get; set; }
+    public bool HasExited
+    {
+        get => _hasExited;
+        set
+        {
+            if (!value && _hasExited)
+            {
+                _exit = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+            _hasExited = value;
+            if (value)
+            {
+                _exit.TrySetResult();
+            }
+        }
+    }
+    public string? PackageFamilyName { get; set; }
+    public string? ApplicationUserModelId { get; set; }
+    public string? ExecutablePath { get; set; }
 
     public int ExitCode => exitCode;
 
-    public Task WaitForExitAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task WaitForExitAsync(CancellationToken cancellationToken) =>
+        HasExited ? Task.CompletedTask : _exit.Task.WaitAsync(cancellationToken);
 
-    public void Kill() => Killed = true;
+    public void Kill()
+    {
+        Killed = true;
+        HasExited = true;
+    }
+
+    public bool RequestClose()
+    {
+        CloseRequests++;
+        return CloseOverride?.Invoke() ?? false;
+    }
 
     public void Dispose() => Disposed = true;
 }

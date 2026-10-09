@@ -79,6 +79,15 @@ steps:
                 "ToolVersion": "1.0"
             }
         ]
+  - task: PowerShell@2
+    displayName: Stage the signed architecture-neutral binding host
+    inputs:
+      pwsh: true
+      targetType: inline
+      errorActionPreference: stop
+      script: |
+        $cli = "$(System.DefaultWorkingDirectory)\artifacts\cli"
+        Copy-Item "$cli\win-x64\WinApp.DevTools.Managed.dll" "$cli\win-arm64\WinApp.DevTools.Managed.dll" -Force
   - task: EsrpCodeSigning@6
     displayName: Code Sign ESRP - managed libraries
     inputs:
@@ -125,7 +134,7 @@ steps:
             }
         ]
   # build-cli.ps1 packed the .nupkg files before any signing ran, so those copies embed unsigned
-  # binaries. Re-pack now that winapp.exe and the library assemblies are signed; -SkipBuild keeps
+  # binaries. Re-pack now that the CLI, engines and library assemblies are signed; -SkipBuild keeps
   # dotnet from recompiling and discarding the signatures. The NuGet signing task below then signs
   # the resulting packages themselves.
   - task: PowerShell@2

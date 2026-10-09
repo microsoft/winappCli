@@ -103,7 +103,7 @@ const DEPRECATED_ARG_ALIASES = {
 
 /**
  * Option property renames, keyed by command path, for options whose natural camelCase name
- * would collide with a `CommonOptions` member.
+ * would collide with another wrapper property.
  *
  * `CommonOptions.cwd` is where the winapp *process* is spawned on this machine. A CLI option
  * that also camelCases to `cwd` would silently make one property drive two unrelated things —
@@ -113,6 +113,7 @@ const DEPRECATED_ARG_ALIASES = {
  */
 const OPTION_PROP_RENAMES = {
   'target exec': { '--cwd': 'targetCwd' },
+  'devtools set-property': { '--value': 'queryValue' },
 };
 
 /**
@@ -206,7 +207,14 @@ const PASSTHROUGH_COMMANDS = {
  * A leaf's own declaration wins, so a command that redefines an inherited name keeps its own
  * description and type.
  */
-function inheritRecursiveOptions(cmd, inherited) {
+/** Commands that read the local comment store and reject the `--on` they inherit from `devtools`. */
+const LOCAL_ONLY_COMMANDS = ['devtools comments list', 'devtools comments get'];
+
+function inheritRecursiveOptions(cmd, inherited, cmdPath) {
+  if (LOCAL_ONLY_COMMANDS.includes(cmdPath.join(' '))) {
+    const { '--on': _dropped, ...rest } = inherited;
+    inherited = rest;
+  }
   if (Object.keys(inherited).length === 0) return cmd;
   return { ...cmd, options: { ...inherited, ...(cmd.options || {}) } };
 }
@@ -231,16 +239,15 @@ function flattenCommands(node, parentPath = [], inherited = {}) {
       // e.g. `find-api <query>`) must be emitted as its own command in addition
       // to its subcommands, or the bare form gets no wrapper.
       if (cmd.arguments && Object.keys(cmd.arguments).length > 0) {
-        results.push({ path: cmdPath, cmd: inheritRecursiveOptions(cmd, inherited) });
+        results.push({ path: cmdPath, cmd: inheritRecursiveOptions(cmd, inherited, cmdPath) });
       }
       results.push(...flattenCommands(cmd, cmdPath, collectRecursiveOptions(cmd, inherited)));
     } else {
-      results.push({ path: cmdPath, cmd: inheritRecursiveOptions(cmd, inherited) });
+      results.push({ path: cmdPath, cmd: inheritRecursiveOptions(cmd, inherited, cmdPath) });
     }
   }
   return results;
 }
-
 // ---------------------------------------------------------------------------
 // Generate TS source
 // ---------------------------------------------------------------------------
@@ -388,6 +395,9 @@ function generate(schema) {
       const propName = kebabToCamel(argName);
       // The passthrough arg (e.g. run's app-args) is emitted after '--' below, not as a positional.
       if (passthrough && propName === passthrough.propName) continue;
+      // A positional shortcut for an option (`get-property <selector> Text` for `--property Text`) adds
+      // nothing to an options object, and its property name would collide with the option's.
+      if (opts.some((opt) => opt.propName === propName)) continue;
       positionalArgs.push({ cliName: argName, def: argDef, propName, alias: argAliases[propName] || null });
     }
     // Sort by order
@@ -484,7 +494,7 @@ function generate(schema) {
           L(`  const ${arg.propName}Arr = Array.isArray(${accessor}) ? ${accessor} : [${accessor}];`);
           L(`  ${positionalSink}.push(...${arg.propName}Arr);`);
         } else {
-          L(`  if (${accessor}) {`);
+          L(`  if (${accessor} !== undefined) {`);
           L(`    const ${arg.propName}Arr = Array.isArray(${accessor}) ? ${accessor} : [${accessor}];`);
           L(`    ${positionalSink}.push(...${arg.propName}Arr);`);
           L('  }');
@@ -492,7 +502,7 @@ function generate(schema) {
       } else if (required) {
         L(`  ${positionalSink}.push(${accessor});`);
       } else {
-        L(`  if (${accessor}) ${positionalSink}.push(${accessor});`);
+        L(`  if (${accessor} !== undefined) ${positionalSink}.push(${accessor});`);
       }
     }
 
@@ -508,6 +518,9 @@ function generate(schema) {
         L('  }');
       } else if (tsType(opt.def.valueType) === 'number') {
         L(`  if (options.${opt.propName} !== undefined) args.push('${opt.cliName}', options.${opt.propName}.toString());`);
+      } else if (cmdPathStr === 'devtools set-property' && opt.cliName === '--value') {
+        // A literal beginning with "--" must not become another CLI option.
+        L(`  if (options.${opt.propName} !== undefined) args.push('${opt.cliName}=' + options.${opt.propName});`);
       } else {
         L(`  if (options.${opt.propName} !== undefined) args.push('${opt.cliName}', options.${opt.propName});`);
       }

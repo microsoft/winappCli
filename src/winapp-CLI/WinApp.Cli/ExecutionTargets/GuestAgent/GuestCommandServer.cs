@@ -393,6 +393,8 @@ internal sealed class GuestCommandServer : IAsyncDisposable
                     // Reported rather than assumed by the host, so the guest layout stays the
                     // guest's business and target-neutral orchestration never encodes it.
                     ManagedRoot = _files?.ManagedRoot,
+                    DevTools = await GuestDevTools.ReadCapabilitiesAsync(_guestWinapp, cancellationToken)
+                        .ConfigureAwait(false),
                 },
             },
             cancellationToken).ConfigureAwait(false);
@@ -862,9 +864,11 @@ internal sealed class GuestCommandServer : IAsyncDisposable
                 Type = GuestMessageTypes.QueryProcessResponse,
                 OperationId = operationId.ToString(),
                 TargetEpoch = _targetEpoch,
-                ProcessRunning = IsExactProcessRunning(processId, expectedStartTicksUtc),
+                ProcessRunning = QueryProcessImpl(processId, expectedStartTicksUtc),
             },
             cancellationToken);
+
+    internal Func<int, long, bool> QueryProcessImpl { get; set; } = IsExactProcessRunning;
 
     internal static bool IsExactProcessRunning(int processId, long expectedStartTicksUtc)
     {

@@ -34,6 +34,13 @@ public sealed class UiTargetResolver(
     /// <exception cref="AppNotFoundException">No running process or window matched the request.</exception>
     /// <exception cref="InvalidOperationException">Neither target argument was supplied, or multiple processes matched ambiguously.</exception>
     public Task<UiTarget> ResolveAsync(string? app, long? hwnd, CancellationToken ct)
+        => ResolveCore(app, hwnd, processOnly: false);
+
+    /// <inheritdoc/>
+    public Task<UiTarget> ResolveProcessAsync(string app, CancellationToken ct)
+        => ResolveCore(app, null, processOnly: true);
+
+    private Task<UiTarget> ResolveCore(string? app, long? hwnd, bool processOnly)
     {
         // Direct HWND targeting — most stable, used after discovery
         if (hwnd is not null and > 0)
@@ -43,7 +50,9 @@ public sealed class UiTargetResolver(
 
         if (string.IsNullOrWhiteSpace(app))
         {
-            throw new InvalidOperationException("Specify --app (process name, title, or PID) or --window (HWND).");
+            throw new InvalidOperationException(processOnly
+                ? "Specify --app (process name, title, or PID)."
+                : "Specify --app (process name, title, or PID) or --window (HWND).");
         }
 
         // Try PID or process name first
@@ -57,10 +66,24 @@ public sealed class UiTargetResolver(
             {
                 throw new AppNotFoundException($"No running app found matching '{app}'.");
             }
+            if (processOnly)
+            {
+                var processes = windows.Select(window => window.Pid).Distinct().ToArray();
+                if (processes.Length != 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Multiple processes have windows matching '{app}' (PIDs {string.Join(", ", processes)}). Use --app with a PID.");
+                }
+                return Task.FromResult(CreateTarget(processes[0], 0, null));
+            }
             return Task.FromResult(SelectTitleMatch(windows, app));
         }
 
         var resolved = process.Value;
+        if (processOnly)
+        {
+            return Task.FromResult(new UiTarget { ProcessId = resolved.Id, ProcessName = resolved.ProcessName });
+        }
 
         // Process found — check for multiple windows
         var processWindows = uiAutomation.FindWindowsByPid(resolved.Id);

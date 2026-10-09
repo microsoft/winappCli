@@ -42,6 +42,16 @@ internal class WinappDirectoryService(ICurrentDirectoryProvider currentDirectory
         return new DirectoryInfo(winappDir);
     }
 
+    internal static DirectoryInfo GetDefaultGlobalWinappDirectory()
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrWhiteSpace(userProfile))
+        {
+            throw new IOException("The current user's profile directory could not be resolved.");
+        }
+        return new DirectoryInfo(Path.Combine(userProfile, ".winapp"));
+    }
+
     /// <summary>Shared state independent of the cache override and package identity.</summary>
     internal static string GetUserStateDirectory(string? userProfile = null)
     {

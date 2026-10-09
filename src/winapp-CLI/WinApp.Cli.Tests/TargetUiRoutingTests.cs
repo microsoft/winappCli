@@ -66,6 +66,20 @@ public partial class TargetUiRoutingTests
     // ---- Argv rewriting ------------------------------------------------------------
 
     [TestMethod]
+    [DataRow("invoke", "--action", "toggle-off")]
+    [DataRow("search", "--type", "Button")]
+    [DataRow("get-property", "--root", "Dialog")]
+    [DataRow("get-value", "--class-name", "")]
+    [DataRow("wait-for", "--root", "MainContent")]
+    public void Rewrite_PreservesExplicitActionAndTypedQueryOptions(string verb, string option, string value)
+    {
+        string[] expected = ["ui", verb, "--app", "App", option, value, "--", "--on=sandbox"];
+        var routed = Rewrite(["ui", verb, "--on", "sandbox", "--app", "App", option, value, "--", "--on=sandbox"]);
+        CollectionAssert.AreEqual(expected, routed.Arguments);
+        Assert.IsNull(routed.Artifact);
+    }
+
+    [TestMethod]
     public void Rewrite_RemovesTheTargetSelectorAndForwardsEverythingElseVerbatim()
     {
         var routed = Rewrite(["ui", "inspect", "--on", "sandbox", "-a", "MyApp", "--depth", "8", "--json"]);

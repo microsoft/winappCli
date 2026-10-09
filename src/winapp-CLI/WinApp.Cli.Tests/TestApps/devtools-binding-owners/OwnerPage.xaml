@@ -1,0 +1,6 @@
+<Page
+    x:Class="BindingOwnersFixture.OwnerPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <TextBlock x:Name="PageHeading" Text="{x:Bind HeadingText, Mode=OneWay}" />
+</Page>

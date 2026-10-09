@@ -43,6 +43,18 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Hidden = true
     };
 
+    internal static readonly Option<string?> GuestCommentsOption = new("--guest-comments")
+    {
+        Recursive = true,
+        Hidden = true,
+    };
+
+    internal static readonly Option<string?> GuestInspectionOption = new("--guest-inspection")
+    {
+        Recursive = true,
+        Hidden = true,
+    };
+
     internal static readonly Option<string?> ProjectFrameworkOption = new("--project-framework")
     {
         Description = "Allow-listed project framework supplied by an integrated caller. Used for telemetry.",
@@ -71,8 +83,10 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         CreateDebugIdentityCommand createDebugIdentityCommand,
         EmbedIdentityCommand embedIdentityCommand,
         RunCommand runCommand,
+        DevToolsCommand devToolsCommand,
         UnregisterCommand unregisterCommand,
         GetWinappPathCommand getWinappPathCommand,
+        ConfigCommand configCommand,
         CertCommand certCommand,
         SignCommand signCommand,
         AzSignCommand azSignCommand,
@@ -87,6 +101,9 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         GuestDesktopCaptureCommand guestDesktopCaptureCommand,
         GuestRuntimeCommand guestRuntimeCommand,
         GuestLaunchCommand guestLaunchCommand,
+        GuestCommentRelayCommand guestCommentRelayCommand,
+        GuestDevToolsLaunchCommand guestDevToolsLaunchCommand,
+        GuestDevToolsHostCommand guestDevToolsHostCommand,
         TargetCommand targetCommand,
         FindApiCommand findApiCommand) : base("Create, run, debug, test, and package Windows apps from the command line. Works with WinUI and any other (cross-platform) app framework targeting Windows, and manages Windows SDKs, package identity, manifests, and certificates.")
     {
@@ -99,8 +116,10 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(createDebugIdentityCommand);
         Subcommands.Add(embedIdentityCommand);
         Subcommands.Add(runCommand);
+        Subcommands.Add(devToolsCommand);
         Subcommands.Add(unregisterCommand);
         Subcommands.Add(getWinappPathCommand);
+        Subcommands.Add(configCommand);
         Subcommands.Add(certCommand);
         Subcommands.Add(signCommand);
         Subcommands.Add(azSignCommand);
@@ -115,10 +134,15 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(guestDesktopCaptureCommand);
         Subcommands.Add(guestRuntimeCommand);
         Subcommands.Add(guestLaunchCommand);
+        Subcommands.Add(guestCommentRelayCommand);
+        Subcommands.Add(guestDevToolsLaunchCommand);
+        Subcommands.Add(guestDevToolsHostCommand);
         Subcommands.Add(targetCommand);
 
         Options.Add(CliSchemaOption);
         Options.Add(CallerOption);
+        Options.Add(GuestCommentsOption);
+        Options.Add(GuestInspectionOption);
         Options.Add(ProjectFrameworkOption);
         Options.Add(ExecutionTargetSelection.UnsupportedOnOption);
 
@@ -137,11 +161,11 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         var helpOption = Options.OfType<HelpOption>().First();
         helpOption.Action = new CustomHelpAction(this, ansiConsole,
             ("Get Started", [typeof(NewCommand), typeof(InitCommand), typeof(RestoreCommand), typeof(UpdateCommand)]),
-            ("Run & Debug", [typeof(RunCommand), typeof(CreateDebugIdentityCommand), typeof(UnregisterCommand), typeof(TargetCommand)]),
+            ("Run & Debug", [typeof(RunCommand), typeof(CreateDebugIdentityCommand), typeof(UnregisterCommand), typeof(TargetCommand), typeof(DevToolsCommand)]),
             ("Discovery", [typeof(FindUiCommand), typeof(FindApiCommand)]),
             ("UI Automation", [typeof(UiCommand)]),
             ("Package, Sign & Publish", [typeof(PackageCommand), typeof(ManifestCommand), typeof(CertCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(MSStoreCommand)]),
-            ("Advanced", [typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand), typeof(ToolCommand), typeof(GetWinappPathCommand)])
+            ("Advanced", [typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(ConfigCommand)])
         );
     }
 }

@@ -16,6 +16,14 @@ after launch so the next command can inspect the app; without it, `run` waits fo
 app to exit. The Sandbox stays running between commands and rebuilds until it is ended; see
 [Removing an app and ending the Sandbox](#removing-an-app-and-ending-the-sandbox).
 
+`winapp ui inspect --on sandbox --help` shows command help without starting or
+preparing Windows Sandbox.
+
+For WinUI XAML inspection, managed binding diagnostics and persistent host-backed
+comments, see [DevTools inside Sandbox](guides/devtools-advanced.md#inspect-inside-windows-sandbox).
+This runs the overlay in the guest and uses qualified DevTools app selectors,
+not the UI Automation selectors above.
+
 ## Before you start
 
 - Use Windows 11 24H2 or newer on a supported edition, with hardware virtualization enabled.

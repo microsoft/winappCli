@@ -1,0 +1,29 @@
+{
+  "id": "winui-ui-review-notes",
+  "description": "Running WinUI app: the user wants to mark visual problems on the elements themselves and have an agent pick the notes up and fix the XAML.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "I want to click around Lanternfish myself and point at the spots that look off (spacing, wording, a couple of colors), with each note pinned to the thing I clicked. Afterwards you pick them up and fix the XAML. How do we set that up, and how will you read them back?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "winui.inspect"
+      ],
+      "acceptable": [
+        "winui.design",
+        "winui.review"
+      ],
+      "forbid": [
+        "msix.package",
+        "msix.sign",
+        "winui.migrate"
+      ]
+    }
+  }
+}

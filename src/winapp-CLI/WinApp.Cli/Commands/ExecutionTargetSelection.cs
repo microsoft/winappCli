@@ -40,6 +40,11 @@ internal interface ITargetAwareCommand;
 /// </remarks>
 internal static class ExecutionTargetSelection
 {
+    internal static bool IsCommandInvocation(ParseResult parseResult) =>
+        parseResult.Errors.Count == 0 &&
+        parseResult.CommandResult.Command.Action is { } action &&
+        ReferenceEquals(parseResult.Action, action);
+
     private const string OnOptionDescription =
         "Run this command on the named execution target instead of this machine. " +
         "Supported: 'sandbox' (the Windows Sandbox winapp manages) and 'local' (the default). " +
@@ -114,6 +119,15 @@ internal static class ExecutionTargetSelection
     {
         ArgumentNullException.ThrowIfNull(parseResult);
 
+        if (parseResult.CommandResult.Command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand ||
+            parseResult.CommandResult.Command is DevToolsCommentsUpdateCommand &&
+                string.IsNullOrWhiteSpace(parseResult.GetValue(DevToolsCommentsUpdateCommand.AppOption)) ||
+            parseResult.CommandResult.Command is DevToolsCommentsDeleteCommand &&
+                string.IsNullOrWhiteSpace(parseResult.GetValue(DevToolsCommentsDeleteCommand.AppOption)))
+        {
+            return false;
+        }
+
         for (Command? command = parseResult.CommandResult.Command; command is not null;
              command = command.Parents.OfType<Command>().FirstOrDefault())
         {
@@ -175,6 +189,15 @@ internal static class ExecutionTargetSelection
             // here after the user asked for somewhere else, which is the one outcome '--on' exists
             // to prevent.
             var name = DescribeCommand(parseResult);
+            if (parseResult.CommandResult.Command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand or
+                DevToolsCommentsUpdateCommand or DevToolsCommentsDeleteCommand)
+            {
+                return ExecutionTargetException.Create(
+                    ExecutionTargetErrorCodes.TargetInvalid,
+                    $"'{name}' uses locally saved comments; --on is only meaningful when a mutation includes --app to refresh live markers.",
+                    userAction: "Remove --on and choose the host project with --source-root.",
+                    context: new Dictionary<string, string> { ["command"] = name }).Error;
+            }
 
             return ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.TargetInvalid,

@@ -23,6 +23,44 @@ namespace WinApp.Cli.Tests;
 public class ProgramJsonBridgeTests : BaseCommandTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Run_BareDevTools_IsOneLineNotTheRunHelp(bool json)
+    {
+        string[] args = json ? ["run", _tempDirectory.FullName, "--json", "--devtools"] : ["run", _tempDirectory.FullName, "--devtools"];
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(args);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.DoesNotContain("Usage:", stdout + stderr);
+        if (json)
+        {
+            using var document = JsonDocument.Parse(stdout);
+            Assert.AreEqual("--devtools needs a value: on, off or headless", document.RootElement.GetProperty("Error").GetString());
+        }
+        else
+        {
+            Assert.AreEqual(string.Empty, stdout.Trim());
+            StringAssert.Contains(stderr, "--devtools needs a value: on, off or headless");
+        }
+    }
+
+    [TestMethod]
+    public async Task Run_JsonError_KeepsQuotesReadable()
+    {
+        var (stdout, _, exitCode) = await InvokeProgramAsync(["run", _tempDirectory.FullName, "--json", "--devtools", "yes"]);
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(stdout, "not 'yes'", "relaxed escaping keeps ' instead of \\u0027");
+    }
+
+    [TestMethod]
+    public async Task Run_UnknownDevToolsValue_NamesTheValues()
+    {
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(["run", _tempDirectory.FullName, "--devtools", "yes"]);
+        Assert.AreEqual(1, exitCode);
+        Assert.DoesNotContain("Usage:", stdout + stderr);
+        StringAssert.Contains(stderr, "--devtools must be on, off or headless, not 'yes'");
+    }
+    [TestMethod]
     public async Task Pen_PressureInfinity_Rejected_NoInjection()
     {
         // SCL in the full parse chain parses "Infinity" as float.PositiveInfinity (parse succeeds).

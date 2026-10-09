@@ -1,0 +1,5 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+// The inspector window's caption, taskbar and Alt+Tab icon: the winapp icon.
+WINAPP_DEVTOOLS ICON "..\\..\\..\\winapp-CLI\\WinApp.Cli\\Assets\\winapp.ico"

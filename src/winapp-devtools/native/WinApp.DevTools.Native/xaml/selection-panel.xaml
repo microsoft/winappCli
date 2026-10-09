@@ -1,0 +1,134 @@
+
+<Border x:Name="DevToolsSelLeader" Canvas.Left="$LEADERX$" Canvas.Top="$LEADERY$" Canvas.ZIndex="2001"
+        Width="12" Height="2" Background="$ACCENT$" Opacity="0.85" IsHitTestVisible="False" />
+
+<Popup x:Name="DevToolsSelPopup" HorizontalOffset="$PANELX$" VerticalOffset="$PANELY$"
+       ShouldConstrainToRootBounds="False" IsOpen="False">
+<Border x:Name="DevToolsSelPanel"
+        RequestedTheme="$PANELTHEME$"
+        RenderTransformOrigin="$ORIGINX$,$ORIGINY$"
+        Width="$PANELW$" MaxHeight="$PANELH$"
+        Background="$SURFACE$" BorderBrush="$RIM$" BorderThickness="1" CornerRadius="8"
+        BackgroundSizing="InnerBorderEdge"
+        AutomationProperties.AutomationId="DevToolsSelPanel" AutomationProperties.Name="Comments">
+  <Border.Resources>
+    <!-- Open animation origin sits on the leader line so the panel grows from the selected element. -->
+    <Storyboard x:Name="DevToolsSelMorph">
+      <DoubleAnimation Storyboard.TargetName="DevToolsSelScale" Storyboard.TargetProperty="ScaleX"
+                       From="0.82" To="1.0" Duration="0:0:0.15">
+        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+      </DoubleAnimation>
+      <DoubleAnimation Storyboard.TargetName="DevToolsSelScale" Storyboard.TargetProperty="ScaleY"
+                       From="0.82" To="1.0" Duration="0:0:0.15">
+        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+      </DoubleAnimation>
+      <DoubleAnimation Storyboard.TargetName="DevToolsSelPanel" Storyboard.TargetProperty="Opacity"
+                       From="0.0" To="1.0" Duration="0:0:0.12" />
+    </Storyboard>
+  </Border.Resources>
+  <Border.RenderTransform>
+    <ScaleTransform x:Name="DevToolsSelScale" ScaleX="1" ScaleY="1" />
+  </Border.RenderTransform>
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="1" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+    <StackPanel Grid.Row="0">
+      <Border x:Name="DevToolsSelDetached" Visibility="Collapsed" Background="$SURFACEALT$" Padding="13,7"
+              AutomationProperties.AutomationId="DevToolsSelDetached">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <FontIcon Grid.Column="0" FlowDirection="LeftToRight" Glyph="&#xE7BA;"
+                    FontSize="11" VerticalAlignment="Top" Margin="0,2,7,0" Foreground="$CAUTION$" />
+          <TextBlock Grid.Column="1" Text="This element is gone from the app. Your comment has unsaved changes &#x2014; copy them somewhere safe before closing."
+                     FontSize="11" TextWrapping="Wrap" Foreground="$CAUTION$" />
+        </Grid>
+      </Border>
+      <Grid Margin="16,8,8,8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
+          <TextBlock x:Name="DevToolsSelTitle" Style="{StaticResource BodyStrongTextBlockStyle}" Foreground="$TEXT$"
+                     TextTrimming="CharacterEllipsis" Text="$TITLE$"
+                     ToolTipService.ToolTip="$TITLETIP$"
+                     AutomationProperties.AutomationId="DevToolsSelTitle" />
+          <TextBlock x:Name="DevToolsSelSource" Style="{StaticResource CaptionTextBlockStyle}" Foreground="$SOURCEFG$"
+                     TextTrimming="CharacterEllipsis" Text="$SOURCE$" ToolTipService.ToolTip="$SOURCETIP$"
+                     AutomationProperties.AutomationId="DevToolsSelSource" AutomationProperties.Name="Source: $SOURCE$" />
+        </StackPanel>
+        <Button x:Name="DevToolsSelClose" Grid.Column="1" Style="{x:Null}" Width="32" Height="32" Padding="0"
+                VerticalAlignment="Center" BorderThickness="0" CornerRadius="4" Background="#00000000"
+                Foreground="$TEXTDIM$"
+                ToolTipService.ToolTip="Close (Esc)"
+                AutomationProperties.AutomationId="DevToolsSelClose"
+                AutomationProperties.Name="Close">
+          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE711;" FontSize="11"
+                    Foreground="$TEXTDIM$" />
+        </Button>
+      </Grid>
+    </StackPanel>
+
+    <Border Grid.Row="1" Height="1" Background="$BORDER$" />
+    <!-- Clearing comment text commits a delete, matching delete button semantics. -->
+    <StackPanel Grid.Row="2" Orientation="Vertical" Margin="16,12,16,12" Spacing="8">
+      <TextBlock x:Name="DevToolsSelOperationStatus" Visibility="Collapsed" TextWrapping="Wrap"
+                 Style="{StaticResource CaptionTextBlockStyle}" Foreground="$CAUTION$"
+                 AutomationProperties.AutomationId="DevToolsSelOperationStatus" AutomationProperties.LiveSetting="Polite"/>
+      <Grid>
+        <TextBlock Text="Comment" Style="{StaticResource BodyStrongTextBlockStyle}"
+                   VerticalAlignment="Center" Foreground="$TEXT$" />
+        <Button x:Name="DevToolsSelCommentDelete" Style="{x:Null}" Width="24" Height="22" Padding="0"
+                BorderThickness="0" CornerRadius="5" Background="#00000000" Foreground="$CAUTION$"
+                HorizontalAlignment="Right"
+                Visibility="$CMTDELVIS$"
+                ToolTipService.ToolTip="Delete this comment (permanent)"
+                AutomationProperties.AutomationId="DevToolsSelCommentDelete"
+                AutomationProperties.Name="Delete comment">
+          <FontIcon FlowDirection="LeftToRight" Glyph="&#xE74D;" FontSize="11"
+                    Foreground="$CAUTION$" />
+        </Button>
+      </Grid>
+      <TextBox x:Name="DevToolsSelComment" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56" MaxHeight="120"
+               FontSize="12" Text="$COMMENT$" IsReadOnly="$CMTREADONLY$" MaxLength="$CMTLIMIT$"
+               PlaceholderText="$CMTPLACEHOLDER$"
+               AutomationProperties.AutomationId="DevToolsSelComment" AutomationProperties.Name="Comment" />
+      $SOURCECONFIRM$
+      <Grid ColumnSpacing="8" Visibility="$CMTSAVEVIS$">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Button x:Name="DevToolsSelCommentSave" Content="Save" MinWidth="64" Padding="12,4"
+                AutomationProperties.AutomationId="DevToolsSelCommentSave"
+                AutomationProperties.Name="Save comment" />
+        <TextBlock Grid.Column="1" Text="Enter to save &#x00B7; Shift+Enter for a new line"
+                   Style="{StaticResource CaptionTextBlockStyle}" Foreground="$TEXTDIM$"
+                   VerticalAlignment="Center" TextWrapping="Wrap" />
+      </Grid>
+      <TextBlock x:Name="DevToolsGuestCommentStatus" Visibility="Collapsed" TextWrapping="Wrap"
+                 Style="{StaticResource CaptionTextBlockStyle}"
+                 AutomationProperties.AutomationId="DevToolsGuestCommentStatus" AutomationProperties.LiveSetting="Polite" />
+    </StackPanel>
+    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16,0,16,12">$OTHERS$</ScrollViewer>
+    <Button x:Name="DevToolsSelOpen" Grid.Row="4" Style="{x:Null}" Margin="10,0,16,12" Padding="6,4" HorizontalAlignment="Left"
+            Background="#00000000" BorderThickness="0" CornerRadius="5" Foreground="$ACCENT$"
+            AutomationProperties.AutomationId="DevToolsSelOpen"
+            AutomationProperties.Name="Open in DevTools window">
+      <StackPanel Orientation="Horizontal" Spacing="7">
+        <FontIcon FlowDirection="LeftToRight" Glyph="&#xE8A7;" FontSize="12"
+                  Foreground="$ACCENT$" />
+        <TextBlock Text="Open in DevTools" FontSize="12" Foreground="$ACCENT$" VerticalAlignment="Center" />
+      </StackPanel>
+    </Button>
+  </Grid>
+</Border>
+</Popup>

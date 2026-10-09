@@ -56,6 +56,9 @@ param(
     [switch]$SkipBuild = $false
 )
 
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'DevToolsEngine.psm1') -Force
+
 # Ensure we're running from the project root
 $ProjectRoot = $PSScriptRoot | Split-Path -Parent
 Push-Location $ProjectRoot
@@ -128,6 +131,9 @@ try
             exit 1
         }
 
+        Assert-DevToolsArchiveSupport -Format NuGet
+        Assert-DevToolsEnginePayload -Directory $X64Path
+        Assert-DevToolsEnginePayload -Directory $Arm64Path
         Write-Host "[VALIDATE] All required files found!" -ForegroundColor Green
     }
 
@@ -218,6 +224,8 @@ try
             exit 1
         }
     
+        Assert-DevToolsEngineArchive -ArchivePath (Join-Path $OutputPath "Microsoft.Windows.SDK.BuildTools.WinApp.$Version.nupkg") `
+            -Format NuGet -CliBinariesPath $CliBinariesPath
         Write-Host "[NUGET] Microsoft.Windows.SDK.BuildTools.WinApp package created successfully!" -ForegroundColor Green
     } else {
         Write-Host ""

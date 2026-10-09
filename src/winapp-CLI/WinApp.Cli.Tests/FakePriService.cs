@@ -13,6 +13,9 @@ namespace WinApp.Cli.Tests;
 /// </summary>
 internal sealed class FakePriService : IPriService
 {
+    public Task<PriXamlResources> VerifyXamlResourcesAsync(FileInfo priFile, IReadOnlyDictionary<string, string> expectedHashes,
+        TaskContext taskContext, CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("This test did not configure an embedded XAML resource proof.");
     public List<string> LanguagesToReturn { get; set; } = [];
     public List<FileInfo> GeneratedPriFiles { get; set; } = [];
     public int ExtractLanguagesCallCount { get; private set; }

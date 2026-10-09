@@ -512,6 +512,24 @@ try
         }
     }
 
+    # Native intermediates are shared: retain each architecture before building the next.
+    Import-Module (Join-Path $PSScriptRoot 'DevToolsEngine.psm1') -Force
+    if (-not $UseExistingArtifacts) {
+        foreach ($arch in 'x64', 'arm64') {
+            $EngineOut = Join-Path $ProjectRoot "$ArtifactsPath\devtools\win-$arch"
+            & (Join-Path $ProjectRoot 'src\winapp-devtools\build-devtools.ps1') `
+                -Configuration Release -Arch $arch -EngineOut $EngineOut -SkipNativeUnitTests:$SkipTests
+            if (-not $? -or $LASTEXITCODE -ne 0) { throw "DevTools engine build failed for $arch" }
+            Assert-DevToolsEnginePayload -Directory $EngineOut
+            $CliOut = Join-Path $ProjectRoot "$ArtifactsPath\cli\win-$arch"
+            foreach ($name in @((Get-DevToolsEnginePayload) + @('WinApp.DevTools.Native.pdb', 'winapp-devtools-schema.json'))) {
+                Copy-Item -LiteralPath (Join-Path $EngineOut $name) -Destination $CliOut -Force -ErrorAction Stop
+            }
+        }
+    }
+    & (Join-Path $PSScriptRoot 'test-devtools-engine.ps1') -EngineRoot (Join-Path $ProjectRoot "$ArtifactsPath\cli")
+    if (-not $?) { throw 'Published DevTools engine verification failed' }
+
     # Step 3: Build the solution in Debug to compile the tests. Coverage is collected on
     # this Debug build (Step 5) -- optimized Release builds under-count line coverage (many
     # block-brace lines report hits=0). The shipped CLI artifact is the Release `dotnet publish`
@@ -540,9 +558,10 @@ try
         try {
             npm ci --ignore-scripts
             if ($LASTEXITCODE -ne 0) {
-                Write-Error "npm ci failed; cannot build Node CLI for tests"
-                exit 1
+                throw 'npm ci failed'
             }
+            npm run build-copy-only
+            if ($LASTEXITCODE -ne 0) { throw 'Node CLI binary staging failed' }
 
             # Never use a stale npm bin or checked-in documentation fallback.
             $SchemaLane = if ($CliShard) { "$TestSuite-$CliShard" } else { $TestSuite }
@@ -733,8 +752,7 @@ try
         & $GenerateLlmDocsScript -CliPath $CliExePath -CalledFromBuildScript
         
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "CLI schema generation failed"
-            exit 1
+            throw 'CLI schema generation failed'
         } else {
             Write-Host "[DOCS] CLI schema generated successfully!" -ForegroundColor Green
         }
@@ -774,8 +792,7 @@ try
         & $PackageNuGetScript -Version $FullVersion -Stable:$Stable
 
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "NuGet packages creation failed"
-            exit 1
+            throw 'NuGet packages creation failed'
         } else {
             Write-Host "[NUGET] NuGet packages created successfully!" -ForegroundColor Green
         }
@@ -875,8 +892,7 @@ try
         & $PackageMsixScript @MsixArgs
 
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "MSIX packages creation failed"
-            exit 1
+            throw 'MSIX packages creation failed'
         } else {
             Write-Host "[MSIX] MSIX packages created successfully!" -ForegroundColor Green
         }

@@ -21,6 +21,7 @@ Each skill has the exact commands, flags, and failure handling. Load it before a
 | Find or verify a Windows/WinRT/Windows App SDK API, enum, or member | `winapp-find-api` |
 | Find a WinUI control and a working sample | `winapp-find-ui` |
 | Inspect or drive a running app's UI, screenshots | `winapp-ui-automation` |
+| A running WinUI 3 app's XAML: source lines, live properties, bindings, the user's UI comments (`winapp devtools`) | `winui-devtools` |
 | Run or test in Windows Sandbox | `winapp-sandbox` |
 | An error from packaging, signing, installing, identity, or SDK setup | `winapp-troubleshoot` |
 

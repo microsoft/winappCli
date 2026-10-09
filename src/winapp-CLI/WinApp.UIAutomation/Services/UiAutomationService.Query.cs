@@ -9,14 +9,14 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 internal sealed partial class UiAutomationService
 {
     private UiElement[] SearchConstrained(UiTarget target, UiSelector selector, int maxResults,
-        bool requireUnique = false, CancellationToken ct = default)
+        bool requireUnique = false, bool excludeDevToolsChrome = false, CancellationToken ct = default)
     {
         // A window-scoped target whose window has closed has no elements left, so a `--gone`
         // wait succeeds instead of failing on the dead provider. Other failures still surface.
         if (ExplicitWindowClosed(target)) { return []; }
         try
         {
-            return SearchConstrainedCore(target, selector, maxResults, requireUnique, ct);
+            return SearchConstrainedCore(target, selector, maxResults, requireUnique, excludeDevToolsChrome, ct);
         }
         catch (System.Runtime.InteropServices.COMException) when (ExplicitWindowClosed(target))
         {
@@ -29,14 +29,24 @@ internal sealed partial class UiAutomationService
         && SystemUiQuery.s_getProcessIdForWindow(target.WindowHandle) == 0;
 
     private UiElement[] SearchConstrainedCore(UiTarget target, UiSelector selector, int maxResults,
-        bool requireUnique, CancellationToken ct)
+        bool requireUnique, bool excludeDevToolsChrome, CancellationToken ct)
     {
         var matches = QueryConstrained(target, selector, maxResults, requireUnique, ct);
         var nextId = 0;
         var results = new List<UiElement>();
+        var chromeByWindow = new Dictionary<long, HashSet<string>>();
         foreach (var (element, boundary, sourceHwnd) in matches)
         {
             ct.ThrowIfCancellationRequested();
+            if (excludeDevToolsChrome)
+            {
+                if (!chromeByWindow.TryGetValue(sourceHwnd, out var chrome))
+                {
+                    var windowRoot = sourceHwnd != 0 ? GetRootElementForHwnd((nint)sourceHwnd) : GetRootElement(target);
+                    chromeByWindow[sourceHwnd] = chrome = windowRoot is null ? [] : DevToolsChromeIdentities(windowRoot);
+                }
+                if (chrome.Count > 0 && TryGetElementIdentity(element) is { } id && chrome.Contains(id)) { continue; }
+            }
             var model = ToUiElement(element, "", ref nextId, requireCurrentIdentity: true);
             if (requireUnique) { SetResolvedWindowHandle(model, element, sourceHwnd); }
             else { model.WindowHandle = sourceHwnd; }

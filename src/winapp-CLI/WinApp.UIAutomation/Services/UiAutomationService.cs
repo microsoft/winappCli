@@ -180,6 +180,41 @@ internal sealed partial class UiAutomationService : IUiAutomation
         return results;
     }
 
+    /// <summary>The root of WinUI DevTools' in-app toolbar and markers, which inspect and search leave out.</summary>
+    internal const string DevToolsChromeAutomationId = "DevToolsOverlay";
+
+    private static bool IsDevToolsChrome(IUIAutomationElement element) =>
+        string.Equals(SafeGetBstr(() => element.get_CurrentAutomationId()), DevToolsChromeAutomationId, StringComparison.Ordinal);
+
+    // Every element under the DevTools pane in this window, found downward from the pane: its children are reported by
+    // the pane, so walking up from one would not reach it.
+    private HashSet<string> DevToolsChromeIdentities(IUIAutomationElement windowRoot)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            var pane = windowRoot.FindFirst(TreeScope.TreeScope_Descendants, _automation.CreatePropertyCondition(
+                UIA_PROPERTY_ID.UIA_AutomationIdPropertyId, ComVariant.Create(DevToolsChromeAutomationId)));
+            var all = pane?.FindAll(TreeScope.TreeScope_Subtree, _automation.CreateTrueCondition());
+            for (var i = 0; all is not null && i < all.get_Length(); i++)
+            {
+                if (TryGetElementIdentity(all.GetElement(i)) is { } id) { ids.Add(id); }
+            }
+        }
+        catch (COMException)
+        {
+            // No pane, or it went away: nothing to leave out.
+        }
+        return ids;
+    }
+
+    private List<IUIAutomationElement> WithoutDevToolsChrome(IUIAutomationElement windowRoot, List<IUIAutomationElement> found)
+    {
+        if (found.Count == 0) { return found; }
+        var chrome = DevToolsChromeIdentities(windowRoot);
+        return chrome.Count == 0 ? found : found.Where(e => TryGetElementIdentity(e) is not { } id || !chrome.Contains(id)).ToList();
+    }
+
     public Task<UiElement[]> InspectAsync(UiTarget uiTarget, string? elementId, int depth, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -281,6 +316,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             promotableWindowHandles.Add(window.Hwnd);
         }
         var elements = new List<UiElement>();
+        var inspectedIdentities = new Dictionary<UiElement, string>();
         WalkTree(
             startElement,
             depth,
@@ -288,6 +324,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             "",
             elements,
             ref nextElementId,
+            inspectedIdentities,
             topLevelWindowHandles: topLevelWindowHandles,
             currentWindowHandle: mainHwnd);
 
@@ -330,6 +367,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                         "",
                         popupElements,
                         ref nextElementId,
+                        inspectedIdentities,
                         topLevelWindowHandles: topLevelWindowHandles,
                         currentWindowHandle: hwnd);
                 }
@@ -338,6 +376,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     _logger.LogDebug(ex, "Skipping unavailable popup/owned window HWND {Hwnd}", hwnd);
                     continue;
                 }
+
+                if (popupElements.Count == 0) { continue; }
 
                 // Add a separator element to visually distinguish windows
                 var info = UiTargetResolver.GetWindowInfo(hwnd);
@@ -358,6 +398,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 elements.AddRange(popupElements);
             }
         }
+
+        DeduplicateInspectedElements(elements, inspectedIdentities);
 
         // Promote unique AutomationIds to selectors (more stable than slugs)
         PromoteUniqueAutomationIds(root, elements, mainHwnd, promotableWindowHandles);
@@ -473,7 +515,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         ct.ThrowIfCancellationRequested();
         if (selector.HasConstraints)
         {
-            return Task.FromResult(SearchConstrained(uiTarget, selector, maxResults, ct: ct));
+            return Task.FromResult(SearchConstrained(uiTarget, selector, maxResults, ct: ct, excludeDevToolsChrome: true));
         }
 
         _logger.LogDebug("Searching in process {Pid}", uiTarget.ProcessId);
@@ -505,9 +547,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
         if (selector.Query is not null)
         {
             var exactMatches = FindExactAutomationIdMatches(root, selector.Query, maxResults, ct);
-            var found = exactMatches.Count > 0
+            var found = WithoutDevToolsChrome(root, exactMatches.Count > 0
                 ? exactMatches
-                : FindPreferredQueryMatches(root, selector, maxResults, ct);
+                : FindPreferredQueryMatches(root, selector, maxResults, ct));
             foreach (var el in found)
             {
                 var uiEl = ToUiElement(el, "", ref nextElementId);
@@ -544,9 +586,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
                     {
                         var remaining = maxResults - mainResults.Count;
                         var exactMatches = FindExactAutomationIdMatches(windowRoot, selector.Query, remaining, ct);
-                        var windowFound = exactMatches.Count > 0
+                        var windowFound = WithoutDevToolsChrome(windowRoot, exactMatches.Count > 0
                             ? exactMatches
-                            : FindPreferredQueryMatches(windowRoot, selector, remaining, ct);
+                            : FindPreferredQueryMatches(windowRoot, selector, remaining, ct));
                         foreach (var el in windowFound)
                         {
                             var uiEl = ToUiElement(el, "", ref nextElementId);
@@ -2250,12 +2292,20 @@ internal sealed partial class UiAutomationService : IUiAutomation
         var bulkMatches = s_findAllDescendants(root, condition);
         if (bulkMatches is not null)
         {
+            // A provider can report the same element twice in one bulk result.
+            var bulkIdentities = new HashSet<string>(StringComparer.Ordinal);
             var bulkCount = bulkMatches.get_Length();
             for (var i = 0; i < bulkCount && results.Count < maxResults; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 var element = bulkMatches.GetElement(i);
-                if (matches is null || matches(element)) { results.Add(element); }
+                if ((matches is null || matches(element)) &&
+                    (TryGetElementIdentity(element, requireCurrentIdentity) is { } identity
+                        ? bulkIdentities.Add(identity)
+                        : !ContainsElement(results, element, requireCurrentIdentity)))
+                {
+                    results.Add(element);
+                }
             }
         }
 
@@ -2562,7 +2612,45 @@ internal sealed partial class UiAutomationService : IUiAutomation
         return null;
     }
 
+    internal static void DeduplicateInspectedElements(List<UiElement> elements, IReadOnlyDictionary<UiElement, string> identities)
+    {
+        var children = new Dictionary<UiElement, List<UiElement>>();
+        var roots = new List<UiElement>();
+        var ancestors = new Stack<UiElement>();
+        foreach (var element in elements)
+        {
+            if (element.Type == "---")
+            {
+                ancestors.Clear();
+                continue;
+            }
+            while (ancestors.Count > 0 && ancestors.Peek().Depth >= element.Depth) { ancestors.Pop(); }
+            if (ancestors.Count == 0) { roots.Add(element); }
+            else { children[ancestors.Peek()].Add(element); }
+            children.Add(element, []);
+            ancestors.Push(element);
+        }
+
+        // Choose the shallowest captured route first: a depth-limited visit in the main
+        // tree must not hide children available through a shallower popup route.
+        var pending = new Queue<UiElement>(roots);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var retained = new HashSet<UiElement>();
+        while (pending.TryDequeue(out var element))
+        {
+            if (identities.TryGetValue(element, out var identity) && !seen.Add(identity)) { continue; }
+            retained.Add(element);
+            foreach (var child in children[element]) { pending.Enqueue(child); }
+        }
+
+        var retainedWindows = retained.Select(element => element.WindowHandle).ToHashSet();
+        elements.RemoveAll(element => element.Type == "---"
+            ? !retainedWindows.Contains(element.WindowHandle)
+            : !retained.Contains(element));
+    }
+
     private void WalkTree(IUIAutomationElement element, int maxDepth, int currentDepth, string path, List<UiElement> results, ref int nextElementId,
+                          Dictionary<UiElement, string> inspectedIdentities,
                           string? parentSelector = null, List<string>? ancestorTypes = null,
                           HashSet<nint>? topLevelWindowHandles = null, nint currentWindowHandle = 0)
     {
@@ -2583,7 +2671,15 @@ internal sealed partial class UiAutomationService : IUiAutomation
             }
         }
 
+        // DevTools' chrome is not the app's; inspecting the pane itself (depth 0) still shows it.
+        if (currentDepth > 0 && IsDevToolsChrome(element))
+        {
+            return;
+        }
+
         var uiElement = ToUiElement(element, path, ref nextElementId);
+        var identity = TryGetElementIdentity(element);
+        if (identity is not null) { inspectedIdentities.Add(uiElement, identity); }
         uiElement.Depth = currentDepth;
         uiElement.ParentSelector = parentSelector;
         if (ancestorTypes is { Count: > 0 })
@@ -2626,6 +2722,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 childPath,
                 results,
                 ref nextElementId,
+                inspectedIdentities,
                 childParentSelector,
                 childAncestors,
                 topLevelWindowHandles,

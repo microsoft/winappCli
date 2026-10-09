@@ -1,0 +1,41 @@
+{
+  "id": "thistle-date-label-sits-low",
+  "description": "Running WinUI 3 app: read the resolved layout values of one element and trace them to their source declaration.",
+  "set": "heldout",
+  "cohort": "implicit",
+  "persona": "4",
+  "framework": "WinUI 3",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/windows/apps/design/layout/alignment-margin-padding"
+  ],
+  "prompt": "Thistledown Journal is running. On EntryPage the date label renders lower than the title next to it. Tell me the margin, padding, vertical alignment and font size it really ended up with, and which line in our XAML is responsible.",
+  "paraphrases": {
+    "novice": "My journal app Thistledown is open. The date next to the entry title looks pushed down a bit. Can you find out what spacing and size it actually got when it showed up, and where in our files that comes from?",
+    "terse": "Thistledown EntryPage date label sits low. Resolved Margin/Padding/VerticalAlignment/FontSize + declaring XAML line."
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The running window is represented by its source files; the evaluated agent selects help rather than reading a live process.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "winui.inspect"
+      ],
+      "acceptable": [
+        "winui.design"
+      ],
+      "forbid": [
+        "ui.test",
+        "winui.migrate",
+        "project.scaffold",
+        "msix.package"
+      ]
+    }
+  }
+}
