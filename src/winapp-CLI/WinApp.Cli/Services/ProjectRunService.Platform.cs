@@ -108,8 +108,9 @@ internal sealed partial class ProjectRunService
     /// RID) and packaging fails with APPX1101/PRI175/PRI252/MSB3030. Before committing, the project is
     /// evaluated under that Platform; the existing RID-based resolution (<see cref="ResolvePlatformInjection"/>)
     /// is kept when the evaluation fails or shows the project can't honor a Platform-only build (see
-    /// <see cref="RequiresRuntimeIdentifier"/>), for an explicit exact <c>-p RuntimeIdentifier</c>, and for a
-    /// user <c>-p:Platform</c> that doesn't name the <c>--arch</c> architecture.
+    /// <see cref="RequiresRuntimeIdentifier"/>), for an explicit exact <c>-p RuntimeIdentifier</c>, for a
+    /// user <c>-p:Platform</c> that doesn't name the <c>--arch</c> architecture, and for a cross-architecture
+    /// build whose reference graph contains a project-referenced analyzer or source generator.
     /// </summary>
     private async Task<ProjectRunOptions> ResolveBuildArchitectureAsync(
         FileInfo csproj,
@@ -184,10 +185,22 @@ internal sealed partial class ProjectRunService
                 : resolved;
         }
 
+        // A global Platform also reaches project-referenced analyzers and source generators, building them for
+        // the target architecture. The compiler runs on the SDK's architecture, so for a cross-architecture
+        // build it can't load them (CS8034). Visual Studio avoids this by mapping such projects to Any CPU.
+        if (!string.Equals(RunArchHelper.ArchitectureFromRid(GetProp(props, "NETCoreSdkRuntimeIdentifier")), options.Architecture, StringComparison.OrdinalIgnoreCase)
+            && ProjectReferenceClosureHasBuildOnlyReference(csproj))
+        {
+            logger.LogDebug(
+                "{UISymbol} A project-referenced analyzer must load in the {SdkRid} compiler; using the existing RID-based resolution for --arch {Arch}.",
+                UiSymbols.Note, GetProp(props, "NETCoreSdkRuntimeIdentifier"), options.Architecture);
+            return ResolvePlatformInjection(csproj, options);
+        }
+
         return platformOnly;
     }
 
-    private static readonly string[] ArchitectureProbeProperties = ["RuntimeIdentifier", "EnableDynamicPlatformResolution"];
+    private static readonly string[] ArchitectureProbeProperties = ["RuntimeIdentifier", "EnableDynamicPlatformResolution", "NETCoreSdkRuntimeIdentifier"];
 
     /// <summary>
     /// Builds the evaluate-only <c>dotnet msbuild</c> arguments that read the properties deciding whether a
@@ -434,6 +447,64 @@ internal sealed partial class ProjectRunService
         }
 
         return resolved.Exists;
+    }
+
+    /// <summary>
+    /// True when the <c>ProjectReference</c> closure of <paramref name="start"/> (followed through runtime
+    /// references, via static XML) contains a build-only reference — an analyzer / source generator
+    /// (<c>OutputItemType="Analyzer"</c> or <c>ReferenceOutputAssembly="false"</c>) — to a project file. Such a
+    /// project inherits a global <c>Platform</c>, so it is compiled for the target architecture yet loaded
+    /// by the compiler running on the SDK's architecture.
+    /// </summary>
+    internal static bool ProjectReferenceClosureHasBuildOnlyReference(FileInfo start)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { start.FullName };
+        var queue = new Queue<FileInfo>();
+        queue.Enqueue(start);
+
+        while (queue.Count > 0 && visited.Count <= MaxProjectReferenceClosure)
+        {
+            var current = queue.Dequeue();
+            XDocument doc;
+            try
+            {
+                doc = XDocument.Load(current.FullName);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var element in doc.Descendants().Where(e => e.Name.LocalName == "ProjectReference"))
+            {
+                var include = element.Attribute("Include")?.Value;
+                if (string.IsNullOrWhiteSpace(include))
+                {
+                    continue;
+                }
+
+                var buildOnly = ProjectReferenceMetadata.IsBuildOnly(element);
+                foreach (var segment in include.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!TryResolveReferencePath(current, segment, out var referenced))
+                    {
+                        continue;
+                    }
+
+                    if (buildOnly)
+                    {
+                        return true;
+                    }
+
+                    if (visited.Add(referenced.FullName))
+                    {
+                        queue.Enqueue(referenced);
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

@@ -24,7 +24,8 @@ function New-AppSpec([hashtable]$Overrides = @{}) {
 .SYNOPSIS
     Returns the fixture catalog. Each fixture is a hashtable:
     Id, Sdk ('1.6'|'1.8'|'2.5'), Why (what it guards), App (kind/packaging/Platforms/RIDs/refs/extra
-    properties), Libs (referenced projects), and optional PlatformsInProps, Sln, PubXml, and ExpectRid
+    properties), Libs (referenced projects), and optional PlatformsInProps, Sln, PubXml, Arch (overrides
+    the suite's -Architecture, for cross-architecture builds), and ExpectRid
     (the project can't honor a Platform-only build, so winapp must pass -r win-<arch>).
 #>
 function Get-ProjectArchFixtures {
@@ -85,6 +86,9 @@ function Get-ProjectArchFixtures {
         @{ Id = 'P06-publish-profiles-wasdk16'; Sdk = '1.6'; PubXml = @{ Name = 'win10-{0}.pubxml'; Template = $true }; App = (New-AppSpec @{ Extra = @{ PublishProfile = 'win10-$(Platform).pubxml' } }); Why = 'WinAppSDK 1.6 template publish profiles' }
         @{ Id = 'P07-unpackaged-selfcontained'; Sdk = '1.8'; App = (New-AppSpec @{ Packaged = $false; Extra = @{ SelfContained = 'true'; WindowsAppSDKSelfContained = 'true' } }); Why = 'Unpackaged fully self-contained app' }
         @{ Id = 'P08-trimmed-profile-anycpu-lib'; Sdk = '1.8'; PubXml = @{ Name = 'debug-{0}.pubxml'; Template = $false }; App = (New-AppSpec @{ Refs = @('LibP'); Extra = @{ PublishTrimmed = 'true'; PublishProfile = 'debug-$(Platform).pubxml' } }); Libs = @(@{ Name = 'LibP'; Kind = 'plain' }); Why = 'Trimmed build whose $(Platform) profile makes it self-contained' }
+
+        # Cross-architecture builds (Arch differs from x64 and arm64 hosts; x86 runs on both)
+        @{ Id = 'X01-generator-cross-arch'; Sdk = '1.8'; Arch = 'x86'; ExpectRid = $true; App = (New-AppSpec @{ Kind = 'console'; Packaged = $false; Platforms = $null; Rids = $null; Refs = @(@{ Name = 'Gen'; Meta = @{ OutputItemType = 'Analyzer'; ReferenceOutputAssembly = 'false' } }) }); Libs = @(@{ Name = 'Gen'; Kind = 'generator' }); Why = 'Project-referenced source generator built for another architecture (the compiler must still load it)' }
     )
 }
 
@@ -150,6 +154,12 @@ function New-ProjectArchFixture([hashtable]$Fixture, [string]$Root) {
         $winui = $library.Kind -eq 'winui'
         switch ($library.Kind) {
             'plain' { $properties.TargetFramework = 'netstandard2.0' }
+            'generator' {
+                $properties.TargetFramework = 'netstandard2.0'
+                $properties.IsRoslynComponent = 'true'
+                $properties.EnforceExtendedAnalyzerRules = 'true'
+                $properties.LangVersion = 'latest'
+            }
             'multi' { $properties.TargetFrameworks = "netstandard2.0;$($sdk.Tfm)" }
             'winui' {
                 $properties.TargetFramework = $sdk.Tfm
@@ -161,15 +171,38 @@ function New-ProjectArchFixture([hashtable]$Fixture, [string]$Root) {
             }
         }
         if ($library.ContainsKey('Extra')) { foreach ($key in $library.Extra.Keys) { $properties[$key] = $library.Extra[$key] } }
+        $generatorPackages = if ($library.Kind -eq 'generator') {
+            "  <ItemGroup>`n    <PackageReference Include=`"Microsoft.CodeAnalysis.CSharp`" Version=`"4.8.0`" PrivateAssets=`"all`" />`n  </ItemGroup>"
+        }
+        else { '' }
         Write-FixtureFile "$Root\$name\$name.csproj" @"
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
 $(Format-Properties $properties)
   </PropertyGroup>
 $(Format-Packages $sdk $winui)
+$generatorPackages
 $(Format-References $library['Refs'])
 </Project>
 "@
+        if ($library.Kind -eq 'generator') {
+            Write-FixtureFile "$Root\$name\Generator.cs" @"
+using Microsoft.CodeAnalysis;
+
+namespace $name
+{
+    [Generator]
+    public sealed class Generator : IIncrementalGenerator
+    {
+        public void Initialize(IncrementalGeneratorInitializationContext context) =>
+            context.RegisterPostInitializationOutput(output => output.AddSource(
+                "Generated.g.cs",
+                "namespace FixtureApp { internal static class Generated { public const string Value = \"ProjectArch\"; } }"));
+    }
+}
+"@
+            continue
+        }
         Write-FixtureFile "$Root\$name\Class1.cs" "namespace $name { public static class Class1 { public static string Hello() { return `"$name`"; } } }"
         if ($winui) {
             Write-FixtureFile "$Root\$name\Control1.xaml" @"
@@ -277,7 +310,10 @@ namespace FixtureApp
             Write-FixtureFile "$Root\App\Program.cs" "namespace FixtureApp { public static class Program { [System.STAThread] public static void Main() { new System.Windows.Application().Run(new System.Windows.Window { Title = `"ProjectArch`" }); } } }"
         }
         'console' {
-            Write-FixtureFile "$Root\App\Program.cs" "namespace FixtureApp { public static class Program { public static void Main() { System.Console.WriteLine(`"ProjectArch`"); } } }"
+            # A console app that references a source generator prints the generated value, so the build fails
+            # (CS0103) when the compiler can't load the generator.
+            $value = if (@($Fixture['Libs'] | Where-Object { $_ -and $_.Kind -eq 'generator' }).Count -gt 0) { 'Generated.Value' } else { '"ProjectArch"' }
+            Write-FixtureFile "$Root\App\Program.cs" "namespace FixtureApp { public static class Program { public static void Main() { System.Console.WriteLine($value); } } }"
         }
     }
 

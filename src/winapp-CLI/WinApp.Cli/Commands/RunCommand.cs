@@ -158,7 +158,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         ArchOption = new Option<string?>("--arch")
         {
-            Description = "Project mode: target architecture (x64, arm64, or x86). Builds with the matching MSBuild Platform, as Visual Studio does; a project that sets its own RuntimeIdentifier or enables dynamic platform resolution builds for the win-<arch> RID instead. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture."
+            Description = "Project mode: target architecture (x64, arm64, or x86). Builds with the matching MSBuild Platform, as Visual Studio does; projects that set their own RuntimeIdentifier, enable dynamic platform resolution, or reference an analyzer project in a cross-architecture build use the win-<arch> RID instead. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture."
         };
 
         RuntimeOption = new Option<string?>("--runtime")

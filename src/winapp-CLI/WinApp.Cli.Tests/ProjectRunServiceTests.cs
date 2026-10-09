@@ -2756,6 +2756,73 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    [DataRow("x86", true, DisplayName = "Cross-architecture build keeps the RID so the generator stays loadable")]
+    [DataRow("arm64", false, DisplayName = "Native build conveys the architecture with Platform")]
+    public async Task RunBuild_ProjectReferencedGenerator_CrossArchKeepsRid(string arch, bool expectRid)
+    {
+        WriteFileAt(@"Gen\Gen.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>netstandard2.0</TargetFramework>
+              </PropertyGroup>
+            </Project>
+            """);
+        var csproj = WriteFile("App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+              </PropertyGroup>
+              <ItemGroup>
+                <ProjectReference Include="Gen\Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+              </ItemGroup>
+            </Project>
+            """);
+        var dotnet = ArchitectureProbeDotnet("""
+            "RuntimeIdentifier":"","EnableDynamicPlatformResolution":"","NETCoreSdkRuntimeIdentifier":"win-arm64"
+            """);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions(arch), CancellationToken.None);
+
+        var build = BuildPass(dotnet);
+        Assert.AreEqual(expectRid, build.Contains($"-r win-{arch}", StringComparison.Ordinal), build);
+        Assert.AreEqual(!expectRid, build.Contains($"-p:Platform={arch}", StringComparison.Ordinal), build);
+    }
+
+    [TestMethod]
+    public void ProjectReferenceClosureHasBuildOnlyReference_FindsGeneratorBehindLibrary()
+    {
+        WriteFileAt(@"Gen\Gen.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        WriteFileAt(@"Lib\Lib.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <ProjectReference Include="..\Gen\Gen.csproj">
+                  <OutputItemType>Analyzer</OutputItemType>
+                </ProjectReference>
+              </ItemGroup>
+            </Project>
+            """);
+        var withGenerator = WriteFile("App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <ProjectReference Include="Lib\Lib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+        var withoutGenerator = WriteFile("Plain.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <ProjectReference Include="Gen\Gen.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+
+        Assert.IsTrue(ProjectRunService.ProjectReferenceClosureHasBuildOnlyReference(withGenerator));
+        Assert.IsFalse(ProjectRunService.ProjectReferenceClosureHasBuildOnlyReference(withoutGenerator));
+    }
+
+    [TestMethod]
     public async Task RunBuild_UserPlatformForAnotherArch_KeepsRid()
     {
         var csproj = WriteFile("App.csproj", PlatformAwareExeCsproj);

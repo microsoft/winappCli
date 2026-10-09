@@ -79,18 +79,19 @@ BeforeAll {
 Describe 'winapp run architecture matrix' {
     It '<Id>: <Why>' -ForEach $fixtures -Skip:$script:skip {
         $fixture = $_
+        $arch = if ($fixture.ContainsKey('Arch')) { $fixture.Arch } else { $Architecture }
         $root = Join-Path $WorkRoot $fixture.Id
         $run = $null
         try {
             New-ProjectArchFixture -Fixture $fixture -Root $root
-            $run = Invoke-ProjectArchRun -Fixture $fixture -Root $root -Winapp $script:winapp -Architecture $Architecture -TimeoutMinutes $TimeoutMinutes
+            $run = Invoke-ProjectArchRun -Fixture $fixture -Root $root -Winapp $script:winapp -Architecture $arch -TimeoutMinutes $TimeoutMinutes
             $tail = Get-OutputTail $run.Output
 
             $run.TimedOut | Should -BeFalse -Because "winapp run must finish within $TimeoutMinutes minutes:`n$tail"
             $run.ExitCode | Should -Be 0 -Because "winapp run must succeed:`n$tail"
 
             if ($fixture.ContainsKey('ExpectRid') -and $fixture.ExpectRid) {
-                $run.Output | Should -Match "(?<!\S)-r\s+win-$Architecture\b" -Because "this project can't honor a Platform-only build, so winapp must pass the RID"
+                $run.Output | Should -Match "(?<!\S)-r\s+win-$arch\b" -Because "this project can't honor a Platform-only build, so winapp must pass the RID"
             }
             else {
                 $run.Output | Should -Not -Match '(?<!\S)-r\s+win-' -Because 'winapp run conveys the architecture with Platform, not a global RID'
@@ -120,7 +121,7 @@ Describe 'winapp run architecture matrix' {
             }
 
             $exe | Should -Not -BeNullOrEmpty -Because "winapp must produce FixtureApp.exe:`n$tail"
-            Get-PeArchitecture $exe | Should -Be $Architecture -Because "$exe must be built for --arch $Architecture"
+            Get-PeArchitecture $exe | Should -Be $arch -Because "$exe must be built for --arch $arch"
         }
         finally {
             if ($run) { Remove-ProjectArchRun -Fixture $fixture -Run $run }
