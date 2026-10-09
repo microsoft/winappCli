@@ -91,7 +91,7 @@ internal class UiScrollIntoViewCommand : Command, IShortDescription, IHelpExampl
 
                 if (element is null)
                 {
-                    UiErrors.ElementNotFound(logger, selectorStr, json);
+                    UiErrors.ElementNotFound(logger, selectorStr, json, target: uiTarget);
                     return 1;
                 }
 

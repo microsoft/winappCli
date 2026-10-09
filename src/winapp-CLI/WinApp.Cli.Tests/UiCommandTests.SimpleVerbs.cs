@@ -109,11 +109,12 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
-    public async Task Focus_MissingSelector_ReturnsError()
+    public async Task Focus_EmptySelector_ReturnsError()
     {
         var command = GetRequiredService<UiFocusCommand>();
-        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["-a", "TestApp"]);
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["", "-a", "TestApp"]);
         Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "A selector is required");
     }
 
     [TestMethod]

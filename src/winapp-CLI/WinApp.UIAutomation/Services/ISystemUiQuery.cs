@@ -66,7 +66,9 @@ public interface ISystemUiQuery
     /// <summary>
     /// Visible top-level <c>ApplicationFrameWindow</c> frames that host a <c>Windows.UI.Core.CoreWindow</c>
     /// owned by <paramref name="pid"/>. Packaged apps such as Calculator draw inside a frame that
-    /// belongs to ApplicationFrameHost, so the app's own process owns no top-level window.
+    /// belongs to ApplicationFrameHost, so the app's own process owns no top-level window. While
+    /// such an app is minimized its CoreWindow detaches from the frame; the minimized frame is then
+    /// matched by AppUserModelID, and returned only when exactly one frame matches.
     /// </summary>
     IReadOnlyList<long> FindHostedAppFrames(int pid);
 }

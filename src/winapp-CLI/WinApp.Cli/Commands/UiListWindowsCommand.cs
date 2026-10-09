@@ -195,14 +195,11 @@ internal class UiListWindowsCommand : Command, IShortDescription, IHelpExamples
         }
 
         /// <summary>
-        /// The process's own top-level windows or, when it has none, the ApplicationFrameHost frame
-        /// hosting it (packaged apps such as Calculator draw inside a frame owned by another process).
+        /// The process's own top-level windows or, for a packaged app such as Calculator (which draws
+        /// inside a frame owned by ApplicationFrameHost), the frame hosting it.
         /// </summary>
         private List<(nint Hwnd, int Pid, string Title)> WindowsOrHostedFrames(int pid)
-        {
-            var windows = uiAutomation.FindWindowsByPid(pid);
-            return windows.Count > 0 ? windows : UiTargetResolver.FindHostedAppFrameWindows(pid);
-        }
+            => UiTargetResolver.FindWindowsOrHostedAppFrames(uiAutomation, pid);
 
         private static string GetProcessNameSafe(int pid)
         {

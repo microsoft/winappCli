@@ -192,7 +192,97 @@ internal sealed class SystemUiQuery : ISystemUiQuery
             }
         }
 
-        return frames;
+        return frames.Count > 0 ? frames : NativeFindMinimizedHostedAppFrame(pid);
+    }
+
+    /// <summary>
+    /// While a hosted app is minimized, Windows detaches its CoreWindow from the frame, so the frame
+    /// can only be linked to the process by their shared AppUserModelID. Returns the frame only when
+    /// exactly one minimized, contentless frame carries the process's AppUserModelID; two minimized
+    /// windows of the same app are ambiguous, so none is returned rather than guessing.
+    /// </summary>
+    private static List<long> NativeFindMinimizedHostedAppFrame(int pid)
+    {
+        var aumid = NativeGetProcessAppUserModelId(pid);
+        if (aumid is null) { return []; }
+
+        var matches = new List<long>();
+        var frame = global::Windows.Win32.Foundation.HWND.Null;
+        while (true)
+        {
+            frame = global::Windows.Win32.PInvoke.FindWindowEx(
+                global::Windows.Win32.Foundation.HWND.Null, frame, "ApplicationFrameWindow", (string?)null);
+            if (frame.IsNull) { break; }
+            if (!global::Windows.Win32.PInvoke.IsWindowVisible(frame) || !global::Windows.Win32.PInvoke.IsIconic(frame)) { continue; }
+
+            var content = global::Windows.Win32.PInvoke.FindWindowEx(
+                frame, global::Windows.Win32.Foundation.HWND.Null, "Windows.UI.Core.CoreWindow", (string?)null);
+            if (!content.IsNull) { continue; }
+
+            if (string.Equals(NativeGetWindowAppUserModelId(frame), aumid, StringComparison.OrdinalIgnoreCase))
+            {
+                matches.Add((nint)frame);
+            }
+        }
+
+        return matches.Count == 1 ? matches : [];
+    }
+
+    private static string? NativeGetProcessAppUserModelId(int pid)
+    {
+        var process = global::Windows.Win32.PInvoke.OpenProcess(
+            global::Windows.Win32.System.Threading.PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
+        if (process.IsNull) { return null; }
+
+        try
+        {
+            // APPLICATION_USER_MODEL_ID_MAX_LENGTH is 130 characters including the terminator.
+            var buffer = new char[130];
+            uint length = (uint)buffer.Length;
+            unsafe
+            {
+                fixed (char* pBuffer = buffer)
+                {
+                    var error = global::Windows.Win32.PInvoke.GetApplicationUserModelId(process, &length, pBuffer);
+                    return error == global::Windows.Win32.Foundation.WIN32_ERROR.ERROR_SUCCESS && length > 1
+                        ? new string(pBuffer, 0, (int)length - 1)
+                        : null;
+                }
+            }
+        }
+        finally
+        {
+            global::Windows.Win32.PInvoke.CloseHandle(process);
+        }
+    }
+
+    private static string? NativeGetWindowAppUserModelId(global::Windows.Win32.Foundation.HWND hwnd)
+    {
+        try
+        {
+            unsafe
+            {
+                var iid = typeof(global::Windows.Win32.UI.Shell.PropertiesSystem.IPropertyStore).GUID;
+                global::Windows.Win32.PInvoke.SHGetPropertyStoreForWindow(hwnd, &iid, out var storeObject).ThrowOnFailure();
+                var store = (global::Windows.Win32.UI.Shell.PropertiesSystem.IPropertyStore)storeObject;
+                var key = global::Windows.Win32.PInvoke.PKEY_AppUserModel_ID;
+                store.GetValue(&key, out var value);
+                try
+                {
+                    return value.Anonymous.Anonymous.vt == global::Windows.Win32.System.Variant.VARENUM.VT_LPWSTR
+                        ? value.Anonymous.Anonymous.Anonymous.pwszVal.ToString()
+                        : null;
+                }
+                finally
+                {
+                    global::Windows.Win32.PInvoke.PropVariantClear(ref value);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException)
+        {
+            return null;
+        }
     }
 
     internal static void ResetNativeSeams()

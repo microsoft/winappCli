@@ -183,11 +183,127 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
-    public void Focus_HelpRequiresSelectorWithoutChangingOtherCommands()
+    public void Focus_SelectorIsOptionalForWindowFocus()
     {
         var focus = GetRequiredService<UiFocusCommand>();
-        Assert.AreEqual(1, focus.Arguments.Single().Arity.MinimumNumberOfValues);
-        Assert.AreEqual(0, SharedUiOptions.SelectorArgument.Arity.MinimumNumberOfValues);
+        Assert.AreEqual(0, focus.Arguments.Single().Arity.MinimumNumberOfValues);
+        Assert.AreEqual(1, focus.Arguments.Single().Arity.MaximumNumberOfValues);
+    }
+
+    [TestMethod]
+    public async Task Focus_MinimizedWindow_RestoresThenFindsElement()
+    {
+        // Packaged apps such as Calculator expose no content while minimized: the element only
+        // appears once the window is restored.
+        ConfigureVerifiedFocus();
+        var element = _fakeUia.FindSingleResult;
+        _fakeUia.FindSingleResult = null;
+        var lookups = 0;
+        _fakeUia.OnFindSingle = () =>
+        {
+            if (++lookups == 3)
+            {
+                _fakeUia.FindSingleResult = element;
+            }
+        };
+        _fakeDesktopForeground.MinimizedWindows.Add(4242);
+
+        Assert.AreEqual(0, await RunVerifiedFocusAsync(), ConsoleStdErr.ToString());
+        CollectionAssert.AreEqual(new long[] { 4242 }, _fakeDesktopForeground.RestoreRequests);
+        Assert.AreEqual(1, _fakePollDelay.CallCount);
+        Assert.AreSame(element, _fakeUia.LastFocusedElement);
+    }
+
+    [TestMethod]
+    public async Task Focus_MinimizedWindow_ElementNeverAppears_FailsWithoutFocusing()
+    {
+        ConfigureVerifiedFocus();
+        _fakeUia.FindSingleResult = null;
+        _fakeDesktopForeground.MinimizedWindows.Add(4242);
+
+        Assert.AreEqual(1, await RunVerifiedFocusAsync());
+        CollectionAssert.AreEqual(new long[] { 4242 }, _fakeDesktopForeground.RestoreRequests);
+        Assert.IsNull(_fakeUia.LastFocusedElement);
+        AssertJsonErrorCode("element_not_found");
+    }
+
+    [TestMethod]
+    public async Task Focus_ElementMissingInVisibleWindow_DoesNotRestoreOrWait()
+    {
+        ConfigureVerifiedFocus();
+        _fakeUia.FindSingleResult = null;
+
+        Assert.AreEqual(1, await RunVerifiedFocusAsync());
+        Assert.IsEmpty(_fakeDesktopForeground.RestoreRequests);
+        Assert.AreEqual(0, _fakeDesktopLock.OpenDesktopSections);
+        AssertJsonErrorCode("element_not_found");
+    }
+
+    [TestMethod]
+    public async Task Focus_WindowElement_IsConfirmedByForegroundNotKeyboardFocus()
+    {
+        // A window's root element never reports HasKeyboardFocus; focus lands on a descendant.
+        ConfigureVerifiedFocus();
+        _fakeUia.FindSingleResult = new UiElement { Id = "win", Selector = "win-app-1234", Type = "Window", WindowHandle = 4242 };
+        _fakeUia.OnFocus = () => { };
+        _fakeUia.OnGetProperties = (_, _) => Assert.Fail("A window element must not wait for HasKeyboardFocus.");
+
+        Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(
+            GetRequiredService<UiFocusCommand>(), ["win-app-1234", "-a", "TestApp", "--json"]));
+    }
+
+    [TestMethod]
+    public async Task Focus_NoSelector_RestoresAndActivatesTargetWindow()
+    {
+        ConfigureVerifiedFocus();
+        _fakeSystemQuery.ForegroundWindowResult = 9000;
+        _fakeDesktopForeground.MinimizedWindows.Add(4242);
+        _fakeDesktopForeground.OnRequestForeground = hwnd =>
+        {
+            Assert.AreEqual(1, _fakeDesktopLock.OpenDesktopSections);
+            Assert.HasCount(1, _fakeDesktopForeground.RestoreRequests);
+            _fakeSystemQuery.ForegroundWindowResult = (nint)hwnd;
+        };
+
+        Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(
+            GetRequiredService<UiFocusCommand>(), ["-a", "TestApp", "--json"]));
+        CollectionAssert.AreEqual(new long[] { 4242 }, _fakeDesktopForeground.RestoreRequests);
+        CollectionAssert.AreEqual(new long[] { 4242 }, _fakeDesktopForeground.ForegroundRequests);
+        Assert.IsNull(_fakeUia.LastFocusedElement);
+        StringAssert.Contains(TestAnsiConsole.Output, "\"hwnd\": 4242");
+    }
+
+    [TestMethod]
+    public async Task Focus_NoSelector_ActivationRefused_Fails()
+    {
+        ConfigureVerifiedFocus();
+        _fakeSystemQuery.ForegroundWindowResult = 9000;
+
+        Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(
+            GetRequiredService<UiFocusCommand>(), ["-a", "TestApp", "--json"]));
+        AssertJsonErrorCode("foreground_not_target");
+    }
+
+    [TestMethod]
+    public async Task Focus_NoSelector_TargetWithoutWindow_Fails()
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 0;
+
+        Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(
+            GetRequiredService<UiFocusCommand>(), ["-a", "TestApp", "--json"]));
+        AssertJsonErrorCode("no_target");
+        Assert.IsEmpty(_fakeDesktopForeground.ForegroundRequests);
+    }
+
+    [TestMethod]
+    public async Task Focus_FilterWithoutSelector_IsRejected()
+    {
+        ConfigureVerifiedFocus();
+
+        Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(
+            GetRequiredService<UiFocusCommand>(), ["-a", "TestApp", "--type", "Edit", "--json"]));
+        AssertJsonErrorCode("invalid_arguments");
+        Assert.IsEmpty(_fakeDesktopForeground.ForegroundRequests);
     }
 
     [TestMethod]

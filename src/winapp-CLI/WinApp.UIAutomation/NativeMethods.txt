@@ -40,6 +40,15 @@ GetUserObjectInformation
 DwmGetWindowAttribute
 DWMWINDOWATTRIBUTE
 
+// Packaged-app identity (links a minimized ApplicationFrameHost frame to its app process)
+SHGetPropertyStoreForWindow
+IPropertyStore
+PropVariantClear
+PKEY_AppUserModel_ID
+GetApplicationUserModelId
+OpenProcess
+CloseHandle
+
 // Keyboard, mouse, touch and pen injection
 SetCursorPos
 SendInput
