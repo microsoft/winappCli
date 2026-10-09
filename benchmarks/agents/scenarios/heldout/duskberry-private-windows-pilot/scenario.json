@@ -37,8 +37,7 @@
       "forbid": [
         "winui.*",
         "ui.samples",
-        "store.publish",
-        "session.report"
+        "store.publish"
       ]
     }
   }

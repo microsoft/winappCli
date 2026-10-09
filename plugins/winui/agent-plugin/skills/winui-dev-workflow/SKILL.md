@@ -1,7 +1,9 @@
 ---
 name: winui-dev-workflow
-description: "Build and run workflow for WinUI 3 apps with WinApp CLI 0.7+ — project creation with winapp new, per-app NuGet analyzer setup, project-mode winapp run, Native AOT publish runs, crash diagnosis, and prerequisites. Use when creating, building, running, or fixing build errors in a WinUI 3 project."
+description: "Create, build, run, and fix build errors in WinUI 3 apps (C# or C++) with WinApp CLI 0.7+: winapp new, winapp run, Native AOT, crash diagnosis. Use for a new WinUI app or a WinUI project that fails to build or crashes. Not for WPF, WinForms, or Electron apps that only reference the Windows App SDK."
 ---
+
+**Scope: WinUI 3 apps only.** The Windows App SDK is not WinUI. A WPF, WinForms, Electron, or other app that references the Windows App SDK (for notifications, packaging, or other APIs) is not a WinUI app; keep its framework and don't apply this skill unless the task is to port it to WinUI 3. A WinUI 3 project has `<UseWinUI>true</UseWinUI>` or uses `Microsoft.UI.Xaml`.
 
 Requires **WinApp CLI 0.7+**.
 

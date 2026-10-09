@@ -359,6 +359,7 @@ function Invoke-BenchmarkRun {
         toolCallsByName        = $null
         deniedToolCalls        = $null
         winappCommands         = $null
+        winappCommandsDenied   = $null
         capabilitiesLoaded     = $null
         commandHit             = $null
         commandWithoutSkill    = $null
@@ -464,6 +465,7 @@ function Invoke-BenchmarkRun {
         $record.toolCallsByName = $parsed.toolCallsByName
         $record.deniedToolCalls = $parsed.deniedToolCalls
         $record.winappCommands = @($parsed.winappCommands)
+        $record.winappCommandsDenied = $parsed.winappCommandsDenied
         $record.selectedAgent = $parsed.selectedAgent
         $record.finalResponse = $parsed.finalResponse
 
@@ -486,7 +488,8 @@ function Invoke-BenchmarkRun {
         }
         else {
             $eval = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills $record.skillsLoaded -InstalledSkills @($installed) `
-                -WinappCommands $record.winappCommands -SkillContextTokens $record.skillContextTokensApprox -Response $record.finalResponse
+                -WinappCommands $record.winappCommands -SkillContextTokens $record.skillContextTokensApprox -Response $record.finalResponse `
+                -DeniedCommands $record.winappCommandsDenied
             $record.status = $eval.Status
             $record.reason = $eval.Failures -join '; '
             $record.expectationNotes = $eval.Notes

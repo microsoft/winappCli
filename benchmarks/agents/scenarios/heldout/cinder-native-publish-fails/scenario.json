@@ -35,8 +35,7 @@
       ],
       "forbid": [
         "msix.sign",
-        "identity",
-        "session.report"
+        "identity"
       ]
     }
   }

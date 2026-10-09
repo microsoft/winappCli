@@ -203,6 +203,28 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.AreEqual("exe-bytes", await File.ReadAllTextAsync(Path.Combine(outputDir.FullName, "TestApp.exe"), TestContext.CancellationToken));
     }
 
+    /// <summary>
+    /// MSBuild escapes item specs in the recipe: a C++ Debug build lists the debug CRT as
+    /// "C:\Program Files %28x86%29\...\ucrtbased.dll".
+    /// </summary>
+    [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_MSBuildEscapedSourcePath_IsUnescaped()
+    {
+        var srcDir = _tempDirectory.CreateSubdirectory("Program Files (x86)");
+        var srcManifest = new FileInfo(Path.Join(srcDir.FullName, "AppxManifest.xml"));
+        await File.WriteAllTextAsync(srcManifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
+        var srcData = new FileInfo(Path.Join(srcDir.FullName, "ucrtbased.dll"));
+        await File.WriteAllTextAsync(srcData.FullName, "crt", TestContext.CancellationToken);
+
+        var escaped = srcData.FullName.Replace("(", "%28").Replace(")", "%29");
+        var recipe = new FileInfo(WriteRecipe(srcManifest, (escaped, "ucrtbased.dll")));
+        var outputDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "layout"));
+
+        await InvokeCopyFilesFromRecipeAsync(recipe, outputDir);
+
+        Assert.AreEqual("crt", await File.ReadAllTextAsync(Path.Join(outputDir.FullName, "ucrtbased.dll"), TestContext.CancellationToken));
+    }
+
     [TestMethod]
     public async Task CopyFilesFromRecipeAsync_NestedPackagePath_CreatesSubdirectories()
     {

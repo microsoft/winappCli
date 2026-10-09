@@ -34,7 +34,6 @@
         "framework.guidance"
       ],
       "forbid": [
-        "session.report"
       ]
     }
   }

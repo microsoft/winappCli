@@ -74,8 +74,8 @@ public partial class InteractiveDesktopMultiprocessTests
             // Real named events: the whole point of these tests is that a wake-up crosses a process
             // boundary to a genuine winapp.exe child.
             new ParticipantSignals(inspector, NullLogger<ParticipantSignals>.Instance),
-            new TestConsole(),
-            NullLogger<InteractiveDesktopLock>.Instance);
+            NullLogger<InteractiveDesktopLock>.Instance,
+            TextWriter.Null);
     }
 
     [TestCleanup]
