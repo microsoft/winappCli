@@ -4126,7 +4126,7 @@ public class ProjectRunServiceTests
         var filter = WindowsCommandLine.SplitArguments(dotnet.StreamingCalls.First(a => a.Contains(".slnf", StringComparison.Ordinal)))[1];
         Assert.IsFalse(File.Exists(filter), "a filter whose command is never shown is deleted");
         Assert.IsFalse(console.Output.Contains(".slnf", StringComparison.Ordinal), "the recovered filter restore isn't reported");
-        Assert.IsTrue(dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {Path.Combine(_tempDir.FullName, "A", "A.csproj")}", StringComparison.Ordinal)),
+        Assert.IsTrue(dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {Path.Join(_tempDir.FullName, "A", "A.csproj")}", StringComparison.Ordinal)),
             "the sibling is retried on its own");
     }
 
