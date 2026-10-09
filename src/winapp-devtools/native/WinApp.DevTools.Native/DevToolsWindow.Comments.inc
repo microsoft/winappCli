@@ -3,6 +3,9 @@
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
 static DevToolsWindowCommentsFn       g_commentsFn;
+static size_t                         g_commentsResolvedHidden = 0;
+
+void DevToolsWindow_SetResolvedCommentCount(size_t resolved) { g_commentsResolvedHidden = resolved; }
 static DevToolsWindowAnchorWireFn     g_anchorWireFn;
 static DevToolsWindowCommentResolveFn g_commentResolveFn;
 static bool          g_commentsView = false;
@@ -275,7 +278,10 @@ static std::wstring BuildCommentsFragment(const std::vector<DevToolsWindowCommen
     for (const auto& c : all) if (c.status != L"resolved") ++open;
 
     if (all.empty()) {
-        const std::wstring emptyMessage = g_commentResolveFn
+        const std::wstring emptyMessage = g_commentsResolvedHidden > 0
+            ? L"No open comments (" + std::to_wstring(g_commentsResolvedHidden) + L" resolved). "
+              L"See them all with &#x2018;winapp devtools comments list --all&#x2019;."
+            : g_commentResolveFn
             ? L"No comments for this app yet. Pick an element and use the Comment box on its panel; "
               L"they persist in the host project store. From your host project, an agent can read them with "
               L"&#x2018;winapp devtools comments list --status open --json&#x2019;."

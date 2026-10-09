@@ -117,6 +117,9 @@ using DevToolsWindowCommentResolveFn = std::function<bool(const wchar_t* /*id*/,
 
 // Register the comment bridge. Safe to call before or after DevToolsWindow_Open; the view is empty (and says so)
 // until it is registered. UI thread only.
+// How many resolved comments the project has. They are not pushed as comments; the Comments pane counts them.
+void DevToolsWindow_SetResolvedCommentCount(size_t resolved);
+
 void DevToolsWindow_SetCommentBridge(DevToolsWindowCommentsFn commentsFn,
                                 DevToolsWindowAnchorWireFn anchorWireFn,
                                 DevToolsWindowCommentResolveFn resolveFn);

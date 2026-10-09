@@ -103,7 +103,8 @@ internal sealed class GuestCommentEndpoint(GuestCommentSession session)
             var comments = CommentPusher.ToTapComments(
                 new CommentStoreDocument { Comments = snapshot.Comments?.ToList() ?? [] }, CommentStore.Revision);
             _ = new VisualTreeTap(checked((uint)session.Process.ProcessId))
-                .SetComments(comments, snapshot.Generation, cancellationToken: stop.Token).RequireResult();
+                .SetComments(comments, snapshot.Generation, CommentPusher.ResolvedCount(snapshot.Comments ?? []),
+                    cancellationToken: stop.Token).RequireResult();
         }
 
         async Task WatchAppAsync()

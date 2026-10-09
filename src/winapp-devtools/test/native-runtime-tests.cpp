@@ -146,10 +146,10 @@ static HRESULT ObserveMutation(InstanceHandle handle, const std::wstring& proper
     return S_OK;
 }
 
-static std::wstring PushCommentSnapshot(long long generation, const std::wstring& commentId)
+static std::wstring PushCommentSnapshot(long long generation, const std::wstring& commentId, int resolved = 0)
 {
     const auto request = DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Internal.setComments\","
-        L"\"params\":{\"generation\":" + std::to_wstring(generation) +
+        L"\"params\":{\"generation\":" + std::to_wstring(generation) + L",\"resolved\":" + std::to_wstring(resolved) +
         L",\"comments\":[{\"id\":\"" + commentId + L"\",\"text\":\"t\"}]}}");
     std::wstring reply;
     std::thread caller([&] { reply = HandleRpc(nullptr, request); });
@@ -1193,6 +1193,9 @@ int wmain(int argc, wchar_t** argv)
             check(g_comments.size() == 1 && g_comments[0].id == L"newer",
                   "an older store generation cannot replace a newer comment snapshot");
         }
+        g_commentsGeneration = -1;
+        check(PushCommentSnapshot(7, L"counted", 2).find(L"\"stale\":false") != std::wstring::npos,
+              "a push that counts resolved comments is accepted");
         g_commentsGeneration = -1;
     }
     {

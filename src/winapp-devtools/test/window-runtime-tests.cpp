@@ -126,6 +126,18 @@ int main()
 {
     unsigned checks=0, failed=0, writes=0;
     auto check=[&](bool ok,const char* name){++checks;if(!ok){++failed;std::printf("FAIL %s\n",name);}};
+    {
+        // Only open comments are pushed; with none open but some resolved, the pane must not claim there are none.
+        size_t open = 0;
+        DevToolsWindow_SetResolvedCommentCount(2);
+        const std::wstring allResolved = BuildCommentsFragment({}, open);
+        check(allResolved.find(L"No open comments (2 resolved)") != std::wstring::npos &&
+              allResolved.find(L"comments list --all") != std::wstring::npos,
+              "an all-resolved Comments pane counts the resolved comments and says how to see them");
+        DevToolsWindow_SetResolvedCommentCount(0);
+        check(BuildCommentsFragment({}, open).find(L"No comments for this app yet") != std::wstring::npos,
+              "a project with no comments at all still says there are none");
+    }
     std::map<InstanceHandle,std::wstring> values{{77,L"True"},{88,L"True"}};
     DevToolsCardRow row;
     row.name=L"IsEnabled";row.type=L"Boolean";row.valueType=L"Windows.Foundation.Boolean";

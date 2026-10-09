@@ -150,6 +150,35 @@ public class CommentPusherTests
         }
     }
 
+    // The app is shown open comments only, and told how many are resolved so its empty Comments pane can say so.
+    [TestMethod]
+    public void Push_TellsTheAppHowManyCommentsAreResolved()
+    {
+        var root = Directory.CreateTempSubdirectory("winapp-resolved-pusher-");
+        try
+        {
+            var store = new CommentStore();
+            foreach (var (id, status) in new[] { ("a", CommentStatus.Resolved), ("b", CommentStatus.Resolved), ("c", CommentStatus.Open) })
+            {
+                var comment = NewComment(id, status, "Root/0");
+                comment.ProjectRoot = root.FullName;
+                store.Add(store.GetStorePath(root), comment);
+            }
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("Internal.sourceRoot", $"{{\"sourceRoot\":{JsonSerializer.Serialize(root.FullName)}}}")
+                .Answer("Internal.setComments", """{"total":1,"placed":0}""");
+            new CommentPusher(store).Push((uint)agent.Pid, root.FullName);
+            using var request = JsonDocument.Parse(agent.ReceivedRequests.Last());
+            var set = request.RootElement.GetProperty("params");
+            Assert.AreEqual(1, set.GetProperty("comments").GetArrayLength(), "only the open comment is drawn");
+            Assert.AreEqual(2, set.GetProperty("resolved").GetInt32(), "the resolved ones are counted");
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     [TestMethod]
     public void Push_CommonClient_UsesAppRootAndActualPlacementCounts()
     {

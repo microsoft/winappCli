@@ -100,7 +100,8 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
                     doc.Comments.FindAll(c => CommentStoreLocator.SameProject(c.ProjectRoot, project)),
             };
             var comments = ToTapComments(scoped, store.GetRevision);
-            using var reply = JsonDocument.Parse(tap.SetComments(comments, scoped.Generation, cancellationToken: cancellationToken).RequireResult(), TapWireJson.DocumentOptions);
+            using var reply = JsonDocument.Parse(tap.SetComments(comments, scoped.Generation, ResolvedCount(scoped.Comments),
+                cancellationToken: cancellationToken).RequireResult(), TapWireJson.DocumentOptions);
             if (reply.RootElement.ValueKind != JsonValueKind.Object ||
                 !reply.RootElement.TryGetProperty("total", out var total) || total.ValueKind != JsonValueKind.Number ||
                 !total.TryGetInt32(out var count) ||
@@ -124,6 +125,8 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
             return null;
         }
     }
+
+    internal static int ResolvedCount(IEnumerable<Comment> comments) => comments.Count(c => c.Status == CommentStatus.Resolved);
 
     internal static List<TapComment> ToTapComments(CommentStoreDocument doc, Func<Comment, string?>? revision = null)
         => doc.Comments

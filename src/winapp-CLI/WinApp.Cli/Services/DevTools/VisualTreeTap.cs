@@ -246,16 +246,18 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
     /// <summary>The bytes one comment-push part may carry, leaving room for the request envelope under <see cref="MaxRequestBytes"/>.</summary>
     internal const int CommentPartBudget = 56 * 1024;
 
-    public DevToolsProtocolResponse SetComments(IReadOnlyList<TapComment> comments, long generation,
+    /// <param name="resolved">How many resolved comments the project has; they are not drawn, but the Comments pane counts them.</param>
+    public DevToolsProtocolResponse SetComments(IReadOnlyList<TapComment> comments, long generation, int resolved = 0,
         int timeoutMs = DefaultTimeoutMs, CancellationToken cancellationToken = default)
     {
-        var payload = CommentSetJson(comments, generation);
+        var payload = CommentSetJson(comments, generation, resolved);
         var parts = SplitCommentPayload(payload);
         if (parts.Count == 1)
         {
             return Request("Internal.setComments", w =>
             {
                 w.WriteNumber("generation", generation);
+                w.WriteNumber("resolved", resolved);
                 WriteComments(w, comments);
             }, timeoutMs, cancellationToken);
         }
@@ -281,13 +283,14 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
         return response;
     }
 
-    internal static string CommentSetJson(IReadOnlyList<TapComment> comments, long generation)
+    internal static string CommentSetJson(IReadOnlyList<TapComment> comments, long generation, int resolved = 0)
     {
         using var stream = new MemoryStream();
         using (var w = new Utf8JsonWriter(stream))
         {
             w.WriteStartObject();
             w.WriteNumber("generation", generation);
+            w.WriteNumber("resolved", resolved);
             WriteComments(w, comments);
             w.WriteEndObject();
         }

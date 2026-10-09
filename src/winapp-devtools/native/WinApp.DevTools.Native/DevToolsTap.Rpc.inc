@@ -748,10 +748,12 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
 
         // Store generation orders snapshots from concurrent CLIs; -1 is an unversioned (legacy) push.
         const long long generation = set->GetInt(L"generation", -1);
+        // Resolved comments are not pushed as comments; the Comments pane counts them.
+        const long long resolved = set->GetInt(L"resolved", 0);
         auto placed = std::make_shared<size_t>(0);
         auto stale = std::make_shared<bool>(false);
         InstanceHandle root = RootVisual();
-        HRESULT hr = RunOnUiThread([items, placed, stale, root, generation]() -> HRESULT {
+        HRESULT hr = RunOnUiThread([items, placed, stale, root, generation, resolved]() -> HRESULT {
             // Compared when applied, not when queued: a timed-out request can run after a newer one.
             if (generation >= 0 && generation < g_commentsGeneration) {
                 *stale = true;
@@ -770,6 +772,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                 g_comments = *items;
             }
             if (generation >= 0) g_commentsGeneration = generation;
+            DevToolsWindow_SetResolvedCommentCount(resolved > 0 ? static_cast<size_t>(resolved) : 0);
             DevToolsWindow_RefreshComments();
             return h;
         });
