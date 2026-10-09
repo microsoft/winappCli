@@ -484,8 +484,9 @@ function Invoke-UiRun {
         }
         $record.totalMs = $started.ElapsedMilliseconds
         $record.finishedAt = (Get-Date).ToString('o')
+        # Inside finally: the early returns above skip anything after the try.
+        if ($abort) { $record['abort'] = $abort }
     }
-    if ($abort) { $record['abort'] = $abort }
     return $record
 }
 

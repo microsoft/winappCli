@@ -82,3 +82,19 @@ Describe "Calculator's saved mode" {
         ConvertTo-CalculatorNavId -Mode $Mode | Should -BeExactly $Id
     }
 }
+
+Describe 'Ownership ledger' {
+    It 'reads start times back as the exact strings it saved, so an interrupted run can close its own processes' {
+        $path = Join-Path $TestDrive 'owned.json'
+        $startTime = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o')
+        Save-OwnedLedger -Path $path -Entries @([pscustomobject]@{ app = 'calculator'; kind = 'instance'; pid = $PID; startTime = $startTime })
+        $entry = @(Read-OwnedLedger -Path $path)[0]
+        $entry.startTime | Should -BeOfType [string]
+        $entry.startTime | Should -BeExactly $startTime
+        $entry.pid | Should -Be $PID
+    }
+
+    It 'returns nothing when there is no ledger' {
+        @(Read-OwnedLedger -Path (Join-Path $TestDrive 'missing.json')).Count | Should -Be 0
+    }
+}

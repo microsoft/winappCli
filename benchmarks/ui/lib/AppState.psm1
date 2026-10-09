@@ -535,11 +535,23 @@ function Stop-OwnedEntry {
     return Stop-OwnedInstance -AppInfo $info -ProcessId ([int]$Entry.pid) -StartTime ([string]$Entry.startTime)
 }
 
+function Read-OwnedLedger {
+    # The ledger's entries with startTime as the exact 'o' string it was saved as. ConvertFrom-Json
+    # turns ISO-8601 strings into DateTime, and comparing that to Get-ProcessStartTime would never match.
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return @() }
+    $entries = @(Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json)
+    foreach ($e in $entries) {
+        if ($e.startTime -is [datetime]) { $e.startTime = $e.startTime.ToUniversalTime().ToString('o') }
+    }
+    return $entries
+}
+
 function Clear-OwnedLedger {
     # Closes processes left in a ledger by an interrupted run; throws if any is still running.
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][hashtable]$Apps, [Parameter(Mandatory)]$Config)
     if (-not (Test-Path -LiteralPath $Path)) { return }
-    $stale = @(Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json)
+    $stale = @(Read-OwnedLedger -Path $Path)
     Write-Host "Closing $($stale.Count) process(es) left by an interrupted run..."
     $left = @($stale | Where-Object { (Stop-OwnedEntry -Entry $_ -Apps $Apps -Config $Config) -eq 'still-running' })
     if ($left) { throw "Could not close pid(s) $(@($left.pid) -join ', ') from an interrupted run; close them and rerun." }
@@ -693,5 +705,5 @@ function Complete-CalculatorModeRecord {
 Export-ModuleMember -Function Get-AppInfo, Get-AppProcesses, Find-InstanceWindow, Find-Element, Wait-InstanceElement, Invoke-Element,
 Read-AppValue, Get-AppKeys, Read-InstanceState, Start-AppInstance, Get-CalculatorMode, ConvertTo-CalculatorNavId, Set-CalculatorMode,
 Wait-InstanceValues, Invoke-InstanceSetup, Get-ForeignInstances, Get-AppSnapshot, Stop-OwnedInstance, Save-OwnedLedger, Stop-RelatedProcess,
-Stop-OwnedEntry, Clear-OwnedLedger, Start-ScenarioInstances, Get-SetupSnapshot, Add-StartedProcesses, Stop-OwnedEntries,
+Stop-OwnedEntry, Read-OwnedLedger, Clear-OwnedLedger, Start-ScenarioInstances, Get-SetupSnapshot, Add-StartedProcesses, Stop-OwnedEntries,
 Initialize-CalculatorModeRecord, Register-CalculatorMode, Get-CalculatorRestoreMode, Complete-CalculatorModeRecord
