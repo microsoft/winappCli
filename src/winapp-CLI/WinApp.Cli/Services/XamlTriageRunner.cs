@@ -4,6 +4,8 @@
 #pragma warning disable CA1416
 
 using Microsoft.Diagnostics.Runtime.Utilities.DbgEng;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 
 namespace WinApp.Cli.Services;
@@ -54,6 +56,14 @@ internal static class XamlTriageRunner
 
         try
         {
+            // DbgEng reads _NT_* variables for extension and symbol-server search paths, and either can make
+            // it load a DLL. The caller chose this environment, so none of it is used.
+            foreach (var name in Environment.GetEnvironmentVariables().Keys.Cast<string>()
+                .Where(n => n.StartsWith("_NT_", StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                Environment.SetEnvironmentVariable(name, null);
+            }
+
             // Everything this process loads or runs is re-verified here, not just by the parent, and held
             // until the engine is done, so the files checked are the files loaded.
             using var inputs = VerifyInputs(bin, jsProvider, ext);
@@ -136,18 +146,19 @@ internal static class XamlTriageRunner
     private const string StagingPrefix = "winapp-xaml-triage-";
 
     /// <summary>
-    /// Copies the held, verified engine files into a new private folder, then holds and verifies the copies
-    /// with the same check. Earlier staging folders are removed best effort; one in use by a running triage
-    /// still has its DLLs loaded and is skipped.
+    /// Copies the held, verified engine files into a new private folder, locks it against additions, then
+    /// holds and verifies the copies with the same check. Staging folders older than ten minutes are removed
+    /// best effort; one still in use has its DLLs loaded and is skipped.
     /// </summary>
     internal static ResolvedTriageBinaries StageVerifiedBinaries(
         ResolvedTriageBinaries binaries, Func<string, string, ResolvedTriageBinaries?> holdBinaries)
     {
-        foreach (var previous in Directory.EnumerateDirectories(Path.GetTempPath(), StagingPrefix + "*"))
+        foreach (var previous in new DirectoryInfo(Path.GetTempPath()).EnumerateDirectories(StagingPrefix + "*")
+            .Where(d => d.CreationTimeUtc < DateTime.UtcNow.AddMinutes(-10)))
         {
             try
             {
-                Directory.Delete(previous, recursive: true);
+                previous.Delete(recursive: true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -155,14 +166,55 @@ internal static class XamlTriageRunner
             }
         }
 
-        var stage = Directory.CreateTempSubdirectory(StagingPrefix).FullName;
+        var stage = Directory.CreateTempSubdirectory(StagingPrefix);
+        var copied = new List<string>();
         foreach (var held in binaries.Holds.OfType<VerifiedTool>())
         {
-            File.Copy(held.Path, Path.Join(stage, Path.GetFileName(held.Path)));
+            var name = Path.GetFileName(held.Path);
+            File.Copy(held.Path, Path.Join(stage.FullName, name));
+            copied.Add(name);
         }
 
-        return holdBinaries(stage, Path.Join(stage, Path.GetFileName(binaries.JsProviderPath)))
+        // DbgEng loads default extension DLLs it finds in the engine folder and its winext subfolder, so
+        // nothing may be added to this folder while the engine runs. After the lock, not even this user can
+        // add files or change the folder's permissions; anything added before the lock is refused below.
+        LockAgainstAdditions(stage);
+        var present = stage.EnumerateFileSystemInfos().Select(e => e.Name).ToList();
+        if (present.Count != copied.Count || present.Except(copied, StringComparer.OrdinalIgnoreCase).Any())
+        {
+            throw new InvalidOperationException(
+                $"something else added files to winapp's private debugger folder '{stage.FullName}'; refusing to run the debugger from it.");
+        }
+
+        return holdBinaries(stage.FullName, Path.Join(stage.FullName, Path.GetFileName(binaries.JsProviderPath)))
             ?? throw new InvalidOperationException("the verified debugger files changed while they were being copied; try again.");
+    }
+
+    /// <summary>
+    /// Replaces the folder's permissions so that, besides SYSTEM and Administrators, everyone can only read,
+    /// run and delete what is in it. The OWNER RIGHTS entry also takes away the owner's implicit right to
+    /// change the permissions back. Delete lets a later run clean the folder up; the files are held without
+    /// delete sharing while in use.
+    /// </summary>
+    private static void LockAgainstAdditions(DirectoryInfo directory)
+    {
+        const InheritanceFlags inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+        const FileSystemRights readRunDelete = FileSystemRights.ReadAndExecute | FileSystemRights.Delete;
+
+        var security = new DirectorySecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        foreach (var (sid, rights) in new[]
+        {
+            (new SecurityIdentifier("S-1-3-4"), readRunDelete), // OWNER RIGHTS
+            (WindowsIdentity.GetCurrent().User!, readRunDelete),
+            (new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), FileSystemRights.FullControl),
+            (new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null), FileSystemRights.FullControl),
+        })
+        {
+            security.AddAccessRule(new FileSystemAccessRule(sid, rights, inherit, PropagationFlags.None, AccessControlType.Allow));
+        }
+
+        directory.SetAccessControl(security);
     }
 
     /// <summary>

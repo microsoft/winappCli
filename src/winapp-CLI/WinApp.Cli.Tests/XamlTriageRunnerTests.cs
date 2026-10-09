@@ -164,13 +164,26 @@ public sealed class XamlTriageRunnerTests
             };
 
         using var original = Hold(source, Path.Combine(source, "JsProvider.dll"));
-        using var staged = XamlTriageRunner.StageVerifiedBinaries(original, Hold);
+        var staged = XamlTriageRunner.StageVerifiedBinaries(original, Hold);
+        try
+        {
+            Assert.AreNotEqual(source, staged.BinDir);
+            CollectionAssert.AreEquivalent(
+                StagedEngineFiles,
+                Directory.EnumerateFileSystemEntries(staged.BinDir).Select(Path.GetFileName).ToArray());
 
-        Assert.AreNotEqual(source, staged.BinDir);
-        CollectionAssert.AreEquivalent(
-            new[] { "dbgeng.dll", "JsProvider.dll" },
-            Directory.EnumerateFileSystemEntries(staged.BinDir).Select(Path.GetFileName).ToArray());
+            // Locked: not even this user can add the default-extension DLLs DbgEng would load from there.
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => File.WriteAllText(Path.Combine(staged.BinDir, "exts.dll"), "x"));
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => Directory.CreateDirectory(Path.Combine(staged.BinDir, "winext")));
+        }
+        finally
+        {
+            staged.Dispose();
+            Directory.Delete(staged.BinDir, recursive: true);
+        }
     }
+
+    private static readonly string[] StagedEngineFiles = ["dbgeng.dll", "JsProvider.dll"];
 
     [TestMethod]
     public void Run_NoArgsBeyondVerb_ReturnsTwoAndExplains()
