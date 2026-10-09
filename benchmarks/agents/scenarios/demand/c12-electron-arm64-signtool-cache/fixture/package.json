@@ -1,0 +1,12 @@
+{
+  "name": "luminary-deck",
+  "version": "5.2.0",
+  "main": "build/main.js",
+  "scripts": {
+    "dist:win-arm64": "electron-builder --win --arm64"
+  },
+  "devDependencies": {
+    "electron": "37.1.0",
+    "electron-builder": "26.0.12"
+  }
+}

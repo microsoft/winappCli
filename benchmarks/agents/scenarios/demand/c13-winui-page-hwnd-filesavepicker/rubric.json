@@ -1,0 +1,29 @@
+{
+  "cluster": "c13",
+  "framework": "WinUI3",
+  "goal": "Show how to obtain the real top-level WinUI 3 window handle from a page and initialize the picker with that owner.",
+  "must_include": [
+    "Says `WindowNative.GetWindowHandle(this)` is wrong in `ReportsPage` because `this` is a `Page`, not the top-level `Window`.",
+    "Uses a stored/exposed `MainWindow` instance from `App`, or derives the host window from `XamlRoot.ContentIslandEnvironment.AppWindowId`, before asking for an HWND.",
+    "For the legacy `Windows.Storage.Pickers.FileSavePicker`, calls `WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hWnd)` before `PickSaveFileAsync`.",
+    "Mentions that newer Windows App SDK picker APIs can take an `AppWindow.Id` directly instead of using `IInitializeWithWindow`."
+  ],
+  "must_not": [
+    "Uses a page, frame, or NavigationView object as the HWND owner.",
+    "Claims `Application.Current.MainWindow` is the correct WinUI 3 API.",
+    "Removes picker initialization and relies on a hidden CoreWindow in a desktop app."
+  ],
+  "acceptable_alternatives": [
+    "Expose `public static MainWindow MainWindow` from `App` and use `WindowNative.GetWindowHandle(App.MainWindow)`.",
+    "Expose a `Window` property from `App` instead of a static field.",
+    "Use `XamlRoot.ContentIslandEnvironment.AppWindowId` plus `Win32Interop.GetWindowFromWindowId`."
+  ],
+  "solved": "The answer initializes the picker using a handle or AppWindowId for the actual top-level window that hosts `ReportsPage`.",
+  "partial": "The answer says an HWND is needed but does not show how to get it from a page-hosted WinUI 3 view.",
+  "sources": ["https://stackoverflow.com/questions/71432263/how-to-retrieve-the-window-handle-of-the-current-winui-3-mainwindow-from-a-page"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/apps/develop/ui/retrieve-hwnd",
+    "https://learn.microsoft.com/en-us/windows/apps/develop/files/using-file-folder-pickers"
+  ],
+  "notes": "The source used older picker APIs; the rubric accepts both the legacy HWND initialization and the current AppWindowId-based Windows App SDK picker path."
+}

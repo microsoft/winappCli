@@ -1,0 +1,21 @@
+{
+  "package": {
+    "productName": "MesaNotes",
+    "version": "1.2.0"
+  },
+  "tauri": {
+    "windows": [
+      {
+        "title": "MesaNotes",
+        "width": 1100,
+        "height": 780,
+        "transparent": true,
+        "decorations": false
+      }
+    ],
+    "bundle": {
+      "active": true,
+      "targets": ["msi"]
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "id": "c14-contentdialog-mvvm-xamlroot",
+  "description": "A WinUI 3 MVVM app needs a clean way to show a ContentDialog that requires XamlRoot, based on https://stackoverflow.com/questions/78321069/how-to-display-a-contentdialog-in-winui-3-mvvm.",
+  "set": "demand",
+  "cohort": "implicit",
+  "prompt": "I'm trying to open an Add Song dialog from a context menu command in my WinUI 3 MVVM app. The view model can't access XamlRoot, and when I move the dialog content into its own UserControl the TextBox-bound values are still empty when I save.",
+  "configurations": ["none", "winapp", "winui", "both"],
+  "fixture": "fixture",
+  "expect": { "capabilities": { "primary": [], "acceptable": [], "forbid": [] } }
+}

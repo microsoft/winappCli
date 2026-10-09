@@ -1,0 +1,6 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HarborNotes", "HarborNotes\HarborNotes.csproj", "{2F5E2F0B-8B5D-4A71-9E3E-9E8E5A3B2B1A}"
+EndProject
+Global
+EndGlobal

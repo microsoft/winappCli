@@ -1,0 +1,26 @@
+{
+  "cluster": "c20",
+  "framework": "WPF",
+  "goal": "Move the packaged WPF app's persistent settings to an update-stable packaged app store instead of relying on WPF Settings upgrade folders.",
+  "must_include": [
+    "Explains that `Settings.Default.Upgrade()` is looking at WPF user.config version folders and does not reliably bridge the changing Desktop Bridge/MSIX `App.exe_Url_...` hash shown in the fixture.",
+    "Recommends persisting packaged-app preferences in `Windows.Storage.ApplicationData.Current.LocalSettings` for the MSIX/Desktop Bridge build.",
+    "Copies values between the existing WPF `Properties.Settings.Default` model and `LocalSettings` at startup/save time if the app still needs WPF settings for unpackaged runs.",
+    "Calls out that complex values such as collections may need serialization before storing them in `LocalSettings`."
+  ],
+  "must_not": [
+    "Claims keeping the assembly version unchanged will make `Settings.Default.Upgrade()` find the previous MSIX settings folder.",
+    "Suggests writing into `Program Files` or the package install location for user preferences.",
+    "Deletes user data on update as an acceptable migration strategy."
+  ],
+  "acceptable_alternatives": [
+    "Create a one-time migration that reads any discoverable legacy WPF settings and then writes future values to `ApplicationData.LocalSettings`.",
+    "Use `ApplicationData.LocalFolder` for larger serialized settings files instead of `LocalSettings` key/value storage.",
+    "Use a package-aware app data abstraction that selects WPF settings when unpackaged and WinRT application data when packaged."
+  ],
+  "solved": "The answer stops relying on WPF Settings upgrade folders for the packaged app and stores update-surviving preferences in the package's application data.",
+  "partial": "The answer recommends `ApplicationData.LocalSettings` but does not address copying or serializing existing WPF settings.",
+  "sources": ["https://stackoverflow.com/questions/61781890/cant-upgrade-settings-when-updating-a-wpf-desktop-bridge-universal-app"],
+  "verified_with": ["https://learn.microsoft.com/en-us/uwp/api/windows.storage.applicationdata.localsettings?view=winrt-26100"],
+  "notes": "The accepted source answer used UWP terminology because Desktop Bridge gives the WPF process package identity and access to WinRT application data APIs."
+}

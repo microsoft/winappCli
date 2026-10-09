@@ -1,0 +1,21 @@
+{
+  "id": "c25-wpf-webview2-added-to-visual-tree",
+  "description": "A WPF WebView2 created in code hangs during initialization until it is added to the control tree, based on https://stackoverflow.com/questions/65139090/how-can-i-initialize-the-webview2-in-wpf.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I'm creating a WebView2 in code because my HTML is in memory. `EnsureCoreWebView2Async(null)` never returns, and there is no exception even if I wait a long time.\n\nI don't want to write the HTML to disk or set a real `Source` URL just to initialize it.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

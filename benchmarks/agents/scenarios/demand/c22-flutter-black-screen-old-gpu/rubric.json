@@ -1,0 +1,30 @@
+{
+  "cluster": "c22",
+  "framework": "Flutter",
+  "goal": "Choose a Flutter Windows SDK version that avoids the black-window rendering regression on older customer GPUs.",
+  "must_include": [
+    "Connects the black window and `GL_INVALID_VALUE` to a Flutter Windows engine regression in the 3.22 line on older/limited graphics hardware, not to the app's widget tree.",
+    "Recommends upgrading the build environment to Flutter 3.24.1 or later, where the stable release included the Windows rendering fix.",
+    "If an immediate stable upgrade is not possible, recommends rolling back the Windows release build to the known-working Flutter 3.19.6 line rather than adding unrelated window-management packages.",
+    "Suggests validating on a machine similar to the affected hardware before publishing the replacement build."
+  ],
+  "must_not": [
+    "Adds `window_manager` initialization as the fix for a renderer black screen.",
+    "Tells customers to disable their GPU/display adapter as the product fix.",
+    "Blames the Dart `MaterialApp` or `Scaffold` sample code when the same minimal app reproduces."
+  ],
+  "acceptable_alternatives": [
+    "Use a Flutter 3.24 release candidate that contains the fix if the scenario is before 3.24.1 stable.",
+    "Ship a rollback build from Flutter 3.19.6 while preparing and testing the 3.24.1+ upgrade.",
+    "Collect `flutter doctor -v`, GPU model, and Windows version from affected machines to confirm they match the known regression."
+  ],
+  "solved": "The answer directs the developer to ship a build produced by Flutter 3.24.1+ or a deliberate 3.19.6 rollback, with hardware validation, rather than changing app code.",
+  "partial": "The answer recognizes an engine/GPU issue but does not name a fixed or known-good Flutter version.",
+  "sources": ["https://github.com/flutter/flutter/issues/150546"],
+  "verified_with": [
+    "https://github.com/flutter/flutter/issues/150546",
+    "https://github.com/flutter/flutter/blob/stable/CHANGELOG.md#3241",
+    "https://docs.flutter.dev/release/upgrade"
+  ],
+  "notes": "The issue thread reports 3.19.6 working for affected users and confirms 3.24.1 resolved the problem."
+}

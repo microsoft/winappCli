@@ -1,0 +1,6 @@
+Build notes for RiverDesk 1.0.0:
+
+- SDK used for the current public build: Flutter 3.7.4 stable.
+- Repro: `flutter build windows`, then launch `build\windows\runner\Release\riverdesk.exe`.
+- Debug (`flutter run -d windows`) does not reproduce.
+- On affected machines, second launch leaves `riverdesk.exe` in Task Manager under background processes with no visible top-level window.

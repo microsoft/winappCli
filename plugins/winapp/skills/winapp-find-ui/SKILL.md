@@ -44,6 +44,17 @@ searched when you pass `--source reactor`.
 - **WinUI-only.** The corpus is WinUI 3 Gallery + Windows Community Toolkit (+
   Reactor when opted in). It does **not** cover WPF, WinForms, or other UI
   frameworks.
+- **The Toolkit contributes more than controls.** Its helpers, converters,
+  behaviors, and extensions are searchable and fetchable the same way.
+  Converters, behaviors, and triggers are grouped under an umbrella entry
+  (`Converters`, `Behaviors`, `Header Behaviors`, `Triggers`) whose samples are
+  named for the specific type; helpers and extensions are not grouped, and each
+  is a top-level entry under its own name (`NetworkHelper`, `TextBoxExtensions`).
+  All are indexed by
+  the words in those type names, so `FileSizeToFriendlyStringConverter`,
+  `converters`, and `convert bool to visibility` all land. A description that
+  shares no words with the type name does not — `check internet connection`
+  misses `NetworkHelper`. Fall back to the **type name** or `--list`.
 - **Reactor is opt-in and for Reactor projects only.** Reactor is a C#-only
   declarative/MVU framework — its samples can't paste into a standard `dotnet new
   winui` XAML + code-behind app, so a default search deliberately omits it. Only
@@ -123,6 +134,11 @@ winapp find-ui "color picker" --json
   a `reactor-<control>-<n>` `--id` still fetches even without the flag. Skipping
   Reactor by default keeps its C#-only samples from outranking usable controls in
   a standard XAML app.
+- **Add the `Namespace:` imports yourself.** Sample C# is a class-body fragment, so
+  its `using` directives are listed on a `**Namespace:**` line above the code rather
+  than inside it. Add each entry as a `using` in your C# file, and each `**Setup:**`
+  `xmlns` entry to your XAML root — without them the snippet won't resolve its types.
+  Treat the line as the non-obvious imports, not a complete set.
 - **Everything works offline.** The Gallery/Toolkit/Reactor corpus ships inside the
   CLI, so search, `--list`, and `--id` all work with no network access — including
   on a first run in a sandbox or behind a proxy that blocks
@@ -164,8 +180,9 @@ implementation to its own taste.
 Snippets are still processed: they're cleaned and event handlers with no
 accompanying code-behind are stripped. Samples are returned in full — nothing is cut
 short. So treat a result as **upstream's sample, mechanically extracted** — not as a
-byte-for-byte copy of the file in their repo. Most samples paste and compile as-is; a
-few reference a page or type of their own that you'll need to define.
+byte-for-byte copy of the file in their repo. Most samples paste and compile as-is
+once you add the `Namespace:` imports; a few also reference a page or type of their
+own that you'll need to define.
 
 Where a control has a known pitfall, or two controls are easy to confuse, the CLI
 says so in the **Important** and **Family** notes attached to the result. Read

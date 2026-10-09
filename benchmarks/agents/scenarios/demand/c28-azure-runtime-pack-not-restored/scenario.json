@@ -1,0 +1,21 @@
+{
+  "id": "c28-azure-runtime-pack-not-restored",
+  "description": "An Azure DevOps .NET 8 MSIX WPF build fails with NETSDK1112 because win-x64 runtime packs were not restored, based on https://stackoverflow.com/questions/77644744/net-8-in-azure-devops-gives-error-netsdk1112-the-runtime-pack-for-microsoft-n.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "Since upgrading our MSIX WPF app from .NET 7 to .NET 8, Azure DevOps fails even though it works locally. The hosted Windows agent has .NET 8 installed, but the build says `Error NETSDK1112: The runtime pack for Microsoft.NETCore.App.Runtime.win-x64 was not downloaded. Try running a NuGet restore with the RuntimeIdentifier 'win-x64'.` and the same for `Microsoft.WindowsDesktop.App.Runtime.win-x64`.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}
