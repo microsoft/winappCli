@@ -81,11 +81,6 @@ If DevTools can't start in a run where you didn't pass `--devtools`, the app run
 without it and winapp says why; with `--devtools on` or `headless`, that's an error.
 If the app is already running, `run` closes it so DevTools can start it.
 
-DevTools adds several seconds to launch (5–8 seconds for the WinUI sample app in our
-tests), and the app uses more memory over a long session as it creates elements, as
-with Visual Studio's F5 with XAML Hot Reload. Use `--devtools off` or
-`winapp config set run.devtools off` when you don't need it.
-
 ### The overlay
 
 The toolbar has two modes. Turning one on turns the other off, and Esc turns the

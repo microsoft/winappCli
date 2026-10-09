@@ -259,18 +259,3 @@ page.
 To clear a local property override, use `Binding.clearValue` for a managed target
 or `HotReload.clearProperty` for a native dependency property, with the same
 `handle` and `prop` parameters. Captures are process-local, not durable backups.
-
-## Performance
-
-Measured on a small WinUI sample app:
-
-- A visible, idle overlay does no work on the app's UI thread.
-- Highlighting an element takes about 1.6 ms on the UI thread.
-- Opening the inspector window stalls the UI thread once, for about 0.2 s, and adds about 20 MB of private memory while it is open.
-- The overlay itself adds 2–3 MB of private memory.
-- Attaching to an app that is already running takes 0.7–1.1 s.
-- While DevTools is attached, memory grows by about 130 bytes for every XAML element the app creates, and that memory is not
-  released while the app runs. In an app that keeps rebuilding its pages, such as navigating between heavy pages, that is a few
-  MB per cycle. This memory is held by WinUI's diagnostics while DevTools is subscribed to the visual tree, not by DevTools'
-  own element index, which shrinks as elements leave the tree. It is the same with `--devtools headless`. Use
-  `--devtools off` when you measure memory.
