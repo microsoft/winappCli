@@ -211,6 +211,11 @@ internal sealed partial class ProjectRunService
                 failures.Observe(line);
                 Console.Error.WriteLine(NugetErrorMessage.Redact(line));
             }, cancellationToken);
+            if (options.Json && redirected.ExitCode != 0)
+            {
+                Console.Error.WriteLine($"Command: {fullCommand}");
+            }
+
             return await ExplainBuildFailureAsync(msbuild, project, properties, redirected.ExitCode, failures, cancellationToken);
         }
 

@@ -58,6 +58,10 @@ internal sealed partial class ProjectRunService
             {
                 PrintFailedCommand($"dotnet {display}");
             }
+            else if (options.Json)
+            {
+                Console.Error.WriteLine($"Command: dotnet {display}");
+            }
             logger.LogError(
                 "{UISymbol} Native MSIX packaging failed for {Project} (exit code {ExitCode}).",
                 UiSymbols.Error, csproj.Name, exitCode);

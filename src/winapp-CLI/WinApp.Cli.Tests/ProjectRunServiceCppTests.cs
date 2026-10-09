@@ -614,6 +614,33 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
+    [DoNotParallelize] // redirects the process-wide Console.Error
+    public async Task BuildAndResolve_Vcxproj_JsonBuildFailure_PrintsTheExactMSBuildCommandOnStderr()
+    {
+        var project = WriteFile("App.vcxproj", CppApp);
+        _msbuild.Replies.Add((new ProcessRunResult(1, string.Empty, string.Empty), ["main.cpp(1): error C2065: 'x': undeclared identifier"]));
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: [], Json: true);
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        try
+        {
+            var outcome = await _service.BuildAndResolveAsync(project, options, CancellationToken.None);
+            Assert.AreEqual(1, outcome.ExitCode);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        var command = stderr.ToString().Split('\n').Single(line => line.StartsWith("Command:", StringComparison.Ordinal));
+        foreach (var argument in _msbuild.Calls[0])
+        {
+            StringAssert.Contains(command, argument, "a --json failure must show the exact invocation on stderr");
+        }
+    }
+
+    [TestMethod]
     public void BuildCppPropertyTokens_MapsArchitectureAndHonorsUserPlatformAndSolution()
     {
         var solution = WriteFile("App.slnx", Slnx("App.vcxproj"));
