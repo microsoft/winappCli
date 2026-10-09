@@ -242,7 +242,7 @@ internal sealed partial class ProjectRunService(
         // With --no-restore, winapp never sees the restore whose warnings the build replays, so check them.
         if (options.NoRestore && !options.NoBuild && !publish && !aotPublish && UsesNativeTerminalBuild(options))
         {
-            redactBuildOutput = AssetsLogNeedsRedaction(csproj);
+            redactBuildOutput = AssetsLogNeedsRedaction(csproj, options.Properties);
         }
 
         // When the target lives in a solution, restore the solution's other managed projects up front so

@@ -615,11 +615,21 @@ internal sealed partial class ProjectRunService
     /// Whether a <c>--no-restore</c> build of <paramref name="project"/> may print a credential. The build replays
     /// the warnings each project in its <c>ProjectReference</c> closure stored in <c>obj\project.assets.json</c>
     /// at its last restore, and those can quote an authenticated feed URL. True when one of them would need
-    /// redaction, or when winapp can't tell: an assets file it can't read (for example, a relocated <c>obj</c>),
-    /// a reference it can't resolve, or references added by a <c>Directory.Build.props</c>/<c>.targets</c>.
+    /// redaction, or when winapp can't tell: an assets file it can't read, a reference it can't resolve, or a
+    /// <c>-p</c> property, environment variable, project or <c>Directory.Build.props</c>/<c>.targets</c> that may
+    /// add references or move the assets file somewhere else.
     /// </summary>
-    internal static bool AssetsLogNeedsRedaction(FileInfo project)
+    internal static bool AssetsLogNeedsRedaction(FileInfo project, IReadOnlyList<string> properties)
     {
+        foreach (var name in AssetsLocationProperties)
+        {
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(name))
+                || properties.Any(p => p.Split('=', 2)[0].Trim().Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { project.FullName };
         var queue = new Queue<FileInfo>();
         queue.Enqueue(project);
@@ -627,7 +637,7 @@ internal sealed partial class ProjectRunService
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
-            if (ProjectAssetsLogNeedsRedaction(current) || BuildFilesAddProjectReferences(current, checkedBuildFiles))
+            if (ProjectAssetsLogNeedsRedaction(current) || BuildFilesMayChangeAssets(current, checkedBuildFiles))
             {
                 return true;
             }
@@ -638,6 +648,11 @@ internal sealed partial class ProjectRunService
                 document = XDocument.Load(current.FullName);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
+            {
+                return true;
+            }
+
+            if (document.Descendants().Any(e => AssetsLocationProperties.Contains(e.Name.LocalName, StringComparer.OrdinalIgnoreCase)))
             {
                 return true;
             }
@@ -706,8 +721,14 @@ internal sealed partial class ProjectRunService
         }
     }
 
-    /// <summary>Whether a <c>Directory.Build.props</c>/<c>.targets</c> above <paramref name="project"/> mentions <c>ProjectReference</c>.</summary>
-    private static bool BuildFilesAddProjectReferences(FileInfo project, HashSet<string> checkedFiles)
+    /// <summary>MSBuild properties that move the <c>project.assets.json</c> a build reads away from <c>obj\</c>.</summary>
+    private static readonly string[] AssetsLocationProperties = ["BaseIntermediateOutputPath", "MSBuildProjectExtensionsPath", "ProjectAssetsFile"];
+
+    /// <summary>
+    /// Whether a <c>Directory.Build.props</c>/<c>.targets</c> above <paramref name="project"/> mentions
+    /// <c>ProjectReference</c> or a property that relocates the assets file.
+    /// </summary>
+    private static bool BuildFilesMayChangeAssets(FileInfo project, HashSet<string> checkedFiles)
     {
         for (var directory = project.Directory; directory is not null; directory = directory.Parent)
         {
@@ -721,7 +742,9 @@ internal sealed partial class ProjectRunService
 
                 try
                 {
-                    if (File.ReadAllText(path).Contains("ProjectReference", StringComparison.Ordinal))
+                    var text = File.ReadAllText(path);
+                    if (text.Contains("ProjectReference", StringComparison.OrdinalIgnoreCase)
+                        || AssetsLocationProperties.Any(name => text.Contains(name, StringComparison.OrdinalIgnoreCase)))
                     {
                         return true;
                     }

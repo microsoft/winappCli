@@ -4007,7 +4007,28 @@ public class ProjectRunServiceTests
             """);
         WriteFileAt(Path.Join("obj", "project.assets.json"), """{"version":3,"logs":[]}""");
 
-        Assert.IsTrue(ProjectRunService.AssetsLogNeedsRedaction(csproj));
+        Assert.IsTrue(ProjectRunService.AssetsLogNeedsRedaction(csproj, []));
+    }
+
+    [TestMethod]
+    [DataRow("property", DisplayName = "-p:BaseIntermediateOutputPath")]
+    [DataRow("project", DisplayName = "project sets MSBuildProjectExtensionsPath")]
+    [DataRow("buildProps", DisplayName = "Directory.Build.props sets BaseIntermediateOutputPath")]
+    public void AssetsLogNeedsRedaction_RelocatedAssetsFile_IsTreatedAsNeedingRedaction(string source)
+    {
+        // The build reads the relocated assets file, so a clean obj\project.assets.json proves nothing.
+        var csproj = WriteFile("App.csproj", source == "project"
+            ? """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><MSBuildProjectExtensionsPath>ext\</MSBuildProjectExtensionsPath></PropertyGroup></Project>"""
+            : """<Project Sdk="Microsoft.NET.Sdk" />""");
+        WriteFileAt(Path.Join("obj", "project.assets.json"), """{"version":3,"logs":[]}""");
+        if (source == "buildProps")
+        {
+            WriteFile("Directory.Build.props", """<Project><PropertyGroup><BaseIntermediateOutputPath>customobj\</BaseIntermediateOutputPath></PropertyGroup></Project>""");
+        }
+
+        string[] properties = source == "property" ? ["BaseIntermediateOutputPath=customobj\\"] : [];
+
+        Assert.IsTrue(ProjectRunService.AssetsLogNeedsRedaction(csproj, properties));
     }
 
     [TestMethod]
