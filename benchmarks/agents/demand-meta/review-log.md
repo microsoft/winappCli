@@ -83,7 +83,8 @@
 - OK
 
 ### c26-wpf-wapproj-minversion-mismatch
-- OK
+- OK at freeze.
+- After the freeze, in PR review: added the source thread's second reported fix (removing `SkipGetTargetFrameworkProperties` from the app's `ProjectReference`) as an acceptable alternative, and let `solved` accept it. The accepted answer's `TargetPlatformMinVersion` fix is unchanged.
 
 ### c27-appinstaller-onlaunch-schema
 - Removed trivia pressure from the Windows-version criterion by focusing it on the launch-check settings used by this fixture, with prompt/blocking support left as a caveat only if those settings are added later.

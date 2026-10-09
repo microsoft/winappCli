@@ -123,6 +123,9 @@ Here you go:
         @{ Name = 'an invalid verdict'; Text = '[{"id":"A1","verdict":"mostly"},{"id":"A2","verdict":"solved"}]'; Err = "invalid verdict 'mostly'*" }
         @{ Name = 'a reply without JSON'; Text = 'I cannot grade these.'; Err = 'no JSON array*' }
         @{ Name = 'an empty reply'; Text = ''; Err = 'no JSON array*' }
+        @{ Name = 'an object without a verdict'; Text = '[{"id":"A1"},{"id":"A2","verdict":"solved"}]'; Err = '*lacks id or verdict' }
+        @{ Name = 'an object without an id'; Text = '[{"verdict":"solved"},{"id":"A2","verdict":"solved"}]'; Err = '*lacks id or verdict' }
+        @{ Name = 'a non-object entry'; Text = '[{"id":"A1","verdict":"solved"},"x",{"id":"A2","verdict":"solved"}]'; Err = '*lacks id or verdict' }
     ) {
         $r = ConvertFrom-JudgeReply -Text $Text -Count 2
         $r.Verdicts | Should -BeNullOrEmpty

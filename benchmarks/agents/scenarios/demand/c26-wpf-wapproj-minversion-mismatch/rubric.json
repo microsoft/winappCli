@@ -16,9 +16,10 @@
   "acceptable_alternatives": [
     "Recreate the Windows Application Packaging Project and choose `10.0.19041.0` as the minimum version in the wizard.",
     "Edit the `.wapproj` file directly.",
-    "Build architecture-specific packages or a bundle after the package and app project settings agree."
+    "Build architecture-specific packages or a bundle after the package and app project settings agree.",
+    "Remove `<SkipGetTargetFrameworkProperties>True</SkipGetTargetFrameworkProperties>` from the app's `ProjectReference` in the `.wapproj`, the other fix reported in the source thread, so the packaging project resolves the app's target framework and runtime identifier."
   ],
-  "solved": "The package project uses `TargetPlatformMinVersion` 10.0.19041.0 and the package build no longer reports the MSIL/x86 mismatch.",
+  "solved": "The package project uses `TargetPlatformMinVersion` 10.0.19041.0 (or an acceptable alternative fix of the package project's reference to the app) and the package build no longer reports the MSIL/x86 mismatch.",
   "partial": "The answer aligns the architectures but misses the stale `TargetPlatformMinVersion` in the `.wapproj` file.",
   "sources": ["https://stackoverflow.com/questions/74466154/packaging-project-fails-with-mismatch-between-the-processor-architecture-etc"],
   "verified_with": [

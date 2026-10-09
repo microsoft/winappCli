@@ -472,7 +472,8 @@ answer gets a verdict from every judge (default `claude-opus-5.5` and `gpt-6.1-s
 is graded only by its own family. Empty answers are `unsolved` without a judge. A batch whose reply
 isn't one valid verdict per answer is retried once and then reported as failed (exit code 1); rerun
 to grade what's missing. `-MaxCredits` is a hard cap: each attempt reserves an estimate before it
-starts, so parallel batches can't overshoot it. Judgments append to `judgments.jsonl` in `-OutDir`, keyed by result folder
+starts, so parallel batches can't overshoot it, and every attempt's cost is kept in `spend.jsonl`
+in `-OutDir`, so reruns count earlier spending, failed batches included. Judgments append to `judgments.jsonl` in `-OutDir`, keyed by result folder
 name and line, so use unique result folder names. With full batches of 6, grading costs about 1.2
 AI credits per answer per judge; smaller batches cost more per answer.
 

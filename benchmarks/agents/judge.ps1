@@ -69,6 +69,9 @@ Write-Host "$($answers.Count) answers from $($Results.Count) result folder(s)"
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $OutDir = (Resolve-Path $OutDir).Path
 $judgPath = Join-Path $OutDir 'judgments.jsonl'
+# Every batch that ran, graded or not, records its credits here, so -MaxCredits also counts batches
+# that failed in earlier invocations.
+$spendPath = Join-Path $OutDir 'spend.jsonl'
 $done = @{}
 $spent = 0.0
 if (Test-Path -LiteralPath $judgPath) {
@@ -76,15 +79,17 @@ if (Test-Path -LiteralPath $judgPath) {
         if (-not $line.Trim()) { continue }
         $j = $line | ConvertFrom-Json
         $done["$($j.key)|$($j.judge)"] = $true
-        if ($j.PSObject.Properties['batchCredits'] -and $j.batchFirst) { $spent += [double]$j.batchCredits }
     }
+}
+if (Test-Path -LiteralPath $spendPath) {
+    foreach ($line in [System.IO.File]::ReadLines($spendPath)) { if ($line.Trim()) { $spent += [double]($line | ConvertFrom-Json).credits } }
 }
 
 function Write-Judgment([hashtable]$Fields) {
     [ordered]@{
         key = $Fields.key; scenario = $Fields.scenario; judge = $Fields.judge; verdict = $Fields.verdict
         mustIncludeMet = @($Fields.mustIncludeMet); mustNotViolated = @($Fields.mustNotViolated); rationale = $Fields.rationale
-        batch = $Fields.batch; batchFirst = [bool]$Fields.batchFirst; batchCredits = $Fields.batchCredits
+        batch = $Fields.batch
     } | ConvertTo-Json -Compress -Depth 5 | Add-Content -LiteralPath $judgPath -Encoding utf8NoBOM
 }
 
@@ -97,7 +102,7 @@ if ($Plan) { return }
 foreach ($a in $empty) {
     foreach ($m in $Judge) {
         if ($done.ContainsKey("$($a.Key)|$m")) { continue }
-        Write-Judgment @{ key = $a.Key; scenario = $a.Scenario; judge = $m; verdict = 'unsolved'; rationale = 'empty final response'; batchCredits = 0 }
+        Write-Judgment @{ key = $a.Key; scenario = $a.Scenario; judge = $m; verdict = 'unsolved'; rationale = 'empty final response' }
         $done["$($a.Key)|$m"] = $true
     }
 }
@@ -145,10 +150,17 @@ $results = $prepared | ForEach-Object -ThrottleLimit $Throttle -Parallel {
             -StdoutPath (Join-Path $p.Dir "logs\judge$attempt.out") -StderrPath (Join-Path $p.Dir "logs\judge$attempt.err") -TimeoutSeconds ($using:TimeoutMinutes * 60)
         $ev = Get-ChildItem -Path (Join-Path $copilotHome 'session-state') -Filter events.jsonl -Recurse -File -ErrorAction SilentlyContinue | Sort-Object Length -Descending | Select-Object -First 1
         $parsed = Read-SessionEvents -Path ($ev ? $ev.FullName : '')
-        $credits = [double]($parsed.aiCredits ?? 0)
+        # An attempt that reported no credits (for example a timeout) counts at its reservation.
+        $measured = $null -ne $parsed.aiCredits
+        $credits = $measured ? [double]$parsed.aiCredits : [double]$reserved
         $out.Credits += $credits
         [System.Threading.Monitor]::Enter($bud.SyncRoot)
-        try { $bud.Spent += $credits; $bud.Reserved -= $reserved; $bud.Estimate = [Math]::Max($bud.Estimate, $credits) }
+        try {
+            $bud.Spent += $credits; $bud.Reserved -= $reserved
+            if ($measured) { $bud.Estimate = [Math]::Max($bud.Estimate, $credits) }
+            [ordered]@{ batch = $b.Id; judge = $b.Judge; attempt = $attempt; credits = $credits; measured = $measured } |
+                ConvertTo-Json -Compress | Add-Content -LiteralPath $using:spendPath -Encoding utf8NoBOM
+        }
         finally { [System.Threading.Monitor]::Exit($bud.SyncRoot) }
         $reply = ConvertFrom-JudgeReply -Text ([string]$parsed.finalResponse) -Count $p.Keys.Count
         if ($reply.Verdicts) { $out.Verdicts = $reply.Verdicts; $out.Error = $null; break }
@@ -166,7 +178,7 @@ foreach ($res in @($results | ForEach-Object { $_ | ConvertFrom-Json })) {
         Write-Judgment @{
             key = $res.Keys[$i]; scenario = $res.Scenario; judge = $res.Judge; verdict = $v.Verdict
             mustIncludeMet = $v.MustIncludeMet; mustNotViolated = $v.MustNotViolated; rationale = $v.Rationale
-            batch = $res.Id; batchFirst = ($i -eq 0); batchCredits = $res.Credits
+            batch = $res.Id
         }
     }
 }

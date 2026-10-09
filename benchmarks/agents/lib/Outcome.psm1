@@ -100,10 +100,13 @@ function ConvertFrom-JudgeReply {
     $want = @(1..$Count | ForEach-Object { "A$_" })
     $byId = @{}
     foreach ($v in $arr) {
-        $id = [string]$v.id
+        $idProp = $v.PSObject.Properties['id']
+        $verdictProp = $v.PSObject.Properties['verdict']
+        if (-not $idProp -or -not $verdictProp) { return [pscustomobject]@{ Verdicts = $null; Error = 'a verdict object lacks id or verdict' } }
+        $id = [string]$idProp.Value
         if ($id -notin $want) { return [pscustomobject]@{ Verdicts = $null; Error = "unexpected id '$id'" } }
         if ($byId.ContainsKey($id)) { return [pscustomobject]@{ Verdicts = $null; Error = "duplicate id '$id'" } }
-        if ($null -eq (Get-VerdictScore $v.verdict)) { return [pscustomobject]@{ Verdicts = $null; Error = "invalid verdict '$($v.verdict)' for $id" } }
+        if ($null -eq (Get-VerdictScore ([string]$verdictProp.Value))) { return [pscustomobject]@{ Verdicts = $null; Error = "invalid verdict '$($verdictProp.Value)' for $id" } }
         $byId[$id] = $v
     }
     $missing = @($want | Where-Object { -not $byId.ContainsKey($_) })
