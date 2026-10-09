@@ -68,13 +68,20 @@ internal static class SampleIndexSchema
     public const string Language = "language";
     public const string Gallery = "gallery";
 
+    /// <summary>Source-specific extraction metadata for the Windows Community Toolkit, at
+    /// both the control and sample level. Like <see cref="Gallery"/> it is informational:
+    /// the parser does not read it, and a non-Toolkit index omits it entirely. It is named
+    /// here so the contract stays the single place that says what a conforming index may
+    /// carry, rather than leaving a published field undocumented.</summary>
+    public const string Toolkit = "toolkit";
+
     /// <summary>Every document-level property the contract defines.</summary>
     public static readonly string[] DocumentProperties =
         [SchemaVersion, Source, GeneratedAtUtc, Controls];
 
     /// <summary>Every control-level property the contract defines.</summary>
     public static readonly string[] ControlProperties =
-        [Id, Name, Description, Details, ApiNamespace, NuGetPackage, RelatedControls, XmlnsImports, Usings, Keywords, CuratedKeywords, Docs, Samples];
+        [Id, Name, Description, Details, ApiNamespace, NuGetPackage, RelatedControls, XmlnsImports, Usings, Keywords, CuratedKeywords, Docs, Samples, Toolkit];
 
     /// <summary>Every doc-link property the contract defines.</summary>
     public static readonly string[] DocLinkProperties = [Title, Uri];
@@ -82,6 +89,8 @@ internal static class SampleIndexSchema
     /// <summary>Every sample-level property the contract defines. <see cref="Details"/> and
     /// <see cref="XmlnsImports"/> appear at BOTH levels: they are control-level defaults that
     /// an individual sample may override, because Toolkit samples legitimately carry their own
-    /// description and their own XAML namespace imports.</summary>
-    public static readonly string[] SampleProperties = [Header, Xaml, Code, Language, Details, XmlnsImports, Gallery];
+    /// description and their own XAML namespace imports. <see cref="Toolkit"/> appears at both
+    /// levels too, but as two different objects: component metadata on a control, per-sample
+    /// extraction metadata on a sample.</summary>
+    public static readonly string[] SampleProperties = [Header, Xaml, Code, Language, Details, XmlnsImports, Gallery, Toolkit];
 }

@@ -1,0 +1,20 @@
+trigger:
+  branches:
+    include:
+    - main
+
+variables:
+  BuildPlatform: 'Any CPU'
+  BuildConfiguration: 'Release'
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+- task: VSBuild@1
+  inputs:
+    solution: 'BeaconDesk.sln'
+    vsVersion: 'latest'
+    platform: '$(BuildPlatform)'
+    configuration: '$(BuildConfiguration)'
+    msbuildArchitecture: 'x64'

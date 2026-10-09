@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppInstaller
+    Uri="https://releases.oakandember.example.com/OakLedger.Setup.appinstaller"
+    Version="4.1.18.0"
+    xmlns="http://schemas.microsoft.com/appx/appinstaller/2017/2">
+  <MainBundle
+      Name="2cbb77b4-4d54-4a54-8aa1-5409f05f66a4"
+      Version="4.1.18.0"
+      Publisher="CN=Oak and Ember LLC"
+      Uri="https://releases.oakandember.example.com/OakLedger.Setup_4.1.18.0_Test/OakLedger.Setup_4.1.18.0_x64.msixbundle" />
+  <UpdateSettings>
+    <OnLaunch HoursBetweenUpdateChecks="0" />
+  </UpdateSettings>
+</AppInstaller>

@@ -1,0 +1,6 @@
+Package files:
+  Assets\StoreLogo.png
+  Assets\Square44x44Logo.png
+  Assets\Square150x150Logo.png
+  Strings\en-UK\Resources.resw
+  FieldDesk.exe

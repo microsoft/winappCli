@@ -1,0 +1,16 @@
+[package]
+name = "northstar-console"
+version = "0.3.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.0.0-beta.16", features = [] }
+
+[dependencies]
+tauri = { version = "2.0.0-beta.20", features = [] }
+tauri-plugin-shell = "2.0.0-beta.8"
+tauri-plugin-fs = "2.0.0-beta.8"
+tauri-plugin-dialog = "2.0.0-beta.8"
+tauri-plugin-os = "2.0.0-beta.8"
+tauri-plugin-process = "2.0.0-beta.8"
+tauri-plugin-log = "2.0.0-beta.8"

@@ -1,0 +1,24 @@
+{
+  "id": "c07-electron-osslsigncode-node-prebuilds",
+  "description": "Electron-builder on macOS signs non-Windows native `.node` prebuilds and osslsigncode rejects them, based on https://github.com/electron-userland/electron-builder/issues/7652.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My macOS CI signs the Windows Electron build after we upgraded electron-builder from 23.6.0 to 24.4.0. It now walks into native prebuild folders and blows up on Linux and Darwin `.node` files.\n\nUnrecognized file type: dist_electron/win-unpacked/resources/app.asar.unpacked/node_modules/utf-8-validate/prebuilds/linux-x64/node.napi.node",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  },
+  "leakAllow": [
+    "file type"
+  ]
+}

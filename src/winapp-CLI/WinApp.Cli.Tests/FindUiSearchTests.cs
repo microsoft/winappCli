@@ -66,6 +66,36 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
+    public void SearchGrouped_ExactControlName_ShowsThatControlAloneWithMoreSamples()
+    {
+        // Typing a control's exact name is the most common query there is, and find-ui
+        // answers it by dropping the weaker sibling controls and showing more samples
+        // from the one the user named — five instead of the default three.
+        //
+        // Regression guard: the query is CamelCase-expanded before it is tokenized, and
+        // expanding a query with nothing to split appends a copy of itself
+        // ("listview" -> "listview listview"). That made every single-token query count
+        // as two, so this widening silently stopped firing and a bare control-name
+        // search quietly returned fewer samples than it used to.
+        var scenarios = new List<Scenario>();
+        for (int i = 1; i <= 6; i++)
+        {
+            scenarios.Add(Scn("gallery", "listview", "ListView", $"listview-{i}", $"ListView variant {i}"));
+        }
+        scenarios.Add(Scn("gallery", "tabview", "TabView", "tabview-1", "Add, close, and rearrange tabs"));
+
+        var engine = new SearchEngine(
+            [.. scenarios], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var groups = engine.SearchGrouped("listview", maxControls: 3);
+
+        Assert.AreEqual(1, groups.Count,
+            "an exact single-token control name should return that control alone, not padded with siblings");
+        Assert.AreEqual(5, groups[0].Scenarios.Count,
+            "an exact control-name query should widen the sample list from three to five");
+    }
+
+    [TestMethod]
     public void HasSource_LoadedSource_True()
     {
         var engine = BuildEngine();
@@ -139,10 +169,95 @@ public class FindUiSearchTests
         Assert.IsTrue(found);
         StringAssert.Contains(formatted, "[Reactor]");
         StringAssert.Contains(formatted, "**Setup:** NuGet `Microsoft.UI.Reactor`");
-        // All reactor controls share Microsoft.UI.Reactor, so the namespace hint is suppressed.
-        Assert.IsFalse(formatted.Contains("**Namespace:**"), "reactor must not emit a **Namespace:** line");
+        // Reactor's apiNamespace is uniform across all its controls, so it is never emitted.
+        // A reactor control that publishes its own `usings` still gets a **Namespace:** line
+        // (see GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine); this one has none.
+        Assert.IsFalse(formatted.Contains("**Namespace:**"), "the shared reactor apiNamespace is not a hint");
         // Reactor samples are C#-only — no XAML block.
         Assert.IsFalse(formatted.Contains("**XAML:**"), "reactor scenarios have no XAML");
+    }
+
+    [TestMethod]
+    public void GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine()
+    {
+        // Per-control reactor namespaces (Microsoft.UI.Reactor.Docking and friends) are
+        // exactly the imports a consumer cannot guess, so they get the line even though the
+        // uniform apiNamespace does not.
+        var flex = ReactorScn("flex", "Flex", "flex-1", "CSS-style flex layout");
+        flex.Usings = ["Microsoft.UI.Reactor.Flex", "Microsoft.UI.Xaml.Controls"];
+        var engine = new SearchEngine([flex], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, found, _) = engine.GetPattern("reactor-flex-1");
+
+        Assert.IsTrue(found);
+        StringAssert.Contains(formatted, "**Namespace:** `Microsoft.UI.Reactor.Flex`");
+        // Ambient namespaces are filtered: a stock WinUI project already resolves this one.
+        Assert.IsFalse(formatted.Contains("Microsoft.UI.Xaml.Controls"), "ambient namespaces are noise");
+    }
+
+    [TestMethod]
+    public void GetPattern_StaleSourcePrefixedId_SuggestsHowToFindTheCurrentId()
+    {
+        // Sample ids are rebuilt from the upstream corpus, so an id an agent saved from an
+        // earlier search can stop resolving. The failure has to say where to look.
+        var engine = BuildEngine();
+
+        var (formatted, found, canonicalId) = engine.GetPattern("toolkit-colorpickerbutton-1");
+
+        Assert.IsFalse(found);
+        Assert.IsNull(canonicalId);
+        StringAssert.Contains(formatted, "not found.");
+        StringAssert.Contains(formatted, "winapp find-ui colorpickerbutton",
+            "the suggested search drops the scenario number, which is the part that changed");
+        StringAssert.Contains(formatted, "--list");
+    }
+
+    [TestMethod]
+    public void GetPattern_StaleReactorId_SuggestsAScopedSearchRatherThanList()
+    {
+        // Reactor is opt-in: a plain search and --list both skip the provider entirely, and
+        // --source can't be combined with --list. Suggesting either would send the caller to
+        // a command that cannot return the id they are trying to recover.
+        var engine = BuildEngine();
+
+        var (formatted, found, canonicalId) = engine.GetPattern("reactor-flexpanel-9");
+
+        Assert.IsFalse(found);
+        Assert.IsNull(canonicalId);
+        StringAssert.Contains(formatted, "winapp find-ui flexpanel --source reactor");
+        Assert.IsFalse(formatted.Contains("--list", StringComparison.Ordinal),
+            "--list excludes Reactor and cannot be narrowed with --source, so it can't recover a reactor id");
+    }
+
+    [TestMethod]
+    public void GetPattern_UnknownBareId_StaysTerse()
+    {
+        // No source prefix means this reads as a typo rather than a stale id, and the
+        // generic message already covers that — don't bury every miss in advice.
+        var engine = BuildEngine();
+
+        var (formatted, found, _) = engine.GetPattern("nonsense");
+
+        Assert.IsFalse(found);
+        Assert.AreEqual("Pattern 'nonsense' not found.", formatted);
+    }
+
+    [TestMethod]
+    public void GetPattern_GalleryScenario_KeepsApiNamespaceWhenUsingsAreAllAmbient()
+    {
+        // Regression: 49 Gallery controls publish BOTH usings and apiNamespace, and they
+        // differ. AppWindow imports only template namespaces but the type itself lives in
+        // Microsoft.UI.Windowing — treating usings as a replacement for apiNamespace rather
+        // than a union silently dropped that hint, which is the whole point of the line.
+        var s = Scn("gallery", "appwindow", "AppWindow", "appwindow-1", "Basic usage", "Windowing.");
+        s.Usings = ["Microsoft.UI.Xaml", "Microsoft.UI.Xaml.Controls"];
+        s.ApiNamespace = "Microsoft.UI.Windowing";
+        var engine = new SearchEngine([s], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, found, _) = engine.GetPattern("gallery-appwindow-1");
+
+        Assert.IsTrue(found);
+        StringAssert.Contains(formatted, "**Namespace:** `Microsoft.UI.Windowing`");
     }
 
     [TestMethod]
@@ -356,6 +471,70 @@ public class FindUiSearchTests
         {
             CollectionAssert.Contains(expanded, control, $"'image grid' must reach {control}");
         }
+    }
+
+    /// <summary>
+    /// The Toolkit groups helpers, converters and behaviors under an umbrella control and
+    /// names the specific type in the scenario header, so the header carries vocabulary that
+    /// exists nowhere else on the control.
+    /// </summary>
+    private static SearchEngine BuildTypeNameHeaderEngine() => new(
+        [
+            Scn("toolkit", "converters", "Converters", "converters-1", "FileSizeToFriendlyStringConverter", "Converters for data binding."),
+            Scn("toolkit", "converters", "Converters", "converters-2", "VisibilityToBoolConverter", "Converters for data binding."),
+            Scn("toolkit", "headerbehaviors", "Header Behaviors", "headerbehaviors-1", "StickyHeaderBehavior", "Behaviors for list headers."),
+            Scn("toolkit", "colorpicker", "ColorPicker", "colorpicker-1", "ColorPicker", "Extended color picker."),
+            Scn("toolkit", "colorpicker", "ColorPicker", "colorpicker-2", "ColorPickerButton", "Extended color picker."),
+        ],
+        corePatterns: [],
+        enrichmentTags: new(),
+        curatedKeywords: new());
+
+    [TestMethod]
+    public void SearchGrouped_FindsATypeNameHeaderByItsWordParts()
+    {
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("file size converter", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'file size converter' must reach the Converters group");
+        Assert.AreEqual("Converters", groups[0].ControlName);
+        Assert.AreEqual("toolkit-converters-1", groups[0].Scenarios[0].Id);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_FindsATypeNameHeaderBySingleWordPart()
+    {
+        // "converter" is singular, so it matches no control name — only the split header.
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("converter", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'converter' must reach the Converters group");
+        Assert.AreEqual("Converters", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_FindsABehaviorByItsDescriptiveWords()
+    {
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("sticky header", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'sticky header' must reach the Header Behaviors group");
+        Assert.AreEqual("Header Behaviors", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_StillMatchesTheExactTypeName()
+    {
+        // Splitting the header must not cost the compact form the exact name relies on.
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("StickyHeaderBehavior", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "the exact type name must keep matching");
+        Assert.AreEqual("Header Behaviors", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_MatchesAScenarioWhoseHeaderExtendsTheControlName()
+    {
+        // "ColorPickerButton" under control "ColorPicker": stripping the control name by plain
+        // replace would leave "Button" and lose the only token that identifies this scenario.
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("ColorPickerButton", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'ColorPickerButton' must reach the ColorPicker group");
+        Assert.AreEqual("ColorPicker", groups[0].ControlName);
+        Assert.AreEqual("toolkit-colorpicker-2", groups[0].Scenarios[0].Id,
+            "the ColorPickerButton scenario must rank above its sibling");
     }
 
 }

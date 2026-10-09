@@ -1,0 +1,32 @@
+{
+  "cluster": "c08",
+  "framework": "other",
+  "goal": "Help the developer fix the invalid package language tag in the manifest/resources so the MSIX installs reliably.",
+  "must_include": [
+    "Identifies `en-UK` as invalid for the package manifest/resources and says the United Kingdom language tag should be `en-GB`.",
+    "Explains that MakeAppx may accept a well-formed but invalid language tag, while package installation performs stricter validation.",
+    "Updates both manifest language/resource declarations and any resource qualifier folder/file names so they use the same valid tag.",
+    "Recommends validating against Microsoft's supported-language list or BCP-47 tags before packaging."
+  ],
+  "must_not": [
+    "Suggests disabling manifest validation or installing with a bypass switch.",
+    "Changes the package identity name/publisher as the fix when only the language tag is wrong.",
+    "Leaves resource files/folders named `en-UK` while changing only the XML."
+  ],
+  "acceptable_alternatives": [
+    "Use neutral `en` if no UK-specific resources are needed.",
+    "Remove the explicit language/resource qualifier if the package should use default resources only.",
+    "Use Visual Studio's manifest/resource tooling to regenerate the PRI with valid language tags."
+  ],
+  "solved": "The answer replaces the invalid `en-UK` language consistently with a valid tag such as `en-GB` and explains why MakeAppx success was misleading.",
+  "partial": "The answer says the language is suspicious or recommends `en-GB`, but misses either the resource qualifier cleanup or the build-versus-install validation difference.",
+  "sources": [
+    "https://github.com/microsoft/WindowsAppSDK/issues/5636"
+  ],
+  "verified_with": [
+    "https://github.com/microsoft/WindowsAppSDK/issues/5636",
+    "https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/app-package-requirements",
+    "https://learn.microsoft.com/en-us/windows/uwp/app-resources/images-tailored-for-scale-theme-contrast"
+  ],
+  "notes": "This is a trap: the package creation tool's success does not prove the manifest language is valid for deployment."
+}

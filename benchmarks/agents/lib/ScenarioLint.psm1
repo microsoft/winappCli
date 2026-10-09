@@ -147,7 +147,7 @@ function Invoke-ScenarioLint {
     )
     $pathPattern = '(?<![\w])[\w.\\/-]*[\w-]\.(?:msix|msixbundle|appx|appinstaller|pfx|cer|png|ico|json|xml|xaml|cs|cpp|h|hpp|yaml|yml|toml|ps1|wxs|csproj|vcxproj|appxmanifest|txt|log|js|ts|html|rs|dart|exe|dll|sln|config|cmake|gradle)\b'
     foreach ($s in $Scenarios) {
-        $level = if ($s.Set -eq 'heldout') { 'error' } else { 'warning' }
+        $level = if ($s.Set -in 'heldout', 'demand' -and -not ($s.PSObject.Properties['Cohort'] -and $s.Cohort -eq 'explicit-command')) { 'error' } else { 'warning' }
         $files = @()
         if ($s.FixturePath) {
             $root = $s.FixturePath.TrimEnd('\') + '\'
@@ -179,9 +179,9 @@ function Invoke-ScenarioLint {
                 }
             }
         }
-        if ($s.Set -eq 'heldout') {
+        if ($s.Set -in 'heldout', 'demand') {
             if ($text -match '(?i)\bcontoso\b') { [pscustomobject]@{ Scenario = $s.Id; Set = $s.Set; Level = 'error'; Rule = 'fixed-name'; Message = 'uses the name Contoso; held-out scenarios use randomized names' } }
-            if ($s.Prompt -match '(?i)\bwinapp\b|\bskill\b|\bplugin\b') { [pscustomobject]@{ Scenario = $s.Id; Set = $s.Set; Level = 'error'; Rule = 'names-tooling'; Message = 'prompt names the tooling under test' } }
+            if (-not ($s.PSObject.Properties['Cohort'] -and $s.Cohort -eq 'explicit-command') -and $s.Prompt -match '(?i)\bwinapp\b|\bskill\b|\bplugin\b') { [pscustomobject]@{ Scenario = $s.Id; Set = $s.Set; Level = 'error'; Rule = 'names-tooling'; Message = 'prompt names the tooling under test' } }
         }
         if (-not $s.RoutingSnapshot) {
             foreach ($f in $files | Where-Object { $_.Length -eq 0 }) {

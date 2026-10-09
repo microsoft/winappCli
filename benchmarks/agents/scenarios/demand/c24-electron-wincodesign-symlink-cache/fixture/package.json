@@ -1,0 +1,12 @@
+{
+  "name": "ridgetrail-editor",
+  "version": "1.4.2",
+  "main": "backend/main.js",
+  "scripts": {
+    "dist:win": "electron-builder --win --x64 --config ./build_win.js"
+  },
+  "devDependencies": {
+    "electron": "41.10.6",
+    "electron-builder": "24.13.3"
+  }
+}

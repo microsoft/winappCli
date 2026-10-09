@@ -1,0 +1,30 @@
+{
+  "cluster": "c25",
+  "framework": "WPF",
+  "goal": "Help the developer make ClickOnce deploy the WebView2 loader needed by the installed WPF app.",
+  "must_include": [
+    "Identifies the missing installed `WebView2Loader.dll` as the cause indicated by `DllNotFoundException`, not a `userDataFolder` permission problem.",
+    "Adds the WebView2 loader to ClickOnce publishing, for example a `PublishFile` item for `runtimes\\win-x64\\native\\WebView2Loader.dll` with `TargetPath` set to `WebView2Loader.dll` and `PublishState` set to `Include`.",
+    "Considers the app's target architecture and includes the matching loader path (`win-x64`, `win-x86`, or `win-arm64`) rather than hard-coding the wrong architecture.",
+    "Notes that the WebView2 Runtime itself must still be present on client machines; including the loader DLL does not install the runtime."
+  ],
+  "must_not": [
+    "Focuses on changing the WebView2 user data folder as the primary fix for this `DllNotFoundException`.",
+    "Copies the DLL manually on each client machine instead of fixing the ClickOnce publish manifest/project.",
+    "Includes only the design-time NuGet package reference and assumes ClickOnce will automatically install every native runtime file.",
+    "Tells them to rely on the Microsoft Edge browser executable instead of the WebView2 Runtime."
+  ],
+  "acceptable_alternatives": [
+    "Use a post-publish target that adds the correct `WebView2Loader.dll` to the ClickOnce application files and manifest.",
+    "For supported project types, statically link the WebView2 loader with `WebView2LoaderPreference=Static` so a separate loader DLL is not required.",
+    "Use an MSIX/MSI installer that explicitly deploys both the app files and the WebView2 Runtime prerequisite."
+  ],
+  "solved": "The answer changes the publish configuration so the correct architecture's `WebView2Loader.dll` is installed with ClickOnce and separately accounts for the WebView2 Runtime prerequisite.",
+  "partial": "The answer says to include `WebView2Loader.dll` but omits ClickOnce project metadata or architecture/runtime considerations.",
+  "sources": ["https://stackoverflow.com/questions/71265161/webview2-works-in-debug-but-not-when-published-with-clickonce"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution",
+    "https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/static"
+  ],
+  "notes": "The accepted answer used a `PublishFile` item and `WebView2LoaderPreference`; for managed WPF, grading should favor reliably including the correct native loader in the ClickOnce install."
+}

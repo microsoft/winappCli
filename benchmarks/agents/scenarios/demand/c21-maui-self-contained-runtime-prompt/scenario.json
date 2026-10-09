@@ -1,0 +1,21 @@
+{
+  "id": "c21-maui-self-contained-runtime-prompt",
+  "description": ".NET MAUI packaged Windows apps can still prompt for .NET or fail on clean machines unless both .NET self-contained publishing and Windows App SDK self-contained deployment are configured, based on https://github.com/dotnet/maui/issues/19763.",
+  "set": "demand",
+  "cohort": "implicit",
+  "prompt": "I need to ship my .NET MAUI Windows build to customers who don't have developer tools installed. The MSIX installs, but on a clean Windows 10 VM the app prompts for the .NET 8 runtime, and another attempt crashed with `REGDB_E_CLASSNOTREG` after I tried random publish flags.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}
