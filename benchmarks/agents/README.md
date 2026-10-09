@@ -18,8 +18,8 @@ renames or merges skills can still be scored. They come in two sets:
 
 | Set | Scenarios | Use |
 |---|---|---|
-| `dev` (default) | 68 | Iterate on descriptions and structure freely. Never cite it as proof. |
-| `heldout` | 40, each with 2 paraphrases (120 prompts) | Release and decision checks only. See [Held-out set](#held-out-set). |
+| `dev` (default) | 67 | Iterate on descriptions and structure freely. Never cite it as proof. |
+| `heldout` | 38, each with 2 paraphrases (114 prompts) | Release and decision checks only. See [Held-out set](#held-out-set). |
 
 ```powershell
 pwsh benchmarks\agents\run.ps1 -Plan
@@ -38,10 +38,10 @@ pwsh benchmarks\agents\run.ps1 -Plan
 # Print the expanded run list and session count without calling a model
 pwsh benchmarks\agents\run.ps1 -Plan
 
-# Recommended first step: a quick dev baseline (one model, one iteration: 178 sessions)
+# Recommended first step: a quick dev baseline (one model, one iteration: 176 sessions)
 pwsh benchmarks\agents\run.ps1 -Model claude-sonnet-5.5 -Iterations 1
 
-# Then the full dev matrix (3 models x 3 iterations: 1602 sessions)
+# Then the full dev matrix (3 models x 3 iterations: 1584 sessions)
 pwsh benchmarks\agents\run.ps1
 
 # Check scenario prompts for leaked skill vocabulary and unrealistic fixtures (no model calls)
@@ -199,8 +199,8 @@ call.
 Signals are deliberately small and objective: the `winapp` command for capabilities that have one,
 and a key term for a few that do not (`Microsoft.UI.Xaml` for a WinUI port, a `--version` check for
 prerequisites, manifest extension elements). Capabilities whose correct answer depends on the
-scenario (`winui.design`, `winui.review`, `winui.build`, `troubleshoot`, `framework.guidance`,
-`session.report`) have no signals and score `n/a`.
+scenario (`winui.design`, `winui.review`, `winui.build`, `troubleshoot`, `framework.guidance`) have
+no signals and score `n/a`.
 
 Runs recorded before the final response was kept are scored from their recorded `winapp` commands
 instead (`answerBasis: commands`). Those commands include ones the agent tried to run, have no
@@ -224,7 +224,9 @@ pwsh benchmarks\agents\run.ps1 -Rescore benchmarks\agents\results\<timestamp>
 This writes `runs.rescored.jsonl` and `summary.rescored.md` next to the originals, which are left
 unchanged. Only `pass`, `partial`, `fail`, and `n/a` runs are re-evaluated. Each rescored run keeps
 its `originalStatus`, and the command prints how many runs moved between statuses. Runs record a
-hash of their prompt; a run whose prompt has changed since is not rescored and gets a note. A
+hash of their prompt; a run whose prompt has changed since is not rescored and gets a note. Scored
+runs (`pass`, `partial`, `fail`, `n/a`) of a scenario that no longer exists become `scenario_removed`,
+so they are left out of pass rates like timeouts and errors already are. A
 changed fixture still needs a new run.
 
 ### Comparing runs
@@ -281,7 +283,10 @@ A map applies to a run when every skill it names is installed; if several maps o
 the one naming the most skills wins. `skillSetHash` identifies the skill-name set the map was written
 for. `run.ps1` warns when no map matches a plugin's current skills, and the tests fail when the repo
 plugins change their skill names without a map update. For a candidate that renames, merges, or
-splits skills, add a map for its skill set; the existing maps keep scoring older results.
+splits skills, add a map for its skill set; the existing maps keep scoring older results. When a
+skill is removed, remove its map entry, any capability only it provided, and the scenarios that
+expected that capability. Older runs that had it installed are then scored by the remaining map,
+and runs of the removed scenarios are left out of pass rates (scored ones as `scenario_removed`).
 
 Capabilities starting with `winui.` (and `ui.samples`) are WinUI-specific, so non-WinUI scenarios
 forbid `winui.*`. Mapping choices that affect scores:
@@ -312,7 +317,7 @@ with the few files the prompt needs:
     "capabilities": {
       "primary": ["msix.sign", "troubleshoot"],
       "acceptable": ["msix.manifest"],
-      "forbid": ["winui.*", "ui.samples", "session.report"],
+      "forbid": ["winui.*", "ui.samples"],
       "budgetTokens": 12000
     },
     "commands": ["^sign$", "^cert"],
@@ -362,7 +367,7 @@ and some older prompts stay unchanged so earlier results remain comparable. Fram
 
 ## Held-out set
 
-`scenarios\heldout\` holds 40 scenarios, each with a `novice` and a `terse` paraphrase. They were
+`scenarios\heldout\` holds 38 scenarios, each with a `novice` and a `terse` paraphrase. They were
 written separately from the dev set, from public developer reports (GitHub issues, Stack Overflow,
 Microsoft Learn), personas, and plain capability definitions, without seeing any skill or agent
 description. Fixtures use randomized names. Every capability is a

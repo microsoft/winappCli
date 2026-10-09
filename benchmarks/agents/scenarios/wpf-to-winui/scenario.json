@@ -18,7 +18,6 @@
         "winui.design"
       ],
       "forbid": [
-        "session.report",
         "msix.sign"
       ]
     }

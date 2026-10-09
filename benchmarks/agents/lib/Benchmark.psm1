@@ -1232,7 +1232,9 @@ function Invoke-Rescore {
             if ($rec.status -in 'pass', 'fail', 'n/a', 'partial') {
                 $s = $byId[$rec.scenario]
                 if (-not $s) {
-                    $rec.expectationNotes = @($rec.expectationNotes) + 'scenario no longer defined; status not rescored'
+                    # Matches -Compare: a run that can't be re-evaluated is excluded rather than keeping a stale score.
+                    $rec.status = 'scenario_removed'
+                    $rec.expectationNotes = @($rec.expectationNotes) + 'scenario no longer defined; excluded'
                 }
                 elseif ($rec.ContainsKey('promptHash') -and $rec.promptHash -and $rec.promptHash -ne (Get-ShortHash $s.Prompt)) {
                     $rec.expectationNotes = @($rec.expectationNotes) + 'prompt changed since this run; status not rescored'
