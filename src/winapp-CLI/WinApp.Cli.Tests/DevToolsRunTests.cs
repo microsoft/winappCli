@@ -916,6 +916,22 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
         StringAssert.Contains(TestAnsiConsole.Output, "already running (PID 4242) and could not be closed");
     }
 
+    // A running instance is asked to close normally, so it can save its work, and is terminated only if it doesn't.
+    [TestMethod]
+    [DataRow(true, true, "close,wait 2s")]
+    [DataRow(true, false, "close,wait 2s,kill,wait 5s")]
+    [DataRow(false, false, "close,kill,wait 5s")]
+    public void CloseRunningProcess_AsksNormallyBeforeTerminating(bool hasWindow, bool exitsOnClose, string expected)
+    {
+        var steps = new List<string>();
+        var killed = false;
+        var closed = RunCommand.Handler.CloseThenKill(
+            () => { steps.Add("close"); return hasWindow; },
+            timeout => { steps.Add($"wait {timeout.TotalSeconds}s"); return killed || exitsOnClose; },
+            () => { steps.Add("kill"); killed = true; });
+        Assert.AreEqual(expected, string.Join(",", steps));
+        Assert.IsTrue(closed);
+    }
     [TestMethod]
     public void DevToolsFlag_IsRecordedByValueNotRedacted()
     {

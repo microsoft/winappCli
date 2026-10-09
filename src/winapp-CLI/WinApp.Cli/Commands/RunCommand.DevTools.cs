@@ -195,8 +195,7 @@ internal partial class RunCommand
             try
             {
                 using var process = System.Diagnostics.Process.GetProcessById(pid);
-                process.Kill();
-                return process.WaitForExit(5000);
+                return CloseThenKill(process.CloseMainWindow, process.WaitForExit, process.Kill);
             }
             catch (ArgumentException)
             {
@@ -208,6 +207,18 @@ internal partial class RunCommand
             }
         };
 
+        internal static readonly TimeSpan GracefulCloseTimeout = TimeSpan.FromSeconds(2);
+
+        // Asks the app to close normally, so it can save its work, and terminates it only if it is still running.
+        internal static bool CloseThenKill(Func<bool> requestClose, Func<TimeSpan, bool> waitForExit, Action kill)
+        {
+            if (requestClose() && waitForExit(GracefulCloseTimeout))
+            {
+                return true;
+            }
+            kill();
+            return waitForExit(TimeSpan.FromSeconds(5));
+        }
         // Null when DevTools the user didn't ask for stepped aside before launching anything; the caller launches plainly.
         private async Task<int?> RunInspectorAliasAsync(
             InspectorAlias? alias, DirectoryInfo inputFolder, FileInfo? projectFile, string? aumid, string? arguments,
