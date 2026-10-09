@@ -2841,17 +2841,18 @@ public class ProjectRunServiceTests
         Dictionary<string, (string Properties, (string Project, bool BuildOnly)[] References)> graph,
         string? failingProject = null)
     {
-        foreach (var name in graph.Keys.Concat(graph.Values.SelectMany(v => v.References.Select(r => r.Project))).Distinct())
+        var projectNames = graph.Keys
+            .Concat(graph.Values.SelectMany(v => v.References.Select(r => r.Project)))
+            .Distinct()
+            .Where(name => name != "App");
+        foreach (var name in projectNames)
         {
-            if (name != "App")
-            {
-                WriteFileAt($@"{name}\{name}.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
-            }
+            WriteFileAt($@"{name}\{name}.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
         }
 
         string PathOf(string name) => name == "App"
-            ? Path.Combine(_tempDir.FullName, "App.csproj")
-            : Path.Combine(_tempDir.FullName, name, $"{name}.csproj");
+            ? Path.Join(_tempDir.FullName, "App.csproj")
+            : Path.Join(_tempDir.FullName, name, $"{name}.csproj");
 
         return new FakeDotNetService
         {
