@@ -5,6 +5,7 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using WinApp.Cli.Helpers;
+using WinApp.Cli.Models;
 
 namespace WinApp.Cli.Services;
 
@@ -220,6 +221,12 @@ internal class AppxManifestDocument
         set => SetIdentityAttribute("ProcessorArchitecture", value);
     }
 
+    public string? IdentityResourceId
+    {
+        get => GetIdentityElement()?.Attribute("ResourceId")?.Value;
+        set => SetIdentityAttribute("ResourceId", value);
+    }
+
     private void SetIdentityAttribute(string attributeName, string? value)
     {
         var identity = GetIdentityElement();
@@ -246,6 +253,68 @@ internal class AppxManifestDocument
 
     #endregion
 
+    #region Development Identity
+
+    /// <summary>
+    /// Rejects manifests that a new package name can't keep separate between copies: anything but a
+    /// single-application package, and any system-wide registration. Execution aliases are allowed
+    /// because they are renamed; in-process WinRT classes are allowed because they are package-scoped.
+    /// </summary>
+    public void ValidateUniqueIdentitySupport()
+    {
+        var root = _document.Root;
+        if (root is null || root.Name != DefaultNs + "Package")
+        {
+            throw UnsupportedIdentity("only a package manifest is supported, not a bundle");
+        }
+        if (root.Descendants(DefaultNs + "Application").Count() != 1)
+        {
+            throw UnsupportedIdentity("exactly one Application is supported");
+        }
+        foreach (var element in root.Descendants())
+        {
+            if (element.Name.LocalName is "MainPackageDependency" or "ExternalLocation"
+                || (element.Name.LocalName is "AllowExternalContent" or "Framework" or "ResourcePackage"
+                    && element.Value.Trim() is "true" or "1"))
+            {
+                throw UnsupportedIdentity("sparse, optional, framework, and resource packages are not supported");
+            }
+            if (element.Name.LocalName == "Extension"
+                && element.Attribute("Category")?.Value is not ("windows.appExecutionAlias" or "windows.activatableClass.inProcessServer"))
+            {
+                throw UnsupportedIdentity($"extension category '{element.Attribute("Category")?.Value ?? "(missing)"}' registers something every copy would share");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Renames the package and its authored execution aliases. Call on a staged copy only, after
+    /// placeholders such as <c>$targetnametoken$</c> are resolved.
+    /// </summary>
+    /// <returns>The identity with the original-to-renamed alias map filled in.</returns>
+    public DevelopmentIdentity ApplyDevelopmentIdentity(DevelopmentIdentity identity)
+    {
+        IdentityName = identity.PackageName;
+        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var aliasAttributes = _document.Descendants()
+            .Where(e => e.Name.LocalName == "ExecutionAlias")
+            .Select(e => e.Attribute("Alias"))
+            .OfType<XAttribute>()
+            .Where(a => a.Value.Length > 0)
+            .ToList();
+        foreach (var alias in aliasAttributes)
+        {
+            var renamed = DevelopmentIdentityHelper.RenameAlias(alias.Value, identity.PackageName);
+            aliases[alias.Value] = renamed;
+            alias.Value = renamed;
+        }
+        return identity with { Aliases = aliases };
+    }
+
+    private static InvalidOperationException UnsupportedIdentity(string reason) =>
+        new($"--unique-identity can't be used with this manifest: {reason}. Run without --unique-identity to test it.");
+
+    #endregion
     #region Application Properties
 
     /// <summary>

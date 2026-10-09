@@ -1,0 +1,21 @@
+{
+  "id": "c04-winforms-webview2-anycpu-crash",
+  "description": "A WinForms WebView2 prerelease sample crashes on load when built Any CPU against an early WebView2 package/runtime combination, from https://stackoverflow.com/questions/61885845/microsoft-edge-webview2-sample-crashes-on-load.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I dropped WebView2 on a WinForms form and it crashes as soon as the form is shown. Debugger points at `Controls.Add(this.webView21)`.\n\n```\nSystem.NullReferenceException: Object reference not set to an instance of an object.\n   at Microsoft.Web.WebView2.WinForms.WebView2.OnVisibleChanged(EventArgs e)\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

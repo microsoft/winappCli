@@ -1,0 +1,29 @@
+{
+  "cluster": "c15",
+  "framework": "Rust",
+  "goal": "Recommend a non-elevated notification debugging path that preserves package identity and treats the sparse-identity failure as environment-specific.",
+  "must_include": [
+    "Says requiring administrator elevation is the wrong fix because Windows App SDK app notifications are not supported for elevated apps.",
+    "Uses the observed working path, `winapp run .\\target\\debug --with-alias`, as the preferred workaround for this Rust console scenario.",
+    "Explains the difference between `winapp run` registering and launching a loose-layout package through an alias/AUMID and `create-debug-identity` registering sparse identity on the exe.",
+    "Advises verifying notification settings and gathering a reproducible machine/setup case before treating the `create-debug-identity` behavior as an app code bug."
+  ],
+  "must_not": [
+    "Tells users to run the app elevated in production or as the standard developer workflow.",
+    "Removes package identity entirely while still expecting Windows App SDK notification activation to work.",
+    "Claims `winapp run --with-alias` is equivalent to directly launching the exe after sparse registration."
+  ],
+  "acceptable_alternatives": [
+    "Use `winapp run --no-launch` and launch through the reported AUMID or execution alias.",
+    "Package/install an MSIX and test notifications through the installed app identity.",
+    "Keep `create-debug-identity` only for debugger scenarios where it reproduces on the developer's machine."
+  ],
+  "solved": "The answer avoids elevation, uses `winapp run --with-alias` or another identity-preserving launch path, and distinguishes the sparse-identity failure from the notification API itself.",
+  "partial": "The answer says to use `winapp run` but does not explain why elevation and direct exe launch are misleading.",
+  "sources": ["https://github.com/microsoft/winappCli/issues/352"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/apps/develop/notifications/app-notifications/app-notifications-quickstart",
+    "docs/debugging.md"
+  ],
+  "notes": "This is an explicit-command scenario because the source developer explicitly used the winapp CLI."
+}

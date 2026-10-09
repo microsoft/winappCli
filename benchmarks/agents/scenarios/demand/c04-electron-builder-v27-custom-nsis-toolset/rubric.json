@@ -1,0 +1,28 @@
+{
+  "cluster": "c04",
+  "framework": "Electron",
+  "goal": "Migrate the custom NSIS binary configuration to electron-builder v27's `toolsets.nsis` setting so the installer build uses the patched NSIS bundle.",
+  "must_include": [
+    "Notices that `customNsisBinary` is nested under `nsis` while the project uses electron-builder v27.",
+    "Says v27 moved custom binary/tool overrides to the top-level `build.toolsets` configuration.",
+    "Shows or describes moving the URL/checksum to `build.toolsets.nsis` and removing the old `nsis.customNsisBinary` key.",
+    "Explains why the log still points at the cached default `nsis@1.2.1` bundle: the custom patched NSIS is not being selected."
+  ],
+  "must_not": [
+    "Blame Azure Trusted Signing when the log shows signing already succeeded.",
+    "Suggest shrinking application assets as the primary fix before restoring the intended NSISBI toolset.",
+    "Tell the developer to delete the electron-builder cache as the only fix."
+  ],
+  "acceptable_alternatives": [
+    "Run electron-builder's schema migration and then verify it rewrote the NSIS toolset correctly.",
+    "Pin `toolsets.nsis` to a legacy or custom bundle temporarily while validating the v27 migration."
+  ],
+  "solved": "The answer updates the electron-builder v27 config to use `build.toolsets.nsis` with the custom URL/checksum and explains the cached stock NSIS path in the log.",
+  "partial": "The answer recognizes an electron-builder v27 config migration but does not provide the new `toolsets.nsis` location.",
+  "sources": ["https://github.com/electron-userland/electron-builder/issues/10274"],
+  "verified_with": [
+    "https://github.com/electron-userland/electron-builder/issues/10274",
+    "https://www.electron.build/docs/toolsets/"
+  ],
+  "notes": "The scenario is about a build-time runtime-tool crash in the Windows installer step, not an application startup crash."
+}

@@ -1,0 +1,29 @@
+{
+  "cluster": "c04",
+  "framework": "MAUI",
+  "goal": "Guide the developer to build the Windows-on-ARM MAUI HybridWebView app with an ARM64 configuration instead of Any CPU.",
+  "must_include": [
+    "Uses the `%1 is not a valid Win32 application` message and Windows ARM context to suspect an architecture mismatch, not bad HTML content.",
+    "Identifies `<PlatformTarget>AnyCPU</PlatformTarget>` as suspect for this Windows MAUI/HybridWebView ARM64 case.",
+    "Recommends creating/selecting an ARM64 platform configuration and building/publishing with matching ARM64 platform and runtime identifier, then cleaning/rebuilding.",
+    "Notes that HybridWebView/Blazor Hybrid depends on the platform web view, so the architecture of native components matters."
+  ],
+  "must_not": [
+    "Tell the developer to remove HybridWebView because it is unsupported on Windows.",
+    "Suggest copying x64 native DLLs into an ARM64 publish as a fix.",
+    "Focus only on reinstalling Visual Studio or the .NET SDK while ignoring the project platform."
+  ],
+  "acceptable_alternatives": [
+    "Use separate x64 and ARM64 publish profiles instead of a single Any CPU publish.",
+    "Temporarily run an x64 build under emulation only as a diagnostic, not as the ARM64 fix."
+  ],
+  "solved": "The answer changes the Windows build/publish to a matching ARM64 configuration and explains why Any CPU is the wrong clue in this scenario.",
+  "partial": "The answer recognizes a native architecture mismatch but does not point to the Any CPU project setting or ARM64 configuration.",
+  "sources": ["https://github.com/dotnet/maui/issues/26116"],
+  "verified_with": [
+    "https://github.com/dotnet/maui/issues/26116",
+    "https://learn.microsoft.com/en-us/dotnet/maui/user-interface/controls/hybridwebview?view=net-maui-9.0",
+    "https://learn.microsoft.com/en-us/visualstudio/msbuild/msbuild-target-framework-and-target-platform?view=vs-2022"
+  ],
+  "notes": "The source issue was closed as a duplicate of a Blazor Hybrid issue; the reported workaround was using a real ARM64 configuration instead of Any CPU."
+}

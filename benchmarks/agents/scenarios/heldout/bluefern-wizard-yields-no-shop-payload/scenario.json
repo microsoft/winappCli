@@ -41,8 +41,7 @@
         "winui.review",
         "winui.build",
         "ui.samples",
-        "project.scaffold",
-        "session.report"
+        "project.scaffold"
       ]
     }
   }

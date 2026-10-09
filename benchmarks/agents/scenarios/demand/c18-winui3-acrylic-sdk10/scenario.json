@@ -1,0 +1,10 @@
+{
+  "id": "c18-winui3-acrylic-sdk10",
+  "description": "A WinUI 3 desktop app created with Windows App SDK 1.0 cannot find a reliable Acrylic window backdrop API, based on https://stackoverflow.com/questions/70231916/how-to-implement-acrylic-windows-effect-in-winui3-in-desktop-application.",
+  "set": "demand",
+  "cohort": "vague",
+  "prompt": "I made a WinUI 3 desktop app with Windows App SDK 1.0 in VS 2022 and want the main window to have Acrylic like the Windows 11 apps. Samples I found look like UWP or WinUI 2, and they don't compile here. What's the supported way?",
+  "configurations": ["none", "winapp", "winui", "both"],
+  "fixture": "fixture",
+  "expect": { "capabilities": { "primary": [], "acceptable": [], "forbid": [] } }
+}

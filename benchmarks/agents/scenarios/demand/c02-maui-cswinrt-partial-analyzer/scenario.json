@@ -1,0 +1,21 @@
+{
+  "id": "c02-maui-cswinrt-partial-analyzer",
+  "description": "A MAUI Windows build fails with CsWinRT analyzer errors requiring partial classes, based on https://github.com/dotnet/maui/issues/25132.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My Windows build started failing after moving the MAUI app to the newer SDK. The error points at one of our Windows-only controls: `CsWinRT1028: Class 'MauiCommandBar' implements WinRT interfaces but isn't marked partial. Type should be marked partial for trimming and AOT compatibility if passed across the WinRT ABI.` I don't want to turn off all analyzers if this is a real project issue.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

@@ -2,6 +2,9 @@
 name: winapp-sandbox
 description: Run, debug, and UI-automate a Windows app in a persistent Windows Sandbox rather than the user's desktop. Use for disposable app testing, guest diagnostics, file transfer, and app or whole-desktop evidence. Builds remain on the host; connection and reconnect can briefly take focus.
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## Before acting
 
 - Confirm the user wants Sandbox execution. Do not drop `--on sandbox` to bypass an error.
@@ -24,8 +27,9 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
   and finish its client setup/update. Do not repeatedly retry an unchanged prerequisite.
 - Connection or reconnect may briefly take focus; do not promise zero desktop interruption.
 - Existing Sandbox instances are reused and changed, not discarded. Never close one
-  or run `wsb stop` without user consent. Closing the Sandbox window does not end the
-  Sandbox; `wsb connect --id <id>` shows it again.
+  or run `wsb stop` without user consent. Closing the window of a Sandbox winapp started
+  asks for confirmation, then ends it and discards its state; the next command starts a
+  fresh one. A Sandbox started with `wsb start` keeps running when its window is closed.
 
 ## Launch, inspect, act, verify
 
@@ -48,6 +52,11 @@ winapp ui screenshot --on sandbox -a MyApp -o .\result.png
    data is intended. `--debug-output` is supported only for packaged Sandbox apps.
 5. Rediscover targets after the Sandbox is recreated. A detached unpackaged app can
    also end during guest-agent repair; rerun it if it disappears.
+
+For parallel packaged worktrees, opt into
+`winapp run . --unique-identity --on sandbox --detach --json`. Use the returned
+`UiTargetArgs`. All copies share one Sandbox. See
+[unique identity for parallel checkouts](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts).
 
 ## Coordinate a recording with actions
 
@@ -139,12 +148,12 @@ linked sources and paths through destination links are rejected. Deployment reje
 ## Cleanup and recovery
 
 ```powershell
-winapp unregister --on sandbox --manifest .\Package.appxmanifest
+winapp unregister . --on sandbox
 ```
 
-This removes only the matching winapp-owned development registration. It needs a
-manifest, does not support `--force`, and does not stop the Sandbox. Do not suggest
-`.cs` input cleanup through target unregister.
+Pass the project or folder you passed to `run` (with or without `--unique-identity`),
+or its manifest; a `.cs` input isn't supported here. This does not stop the Sandbox.
+Never use `--force` to bypass target ownership.
 
 Follow the error's `userAction`, not just its exit number: infrastructure failures and
 an application's own exit can both be `70`. Human setup progress goes to stderr and is
@@ -157,7 +166,7 @@ suppressed with `--quiet`/`--json`.
   window, `wsb list` then `wsb connect --id <id>`. Never stop it without consent.
 - Incompatible CLI: follow the error; upgrade the installed CLI through its install method,
   **not `winapp update`**. Obtain consent before stopping a Sandbox (`wsb stop --id <id>`)
-  for a version change; closing its window does not stop it.
+  for a version change; it works however the Sandbox was started.
 - Missing/unsupported runtime: use the named requirement and configuration in the error.
   Do not assume any newer same-major runtime is compatible or substitute architectures.
 - Folder share refused (`sandbox_transport_failed`, `0x80070005`): Sandbox shares as SYSTEM.

@@ -21,8 +21,7 @@
       ],
       "forbid": [
         "winui.migrate",
-        "winui.design",
-        "session.report"
+        "winui.design"
       ]
     },
     "commands": [
