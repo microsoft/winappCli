@@ -437,7 +437,7 @@ function Read-SessionEvents {
                         if (-not $r.skillFilesRead.Contains($fileKey)) { $r.skillFilesRead.Add($fileKey) }
                         if ($data.result -is [System.Collections.IDictionary] -and $data.result.content -is [string]) { $skillFileChars += $data.result.content.Length }
                     }
-                    elseif (-not $r.skillFilesDenied.Contains($fileKey)) { $r.skillFilesDenied.Add($fileKey) }
+                    elseif ($data.error -is [System.Collections.IDictionary] -and $data.error.code -eq 'denied' -and -not $r.skillFilesDenied.Contains($fileKey)) { $r.skillFilesDenied.Add($fileKey) }
                 }
                 if ($data.ContainsKey('success') -and $data.success -eq $false -and $data.error -is [System.Collections.IDictionary] -and $data.error.code -eq 'denied') {
                     $id = [string]$data.toolCallId

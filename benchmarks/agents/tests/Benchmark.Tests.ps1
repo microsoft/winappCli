@@ -58,9 +58,12 @@ Describe 'Read-SessionEvents' {
             '{"type":"tool.execution_complete","data":{"toolCallId":"b","success":true,"result":{"content":"x"}}}'
             '{"type":"tool.execution_start","data":{"toolCallId":"c","toolName":"view","arguments":{"path":"' + $base + '\\references\\cpp.md"}}}'
             '{"type":"tool.execution_complete","data":{"toolCallId":"c","success":false,"error":{"code":"denied"}}}'
+            '{"type":"tool.execution_start","data":{"toolCallId":"d","toolName":"view","arguments":{"path":"' + $base + '\\references\\missing.md"}}}'
+            '{"type":"tool.execution_complete","data":{"toolCallId":"d","success":false,"error":{"code":"not_found"}}}'
         ) | Set-Content $path
         $r = Read-SessionEvents -Path $path
         @($r.skillFilesRead) | Should -Be @('winapp-setup/references/electron.md')
+        # Only policy denials count as denied; a failed lookup is neither read nor denied.
         @($r.skillFilesDenied) | Should -Be @('winapp-setup/references/cpp.md')
         $r.skillFileTokensApprox | Should -Be 2
     }
