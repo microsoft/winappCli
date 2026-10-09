@@ -37,6 +37,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
     public static Option<bool> UnregisterOnExitOption { get; }
     public static Option<bool> DetachOption { get; }
     public static Option<bool> CleanOption { get; }
+    public static Option<bool> UniqueIdentityOption { get; }
     public static Option<bool> SymbolsOption { get; }
     public static Option<string?> ExecutableOption { get; }
 
@@ -137,6 +138,11 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         CleanOption = new Option<bool>("--clean")
         {
             Description = "Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments."
+        };
+
+        UniqueIdentityOption = new Option<bool>("--unique-identity")
+        {
+            Description = "Give this checkout its own package identity and execution aliases, derived from its path, so copies of a packaged app in different worktrees can be registered side by side. Your source manifest is not changed. Not supported for unpackaged apps, sparse packages, bundles, manifests with several applications, or apps that register protocols, file types, COM servers, or other system-wide extensions."
         };
 
         SymbolsOption = new Option<bool>("--symbols")
@@ -254,6 +260,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         Options.Add(UnregisterOnExitOption);
         Options.Add(DetachOption);
         Options.Add(CleanOption);
+        Options.Add(UniqueIdentityOption);
         Options.Add(SymbolsOption);
         Options.Add(ExecutableOption);
         Options.Add(ConfigurationOption);
@@ -290,6 +297,9 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         GuestDevToolsHost? guestDevToolsHost = null,
         IPriService? priService = null) : AsynchronousCommandLineAction
     {
+        private bool _uniqueIdentityRequested;
+        private DevelopmentIdentity? _runIdentity;
+
         // Alias probes are substituted independently of IAppLauncherService in command tests.
         internal Func<string, FileInfo?> ResolveAliasProxy { get; set; } = alias => ExecutionAliasResolver.ResolveAliasPath(alias);
 
@@ -329,6 +339,9 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             {
                 return await InvokeGuestLaunchAsync(parseResult, cancellationToken);
             }
+
+            _uniqueIdentityRequested = parseResult.GetValue(UniqueIdentityOption);
+            _runIdentity = null;
 
             // input is optional (ArgumentArity.ZeroOrOne). The final FileSystemInfo is resolved
             // below, AFTER the passthrough split, because a bare `winapp run -- <app-arg>` makes the
@@ -815,6 +828,9 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     devTools, showOverlay, devToolsSources, nativeAot, devToolsCompilerArtifacts);
             }
 
+            // The identity is derived from the project or .cs file when there is one, otherwise the folder.
+            var developmentIdentity = new DevelopmentIdentityOptions(projectFile?.FullName ?? inputFolder.FullName, _uniqueIdentityRequested);
+
             uint processId = 0;
             var resolvedUseAlias = aliasDecision.UseAlias;
             string? packageFamilyName = null;
@@ -908,6 +924,15 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         var probeAlias = declaredAliases.Count > 0
                             ? declaredAliases[0]
                             : ExecutionAliasResolver.BuildDefaultAliasName(probeFamily);
+                        if (developmentIdentity.UniqueIdentity && probeFamily is not null)
+                        {
+                            // Check the renamed alias this run will register, not the original one.
+                            var derived = DevelopmentIdentityHelper.Create(probe, developmentIdentity.OwnerPath);
+                            probeFamily = derived.PackageFamilyName;
+                            probeAlias = declaredAliases.Count > 0
+                                ? DevelopmentIdentityHelper.RenameAlias(declaredAliases[0], derived.PackageName)
+                                : ExecutionAliasResolver.BuildDefaultAliasName(probeFamily);
+                        }
 
                         if (!TryConfirmAliasIsAvailable(effectiveAlias with { AliasName = probeAlias }, probeFamily, isJson))
                         {
@@ -967,11 +992,21 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         packageGraph,
                         appxRecipe: appxRecipe,
                         inspectorAlias: devTools || inspectorApplicationId is not null ? new InspectorAliasRequest(inspectorApplicationId) : null,
+                        developmentIdentity: developmentIdentity,
                         cancellationToken: cancellationToken);
 
                     resolvedUseAlias = effectiveAlias.UseAlias;
                     // Re-registering a changed package closes its running instances.
                     replaced = [.. runningBefore.Where(ProcessHasExited)];
+                    _runIdentity = identityResult.Identity;
+                    if (_runIdentity is { } unique)
+                    {
+                        taskContext.AddStatusMessage($"{UiSymbols.Info} Unique identity: {unique.PackageFamilyName}");
+                        foreach (var (original, renamed) in unique.Aliases)
+                        {
+                            taskContext.AddStatusMessage($"{UiSymbols.Link} Execution alias: {original} -> {renamed}");
+                        }
+                    }
 
                     packageFamilyName = appLauncherService.ComputePackageFamilyName(
                         identityResult.PackageName,
@@ -1251,6 +1286,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 SourceWarnings = Services.DevTools.XamlSourceExclusion.Collapse(sourceWarnings),
                 SourceError = sourceError,
                 DevTools = WithDevToolsMode(devTools),
+                Identity = _runIdentity,
             };
 
             var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Output.RunCommandResult);
@@ -1650,6 +1686,9 @@ internal sealed class RunCommandResult
 
     [JsonPropertyName("devTools")]
     public GuestDevToolsRunInfo? DevTools { get; set; }
+
+    /// <summary>The derived identity, for <c>--unique-identity</c> runs only.</summary>
+    public DevelopmentIdentity? Identity { get; set; }
 
     /// <summary>True when the app ran on an execution target rather than on this machine.</summary>
     /// <remarks>

@@ -30,4 +30,11 @@ internal interface IPriService
         FileInfo priFile,
         TaskContext taskContext,
         CancellationToken cancellationToken);
+
+    /// <summary>Re-indexes the layout's <c>resources.pri</c>, if any, under a new package name.</summary>
+    Task ReindexIdentityAsync(
+        DirectoryInfo layout,
+        string packageName,
+        TaskContext taskContext,
+        CancellationToken cancellationToken = default);
 }

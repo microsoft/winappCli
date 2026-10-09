@@ -328,6 +328,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
     [DataRow("--manifest", "MANIFEST")]
     [DataRow("--output-appx-directory", "OUTDIR")]
     [DataRow("--executable", "Other.exe")]
+    [DataRow("--unique-identity", null)]
     public async Task ProjectMode_Unpackaged_RejectsEveryPackagedOnlyOption_AtAuthoritativeGate(string option, string? argToken)
     {
         // M7: every launch/identity option that is only meaningful for a packaged (MSIX) app must be
@@ -498,6 +499,22 @@ public class RunCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(0, _fakeAppLauncherService.LaunchExecutableCalls.Count, "Packaged app must NOT launch the apphost exe directly");
     }
 
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ProjectMode_Packaged_DerivesUniqueIdentityFromTheProjectFile(bool unique)
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(csproj, targetDir, arch: "x64");
+        var command = GetRequiredService<RunCommand>();
+
+        string[] args = unique ? [csproj.FullName, "--detach", "--unique-identity"] : [csproj.FullName, "--detach"];
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(new DevelopmentIdentityOptions(csproj.FullName, unique), _fakeMsixService.DevelopmentIdentityCalls.Single());
+    }
     [TestMethod]
     public async Task ProjectMode_Packaged_ThreadsResolvedFrameworkIntoRuntimeProvisioning()
     {

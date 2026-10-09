@@ -38,7 +38,7 @@ internal partial class RunCommand
         /// <see cref="RunUnpackagedProjectAsync"/> so both reject the exact same set (issue #676).
         /// </summary>
         private static List<string> CollectUnpackagedIncompatibleOptions(
-            bool noLaunch, bool withAlias, bool withoutAlias, bool unregisterOnExit, bool clean, FileInfo? manifest, DirectoryInfo? outputAppXDirectory, string? executable)
+            bool noLaunch, bool withAlias, bool withoutAlias, bool unregisterOnExit, bool clean, FileInfo? manifest, DirectoryInfo? outputAppXDirectory, string? executable, bool uniqueIdentity)
         {
             var rejected = new List<string>();
             if (noLaunch)
@@ -76,6 +76,10 @@ internal partial class RunCommand
             {
                 // --executable selects an entry within an MSIX layout; unusable for an unpackaged app.
                 rejected.Add("--executable");
+            }
+            if (uniqueIdentity)
+            {
+                rejected.Add("--unique-identity");
             }
             return rejected;
         }
@@ -268,7 +272,7 @@ internal partial class RunCommand
             // projects (this probe evaluates with dotnet).
             if (!noBuild && !aot && !isCpp)
             {
-                var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
+                var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable, _uniqueIdentityRequested);
                 if (incompatible.Count > 0
                     && await projectRunService.IsDefinitivelyUnpackagedAsync(csproj, buildOptions, cancellationToken))
                 {
@@ -414,7 +418,7 @@ internal partial class RunCommand
             // AUTHORITATIVE gate — rejects packaged-only options once packaging is definitively known.
             // RunProjectModeAsync fails fast on the definitively-unpackaged case before building (issue
             // #676); this still catches the indeterminate-then-unpackaged case that only resolves here.
-            var rejected = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
+            var rejected = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable, _uniqueIdentityRequested);
             if (rejected.Count > 0)
             {
                 return Fail(BuildUnpackagedIncompatibleMessage(rejected, csproj.Name), isJson);

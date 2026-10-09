@@ -53,4 +53,12 @@ internal sealed class FakePriService : IPriService
         ExtractLanguagesCallCount++;
         return Task.FromResult(LanguagesToReturn);
     }
+
+    public List<(string Layout, string PackageName)> ReindexIdentityCalls { get; } = [];
+
+    public Task ReindexIdentityAsync(DirectoryInfo layout, string packageName, TaskContext taskContext, CancellationToken cancellationToken = default)
+    {
+        ReindexIdentityCalls.Add((layout.FullName, packageName));
+        return Task.CompletedTask;
+    }
 }
