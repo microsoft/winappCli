@@ -11,26 +11,12 @@ namespace WinApp.Cli.ExecutionTargets.WindowsSandbox;
 /// </summary>
 /// <remarks>
 /// <c>wsb</c> reports COM failures as HRESULTs, sometimes as the process exit code and sometimes
-/// only in its own diagnostic text. Two of them mean something specific enough that treating them
-/// as a generic start failure would send the user somewhere useless: one says a Sandbox may have
-/// been created despite the error, the other says one is already running.
+/// only in its own diagnostic text.
 /// </remarks>
 internal static class WsbHResult
 {
     /// <summary>Key under which a recognised HRESULT is reported in a failure envelope.</summary>
     internal const string ContextKey = "hresult";
-
-    /// <summary>
-    /// <c>ERROR_FILE_NOT_FOUND</c>. Observed from <c>wsb start</c> <em>after</em> it has already
-    /// created a listed instance, so it never means "nothing happened".
-    /// </summary>
-    internal const int FileNotFound = unchecked((int)0x80070002);
-
-    /// <summary>
-    /// <c>CO_E_APPSINGLEUSE</c>. The Sandbox singleton is already in use, which is a reuse
-    /// situation rather than a broken host.
-    /// </summary>
-    internal const int AppSingleUse = unchecked((int)0x800401F6);
 
     /// <summary>
     /// <c>ERROR_NO_SUCH_LOGON_SESSION</c>. The guest has no interactive login session, so nothing
