@@ -85,7 +85,7 @@ dotnet run -p:WinAppRunDetach=true --demo-mode
 dotnet run -p:WinAppRunDevTools=off
 ```
 
-For a WinUI app, `dotnet run` starts [WinUI DevTools](https://github.com/microsoft/winappCli/blob/main/docs/guides/devtools.md), except in CI. Turn it off for one run with `-p:WinAppRunDevTools=off` (or use `headless`), or for every run with `winapp config set run.devtools off`.
+For a WinUI app, `dotnet run` starts [WinUI DevTools](https://github.com/microsoft/winappCli/blob/main/docs/guides/devtools.md); `-p:WinAppRunDevTools=off` (or `headless`) changes that for one run. See [Turn DevTools on or off](https://github.com/microsoft/winappCli/blob/main/docs/guides/devtools.md#turn-devtools-on-or-off).
 
 Set these MSBuild properties in your `.csproj` to customize behavior:
 

@@ -45,11 +45,9 @@ see [visual UI prerequisites](https://github.com/microsoft/WinAppCli/blob/main/d
 do not mistake unavailable visual UI for failed protocol attachment.
 
 Packaged aliases are prepared automatically in the staged manifest, not manually
-authored in the source manifest. DevTools uses its private staged alias regardless
-of the ordinary-run `WinAppRunUseExecutionAlias` preference. Explicit
-`--without-alias`, Windows-disabled aliases and unverifiable targets still fail.
-With `dotnet run` (NuGet package), a WinUI app gets DevTools the same way;
-`-p:WinAppRunDevTools=on|off|headless` chooses the mode.
+authored in the source manifest. When DevTools starts by default and how to choose,
+including `dotnet run`'s `-p:WinAppRunDevTools`, is in
+[Turn DevTools on or off](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/devtools.md#turn-devtools-on-or-off).
 
 Do not adopt a different running instance when launch fails. Attaching to an
 existing app is explicit and headless by default:

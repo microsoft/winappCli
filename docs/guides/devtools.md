@@ -22,9 +22,9 @@ and troubleshooting, see [Advanced DevTools](devtools-advanced.md). Every comman
 
    ![The comment panel on a selected button](../images/devtools-comment-panel.png)
 
-3. Type a note and press **Enter**. **Shift+Enter** starts a new line. A **Comment
-   saved** notice appears and the comments count goes up. To comment on another
-   element, click it: what you typed is saved and the panel moves.
+3. Type a note and save it. A **Comment saved** notice appears and the comments count
+   goes up. To comment on another element, click it: what you typed is saved and the
+   panel moves.
 
 4. To inspect an element, select **Select element** and click it. The DevTools window
    opens beside your app with the element tree, properties, bindings and layout.
@@ -68,31 +68,14 @@ If the app is already running, `run` closes it so DevTools can start it.
 
 ## Use the toolbar
 
-- **Select element** selects the element you click in the DevTools window.
-- **Comments** opens the comment panel on the element you click. It shows the
-  element's XAML file and line, or **Not linked to source** when there is none, and
-  any comments already on it. **Open in DevTools** opens the window on that element.
-
-Turning one mode on turns the other off. Esc saves what you typed and closes the panel;
-the next Esc turns the mode off. Clicking a control's template part or generated text,
-such as a Button's string content, selects the control from your XAML. To pick
-template parts themselves, turn off **Just my XAML** in the DevTools window.
-
-Saved comments show as markers on their elements, including comments an agent added.
-The arrow beside **Comments** has **Open comments list (N)** and **Show comment
-markers**; hiding markers is remembered until you show them again.
-
-**Ctrl+Shift+F12** moves keyboard focus to the toolbar (and shows it if it's hidden);
-Esc returns focus to your app. The **⋯** menu has:
-
-- **Hide toolbar**: hides it until you press **Ctrl+Shift+F12**.
-- **Keep toolbar open**: keeps it expanded instead of collapsing to its pill.
-- **When the app starts**: **Show toolbar** (`on`), **Hide toolbar** (`headless`) or
-  **Don't start DevTools** (`off`), the same setting as `winapp config set run.devtools`.
-
-In the DevTools window, **Comment** in the properties header comments on the selected
-element. Property values follow your app as it changes them; **F5** rereads the tree.
-
+- **Select element** shows the element you click in the DevTools window.
+- **Comments** opens the comment panel on the element you click.
+- Clicking a control's template part or generated text selects the control from your
+  XAML; turn off **Just my XAML** in the DevTools window to pick the parts themselves.
+- Saved comments show as markers on their elements; the arrow beside **Comments**
+  lists them and hides or shows the markers.
+- **Ctrl+Shift+F12** brings back a hidden toolbar; **⋯** hides it, keeps it open, or
+  sets what happens when the app starts.
 ## Review comments with an agent
 
 ```powershell
@@ -160,3 +143,16 @@ and comments.
 For a terminal you keep using, launch with `winapp run . --detach`: it prints the PID
 and the next command. For scripts, add `--json`; see
 [JSON output](devtools-advanced.md#json-output).
+
+## When something fails
+
+| What you see | What to do |
+|---|---|
+| `DevTools unavailable: …` on a default run | The app ran without DevTools; the line says why. Fix the cause, or pass `--devtools on` to make it an error. |
+| The app is already running and couldn't be closed | Close it and run again, or [attach to its PID](devtools-advanced.md#attach-to-an-app-that-is-already-running). |
+| The toolbar doesn't appear, or reports a missing XAML resource | Merge `XamlControlsResources` into your app's resources (standard templates do); until then use `--devtools headless`. See [visual UI prerequisites](devtools-advanced.md#visual-ui-prerequisites). |
+| Launch fails on the execution alias | Turn the app's entry on in **Settings > Apps > Advanced app settings > App execution aliases**. |
+| The DevTools engine is missing | Reinstall winapp; keep its files together. |
+| Access denied when attaching | Run winapp as the app's user, at the same or higher integrity. |
+
+More cases are in [Advanced DevTools](devtools-advanced.md#troubleshooting).

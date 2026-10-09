@@ -85,7 +85,7 @@ samples/
 | `WinAppRunClean` | `false` | Remove the existing package's application data (LocalState, settings) before re-deploying. Application data is preserved by default. |
 | `WinAppRunSymbols` | `false` | Download symbols from the Microsoft Symbol Server for richer native crash analysis. Only has an effect together with `WinAppRunDebugOutput`. |
 | `WinAppRunExecutable` | (empty) | Executable path relative to the build-output folder. Use to disambiguate when the manifest contains a `$targetnametoken$` placeholder and the output folder contains more than one `.exe`. |
-| `WinAppRunDevTools` | (unset) | `on`, `off` or `headless`, like [`winapp run --devtools`](guides/devtools.md#turn-devtools-on-or-off). Unset, a WinUI app gets DevTools by default (except in CI). `on` and `headless` can't be combined with `WinAppRunNoLaunch` or `WinAppRunUseExecutionAlias=false`. |
+| `WinAppRunDevTools` | (unset) | `on`, `off` or `headless`, like [`winapp run --devtools`](guides/devtools.md#turn-devtools-on-or-off). Unset, the [default](guides/devtools.md#turn-devtools-on-or-off) applies. `on` and `headless` can't be combined with `WinAppRunNoLaunch` or `WinAppRunUseExecutionAlias=false`. |
 | `WinAppRunArgs` | (empty) | Raw arguments appended to the `winapp run` command line, for options that have no dedicated property. See [Escape hatch](#escape-hatch-winapprunargs). |
 
 #### Mutually exclusive settings

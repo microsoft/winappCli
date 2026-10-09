@@ -162,7 +162,8 @@ winapp devtools call VisualTree.enumerate depth:=4 -a 12345
 
 `call` doesn't resolve selectors: pass the numeric `handle` string from `inspect --json`
 as `handle=123`. The protocol is experimental (`protocolVersion` `"0"`); methods may
-change.
+change. `Overlay.getState` reports where the toolbar is hosted: `uiLayer` (above the app)
+or `popup`, a fallback that sits under the app's open dialogs.
 
 ### Read a binding path natively
 
@@ -189,18 +190,13 @@ binding** on a property you edited. `Binding.clearValue` (managed) and
 
 ## Troubleshooting
 
-- **Missing engine:** keep `WinApp.DevTools.Native.dll` and `WinApp.DevTools.Managed.dll`
-  beside `winapp.exe`; reinstall rather than mixing builds.
-- **Execution alias:** packaged apps need their App execution alias enabled. `--devtools
-  on` can't be combined with `--no-launch` or `--without-alias`; with `dotnet run`,
-  `WinAppRunNoLaunch=true` or `WinAppRunUseExecutionAlias=false` turns DevTools off.
-- **App can't be closed:** `run` names its PID; close it, or attach to that PID.
+The common cases are in [When something fails](devtools.md#when-something-fails).
+
 - **Windows App Runtime not found:** check the target is a running WinUI 3 app, or set
   `WINAPP_DEVTOOLS_FRAMEWORKUDK` to its `Microsoft.Internal.FrameworkUdk.dll` (local, no
   links).
 - **Staging refused:** a packaged winapp stages the engine in `%USERPROFILE%\.winapp\engine`;
   check that path isn't redirected by a link and isn't held by an app.
-- **Access denied:** run winapp as the app's user at the same or higher integrity.
 - **Transport limit:** the engine path beside `winapp.exe` must be under 260 characters;
   install winapp at a shorter path.
 - **Sandbox launch failed:** keep the reported diagnostics path; don't reuse selectors
