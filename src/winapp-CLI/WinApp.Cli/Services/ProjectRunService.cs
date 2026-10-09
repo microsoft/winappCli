@@ -255,12 +255,17 @@ internal sealed partial class ProjectRunService(
             // own publish graph, so a build-context target restore would be wasted there.
             var separateTargetRestore = !publish && !aotPublish && UsesNativeTerminalBuild(options);
 
-            var plan = options.Solution is null ? null : ComputeSolutionRestorePlan(options.Solution, csproj);
-            var restoresSiblings = plan is { ManagedSiblings.Count: > 0 };
-            if (plan is { MissingProjects.Count: > 0 } && options.Solution is not null)
+            SolutionRestorePlan? plan = null;
+            if (options.Solution is { } solution)
             {
-                ReportMissingSolutionProjects(options, options.Solution, plan.MissingProjects);
+                plan = ComputeSolutionRestorePlan(solution, csproj);
+                if (plan.MissingProjects.Count > 0)
+                {
+                    ReportMissingSolutionProjects(options, solution, plan.MissingProjects);
+                }
             }
+
+            var restoresSiblings = plan is { ManagedSiblings.Count: > 0 };
 
             if (restoresSiblings || publish || shimNeedsRestore || separateTargetRestore)
             {

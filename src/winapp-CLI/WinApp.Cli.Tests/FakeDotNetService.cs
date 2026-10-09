@@ -180,12 +180,10 @@ internal class FakeDotNetService : IDotNetService
     public Task<int> RunDotnetStreamingAsync(DirectoryInfo workingDirectory, string arguments, Action<string>? onOutputLine, Action<string>? onErrorLine, IReadOnlyDictionary<string, string>? environmentOverrides = null, CancellationToken cancellationToken = default)
     {
         StreamingCalls.Add(arguments);
-        foreach (var token in WinApp.Cli.Helpers.WindowsCommandLine.SplitArguments(arguments))
+        foreach (var token in WinApp.Cli.Helpers.WindowsCommandLine.SplitArguments(arguments)
+            .Where(token => token.EndsWith(".slnf", StringComparison.OrdinalIgnoreCase) && File.Exists(token)))
         {
-            if (token.EndsWith(".slnf", StringComparison.OrdinalIgnoreCase) && File.Exists(token))
-            {
-                SolutionFilterContents.Add(File.ReadAllText(token));
-            }
+            SolutionFilterContents.Add(File.ReadAllText(token));
         }
         if (RunDotnetStreamingHandler is not null)
         {

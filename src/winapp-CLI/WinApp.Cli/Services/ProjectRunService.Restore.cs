@@ -434,9 +434,8 @@ internal sealed partial class ProjectRunService
     internal static bool FailedOnlyWithPackageErrors(IEnumerable<string> lines)
     {
         var any = false;
-        foreach (var line in lines)
+        foreach (var match in lines.Select(line => RestoreErrorLineRegex().Match(line)))
         {
-            var match = RestoreErrorLineRegex().Match(line);
             if (!match.Success)
             {
                 continue;

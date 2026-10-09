@@ -4803,7 +4803,7 @@ public class ProjectRunServiceTests
     public async Task RunBuildPassAsync_Verbose_PrintsCommandBeforeBuilding()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);
-        var console = new TestConsole();
+        using var console = new TestConsole();
         var dotnet = new FakeDotNetService
         {
             RunDotnetStreamingHandler = (_, onOut, _) => { onOut?.Invoke("BUILD-OUTPUT"); return 0; },
