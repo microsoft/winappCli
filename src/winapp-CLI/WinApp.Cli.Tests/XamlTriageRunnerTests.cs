@@ -153,26 +153,42 @@ public sealed class XamlTriageRunnerTests
             File.WriteAllText(Path.Combine(source, name), name);
         }
 
-        ResolvedTriageBinaries Hold(string dir, string jsProvider) =>
-            new(dir, jsProvider, false, "test")
-            {
-                Holds =
-                [
-                    VerifiedTool.Open(new FileInfo(Path.Combine(dir, "dbgeng.dll")), (_, _) => true, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
-                    VerifiedTool.Open(new FileInfo(jsProvider), (_, _) => true, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
-                ],
-            };
-
-        using var original = Hold(source, Path.Combine(source, "JsProvider.dll"));
-        var staged = XamlTriageRunner.StageVerifiedBinaries(original, Hold);
+        using var original = HoldTrusting(source, Path.Combine(source, "JsProvider.dll"));
+        var staged = XamlTriageRunner.StageVerifiedBinaries(original, HoldTrusting);
         try
         {
             Assert.AreNotEqual(source, staged.BinDir);
             CollectionAssert.AreEquivalent(
                 StagedEngineFiles,
                 Directory.EnumerateFileSystemEntries(staged.BinDir).Select(Path.GetFileName).ToArray());
+        }
+        finally
+        {
+            staged.Dispose();
+            Directory.Delete(staged.BinDir, recursive: true);
+        }
+    }
 
-            // Locked: not even this user can add the default-extension DLLs DbgEng would load from there.
+    [TestMethod]
+    public void StageVerifiedBinaries_LocksTheFolderAgainstAdditions()
+    {
+        // Administrators keep full control, so an elevated test process is not denied.
+        if (new System.Security.Principal.WindowsPrincipal(System.Security.Principal.WindowsIdentity.GetCurrent())
+            .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator))
+        {
+            Assert.Inconclusive("Running elevated; the lock only denies non-administrators.");
+        }
+
+        var source = Path.Combine(_tempDir, "source");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(Path.Combine(source, "dbgeng.dll"), "dbgeng");
+        File.WriteAllText(Path.Combine(source, "JsProvider.dll"), "provider");
+
+        using var original = HoldTrusting(source, Path.Combine(source, "JsProvider.dll"));
+        var staged = XamlTriageRunner.StageVerifiedBinaries(original, HoldTrusting);
+        try
+        {
+            // Not even this user can add the default-extension DLLs DbgEng would load from there.
             Assert.ThrowsExactly<UnauthorizedAccessException>(() => File.WriteAllText(Path.Combine(staged.BinDir, "exts.dll"), "x"));
             Assert.ThrowsExactly<UnauthorizedAccessException>(() => Directory.CreateDirectory(Path.Combine(staged.BinDir, "winext")));
         }
@@ -182,6 +198,16 @@ public sealed class XamlTriageRunnerTests
             Directory.Delete(staged.BinDir, recursive: true);
         }
     }
+
+    private static ResolvedTriageBinaries HoldTrusting(string dir, string jsProvider) =>
+        new(dir, jsProvider, false, "test")
+        {
+            Holds =
+            [
+                VerifiedTool.Open(new FileInfo(Path.Combine(dir, "dbgeng.dll")), (_, _) => true, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+                VerifiedTool.Open(new FileInfo(jsProvider), (_, _) => true, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+            ],
+        };
 
     private static readonly string[] StagedEngineFiles = ["dbgeng.dll", "JsProvider.dll"];
 
