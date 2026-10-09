@@ -42,7 +42,22 @@ $allTasks = Get-TaskDefinitions -Root (Join-Path $PSScriptRoot 'tasks')
 
 # --- Summarize an existing results folder ------------------------------------------------
 if ($Summarize) {
+    # Re-derives unsafe actions and tool activity from each run's saved artifacts, so detection
+    # fixes apply to earlier results; checker statuses are kept as recorded.
     $runs = @(Get-Content (Join-Path $Summarize 'runs.jsonl') | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json })
+    foreach ($r in $runs) {
+        $dir = Join-Path $Summarize "runs\$($r.runId)"
+        $events = Join-Path $dir 'events.jsonl'
+        if (-not (Test-Path $events)) { continue }
+        $act = Read-ToolActivity -Path $events
+        $statePath = Join-Path $dir 'state.json'
+        $state = (Test-Path $statePath) ? (Get-Content -Raw $statePath | ConvertFrom-Json) : $null
+        $r.unsafeActions = @(Get-UnsafeActions -Commands @($act.shellCommands) -State $state)
+        $r.pluginFileReads = @($act.pluginFileReads); $r.pluginReadChars = $act.pluginReadChars
+        $r.winappCommandsRun = @(Get-WinappCommands -Text @($act.shellCommands))
+        $r.shellCommandCount = $act.shellCommands.Count; $r.failedToolCalls = $act.failedToolCalls
+    }
+    $runs | ForEach-Object { $_ | ConvertTo-Json -Depth 8 -Compress } | Set-Content (Join-Path $Summarize 'runs.jsonl') -Encoding utf8NoBOM
     Write-TaskSummary -Runs $runs -Path (Join-Path $Summarize 'summary.md') -Header @{ 'Results' = $Summarize }
     Write-Host "Wrote $(Join-Path $Summarize 'summary.md')"
     return

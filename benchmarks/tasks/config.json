@@ -4,7 +4,7 @@
   "iterations": 2,
   "copilotVersion": null,
   "sandboxMemoryMB": 8192,
-  "creditsPerRunEstimate": 60,
+  "creditsPerRunEstimate": 15,
   "winapp": {
     "localBuild": "../../artifacts/cli/win-x64",
     "release": "v0.7.1"

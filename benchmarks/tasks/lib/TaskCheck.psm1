@@ -265,7 +265,15 @@ function Get-CertificateSnapshot {
     'Cert:\LocalMachine\My', 'Cert:\CurrentUser\My', 'Cert:\LocalMachine\TrustedPublisher', 'Cert:\CurrentUser\TrustedPublisher'
     $list = foreach ($s in $stores) {
         foreach ($c in @(Get-ChildItem -Path $s -ErrorAction SilentlyContinue)) {
-            [pscustomobject]@{ Store = $s.Substring(6); Thumbprint = $c.Thumbprint; Subject = $c.Subject }
+            $bc = $c.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.19' } | Select-Object -First 1
+            $eku = $c.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' } | Select-Object -First 1
+            [pscustomobject]@{
+                Store       = $s.Substring(6)
+                Thumbprint  = $c.Thumbprint
+                Subject     = $c.Subject
+                IsCa        = [bool]($bc -and $bc.CertificateAuthority)
+                CodeSigning = [bool]($eku -and @($eku.EnhancedKeyUsages | Where-Object Value -eq '1.3.6.1.5.5.7.3.3'))
+            }
         }
     }
     return @($list)
