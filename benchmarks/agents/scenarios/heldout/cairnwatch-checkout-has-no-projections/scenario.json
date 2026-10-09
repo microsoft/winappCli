@@ -32,8 +32,7 @@
         "troubleshoot"
       ],
       "forbid": [
-        "winui.*",
-        "session.report"
+        "winui.*"
       ]
     }
   }

@@ -23,8 +23,7 @@
       "forbid": [
         "winui.design",
         "winui.migrate",
-        "ui.samples",
-        "session.report"
+        "ui.samples"
       ]
     }
   }

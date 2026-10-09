@@ -31,8 +31,7 @@
         "winui.design",
         "winui.migrate",
         "msix.sign",
-        "msix.package",
-        "session.report"
+        "msix.package"
       ]
     }
   }

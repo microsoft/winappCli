@@ -33,8 +33,7 @@
       "forbid": [
         "winui.migrate",
         "project.scaffold",
-        "ui.automate",
-        "session.report"
+        "ui.automate"
       ]
     }
   }
