@@ -13,8 +13,8 @@ winapp ui invoke --on sandbox SubmitButton -a MyApp
 
 Replace `MyApp` with your app name or the guest PID printed by `run`. `--detach` returns
 after launch so the next command can inspect the app; without it, `run` waits for the
-app to exit. The Sandbox stays running between commands and rebuilds until you close its
-window.
+app to exit. The Sandbox stays running between commands and rebuilds until it is ended; see
+[Removing an app and ending the Sandbox](#removing-an-app-and-ending-the-sandbox).
 
 ## Before you start
 
@@ -37,9 +37,10 @@ it stops with setup instructions; an observed pending Windows restart is reporte
 
 A cold connection or reconnect can briefly take focus. Once connected, winapp puts
 the Sandbox window behind the window you were using, without activating it; switch to
-**Windows Sandbox** in the taskbar to watch the guest. Closing that window ends the
-Sandbox, just like a Sandbox opened from Start: Windows first asks you to confirm, because
-everything in it is discarded. The next `--on sandbox` command starts a fresh one. See
+**Windows Sandbox** in the taskbar to watch the guest. When winapp started the Sandbox,
+closing that window ends it, just like a Sandbox opened from Start: Windows first asks you
+to confirm, because everything in it is discarded. The next `--on sandbox` command starts a
+fresh one. A Sandbox started with `wsb start` keeps running when its window is closed. See
 [Removing an app and ending the Sandbox](#removing-an-app-and-ending-the-sandbox).
 
 > [!IMPORTANT]

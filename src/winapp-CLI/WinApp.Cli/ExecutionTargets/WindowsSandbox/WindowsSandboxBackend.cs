@@ -350,6 +350,11 @@ internal sealed class WindowsSandboxBackend(
             bootstrap,
             lease.Epoch,
             clientAttached,
+
+            // A window this command opened but could not identify is probably its own, still
+            // signing in. It may instead have lost the singleton to a headless `wsb start` in the
+            // same moment, so the agent's own "no input desktop" is still allowed to connect one.
+            mayReconnect: !clientAttached || (_openedSandbox && lease.Origin is not SandboxInstanceOrigin.Created),
             cancellationToken).ConfigureAwait(false);
 
         if (!string.Equals(heartbeat.BinaryHash, agentHash, StringComparison.OrdinalIgnoreCase))
@@ -1406,15 +1411,15 @@ internal sealed class WindowsSandboxBackend(
         BootstrapShare bootstrap,
         ExecutionTargetEpoch epoch,
         bool clientWasLaunched,
+        bool mayReconnect,
         CancellationToken cancellationToken)
     {
         var deadline = UtcNow() + HeartbeatTimeout;
         var clientAvailable = clientWasLaunched;
 
-        // A client is connected at most once here, and only when the bootstrap did not already do
-        // it. Without that, an expired deadline on the ordinary path would fall through and attach
-        // a second client.
-        var mayReconnect = !clientWasLaunched;
+        // A client is connected at most once here, and only when the bootstrap did not already
+        // connect one it knows is attached. Without that, an expired deadline on the ordinary path
+        // would fall through and attach a second client.
 
         while (true)
         {

@@ -683,6 +683,36 @@ public class SandboxAdoptionTests
         Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, failure.Error.Code);
     }
 
+    /// <summary>
+    /// A Sandbox this command opened, whose window winapp could not identify, still gets one window
+    /// if the agent proves nobody is attached.
+    /// </summary>
+    /// <remarks>
+    /// That is a headless <c>wsb start</c> winning the singleton in the same moment as winapp's
+    /// launch: winapp's window shows an error, and the Sandbox it ends up using has no window at all.
+    /// Nothing is connected up front, because the far likelier cause is winapp's own window still
+    /// signing in; the agent's "no input desktop" after the full wait is what proves otherwise.
+    /// </remarks>
+    [TestMethod]
+    public async Task OpenedSandboxWithAnUnidentifiedWindow_ThatTurnsOutHeadless_IsConnectedOnce()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.Session = GuestSessionAvailability.NoLoginSession;
+        harness.Cli.AgentRefusesWithNoInputDesktop = true;
+        harness.Cli.AgentReadyAfterReconnect = true;
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        Assert.AreEqual(nameof(SandboxInstanceOrigin.Adopted), harness.ReadState()!.InstanceOrigin);
+        Assert.AreEqual(
+            1,
+            harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)));
+        Assert.IsGreaterThanOrEqualTo(
+            WindowsSandboxBackend.HeartbeatTimeout,
+            harness.Elapsed,
+            "winapp's own window gets the full wait to sign in before a second one is connected.");
+    }
+
     [TestMethod]
     public async Task AdoptedInstance_WithAHealthyClient_IsNeverReconnected()
     {
