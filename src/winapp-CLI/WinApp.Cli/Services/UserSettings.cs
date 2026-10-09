@@ -74,7 +74,15 @@ internal sealed class UserSettings
         File.WriteAllText(path, value.Value);
     }
 
-    public void Unset(ConfigKey key) => File.Delete(FilePath(key));
+    public void Unset(ConfigKey key)
+    {
+        // File.Delete tolerates a missing file but not a missing folder, which a fresh profile doesn't have yet.
+        var path = FilePath(key);
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
 
     /// <summary>The user's <c>run.devtools</c> mode, or null when they haven't set one.</summary>
     public DevToolsMode? ReadDevToolsMode() =>

@@ -83,6 +83,14 @@ public sealed class ConfigCommandTests() : BaseCommandTests(logLevel: Microsoft.
     }
 
     [TestMethod]
+    public async Task Unset_WithNoStateFolderYet_IsAlreadyTheDefault()
+    {
+        _settings.StateDirectory = Path.Combine(_tempDirectory.FullName, "fresh-profile", "state");
+        var (exitCode, output) = await Run("unset", "run.devtools");
+        Assert.AreEqual(0, exitCode, output);
+        StringAssert.Contains(output, "run.devtools = on (default)");
+    }
+    [TestMethod]
     [DataRow("off", "off")]
     [DataRow("HEADLESS\r\n", "headless")]
     public async Task Get_ReadsWhatTheToolbarWrote(string written, string expected)
