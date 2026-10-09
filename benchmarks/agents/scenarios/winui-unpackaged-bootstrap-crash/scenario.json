@@ -22,6 +22,7 @@
       ],
       "forbid": [
         "winui.design",
+        "winui.inspect",
         "winui.migrate",
         "ui.samples"
       ]

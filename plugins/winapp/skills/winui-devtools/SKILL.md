@@ -1,7 +1,9 @@
 ---
 name: winui-devtools
-description: Read and change a running WinUI 3 app live with winapp devtools. Use when inspecting the live XAML tree or bindings, changing text, styles or any property at runtime, diagnosing a binding, or acting on comments left in the app. Not for clicking or typing in an app; use winapp-ui-automation.
+description: "Inspect a running WinUI 3 app's XAML with winapp devtools: resolved property values (margin, size, style), what a binding yields or why it's empty, the XAML line behind an element, live edits, and UI review comments left in the app. To click, type, read text or screenshot, use winapp-ui-automation."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp devtools` / `winapp run` command(s) that would answer their question instead of only reasoning from source. Say which values you read from source and which only the running app can confirm.
 
 ## Start with the target
 

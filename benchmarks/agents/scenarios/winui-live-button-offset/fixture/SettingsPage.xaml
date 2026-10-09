@@ -1,0 +1,12 @@
+<Page x:Class="Harborlight.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StackPanel Padding="24" Spacing="12">
+    <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Settings" />
+    <ToggleSwitch Header="Sync over metered connections" IsOn="{x:Bind ViewModel.SyncOnMetered, Mode=TwoWay}" />
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button Content="Cancel" Click="Cancel_Click" />
+      <Button x:Name="SaveButton" Content="Save" Style="{StaticResource PrimaryCommandButtonStyle}" Click="Save_Click" />
+    </StackPanel>
+  </StackPanel>
+</Page>

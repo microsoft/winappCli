@@ -20,7 +20,8 @@
       ],
       "forbid": [
         "winui.migrate",
-        "winui.design"
+        "winui.design",
+        "winui.inspect"
       ]
     },
     "commands": [
