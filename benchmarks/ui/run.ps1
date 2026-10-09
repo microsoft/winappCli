@@ -161,7 +161,10 @@ if ($foreignNow -and -not $Force) {
 if (-not $runPlan.Pending.Count) {
     Write-Host "All $($runPlan.Total) sessions in $OutDir are already finished."
     if ($apps.ContainsKey('calculator')) { Complete-CalculatorModeRecord }
-    Write-UiSummary -RunsPath $runsPath -SummaryPath (Join-Path $OutDir 'summary.md') -ScenarioOrder @($allScenarios.Id)
+    # Keep the summary written by the run itself; it has the header (times, machine, versions).
+    if (-not (Test-Path -LiteralPath (Join-Path $OutDir 'summary.md'))) {
+        Write-UiSummary -RunsPath $runsPath -SummaryPath (Join-Path $OutDir 'summary.md') -ScenarioOrder @($allScenarios.Id)
+    }
     Write-Host "Summary: $(Join-Path $OutDir 'summary.md')"
     return
 }
@@ -492,6 +495,7 @@ Write-Host ("Copilot CLI {0} | {1} of {2} sessions to run (~{3:N0} AI credits, ~
 $finished = [System.Collections.Generic.List[object]]::new()
 $spend = Get-CreditSpend @() -DefaultEstimate ([double]$config.creditEstimatePerRun)
 $index = 0
+$abort = $null
 foreach ($run in $pending) {
     if ($MaxCredits -and $spend.Spent -ge $MaxCredits) {
         Write-Warning "Stopping: spent $([Math]::Round($spend.Spent, 1)) AI credits (-MaxCredits $MaxCredits); $($pending.Count - $index) sessions not run. Rerun with the same -OutDir to continue."
@@ -527,3 +531,6 @@ if (-not $KeepArtifacts) {
     if (-not (Get-ChildItem -LiteralPath $tempParent -Force -ErrorAction SilentlyContinue)) { Remove-Item -LiteralPath $tempParent -ErrorAction SilentlyContinue }
 }
 Write-Host "Summary: $(Join-Path $OutDir 'summary.md')"
+# Without an explicit exit, the script would return whatever native command ran last.
+$notPassed = @($finished | Where-Object { $_.status -ne 'pass' })
+exit ([int]($header.Contains('Stopped early') -or $notPassed.Count -gt 0))

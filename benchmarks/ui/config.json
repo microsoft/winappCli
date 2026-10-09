@@ -4,8 +4,8 @@
   "timeoutMinutes": 6,
   "copilotVersion": null,
   "methods": ["winapp", "none"],
-  "creditEstimatePerRun": 15,
-  "minutesEstimatePerRun": 2,
+  "creditEstimatePerRun": 10,
+  "minutesEstimatePerRun": 1,
   "gallery": {
     "repository": "https://github.com/microsoft/WinUI-Gallery.git",
     "tag": "v2.9.3",
