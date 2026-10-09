@@ -270,9 +270,9 @@ public class GuestCommandServerTests
         await harness.Channel.DisposeAsync();
         await process.EmitAsync(GuestStreamId.StandardOutput, "after disconnect").WaitAsync(TimeSpan.FromSeconds(5));
         process.Exit(17);
-        Assert.IsTrue(
-            SpinWait.SpinUntil(() => process.Disposed, TimeSpan.FromSeconds(1)),
-            "The agent should release the detached process after it exits.");
+
+        // The agent should release the detached process after it exits.
+        await WaitUntilAsync(() => process.Disposed, harness.Token);
     }
 
     [TestMethod]
@@ -1021,6 +1021,27 @@ public class GuestCommandServerTests
         var outcome = GuestCommandServer.DefaultStopTrackedProcess(int.MaxValue - 5, expectedStartTicksUtc: 0);
 
         Assert.AreEqual(GuestCommandServer.ProcessStopOutcome.AlreadyGone, outcome);
+    }
+
+    [TestMethod]
+    public async Task Execute_WhenTheStartCannotBeReported_StopsTheChildGracefullyBeforeReleasingIt()
+    {
+        // Reporting the start fails exactly as it does when the host disconnects while the child is
+        // starting. Shutdown must not depend on which of two cleanup paths reaches the child first:
+        // either way it gets the graceful stop before its job is released.
+        using var harness = new Harness(Interactive, beforeGuestSend: (payload, _) =>
+            GuestPayloadCodec.TryDecodeJson(payload.Span)?.Type == GuestMessageTypes.ExecStarted
+                ? throw ExecutionTargetException.Create(
+                    ExecutionTargetErrorCodes.TransportFailed, "The host went away.")
+                : Task.CompletedTask);
+
+        var execution = harness.Channel.ExecuteAsync(Request("run", "."), callbacks: null, harness.Token);
+        var process = await harness.Processes.WaitForNextAsync(harness.Token);
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() => execution);
+        await WaitUntilAsync(() => process.Disposed, harness.Token);
+
+        Assert.IsTrue(process.StopRequested, "A child whose start could not be reported must still be stopped gracefully.");
     }
 
     private static System.Diagnostics.Process StartHelperProcess() =>

@@ -1,0 +1,28 @@
+{
+  "id": "electron-notifications",
+  "description": "Electron app wants native Windows toast notifications (needs package identity).",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Windows notifications show up, but clicking one does nothing. Can the export notification have an Open file button?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "framework.guidance",
+        "identity"
+      ],
+      "acceptable": [
+        "api.lookup",
+        "msix.manifest"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples"
+      ]
+    }
+  }
+}

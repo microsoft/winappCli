@@ -1,7 +1,10 @@
 ---
 name: winapp-frameworks
-description: Framework-specific Windows development guidance for Electron, .NET (WPF, WinForms), C++, Rust, Flutter, and Tauri. Use when packaging or adding Windows features to an Electron app, .NET desktop app, Flutter app, Tauri app, Rust app, or C++ app.
+description: "Framework-specific Windows steps for Electron, WPF, WinForms, C++, Rust, Flutter, and Tauri: build output, npm scripts, Cargo, CMake, and how winapp fits each. Use when adding Windows features such as toast notifications to one of these apps, or for setup, packaging, or identity work on one."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:
@@ -45,6 +48,7 @@ Windows integration guidance:
 - Use **JS bindings** to call Windows App SDK APIs directly from JavaScript without native addons (for example AI APIs, notifications, and file pickers). Custom WinRT components with .winmd metadata can also be added via `winapp.jsBindings.additionalWinmds` in package.json.
 - Use **native addons** when you need Win32/COM APIs, third-party C++ libraries, or .NET assemblies: `--template cpp` for C++ (node-gyp), or `--template cs` for C#.
 - Mixing JS bindings and native addons in one Electron app is fine.
+- After editing `winapp.jsBindings` in package.json, regenerate with `npx winapp node generate-bindings`. After editing `winapp.yaml`, run `npx winapp restore` first.
 
 Additional Electron guides:
 - [Notification JS bindings guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/electron/js-notification.md)
@@ -93,6 +97,7 @@ C++ projects use winapp primarily for SDK projections (CppWinRT headers) and pac
 - Headers generated in `.winapp/generated/include`
 - Response file at `.cppwinrt.rsp` for build system integration
 - Add `.winapp/packages` to include/lib paths in your build system
+- Visual Studio projects (`.vcxproj`, e.g. WinUI 3 C++/WinRT): `winapp run .\MyApp.vcxproj` (or the project folder) builds with Visual Studio's MSBuild and launches the app; it needs Visual Studio or Build Tools with the C++ workload. CMake projects run their build-output folder instead.
 
 ### Rust
 - Use the `windows` crate for Windows API bindings
@@ -114,7 +119,7 @@ C++ projects use winapp primarily for SDK projections (CppWinRT headers) and pac
 | Framework | Recommended command | Notes |
 |-----------|-------------------|-------|
 | **.NET** | `winapp run .\bin\x64\Debug\<tfm>\win-x64\` | Build with `dotnet build -c Debug -p:Platform=x64` first; GUI apps launch via AUMID, console apps automatically via an execution alias |
-| **C++** | `winapp run .\build\Debug` | Console apps are detected and launched via an execution alias automatically |
+| **C++** | `winapp run .\MyApp.vcxproj` (Visual Studio project) or `winapp run .\build\Debug` (CMake output) | The `.vcxproj` is built with MSBuild first; console apps are detected and launched via an execution alias automatically |
 | **Rust** | `winapp run .\target\debug` | Console apps are detected and launched via an execution alias automatically |
 | **Flutter** | `winapp run .\build\windows\x64\runner\Debug` | GUI app — plain `winapp run` works |
 | **Tauri** | `winapp run .\dist` | Stage exe to `dist/` first (avoids copying entire `target/` tree); GUI app |

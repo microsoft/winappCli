@@ -17,6 +17,12 @@ Most commands drive the app through UIA patterns (no input injection). The excep
 
 ## Quick Start
 
+Run `winapp ui --help` for the core loop: `inspect -a <app> --interactive` to see what you
+can act on, `invoke` or `set-value` to act, and `get-value` to check the result. Every
+command's `--help` shows examples. An unknown command, such as `winapp ui dump`, exits with
+code 1 and suggests the closest commands (as a JSON error with `suggestions` when you pass
+`--json`).
+
 ```bash
 # Connect to any app and see its UI tree
 winapp ui inspect -a notepad
@@ -53,10 +59,18 @@ winapp ui search "Welcome to MyApp" -a myapp --root MailRow --type Text --class-
 winapp ui get-value Subject -w 123456 --root MailRow --type TextBox
 winapp ui get-property Subject -a myapp --root MailRow --type Edit --property Value
 winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value "Ready" --timeout 10000
+winapp ui invoke Open -w <dialog-HWND> --type Button
+winapp ui set-value "Text editor" "hello" -a notepad --type Document
 ```
 
-`search`, `get-property`, `get-value`, and `wait-for` accept these optional filters.
-The selector and every supplied filter must match the **same element**:
+These commands accept optional filters on their element selector:
+`inspect` (with a selector), `search`, `get-property`, `get-value`, `wait-for`,
+`invoke`, `set-value`, `click`, `focus`, `hover`, `scroll`, `scroll-into-view`,
+`screenshot`, `record`, `touch`, and `pen`. `drag` (two selectors) and `send-keys --target` do not.
+The selector and every supplied filter must match the **same element**. Filters narrow a
+selector, so `inspect`, `screenshot`, and `record`, whose selector is optional, fail with
+`invalid_arguments` when given filters without one. For `touch` and `pen`, filters need a
+selector; they can't be combined with `--at` or `--path` (`invalid_arguments`):
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
   never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.
@@ -98,9 +112,11 @@ A root slug selects that element even when another window has the same
 AutomationId. If the selected root is replaced, its old slug no longer matches;
 use an AutomationId or name root when you want polling to follow a replacement.
 
-When filters are present, commands that read a single element fail with
+When filters are present, every command except `search` fails with
 `ambiguous_selector` if more than one element remains; narrow the filters or use
-a unique slug. Exact AutomationId matches retain precedence over substring
+a unique slug. Commands that act on the element count matches in every window
+they search, so a matching control in an owned dialog also makes the selector
+ambiguous. Exact AutomationId matches retain precedence over substring
 matches, within the filtered scope. Omitting all three options preserves the
 existing query behavior.
 
@@ -112,7 +128,10 @@ other, dismiss a menu the other just opened, or move a target out from under a p
 
 **Arbitration is always on.** Every `winapp ui` command that touches the physical desktop takes a
 turn, with no setup and no way to switch it off, so two agents can never type into each other's
-windows. Read-only commands keep running concurrently.
+windows. Read-only commands keep running concurrently. The one exception is a process that can't
+access winapp's coordination folder, such as an agent sandbox that blocks `%USERPROFILE%\.winapp`:
+its commands still run, but without taking turns, and print a warning (except with `--json` or
+`--quiet`).
 
 **Continuity between commands is opt-in.** By default each command is a self-contained one-shot: it
 waits its turn, does its work, and releases the desktop immediately. To keep the desktop across
@@ -147,8 +166,18 @@ What you need to know:
   Continuous activity by one workflow can therefore delay others indefinitely.
 - **There is no hard cap.** A long script, an unbounded recording, or a failure loop can block other
   mutating workflows.
-- **Cancellation or process termination is the recovery** for a stuck live workflow. Waiting commands
-  print a status after one second and can be stopped with `Ctrl+C`, which exits `130`.
+- **Cancellation or process termination is the recovery** for a stuck live workflow. A waiting
+  command can be stopped with `Ctrl+C`, which exits `130`.
+- **A waiting command tells you why.** After one second it prints a notice to stderr, and repeats it
+  every five seconds:
+
+  ```text
+  'ui click' has waited 3s for the desktop: another workflow is using the desktop ('ui record') and has held it for 2m 14s. If both commands belong to the same task (for example, a recording and the input it captures), run them with the same WINAPP_UI_WORKFLOW_ID. Press Ctrl+C to cancel.
+  ```
+
+  By default the notice names only the command holding the desktop, never the other workflow's id
+  or process. `--verbose` also shows the holder's PID and queue position. `--json` and `--quiet` print nothing while
+  waiting, so stderr carries only the final error, if any.
 - **Only compatible updated binaries cooperate.** Older `winapp` builds predate this feature and are
   not coordinated. Code calling the UI Automation NuGet packages directly is outside this guarantee
   entirely — coordination lives in the CLI, not in the packages.
@@ -251,7 +280,13 @@ which cannot run before the head does anyway — every few seconds.
 winapp ui inspect -a notepad
 winapp ui inspect -a slack            # auto-picks visible window for multi-process apps
 winapp ui inspect -a imageresizer     # partial match: finds PowerToys.ImageResizer
+winapp ui search Seven -a calculator  # hosted app: uses the frame window that hosts it
 ```
+
+Some packaged apps (for example Calculator) have no window of their own; another process
+hosts their frame. When the matched process (by name or PID) has no visible window, `-a`
+uses the frame that hosts its content instead. If there is none (for example, the app is
+still starting), `-a` targets the process, so `wait-for` keeps looking until its window appears.
 
 ### By window title
 ```bash
@@ -374,7 +409,7 @@ winapp ui inspect -a notepad                    # full window tree, depth 3
 winapp ui inspect -a notepad --depth 5          # deeper tree
 winapp ui inspect txt-searchbox-e5f6 -a notepad # subtree rooted at element
 winapp ui inspect --ancestors btn-close-d1a2 -a notepad  # walk up from element to root
-winapp ui inspect -a myapp --interactive        # invokable elements only, auto-depth 8
+winapp ui inspect -a myapp --interactive        # elements you can invoke, click, or set-value; auto-depth 8
 winapp ui inspect -a myapp --hide-disabled      # hide disabled elements
 winapp ui inspect -a myapp --hide-offscreen     # hide offscreen elements
 ```
@@ -388,7 +423,7 @@ win-aidevgalleryp-f1a3 "AI Dev Gallery Preview" (94,206 1280x1023)
     itm-samples-3f2c "Samples" (102,330 72x62)
 ```
 
-Example output (`--interactive` — invokable elements only, flat list):
+Example output (`--interactive` — actionable elements only, flat list):
 ```
 btn-minimize-d1a0 "Minimize" (1222,206 48x48)
 btn-maximize-e2b1 "Maximize" (1270,206 48x48)
@@ -497,7 +532,7 @@ winapp ui screenshot -w 131906 --capture-screen     # one screen region, with vi
 winapp ui screenshot -a myapp --focus               # bring window to foreground first, then capture (default WGC path)
 ```
 
-Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` by process name or PID includes the app's windows and their owned windows. A title-based `-a` match selects one matching window plus its owned windows; `-w` explicitly selects one window plus its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows.
+Without an element selector, default capture combines multiple windows into **one labeled, side-by-side composite PNG**, not separate files. `-a` by process name or PID includes the app's windows and their owned windows. A title-based `-a` match selects one matching window plus its owned windows; `-w` explicitly selects one window plus its owned windows, not every window in the process. An owned dialog or tooltip can therefore appear as its own panel even when you explicitly select the main HWND. An element selector crops to that element instead of composing windows. An element in a menu, flyout, tooltip, or teaching tip that opens in its own popup window is cropped from that popup, not from the window behind it.
 
 `--quiet` suppresses informational output for both single-window and composite captures, including the saved path. Warnings and capture-failure diagnostics remain visible. Use `--json` instead when you need the file path and dimensions as structured output.
 
@@ -586,7 +621,9 @@ recordings and whole-desktop capture.
 - `frame_output_failed` — Neither artifact could be preserved after frame output failed.
 - `partial_output` — Only one artifact completed; inspect `partialOutput` and `recoveryHint`.
 
-**Known limitation:** Recording an element inside a windowed popup may capture the underlying window. Record the whole window or follow the [screenshot overlay workflow](#screenshot) for a still image. See [#646](https://github.com/microsoft/winappCli/issues/646).
+An element selector records that element's region from the window it is drawn in. For an item in a
+menu, flyout, tooltip, or teaching tip that opens in its own popup window, the recording shows the
+popup rather than the window behind it.
 
 
 ### invoke
@@ -595,6 +632,7 @@ recordings and whole-desktop capture.
 winapp ui invoke SettingsCategory -a myapp --action select
 winapp ui invoke AgreeCheckbox -a myapp --action toggle-on --json
 winapp ui invoke SizeComboBox -a myapp --action expand
+winapp ui invoke Open -w <dialog-HWND> --root Actions --type Button --class-name Button --action invoke
 winapp ui invoke SubmitButton -a myapp
 ```
 
@@ -605,6 +643,17 @@ be selected, not invoked, with `--action select`. With `--action`, a slug target
 exactly one element; a plain-text or AutomationId selector that matches more than
 one element fails closed with a nonzero exit code rather than acting on the first
 match, so pass a slug from `inspect`/`search` when a name is ambiguous.
+
+`--root`, `--type`, and `--class-name` narrow the match as described in
+[Scoped and typed queries](#scoped-and-typed-queries), with or without `--action`.
+Use `-w <dialog-HWND>` to restrict an action to that dialog, or `-a <app>` to
+include the app's windows. A filtered invoke confirms the unique target before
+acting, requires exactly one matching element, and never switches to
+another window or an invokable ancestor. Zero matches fail with `element_not_found`;
+duplicates fail with `ambiguous_selector`. A stale element or recycled window
+fails without acting; re-run `inspect` or `search` and choose a current selector.
+Without `--action`, a filtered invoke still tries the patterns in order on that
+one element.
 
 | Action | Operation |
 |--------|-----------|
@@ -620,7 +669,7 @@ transition. If the requested state is not reached, the command fails rather than
 continuing to toggle. A failed verification can leave the control changed; read
 `ToggleState` before deciding what to do next.
 
-Without `--action`, the existing automatic behavior is unchanged: try
+Without `--action` and without filters, the automatic behavior is unchanged: try
 InvokePattern, TogglePattern, SelectionItemPattern, then ExpandCollapsePattern
 (expand), with an invokable-ancestor retry when needed.
 
@@ -738,12 +787,14 @@ winapp ui send-keys "alt+f4" -a myapp                          # close window vi
 winapp ui send-keys "vk=0x5D" -a myapp                         # a key with no friendly name (Apps/Menu key)
 winapp ui send-keys "ctrl+shift+t" -a myapp --via send-input   # use OS-wide injection instead of PostMessage
 winapp ui send-keys "win+shift+v" -a myapp --via send-input --allow-system-keys  # opt in to drive a global hotkey
+winapp ui send-keys "ctrl+capslock+f12" -a myapp --via send-input  # Narrator command: toggle developer mode
 ```
 
 **Key grammar** (whitespace-separated tokens, quote multi-token strings):
 - **Named keys** — `enter`/`return`, `tab`, `esc`/`escape`, `space`, `backspace`, `delete`/`del`, `insert`, `home`, `end`, `pageup`/`pgup`, `pagedown`/`pgdn`, `up`/`down`/`left`/`right`, `f1`–`f16`, `apps`, `printscreen`, `capslock`.
 - **Sequences** — multiple tokens are pressed in order: `down down enter`.
-- **Modifier combos** — `ctrl`, `shift`, `alt`, `win` joined with `+`: `ctrl+shift+t`, `alt+f4`.
+- **Modifier combos** — `ctrl`, `shift`, `alt`, `win` joined with `+`: `ctrl+shift+t`, `alt+f4`. A token that starts with a modifier but has an unknown segment before the last one (`ctrl+a+b`) is an error; use `text=` or `--verbatim` to type it.
+- **Screen-reader commands** — hold `capslock` or `insert` (alias `ins`), the Narrator, NVDA, and JAWS key: `ctrl+capslock+f12` toggles Narrator developer mode. Requires `--via send-input`, because screen readers don't receive posted keys. If no screen reader is running, holding `capslock` turns Caps Lock on or off and the command warns; hold `insert` to avoid this.
 - **Literal text** — any token that isn't a known key is typed character by character: `hello`. Adjacent literal words keep the space between them, so a quoted phrase like `"Hello world"` is typed verbatim (the space is preserved); a literal that merely contains `+` such as `C++` or `a+b` is typed as text, not parsed as a combo.
 - **Explicit literal escape** — prefix a token with `text=` to type it verbatim even when it collides with a key or modifier name: `text=enter` types the word "enter" instead of pressing Enter, and `text=ctrl+a` types the literal string. Mirrors the `vk=` escape; the escaped value still coalesces with adjacent literal words (`text=down low` → "down low"). Because tokens are whitespace-split (and adjacent literals re-join with a single space), use **backslash escapes inside a `text=` value** to type whitespace that wouldn't otherwise survive: `\s` → space, `\t` → tab, `\n` → newline, `\r` → newline, `\\` → literal backslash. `\n`, `\r`, and `\r\n` each insert a single line break (an Enter / `VK_RETURN`), so `text=line1\nline2` and `text=line1\r\nline2` both type one newline. So `text=a\s\sb` types "a  b" (double space), and `text=\shi` keeps a leading space. An unrecognised escape (e.g. `\x`) is left verbatim.
 - **Whole-argument literal (`--verbatim`)** — when the *entire* payload is literal text, pass `--verbatim` instead of escaping every token with `text=`. It types the whole keys argument exactly as given — no named-key/combo/`vk=`/`text=` interpretation — and, unlike the normal path, preserves exact internal whitespace (no collapsing) without needing `\s`. So `send-keys "down down enter" --verbatim` types the words, and `send-keys "a  b" --verbatim` keeps the double space. Backslash escapes are **not** decoded in `--verbatim` mode (a `\s` is typed as a backslash and an "s"); use a `text=` token when you need an escaped control character.

@@ -1,0 +1,9 @@
+<Window x:Class="ContosoImporter.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Contoso Importer" Height="300" Width="500">
+    <StackPanel Margin="16">
+        <Button Content="Import CSV..." Click="Import_Click" Width="140" HorizontalAlignment="Left" />
+        <TextBlock x:Name="StatusText" Margin="0,12,0,0" />
+    </StackPanel>
+</Window>

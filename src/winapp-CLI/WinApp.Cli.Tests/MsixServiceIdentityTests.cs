@@ -203,6 +203,28 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.AreEqual("exe-bytes", await File.ReadAllTextAsync(Path.Combine(outputDir.FullName, "TestApp.exe"), TestContext.CancellationToken));
     }
 
+    /// <summary>
+    /// MSBuild escapes item specs in the recipe: a C++ Debug build lists the debug CRT as
+    /// "C:\Program Files %28x86%29\...\ucrtbased.dll".
+    /// </summary>
+    [TestMethod]
+    public async Task CopyFilesFromRecipeAsync_MSBuildEscapedSourcePath_IsUnescaped()
+    {
+        var srcDir = _tempDirectory.CreateSubdirectory("Program Files (x86)");
+        var srcManifest = new FileInfo(Path.Join(srcDir.FullName, "AppxManifest.xml"));
+        await File.WriteAllTextAsync(srcManifest.FullName, BuildMSBuildManifest(), TestContext.CancellationToken);
+        var srcData = new FileInfo(Path.Join(srcDir.FullName, "ucrtbased.dll"));
+        await File.WriteAllTextAsync(srcData.FullName, "crt", TestContext.CancellationToken);
+
+        var escaped = srcData.FullName.Replace("(", "%28").Replace(")", "%29");
+        var recipe = new FileInfo(WriteRecipe(srcManifest, (escaped, "ucrtbased.dll")));
+        var outputDir = new DirectoryInfo(Path.Join(_tempDirectory.FullName, "layout"));
+
+        await InvokeCopyFilesFromRecipeAsync(recipe, outputDir);
+
+        Assert.AreEqual("crt", await File.ReadAllTextAsync(Path.Join(outputDir.FullName, "ucrtbased.dll"), TestContext.CancellationToken));
+    }
+
     [TestMethod]
     public async Task CopyFilesFromRecipeAsync_NestedPackagePath_CreatesSubdirectories()
     {
@@ -1142,6 +1164,42 @@ public class MsixServiceIdentityTests : BaseCommandTests
         // A second run must be able to claim it immediately, without waiting out the timeout.
         using var next = LayoutLease.Acquire(
             _testCacheDirectory, layout, TestContext.CancellationToken, TimeSpan.FromMilliseconds(200));
+    }
+
+    /// <summary>
+    /// Where winapp can read but not write its state directory (a sandbox that only allows writes
+    /// to the project), <c>run</c> proceeds without the claim instead of waiting out the timeout.
+    /// </summary>
+    [TestMethod]
+    public void LayoutLease_StateDirectoryNotWritable_ProceedsWithoutWaiting()
+    {
+        var layout = _tempDirectory.CreateSubdirectory("layout-e");
+        var stateRoot = _tempDirectory.CreateSubdirectory("read-only-state");
+        var locks = stateRoot.CreateSubdirectory("layout-locks");
+
+        var user = System.Security.Principal.WindowsIdentity.GetCurrent().User!;
+        var deny = new System.Security.AccessControl.FileSystemAccessRule(
+            user,
+            System.Security.AccessControl.FileSystemRights.CreateFiles,
+            System.Security.AccessControl.AccessControlType.Deny);
+        var acl = locks.GetAccessControl();
+        acl.AddAccessRule(deny);
+        locks.SetAccessControl(acl);
+        try
+        {
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+            using (LayoutLease.Acquire(stateRoot, layout, TestContext.CancellationToken, TimeSpan.FromSeconds(30)))
+            {
+            }
+
+            Assert.IsLessThan(TimeSpan.FromSeconds(5), elapsed.Elapsed, "A read-only state directory must not make run wait out the timeout.");
+        }
+        finally
+        {
+            acl.RemoveAccessRule(deny);
+            locks.SetAccessControl(acl);
+        }
     }
 
     /// <summary>

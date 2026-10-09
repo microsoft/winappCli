@@ -184,6 +184,19 @@ public class CrashDumpServiceTests
         Assert.AreEqual((nuint)0x1000, address);
     }
 
+    [TestMethod]
+    public void SelectExceptionRecord_SavedRecordIsTheCrash_KeepsCrashParameters()
+    {
+        var (code, address, useCrashParameters) = CrashDumpService.SelectExceptionRecord(
+            savedExceptionCode: unchecked((int)0xC0000409), savedExceptionAddress: 0x2000,
+            crashExceptionCode: unchecked((int)0xC0000409), crashExceptionAddress: 0x2000,
+            crashExceptionParameters: [7]);
+
+        Assert.IsTrue(useCrashParameters, "When the record describes the crash itself, its parameters (e.g. the fail-fast code) must be kept.");
+        Assert.AreEqual(unchecked((int)0xC0000409), code);
+        Assert.AreEqual((nuint)0x2000, address);
+    }
+
     // ---- AnalyzeDumpAsync orchestration (via the analyzer seams; no real dump) ----
 
     [TestMethod]

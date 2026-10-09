@@ -1,0 +1,4 @@
+Actual send lines: alpha, beta, alpha, beta
+Expected send lines: alpha, beta
+Keep Count: 2 and summary alpha, beta.
+No UI, installer, or Windows-specific API is involved.

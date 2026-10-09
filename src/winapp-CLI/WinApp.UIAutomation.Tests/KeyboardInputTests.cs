@@ -30,11 +30,13 @@ public class KeyboardInputTests
     }
 
     [TestMethod]
-    public void IsExtended_RecognizesWindowsMenuKeysOnly()
+    public void IsExtended_RecognizesWindowsMenuAndInsertKeysOnly()
     {
         Assert.IsTrue(KeyboardInput.IsExtended(0x5B));
         Assert.IsTrue(KeyboardInput.IsExtended(0x5C));
         Assert.IsTrue(KeyboardInput.IsExtended(0x5D));
+        Assert.IsTrue(KeyboardInput.IsExtended(0x2D)); // held Insert = dedicated key, not numpad 0
+        Assert.IsFalse(KeyboardInput.IsExtended(0x14));
         Assert.IsFalse(KeyboardInput.IsExtended(0x41));
     }
 

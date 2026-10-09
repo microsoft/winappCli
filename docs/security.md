@@ -43,7 +43,7 @@ A well-known password means the private key in `devcert.pfx` is effectively unpr
 > [!IMPORTANT]
 > Treat the default password as a signal that the certificate is disposable. If a certificate is ever used to sign something another person will install, it should not be a `winapp cert generate` certificate with the default password — see [Signing for production](#signing-for-production).
 
-Scripts and agents do not have to compare the password themselves: `winapp cert generate --json` reports `"defaultPasswordIsPublic": true` and repeats the disclosure in a `warnings` array whenever the default is in effect. See [cert generate JSON output](usage.md#cert-generate-json-output).
+Scripts and agents do not have to compare the password themselves: `winapp cert generate --json` reports `"defaultPasswordIsPublic": true` and repeats the disclosure in a `warnings` array when it generates a certificate with the default password. A run that keeps an existing file with `--if-exists skip` does not open it, so it reports neither. See [cert generate JSON output](usage.md#cert-generate-json-output).
 
 ### Where the certificate file lives
 

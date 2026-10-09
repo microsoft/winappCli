@@ -174,6 +174,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
         var csproj = CreateCsproj();
         var targetDir = CreateTargetDir(withManifest: false);
         SetUnpackagedOutcome(csproj, targetDir, selfContained: false, arch: "arm64");
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.Arm64;
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--arch", "arm64", "--detach"]);
@@ -239,6 +240,68 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow(-1073741189, "0xC000027B")]
+    [DataRow(42, "42")]
+    public async Task ProjectMode_Unpackaged_NonZeroExit_SuggestsDebugOutput(int appExitCode, string expectedCode)
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        SetUnpackagedOutcome(csproj, targetDir, selfContained: true);
+        _fakeAppLauncherService.FakeExitCode = appExitCode;
+        TestAnsiConsole.Profile.Width = 1000;
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(appExitCode, exitCode);
+        StringAssert.Contains(TestAnsiConsole.Output, $"App exited with code {expectedCode}. Rerun with --debug-output for exception details.");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Unpackaged_ZeroExit_DoesNotSuggestDebugOutput()
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        SetUnpackagedOutcome(csproj, targetDir, selfContained: true);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("--debug-output"), "No hint for a successful exit");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Unpackaged_NonZeroExitWithDebugOutput_DoesNotSuggestDebugOutput()
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        SetUnpackagedOutcome(csproj, targetDir, selfContained: true);
+        _fakeDebugOutputService.FakeExitCode = 42;
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--debug-output"]);
+
+        Assert.AreEqual(42, exitCode);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("Rerun with --debug-output"), "No rerun hint when --debug-output is already on");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Unpackaged_NonZeroExitWithJson_DoesNotSuggestDebugOutput()
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        SetUnpackagedOutcome(csproj, targetDir, selfContained: true);
+        _fakeAppLauncherService.FakeExitCode = 42;
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--json"]);
+
+        Assert.AreEqual(42, exitCode);
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("Rerun with --debug-output"), "JSON output must stay machine-readable");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Unpackaged_RuntimePrepFailure_AbortsWithoutLaunching()
     {
         // Spec R2-M2: when runtime preparation throws (e.g. the version-specific gate can't confirm the
@@ -265,6 +328,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
     [DataRow("--manifest", "MANIFEST")]
     [DataRow("--output-appx-directory", "OUTDIR")]
     [DataRow("--executable", "Other.exe")]
+    [DataRow("--unique-identity", null)]
     public async Task ProjectMode_Unpackaged_RejectsEveryPackagedOnlyOption_AtAuthoritativeGate(string option, string? argToken)
     {
         // M7: every launch/identity option that is only meaningful for a packaged (MSIX) app must be
@@ -436,6 +500,22 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ProjectMode_Packaged_DerivesUniqueIdentityFromTheProjectFile(bool unique)
+    {
+        var csproj = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        SetPackagedOutcome(csproj, targetDir, arch: "x64");
+        var command = GetRequiredService<RunCommand>();
+
+        string[] args = unique ? [csproj.FullName, "--detach", "--unique-identity"] : [csproj.FullName, "--detach"];
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(new DevelopmentIdentityOptions(csproj.FullName, unique), _fakeMsixService.DevelopmentIdentityCalls.Single());
+    }
+    [TestMethod]
     public async Task ProjectMode_Packaged_ThreadsResolvedFrameworkIntoRuntimeProvisioning()
     {
         // M2: for a multi-targeted packaged app the resolved TFM must reach loose-layout runtime
@@ -541,6 +621,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
             new ProjectRunResolution(csproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "arm64",
                 null, false, null, "WinExe", null, assetsFile),
             0);
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.Arm64;
         var command = GetRequiredService<RunCommand>();
 
         await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "-c", "Release", "--arch", "arm64"]);
@@ -620,11 +701,118 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task FolderMode_CppLibraryOnlyFolder_ExplainsUnlessAManifestIsGiven()
+    {
+        var withoutManifestDir = _tempDirectory.CreateSubdirectory("LibA");
+        var withManifestDir = _tempDirectory.CreateSubdirectory("LibB");
+        const string library = "<Project><PropertyGroup><ConfigurationType>DynamicLibrary</ConfigurationType></PropertyGroup></Project>";
+        File.WriteAllText(Path.Join(withoutManifestDir.FullName, "LibA.vcxproj"), library);
+        File.WriteAllText(Path.Join(withManifestDir.FullName, "LibB.vcxproj"), library);
+        var manifestPath = Path.Join(_tempDirectory.CreateSubdirectory("pkg").FullName, "appxmanifest.xml");
+        File.WriteAllText(manifestPath, TestManifestContent);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [withoutManifestDir.FullName]);
+        await ParseAndInvokeWithCaptureAsync(command, [withManifestDir.FullName, "--manifest", manifestPath]);
+
+        var output = $"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}";
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(output, "LibA.vcxproj in");
+        Assert.IsFalse(output.Contains("LibB.vcxproj in", StringComparison.Ordinal),
+            "with --manifest, folder mode runs as before instead of reporting the library");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Cpp_PlatformProperty_SelectsArchitectureWhenArchIsNotGiven()
+    {
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
+        SetUnpackagedOutcome(vcxproj, CreateTargetDir(withManifest: false), selfContained: false, arch: "arm64");
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.Arm64;
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, "-p", "Platform=ARM64", "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("arm64", _fakeProjectRunService.BuildOptions[0].Architecture,
+            "-p Platform=ARM64 must select arm64 instead of the machine's architecture");
+    }
+
+    [TestMethod]
+    [DataRow("-p Platform=ARM64", "-p Platform=x64", DisplayName = "-p Platform")]
+    [DataRow("--arch arm64", "--arch x64", DisplayName = "--arch")]
+    [DataRow("-r win-arm64", "-r win-x64", DisplayName = "--runtime")]
+    [DataRow("--arch arm64 -p Platform=ARM64", "--arch x64 -p Platform=x64", DisplayName = "--arch with matching -p Platform")]
+    [DataRow("-r win-arm64 -p Platform=ARM64", "-r win-x64 -p Platform=x64", DisplayName = "--runtime with matching -p Platform")]
+    public async Task ProjectMode_Cpp_PlatformThisMachineCannotRun_FailsBeforeBuilding(string archArgs, string suggestion)
+    {
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.X64;
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, .. archArgs.Split(' '), "--detach"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "an app this machine can't run must not be built first");
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", $"({suggestion})",
+            "suggest changing the input that chose the architecture");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Cpp_PlatformThisMachineCannotRun_StillBuildsWithNoLaunch()
+    {
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
+        SetPackagedOutcome(vcxproj, CreateTargetDir(withManifest: true), arch: "arm64");
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.X64;
+        var command = GetRequiredService<RunCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, "-p", "Platform=ARM64", "--no-launch"]);
+
+        Assert.AreEqual(1, _fakeProjectRunService.BuildAndResolveCalls.Count);
+        Assert.AreEqual("arm64", _fakeProjectRunService.BuildOptions[0].Architecture);
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Unpackaged_ExeRequiringAdministrator_ExplainsElevation()
+    {
+        var csproj = CreateCsproj();
+        SetUnpackagedOutcome(csproj, CreateTargetDir(withManifest: false), selfContained: true);
+        _fakeAppLauncherService.LaunchExecutableThrows = new System.ComponentModel.Win32Exception(740);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--detach", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}", "requires administrator rights");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Cpp_ExplicitArch_IsNotOverriddenByPlatformProperty()
+    {
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
+        SetUnpackagedOutcome(vcxproj, CreateTargetDir(withManifest: false), selfContained: false, arch: "x64");
+        var command = GetRequiredService<RunCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, "--arch", "x64", "-p", "Platform=ARM64", "--detach"]);
+
+        Assert.AreEqual("x64", _fakeProjectRunService.BuildOptions[0].Architecture,
+            "an explicit --arch is kept so the service reports the conflict");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_Runtime_ResolvesArchIntoBuild()
     {
         var csproj = CreateCsproj();
         var targetDir = CreateTargetDir(withManifest: false);
         SetUnpackagedOutcome(csproj, targetDir, selfContained: false, arch: "arm64");
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.Arm64;
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, [csproj.FullName, "--runtime", "win-arm64", "--detach"]);
@@ -880,6 +1068,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
                 Architecture: "x64",
                 IsAot: true),
             0);
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.Arm64;
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
@@ -930,6 +1119,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
                 Architecture: "arm64",
                 IsAot: true),
             0);
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.Arm64;
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
@@ -988,6 +1178,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
                 Architecture: "arm64",
                 IsAot: true),
             0);
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.Arm64;
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
@@ -1040,6 +1231,7 @@ public class RunCommandProjectModeTests : BaseCommandTests
                 Architecture: "x64",
                 IsAot: true),
             0);
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.Arm64;
         var command = GetRequiredService<RunCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(

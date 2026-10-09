@@ -32,15 +32,18 @@ internal partial class NugetService : INugetService
     private readonly IWinappDirectoryService _winappDirectoryService;
     private readonly NugetSourceProvider _sourceProvider;
     private readonly NugetPackageDownloader _downloader;
+    private readonly Microsoft.Extensions.Logging.ILogger<NugetService> _logger;
 
     public NugetService(
         IWinappDirectoryService winappDirectoryService,
         NugetSourceProvider sourceProvider,
-        NugetPackageDownloader downloader)
+        NugetPackageDownloader downloader,
+        Microsoft.Extensions.Logging.ILogger<NugetService> logger)
     {
         _winappDirectoryService = winappDirectoryService;
         _sourceProvider = sourceProvider;
         _downloader = downloader;
+        _logger = logger;
     }
 
     private static readonly string[] IgnoredDependencyPrefixes =

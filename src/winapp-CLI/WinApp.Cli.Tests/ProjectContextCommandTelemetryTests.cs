@@ -97,14 +97,14 @@ public sealed class ProjectContextCommandTelemetryTests : BaseCommandTests
     }
 
     [TestMethod]
-    public void EnabledTelemetry_EmitsProjectContextAtMeasureLevel()
+    public void EnabledTelemetry_EmitsProjectContextAtCriticalLevel()
     {
         ProjectContextEvent.Log(
             "restore",
             ProjectContext.Unknown(ProjectTargetKind.Workspace));
 
         Assert.AreEqual("ProjectContext_Event", _telemetry.EventNames.Single());
-        Assert.AreEqual(LogLevel.Measure, _telemetry.Levels.Single());
+        Assert.AreEqual(LogLevel.Critical, _telemetry.Levels.Single());
     }
 
     [TestMethod]

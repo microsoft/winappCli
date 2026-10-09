@@ -1,0 +1,24 @@
+{
+  "id": "winui-feature-ui-test",
+  "description": "Write and run UI tests for a WinUI page.",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Write and run UI tests that verify adding an item to the list on MainPage updates the counter.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "ui.test",
+        "ui.automate"
+      ],
+      "forbid": [
+        "msix.sign"
+      ]
+    }
+  }
+}

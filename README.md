@@ -266,7 +266,7 @@ See also: [Security guidance](./docs/security.md) — what development certifica
 - [`node clear-electron-debug-identity`](./docs/usage.md#node-clear-electron-debug-identity) - Remove identity from Electron processes
 
 The full CLI usage can be found here: [Documentation](/docs/usage.md)
-The full NPM usage can be found here: [NPM Programmatic API Reference](/docs/npm-usage.md)
+Use winapp from JavaScript or TypeScript: [NPM programmatic guide](/docs/npm-usage.md)
 
 ## 🧾 Samples
 
@@ -275,6 +275,7 @@ This repository includes samples demonstrating how to use the CLI with various f
 | Sample | Description |
 |--------|-------------|
 | [C++ App](/samples/cpp-app/README.md) | Native C++ Win32 application with CMake |
+| [C++ WinUI App](/samples/cpp-winui-app/README.md) | Packaged C++/WinRT WinUI 3 app (Visual Studio `.vcxproj`, XAML) launched via `winapp run <vcxproj>` |
 | [.NET Console](/samples/dotnet-app/README.md) | .NET console application |
 | [WPF App](/samples/wpf-app/README.md) | WPF desktop application |
 | [WinUI App](/samples/winui-app/README.md) | Packaged WinUI 3 app registered and launched via `winapp run <csproj>` |

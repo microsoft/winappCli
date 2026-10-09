@@ -14,12 +14,18 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiSearchCommand : Command, IShortDescription
+internal class UiSearchCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Find elements by text";
+    public string ShortDescription => "Find elements by text; narrow with --type and --root";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui search \"Save\" -a <app>",
+        "winapp ui search \"Save\" --type Button --root <selector> -a <app>",
+    ];
 
     public UiSearchCommand()
-        : base("search", "Search the element tree for elements matching a text query. Returns all matches with semantic slugs.")
+        : base("search", "Find elements by text; narrow with --type and --root. Returns all matches with semantic slugs.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);

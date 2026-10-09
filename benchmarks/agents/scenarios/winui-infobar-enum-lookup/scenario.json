@@ -1,0 +1,30 @@
+{
+  "id": "winui-infobar-enum-lookup",
+  "description": "WinUI: get InfoBar property and enum names right for the referenced Windows App SDK (find-api in WinUI).",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "When sync fails, show a red banner with Retry. Don't let users close it until sync succeeds.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "api.lookup",
+        "winui.design"
+      ],
+      "acceptable": [
+        "ui.samples"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "msix.package",
+        "winui.package",
+        "msix.sign"
+      ]
+    }
+  }
+}

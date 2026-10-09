@@ -1,0 +1,28 @@
+{
+  "id": "winforms-startup-task-identity",
+  "description": "Identity-only API (StartupTask) fails under the debugger; debug identity route.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "The 'Start with Windows' checkbox calls StartupTask.GetAsync and throws 'The process has no package identity' (0x80073D54) when I run from Visual Studio. I don't want to build and install an MSIX on every debug run. Make it work while debugging.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "identity",
+        "troubleshoot"
+      ],
+      "acceptable": [
+        "api.lookup"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "maui.package"
+      ]
+    }
+  }
+}

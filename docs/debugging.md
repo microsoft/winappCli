@@ -30,6 +30,16 @@ Use `winapp run` for most development workflows. It simulates a real MSIX instal
 winapp run .\build\output
 ```
 
+For parallel worktrees of a packaged app:
+
+```powershell
+winapp run . --unique-identity --no-launch --json
+```
+
+Each worktree gets its own package name and alias names; configure your debugger with
+the AUMID or alias the command returns. See
+[unique identity for parallel checkouts](usage.md#unique-identity-for-parallel-checkouts).
+
 ### Use `create-debug-identity` when:
 
 - **Your exe is separate from your build output** — e.g., Electron apps where `electron.exe` lives in `node_modules/`
@@ -88,7 +98,7 @@ winapp run .\build\Debug --no-launch
 
 **Step 2:** Configure your IDE to launch via the AUMID or the **execution alias** (not the exe directly). 
 * Launching with AUMID: Use the command `start shell:AppsFolder\<AUMID>`. `winapp run` outputs the AUMID when the app is registered.
-* Launching with the alias: The alias must be defined in your manifest (`Package.appxmanifest` preferred, `appxmanifest.xml` also supported).
+* Launching with the alias: Use the alias name `run` prints. With `--unique-identity`, it differs from the one in your manifest.
 
 > **Important:** Simply launching the exe in the build folder will **not** give it identity. The app must be started via AUMID activation or its execution alias. This is how loose layout packages work - identity is tied to the activation path, not the exe file.
 
@@ -128,11 +138,11 @@ winapp run .\build\Debug --debug-output --symbols
 
 Most WinUI crashes start inside a XAML event handler and surface as a **stowed exception** (`0xC000027B`) that is re-raised later from the dispatcher, so the normal stack no longer points at the real cause. When the crashed app loaded `Microsoft.UI.Xaml.dll`, winapp automatically runs an extra triage pass that decodes the stowed exception and the native XAML dispatch chain (`Microsoft.UI.Xaml` → `CXcpDispatcher` → `CoreMessagingXP` → CLR host). The result is appended to the debug log. No flag is needed — it is enabled automatically for WinUI dumps. Add `--symbols` for fully resolved function names in the dispatch chain.
 
-To make this work, winapp captures the crash dump with the terminating stowed exception's record (and its parameters, which point at the stowed-exception array) while keeping the first-chance thread context, so the standard managed analysis still recovers your original user frame *and* the triage pass can locate the stowed exception.
+To make this work, winapp captures the crash dump with the terminating stowed exception's record and its parameters, which point at the stowed-exception array, so the triage pass can locate the stowed exception. The dump uses the context of the thread that crashed. If an earlier exception on that thread is still on its stack, winapp uses that exception's context instead, so the managed analysis can recover the user frame that threw. Exceptions your app already handled are listed in the debug log but are not reported as the crash.
 
-This pass hosts DbgEng with the WinUI team's WinDbg JavaScript extension. The debugging engine comes from NuGet; `JsProvider.dll` (the JavaScript host, not published on NuGet) is fetched on first use from the official WinDbg download. Both are version-pinned and verified before load — SHA-512 content hashes, plus a Microsoft Authenticode signature check on `JsProvider.dll` — and any verification failure skips triage rather than loading unverified code. Everything is cached under the winapp global directory, so later runs are offline.
+This pass hosts DbgEng with the WinUI team's WinDbg JavaScript extension. The debugging engine comes from NuGet; `JsProvider.dll` (the JavaScript host, not published on NuGet) is fetched on first use from the official WinDbg download. Both are version-pinned and checked against SHA-512 content hashes when downloaded. Each time triage runs, every debugger DLL it loads (the engine files and `JsProvider.dll`) must also carry a valid Microsoft Authenticode signature. Those files, and the WinUI extension script, stay locked until the pass finishes. Any verification failure skips triage rather than loading unverified code. A cached engine file that fails the signature check is downloaded again on the next run. Everything is cached under the winapp global directory, so later runs are offline.
 
-If your environment blocks those downloads, either install **Debugging Tools for Windows** (via the Windows SDK) or set `WINAPP_DBGTOOLS_DIR` to a debugger directory containing `dbgeng.dll` and `JsProvider.dll`. When `WINAPP_DBGTOOLS_DIR` is set it is authoritative — only that directory is consulted — and if it's incomplete the log names the missing component.
+If your environment blocks those downloads, either install **Debugging Tools for Windows** (via the Windows SDK) or set `WINAPP_DBGTOOLS_DIR` to a debugger directory containing `dbgeng.dll` and `JsProvider.dll`. The same signature check applies to those DLLs. When `WINAPP_DBGTOOLS_DIR` is set it is authoritative — only that directory is consulted — and if it's incomplete the log names the missing component.
 
 When triage succeeds the console shows a one-line verdict (the stowed exception's error code/message). When it can't run, the console says so, the log explains why, and the standard managed/native analysis still runs.
 

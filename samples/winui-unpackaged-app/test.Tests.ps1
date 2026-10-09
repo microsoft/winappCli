@@ -120,12 +120,14 @@ Describe 'winui-unpackaged-app sample' {
             #
             # Do NOT use Start-Process -Wait: -Wait blocks until the launched process AND ALL
             # ITS DESCENDANTS exit. The unpackaged app is a descendant of winapp and runs
-            # indefinitely, so -Wait would hang. Instead wait only on winapp's own process via
-            # .WaitForExit(), which does not wait for descendants.
+            # indefinitely, so -Wait would hang. Instead wait only on winapp's own process, and
+            # bound that wait: a winapp that never returns fails here with the process tree it
+            # left behind, instead of holding the job until CI cancels it.
             $invocation = Resolve-WinappInvocation -Arguments @('run', '.', '--detach')
             $proc = Start-Process -FilePath $invocation.File -ArgumentList $invocation.Args `
                 -WorkingDirectory $script:tempDir -NoNewWindow -PassThru
-            $proc.WaitForExit()
+            Wait-ProcessExitOrFail -Process $proc -Timeout ([TimeSpan]::FromMinutes(10)) `
+                -Description 'winapp run . --detach'
             $proc.ExitCode | Should -Be 0 -Because 'winapp run --detach should build and launch, then return 0'
 
             $app = Get-Process -Name $script:appProcessName -ErrorAction SilentlyContinue | Select-Object -First 1

@@ -993,6 +993,115 @@ public class NewCommandHandlerTests : BaseCommandTests
             "A template from another installed pack must be filtered out of the catalog.");
     }
 
+    /// <summary>
+    /// Scripts the WinUI pack plus the standalone Reactor pack, whose template registers
+    /// <paramref name="foreignAliases"/>. Only the WinUI pack's templates match <c>dotnet new list winui</c>.
+    /// </summary>
+    private void ScriptWithStandaloneReactorPack(string foreignAliases)
+    {
+        // dotnet new list sorts alphabetically, so Reactor precedes WinUI here exactly as it does live.
+        (string Name, string Short, string Lang, string Type, string Author, string Tags)[] templates =
+        [
+            ("Reactor Blank App (Experimental)", "reactor,reactor-blank,winui-reactor", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/Reactor/Experimental"),
+            ("WinUI Blank App", "winui,winui3,wasdk-single", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
+        ];
+        var list = BuildListTable(templates);
+        var uninstall = "Currently installed items:\n"
+            + "   Microsoft.UI.Reactor.Templates\n"
+            + "      Version: 0.1.0\n"
+            + "      Templates:\n"
+            + $"         Microsoft.UI.Reactor App ({foreignAliases}) C#\n"
+            + "      Uninstall Command:\n"
+            + "         dotnet new uninstall Microsoft.UI.Reactor.Templates\n"
+            + BuildUninstallOutput("0.0.6-alpha", templates).Replace("Currently installed items:\n", string.Empty, StringComparison.Ordinal);
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args.Count >= 1 && args[0] == "--version")
+            {
+                return (0, "10.0.100\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, uninstall, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
+            {
+                return (0, list, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
+            {
+                return (0, "All template packages are up-to-date.", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
+            {
+                return (0, "ok", string.Empty);
+            }
+            return (0, "The template was created successfully.", string.Empty);
+        };
+    }
+
+    [TestMethod]
+    public async Task Handler_InteractivePrompt_ListsWinUiTemplatesBeforeReactor()
+    {
+        // dotnet new list sorts alphabetically, so Reactor arrives first; the menu must still lead
+        // with the WinUI templates, making Enter on the first choice the blank WinUI app.
+        ScriptWithStandaloneReactorPack("microsoft-ui-reactor");
+        TestAnsiConsole.Input.PushKey(ConsoleKey.Enter);
+        TestAnsiConsole.Input.PushTextWithEnter("PromptedApp");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, []);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        var output = TestAnsiConsole.Output;
+        var winuiIdx = output.IndexOf("WinUI Blank App (winui)", StringComparison.Ordinal);
+        var reactorIdx = output.IndexOf("Reactor Blank App (Experimental) (reactor)", StringComparison.Ordinal);
+        Assert.IsTrue(winuiIdx >= 0 && reactorIdx >= 0, output);
+        Assert.IsTrue(winuiIdx < reactorIdx, "WinUI templates must be listed before Reactor templates.");
+        var scaffold = ScaffoldInvocation();
+        Assert.IsNotNull(scaffold);
+        Assert.AreEqual("winui", scaffold[1], "The first menu choice must be the WinUI blank app.");
+    }
+
+    [TestMethod]
+    public async Task Handler_ShortNameAlsoRegisteredByAnotherPack_ScaffoldsWithUniqueAlias()
+    {
+        // `dotnet new reactor` is ambiguous when Microsoft.UI.Reactor.Templates is also installed, so
+        // winapp must invoke the WinUI pack's template by an alias only that pack owns (#948).
+        ScriptWithStandaloneReactorPack("reactor");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--use-defaults", "--json", "--template", "reactor", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        var json = ParseJson(TestAnsiConsole.Output);
+        Assert.AreEqual("reactor", json.GetProperty("Template").GetString(),
+            "The reported template is the one the user picked, not the alias used to invoke it.");
+
+        var scaffold = ScaffoldInvocation();
+        Assert.IsNotNull(scaffold);
+        Assert.AreEqual("reactor-blank", scaffold[1], "dotnet new must receive an alias no other installed pack registers.");
+    }
+
+    [TestMethod]
+    public async Task Handler_EveryAliasRegisteredByAnotherPack_FailsNamingThePack()
+    {
+        ScriptWithStandaloneReactorPack("reactor,reactor-blank,winui-reactor");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--use-defaults", "--json", "--template", "reactor", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitTemplatePackFailed, exitCode);
+        var json = ParseJson(TestAnsiConsole.Output);
+        Assert.IsFalse(json.GetProperty("Created").GetBoolean());
+        var error = json.GetProperty("Error").GetString() ?? string.Empty;
+        StringAssert.Contains(error, "Microsoft.UI.Reactor.Templates");
+        StringAssert.Contains(error, "dotnet new uninstall Microsoft.UI.Reactor.Templates");
+        Assert.IsNull(ScaffoldInvocation(), "No scaffold may run when dotnet new can't select the template.");
+    }
+
 
     [TestMethod]
     public async Task Handler_AppTemplate_PrintsWinappRunNextStep()
@@ -1413,6 +1522,89 @@ public class NewCommandHandlerTests : BaseCommandTests
         Assert.IsNotNull(install, "'--template-version latest' must (re)install the pack.");
         Assert.AreEqual(NewCommand.TemplatePackageId, install[2],
             "'latest' must install the bare package id (no version pin) so it floats to the newest published version.");
+    }
+
+    private void ScriptInstalledPackWithUpdateCheck(string installedVersion, int updateExit, string updateOutput)
+    {
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args.Count >= 1 && args[0] == "--version")
+            {
+                return (0, "9.0.100\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, BuildUninstallOutput(installedVersion), string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
+            {
+                return (updateExit, updateOutput, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
+            {
+                return (0, "Success", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
+            {
+                return (0, SampleListOutput, string.Empty);
+            }
+            return (0, "created", string.Empty);
+        };
+    }
+
+    [TestMethod]
+    public async Task Handler_TemplateVersionLatest_InstalledNewerThanFeed_KeepsInstalledPack()
+    {
+        // Regression for #859: a locally installed prerelease newer than the feed must not be downgraded.
+        ScriptInstalledPackWithUpdateCheck("0.0.7-alpha-2026-0911-2329-pr0", 0, "All template packages are up-to-date.\n");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--use-defaults", "--json", "--template-version", "latest", "--list"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        Assert.IsFalse(
+            _dotnet.ArgumentListInvocations.Any(a => a.Count >= 2 && a[0] == "new" && a[1] == "install"),
+            "'latest' must not replace an installed pack that is already at or above the feed's newest version.");
+    }
+
+    [TestMethod]
+    public async Task Handler_TemplateVersionLatest_FeedNewer_InstallsExactFeedVersion()
+    {
+        ScriptInstalledPackWithUpdateCheck("0.0.5-alpha", 0,
+            "Package                                          Current      Latest\n" +
+            "-----------------------------------------------  -----------  -----------\n" +
+            "Microsoft.WindowsAppSDK.WinUI.CSharp.Templates   0.0.5-alpha  0.0.6-alpha\n");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--use-defaults", "--json", "--template-version", "latest", "--list"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        var install = _dotnet.ArgumentListInvocations
+            .FirstOrDefault(a => a.Count >= 3 && a[0] == "new" && a[1] == "install");
+        Assert.IsNotNull(install, "'latest' must update a pack that is behind the feed.");
+        Assert.AreEqual($"{NewCommand.TemplatePackageId}::0.0.6-alpha", install[2],
+            "The update must pin the version the feed reported rather than float.");
+    }
+
+    [TestMethod]
+    public async Task Handler_TemplateVersionLatest_UpdateCheckFails_ReturnsTemplatePackFailed()
+    {
+        ScriptInstalledPackWithUpdateCheck("0.0.5-alpha", 1, string.Empty);
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["--use-defaults", "--json", "--template-version", "latest", "--list"]);
+
+        Assert.AreEqual(NewCommand.ExitTemplatePackFailed, exitCode,
+            "An explicit 'latest' that cannot reach the feed must fail rather than report the installed pack as latest.");
+        Assert.IsFalse(
+            _dotnet.ArgumentListInvocations.Any(a => a.Count >= 2 && a[0] == "new" && a[1] == "install"),
+            "Without an authoritative feed check, 'latest' must not blindly reinstall over the installed pack.");
+        var error = ParseJson(TestAnsiConsole.Output).GetProperty("Error").GetString();
+        Assert.IsTrue(error is not null && error.Contains("--template-version installed", StringComparison.Ordinal),
+            $"The JSON error must point at the offline workaround. Got: {error}");
     }
 
     [TestMethod]

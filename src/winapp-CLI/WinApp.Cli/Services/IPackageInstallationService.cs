@@ -7,8 +7,6 @@ namespace WinApp.Cli.Services;
 
 internal interface IPackageInstallationService
 {
-    void InitializeWorkspace(DirectoryInfo rootDirectory);
-
     Task<Dictionary<string, string>> InstallPackagesAsync(
         DirectoryInfo rootDirectory,
         IEnumerable<string> packages,

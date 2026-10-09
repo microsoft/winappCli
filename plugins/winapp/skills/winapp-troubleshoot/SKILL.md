@@ -1,7 +1,10 @@
 ---
 name: winapp-troubleshoot
-description: Diagnose and fix common Windows app packaging, signing, identity, and SDK errors. Use when encountering errors with MSIX packaging, certificate signing, Windows SDK setup, or app installation.
+description: "Diagnose Windows app packaging, signing, install, identity, and SDK errors: untrusted or mismatched certificates, Add-AppxPackage and 0x80073CFx install failures, no package identity, C++/WinRT headers not generated. Use when an MSIX won't install or build, or an error code appears."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:
@@ -17,15 +20,21 @@ Use this skill when:
 | "Package.appxmanifest not found" | Running `package`, `create-debug-identity`, or `cert generate --manifest` | Run `winapp init` or `winapp manifest generate` first, or pass `--manifest <path>` |
 | "Publisher mismatch" | Certificate publisher ≠ manifest publisher | Regenerate cert: `winapp cert generate --manifest`, or edit `Package.appxmanifest` `Identity.Publisher` to match |
 | "Access denied" / "elevation required" | `cert install` without admin | Run terminal as Administrator for `winapp cert install` |
-| "Package installation failed" | Cert not trusted, or stale package registration | `winapp cert install ./devcert.pfx` (admin), then `Get-AppxPackage <name> \| Remove-AppxPackage` |
+| "Package installation failed" | Cert not trusted, or stale package registration | For a certificate error, `winapp cert install ./devcert.pfx` (admin). For registration conflicts, see the rows below rather than deleting packages by name |
 | "Certificate not trusted" | Dev cert not installed on machine | `winapp cert install ./devcert.pfx` (admin) |
 | "Build tools not found" | First run, tools not yet downloaded | Run `winapp update` to download tools; ensure internet access |
-| "Failed to add package identity" | Stale debug identity or untrusted cert | `Get-AppxPackage *yourapp* \| Remove-AppxPackage` to clean up, then `winapp cert install` and retry |
+| "Failed to add package identity" | Stale debug identity or untrusted cert | Run `winapp unregister` with your app's input (or `--manifest` for `create-debug-identity`); install a certificate only if the error asks for it |
 | "Certificate file already exists" | `devcert.pfx` already present | Use `winapp cert generate --if-exists overwrite` or `--if-exists skip` |
 | "Manifest already exists" | `Package.appxmanifest` already present | Use `winapp manifest generate --if-exists overwrite` or edit manifest directly |
 | `run` / `create-debug-identity` registration error `0x800704EC` | Developer Mode is disabled | Enable it in **Settings → Privacy & security → For developers**, or `Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense -Value 1`, then retry |
-| `run` / `create-debug-identity` registration error `0x80073CFB` | Package already registered with a conflicting identity | Run `winapp unregister` (or `winapp unregister --force` if the package was registered from a different project tree), then retry |
+| Two worktrees of the same app keep replacing each other's registration | Both copies share one package identity | Run each with `winapp run . --unique-identity` (supported packaged apps) so each gets its own identity and app data |
+| `run` / `create-debug-identity` registration error `0x80073CFB` | Package already registered with a conflicting identity | Run `winapp unregister` with your app's input, then retry. Use `--force` only if you are sure the same-named package registered elsewhere is yours |
 | App's Start menu entry launches nothing, silently | Package still registered after its files were deleted | Run `winapp unregister --prune` to remove every dev registration whose files are gone |
+| "winapp can't write the API index" / "can't install the Microsoft Store Developer CLI" | `%USERPROFILE%\.winapp` isn't writable (for example, an agent sandbox) | Set `WINAPP_CLI_CACHE_DIRECTORY` to a writable folder, such as one inside the project, and retry. Other commands keep working without it |
+
+For `--unique-identity` errors about unsupported extensions or resources, see
+[unique identity for parallel checkouts](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts).
+Run without the flag instead of working around the check.
 
 ## Command selection guide
 
@@ -80,7 +89,7 @@ Is the app a single .cs file (.NET file-based app)?
 | Capture OutputDebugString + crash dump | `winapp run .\build\Debug --debug-output` | On crash, writes minidump and shows exception type, message, and faulting methods. **Blocks other debuggers** — use `--no-launch` if you need VS Code/WinDbg |
 | Run and auto-clean | `winapp run .\build\Debug --unregister-on-exit` | Unregisters the dev package after the app exits |
 | Launch and detach (CI) | `winapp run .\build\Debug --detach` | Returns immediately after launch; use `--json` to get PID for scripting |
-| Clean up stale registration | `winapp unregister` | Removes dev-mode packages for the current project (pass a `.cs` for a file-based app: `winapp unregister counter.cs`) |
+| Clean up this app's registration | `winapp unregister .` | Pass the same input as `run`; works with or without `--unique-identity` |
 | Start menu entry does nothing when clicked | `winapp unregister --prune` | The package is registered but its files were deleted, so activation silently fails. Prune removes every dev registration whose files are gone |
 
 > **Visual Studio users:** If you have a packaging project, VS already handles identity and debugging from F5 — you likely don't need winapp for debugging. These workflows are for VS Code, terminal, and frameworks VS doesn't natively package.
@@ -99,8 +108,8 @@ For full details, see the [Debugging Guide](https://github.com/microsoft/WinAppC
 | `cert generate` | Nothing (or `Package.appxmanifest` for publisher) | `devcert.pfx` |
 | `cert install` | Certificate file + admin | Machine certificate store |
 | `create-debug-identity` | `Package.appxmanifest` + exe + trusted cert | Registers sparse package with Windows |
-| `run` | Build output folder + `Package.appxmanifest`; **or** a `.csproj`/`.sln`; **or** a `.cs` file-based app (no manifest needed — one is generated) | Registers loose layout package, launches app |
-| `unregister` | A `.cs` file-based app, **or** `Package.appxmanifest` (auto-detect or `--manifest`) | Removes dev-mode package registrations |
+| `run` | Build output folder + `Package.appxmanifest`; **or** a `.csproj`/`.vcxproj`/`.sln` (C++ needs Visual Studio or Build Tools with the C++ workload); **or** a `.cs` file-based app (no manifest needed — one is generated) | Registers loose layout package, launches app |
+| `unregister` | The same input passed to `run` (`.cs`, `.csproj`/`.vcxproj`, or folder), or `--manifest` | Removes the development registration that `run` or `create-debug-identity` created |
 | `package` | Build output + `Package.appxmanifest` | `.msix` file |
 | `sign` | File + certificate | Signed file (in-place) |
 | `create-external-catalog` | Directory with executables | `CodeIntegrityExternal.cat` |

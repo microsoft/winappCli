@@ -11,7 +11,8 @@ internal sealed record GuestLaunchOptions(
     bool Json = false,
     string? AppArguments = null,
     bool AliasIsExplicit = true,
-    bool Symbols = false);
+    bool Symbols = false,
+    bool Quiet = false);
 
 /// <summary>Builds a verify-and-launch request that cannot register or remove packages.</summary>
 internal static class GuestLaunchPlanner
@@ -64,6 +65,11 @@ internal static class GuestLaunchPlanner
         if (options.Json)
         {
             arguments.Add("--json");
+        }
+        // The guest rejects --quiet with --json, and --json already keeps its stdout machine-readable.
+        if (options.Quiet && !options.Json)
+        {
+            arguments.Add("--quiet");
         }
         if (!string.IsNullOrEmpty(options.AppArguments))
         {

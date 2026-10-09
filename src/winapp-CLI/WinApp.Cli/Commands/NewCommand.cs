@@ -31,7 +31,7 @@ internal class NewCommand : Command, IShortDescription
     /// </summary>
     internal const string DefaultTemplateShortName = "winui";
 
-    /// <summary><c>--template-version latest</c>: install the newest published pack, skip the update prompt.</summary>
+    /// <summary><c>--template-version latest</c>: update to the newest published pack without prompting; never downgrades a newer installed pack.</summary>
     internal const string LatestVersionKeyword = "latest";
 
     /// <summary><c>--template-version installed</c>: keep whatever pack is installed, skip the feed check and prompt.</summary>
@@ -110,7 +110,7 @@ internal class NewCommand : Command, IShortDescription
         };
         TemplateVersionOption = new Option<string?>("--template-version")
         {
-            Description = $"WinUI template pack version: '{LatestVersionKeyword}' (install newest), '{InstalledVersionKeyword}' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack."
+            Description = $"WinUI template pack version: '{LatestVersionKeyword}' (update to newest; never downgrades), '{InstalledVersionKeyword}' (keep what's installed), or an explicit version. Default: install latest if none, else prompt to update a stale pack."
         };
         ListOption = new Option<bool>("--list")
         {
@@ -293,7 +293,7 @@ internal class NewCommand : Command, IShortDescription
         {
             /// <summary>No <c>--template-version</c>: install latest if none, else prompt to update a stale pack.</summary>
             Default,
-            /// <summary><c>latest</c>: install the newest pack, no prompt.</summary>
+            /// <summary><c>latest</c>: install the newest pack, no prompt; keep an installed pack that is already newer.</summary>
             Latest,
             /// <summary><c>installed</c>: keep the installed pack, no feed check or prompt.</summary>
             Installed,
@@ -549,8 +549,7 @@ internal class NewCommand : Command, IShortDescription
             {
                 // Never let an experimental template become the silent default: the blank app is
                 // resolved by short name, and the fallbacks (for a pack that renamed it) prefer a
-                // stable project template over a prerelease one such as the Reactor templates, which
-                // sort ahead of the WinUI ones alphabetically.
+                // stable project template over a prerelease one such as the Reactor templates.
                 entry = templates.FirstOrDefault(t => t.MatchesShortName(DefaultTemplateShortName))
                     ?? templates.FirstOrDefault(t => t.IsProject && !t.IsExperimental)
                     ?? templates.FirstOrDefault(t => t.IsProject)
@@ -564,7 +563,35 @@ internal class NewCommand : Command, IShortDescription
             tel.Template = entry.ShortName;
             tel.TemplateIsItem = entry.IsItem;
 
-            // 1a. Resolve the target-framework pin now, before any name prompt, so a template the
+            // 1a. dotnet new selects a template by short name and refuses one that matches templates
+            // from more than one installed pack. When another pack registers every alias this template
+            // has, there is no name dotnet new can scaffold it by, so stop before prompting for a name.
+            var scaffoldShortName = entry.ScaffoldShortName;
+            if (scaffoldShortName is null)
+            {
+                var packs = string.Join(", ", entry.ConflictingPackages);
+                var uninstall = string.Join(" and ", entry.ConflictingPackages.Select(p => $"'dotnet new uninstall {p}'"));
+                var conflictError = $"Template '{entry.ShortName}' can't be created because every short name it has ({string.Join(", ", entry.ShortNames)}) "
+                    + $"is also registered by another installed template pack ({packs}), so 'dotnet new' can't tell them apart. "
+                    + $"Remove the other pack with {uninstall}, then re-run 'winapp new'.";
+                if (isJson)
+                {
+                    PrintJson(false, entry.ShortName, name ?? string.Empty, (output ?? currentDir).FullName, conflictError, entry.IsExperimental);
+                }
+                else
+                {
+                    logger.LogError("{Error} {Detail}", UiSymbols.Error, conflictError);
+                }
+                return ExitTemplatePackFailed;
+            }
+
+            if (!string.Equals(scaffoldShortName, entry.ShortName, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogDebug("'{ShortName}' is also registered by {Packs}; scaffolding with '{Alias}' instead.",
+                    entry.ShortName, string.Join(", ", entry.ConflictingPackages), scaffoldShortName);
+            }
+
+            // 1b. Resolve the target-framework pin now, before any name prompt, so a template the
             // installed SDK is too old for (the Reactor templates require .NET 10) fails immediately
             // with an actionable message instead of scaffolding a project that cannot be built.
             var frameworkArgs = new List<string>();
@@ -681,9 +708,9 @@ internal class NewCommand : Command, IShortDescription
 
             // Pass each token via ArgumentList (injection-safe) so a crafted --name or --output cannot
             // inject additional dotnet new options.
-            var args = new List<string> { "new", entry.ShortName, "-n", name!, "-o", outputDir.FullName };
+            var args = new List<string> { "new", scaffoldShortName, "-n", name!, "-o", outputDir.FullName };
 
-            // Target framework, resolved and validated in step 1a (empty for item templates, which take
+            // Target framework, resolved and validated in step 1b (empty for item templates, which take
             // no framework, and for project templates whose metadata declares nothing to pin).
             args.AddRange(frameworkArgs);
 
@@ -822,12 +849,47 @@ internal class NewCommand : Command, IShortDescription
 
                 case VersionMode.Latest:
                 {
-                    var (ok, err) = await InstallPackWithSpinnerAsync(cwd, version: null, sdkVersion, isJson, quiet, cancellationToken);
-                    if (!ok)
+                    if (installed is null)
                     {
-                        return (false, null, err);
+                        var (ok, err) = await InstallPackWithSpinnerAsync(cwd, version: null, sdkVersion, isJson, quiet, cancellationToken);
+                        if (!ok)
+                        {
+                            return (false, null, err);
+                        }
+                        return (true, await QueryInstalledPackVersionAsync(cwd, cancellationToken), null);
                     }
-                    return (true, await QueryInstalledPackVersionAsync(cwd, cancellationToken) ?? installed, null);
+
+                    // A pack is installed: only replace it with a strictly newer feed version. A floating
+                    // `dotnet new install <id>` would take the feed's newest even when the installed pack
+                    // (e.g. a locally built prerelease) is newer, silently downgrading it and dropping its
+                    // templates. The explicit request always re-queries the feed rather than the throttle.
+                    var (checkSucceeded, feedLatest) = await WithSpinnerAsync(
+                        "Checking for WinUI template pack updates...",
+                        () => GetLatestAvailableVersionAsync(cwd, installed, cancellationToken));
+
+                    if (!checkSucceeded)
+                    {
+                        // Fail rather than keep the installed pack: the caller explicitly asked for the
+                        // latest, and a silent success would let automation build from stale templates.
+                        return (false, null,
+                            $"Could not check the feed for a newer WinUI template pack (installed: {installed}). Check your network and NuGet sources, or re-run with '--template-version {InstalledVersionKeyword}' to use the installed pack. Re-run with --verbose for details.");
+                    }
+
+                    templateUpdateThrottle.Record(installed, feedLatest);
+
+                    if (feedLatest is null || NuGetVersionHelper.Compare(installed, feedLatest) is not int cmp || cmp >= 0)
+                    {
+                        if (!isJson && !quiet)
+                        {
+                            logger.LogInformation(
+                                "{Info}  Installed WinUI template pack {Version} is already the latest available.",
+                                UiSymbols.Info, installed);
+                        }
+                        return (true, installed, null);
+                    }
+
+                    var (updated, updateErr) = await InstallPackWithSpinnerAsync(cwd, feedLatest, sdkVersion, isJson, quiet, cancellationToken);
+                    return updated ? (true, feedLatest, null) : (false, null, updateErr);
                 }
 
                 case VersionMode.Default:
@@ -1119,7 +1181,12 @@ internal class NewCommand : Command, IShortDescription
                 return ([], $"Could not verify which templates '{TemplatePackageId}' owns: no template list for it in 'dotnet new uninstall' output. Re-run with --verbose to see that output.");
             }
 
-            return (WinUiTemplateCatalog.RestrictToPack(parsed, packRows), null);
+            // Another installed pack (e.g. the standalone Microsoft.UI.Reactor.Templates) may register
+            // the same aliases; dotnet new refuses a short name that matches templates from more than
+            // one pack, so record which aliases are shared and scaffold with one that isn't.
+            var owned = WinUiTemplateCatalog.RestrictToPack(parsed, packRows);
+            var marked = WinUiTemplateCatalog.MarkSharedAliases(owned, WinUiTemplateCatalog.ParseInstalledPacks(packOutput), TemplatePackageId);
+            return (WinUiTemplateCatalog.OrderForDisplay(marked), null);
         }
 
         private async Task<WinUiTemplateEntry> PromptTemplateAsync(IReadOnlyList<WinUiTemplateEntry> templates, CancellationToken cancellationToken)

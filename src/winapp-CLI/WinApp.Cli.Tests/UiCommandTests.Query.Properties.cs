@@ -33,7 +33,7 @@ public partial class UiCommandTests
     public async Task QueryOptions_GeneralPropertyFaultSurfacesOrRetries(string name, string property, int hresult)
     {
         var reads = 0;
-        var getter = property == "IsPassword" ? "get_CurrentIsContentElement" : $"get_Current{property}";
+        var getter = $"get_Current{property}";
         var provider = PropertyProxy<IUIAutomationElement>((method, _) =>
         {
             if (method.Name == getter && ++reads == 1) { throw new COMException("Property getter failed.", hresult); }

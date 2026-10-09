@@ -88,6 +88,12 @@ public abstract class BaseCommandTests(bool configPaths = true, LogLevel logLeve
 
             _buildToolsService = GetRequiredService<IBuildToolsService>();
         }
+
+        // Generated dev certificates must not accumulate in the developer's CurrentUser\My store.
+        if (GetRequiredService<ICertificateService>() is CertificateService certificateService)
+        {
+            certificateService.PersistToCurrentUserStore = false;
+        }
     }
 
     protected async Task<int> ParseAndInvokeWithCaptureAsync(Command command, string[] manifestArgs)

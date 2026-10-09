@@ -1,0 +1,29 @@
+{
+  "id": "lichen-listing-installed-apps-is-administration",
+  "description": "Avoids packaging help for a PowerShell inventory query of already installed applications.",
+  "set": "heldout",
+  "cohort": "near-miss",
+  "persona": "10",
+  "framework": "PowerShell / endpoint administration",
+  "conflictingSignal": false,
+  "sources": [],
+  "prompt": "For Lichen Inventory, change this PowerShell query to export Name and Version for all users' installed apps, sorted by name. The audit has to be read-only.",
+  "paraphrases": {
+    "novice": "Can you adjust Lichen Inventory's script to give me a spreadsheet of app names and versions for everyone on this computer, in alphabetical order? We only have permission to read.",
+    "terse": "Lichen Get-AppxPackage audit: all users, Name + Version, sort, export CSV."
+  },
+  "configurations": [
+    "none",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

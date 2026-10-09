@@ -73,6 +73,10 @@ public interface IUiAutomation
     /// <exception cref="UiAmbiguousSelectorException">More than one element matched.</exception>
     Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, bool requireUnique, CancellationToken ct);
 
+    /// <summary>Confirms that two in-process query results refer to the same live UIA provider.
+    /// Never compares short selector hashes or resolves an external model by name.</summary>
+    bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct);
+
     /// <summary>Reads an element's UIA properties.</summary>
     /// <param name="uiTarget">The app or window that owns the element.</param>
     /// <param name="element">The element to read.</param>
@@ -165,9 +169,9 @@ public interface IUiAutomation
     bool TryResolveRootWindow(UiTarget target, out nint hwnd, out string? title);
 
     /// <summary>
-    /// Resolves the element's top-level native window by walking its UIA ancestors, or 0 when no
-    /// ancestor exposes one. Lets a caller retarget capture at the window an element actually lives
-    /// in, which for popups and dialogs is not the session window.
+    /// Resolves the top-level native window an element is drawn in, or 0 when no UIA ancestor exposes
+    /// one. Lets a caller retarget capture at the window an element actually lives in, which for
+    /// popups, dialogs and windowed XAML flyouts is not the session window.
     /// </summary>
     nint ResolveElementTopLevelWindow(UiTarget target, UiElement element);
 

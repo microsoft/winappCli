@@ -34,9 +34,12 @@ menu and finish any client installation or update. winapp does not enable the fe
 install the client, request elevation, or restart Windows. If prerequisites are missing,
 it stops with setup instructions; an observed pending Windows restart is reported separately.
 
-A cold connection or reconnect can briefly take focus. Once connected, winapp
-keeps its own client window off-screen without activating it. A Sandbox window you
-opened yourself is left in place.
+A cold connection or reconnect can briefly take focus. Once connected, winapp puts
+the Sandbox window behind the window you were using, without activating it; switch to
+**Windows Sandbox** in the taskbar to watch the guest. Unlike a Sandbox opened from
+Start, closing this window does not end the Sandbox; it keeps running. To see it again,
+run `wsb list`, then `wsb connect --id <id>`. To end it, see
+[Removing an app and ending the Sandbox](#removing-an-app-and-ending-the-sandbox).
 
 > [!IMPORTANT]
 > **Builds still run on your machine.** Project evaluation, restore, and compilation are
@@ -60,6 +63,10 @@ winapp run .\publish --on sandbox --detach
 winapp run . --on sandbox --clean --detach
 ```
 
+To run copies of a packaged app from different worktrees in the same Sandbox, add
+`--unique-identity`: `winapp run . --unique-identity --on sandbox --detach`. See
+[unique identity for parallel checkouts](usage.md#unique-identity-for-parallel-checkouts).
+
 Build options such as `--configuration`, `--arch`, `--framework`, `--property`,
 `--no-build`, and `--no-restore` apply on the host. Registration, launch, and debugging
 happen in the guest; the app is not registered on your machine.
@@ -80,6 +87,7 @@ Rerunning transfers changed files and removes files deleted from the build outpu
 Application data is preserved unless you request `--clean`. An incomplete deployment
 does not launch; retrying rebuilds its guest copy. If build files change while winapp is
 preparing them, finish the build and retry.
+
 
 Warm UI commands report only their result, without repeating a Sandbox preparation
 message. Sandbox startup and connection recovery still report progress. Use `--verbose` for
@@ -144,8 +152,8 @@ winapp does not guess the last app launched. Omitting `--on sandbox` selects you
 desktop instead.
 
 Real input and recording require a **connected, nonminimized Sandbox client**. Read-only
-inspection can still work when input cannot. winapp can restore its own minimized
-client without activation; a minimized manually opened client must be restored by you.
+inspection can still work when input cannot. winapp restores a minimized Sandbox window
+behind your current window, without activating it.
 If input is unavailable after reconnecting, the command fails rather than claiming
 it delivered input. Use the reconnect command in the error and retry.
 
@@ -315,17 +323,20 @@ a link is refused. Copy the real files or directories instead.
 ## Removing an app and ending the Sandbox
 
 ```powershell
-winapp unregister --on sandbox --manifest .\Package.appxmanifest
+winapp unregister . --on sandbox
 ```
 
-With a manifest in the current directory, you can omit `--manifest`. This removes only
-the matching development package registered by winapp in the current Sandbox.
+Pass the project or folder you passed to `run`, with or without `--unique-identity`, or a
+manifest. This removes only the matching development package registered by winapp in the
+current Sandbox: the input's `--unique-identity` registration if it has one, otherwise the
+registration under the manifest's own name, which every checkout of the app shares.
 An externally installed package is left alone, even if its identity matches.
 `--force` is not supported with `--on`; it cannot bypass ownership checks.
-This is manifest-based package cleanup, not an unregister command for unpackaged apps
-or a `.cs` input.
+A `.cs` input isn't supported with `--on`; pass its manifest instead. Unpackaged apps have no
+package registration to remove.
 
-The Sandbox remains running. Manage its lifetime with Windows Sandbox's own CLI:
+The Sandbox remains running, even after you close its window. Manage its lifetime with
+Windows Sandbox's own CLI:
 
 ```powershell
 wsb list
@@ -355,10 +366,12 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_setup_incomplete` | Open Windows Sandbox from Start and finish client setup/update, then retry |
 | `sandbox_unmanaged_instance`, `sandbox_target_ambiguous` | Inspect the reported instances/windows; do not stop unrelated work to resolve ambiguity |
 | `sandbox_input_not_ready`, `sandbox_no_interactive_session` | Restore the existing client or reconnect as directed, then retry |
-| `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested, then close/retry only with consent |
+| `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested. If it asks you to stop the Sandbox, save any work you need, then run `wsb stop --id <id>` (with consent) and retry; closing its window does not stop it |
+| `sandbox_transport_failed` | Follow the error's `userAction`. If a folder share failed with `0x80070005`, Windows Sandbox (which shares folders as the SYSTEM account) can't read the reported folder; grant access, then retry: `icacls "<folder>" /grant "*S-1-5-18:(OI)(CI)F"` (`S-1-5-18` is SYSTEM) |
 | `sandbox_agent_busy` | Wait for another command to finish, then retry |
 | `sandbox_terminated`, `sandbox_target_stale`, `sandbox_stale_handle` | Rerun the app and rediscover guest PIDs/windows |
 | `sandbox_state_unavailable` | Ensure `%USERPROFILE%\.winapp\state` is writable, or correct `WINAPP_TARGET_STATE_ROOT` if set |
+| "Only one running instance of Windows Sandbox is allowed" when opening Windows Sandbox from Start | A Sandbox is already running, and Start cannot attach to it. Switch to **Windows Sandbox** in the taskbar. If it has no window, run `wsb list`, then `wsb connect --id <id>` |
 | `sandbox_deployment_dirty`, `sandbox_transfer_interrupted` | Retry the deployment or transfer |
 | `sandbox_runtime_provision_failed` | Resolve the named dependency or unsupported runtime configuration; see [Shared runtimes](#shared-runtimes) |
 | `sandbox_package_conflict`, `sandbox_provisioned_package_conflict` | Follow the package-specific action; do not remove unrelated or inbox packages |

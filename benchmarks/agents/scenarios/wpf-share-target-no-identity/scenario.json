@@ -1,0 +1,29 @@
+{
+  "id": "wpf-share-target-no-identity",
+  "description": "Symptom-first: a WPF app never appears in the Windows Share sheet because share targets need package identity; identity, not a WinUI rewrite.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "Our WPF app never shows up in the Windows Share sheet, so people can't share photos into it. ShareTarget activation handling is already in App.xaml.cs. We're not rewriting this in WinUI. What's missing?",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "identity"
+      ],
+      "acceptable": [
+        "msix.manifest",
+        "framework.guidance",
+        "troubleshoot"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples"
+      ]
+    }
+  }
+}

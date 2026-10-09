@@ -124,6 +124,25 @@ internal static class Program
 
                 return 1;
             }
+
+            // `winapp ui <unknown>` fails before anything else, even with --help or --on: help is a
+            // terminating action, so the command line parses cleanly and would otherwise print the
+            // group help with exit 0, or route a command that does not exist to another target.
+            if (UiUnknownCommand.Find(parseResult) is { } unknownUiCommand)
+            {
+                var suggestions = UiUnknownCommand.Suggest(unknownUiCommand, parseResult.CommandResult.Command.Subcommands);
+                if (ResolveEffectiveJson(parseResult))
+                {
+                    UiJsonError.Emit(true, UiJsonError.CodeInvalidArguments, UiUnknownCommand.Message(unknownUiCommand),
+                        recoveryHint: UiUnknownCommand.RecoveryHint, suggestions: suggestions);
+                }
+                else
+                {
+                    UiUnknownCommand.WriteText(Console.Error, unknownUiCommand, suggestions);
+                }
+
+                return 1;
+            }
         }
 
         // Skip first-run notice for machine-readable output modes and completions
@@ -241,6 +260,13 @@ internal static class Program
 
         return await RunWithTelemetryAsync(parsedArgs, isCompleteMode, () =>
         {
+            // --help and --cli-schema describe the command; they never execute it, so they run here
+            // regardless of --on rather than validating or preparing a target just to print text.
+            if (IsDescriptiveAction(parsedArgs))
+            {
+                return parsedArgs.InvokeAsync();
+            }
+
             // Target selection is settled before anything else, and settled for every command.
             // A command that cannot honour --on says so, and a selector that names nothing usable
             // fails here — never silently on this desktop, which is the one outcome the option
@@ -282,8 +308,37 @@ internal static class Program
                     CancellationToken.None);
             }
 
+            if (parsedArgs.Action is System.CommandLine.Invocation.ParseErrorAction parseError
+                && IsUiDescendant(parsedArgs)
+                && parsedArgs.CommandResult.Command is not UiCommand)
+            {
+                // The error names the mistake; the full ui command help after it would bury that
+                // error, so point at --help instead. A bare "winapp ui" keeps its help: that is
+                // how people discover the commands.
+                parseError.ShowHelp = false;
+                return InvokeWithHelpPointerAsync(parsedArgs);
+            }
+
             return parsedArgs.InvokeAsync();
         });
+    }
+
+    internal static bool IsDescriptiveAction(System.CommandLine.ParseResult parsedArgs) =>
+        parsedArgs.Errors.Count == 0 &&
+        parsedArgs.Action is { Terminating: true } action &&
+        action != parsedArgs.CommandResult.Command.Action;
+
+    private static async Task<int> InvokeWithHelpPointerAsync(System.CommandLine.ParseResult parsedArgs)
+    {
+        var exitCode = await parsedArgs.InvokeAsync();
+        var path = string.Join(" ", parsedArgs.CommandResult.Command.Parents
+            .OfType<System.CommandLine.Command>()
+            .Where(c => c is not System.CommandLine.RootCommand)
+            .Select(c => c.Name)
+            .Prepend(parsedArgs.CommandResult.Command.Name)
+            .Reverse());
+        parsedArgs.InvocationConfiguration.Error.WriteLine($"Run 'winapp {path} --help' for usage.");
+        return exitCode;
     }
 
     /// <summary>

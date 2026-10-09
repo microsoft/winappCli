@@ -57,43 +57,6 @@ public class PackageCommandTests : BaseCommandTests
         _certificateService = GetRequiredService<ICertificateService>();
     }
 
-    [TestCleanup]
-    public void Cleanup()
-    {
-        // Clean up test certificates from the certificate store
-        // This prevents test certificates from accumulating in the CurrentUser\My store
-        // and potentially interfering with other tests or system operations.
-        // The cleanup logic matches the pattern used in SignCommandTests.cs
-        var testCertificatePublishers = new[]
-        {
-            "CN=TestPublisher",
-            "CN=WrongPublisher",
-            "CN=ExternalTestPublisher",
-            "CN=DifferentPublisher",
-            "CN=TestCertificatePublisher",
-            "CN=PasswordTestPublisher",
-            "CN=CommonValidationPublisher",
-            "CN=CertificatePublisher",
-            "CN=SimplePublisher",
-            "CN=SimpleName",
-            "CN=Trimmed",
-            "CN=CA0D5344-F590-41F9-BE2C-16BE6FCEE1DF",
-            "CN=Taozuhong, L=Shenzhen, S=Guangdong, C=CN",
-            "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
-            "CN=Publisher, O=MyOrg",
-            "CN=Publisher, C=US",
-            "CN=Publisher With Spaces, O=My Organization, L=New York, S=New York, C=US",
-            "OU=Finance, DC=corp, DC=com",
-            "O=Contoso Ltd, C=US",
-            "DC=example, DC=com",
-        };
-
-        foreach (var publisher in testCertificatePublishers)
-        {
-            CleanupInvalidTestCertificatesFromStore(publisher);
-        }
-    }
-
     /// <summary>
     /// Extracts and reads the AppxManifest.xml content from a created MSIX package
     /// </summary>
@@ -198,33 +161,6 @@ public class PackageCommandTests : BaseCommandTests
         return CreateExternalTestManifestWithScaledVisualLogos()
             .Replace("Assets\\StoreLogo.png", "Images\\StoreLogo.png", StringComparison.Ordinal)
             .Replace("Assets\\Logo.scale-200.png", "Images\\Logo.scale-200.png", StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Removes test certificates from the CurrentUser\My certificate store
-    /// This ensures test certificates don't accumulate and interfere with other tests
-    /// </summary>
-    /// <param name="subjectName">Certificate subject DN to clean up (e.g., "CN=TestPublisher" or "OU=Finance, DC=corp, DC=com")</param>
-    private static void CleanupInvalidTestCertificatesFromStore(string subjectName)
-    {
-        try
-        {
-            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-            store.Open(OpenFlags.ReadWrite);
-
-            var certificates = store.Certificates.Find(X509FindType.FindBySubjectDistinguishedName, subjectName, false);
-
-            foreach (X509Certificate2 cert in certificates)
-            {
-                // Remove all test certificates - we don't need datetime logic
-                store.Remove(cert);
-            }
-        }
-        catch
-        {
-            // Ignore cleanup errors - not critical for test functionality
-            // The certificate store cleanup is a best-effort operation
-        }
     }
 
     [TestMethod]
@@ -2575,12 +2511,7 @@ public class PackageCommandTests : BaseCommandTests
     [TestMethod]
     public async Task CreateMsixPackageAsync_AutoSignWithGenerateDevCert_GeneratesAndSignsWithDevCertificate()
     {
-        // Arrange - use a UNIQUE publisher subject for this test. The autoSign + generateDevCert
-        // flow generates a dev certificate that is installed into the shared CurrentUser\My store.
-        // This class runs in parallel and many other tests generate and blanket-remove the shared
-        // "CN=TestPublisher" subject, so reusing it here would race concurrent store add/remove of
-        // the same entry (the flagged flaky failure). A dedicated subject, cleaned up only by this
-        // test, isolates the store interaction and keeps the class fully parallel-safe.
+        // Arrange
         const string uniquePublisher = "CN=AutoSignGenDevCertPublisher";
         var packageDir = new DirectoryInfo(Path.Combine(_tempDirectory.FullName, "GenDevCertPackage"));
         CreateTestPackageStructure(packageDir);
@@ -2590,34 +2521,26 @@ public class PackageCommandTests : BaseCommandTests
             TestContext.CancellationToken);
         await File.WriteAllTextAsync(_configService.ConfigPath.FullName, "packages: []", TestContext.CancellationToken);
 
-        try
-        {
-            // Act - autoSign + generateDevCert with NO external certificate path forces the service to
-            // generate a dev certificate for the manifest publisher, validate the publisher match, and
-            // sign the package with it.
-            var result = await _msixService.CreateMsixPackageAsync(
-                inputFolder: packageDir,
-                outputPath: _tempDirectory,
-                TestTaskContext,
-                packageName: "GenDevCertPackage",
-                skipPri: true,
-                autoSign: true,
-                certificatePassword: "testpassword123",
-                generateDevCert: true,
-                cancellationToken: CancellationToken.None);
+        // Act - autoSign + generateDevCert with NO external certificate path forces the service to
+        // generate a dev certificate for the manifest publisher, validate the publisher match, and
+        // sign the package with it.
+        var result = await _msixService.CreateMsixPackageAsync(
+            inputFolder: packageDir,
+            outputPath: _tempDirectory,
+            TestTaskContext,
+            packageName: "GenDevCertPackage",
+            skipPri: true,
+            autoSign: true,
+            certificatePassword: "testpassword123",
+            generateDevCert: true,
+            cancellationToken: CancellationToken.None);
 
-            // Assert
-            Assert.IsNotNull(result, "Result should not be null");
-            Assert.IsTrue(result.Signed, "Package should be signed with the generated dev certificate");
-            Assert.IsTrue(result.MsixPath.Exists, "MSIX package file should exist");
-            var generatedCert = new FileInfo(Path.Combine(_tempDirectory.FullName, "GenDevCertPackage_cert.pfx"));
-            Assert.IsTrue(generatedCert.Exists, "The generated dev certificate PFX should be written next to the package");
-        }
-        finally
-        {
-            // Clean up only this test's own unique subject (matches the SignCommandTests self-cleanup pattern).
-            CleanupInvalidTestCertificatesFromStore(uniquePublisher);
-        }
+        // Assert
+        Assert.IsNotNull(result, "Result should not be null");
+        Assert.IsTrue(result.Signed, "Package should be signed with the generated dev certificate");
+        Assert.IsTrue(result.MsixPath.Exists, "MSIX package file should exist");
+        var generatedCert = new FileInfo(Path.Join(_tempDirectory.FullName, "GenDevCertPackage_cert.pfx"));
+        Assert.IsTrue(generatedCert.Exists, "The generated dev certificate PFX should be written next to the package");
     }
 
     [TestMethod]

@@ -5,7 +5,6 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
-using Spectre.Console;
 using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services.InteractiveDesktop;
@@ -30,6 +29,65 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
 {
     /// <summary>Exit code for a command cancelled before it ever ran (128 + SIGINT).</summary>
     internal const int CancelledExitCode = 130;
+
+    /// <summary>Where a <c>winapp ui</c> command was when Ctrl+C cancelled it.</summary>
+    internal enum CancellationPoint
+    {
+        /// <summary>Waiting for its turn on the desktop.</summary>
+        Queued,
+
+        /// <summary>Running after it acquired the desktop.</summary>
+        Running,
+
+        /// <summary>Running without coordination, so it never acquired the desktop.</summary>
+        RunningUncoordinated,
+    }
+
+    /// <summary>
+    /// Writes the <c>cancelled</c> result for a <c>winapp ui</c> command that threw on Ctrl+C, whether
+    /// or not it ran coordinated.
+    /// </summary>
+    internal static void ReportCancellation(
+        ParseResult parseResult,
+        UiCoordinationOutputMode outputMode,
+        ILogger logger,
+        CancellationPoint point,
+        long waitedMs,
+        int? queuePosition)
+    {
+        var message = point switch
+        {
+            CancellationPoint.Queued => "UI turn wait was cancelled.",
+            CancellationPoint.Running => "The command was cancelled after it acquired the desktop; any UI changes it had already made remain.",
+            _ => "The command was cancelled; any UI changes it had already made remain.",
+        };
+
+        UiJsonError.Emit(
+            outputMode.Json,
+            UiCoordinationErrorCodes.Cancelled,
+            message,
+            errorOut: parseResult.InvocationConfiguration.Error,
+            coordination: new UiCoordinationInfo
+            {
+                WaitedMs = waitedMs,
+                QueuePosition = queuePosition,
+            });
+
+        if (!outputMode.Json && !outputMode.Quiet)
+        {
+            if (point == CancellationPoint.Queued)
+            {
+                logger.LogWarning(
+                    "{Symbol} Cancelled while waiting {WaitedMs} ms for the desktop.",
+                    UiSymbols.Warning,
+                    waitedMs);
+            }
+            else
+            {
+                logger.LogWarning("{Symbol} {Message}", UiSymbols.Warning, message);
+            }
+        }
+    }
 
     /// <summary>
     /// How often the true global head — and a command blocked at the front of its own owner's barrier —
@@ -65,7 +123,7 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
     private readonly IProcessInspector _processInspector;
     private readonly IPollDelay _pollDelay;
     private readonly IParticipantSignals _signals;
-    private readonly IAnsiConsole _console;
+    private readonly TextWriter _statusWriter;
     private readonly ILogger<InteractiveDesktopLock> _logger;
     private readonly IMonotonicClock _clock;
     private readonly InteractiveDesktopScheduler _scheduler;
@@ -79,8 +137,8 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         IMonotonicClock clock,
         IPollDelay pollDelay,
         IParticipantSignals signals,
-        IAnsiConsole console,
-        ILogger<InteractiveDesktopLock> logger)
+        ILogger<InteractiveDesktopLock> logger,
+        TextWriter? statusWriter = null)
     {
         _store = store;
         _paths = paths;
@@ -89,7 +147,8 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         _processInspector = processInspector;
         _pollDelay = pollDelay;
         _signals = signals;
-        _console = console;
+        // The waiting notice is a side channel: stdout carries the command's result, so it goes to stderr.
+        _statusWriter = statusWriter ?? Console.Error;
         _logger = logger;
         _clock = clock;
         _scheduler = new InteractiveDesktopScheduler(clock);
@@ -254,7 +313,8 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                 throw new UiCoordinationException(
                     UiCoordinationErrorCodes.Unavailable,
                     $"The UI desktop lock could not be opened: {ex.Message}",
-                    "Check that the current user can write to the coordination directory.");
+                    "Check that the current user can write to the coordination directory.",
+                    ex);
             }
 
             await _pollDelay
@@ -554,7 +614,7 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
             }
 
             var reporter = new UiCoordinationWaitReporter(
-                coordinator._console, outputMode, participant.Operation);
+                coordinator._statusWriter, outputMode, participant.Operation);
 
             while (true)
             {
@@ -603,7 +663,7 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                         return;
                     }
 
-                    plan = BuildWaitPlan(state, entry, reporter.IsReportDue(_waitWatch.ElapsedMilliseconds));
+                    plan = BuildWaitPlan(state, entry, reporter);
                 }
 
                 if (plan.Diagnostics is { } diagnostics)
@@ -636,8 +696,10 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         /// a known time — so the head also wakes exactly then rather than up to an interval late.
         /// </para>
         /// </remarks>
-        private WaitPlan BuildWaitPlan(InteractiveDesktopState state, OwnerCommandEntry? ownEntry, bool reportDue)
+        private WaitPlan BuildWaitPlan(
+            InteractiveDesktopState state, OwnerCommandEntry? ownEntry, UiCoordinationWaitReporter reporter)
         {
+            var reportDue = reporter.IsReportDue(_waitWatch.ElapsedMilliseconds);
             var isHead = IsRecoveryResponsible(state, ownEntry);
             var timeoutMs = isHead ? HeadRecoveryMs : DeepRecoveryMs;
 
@@ -655,10 +717,10 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
             if (outputMode.AllowsWaitingStatus)
             {
                 // Human output has its own cadence to keep, so never sleep past the next status line.
-                var untilReport = NextReportInMs(_waitWatch.ElapsedMilliseconds);
+                var untilReport = reporter.NextReportInMs(_waitWatch.ElapsedMilliseconds);
                 if (untilReport < timeoutMs)
                 {
-                    timeoutMs = untilReport;
+                    timeoutMs = (int)untilReport;
                 }
             }
 
@@ -690,19 +752,6 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                 && head.ProcessStartTicksUtc == participant.StartTicksUtc;
         }
 
-        /// <summary>Milliseconds until the wait reporter would next print, for the sleep clamp.</summary>
-        private static int NextReportInMs(long elapsedMs)
-        {
-            if (elapsedMs < UiCoordinationWaitReporter.FirstReportAfterMs)
-            {
-                return (int)(UiCoordinationWaitReporter.FirstReportAfterMs - elapsedMs);
-            }
-
-            var sinceCycle = (elapsedMs - UiCoordinationWaitReporter.FirstReportAfterMs)
-                % UiCoordinationWaitReporter.RepeatIntervalMs;
-            return (int)(UiCoordinationWaitReporter.RepeatIntervalMs - sinceCycle);
-        }
-
         private UiWaitDiagnostics BuildDiagnostics(InteractiveDesktopState state, OwnerCommandEntry? ownEntry)
         {
             // Called only from inside a transaction that has just normalized, so the lists hold live
@@ -732,11 +781,61 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                 commandsAhead = state.OwnerCommands.Count;
             }
 
+            var waitersAhead = _ticket is { } myTicket
+                ? state.Waiters.Count(w => w.Ticket < myTicket)
+                : state.Waiters.Count;
+
+            var now = coordinator._clock.NowTicks64;
+            UiWaitReason reason;
+            string? blockingOperation = active?.Operation;
+            long? heldForMs = null;
+            long? graceRemainingMs = null;
+
+            if (ownEntry is { Ticket: { } myOwnTicket })
+            {
+                reason = UiWaitReason.OwnWorkflow;
+
+                // The barrier is the earliest earlier desktop-exclusive command; earlier turn-shared work
+                // such as a running recording keeps going alongside this one and is not what it waits on.
+                var earlier = state.OwnerCommands
+                    .Where(c => (c.Ticket ?? long.MaxValue) < myOwnTicket)
+                    .OrderBy(c => c.Ticket)
+                    .ToList();
+                blockingOperation = (earlier.FirstOrDefault(c => c.Mode == UiTurnMode.DesktopExclusive)
+                    ?? earlier.FirstOrDefault())?.Operation;
+            }
+            else if (state.Owner is not null && state.OwnerCommands.Count > 0)
+            {
+                reason = UiWaitReason.OtherWorkflowActive;
+                blockingOperation ??= state.OwnerCommands
+                    .OrderBy(c => c.Ticket ?? long.MaxValue)
+                    .First().Operation;
+                if (TurnStartTick(state) is { } started && now > started)
+                {
+                    heldForMs = now - started;
+                }
+            }
+            else if (state.Owner is not null)
+            {
+                reason = UiWaitReason.OtherWorkflowGrace;
+                blockingOperation = null;
+                graceRemainingMs = Math.Max(0, state.IdleExpiresTick64 - now);
+            }
+            else
+            {
+                reason = UiWaitReason.Queued;
+                blockingOperation = null;
+            }
+
             return new UiWaitDiagnostics(
                 queueDepth,
                 commandsAhead,
                 active?.Pid,
-                active?.Operation);
+                blockingOperation,
+                reason,
+                heldForMs,
+                graceRemainingMs,
+                waitersAhead);
         }
 
         public async Task<IAsyncDisposable> EnterAsync(CancellationToken cancellationToken)
@@ -839,35 +938,13 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
                 coordinator._logger.LogDebug("Queue position could not be read while cancelling: {Message}", ex.Message);
             }
 
-            var message = cancelledWhileQueued
-                ? "UI turn wait was cancelled."
-                : "The command was cancelled after it acquired the desktop; any UI changes it had already made remain.";
-
-            UiJsonError.Emit(
-                outputMode.Json,
-                UiCoordinationErrorCodes.Cancelled,
-                message,
-                errorOut: parseResult.InvocationConfiguration.Error,
-                coordination: new UiCoordinationInfo
-                {
-                    WaitedMs = waitedMs,
-                    QueuePosition = queuePosition,
-                });
-
-            if (!outputMode.Json && !outputMode.Quiet)
-            {
-                if (cancelledWhileQueued)
-                {
-                    coordinator._logger.LogWarning(
-                        "{Symbol} Cancelled while waiting {WaitedMs} ms for the desktop.",
-                        UiSymbols.Warning,
-                        waitedMs);
-                }
-                else
-                {
-                    coordinator._logger.LogWarning("{Symbol} {Message}", UiSymbols.Warning, message);
-                }
-            }
+            ReportCancellation(
+                parseResult,
+                outputMode,
+                coordinator._logger,
+                cancelledWhileQueued ? CancellationPoint.Queued : CancellationPoint.Running,
+                waitedMs,
+                queuePosition);
         }
 
         private void PublishTelemetry(bool completedNormally, UiCoordinationOutcome outcome)

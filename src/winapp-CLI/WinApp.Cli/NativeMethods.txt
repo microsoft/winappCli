@@ -54,9 +54,15 @@ SetWindowPos
 AttachThreadInput
 BringWindowToTop
 IsWindow
+GetWindowLong
+WINDOW_EX_STYLE
 ShowWindow
 IsIconic
 GetSystemMetrics
+MonitorFromWindow
+GetMonitorInfo
+MONITORINFO
+GetWindowRect
 GetWindowThreadProcessId
 SHOW_WINDOW_CMD
 MiniDumpWriteDump
@@ -104,3 +110,4 @@ STARTUPINFOEXW
 PROC_THREAD_ATTRIBUTE_JOB_LIST
 PROC_THREAD_ATTRIBUTE_HANDLE_LIST
 ResumeThread
+GetKeyState

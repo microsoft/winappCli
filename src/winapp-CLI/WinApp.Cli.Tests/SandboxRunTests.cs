@@ -173,6 +173,35 @@ public class SandboxRunTests
     }
 
     [TestMethod]
+    public void BuildLaunchArguments_ForwardsQuietOnlyWhenRequested()
+    {
+        var quiet = GuestLaunchPlanner.BuildLaunchArguments(
+            "Contoso.MyApp", "CN=Contoso", "App", @"C:\layout", @"C:\payload", "sandbox",
+            new GuestLaunchOptions(Quiet: true));
+        var normal = GuestLaunchPlanner.BuildLaunchArguments(
+            "Contoso.MyApp", "CN=Contoso", "App", @"C:\layout", @"C:\payload", "sandbox",
+            new GuestLaunchOptions());
+
+        CollectionAssert.Contains(quiet, "--quiet");
+        CollectionAssert.DoesNotContain(normal, "--quiet");
+    }
+
+    /// <summary>
+    /// <c>--json</c> lowers the host's log level, so a JSON run also asks for quiet. The guest rejects
+    /// <c>--quiet</c> with <c>--json</c>, which made every <c>winapp run --on sandbox --json</c> fail.
+    /// </summary>
+    [TestMethod]
+    public void BuildLaunchArguments_JsonRun_DoesNotForwardQuiet()
+    {
+        var arguments = GuestLaunchPlanner.BuildLaunchArguments(
+            "Contoso.MyApp", "CN=Contoso", "App", @"C:\layout", @"C:\payload", "sandbox",
+            new GuestLaunchOptions(Json: true, Quiet: true));
+
+        CollectionAssert.Contains(arguments, "--json");
+        CollectionAssert.DoesNotContain(arguments, "--quiet");
+    }
+
+    [TestMethod]
     public void EnsureSupportedForUnpackaged_DebugOutput_IsRefusedUpFront()
     {
         var failure = Assert.ThrowsExactly<ExecutionTargetException>(() =>

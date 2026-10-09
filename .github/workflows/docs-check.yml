@@ -56,9 +56,9 @@ jobs:
               return;
             }
 
-            // Check if any docs were updated (excluding cli-schema.json which is auto-generated)
+            // Check if any user-facing docs were updated.
             const docsChanges = changedPaths.filter(p =>
-              (p.startsWith('docs/') && p !== 'docs/cli-schema.json') ||
+              p.startsWith('docs/') ||
               p === 'README.md'
             );
 

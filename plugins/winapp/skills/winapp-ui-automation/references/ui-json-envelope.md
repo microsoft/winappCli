@@ -63,7 +63,8 @@ the other window trees remain available.
 Element `x`, `y`, `width`, and `height` values are numbers in physical screen
 pixels. `0,0,0,0` is UI Automation's empty/no-displayed-UI rectangle in this
 projection. `isOffscreen` is independent: an offscreen element can still have
-nonzero bounds.
+nonzero bounds. `isEditable: true` marks elements with a writable value;
+`set-value` may still work on others.
 
 ## `ui inspect --ancestors --json`
 
@@ -291,13 +292,16 @@ Every `winapp ui` command writes errors to **stderr** as:
     "message": "…",
     "selector": "btn-save-c3d4",
     "details": "…",
+    "suggestions": ["…"],
     "recoveryHint": "…"
   }
 }
 ```
 
 Only `code` and `message` are always present; the rest are omitted when
-they do not apply.
+they do not apply. `suggestions` lists up to two command names when an
+unknown `winapp ui` command was typed (for example `ui dump` suggests
+`inspect`).
 
 ### Desktop coordination
 
@@ -308,7 +312,7 @@ appear:
 | `code` | Meaning |
 |---|---|
 | `invalid_ui_workflow_id` | `WINAPP_UI_WORKFLOW_ID` is set but empty/whitespace or longer than 256 characters. Fails before any UI side effect. |
-| `desktop_coordination_unavailable` | Coordination state could not be read, published, or safely rebuilt — including state written by a newer `winapp`. Mutating commands fail closed rather than acting uncoordinated. |
+| `desktop_coordination_unavailable` | Coordination state could not be read, published, or safely rebuilt — including state written by a newer `winapp`. Mutating commands fail closed rather than acting uncoordinated. If the coordination folder is only access-denied, commands run uncoordinated instead of returning this error. |
 | `queue_capacity_exceeded` | 64 commands from other workflows are already waiting for the desktop. Counts live foreign waiters, so entries left by commands that exited or were killed do not occupy a slot. |
 | `ui_turn_busy` | `ui yield` was run while this same workflow still has a command running or queued, so its turn is not idle. Nothing was released, and the running command is unaffected. Distinct from `invalid_arguments` (the request was well formed) and from `desktop_coordination_unavailable` (coordination is working — this is a valid request at an unsafe moment). Carries a `recoveryHint`: wait for or stop this workflow's other `winapp ui` commands — typically a `record` started with the same `WINAPP_UI_WORKFLOW_ID` — then retry `yield`. |
 | `cancelled` | Native Ctrl+C while the command was still waiting for its turn. The command never ran, so it has no UI side effects. Exit code **130**. |

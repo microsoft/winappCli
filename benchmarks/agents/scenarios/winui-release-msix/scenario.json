@@ -1,0 +1,30 @@
+{
+  "id": "winui-release-msix",
+  "description": "Release MSIX for a WinUI app; winui-packaging and winapp-package are both valid (overlap and co-load cost).",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Get ContosoReader ready for its first release: signed Release MSIX packages for x64 and ARM64 that IT can sideload.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "msix.package",
+        "winui.package"
+      ],
+      "acceptable": [
+        "msix.sign"
+      ],
+      "forbid": [
+        "winui.migrate",
+        "maui.package",
+        "winui.review"
+      ]
+    },
+    "maxSkills": 3
+  }
+}

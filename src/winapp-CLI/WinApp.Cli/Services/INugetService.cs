@@ -18,6 +18,11 @@ internal interface INugetService
     /// resource), version enumeration cannot distinguish listed from unlisted packages, so the selected
     /// "latest" may include an unlisted version. Registration-backed feeds (nuget.org and most private feeds)
     /// are unaffected. See the private-feed notes in docs/usage.md.
+    /// <para>
+    /// For <c>Microsoft.WindowsAppSDK</c>, a release whose pinned sub-packages are known not to be published yet
+    /// (the window while a new release is still being published) is skipped in favor of the previous release.
+    /// When their availability cannot be determined, the newest release is returned.
+    /// </para>
     /// </remarks>
     Task<string> GetLatestVersionAsync(string packageName, SdkInstallMode sdkInstallMode, CancellationToken cancellationToken = default);
 

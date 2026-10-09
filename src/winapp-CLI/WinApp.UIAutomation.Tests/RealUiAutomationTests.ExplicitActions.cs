@@ -8,6 +8,150 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 public partial class RealUiAutomationTests
 {
     [TestMethod]
+    public async Task ExplicitAction_ProviderIdentityCheckDoesNotTrustMatchingSlugs()
+    {
+        using var fx = new UiaTestFixture(nonActivating: true);
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var selected = await svc.FindSingleElementAsync(target,
+            new UiSelector { Query = "btnInvoke", ControlType = "Button" }, requireUnique: true, CancellationToken.None);
+        var same = await svc.FindSingleElementAsync(target,
+            new UiSelector { Query = "btnInvoke", ControlType = "Button" }, requireUnique: true, CancellationToken.None);
+        var other = await svc.FindSingleElementAsync(target,
+            new UiSelector { Query = "btnParentInvoke", ControlType = "Button" }, requireUnique: true, CancellationToken.None);
+        Assert.IsNotNull(selected);
+        Assert.IsNotNull(same);
+        Assert.IsNotNull(other);
+        Assert.IsTrue(svc.IsSameElement(selected, same, CancellationToken.None));
+        other.Selector = selected.Selector;
+        Assert.IsFalse(svc.IsSameElement(selected, other, CancellationToken.None));
+        Assert.AreEqual("unclicked", fx.OnUiThread(() => fx.ResultBox.Text));
+    }
+
+    [TestMethod]
+    public async Task ExplicitAction_TypeAndClass_DisambiguateSameNameWithoutAncestorFallback()
+    {
+        using var fx = new UiaTestFixture(nonActivating: true);
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var button = await ResolveAsync(svc, target, "btnInvoke");
+        fx.OnUiThread(() => fx.TextLabel.AccessibleName = "Click Me");
+        var query = new UiSelector
+        {
+            Query = "Click Me", ControlType = "Button", ClassName = button.ClassName!.ToUpperInvariant()
+        };
+        var selected = await svc.FindSingleElementAsync(target, query, requireUnique: true, CancellationToken.None);
+        Assert.IsNotNull(selected);
+        Assert.AreEqual("btnInvoke", selected.AutomationId);
+        Assert.IsNull(selected.InvokableAncestor);
+        Assert.AreEqual(new UiInvokeActionResult("InvokePattern", "invoke"),
+            await svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None));
+        await WaitForAsync(() => Task.FromResult(fx.OnUiThread(() => fx.ResultBox.Text == "clicked")),
+            "the typed button was not invoked");
+
+        var label = await svc.FindSingleElementAsync(target, query with { ControlType = "Text", ClassName = null },
+            requireUnique: true, CancellationToken.None);
+        Assert.IsNotNull(label);
+        Assert.AreEqual("lblText", label.AutomationId);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => svc.InvokeAsync(target, label, UiInvokeAction.Invoke, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ExplicitAction_DuplicateAutomationId_IsUniqueOnlyInsideRootAndType()
+    {
+        using var fx = new UiaTestFixture(nonActivating: true);
+        var otherClicks = 0;
+        fx.OnUiThread(() =>
+        {
+            fx.InvokeButton.Name = "sharedOpen";
+            var otherRoot = new Panel { Name = "OtherDialog", Width = 180, Height = 80, Top = 350 };
+            var other = new Button { Name = "sharedOpen", Text = "Open" };
+            other.Click += (_, _) => otherClicks++;
+            otherRoot.Controls.Add(other);
+            fx.Form.Controls.Add(otherRoot);
+            fx.TextLabel.Name = "sharedOpen";
+        });
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var query = new UiSelector
+        {
+            Query = "sharedOpen", Root = new() { Query = "fixtureForm" }, ControlType = "Button"
+        };
+        await Assert.ThrowsExactlyAsync<UiAmbiguousSelectorException>(
+            () => svc.FindSingleElementAsync(target, query, requireUnique: true, CancellationToken.None));
+        Assert.AreEqual("unclicked", fx.OnUiThread(() => fx.ResultBox.Text));
+        Assert.AreEqual(0, fx.OnUiThread(() => otherClicks));
+
+        var selected = await svc.FindSingleElementAsync(target,
+            query with { Root = new() { Query = "OtherDialog" } }, requireUnique: true, CancellationToken.None);
+        Assert.IsNotNull(selected);
+        Assert.AreEqual("sharedOpen", selected.AutomationId);
+        Assert.AreNotEqual(selected.AutomationId, selected.Selector,
+            "The selected identity must remain a runtime slug even when AutomationIds repeat.");
+        await svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None);
+        await WaitForAsync(() => Task.FromResult(fx.OnUiThread(() => otherClicks == 1)),
+            "the scoped button was not invoked");
+        Assert.AreEqual("unclicked", fx.OnUiThread(() => fx.ResultBox.Text));
+    }
+
+    [TestMethod]
+    public async Task ExplicitAction_FilteredRetainedElementReplacedAfterSelection_DoesNotInvokeReplacement()
+    {
+        using var fx = new UiaTestFixture(nonActivating: true);
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var selected = await svc.FindSingleElementAsync(target,
+            new UiSelector { Query = "btnInvoke", ControlType = "Button" }, requireUnique: true, CancellationToken.None);
+        Assert.IsNotNull(selected);
+        var replacementClicks = 0;
+        fx.OnUiThread(() =>
+        {
+            fx.InvokeButton.Dispose();
+            var replacement = new Button { Name = "btnInvoke", Text = "Click Me" };
+            replacement.Click += (_, _) => replacementClicks++;
+            fx.Form.Controls.Add(replacement);
+            replacement.CreateControl();
+        });
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => svc.InvokeAsync(target, selected, UiInvokeAction.Invoke, CancellationToken.None));
+        Assert.AreEqual(0, fx.OnUiThread(() => replacementClicks));
+    }
+
+    [TestMethod]
+    public async Task ExplicitAction_ExplicitPopupHwnd_DoesNotSearchAnotherWindow()
+    {
+        using var fx = new UiaTestFixture(nonActivating: true);
+        Form popup = null!;
+        var popupClicks = 0;
+        fx.OnUiThread(() =>
+        {
+            popup = new NonActivatingTestForm { Name = "testPopup", Text = "Test Popup" };
+            var open = new Button { Name = "popupOpen", Text = "Open" };
+            open.Click += (_, _) => popupClicks++;
+            popup.Controls.Add(open);
+            popup.Show();
+        });
+        try
+        {
+            var svc = NewService();
+            var popupTarget = new UiTarget
+            {
+                ProcessId = fx.ProcessId, ProcessName = "WinApp.Cli.Tests",
+                WindowHandle = (long)popup.Handle, IsExplicitWindow = true
+            };
+            var query = new UiSelector { Query = "popupOpen", ControlType = "Button" };
+            Assert.IsNull(await svc.FindSingleElementAsync(SessionFor(fx), query, requireUnique: true, CancellationToken.None));
+            var selected = await svc.FindSingleElementAsync(popupTarget, query, requireUnique: true, CancellationToken.None);
+            Assert.IsNotNull(selected);
+            Assert.AreEqual((long)popup.Handle, selected.WindowHandle);
+            await svc.InvokeAsync(popupTarget, selected, UiInvokeAction.Invoke, CancellationToken.None);
+            await WaitForAsync(() => Task.FromResult(fx.OnUiThread(() => popupClicks == 1)), "popup button was not invoked");
+        }
+        finally { fx.OnUiThread(() => popup.Dispose()); }
+    }
+
+    [TestMethod]
     public async Task ExplicitAction_AllRetainedActions_UseSameProviderWithoutResolution()
     {
         using var fx = new UiaTestFixture();

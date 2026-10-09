@@ -2,6 +2,9 @@
 name: winapp-sandbox
 description: Run, debug, and UI-automate a Windows app in a persistent Windows Sandbox rather than the user's desktop. Use for disposable app testing, guest diagnostics, file transfer, and app or whole-desktop evidence. Builds remain on the host; connection and reconnect can briefly take focus.
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## Before acting
 
 - Confirm the user wants Sandbox execution. Do not drop `--on sandbox` to bypass an error.
@@ -24,7 +27,8 @@ description: Run, debug, and UI-automate a Windows app in a persistent Windows S
   and finish its client setup/update. Do not repeatedly retry an unchanged prerequisite.
 - Connection or reconnect may briefly take focus; do not promise zero desktop interruption.
 - Existing Sandbox instances are reused and changed, not discarded. Never close one
-  or run `wsb stop` without user consent.
+  or run `wsb stop` without user consent. Closing the Sandbox window does not end the
+  Sandbox; `wsb connect --id <id>` shows it again.
 
 ## Launch, inspect, act, verify
 
@@ -47,6 +51,11 @@ winapp ui screenshot --on sandbox -a MyApp -o .\result.png
    data is intended. `--debug-output` is supported only for packaged Sandbox apps.
 5. Rediscover targets after the Sandbox is recreated. A detached unpackaged app can
    also end during guest-agent repair; rerun it if it disappears.
+
+For parallel packaged worktrees, opt into
+`winapp run . --unique-identity --on sandbox --detach --json`. Use the returned
+`UiTargetArgs`. All copies share one Sandbox. See
+[unique identity for parallel checkouts](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md#unique-identity-for-parallel-checkouts).
 
 ## Coordinate a recording with actions
 
@@ -91,7 +100,7 @@ winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
 - Start with `target snapshot` when an app never appeared or a command failed. It does
   not create a VM, reconnect the client, or repair an agent.
   For error windows or ambiguous readiness, follow the
-  [desktop readiness guidance](../../../../docs/sandbox-execution.md#automating-the-ui);
+  [desktop readiness guidance](https://github.com/microsoft/winappCli/blob/main/docs/sandbox-execution.md#automating-the-ui);
   do not close windows or reconnect automatically to make a snapshot succeed.
 - `target screenshot`/`target record` capture the native guest desktop, not the host client window.
   `ui screenshot`/`ui record --on sandbox` capture an app window.
@@ -100,7 +109,7 @@ winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
 - Use the PNG's native coordinates plus its reported screen origin for guest input.
   For scaled recording frames, use `coordinates.sourceBounds` and `coordinates.contentRect`
   from the JSON/manifest, not raw image coordinates. The mapping is documented in
-  [Sandbox capture](../../../../docs/sandbox-execution.md#screenshots-and-recordings).
+  [Sandbox capture](https://github.com/microsoft/winappCli/blob/main/docs/sandbox-execution.md#screenshots-and-recordings).
   `display_changed` means capture stopped before the desktop bounds changed its mapping.
 - Prefer a positive `--duration-sec` for unattended CLI recording. npm helpers require
   `durationSec` (integer 1–86400); abort signals cancel forcefully, not gracefully.
@@ -136,12 +145,12 @@ linked sources and paths through destination links are rejected. Deployment reje
 ## Cleanup and recovery
 
 ```powershell
-winapp unregister --on sandbox --manifest .\Package.appxmanifest
+winapp unregister . --on sandbox
 ```
 
-This removes only the matching winapp-owned development registration. It needs a
-manifest, does not support `--force`, and does not stop the Sandbox. Do not suggest
-`.cs` input cleanup through target unregister.
+Pass the project or folder you passed to `run` (with or without `--unique-identity`),
+or its manifest; a `.cs` input isn't supported here. This does not stop the Sandbox.
+Never use `--force` to bypass target ownership.
 
 Follow the error's `userAction`, not just its exit number: infrastructure failures and
 an application's own exit can both be `70`. Human setup progress goes to stderr and is
@@ -149,10 +158,16 @@ suppressed with `--quiet`/`--json`.
 
 - Prerequisite errors: follow the setup guidance above; keep elevation and restart under user control.
 - Input unavailable: restore the existing client or use the error's reconnect command.
+- "Only one running instance of Windows Sandbox is allowed" from the Start menu: a Sandbox
+  is already running. Point the user to **Windows Sandbox** in the taskbar; if it has no
+  window, `wsb list` then `wsb connect --id <id>`. Never stop it without consent.
 - Incompatible CLI: follow the error; upgrade the installed CLI through its install method,
-  **not `winapp update`**. Obtain consent before closing a Sandbox for a version change.
+  **not `winapp update`**. Obtain consent before stopping a Sandbox (`wsb stop --id <id>`)
+  for a version change; closing its window does not stop it.
 - Missing/unsupported runtime: use the named requirement and configuration in the error.
   Do not assume any newer same-major runtime is compatible or substitute architectures.
+- Folder share refused (`sandbox_transport_failed`, `0x80070005`): Sandbox shares as SYSTEM.
+  Grant it access to the reported folder with the error's `icacls` command, then retry.
 - Incomplete deployment/transfer: retry. Busy: wait. Partial recording: keep reported evidence.
 - Package conflict: do not remove external or inbox packages to force registration.
 

@@ -1,14 +1,15 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Validate that the generated CLI schema and plugin manifest versions are current
+    Validate plugin examples against the built CLI and check plugin manifest versions
 .DESCRIPTION
-    This script compares docs/cli-schema.json with the CLI's --cli-schema output
-    and verifies that every plugin manifest version matches version.json. Plugin
+    This script extracts a fresh CLI schema into ignored artifacts and verifies
+    that every plugin manifest version (winapp and WinUI; see plugin-version-manifests.ps1)
+    matches version.json. Plugin
     skills are hand-authored and are not generated or drift-checked.
 
     It also runs scripts/validate-plugin-package.ps1, which enforces Agent Plugins
-    1.0 conformance for plugins/winapp.
+    1.0 conformance for plugins/winapp and checks the skills of every plugin.
 .PARAMETER CliPath
     Path to the winapp.exe CLI binary (default: artifacts/cli/win-x64/winapp.exe)
 .PARAMETER FailOnDrift
@@ -25,7 +26,8 @@ if (-not $CliPath) {
     $CliPath = Join-Path $ProjectRoot "artifacts\cli\win-x64\winapp.exe"
 }
 
-$SchemaPath = Join-Path $ProjectRoot "docs\cli-schema.json"
+$SchemaDirectory = Join-Path $ProjectRoot "artifacts\docs"
+$SchemaPath = Join-Path $SchemaDirectory "cli-schema.json"
 $BaseVersion = (Get-Content (Join-Path $ProjectRoot "version.json") | ConvertFrom-Json).version
 $HasDrift = $false
 
@@ -40,67 +42,14 @@ Write-Host "CLI path: $CliPath" -ForegroundColor Gray
 
 $PluginPackageScript = Join-Path $PSScriptRoot "validate-plugin-package.ps1"
 
-if (-not (Test-Path $SchemaPath)) {
-    Write-Host "::error::docs/cli-schema.json not found. Run 'scripts/build-cli.ps1' to regenerate it." -ForegroundColor Red
-    $HasDrift = $true
-}
-else {
-    $prevEncoding = [Console]::OutputEncoding
-    try {
-        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-        $FreshSchemaLines = & $CliPath --cli-schema
-    }
-    finally {
-        [Console]::OutputEncoding = $prevEncoding
-    }
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to extract CLI schema"
-        exit 1
-    }
-
-    $FreshSchema = (($FreshSchemaLines -join "`n") -replace "`r`n", "`n")
-    $CommittedSchema = ([System.IO.File]::ReadAllText($SchemaPath, [System.Text.UTF8Encoding]::new($false))) -replace "`r`n", "`n"
-
-    try {
-        $FreshObj = $FreshSchema | ConvertFrom-Json -Depth 100
-    }
-    catch {
-        Write-Error "CLI returned invalid schema JSON: $($_.Exception.Message)"
-        exit 1
-    }
-
-    $CommittedObj = $null
-    try {
-        $CommittedObj = $CommittedSchema | ConvertFrom-Json -Depth 100
-    }
-    catch {
-        Write-Host "::error::docs/cli-schema.json contains invalid JSON: $($_.Exception.Message)" -ForegroundColor Red
-        $HasDrift = $true
-    }
-
-    if ($CommittedObj) {
-        $FreshObj.version = $BaseVersion
-        $FreshNormalized = $FreshObj | ConvertTo-Json -Depth 100 -Compress
-        $CommittedNormalized = $CommittedObj | ConvertTo-Json -Depth 100 -Compress
-
-        if ($FreshNormalized -ne $CommittedNormalized) {
-            Write-Host "::error::docs/cli-schema.json is out of sync with CLI!" -ForegroundColor Red
-            $HasDrift = $true
-        }
-        else {
-            Write-Host "[VALIDATE] docs/cli-schema.json is up-to-date" -ForegroundColor Green
-        }
-    }
+& (Join-Path $PSScriptRoot "generate-llm-docs.ps1") -CliPath $CliPath -OutputPath $SchemaDirectory -CalledFromBuildScript
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to generate the current CLI schema"
+    exit 1
 }
 
-$ManifestPaths = @(
-    (Join-Path $ProjectRoot "plugin.json"),
-    (Join-Path $ProjectRoot "plugins\winapp\plugin.json"),
-    (Join-Path $ProjectRoot "plugins\winapp\.claude-plugin\plugin.json"),
-    (Join-Path $ProjectRoot ".github\plugin\marketplace.json"),
-    (Join-Path $ProjectRoot ".claude-plugin\marketplace.json")
-)
+. (Join-Path $PSScriptRoot "plugin-version-manifests.ps1")
+$ManifestPaths = Get-VersionedPluginManifests -ProjectRoot $ProjectRoot
 
 foreach ($manifestPath in $ManifestPaths) {
     if (-not (Test-Path $manifestPath)) {
@@ -130,7 +79,7 @@ foreach ($manifestPath in $ManifestPaths) {
 if (Test-Path $PluginPackageScript) {
     Write-Host ""
     # Let the child signal failure via its exit code; -FailOnDrift decides whether it is fatal.
-    & $PluginPackageScript
+    & $PluginPackageScript -CliSchemaPath $SchemaPath
     if ($LASTEXITCODE -ne 0) {
         $HasDrift = $true
     }
@@ -142,13 +91,13 @@ else {
 
 if ($HasDrift) {
     Write-Host ""
-    Write-Host "Run 'scripts/build-cli.ps1' locally, then commit the regenerated schema and manifests." -ForegroundColor Yellow
+    Write-Host "Fix the reported plugin errors; run 'scripts/build-cli.ps1' to synchronize manifest versions." -ForegroundColor Yellow
     if ($FailOnDrift) {
         exit 1
     }
 }
 else {
-    Write-Host "[VALIDATE] CLI schema and plugin manifests are up-to-date!" -ForegroundColor Green
+    Write-Host "[VALIDATE] Plugin examples match the current CLI and manifest versions are up-to-date!" -ForegroundColor Green
 }
 
 exit 0

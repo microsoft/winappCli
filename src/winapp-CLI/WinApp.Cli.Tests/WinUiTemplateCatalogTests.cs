@@ -297,6 +297,53 @@ public class WinUiTemplateCatalogTests
         Assert.IsFalse(Entry("WinUI Blank App", "winui", "Windows/WinUI/Desktop/XAML").IsExperimental);
     }
 
+    private static readonly string[] ExpectedDisplayOrder =
+    [
+        "winui blank app",
+        "WinUI Class Library",
+        "WinUI TabView App",
+        "Contoso App",
+        "reactor MVU App (Experimental)",
+        "Reactor NavigationView App (Experimental)",
+    ];
+
+    [TestMethod]
+    public void OrderForDisplay_PutsWinUiTemplatesFirstThenOthers_EachAlphabeticalIgnoringCase()
+    {
+        // `dotnet new list` sorts alphabetically, which places the Reactor templates (and any other
+        // non-WinUI template) ahead of the WinUI ones. The Reactor alias "winui-reactor" must not make
+        // it a WinUI template; only the display name or the canonical short name counts.
+        var entries = new List<WinUiTemplateEntry>
+        {
+            Entry("Reactor NavigationView App (Experimental)", "reactor-navview,winui-reactor-navview"),
+            Entry("reactor MVU App (Experimental)", "reactor-mvu,winui-reactor-mvu"),
+            Entry("Contoso App", "contoso"),
+            Entry("WinUI TabView App", "winui-tabview"),
+            Entry("winui blank app", "winui"),
+            Entry("WinUI Class Library", "winui-lib"),
+        };
+
+        var ordered = WinUiTemplateCatalog.OrderForDisplay(entries);
+
+        CollectionAssert.AreEqual(ExpectedDisplayOrder, ordered.Select(e => e.DisplayName).ToArray());
+    }
+
+    [TestMethod]
+    public void OrderForDisplay_TreatsCanonicalWinUiShortNameAsWinUiWhenDisplayNameIsMissing()
+    {
+        var entries = new List<WinUiTemplateEntry>
+        {
+            Entry("Alpha App", "alpha"),
+            Entry(string.Empty, "winui-mvvm"),
+        };
+
+        var ordered = WinUiTemplateCatalog.OrderForDisplay(entries);
+
+        CollectionAssert.AreEqual(ExpectedShortNameFallbackOrder, ordered.Select(e => e.ShortName).ToArray());
+    }
+
+    private static readonly string[] ExpectedShortNameFallbackOrder = ["winui-mvvm", "alpha"];
+
     private static readonly string[] ExpectedKeptDisplayNames =
         ["Reactor NavigationView App (Experimental)", "WinUI Blank App"];
 
@@ -362,6 +409,106 @@ public class WinUiTemplateCatalogTests
         var listed = new List<WinUiTemplateEntry> { Entry("WinUI Blank App", "winui") };
 
         Assert.AreEqual(0, WinUiTemplateCatalog.RestrictToPack(listed, []).Count);
+    }
+
+    private const string ReactorPackageId = "Microsoft.UI.Reactor.Templates";
+
+    private const string ConflictingUninstallOutput =
+        "Currently installed items:\n" +
+        "   Microsoft.UI.Reactor.Templates\n" +
+        "      Version: 0.1.0\n" +
+        "      Details:\n" +
+        "         Author: Microsoft\n" +
+        "      Templates:\n" +
+        "         Microsoft.UI.Reactor App (reactor) C#\n" +
+        "      Uninstall Command:\n" +
+        "         dotnet new uninstall Microsoft.UI.Reactor.Templates\n" +
+        "   Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n" +
+        "      Version: 0.0.6-alpha\n" +
+        "      Details:\n" +
+        "         Author: Microsoft\n" +
+        "      Templates:\n" +
+        "         WinUI Blank App (winui,winui3,wasdk-single) C#\n" +
+        "         Reactor Blank App (Experimental) (reactor,reactor-blank,winui-reactor) C#\n" +
+        "      Uninstall Command:\n" +
+        "         dotnet new uninstall Microsoft.WindowsAppSDK.WinUI.CSharp.Templates\n" +
+        "   Contoso.NoTemplates\n" +
+        "      Version: 1.0.0\n" +
+        "      Uninstall Command:\n" +
+        "         dotnet new uninstall Contoso.NoTemplates\n";
+
+    private static readonly string[] ExpectedInstalledPackIds = [ReactorPackageId, PackageId];
+    private static readonly string[] ExpectedReactorBlankAliases = ["reactor", "reactor-blank", "winui-reactor"];
+    private static readonly string[] ExpectedSharedReactorAlias = ["reactor"];
+    private static readonly string[] ExpectedConflictingPacks = [ReactorPackageId];
+
+    [TestMethod]
+    public void ParseInstalledPacks_ReturnsEveryPackWithItsTemplates()
+    {
+        var packs = WinUiTemplateCatalog.ParseInstalledPacks(ConflictingUninstallOutput);
+
+        CollectionAssert.AreEqual(ExpectedInstalledPackIds, packs.Select(p => p.PackageId).ToArray(),
+            "A pack without a Templates block contributes no aliases and is omitted.");
+        CollectionAssert.AreEqual(ExpectedReactorBlankAliases, packs[1].Templates[1].Aliases.ToArray());
+        Assert.AreEqual("Microsoft.UI.Reactor App", packs[0].Templates[0].DisplayName);
+    }
+
+    [TestMethod]
+    public void ParsePackTemplates_OtherPacksBeforeIt_StillReturnsOnlyItsTemplates()
+    {
+        var rows = WinUiTemplateCatalog.ParsePackTemplates(ConflictingUninstallOutput, PackageId);
+
+        Assert.AreEqual(2, rows.Count);
+        Assert.IsFalse(rows.Any(r => r.DisplayName == "Microsoft.UI.Reactor App"));
+    }
+
+    [TestMethod]
+    public void MarkSharedAliases_AliasAlsoInAnotherPack_ScaffoldsWithFirstUniqueAlias()
+    {
+        // `dotnet new reactor` is ambiguous when the standalone Reactor pack is installed too, so the
+        // WinUI pack's template must be scaffolded by an alias only it owns.
+        var entries = new List<WinUiTemplateEntry>
+        {
+            Entry("WinUI Blank App", "winui,winui3,wasdk-single"),
+            Entry("Reactor Blank App (Experimental)", "reactor,reactor-blank,winui-reactor"),
+        };
+
+        var marked = WinUiTemplateCatalog.MarkSharedAliases(
+            entries, WinUiTemplateCatalog.ParseInstalledPacks(ConflictingUninstallOutput), PackageId);
+
+        Assert.AreEqual("winui", marked[0].ScaffoldShortName);
+        Assert.AreEqual(0, marked[0].ConflictingPackages.Count);
+
+        Assert.AreEqual("reactor", marked[1].ShortName, "The canonical short name shown to the user is unchanged.");
+        Assert.AreEqual("reactor-blank", marked[1].ScaffoldShortName);
+        CollectionAssert.AreEqual(ExpectedSharedReactorAlias, marked[1].SharedAliases.ToArray());
+        CollectionAssert.AreEqual(ExpectedConflictingPacks, marked[1].ConflictingPackages.ToArray());
+    }
+
+    [TestMethod]
+    public void MarkSharedAliases_EveryAliasShared_HasNoScaffoldShortName()
+    {
+        var output = ConflictingUninstallOutput.Replace(
+            "Microsoft.UI.Reactor App (reactor) C#",
+            "Microsoft.UI.Reactor App (reactor,reactor-blank,winui-reactor) C#",
+            StringComparison.Ordinal);
+        var entries = new List<WinUiTemplateEntry> { Entry("Reactor Blank App (Experimental)", "reactor,reactor-blank,winui-reactor") };
+
+        var marked = WinUiTemplateCatalog.MarkSharedAliases(entries, WinUiTemplateCatalog.ParseInstalledPacks(output), PackageId);
+
+        Assert.IsNull(marked[0].ScaffoldShortName);
+        CollectionAssert.AreEqual(ExpectedConflictingPacks, marked[0].ConflictingPackages.ToArray());
+    }
+
+    [TestMethod]
+    public void MarkSharedAliases_NoOtherPacks_LeavesEntriesUnchanged()
+    {
+        var entries = new List<WinUiTemplateEntry> { Entry("WinUI Blank App", "winui,winui3,wasdk-single") };
+
+        var marked = WinUiTemplateCatalog.MarkSharedAliases(entries, WinUiTemplateCatalog.ParseInstalledPacks(UninstallOutput), PackageId);
+
+        Assert.AreEqual("winui", marked[0].ScaffoldShortName);
+        Assert.AreEqual(0, marked[0].SharedAliases.Count);
     }
 
     [TestMethod]

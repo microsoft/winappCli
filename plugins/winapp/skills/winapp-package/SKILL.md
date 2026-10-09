@@ -1,7 +1,10 @@
 ---
 name: winapp-package
-description: Package a Windows app as an MSIX installer for distribution or testing. Use when creating a Windows installer, packaging an Electron/Flutter/.NET/Rust/C++/Tauri app for Windows, building an MSIX, distributing a desktop app, packaging a console app or CLI tool, or adding MSIX packaging to a build script or CI/CD pipeline.
+description: Build an MSIX installer for a desktop, console, or CLI app (Electron, .NET, C++, Rust, Flutter, Tauri) from build output or a .csproj with winapp package, optionally signed. Use for an installer testers can sideload, app distribution, or MSIX in scripts or CI. Not for signing an existing MSIX.
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:
@@ -173,7 +176,7 @@ The `ProcessorArchitecture` is always force-set to the detected architecture per
 
 **Output:** `<Name>_<Version>_<arch1>_<arch2>.msixbundle` (architectures sorted alphabetically).
 
-**Store submission:** An unsigned bundle is valid for Store upload — Partner Center signs it with your reserved identity certificate. For sideloading, pass `--cert` or `--generate-cert`.
+**Store submission:** An unsigned bundle is valid for Store upload — Partner Center signs it with your reserved identity certificate. For sideloading, pass `--cert` or `--generate-cert`. To submit or manage the listing from the command line, use `winapp store <args>` (passthrough to the Microsoft Store Developer CLI, downloaded on first use).
 
 This hashes executables in the specified directories so Windows trusts them when running with sparse package identity.
 
@@ -230,7 +233,7 @@ The `.msix` contains only the manifest — binaries and assets are resolved from
 |-------|-------|----------|
 | "Package.appxmanifest not found" | No manifest in input folder or current dir | Run `winapp init` or `winapp manifest generate` first |
 | "Publisher mismatch" | Cert publisher ≠ manifest publisher | Regenerate cert with `winapp cert generate --manifest`, or edit manifest |
-| "Package installation failed" | Cert not trusted or stale package | Run `winapp cert install ./devcert.pfx` (admin), then `Get-AppxPackage <name> \| Remove-AppxPackage` |
+| "Package installation failed" | Cert not trusted or stale package | Run `winapp cert install ./devcert.pfx` (admin). If an earlier `winapp run` registration is in the way, remove it with `winapp unregister <input>` rather than deleting packages by name |
 | "makeappx not found" | Build tools not downloaded | Run `winapp update` or `winapp tool makeappx --help` to trigger download |
 
 ## CLI reference

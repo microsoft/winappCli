@@ -32,7 +32,7 @@ public partial class RealUiAutomationTests
         var svc = NewService();
         var reads = 0;
         var failure = new COMException("General property getter failed.", hresult);
-        var getter = property == "IsPassword" ? "get_CurrentIsContentElement" : $"get_Current{property}";
+        var getter = $"get_Current{property}";
         var element = new UiElement
         {
             Type = "Edit",
@@ -61,6 +61,72 @@ public partial class RealUiAutomationTests
             Assert.IsNull((await svc.GetPropertiesAsync(new UiTarget(), element, property, default))[property]);
         }
         Assert.AreEqual(1, reads);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Query_IsPasswordComesFromProviderNotEditContentHeuristic(bool providerIsPassword)
+    {
+        var element = new UiElement
+        {
+            Type = "Edit",
+            RequiresCurrentIdentity = true,
+            Context = new UiElementContext(ComProxy<IUIAutomationElement>((method, _) => method.Name switch
+            {
+                "get_CurrentProcessId" => Environment.ProcessId,
+                "get_CurrentControlType" => UIA_CONTROLTYPE_ID.UIA_EditControlTypeId,
+                "get_CurrentIsContentElement" => new BOOL(true),
+                "get_CurrentIsPassword" => new BOOL(providerIsPassword),
+                "get_CurrentAcceleratorKey" or "get_CurrentAccessKey" or "get_CurrentHelpText" => default(BSTR),
+                "GetCurrentPattern" => throw new COMException("Pattern unsupported.", unchecked((int)0x80040204)),
+                _ => new BOOL(false),
+            })),
+        };
+
+        var props = await NewService().GetPropertiesAsync(new UiTarget(), element, "IsPassword", default);
+
+        Assert.AreEqual(providerIsPassword, props["IsPassword"]);
+    }
+
+    [TestMethod]
+    public async Task Query_IsPasswordMatchesRealOrdinaryAndPasswordTextBoxes()
+    {
+        const string secret = "Fixture-Secret-694";
+        using var fx = new UiaTestFixture(nonActivating: true);
+        var passwordBox = fx.OnUiThread(() =>
+        {
+            var box = new System.Windows.Forms.TextBox
+            {
+                Name = "txtPassword",
+                AccessibleName = "Password",
+                Left = 10,
+                Top = 600,
+                Width = 200,
+                UseSystemPasswordChar = true,
+                Text = secret,
+            };
+            fx.Form.Controls.Add(box);
+            return box;
+        });
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var nativeOrdinary = automation.ElementFromHandle(new HWND(fx.HandleOf(fx.ValueBox)));
+        Assert.IsTrue((bool)nativeOrdinary.get_CurrentIsContentElement(), "The ordinary box must be a content Edit to exercise the old heuristic.");
+        Assert.IsFalse((bool)nativeOrdinary.get_CurrentIsPassword());
+        Assert.IsTrue((bool)automation.ElementFromHandle(new HWND(fx.HandleOf(passwordBox))).get_CurrentIsPassword());
+
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var ordinary = await ResolveAsync(svc, target, "txtValue");
+        var password = await ResolveAsync(svc, target, "txtPassword");
+        var ordinaryProps = await svc.GetPropertiesAsync(target, ordinary, null, default);
+        var passwordProps = await svc.GetPropertiesAsync(target, password, null, default);
+
+        Assert.AreEqual(false, ordinaryProps["IsPassword"]);
+        Assert.AreEqual(true, passwordProps["IsPassword"]);
+        Assert.AreEqual(true, (await svc.GetPropertiesAsync(target, password, "IsPassword", default))["IsPassword"]);
+        Assert.IsFalse(passwordProps.Values.Any(v => v?.ToString()?.Contains(secret, StringComparison.Ordinal) == true),
+            "A password control's text must never be exposed through its properties.");
     }
 
     [TestMethod]

@@ -201,6 +201,113 @@ public sealed class XamlTriageServiceWorkflowTests
     }
 
     [TestMethod]
+    public async Task TryAnalyzeAsync_HoldsTheVerifiedDllsUntilTheChildHasExited()
+    {
+        // The child loads the DLLs that resolution verified. Releasing them before it has exited would
+        // reopen the window in which the cache can be swapped between the check and the load.
+        var hold = new TrackingHold();
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true) with { Holds = [hold] };
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        bool? heldWhenChildStarted = null;
+        service.TriageStartInfoFactory = (_, _, _, _) =>
+        {
+            heldWhenChildStarted = !hold.Disposed;
+            return BatchStartInfo("@echo off\r\necho Stowed exception breakdown\r\nexit /b 0\r\n");
+        };
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.Succeeded, result.Outcome);
+        Assert.IsTrue(heldWhenChildStarted, "The DLLs must still be held when the triage child starts.");
+        Assert.IsTrue(hold.Disposed, "The DLLs must be released once the child has exited.");
+    }
+
+    [TestMethod]
+    public async Task TryAnalyzeAsync_ChildFails_StillReleasesTheVerifiedDlls()
+    {
+        var hold = new TrackingHold();
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true) with { Holds = [hold] };
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        service.TriageStartInfoFactory = (_, _, _, _) => throw new InvalidOperationException("child could not be built");
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.None, result.Outcome);
+        Assert.IsTrue(hold.Disposed, "A failed triage run must not leave the cache locked.");
+    }
+
+    [TestMethod]
+    public async Task TryAnalyzeAsync_ChildTimesOut_ReleasesTheDllsOnlyAfterTheChildIsGone()
+    {
+        // Process.Kill only starts termination. If the DLLs were released straight away, a child that is
+        // still running could load a file swapped in after the release. Termination is usually too fast
+        // to lose this race on demand, so this checks the invariant rather than forcing the race.
+        XamlTriageService.TriageTimeoutOverride = TimeSpan.FromMilliseconds(200);
+        var childName = $"triage-child-{Guid.NewGuid():N}";
+        var childExe = Path.Join(_tempRoot, childName + ".exe");
+        File.Copy(Path.Join(Environment.SystemDirectory, "PING.EXE"), childExe);
+
+        var hold = new TrackingHold();
+        var childRunningWhenReleased = false;
+        hold.OnDispose = () => childRunningWhenReleased = Process.GetProcessesByName(childName).Length > 0;
+
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true) with { Holds = [hold] };
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        service.TriageStartInfoFactory = (_, _, _, _) =>
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = childExe,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add("-n");
+            psi.ArgumentList.Add("30");
+            psi.ArgumentList.Add("127.0.0.1");
+            return psi;
+        };
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.Skipped, result.Outcome);
+        Assert.IsTrue(hold.Disposed);
+        Assert.IsFalse(childRunningWhenReleased, "The DLLs must stay held until the killed child has exited.");
+    }
+
+    [TestMethod]
+    public void WaitUntilExited_KeepsWaitingUntilTheChildHasReallyExited()
+    {
+        // A child that takes longer than one wait interval to die must still be waited for: releasing
+        // the verified DLLs while it runs would let it load a file swapped in after the release.
+        var calls = 0;
+
+        XamlTriageService.WaitUntilExited(_ => ++calls == 4, NullLogger.Instance);
+
+        Assert.AreEqual(4, calls, "The wait must continue until the child is confirmed gone, not give up after a timeout.");
+    }
+
+    private sealed class TrackingHold : IDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public Action? OnDispose { get; set; }
+
+        public void Dispose()
+        {
+            OnDispose?.Invoke();
+            Disposed = true;
+        }
+    }
+
+    [TestMethod]
     public async Task TryAnalyzeAsync_SymbolsRequestedButNoSymSrv_IncludesSymbolNote()
     {
         var service = CreateService();
@@ -310,18 +417,97 @@ public sealed class XamlTriageServiceWorkflowTests
         // First call downloads + writes the extension; the second must satisfy from the cached file
         // (File.Exists && hash matches) and therefore never invoke the downloader again.
         var service = CreateService();
-        var root = new DirectoryInfo(Path.Combine(_tempRoot, "ext-cachehit"));
+        var root = new DirectoryInfo(Path.Join(_tempRoot, "ext-cachehit"));
         service.ExtensionHashValidatorOverride = _ => true;
         service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
 
-        var first = await service.EnsureExtensionAsync(root, CancellationToken.None);
-        Assert.IsNotNull(first, "The first call should download and cache the extension.");
-        Assert.IsTrue(File.Exists(first), "The extension file should have been written to the cache.");
+        string firstPath;
+        using (var first = await service.EnsureExtensionAsync(root, CancellationToken.None))
+        {
+            Assert.IsNotNull(first, "The first call should download and cache the extension.");
+            Assert.IsTrue(File.Exists(first.Path), "The extension file should have been written to the cache.");
+            firstPath = first.Path;
+        }
 
         service.ExtensionBytesDownloader = (_, _) => throw new InvalidOperationException("cache hit must not download");
-        var second = await service.EnsureExtensionAsync(root, CancellationToken.None);
+        using var second = await service.EnsureExtensionAsync(root, CancellationToken.None);
 
-        Assert.AreEqual(first, second, "A cached extension matching the pinned hash must be reused without downloading.");
+        Assert.AreEqual(firstPath, second?.Path, "A cached extension matching the pinned hash must be reused without downloading.");
+    }
+
+    [TestMethod]
+    public async Task EnsureExtensionAsync_WhileHeld_TheScriptCannotBeReplaced()
+    {
+        // The child runs .scriptload on this path later. A script can run debugger commands (including
+        // ones that start processes), so a swap between the hash check and the load is code execution.
+        var service = CreateService();
+        var root = new DirectoryInfo(Path.Join(_tempRoot, "ext-held"));
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+
+        string scriptPath;
+        using (var held = await service.EnsureExtensionAsync(root, CancellationToken.None))
+        {
+            Assert.IsNotNull(held);
+            scriptPath = held.Path;
+            Assert.ThrowsExactly<IOException>(() => File.WriteAllText(scriptPath, "host.diagnostics.debugLog('evil');"),
+                "The verified script must not be writable while triage uses it.");
+            Assert.ThrowsExactly<IOException>(() => File.Delete(scriptPath));
+        }
+
+        File.WriteAllText(scriptPath, "released");
+        Assert.AreEqual("released", File.ReadAllText(scriptPath), "The script must be released once triage is done.");
+    }
+
+    [TestMethod]
+    public async Task EnsureExtensionAsync_TamperedCachedScript_IsReplacedAndTheReplacementIsHeld()
+    {
+        var service = CreateService();
+        var root = new DirectoryInfo(Path.Join(_tempRoot, "ext-tampered"));
+        var extPath = Path.Join(root.FullName, "ext", "winui-dbgext.js");
+        Directory.CreateDirectory(Path.GetDirectoryName(extPath)!);
+        File.WriteAllText(extPath, "tampered");
+        var genuine = AnyExtensionBytes();
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(genuine);
+        service.ExtensionHashValidatorOverride = bytes => bytes.AsSpan().SequenceEqual(genuine);
+
+        using var held = await service.EnsureExtensionAsync(root, CancellationToken.None);
+
+        Assert.IsNotNull(held);
+        CollectionAssert.AreEqual(genuine, File.ReadAllBytes(held.Path), "A cached script that fails the hash must be re-downloaded.");
+        Assert.ThrowsExactly<IOException>(() => File.WriteAllText(held.Path, "evil"));
+    }
+
+    [TestMethod]
+    public async Task TryAnalyzeAsync_HoldsTheScriptUntilTheChildHasExited()
+    {
+        var service = CreateService();
+        service.BinariesResolverOverride = _ => FakeBinaries(hasSymSrv: true);
+        service.ExtensionBytesDownloader = (_, _) => Task.FromResult(AnyExtensionBytes());
+        service.ExtensionHashValidatorOverride = _ => true;
+        string? scriptGivenToChild = null;
+        bool? writableWhenChildStarted = null;
+        service.TriageStartInfoFactory = (_, _, extPath, _) =>
+        {
+            scriptGivenToChild = extPath;
+            try
+            {
+                using var writer = File.Open(extPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+                writableWhenChildStarted = true;
+            }
+            catch (IOException)
+            {
+                writableWhenChildStarted = false;
+            }
+
+            return BatchStartInfo("@echo off\r\necho Stowed exception breakdown\r\nexit /b 0\r\n");
+        };
+
+        var result = await service.TryAnalyzeAsync(@"C:\crash.dmp", useSymbols: false);
+
+        Assert.AreEqual(XamlTriageOutcome.Succeeded, result.Outcome);
+        Assert.IsFalse(writableWhenChildStarted, "The script must still be held when the triage child starts.");
+        using var writable = File.Open(scriptGivenToChild!, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
     }
 
     [TestMethod]

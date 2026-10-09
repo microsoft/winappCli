@@ -94,6 +94,23 @@ public class MSStoreCLIServiceOfflineTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task EnsureMSStoreCLIAvailableAsync_InstallFolderNotWritable_FailsClearlyBeforeAnyDownload()
+    {
+        var handler = new FakeHttpMessageHandler();
+        var svc = NewService(handler, out var installDir);
+        // A file where the tools folder should be makes the install folder impossible to create,
+        // as a denied global winapp folder does.
+        File.WriteAllText(installDir.Parent!.FullName, string.Empty);
+
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            svc.EnsureMSStoreCLIAvailableAsync(TestContext.CancellationToken));
+
+        StringAssert.Contains(ex.Message, installDir.FullName);
+        StringAssert.Contains(ex.Message, "WINAPP_CLI_CACHE_DIRECTORY");
+        Assert.AreEqual(0, handler.Requests.Count, "No network work should happen when the install can't succeed.");
+    }
+
+    [TestMethod]
     public async Task EnsureMSStoreCLIAvailableAsync_NullTagName_Throws()
     {
         var handler = new FakeHttpMessageHandler()

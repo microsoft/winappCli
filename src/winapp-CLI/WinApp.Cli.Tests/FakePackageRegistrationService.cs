@@ -257,8 +257,13 @@ internal class FakePackageRegistrationService : IPackageRegistrationService
         {
             throw FindDevPackagesThrows;
         }
-        return FakeDevPackages;
+        return MatchByName
+            ? [.. FakeDevPackages.Where(package => string.Equals(package.Name, packageName, StringComparison.OrdinalIgnoreCase))]
+            : FakeDevPackages;
     }
+
+    /// <summary>When true, <see cref="FindDevPackages"/> returns only packages with the requested name, as Windows does.</summary>
+    public bool MatchByName { get; set; }
 
     /// <summary>
     /// When set, <see cref="FindOrphanedDevPackages"/> returns these values. Defaults to empty list.

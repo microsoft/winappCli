@@ -3,13 +3,13 @@
 .SYNOPSIS
     Generate the CLI schema from the CLI binary
 .DESCRIPTION
-    This script writes docs/cli-schema.json from the CLI's --cli-schema output.
+    This script writes artifacts/docs/cli-schema.json from the CLI's --cli-schema output.
     Plugin skills are hand-authored directly under plugins/winapp/skills and are
     not generated.
 .PARAMETER CliPath
     Path to the winapp.exe CLI binary (default: artifacts/cli/win-x64/winapp.exe)
-.PARAMETER DocsPath
-    Path to the docs folder (default: docs)
+.PARAMETER OutputPath
+    Schema output folder (default: artifacts/docs). An explicit path skips plugin version synchronization.
 .EXAMPLE
     .\scripts\generate-llm-docs.ps1
 .EXAMPLE
@@ -18,20 +18,21 @@
 
 param(
     [string]$CliPath = "",
-    [string]$DocsPath = "",
+    [string]$OutputPath = "",
     [switch]$CalledFromBuildScript = $false
 )
 
 $ProjectRoot = $PSScriptRoot | Split-Path -Parent
-$DefaultDocsPath = Join-Path $ProjectRoot "docs"
-$UsingDefaultPaths = (-not $CliPath -and -not $DocsPath)
+$DefaultOutputPath = Join-Path $ProjectRoot "artifacts\docs"
+$UsingDefaultPaths = (-not $CliPath -and -not $OutputPath)
+$SyncPluginVersions = (-not $OutputPath)
 
 if (-not $CliPath) {
     $CliPath = Join-Path $ProjectRoot "artifacts\cli\win-x64\winapp.exe"
 }
 
-if (-not $DocsPath) {
-    $DocsPath = $DefaultDocsPath
+if (-not $OutputPath) {
+    $OutputPath = $DefaultOutputPath
 }
 
 if (-not (Test-Path $CliPath)) {
@@ -40,12 +41,12 @@ if (-not (Test-Path $CliPath)) {
     exit 1
 }
 
-New-Item -ItemType Directory -Path $DocsPath -Force | Out-Null
-$SchemaOutputPath = Join-Path $DocsPath "cli-schema.json"
+New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
+$SchemaOutputPath = Join-Path $OutputPath "cli-schema.json"
 
 Write-Host "[DOCS] Generating CLI schema..." -ForegroundColor Blue
 Write-Host "CLI path: $CliPath" -ForegroundColor Gray
-Write-Host "Docs path: $DocsPath" -ForegroundColor Gray
+Write-Host "Output path: $OutputPath" -ForegroundColor Gray
 
 $prevEncoding = [Console]::OutputEncoding
 try {
@@ -63,7 +64,11 @@ if ($LASTEXITCODE -ne 0) {
 
 $SchemaJson = ($SchemaJsonLines -join "`n").TrimEnd() + "`n"
 try {
-    $null = $SchemaJson | ConvertFrom-Json -Depth 100
+    $schema = $SchemaJson | ConvertFrom-Json -Depth 100 -ErrorAction Stop
+    if ($schema.name -ne 'winapp' -or $schema.subcommands -isnot [System.Management.Automation.PSCustomObject] -or
+            @($schema.subcommands.PSObject.Properties).Count -eq 0) {
+        throw "Expected the winapp command tree with at least one subcommand."
+    }
 }
 catch {
     Write-Error "CLI returned invalid schema JSON: $($_.Exception.Message)"
@@ -73,18 +78,11 @@ catch {
 [System.IO.File]::WriteAllText($SchemaOutputPath, $SchemaJson, [System.Text.UTF8Encoding]::new($false))
 Write-Host "[DOCS] Saved: $SchemaOutputPath" -ForegroundColor Green
 
-# Default-path builds also keep the installable plugin metadata aligned with the CLI.
-# Custom DocsPath runs, such as validation into a temp directory, must not mutate the repo.
-$IsDefaultDocsPath = [System.IO.Path]::GetFullPath($DocsPath) -eq [System.IO.Path]::GetFullPath($DefaultDocsPath)
-if ($IsDefaultDocsPath) {
+# Validation uses an explicit output path so it does not update tracked manifests.
+if ($SyncPluginVersions) {
     $PluginVersion = (Get-Content (Join-Path $ProjectRoot "version.json") | ConvertFrom-Json).version
-    $ManifestPaths = @(
-        (Join-Path $ProjectRoot "plugin.json"),
-        (Join-Path $ProjectRoot "plugins\winapp\plugin.json"),
-        (Join-Path $ProjectRoot "plugins\winapp\.claude-plugin\plugin.json"),
-        (Join-Path $ProjectRoot ".github\plugin\marketplace.json"),
-        (Join-Path $ProjectRoot ".claude-plugin\marketplace.json")
-    )
+    . (Join-Path $PSScriptRoot "plugin-version-manifests.ps1")
+    $ManifestPaths = Get-VersionedPluginManifests -ProjectRoot $ProjectRoot
 
     foreach ($manifestPath in $ManifestPaths) {
         if (-not (Test-Path $manifestPath)) {

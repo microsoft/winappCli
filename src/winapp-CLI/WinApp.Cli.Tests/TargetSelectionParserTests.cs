@@ -78,6 +78,25 @@ public class TargetSelectionParserTests : BaseCommandTests
     }
 
     [TestMethod]
+    public void SelectorBeforeTheCommand_StillResolves()
+    {
+        var parsed = Parse(["--on", "sandbox", "run"]);
+
+        Assert.IsNull(ExecutionTargetSelection.Validate(parsed));
+        Assert.AreEqual(ExecutionTargetRef.SandboxKind, ExecutionTargetSelection.Resolve(parsed).Kind);
+    }
+
+    [TestMethod]
+    public void SelectorGivenBeforeAndAfterTheCommand_IsRefused()
+    {
+        var parsed = Parse(["--on", "local", "run", "--on", "sandbox"]);
+        var error = ExecutionTargetSelection.Validate(parsed);
+
+        Assert.IsNotNull(error);
+        Assert.AreEqual(ExecutionTargetErrorCodes.TargetInvalid, error.Code);
+    }
+
+    [TestMethod]
     public void OmittedSelector_MeansThisMachine()
     {
         var parsed = Parse(["ui", "inspect", "-a", "MyApp"]);
@@ -474,6 +493,33 @@ public class TargetSelectionParserTests : BaseCommandTests
         Assert.IsTrue(
             ExecutionTargetUiRouter.ShouldRoute(parsed),
             "The selector is still valid, so the guard has to be the parse-error check.");
+    }
+
+    /// <summary>
+    /// Help and the CLI schema describe a command without executing it, so they run here even when
+    /// --on names another target; otherwise `ui invoke --on sandbox --help` prepares a Sandbox.
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("winapp ui invoke", "ui", "invoke", "--on=sandbox", "--help")]
+    [DataRow("\"name\": \"invoke\"", "ui", "invoke", "--on=sandbox", "--cli-schema")]
+    [DataRow("Description:", "init", "--on=sandbox", "--help")]
+    public async Task HelpWithASelector_PrintsLocally(string expected, params string[] args)
+    {
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(args);
+
+        Assert.AreEqual(0, exitCode, stderr);
+        StringAssert.Contains(stdout, expected);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(stderr), stderr);
+    }
+
+    [TestMethod]
+    public void RealCommandWithASelector_IsNotTreatedAsHelp()
+    {
+        var parsed = Parse(["ui", "status", "--on=sandbox"]);
+
+        Assert.IsFalse(Program.IsDescriptiveAction(parsed));
+        Assert.IsTrue(ExecutionTargetUiRouter.ShouldRoute(parsed));
     }
 
     /// <summary>

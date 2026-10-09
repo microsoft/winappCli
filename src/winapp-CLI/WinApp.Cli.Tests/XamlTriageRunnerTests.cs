@@ -98,9 +98,20 @@ public sealed class XamlTriageRunnerTests
     [TestMethod]
     public void Run_MissingExt_ReturnsTwo()
     {
-        var (exit, _, _) = RunCaptured([XamlTriageRunner.InternalVerb, "--dump", @"C:\x.dmp", "--bin", @"C:\bin"]);
+        var (exit, _, _) = RunCaptured([XamlTriageRunner.InternalVerb, "--dump", @"C:\x.dmp", "--bin", @"C:\bin", "--jsprovider", @"C:\bin\JsProvider.dll"]);
 
         Assert.AreEqual(2, exit);
+    }
+
+    [TestMethod]
+    public void Run_MissingJsProvider_ReturnsTwoRatherThanGuessingAPath()
+    {
+        // The parent holds the JsProvider.dll it verified and passes that exact path. Guessing one from
+        // --bin instead would load a file nothing verified or held.
+        var (exit, _, stderr) = RunCaptured([XamlTriageRunner.InternalVerb, "--dump", @"C:\x.dmp", "--bin", @"C:\bin", "--ext", @"C:\e.js"]);
+
+        Assert.AreEqual(2, exit);
+        StringAssert.Contains(stderr, "--jsprovider");
     }
 
     [TestMethod]
@@ -108,7 +119,7 @@ public sealed class XamlTriageRunnerTests
     {
         // The "--dump" arm has a `when i + 1 < args.Length` guard; a trailing flag with no value must
         // leave dump null so the required-args check fails with exit 2.
-        var (exit, _, _) = RunCaptured([XamlTriageRunner.InternalVerb, "--bin", @"C:\bin", "--ext", @"C:\e.js", "--dump"]);
+        var (exit, _, _) = RunCaptured([XamlTriageRunner.InternalVerb, "--bin", @"C:\bin", "--ext", @"C:\e.js", "--jsprovider", @"C:\bin\JsProvider.dll", "--dump"]);
 
         Assert.AreEqual(2, exit);
     }

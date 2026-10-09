@@ -1,0 +1,23 @@
+{
+  "id": "console-arg-parsing",
+  "description": "Near miss: plain .NET console change that needs no Windows skill.",
+  "set": "dev",
+  "cohort": "near-miss",
+  "prompt": "Add command-line parsing to this console tool: --input <path> is required, --verbose is optional, and print a helpful usage message when --input is missing.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

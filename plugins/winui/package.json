@@ -1,0 +1,21 @@
+{
+  "name": "winui",
+  "type": "module",
+  "private": true,
+  "description": "Agents and skills for WinUI 3 app development. Create new WinUI 3 desktop apps, convert from other frameworks to WinUI 3, or add features to existing WinUI 3 applications.",
+  "license": "MIT",
+  "files": [
+    "index.js",
+    "openclaw.plugin.json",
+    "agent-plugin",
+    "agents"
+  ],
+  "peerDependencies": {
+    "openclaw": ">=2026.3.24-beta.2"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

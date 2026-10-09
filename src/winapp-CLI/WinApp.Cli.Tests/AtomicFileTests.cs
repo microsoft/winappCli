@@ -99,4 +99,74 @@ public class AtomicFileTests
                 "The locked file could not be deleted, confirming the swallowed-error path ran.");
         }
     }
+
+    [TestMethod]
+    public void WriteAllText_WhileAReaderHoldsTheDestinationOpen_PublishesOnceTheReaderCloses()
+    {
+        var dest = TestPaths.Under(_tempDir, "state.json");
+        File.WriteAllText(dest, "old");
+
+        // The way every state reader opens the file. Windows still refuses a rename over it while
+        // it is open, so the writer must wait the reader out rather than fail with access denied.
+        // The reader closes in response to the first refusal, on the writer's own thread. Closing it
+        // from a timer instead needs a free thread-pool thread inside the retry window, which a
+        // loaded parallel test run does not guarantee.
+        using var reader = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        var refusals = 0;
+        AtomicFile.WriteAllText(dest, "new", onRenameRefused: () =>
+        {
+            if (++refusals == 1)
+            {
+                reader.Dispose();
+            }
+        });
+
+        Assert.IsGreaterThanOrEqualTo(1, refusals, "The open reader must refuse the first rename, or the retry was never exercised.");
+        Assert.AreEqual("new", File.ReadAllText(dest));
+        Assert.AreEqual(0, Directory.GetFiles(_tempDir, "*.tmp").Length);
+    }
+
+    [TestMethod]
+    public async Task WriteAllText_ConcurrentWithAPollingReader_NeverFails()
+    {
+        var dest = TestPaths.Under(_tempDir, "state.json");
+        File.WriteAllText(dest, "0");
+        using var stop = new CancellationTokenSource();
+
+        var reader = Task.Run(() =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                using var stream = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+                stream.ReadByte();
+            }
+        });
+
+        try
+        {
+            for (var i = 1; i <= 200; i++)
+            {
+                AtomicFile.WriteAllText(dest, i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await reader;
+        }
+
+        Assert.AreEqual("200", File.ReadAllText(dest));
+    }
+
+    [TestMethod]
+    public void WriteAllText_WhenTheDestinationStaysLocked_FailsAfterTheRetryWindow()
+    {
+        var dest = TestPaths.Under(_tempDir, "held.json");
+        File.WriteAllText(dest, "old");
+
+        using var holder = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+
+        Assert.ThrowsExactly<UnauthorizedAccessException>(() => AtomicFile.WriteAllText(dest, "new"));
+        Assert.AreEqual(0, Directory.GetFiles(_tempDir, "*.tmp").Length, "A failed publish must not leave its temp file.");
+    }
 }

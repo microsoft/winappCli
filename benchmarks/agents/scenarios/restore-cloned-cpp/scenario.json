@@ -1,0 +1,26 @@
+{
+  "id": "restore-cloned-cpp",
+  "description": "Freshly cloned C++ project is missing generated Windows SDK / WinAppSDK headers.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "Just cloned this. `fatal error C1083: Cannot open include file: 'winrt/Microsoft.UI.Xaml.h': No such file or directory`. What am I missing?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "project.setup",
+        "troubleshoot"
+      ],
+      "acceptable": [
+        "toolchain.prereqs"
+      ],
+      "forbid": [
+        "winui.migrate"
+      ]
+    }
+  }
+}

@@ -49,13 +49,22 @@ internal class MSStoreCLIService(IWinappDirectoryService winappDirectoryService,
 
         var zipFileName = $"MSStoreCLI-win-{arch}.zip";
 
+        // Create the install folder before any network work, so a folder winapp can't write to
+        // fails right away with a clear error rather than after (or behind) a download.
+        var installDir = GetInstallDirectory();
+        try
+        {
+            Directory.CreateDirectory(installDir);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw CannotInstall(installDir, ex);
+        }
+
         // Query the GitHub API to resolve the latest release version and checksum
         var (version, downloadUrl, expectedHash) = await GetLatestReleaseInfoAsync(zipFileName, cancellationToken);
 
         logger.LogInformation("Downloading MSStoreCLI {Version} from {Url}", version, downloadUrl);
-
-        var installDir = GetInstallDirectory();
-        Directory.CreateDirectory(installDir);
 
         var zipPath = Path.Combine(installDir, "MSStoreCLI.zip");
 
@@ -74,6 +83,10 @@ internal class MSStoreCLIService(IWinappDirectoryService winappDirectoryService,
             await ZipFile.ExtractToDirectoryAsync(zipPath, installDir, overwriteFiles: true, cancellationToken: cancellationToken);
 
             logger.LogDebug("MSStoreCLI {Version} installed to {InstallDir}", version, installDir);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw CannotInstall(installDir, ex);
         }
         finally
         {
@@ -205,6 +218,10 @@ internal class MSStoreCLIService(IWinappDirectoryService winappDirectoryService,
     {
         return Path.Combine(winappDirectoryService.GetGlobalWinappDirectory().FullName, "tools", "msstore");
     }
+
+    private static InvalidOperationException CannotInstall(string installDir, Exception inner) => new(
+        $"winapp can't install the Microsoft Store Developer CLI to '{installDir}'. " +
+        "Set WINAPP_CLI_CACHE_DIRECTORY to a folder winapp can write to, then retry.", inner);
 
     private bool IsMSStoreCLIAvailable()
     {

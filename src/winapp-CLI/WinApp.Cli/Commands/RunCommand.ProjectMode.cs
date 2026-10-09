@@ -38,7 +38,7 @@ internal partial class RunCommand
         /// <see cref="RunUnpackagedProjectAsync"/> so both reject the exact same set (issue #676).
         /// </summary>
         private static List<string> CollectUnpackagedIncompatibleOptions(
-            bool noLaunch, bool withAlias, bool withoutAlias, bool unregisterOnExit, bool clean, FileInfo? manifest, DirectoryInfo? outputAppXDirectory, string? executable)
+            bool noLaunch, bool withAlias, bool withoutAlias, bool unregisterOnExit, bool clean, FileInfo? manifest, DirectoryInfo? outputAppXDirectory, string? executable, bool uniqueIdentity)
         {
             var rejected = new List<string>();
             if (noLaunch)
@@ -76,6 +76,10 @@ internal partial class RunCommand
             {
                 // --executable selects an entry within an MSIX layout; unusable for an unpackaged app.
                 rejected.Add("--executable");
+            }
+            if (uniqueIdentity)
+            {
+                rejected.Add("--unique-identity");
             }
             return rejected;
         }
@@ -185,6 +189,42 @@ internal partial class RunCommand
                 return Fail("--manifest cannot be combined with --aot. Configure the project manifest before publishing.", isJson);
             }
 
+            // C++ projects build with Visual Studio's MSBuild, not the .NET SDK, so .NET-only options don't apply.
+            var isCpp = ProjectRunService.IsCppProject(csproj);
+            if (isCpp && (aot || !string.IsNullOrWhiteSpace(parseResult.GetValue(FrameworkOption))))
+            {
+                return Fail($"{(aot ? "--aot" : "--framework")} applies to .NET projects and can't be used with a C++ project ({csproj.Name}).", isJson);
+            }
+
+            // For C++, -p Platform=ARM64 is how Visual Studio users pick the architecture, so honor it when
+            // --arch/--runtime weren't given instead of defaulting to the machine's architecture.
+            if (isCpp && archOption is null && runtimeOption is null
+                && ProjectRunService.CppArchitectureFromProperties(properties) is { } platformArch)
+            {
+                architecture = platformArch;
+            }
+
+            // Fail before a potentially minutes-long build that could only end in a launch this machine can't
+            // perform. --no-launch still builds, and a remote execution target has its own architecture.
+            if (!noLaunch && executionTarget.IsLocal && !CanRunArchitecture(architecture, OsArchitecture()))
+            {
+                var host = OsArchitecture().ToString().ToLowerInvariant();
+                // Suggest changing whichever input chose the architecture; --runtime outranks --arch, which outranks -p Platform.
+                var buildForHost = runtimeOption is not null ? $"-r win-{host}"
+                    : archOption is not null || !isCpp ? $"--arch {host}"
+                    : $"-p Platform={ProjectRunService.ToCppPlatform(host)}";
+                if (isCpp && (runtimeOption is not null || archOption is not null)
+                    && ProjectRunService.CppArchitectureFromProperties(properties) is not null)
+                {
+                    // A matching -p Platform must change too, or the build rejects the pair as conflicting.
+                    buildForHost += $" -p Platform={ProjectRunService.ToCppPlatform(host)}";
+                }
+                return Fail(
+                    $"{csproj.Name} targets {architecture}, which this {host} machine can't run. " +
+                    $"Run it on an {architecture} machine, or build for this machine ({buildForHost}).",
+                    isJson);
+            }
+
             // Immediate, persistent context line (UX): the pre-build steps below each spawn dotnet and can
             // take several silent seconds. Print WHAT we're about to run — and, when the input was
             // ambiguous, WHY this project was chosen — so the run never looks hung. Suppressed for --json
@@ -209,9 +249,10 @@ internal partial class RunCommand
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Search} {context}");
             }
 
-            // A capable SDK (≥ 8.0.100) is required for MSBuild --getProperty.
+            // A capable SDK (≥ 8.0.100) is required for MSBuild --getProperty. C++ projects don't use dotnet;
+            // their toolchain is located (with install guidance when missing) by the build itself.
             var workingDir = csproj.Directory ?? new DirectoryInfo(currentDirectoryProvider.GetCurrentDirectory());
-            var sdkError = await projectRunService.CheckSdkAsync(workingDir, cancellationToken);
+            var sdkError = isCpp ? null : await projectRunService.CheckSdkAsync(workingDir, cancellationToken);
             if (sdkError != null)
             {
                 return Fail(sdkError, isJson);
@@ -226,10 +267,11 @@ internal partial class RunCommand
             // unpackaged app but are only rejected authoritatively AFTER packaging is known (post-build).
             // Cheaply evaluate WindowsPackageType first and reject now when the project is DEFINITIVELY
             // unpackaged, so the user doesn't pay the full build cost only to be rejected. Skipped under
-            // --no-build (no build cost to save) and --aot (publishing can change the package type).
-            if (!noBuild && !aot)
+            // --no-build (no build cost to save), --aot (publishing can change the package type), and C++
+            // projects (this probe evaluates with dotnet).
+            if (!noBuild && !aot && !isCpp)
             {
-                var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
+                var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable, _uniqueIdentityRequested);
                 if (incompatible.Count > 0
                     && await projectRunService.IsDefinitivelyUnpackagedAsync(csproj, buildOptions, cancellationToken))
                 {
@@ -371,7 +413,7 @@ internal partial class RunCommand
             // AUTHORITATIVE gate — rejects packaged-only options once packaging is definitively known.
             // RunProjectModeAsync fails fast on the definitively-unpackaged case before building (issue
             // #676); this still catches the indeterminate-then-unpackaged case that only resolves here.
-            var rejected = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
+            var rejected = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable, _uniqueIdentityRequested);
             if (rejected.Count > 0)
             {
                 return Fail(BuildUnpackagedIncompatibleMessage(rejected, csproj.Name), isJson);
@@ -461,9 +503,12 @@ internal partial class RunCommand
                 // A cross-arch apphost (e.g. an arm64 build on an x64 host) fails here with an opaque
                 // Win32 "not a valid application" error. If the resolved arch can't run on this machine,
                 // enrich the message with actionable guidance instead of surfacing the raw OS error.
-                var detail = resolution.Architecture is { Length: > 0 } arch && !CanCurrentOsRunArchitecture(arch)
-                    ? BuildArchMismatchMessage(arch, ex.Message)
-                    : ex.Message;
+                var detail = ex is System.ComponentModel.Win32Exception { NativeErrorCode: ErrorElevationRequired }
+                    ? $"{Path.GetFileName(exePath)} requires administrator rights (its manifest sets requireAdministrator). " +
+                      "Run winapp from an elevated terminal, or lower the app's UAC execution level for this configuration."
+                    : resolution.Architecture is { Length: > 0 } arch && !CanCurrentOsRunArchitecture(arch)
+                        ? BuildArchMismatchMessage(arch, ex.Message)
+                        : ex.Message;
                 logger.LogError("{UISymbol} Failed to launch '{Exe}': {Message}", UiSymbols.Error, exePath, detail);
                 if (isJson)
                 {
@@ -518,7 +563,9 @@ internal partial class RunCommand
                     return debugExit;
                 }
 
-                return await WaitForLaunchedProcessAsync(launched, cancellationToken);
+                var appExitCode = await WaitForLaunchedProcessAsync(launched, cancellationToken);
+                HintDebugOutputOnFailure(appExitCode, isJson, cancellationToken);
+                return appExitCode;
             }
         }
 
@@ -528,9 +575,17 @@ internal partial class RunCommand
         /// x86 host runs x86 only. Unknown monikers are treated as runnable so a genuine launch error still
         /// surfaces normally rather than being masked by a false "wrong architecture" message.
         /// </summary>
-        internal static bool CanCurrentOsRunArchitecture(string targetArch)
+        internal static bool CanCurrentOsRunArchitecture(string targetArch) =>
+            CanRunArchitecture(targetArch, RuntimeInformation.OSArchitecture);
+
+        /// <summary>ERROR_ELEVATION_REQUIRED: the executable's manifest asks for administrator rights.</summary>
+        private const int ErrorElevationRequired = 740;
+
+        /// <summary>The OS architecture. A seam so tests can pin the host regardless of the machine running them.</summary>
+        internal Func<Architecture> OsArchitecture { get; set; } = () => RuntimeInformation.OSArchitecture;
+
+        internal static bool CanRunArchitecture(string targetArch, Architecture os)
         {
-            var os = RuntimeInformation.OSArchitecture;
             return targetArch.ToLowerInvariant() switch
             {
                 "arm64" => os == Architecture.Arm64,

@@ -37,8 +37,8 @@ internal static class UiCoordinationErrorCodes
 /// Raised when coordination cannot proceed safely. Carries the stable error code so command handlers
 /// emit the right envelope without string matching.
 /// </summary>
-internal sealed class UiCoordinationException(string code, string message, string? recoveryHint = null)
-    : Exception(message)
+internal sealed class UiCoordinationException(string code, string message, string? recoveryHint = null, Exception? innerException = null)
+    : Exception(message, innerException)
 {
     /// <summary>One of <see cref="UiCoordinationErrorCodes"/>.</summary>
     public string Code { get; } = code;

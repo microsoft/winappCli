@@ -1,7 +1,10 @@
 ---
 name: winapp-signing
-description: Create and manage code signing certificates for Windows apps and MSIX packages. Use when generating a certificate, signing a Windows app or installer, or fixing certificate trust issues.
+description: "Sign an existing .msix or .exe and manage code-signing certificates: winapp sign, cert generate/install/info, Azure Trusted Signing. Use when signing with a .pfx, creating or trusting a dev certificate, verifying a signature, or fixing a publisher mismatch. Not for building the MSIX."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 
 Use this skill when:
@@ -21,7 +24,7 @@ Use this skill when:
 
 **Dev vs. production certs:** `winapp cert generate` creates self-signed certificates for **local testing only**. For production distribution (Microsoft Store or enterprise), obtain a certificate from a trusted Certificate Authority.
 
-**Default password:** Generated certificates use `password` as the default PFX password. Override with `--password`. That default is publicly known, so a certificate left with it can be used by anyone who obtains the `.pfx` — keep it to builds that stay on your own machines. With `--json`, check `defaultPasswordIsPublic` (always present) and the `warnings` array before handing the certificate to anything else.
+**Default password:** Generated certificates use `password` as the default PFX password. Override with `--password`. That default is publicly known, so a certificate left with it can be used by anyone who obtains the `.pfx` — keep it to builds that stay on your own machines. With `--json`, check `defaultPasswordIsPublic` (always present when a certificate is generated) and the `warnings` array before handing the certificate to anything else. With `--if-exists skip`, an existing file is left untouched and the JSON is only `{"certificatePath": "...", "skipped": true}`.
 
 ## Usage
 
@@ -72,6 +75,9 @@ winapp sign ./myapp.msix ./devcert.pfx --password MySecurePassword
 
 # Sign with timestamp for production (signature remains valid after cert expires)
 winapp sign ./myapp.msix ./production.pfx --timestamp http://timestamp.digicert.com
+
+# Verify a signature (runs the Windows SDK signtool; the signing certificate must be trusted)
+winapp tool signtool.exe verify /pa ./myapp.msix
 ```
 
 ### Bundle signing

@@ -1,7 +1,9 @@
 ---
 name: winapp-find-api
-description: Agent-first search and inspection of the Windows/WinRT API surface (types, members, enums, namespaces) available to a project, resolved from its referenced .winmd/.dll metadata — or, outside any project, from the machine-wide Windows SDK. Built primarily for AI coding agents to ground code generation in real metadata instead of guessing, and equally usable by hand. Use when an AI agent or developer needs to discover an API, list a type's properties/events/methods, validate that a property exists before writing XAML/code, enumerate an enum's values, explore the namespaces and packages a project can call, or resolve a compile error that names a type or member (CS0246, CS0117, CS1061, CS0104, XAML unknown member). Works with WinUI 3, WinRT/UWP, and any project with .winmd/.dll references. Distinct from 'winapp find-ui', which returns working WinUI control samples.
+description: Look up real Windows, WinRT, and Windows App SDK APIs (types, members, enums) from a project's references or the installed SDKs with winapp find-api instead of guessing. Use before coding against an unverified API, or to fix unknown-member, CS0117, CS1061, or WMC0011 errors. Not for registry code.
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
 
 ## This is an agent-first command
 
@@ -277,6 +279,7 @@ winapp find-api check-property InfoBar Severity Backgruond --json
 - **"'<Type>' is ambiguous."** Two indexed types share that short name and neither is the `Microsoft.*`/`Windows.*` twin of the other. Re-run with the fully-qualified name from the listed candidates.
 - **"Installed Windows App Runtime X does not match the referenced Windows App SDK Y."** The machine has a newer Windows App Runtime than the release your project references, so its metadata is left out of the project's API surface. That is deliberate: including it would confirm types your project cannot compile against. To use those APIs, reference the matching Windows App SDK version.
 - **A type/member you expect is missing.** The owning package may not be restored, or the index is stale. Re-restore the project (auto-refreshes) or run `winapp find-api refresh` to force a rebuild. After installing a *new Windows SDK*, rebuild the SDK scope with `winapp find-api refresh --project sdk`.
+- **"winapp can't write the API index to '<dir>'."** The global winapp folder isn't writable (for example, in an agent sandbox that only allows writes to the project), so the index can't be built or refreshed. Retrying `restore` or `refresh` won't help. Set `WINAPP_CLI_CACHE_DIRECTORY` to a folder winapp can write to, such as one inside the project, then retry.
 - **First query is slow.** That's the one-time index build for the project's packages; subsequent queries are fast against the warm cache.
 
 ## Related skills

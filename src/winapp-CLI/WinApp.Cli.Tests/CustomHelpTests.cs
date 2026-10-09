@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.CommandLine;
 using System.CommandLine.Help;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Helpers;
@@ -120,6 +121,30 @@ public class CustomHelpTests : BaseCommandTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(output), "Subcommand help output should not be empty");
 
         // Subcommand help should NOT contain category headers (those are root-only)
-        Assert.DoesNotContain("Packaging & Signing", output, "Subcommand help should not contain root-level categories");
+        Assert.DoesNotContain("Package, Sign & Publish", output, "Subcommand help should not contain root-level categories");
+    }
+
+    [TestMethod]
+    [DataRow("--version")]
+    [DataRow("-V")]
+    public void VersionAliases_ShouldInvokeVersionAction(string flag)
+    {
+        var rootCommand = GetRequiredService<WinAppRootCommand>();
+
+        var parseResult = rootCommand.Parse([flag]);
+
+        Assert.IsEmpty(parseResult.Errors);
+        Assert.AreSame(rootCommand.Options.OfType<VersionOption>().Single().Action, parseResult.Action);
+    }
+
+    [TestMethod]
+    public void LowercaseV_ShouldStillMeanVerbose()
+    {
+        var rootCommand = GetRequiredService<WinAppRootCommand>();
+
+        var parseResult = rootCommand.Parse(["restore", "-v"]);
+
+        Assert.IsEmpty(parseResult.Errors);
+        Assert.IsTrue(parseResult.GetValue(WinAppRootCommand.VerboseOption));
     }
 }

@@ -281,8 +281,23 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
         {
             try
             {
+                // Missing ancestors are created first, with ordinary inherited permissions.
+                // Create(DirectorySecurity) would otherwise stamp the current-user-only DACL onto
+                // every ancestor it has to create too -- including the shared
+                // %USERPROFILE%\.winapp\state root, which then locks SYSTEM out of everything under
+                // it, and Windows Sandbox's host service can no longer share the target's bootstrap
+                // folders.
+                if (directoryInfo.Parent is { } parent)
+                {
+                    parent.Create();
+                }
+
                 directoryInfo.Create(BuildCurrentUserOnlySecurity());
-                return;
+
+                // Not a return. Create succeeds without applying the security when the directory
+                // already exists, so one another process created after the parent appeared would
+                // otherwise be trusted as-is. Falling through verifies, and repairs or fails closed.
+                directoryInfo.Refresh();
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -378,7 +393,8 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
             throw new UiCoordinationException(
                 UiCoordinationErrorCodes.Unavailable,
                 $"The UI coordination directory '{directoryInfo.FullName}' could not be restricted to the current user: {ex.Message}",
-                "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use %USERPROFILE%\\.winapp\\state\\ui.");
+                "Point WINAPP_UI_LOCK_DIRECTORY at a directory this user owns, or remove the override to use %USERPROFILE%\\.winapp\\state\\ui.",
+                ex);
         }
     }
 
@@ -561,5 +577,6 @@ internal sealed class InteractiveDesktopPaths : IInteractiveDesktopPaths
         => new(
             UiCoordinationErrorCodes.Unavailable,
             $"The UI coordination directory '{path}' could not be created: {ex.Message}",
-            "Check that the current user can write to the directory, or set WINAPP_UI_LOCK_DIRECTORY to a writable local directory.");
+            "Check that the current user can write to the directory, or set WINAPP_UI_LOCK_DIRECTORY to a writable local directory.",
+            ex);
 }
