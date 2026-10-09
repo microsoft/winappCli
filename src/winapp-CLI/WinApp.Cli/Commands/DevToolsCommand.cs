@@ -50,7 +50,7 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         ("Read", [typeof(DevToolsGetPropertyCommand), typeof(DevToolsGetLayoutCommand), typeof(DevToolsGetSourceCommand), typeof(DevToolsDiagnoseBindingCommand)]),
         ("Change live", [typeof(DevToolsSetPropertyCommand)]),
         ("Comments", [typeof(DevToolsCommentsCommand)]),
-        ("More", [typeof(DevToolsDefaultCommand), typeof(DevToolsCallCommand)]),
+        ("More", [typeof(DevToolsCallCommand)]),
     ];
 
     public DevToolsCommand(
@@ -64,8 +64,7 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         DevToolsGetSourceCommand getSourceCommand,
         DevToolsDiagnoseBindingCommand diagnoseBindingCommand,
         DevToolsSetPropertyCommand setPropertyCommand,
-        DevToolsCallCommand callCommand,
-        DevToolsDefaultCommand defaultCommand)
+        DevToolsCallCommand callCommand)
         : base("devtools", Summary)
     {
         // Lets an unknown command ('winapp devtools set-text --json') report its error as JSON.
@@ -82,7 +81,6 @@ internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand
         Subcommands.Add(commentsCommand);
         Subcommands.Add(listCommand);
         Subcommands.Add(attachCommand);
-        Subcommands.Add(defaultCommand);
     }
 
     string ICompactHelpGroup.GoldenPath => GoldenPath;

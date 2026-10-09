@@ -373,7 +373,7 @@
       <RadioButton x:Name="DevToolsStartOff" GroupName="DevToolsDefaultMode" Template="{StaticResource DevToolsMenuRadio}"
               AllowFocusOnInteraction="False" UseSystemFocusVisuals="True" Height="32" Padding="10,0"
               HorizontalAlignment="Stretch" Background="#00000000" Foreground="$TEXT$" Content="Don't start DevTools"
-              ToolTipService.ToolTip="Turn DevTools back on with: winapp devtools default on"
+              ToolTipService.ToolTip="Turn DevTools back on with: winapp config set run.devtools on"
               AutomationProperties.AutomationId="DevToolsStartOff" />
     </StackPanel>
   </Border></Canvas>

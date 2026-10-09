@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using WinApp.Cli.Services;
 using WinApp.Cli.Services.DevTools;
 
 namespace WinApp.Cli.Tests;
@@ -86,25 +87,26 @@ public sealed class DevToolsModeTests
     [TestMethod]
     public void TheSettingRoundTripsAsAWordAndIgnoresAnythingElse()
     {
-        var state = Path.Combine(Path.GetTempPath(), "winapp-devtools-mode-" + Guid.NewGuid().ToString("N"));
+        var settings = new UserSettings { StateDirectory = Path.Combine(Path.GetTempPath(), "winapp-devtools-mode-" + Guid.NewGuid().ToString("N")) };
+        var file = settings.FilePath(UserSettings.RunDevTools);
         try
         {
-            Assert.IsNull(DevToolsDefaultSetting.Read(state));
+            Assert.IsNull(settings.ReadDevToolsMode());
             foreach (var mode in Enum.GetValues<DevToolsMode>())
             {
-                DevToolsDefaultSetting.Write(mode, state);
-                Assert.AreEqual(mode.ToString().ToLowerInvariant(), File.ReadAllText(DevToolsDefaultSetting.FilePath(state)));
-                Assert.AreEqual(mode, DevToolsDefaultSetting.Read(state));
+                settings.Set(UserSettings.RunDevTools, new(mode.ToString().ToLowerInvariant()));
+                Assert.AreEqual(mode.ToString().ToLowerInvariant(), File.ReadAllText(file));
+                Assert.AreEqual(mode, settings.ReadDevToolsMode());
             }
             foreach (var junk in new[] { "1", "maybe", "" })
             {
-                File.WriteAllText(DevToolsDefaultSetting.FilePath(state), junk);
-                Assert.IsNull(DevToolsDefaultSetting.Read(state), junk);
+                File.WriteAllText(file, junk);
+                Assert.IsNull(settings.ReadDevToolsMode(), junk);
             }
         }
         finally
         {
-            Directory.Delete(state, recursive: true);
+            Directory.Delete(settings.StateDirectory, recursive: true);
         }
     }
 }

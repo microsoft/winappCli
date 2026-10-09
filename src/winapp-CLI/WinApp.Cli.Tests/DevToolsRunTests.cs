@@ -680,9 +680,9 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     [TestMethod]
     public void Default_AnnouncesHowToTurnItOff_OnlyWhenItWasNotAskedFor()
     {
-        Assert.AreEqual("DevTools on (default) · turn off: --devtools off or winapp devtools default off",
+        Assert.AreEqual("DevTools on (default) · turn off: --devtools off or winapp config set run.devtools off",
             RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.On, DevToolsModeSource.Default)));
-        Assert.AreEqual("DevTools headless (your default) · turn off: --devtools off or winapp devtools default off",
+        Assert.AreEqual("DevTools headless (your default) · turn off: --devtools off or winapp config set run.devtools off",
             RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Headless, DevToolsModeSource.Setting)));
         Assert.IsNull(RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.On, DevToolsModeSource.Explicit)));
         Assert.IsNull(RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.Off, DevToolsModeSource.Setting)));
@@ -1036,7 +1036,7 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     [TestMethod]
     public void NuGetDefaultLine_NamesTheMSBuildProperty()
     {
-        Assert.AreEqual("DevTools on (default) · turn off: -p:WinAppRunDevTools=off or winapp devtools default off",
+        Assert.AreEqual("DevTools on (default) · turn off: -p:WinAppRunDevTools=off or winapp config set run.devtools off",
             RunCommand.Handler.DefaultDevToolsLine(new(DevToolsMode.On, DevToolsModeSource.Default), dotnetRun: true));
     }
 }

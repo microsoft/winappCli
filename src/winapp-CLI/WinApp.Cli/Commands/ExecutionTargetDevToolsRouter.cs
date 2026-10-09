@@ -26,7 +26,7 @@ internal sealed class ExecutionTargetDevToolsRouter(
     internal static bool ShouldRoute(ParseResult parsed)
     {
         if (!ExecutionTargetSelection.IsCommandInvocation(parsed) || !ExecutionTargetSelection.IsTargetAware(parsed) ||
-            ExecutionTargetSelection.Resolve(parsed).IsLocal || parsed.CommandResult.Command is DevToolsDefaultCommand)
+            ExecutionTargetSelection.Resolve(parsed).IsLocal)
         {
             return false;
         }

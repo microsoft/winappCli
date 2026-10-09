@@ -54,36 +54,3 @@ internal sealed record DevToolsResolution(DevToolsMode Mode, DevToolsModeSource 
     public static bool IsCi(string? value) =>
         !string.IsNullOrWhiteSpace(value) && value.Trim() is not ("0" or "false" or "False" or "FALSE");
 }
-
-/// <summary>
-/// The user's default DevTools mode, one file in the per-user state folder. The DevTools toolbar reads and writes
-/// the same file (DevToolsSettings.h), so its "When the app starts" menu items and
-/// <c>winapp devtools default</c> change the same setting.
-/// </summary>
-internal static class DevToolsDefaultSetting
-{
-    public static string FilePath(string? stateDirectory = null) =>
-        Path.Combine(stateDirectory ?? WinappDirectoryService.GetUserStateDirectory(), "devtools-DefaultMode.setting");
-
-    /// <summary>The saved mode, or null when none is saved or the file holds something else.</summary>
-    public static DevToolsMode? Read(string? stateDirectory = null)
-    {
-        try
-        {
-            var text = File.ReadAllText(FilePath(stateDirectory)).Trim();
-            return Enum.TryParse<DevToolsMode>(text, ignoreCase: true, out var mode) && Enum.IsDefined(mode) &&
-                !int.TryParse(text, out _) ? mode : null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
-
-    public static void Write(DevToolsMode mode, string? stateDirectory = null)
-    {
-        var path = FilePath(stateDirectory);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, mode.ToString().ToLowerInvariant());
-    }
-}

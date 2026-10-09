@@ -57,7 +57,7 @@ internal partial class RunCommand
     {
         HelpName = "on|off|headless",
         Description = "WinUI XAML inspection: on (the in-app toolbar), headless (nothing drawn in the app) or off. " +
-            "On by default for WinUI projects outside CI; change the default with 'winapp devtools default'. " +
+            "On by default for WinUI projects outside CI; change the default with 'winapp config set run.devtools'. " +
             "Packaged apps need App execution aliases enabled. Cannot be combined with --no-launch or --without-alias. " +
             "With --on sandbox, requires a project with XAML sources and does not support --with-alias, --debug-output " +
             "or --unregister-on-exit.",
@@ -123,7 +123,7 @@ internal partial class RunCommand
 
         internal Func<string?> ReadCiVariable { get; set; } = () => Environment.GetEnvironmentVariable("CI");
 
-        internal Func<DevToolsMode?> ReadDefaultMode { get; set; } = () => DevToolsDefaultSetting.Read();
+        internal Func<DevToolsMode?> ReadDefaultMode { get; set; } = () => new UserSettings().ReadDevToolsMode();
 
         // This run's DevTools mode, resolved once its input is known.
         private DevToolsResolution devToolsRun = new(DevToolsMode.Off, DevToolsModeSource.NotWinUI);
@@ -152,7 +152,7 @@ internal partial class RunCommand
         // The one line a run prints when DevTools came from the default rather than the command line.
         internal static string? DefaultDevToolsLine(DevToolsResolution run, bool dotnetRun = false) => run is { Enabled: true, FailOpen: true }
             ? $"DevTools {run.Mode.ToString().ToLowerInvariant()} ({(run.Source == DevToolsModeSource.Setting ? "your default" : "default")}) · " +
-              $"turn off: {(dotnetRun ? "-p:WinAppRunDevTools=off" : "--devtools off")} or winapp devtools default off"
+              $"turn off: {(dotnetRun ? "-p:WinAppRunDevTools=off" : "--devtools off")} or winapp config set run.devtools off"
             : null;
 
         // 'dotnet run' through the NuGet package: options reach winapp as MSBuild properties.

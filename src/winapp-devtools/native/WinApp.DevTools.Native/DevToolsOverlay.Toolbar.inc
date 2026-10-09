@@ -443,7 +443,7 @@ static void OnToggleMarkersClick(void*, void*)
 }
 
 // The mode winapp run starts a WinUI project in when --devtools isn't given: on, headless or off. One per-user
-// setting, shared with winapp devtools default; unset means on.
+// setting, shared with `winapp config` (run.devtools); unset means on.
 static std::string DefaultMode()
 {
     const std::wstring mode = DevToolsSettingsGetText(L"DefaultMode");
@@ -459,7 +459,7 @@ static void SetStartModeUi(const std::string& mode)
 
 static void OnMoreMenuClick(void*, void*)
 {
-    // `winapp devtools default` can change the setting while the app runs.
+    // `winapp config set run.devtools` can change the setting while the app runs.
     SetStartModeUi(DefaultMode());
     ToggleToolbarMenu(L"DevToolsMoreMenu", L"DevToolsProtoMore", L"DevToolsHideToolbar");
 }

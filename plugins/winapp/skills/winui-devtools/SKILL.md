@@ -34,7 +34,7 @@ Never stop another app automatically to make a rebuild succeed.
 agent workflow. It does not hide the overlay. Use `--devtools headless` for an
 authorized headless inspection launch: nothing is drawn in the app, and
 Ctrl+Shift+F12 brings up the toolbar. `--devtools off` runs without DevTools; don't
-change the user's default (`winapp devtools default`) unless they ask.
+change the user's default (`winapp config set run.devtools`) unless they ask.
 For a script, capture `$run = winapp run . --devtools on --detach --json | ConvertFrom-Json`,
 then use `winapp devtools inspect -a $run.ProcessId`. After the human leaves a comment, follow
 [the comment workflow below](#turn-the-users-comments-into-changes).

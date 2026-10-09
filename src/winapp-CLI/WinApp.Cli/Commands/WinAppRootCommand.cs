@@ -86,6 +86,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         DevToolsCommand devToolsCommand,
         UnregisterCommand unregisterCommand,
         GetWinappPathCommand getWinappPathCommand,
+        ConfigCommand configCommand,
         CertCommand certCommand,
         SignCommand signCommand,
         AzSignCommand azSignCommand,
@@ -118,6 +119,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         Subcommands.Add(devToolsCommand);
         Subcommands.Add(unregisterCommand);
         Subcommands.Add(getWinappPathCommand);
+        Subcommands.Add(configCommand);
         Subcommands.Add(certCommand);
         Subcommands.Add(signCommand);
         Subcommands.Add(azSignCommand);
@@ -163,7 +165,7 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
             ("Discovery", [typeof(FindUiCommand), typeof(FindApiCommand)]),
             ("UI Automation", [typeof(UiCommand)]),
             ("Package, Sign & Publish", [typeof(PackageCommand), typeof(ManifestCommand), typeof(CertCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(MSStoreCommand)]),
-            ("Advanced", [typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand), typeof(ToolCommand), typeof(GetWinappPathCommand)])
+            ("Advanced", [typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(ConfigCommand)])
         );
     }
 }

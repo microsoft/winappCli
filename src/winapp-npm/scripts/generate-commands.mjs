@@ -208,7 +208,7 @@ const PASSTHROUGH_COMMANDS = {
  * description and type.
  */
 /** Commands that read the local comment store and reject the `--on` they inherit from `devtools`. */
-const LOCAL_ONLY_COMMANDS = ['devtools comments list', 'devtools comments get', 'devtools default'];
+const LOCAL_ONLY_COMMANDS = ['devtools comments list', 'devtools comments get'];
 
 function inheritRecursiveOptions(cmd, inherited, cmdPath) {
   if (LOCAL_ONLY_COMMANDS.includes(cmdPath.join(' '))) {

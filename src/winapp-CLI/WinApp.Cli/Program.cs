@@ -542,7 +542,24 @@ internal static class Program
 
             bool effectiveJson = ResolveEffectiveJson(parsedArgs);
 
-            // `run --devtools` needs a mode. Name the values instead of printing the whole run help.
+            // `run --devtools` needs a mode, and `config` a known setting and value. Name what's allowed in one line
+            // instead of printing the whole help.
+            if (parsedArgs.Errors.Count > 0 && ConfigCommand.ParseError(parsedArgs) is { } configError)
+            {
+                if (effectiveJson)
+                {
+                    ConfigCommand.WriteJsonError(Console.Out, configError);
+                }
+                else
+                {
+                    Console.Error.WriteLine($"{UiSymbols.Error} {configError}");
+                }
+                if (!isCompleteMode)
+                {
+                    logCommandCompleted(parsedArgs.CommandResult, 1);
+                }
+                return 1;
+            }
             if (parsedArgs.Errors.Count > 0 && RunCommand.DevToolsValueError(parsedArgs) is { } devToolsError)
             {
                 if (effectiveJson)

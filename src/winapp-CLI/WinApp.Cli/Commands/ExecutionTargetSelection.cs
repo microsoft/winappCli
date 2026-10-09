@@ -119,7 +119,7 @@ internal static class ExecutionTargetSelection
     {
         ArgumentNullException.ThrowIfNull(parseResult);
 
-        if (parseResult.CommandResult.Command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand or DevToolsDefaultCommand ||
+        if (parseResult.CommandResult.Command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand ||
             parseResult.CommandResult.Command is DevToolsCommentsUpdateCommand &&
                 string.IsNullOrWhiteSpace(parseResult.GetValue(DevToolsCommentsUpdateCommand.AppOption)) ||
             parseResult.CommandResult.Command is DevToolsCommentsDeleteCommand &&

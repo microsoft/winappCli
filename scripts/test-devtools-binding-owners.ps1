@@ -297,21 +297,26 @@ try {
         $restoredNodes = @($restored.windows | ForEach-Object { Nodes $_.elements })
         Check (@($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoPill' -and -not $_.isOffscreen }).Count -eq 1 -and
             @($restoredNodes | Where-Object { $_.automationId -eq 'DevToolsProtoRailL' -and -not $_.isOffscreen }).Count -eq 0) 'show restores the previously expanded toolbar state'
-        # The ⋯ menu selects the default the CLI sets while the app runs.
-        $defaultBefore = Invoke-Cli @('devtools', 'default')
+        # The ⋯ menu and `winapp config` change one setting: each shows what the other set while the app runs.
+        $defaultBefore = Invoke-Cli @('config', 'get', 'run.devtools')
         try {
             foreach ($mode in @(@('headless', 'DevToolsStartHidden'), @('off', 'DevToolsStartOff'), @('on', 'DevToolsStartShown'))) {
-                $null = Invoke-Cli @('devtools', 'default', $mode[0])
+                $null = Invoke-Cli @('config', 'set', 'run.devtools', $mode[0])
                 $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoMore', '-a', $app)
                 $null = Invoke-Cli @('ui', 'wait-for', $mode[1], '-a', $app, '-t', '5000')
                 $selected = Invoke-Cli @('ui', 'get-property', $mode[1], '-a', $app, '-p', 'IsSelected')
                 $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoMore', '-a', $app)
                 Check ($selected.properties.IsSelected -eq 'True') "the menu selects a default of $($mode[0]) set from the CLI"
             }
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoMore', '-a', $app)
+            $null = Invoke-Cli @('ui', 'wait-for', 'DevToolsStartHidden', '-a', $app, '-t', '5000')
+            $null = Invoke-Cli @('ui', 'invoke', 'DevToolsStartHidden', '-a', $app)
+            $chosen = Invoke-Cli @('config', 'get', 'run.devtools')
+            Check ($chosen.value -eq 'headless' -and $chosen.source -eq 'setting') 'winapp config reads the default chosen in the menu'
         }
         finally {
-            if ($defaultBefore.source -eq 'setting') { $null = Invoke-Cli @('devtools', 'default', [string]$defaultBefore.mode) }
-            else { Remove-Item -LiteralPath $defaultBefore.settingFile -Force -ErrorAction SilentlyContinue }
+            if ($defaultBefore.source -eq 'setting') { $null = Invoke-Cli @('config', 'set', 'run.devtools', [string]$defaultBefore.value) }
+            else { $null = Invoke-Cli @('config', 'unset', 'run.devtools') }
         }
         $blockedStore = Join-Path (Split-Path -Parent $project) '.winapp\ui-comments.json'
         Check (-not (Test-Path -LiteralPath $blockedStore)) 'comment failure probe has no existing store to overwrite'

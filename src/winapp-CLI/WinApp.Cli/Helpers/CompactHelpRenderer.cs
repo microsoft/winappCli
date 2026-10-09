@@ -105,8 +105,8 @@ internal static class CompactHelpRenderer
         }
 
         sb.AppendLine();
-        // Saved-comment reads and the per-user default always run locally and reject --on.
-        sb.AppendLine(command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand or DevToolsDefaultCommand
+        // Saved-comment reads always run locally and reject --on.
+        sb.AppendLine(command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand
             ? LocalGlobalOptionsLine : GlobalOptionsLine);
         return sb.ToString();
     }

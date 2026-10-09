@@ -70,8 +70,9 @@ dotnet run -p:WinAppRunDevTools=off      # or headless, or on
 To change the default for your user account:
 
 ```powershell
-winapp devtools default off       # or headless, or on
-winapp devtools default           # shows the current default
+winapp config set run.devtools off    # or headless, or on
+winapp config get run.devtools        # shows the current default
+winapp config unset run.devtools      # back to the built-in default, on
 ```
 
 The toolbar's **⋯** menu changes the same setting.
@@ -83,7 +84,7 @@ If the app is already running, `run` closes it so DevTools can start it.
 DevTools adds several seconds to launch (5–8 seconds for the WinUI sample app in our
 tests), and the app uses more memory over a long session as it creates elements, as
 with Visual Studio's F5 with XAML Hot Reload. Use `--devtools off` or
-`winapp devtools default off` when you don't need it.
+`winapp config set run.devtools off` when you don't need it.
 
 ### The overlay
 
@@ -146,12 +147,12 @@ The **More options** (**⋯**) menu at the end of the toolbar has:
   commands keep working.
 - **Keep toolbar open**: keeps the toolbar expanded instead of collapsing to its pill.
 - **When the app starts**: your default for later runs, the same setting as
-  `winapp devtools default`.
+  `winapp config set run.devtools`.
   - **Show toolbar** (`on`): DevTools with the toolbar.
   - **Hide toolbar** (`headless`): DevTools draws nothing in your app until you press
     **Ctrl+Shift+F12**.
   - **Don't start DevTools** (`off`): later runs start without DevTools. Turn it back on
-    with `winapp devtools default on`.
+    with `winapp config set run.devtools on`.
 
 With `--devtools headless`, **Ctrl+Shift+F12** builds and shows the toolbar the first
 time you press it.

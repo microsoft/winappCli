@@ -108,22 +108,6 @@ public class DevToolsHelpTests : BaseCommandTests
         Assert.DoesNotContain("--verbose", output);
     }
 
-    [TestMethod]
-    public void DefaultHelp_DoesNotOfferOn()
-    {
-        var command = Groups.First().Subcommands.Single(c => c.Name == "default");
-        var help = CompactHelpRenderer.Render(command);
-        Assert.DoesNotContain("--on", help);
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public async Task Default_RejectsOnBeforeRunning()
-    {
-        var (_, stderr, exitCode) = await InvokeProgramAsync(["devtools", "default", "--on", "sandbox"]);
-        Assert.AreNotEqual(0, exitCode);
-        StringAssert.Contains(stderr, "does not accept --on");
-    }
 
     [TestMethod]
     [DataRow("list", false)]

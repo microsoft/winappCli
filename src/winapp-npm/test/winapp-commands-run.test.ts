@@ -12,6 +12,7 @@ import childProcess = require('child_process');
 import {
   run, devtoolsSetProperty, uiInvoke, uiSearch, uiGetProperty, uiGetValue, uiWaitFor,
   devtoolsCommentsList, devtoolsCommentsGet, devtoolsCommentsUpdate,
+  configList, configGet, configSet, configUnset, type ConfigSetOptions,
   type DevtoolsCommentsListOptions, type DevtoolsCommentsGetOptions,
 } from '../src/winapp-commands';
 
@@ -62,6 +63,21 @@ test('saved comment reads expose no target and forward the app only when asked',
   assert.equal(state.calls[2][state.calls[2].indexOf('--app') + 1], '4321');
 });
 
+test('config wrappers forward the key and value and run only on this machine', async () => {
+  const setHasNoTarget: Extract<keyof ConfigSetOptions, 'on'> extends never ? true : false = true;
+  assert.ok(setHasNoTarget);
+  const state = captureSpawnArgs();
+  await configList({ json: true });
+  await configGet({ key: 'run.devtools' });
+  await configSet({ key: 'run.devtools', value: 'off', json: true });
+  await configUnset({ key: 'run.devtools' });
+  assert.deepEqual(state.calls[0], ['config', 'list', '--json']);
+  assert.deepEqual(state.calls.slice(1).map(argv => argv.filter(arg => arg !== '--')), [
+    ['config', 'get', 'run.devtools'],
+    ['config', 'set', '--json', 'run.devtools', 'off'],
+    ['config', 'unset', 'run.devtools'],
+  ]);
+});
 test('comment status update keeps explicit marker refresh optional', async () => {
   const state = captureSpawnArgs();
   await devtoolsCommentsUpdate({ id: 'cmt_one', status: 'stale', sourceRoot: 'C:\\host project' });
