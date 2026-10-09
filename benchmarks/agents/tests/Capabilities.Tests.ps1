@@ -263,6 +263,21 @@ Describe 'Rescore and summaries with capabilities' {
         $rows[1].expectationNotes | Should -Contain 'prompt changed since this run; status not rescored'
     }
 
+    It 'excludes runs of a removed scenario from the rescored pass rate' {
+        $dir = Join-Path $TestDrive 'removed'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        @(
+            [ordered]@{ scenario = 's1'; configuration = 'both'; model = 'm'; iteration = 1; status = 'fail'; skillsLoaded = @(); tokens = $null; skillContextTokensApprox = $null; aiCredits = $null; durationMs = 1; preflight = @{ expectedSkills = $installed } }
+            [ordered]@{ scenario = 'gone'; configuration = 'both'; model = 'm'; iteration = 1; status = 'pass'; reason = ''; set = 'dev'; cohort = 'implicit'; skillsLoaded = @('winapp-signing'); tokens = $null; skillContextTokensApprox = $null; aiCredits = $null; durationMs = 1 }
+        ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 5 } | Set-Content (Join-Path $dir 'runs.jsonl')
+        $r = Invoke-Rescore -ResultsDir $dir -Scenarios @($scenario)
+        $rows = Get-Content $r.RunsPath | ConvertFrom-Json
+        $rows[1].status | Should -Be 'scenario_removed'
+        $rows[1].originalStatus | Should -Be 'pass'
+        $r.Transitions['pass -> scenario_removed'] | Should -Be 1
+        Get-Content -Raw $r.SummaryPath | Should -Match 'Pass rate: 0/1 \(0%\); excluded: 1 scenario_removed'
+    }
+
     It 'reports cohorts, leaves explicit-command and the none control out of the pass rate, and lists the control' {
         $runs = Join-Path $TestDrive 'cohort.jsonl'
         $base = @{ model = 'm'; reason = ''; tokens = $null; skillContextTokensApprox = 10; aiCredits = 2; durationMs = 1000; skillsLoaded = @() }

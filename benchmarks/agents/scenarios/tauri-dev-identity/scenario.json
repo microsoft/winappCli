@@ -20,8 +20,7 @@
       ],
       "forbid": [
         "winui.*",
-        "ui.samples",
-        "session.report"
+        "ui.samples"
       ]
     }
   }

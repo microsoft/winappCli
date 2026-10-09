@@ -59,7 +59,7 @@ jobs:
       - name: Run WinUI skill script tests
         shell: pwsh
         run: |
-          $relevant = '^(plugins/winui/|scripts/tests/Test-(SessionBuildClassification|WinuiUiTestingSandbox|SetupVersionDetection)\.ps1$|\.github/workflows/plugin-check\.yml$)'
+          $relevant = '^(plugins/winui/|scripts/tests/Test-(WinuiUiTestingSandbox|SetupVersionDetection)\.ps1$|\.github/workflows/plugin-check\.yml$)'
           $changed = @(git diff --name-only HEAD^1 HEAD)
           if ($LASTEXITCODE -ne 0) { throw "Could not list the files this PR changes." }
           if (@($changed | Where-Object { $_ -match $relevant }).Count -eq 0) {
@@ -68,7 +68,7 @@ jobs:
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $message
             exit 0
           }
-          foreach ($test in 'Test-SessionBuildClassification', 'Test-WinuiUiTestingSandbox', 'Test-SetupVersionDetection') {
+          foreach ($test in 'Test-WinuiUiTestingSandbox', 'Test-SetupVersionDetection') {
             Write-Host "::group::$test"
             pwsh -NoProfile -File "./scripts/tests/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed." }

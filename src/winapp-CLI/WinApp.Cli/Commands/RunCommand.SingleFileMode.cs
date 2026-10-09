@@ -201,7 +201,7 @@ internal partial class RunCommand
             // Snapshot BEFORE the pipeline runs. Once registration succeeds, FindDevPackages reports the
             // package this run just created, so "was it already registered, and from where?" has exactly
             // one moment at which it can be answered.
-            var priorRegistrations = FindPriorRegistrations(resolvedManifest);
+            var priorRegistrations = FindPriorRegistrations(resolvedManifest, singleFile);
 
             // A tier-3 manifest can be named <stem>.appxmanifest, which ManifestHelper.FindManifest does not
             // probe for, so the resolved manifest is always passed explicitly rather than left to
@@ -524,7 +524,7 @@ internal partial class RunCommand
         /// Must run BEFORE registration. Afterwards <c>FindDevPackages</c> returns the package this run just
         /// created, which would make every run look like a re-registration and suppress the notice entirely.
         /// </remarks>
-        private PriorRegistrations FindPriorRegistrations(FileInfo manifest)
+        private PriorRegistrations FindPriorRegistrations(FileInfo manifest, FileInfo singleFile)
         {
             try
             {
@@ -533,10 +533,15 @@ internal partial class RunCommand
                     return PriorRegistrations.None;
                 }
 
-                var packageName = AppxManifestDocument.Load(manifest.FullName).IdentityName;
+                var document = AppxManifestDocument.Load(manifest.FullName);
+                var packageName = document.IdentityName;
                 if (string.IsNullOrEmpty(packageName))
                 {
                     return PriorRegistrations.None;
+                }
+                if (_uniqueIdentityRequested)
+                {
+                    packageName = DevelopmentIdentityHelper.DeriveName(singleFile.FullName, packageName);
                 }
 
                 return new PriorRegistrations(

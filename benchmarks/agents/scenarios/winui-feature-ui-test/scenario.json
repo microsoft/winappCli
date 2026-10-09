@@ -17,7 +17,6 @@
         "ui.automate"
       ],
       "forbid": [
-        "session.report",
         "msix.sign"
       ]
     }
