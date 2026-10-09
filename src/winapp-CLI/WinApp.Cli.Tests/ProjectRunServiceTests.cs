@@ -3934,6 +3934,40 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    [DataRow("NU1801: Unable to load https://feed.example/v3/index.json?sig=ASSETS_SECRET", false, DisplayName = "credential in assets log")]
+    [DataRow("NU1901: Package 'X' has a known vulnerability, https://github.com/advisories/GHSA-x", true, DisplayName = "clean assets log")]
+    [DataRow(null, false, DisplayName = "no assets file")]
+    public async Task BuildAndResolveAsync_RealTerminalNoRestore_InheritsOnlyWhenReplayedWarningsAreClean(string? logMessage, bool inherits)
+    {
+        // A --no-restore build replays the warnings stored in obj\project.assets.json by a restore winapp never
+        // saw, so dotnet gets the console only when none of them would need redaction.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        if (logMessage is not null)
+        {
+            WriteFileAt(Path.Join("obj", "project.assets.json"), $$"""{"version":3,"logs":[{"code":"NU1801","level":"Warning","message":"{{logMessage}}"}]}""");
+        }
+
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+            RunDotnetStreamingHandler = (_, onOut, _) =>
+            {
+                onOut?.Invoke(logMessage ?? "warning NU1801: https://user:ASSETS_SECRET@feed.example/v3/index.json");
+                return 0;
+            },
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Information, out var console);
+        service.NativeTerminalGateOverrideForTests = () => true;
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: true, Properties: []);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        Assert.AreEqual(inherits ? 1 : 0, dotnet.InheritedCalls.Count);
+        Assert.IsFalse(console.Output.Contains("ASSETS_SECRET", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_RealTerminalRestoreFails_ShowsOutputAndCommandAndSkipsBuild()
     {
         var csproj = WriteFile("App.csproj", ExecutableCsproj);

@@ -239,6 +239,12 @@ internal sealed partial class ProjectRunService(
         var buildOptions = options;
         var redactBuildOutput = false;
 
+        // With --no-restore, winapp never sees the restore whose warnings the build replays, so check them.
+        if (options.NoRestore && !options.NoBuild && !publish && !aotPublish && UsesNativeTerminalBuild(options))
+        {
+            redactBuildOutput = AssetsLogNeedsRedaction(csproj);
+        }
+
         // When the target lives in a solution, restore the solution's other managed projects up front so
         // build-dependency siblings that aren't ProjectReferences (e.g. a COM server) have project.assets.json
         // (else NETSDK1004) — matching VS / `dotnet build <sln>`. Gated on actually building + restore not opted out.

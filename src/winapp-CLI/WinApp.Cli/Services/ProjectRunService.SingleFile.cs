@@ -568,9 +568,11 @@ internal sealed partial class ProjectRunService
     }
 
     /// <summary>
-    /// Runs the single-file BUILD pass. Mirrors <see cref="RunBuildPassAsync"/>'s output regime exactly —
-    /// stderr under <c>--json</c>/<c>--quiet</c>, inherited stdio (native terminal logger) on a real TTY,
-    /// live line streaming otherwise — so a <c>.cs</c> build looks and behaves like a <c>.csproj</c> build.
+    /// Runs the single-file BUILD pass with <see cref="RunBuildPassAsync"/>'s output regime, so a <c>.cs</c>
+    /// build looks and behaves like a <c>.csproj</c> build: stderr under <c>--json</c>/<c>--quiet</c>, live line
+    /// streaming for agents and CI, and on an interactive terminal a separate restore through winapp followed
+    /// by a <c>--no-restore</c> build on inherited stdio (dotnet's terminal logger). Output that may quote a
+    /// credential always goes through winapp's redaction, never inherited stdio.
     /// </summary>
     private async Task<int> RunSingleFileBuildPassAsync(
         FileInfo singleFile,
@@ -580,7 +582,6 @@ internal sealed partial class ProjectRunService
     {
         var verbosity = ResolveBuildVerbosity(logger, options.Json);
         var banner = $"Building {singleFile.Name} ({options.Configuration})...";
-        var stopwatch = Stopwatch.StartNew();
 
         if (options.Json || !logger.IsEnabled(LogLevel.Information))
         {
@@ -591,13 +592,46 @@ internal sealed partial class ProjectRunService
             }
             return await dotNetService.RunDotnetStreamingAsync(
                 workingDir, redirectedArgs,
-                onOutputLine: static line => Console.Error.WriteLine(line),
-                onErrorLine: static line => Console.Error.WriteLine(line),
+                onOutputLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
+                onErrorLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
                 cancellationToken: cancellationToken);
         }
 
-        var nativeTerminal = NativeTerminalGateOverrideForTests?.Invoke()
+        var interactive = NativeTerminalGateOverrideForTests?.Invoke()
             ?? ProgressDisplay.ShouldUseLiveSpinner(ansiConsole, logger);
+
+        // Dotnet gets the console only when nothing the build prints can quote a secret. A file-based app's
+        // assets live in an SDK-managed folder winapp doesn't inspect, so a user --no-restore build streams.
+        var nativeTerminal = interactive && !options.NoRestore;
+        if (nativeTerminal)
+        {
+            var stepOptions = new ProjectRunOptions(
+                options.Configuration, options.Architecture, null, NoBuild: false, NoRestore: false, Properties: [], Json: options.Json);
+            RestoreStep? restoreStep = null;
+            var restore = await RunRestoreStepAsync(
+                Path.GetFileNameWithoutExtension(singleFile.Name),
+                stepOptions,
+                workingDir,
+                step =>
+                {
+                    restoreStep = step;
+                    return RunRestoreAsync(step, BuildSingleFileRestoreArguments(singleFile, options), cancellationToken);
+                },
+                cancellationToken);
+            if (restore.ExitCode != 0)
+            {
+                throw new ProjectRunException($"Restore failed for '{singleFile.Name}' (exit code {restore.ExitCode}).");
+            }
+
+            options = options with { NoRestore = true };
+
+            // The build replays restore warnings, so a restore that needed redaction makes the build need it too.
+            var nativeArgs = BuildSingleFileBuildPassArguments(singleFile, options, verbosity, nativeTerminal: true);
+            nativeTerminal = restoreStep?.OutputRedacted != true
+                && string.Equals(RedactSecretsForDisplay(nativeArgs), nativeArgs, StringComparison.Ordinal);
+        }
+
+        var stopwatch = Stopwatch.StartNew();
         var buildArgs = BuildSingleFileBuildPassArguments(singleFile, options, verbosity, nativeTerminal);
         var command = $"dotnet {RedactSecretsForDisplay(buildArgs)}";
         var verbose = logger.IsEnabled(LogLevel.Debug);
@@ -614,17 +648,9 @@ internal sealed partial class ProjectRunService
         }
         else
         {
-            var writeLock = new object();
-            void WriteLive(string line)
-            {
-                lock (writeLock)
-                {
-                    ansiConsole.WriteLine(line);
-                }
-            }
-
+            var writeLive = CreateSynchronizedRedactedLineWriter();
             streamedExit = await dotNetService.RunDotnetStreamingAsync(
-                workingDir, buildArgs, WriteLive, WriteLive, cancellationToken: cancellationToken);
+                workingDir, buildArgs, writeLive, writeLive, cancellationToken: cancellationToken);
         }
 
         if (streamedExit == 0)

@@ -608,4 +608,41 @@ internal sealed partial class ProjectRunService
 
     private static string? ResolveRestoreVerbosity(ILogger logger, bool json) =>
         !json && !logger.IsEnabled(LogLevel.Information) ? "quiet" : null;
+
+    /// <summary>
+    /// Whether a <c>--no-restore</c> build of <paramref name="project"/> may print a credential: the build
+    /// replays the warnings the last restore stored in <c>obj\project.assets.json</c>, which can quote an
+    /// authenticated feed URL. True when one of them would need redaction, or when the file can't be read
+    /// (for example, a project that relocates <c>obj</c>), so winapp can't tell.
+    /// </summary>
+    internal static bool AssetsLogNeedsRedaction(FileInfo project)
+    {
+        var assets = Path.Join(project.DirectoryName, "obj", "project.assets.json");
+        try
+        {
+            using var stream = File.OpenRead(assets);
+            using var document = JsonDocument.Parse(stream);
+            if (!document.RootElement.TryGetProperty("logs", out var logs) || logs.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (var log in logs.EnumerateArray())
+            {
+                if (log.ValueKind == JsonValueKind.Object
+                    && log.TryGetProperty("message", out var message)
+                    && message.GetString() is { } text
+                    && !string.Equals(NugetErrorMessage.Redact(text), text, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return true;
+        }
+    }
 }

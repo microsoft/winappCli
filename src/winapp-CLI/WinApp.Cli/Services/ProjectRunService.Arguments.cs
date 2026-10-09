@@ -420,6 +420,35 @@ internal sealed partial class ProjectRunService
     }
 
     /// <summary>
+    /// Builds the arguments for the separate single-file restore that precedes a <c>--no-restore</c> build pass
+    /// on an interactive terminal. It restores the same graph that build reads: the same configuration, the
+    /// same injected RID (also as <c>RuntimeIdentifier</c>, because <c>dotnet restore -r</c> only adds it to
+    /// <c>RuntimeIdentifiers</c>) and the same forwarded properties.
+    /// </summary>
+    internal static string BuildSingleFileRestoreArguments(FileInfo singleFile, SingleFileRunOptions options)
+    {
+        var tokens = new List<string>
+        {
+            "restore",
+            singleFile.FullName,
+        };
+
+        AppendSingleFileRuntimeIdentifier(tokens, options);
+        if (!string.IsNullOrWhiteSpace(options.InjectedRuntimeIdentifier))
+        {
+            tokens.Add($"-p:RuntimeIdentifier={options.InjectedRuntimeIdentifier}");
+        }
+
+        tokens.Add($"-p:Configuration={options.Configuration}");
+        foreach (var property in SingleFileForwardableProperties(options.Properties, options.InjectedRuntimeIdentifier is not null))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
+    }
+
+    /// <summary>
     /// Builds the arguments for the single-file EVALUATE pass.
     /// <para>
     /// This uses <c>dotnet build … --getProperty:…</c> rather than <c>dotnet msbuild</c> — which the
