@@ -3,7 +3,7 @@
   "version": "3.0.0",
   "main": "dist/main.js",
   "devDependencies": {
-    "electron": "31.2.0",
+    "electron": "41.10.6",
     "electron-builder": "27.0.0-alpha.9"
   },
   "build": {

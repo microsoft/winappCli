@@ -6,7 +6,7 @@
     "dist:win": "electron-builder --win msiWrapped nsis"
   },
   "devDependencies": {
-    "electron": "30.0.5",
+    "electron": "41.10.6",
     "electron-builder": "24.13.3"
   },
   "build": {
