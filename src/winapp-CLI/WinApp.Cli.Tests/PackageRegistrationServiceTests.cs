@@ -21,21 +21,24 @@ public class PackageRegistrationServiceTests
         // Mirrors the WinRT task bridge: a plain TaskCompletionSource completed from a foreign
         // thread runs awaiting continuations inline on that thread unless the awaiter yields.
         var operation = new TaskCompletionSource<int>();
-        var callerResumed = new ManualResetEventSlim();
+        using var callerResumed = new ManualResetEventSlim();
         var resumedThread = 0;
 
-        async Task CallerAsync()
+        async Task<bool> CallerAsync()
         {
+            var faulted = false;
             try
             {
                 await PackageRegistrationService.OffDeploymentCallbackAsync(operation.Task);
             }
             catch (InvalidOperationException)
             {
+                faulted = true;
             }
 
             resumedThread = Environment.CurrentManagedThreadId;
             callerResumed.Wait(TimeSpan.FromSeconds(10));
+            return faulted;
         }
 
         var caller = CallerAsync();
@@ -59,7 +62,7 @@ public class PackageRegistrationServiceTests
         Assert.IsTrue(callback.Join(TimeSpan.FromSeconds(10)), "The completing callback must return without waiting for the caller.");
         Assert.IsTrue(callbackReturned);
         callerResumed.Set();
-        await caller;
+        Assert.AreEqual(fault, await caller, "The original exception must reach the caller.");
         Assert.AreNotEqual(completingThread, resumedThread);
     }
 
