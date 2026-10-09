@@ -387,18 +387,21 @@ internal sealed partial class ProjectRunService
             logger.LogDebug(
                 "{UISymbol} Restoring {Count} solution projects through solution filter {Filter} for build-dependency parity.",
                 UiSymbols.Note, plan.ManagedSiblings.Count, filter.FullName);
+            // A failed restore keeps the filter so the command printed with its output can be rerun.
             try
             {
                 solutionRestore = await RunRestoreAsync(
                     step, BuildRestorePassArguments(filter, siblingOptions, verbosity), cancellationToken);
             }
-            finally
+            catch
             {
                 TryDeleteFile(filter.FullName);
+                throw;
             }
 
             if (solutionRestore.ExitCode == 0)
             {
+                TryDeleteFile(filter.FullName);
                 return false;
             }
         }
@@ -535,10 +538,11 @@ internal sealed partial class ProjectRunService
         }
 
         var projects = missing.Count == 1 ? "1 project" : $"{missing.Count} projects";
+        var verb = missing.Count == 1 ? "isn't" : "aren't";
         var example = missing.Count == 1 ? missing[0] : $"{missing[0]} and {missing.Count - 1} more";
         logger.LogInformation(
-            "{UISymbol} Skipping {Projects} listed in {Solution} that aren't on disk ({Example}).",
-            UiSymbols.Info, projects, solution.Name, example);
+            "{UISymbol} Skipping {Projects} listed in {Solution} that {Verb} on disk ({Example}).",
+            UiSymbols.Info, projects, solution.Name, verb, example);
     }
 
     private static bool HasEffectivePlatform(ProjectRunOptions options) =>

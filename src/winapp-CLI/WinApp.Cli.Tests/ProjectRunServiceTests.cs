@@ -4082,6 +4082,15 @@ public class ProjectRunServiceTests
             "a package-only failure must not fan out into one restore per project");
         StringAssert.Contains(console.Output, "error NU1901", "the real error stays visible");
         StringAssert.Contains(console.Output, "Command: dotnet restore", "the failed command is shown");
+        var filter = WindowsCommandLine.SplitArguments(dotnet.StreamingCalls.Single(a => a.StartsWith("restore ", StringComparison.Ordinal)))[1];
+        try
+        {
+            Assert.IsTrue(File.Exists(filter), "a failed filtered restore keeps its solution filter so the printed command can be rerun");
+        }
+        finally
+        {
+            File.Delete(filter);
+        }
         Assert.IsTrue(logger.Entries.Any(e => e.Level == LogLevel.Warning && e.Message.Contains("continuing with the build", StringComparison.Ordinal)));
     }
 
