@@ -684,22 +684,21 @@ public class SandboxAdoptionTests
     }
 
     /// <summary>
-    /// A Sandbox this command opened, whose window winapp could not identify, still gets one window
-    /// if the agent proves nobody is attached.
+    /// When winapp's window loses the singleton to a Sandbox started headless, that Sandbox is
+    /// treated like any other adopted one, so it gets the one window it is missing.
     /// </summary>
     /// <remarks>
-    /// That is a headless <c>wsb start</c> winning the singleton in the same moment as winapp's
-    /// launch: winapp's window shows an error, and the Sandbox it ends up using has no window at all.
-    /// Nothing is connected up front, because the far likelier cause is winapp's own window still
-    /// signing in; the agent's "no input desktop" after the full wait is what proves otherwise.
+    /// Measured live: a <c>wsb start</c> in the same moment as winapp's launch wins, winapp's window
+    /// shows "Only one running instance of Windows Sandbox is allowed", and the listed Sandbox has no
+    /// window at all. Assuming a window was attached made the agent wait out its full deadline and
+    /// fail.
     /// </remarks>
     [TestMethod]
-    public async Task OpenedSandboxWithAnUnidentifiedWindow_ThatTurnsOutHeadless_IsConnectedOnce()
+    public async Task OpenedSandboxWhoseWindowLostTheRace_IsConnectedWhenNobodyIsAttached()
     {
         using var harness = new AdoptionHarness();
+        harness.Cli.LaunchShowsError = true;
         harness.Cli.Session = GuestSessionAvailability.NoLoginSession;
-        harness.Cli.AgentRefusesWithNoInputDesktop = true;
-        harness.Cli.AgentReadyAfterReconnect = true;
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
@@ -707,10 +706,6 @@ public class SandboxAdoptionTests
         Assert.AreEqual(
             1,
             harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)));
-        Assert.IsGreaterThanOrEqualTo(
-            WindowsSandboxBackend.HeartbeatTimeout,
-            harness.Elapsed,
-            "winapp's own window gets the full wait to sign in before a second one is connected.");
     }
 
     [TestMethod]
@@ -945,9 +940,16 @@ public class SandboxAdoptionTests
             Operations.Add($"launch:{LaunchedId}");
             _running.Add(LaunchedId);
             var attempt = SandboxConnectAttempt.ForLauncher(LauncherProcessId, LauncherStartTicks);
+            attempt.ShowedError = LaunchShowsError;
             onLaunched(attempt);
             return Task.FromResult(attempt);
         }
+
+        /// <summary>
+        /// When set, the window winapp launches shows "Only one running instance of Windows Sandbox
+        /// is allowed": another Sandbox won the singleton, and the one listed is that one.
+        /// </summary>
+        public bool LaunchShowsError { get; set; }
 
         /// <summary>The ID Windows gives the Sandbox a launched window opens.</summary>
         public string LaunchedId { get; set; } = "sandbox-launched";

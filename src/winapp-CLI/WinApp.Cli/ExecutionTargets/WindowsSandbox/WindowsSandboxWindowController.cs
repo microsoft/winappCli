@@ -216,7 +216,7 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             ? Task.FromResult<SandboxClientWindow?>(null)
             : WaitAndPlaceAsync(
                 snapshot,
-                attempt.Ownership,
+                attempt,
                 EarlyPollInterval,
                 cancellationToken);
     }
@@ -244,22 +244,24 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             return null;
         }
 
-        return await WaitAndPlaceAsync(snapshot, attempt.Ownership, PollInterval, cancellationToken)
+        return await WaitAndPlaceAsync(snapshot, attempt, PollInterval, cancellationToken)
             .ConfigureAwait(false);
     }
 
     private async Task<SandboxClientWindow?> WaitAndPlaceAsync(
         WindowsSandboxWindowSnapshot snapshot,
-        SandboxConnectOwnership ownership,
+        SandboxConnectAttempt attempt,
         TimeSpan pollInterval,
         CancellationToken cancellationToken)
     {
+        var ownership = attempt.Ownership!;
         var deadline = UtcNow() + WindowTimeout;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var (client, ambiguous) = SelectOwnedClient(ownership, _listClients());
+            var clients = _listClients();
+            var (client, ambiguous) = SelectOwnedClient(ownership, clients);
 
             if (ambiguous)
             {
@@ -273,6 +275,16 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
             {
                 _park(client, snapshot.ForegroundWindow);
                 return client;
+            }
+
+            // A client winapp launched itself is a single window, so its error page is final: it
+            // will never show a session.
+            if (clients.Any(candidate =>
+                    candidate.Surface == SandboxClientSurface.TerminalError &&
+                    IsLauncher(candidate.Window, ownership)))
+            {
+                attempt.ShowedError = true;
+                return null;
             }
 
             if (UtcNow() >= deadline)

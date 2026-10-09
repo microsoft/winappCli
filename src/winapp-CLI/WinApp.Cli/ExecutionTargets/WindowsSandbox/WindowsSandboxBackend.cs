@@ -277,11 +277,13 @@ internal sealed class WindowsSandboxBackend(
         // what establishes the interactive login session the agent must run in.
         //
         // A Sandbox this command just opened already has one: a window that owns it, which is
-        // signing in while the steps below run. Usually that is winapp's own window. If winapp could
-        // not identify it, because it was slow to show a session or someone opened Windows Sandbox
-        // from Start at the same moment, it is still a window, either winapp's or the one Start
-        // opened. Connecting another would put a second window on screen, and the session probe
-        // cannot tell "still signing in" from "nobody attached", so it is not asked.
+        // signing in while the steps below run. Usually winapp identifies that window as its own.
+        // If it could not, because the window was slow to show a session, it is still winapp's
+        // window, or the one Start opened at the same moment. Connecting another would put a second
+        // window on screen, and the session probe cannot tell "still signing in" from "nobody
+        // attached", so it is not asked. Only when winapp's window showed the error page did it lose
+        // the singleton to a Sandbox it knows nothing about, and that one is treated like any other
+        // adopted Sandbox below.
         //
         // Otherwise, whether to connect is decided from what winapp knows plus what the guest
         // reports.
@@ -350,11 +352,6 @@ internal sealed class WindowsSandboxBackend(
             bootstrap,
             lease.Epoch,
             clientAttached,
-
-            // A window this command opened but could not identify is probably its own, still
-            // signing in. It may instead have lost the singleton to a headless `wsb start` in the
-            // same moment, so the agent's own "no input desktop" is still allowed to connect one.
-            mayReconnect: !clientAttached || (_openedSandbox && lease.Origin is not SandboxInstanceOrigin.Created),
             cancellationToken).ConfigureAwait(false);
 
         if (!string.Equals(heartbeat.BinaryHash, agentHash, StringComparison.OrdinalIgnoreCase))
@@ -1300,16 +1297,26 @@ internal sealed class WindowsSandboxBackend(
     /// </summary>
     /// <remarks>
     /// The window is not remembered here: the instance it belongs to is not known yet, so the
-    /// lifecycle records it together with the instance.
+    /// lifecycle records it together with the instance. A window that showed Windows Sandbox's error
+    /// page instead lost the singleton to another Sandbox, so this command did not open one.
     /// </remarks>
     private async Task<SandboxClientWindow?> OpenSandboxAsync(CancellationToken cancellationToken)
     {
-        _openedSandbox = true;
         SandboxClientWindow? opened = null;
+        SandboxConnectAttempt? launched = null;
 
-        await OpenClientAsync(cli.LaunchAsync, placed => opened = placed, cancellationToken)
-            .ConfigureAwait(false);
+        await OpenClientAsync(
+            (onLaunched, token) => cli.LaunchAsync(
+                attempt =>
+                {
+                    launched = attempt;
+                    onLaunched(attempt);
+                },
+                token),
+            placed => opened = placed,
+            cancellationToken).ConfigureAwait(false);
 
+        _openedSandbox = launched is not { ShowedError: true };
         return opened;
     }
 
@@ -1411,15 +1418,15 @@ internal sealed class WindowsSandboxBackend(
         BootstrapShare bootstrap,
         ExecutionTargetEpoch epoch,
         bool clientWasLaunched,
-        bool mayReconnect,
         CancellationToken cancellationToken)
     {
         var deadline = UtcNow() + HeartbeatTimeout;
         var clientAvailable = clientWasLaunched;
 
-        // A client is connected at most once here, and only when the bootstrap did not already
-        // connect one it knows is attached. Without that, an expired deadline on the ordinary path
-        // would fall through and attach a second client.
+        // A client is connected at most once here, and only when the bootstrap did not already do
+        // it. Without that, an expired deadline on the ordinary path would fall through and attach
+        // a second client.
+        var mayReconnect = !clientWasLaunched;
 
         while (true)
         {

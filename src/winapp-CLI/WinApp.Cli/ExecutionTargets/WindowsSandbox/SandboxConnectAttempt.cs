@@ -68,6 +68,12 @@ internal sealed class SandboxConnectAttempt : IDisposable
     /// </summary>
     internal Task<SandboxClientWindow?>? Placement { get; set; }
 
+    /// <summary>
+    /// Whether the client winapp launched directly showed Windows Sandbox's error page instead of a
+    /// session, for example "Only one running instance of Windows Sandbox is allowed".
+    /// </summary>
+    internal bool ShowedError { get; set; }
+
     /// <summary>Wraps a launched connect process, keeping its ID reserved.</summary>
     /// <remarks>
     /// A launcher whose start time Windows will not report yields no ownership rather than an

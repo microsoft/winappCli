@@ -834,6 +834,44 @@ public class WindowsSandboxWindowControllerTests
         Assert.IsTrue(scripted.Looks > 1, "Waiting for a client that is still starting is expected.");
     }
 
+    /// <summary>
+    /// A client winapp launched itself that shows Windows Sandbox's error page, such as "Only one
+    /// running instance of Windows Sandbox is allowed", will never show a session.
+    /// </summary>
+    [TestMethod]
+    public async Task PlaceConnectedClient_LaunchedClientShowsTheErrorPage_ReportsItWithoutWaiting()
+    {
+        var error = Candidate(OurLauncher, 200, parentProcessId: 1, startTicksUtc: LauncherStartTicks)
+            with { Surface = SandboxClientSurface.TerminalError };
+        var scripted = new ScriptedDesktop([error]);
+        var controller = scripted.CreateController();
+        var attempt = Attempt();
+
+        Assert.IsNull(await controller.PlaceConnectedClientAsync(
+            Snapshot(), attempt, TestContext.CancellationToken));
+        Assert.IsTrue(attempt.ShowedError);
+        Assert.AreEqual(0, scripted.Parked.Count);
+        Assert.AreEqual(1, scripted.Looks);
+    }
+
+    /// <summary>
+    /// A <c>wsb connect</c> child that shows an error does not end the wait: the same launcher can
+    /// still produce the session window.
+    /// </summary>
+    [TestMethod]
+    public async Task PlaceConnectedClient_ConnectChildShowsTheErrorPage_IsNotReportedAsTheLaunchFailing()
+    {
+        var error = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.TerminalError };
+        var scripted = new ScriptedDesktop([error]);
+        var controller = scripted.CreateController();
+        var attempt = Attempt();
+
+        Assert.IsNull(await controller.PlaceConnectedClientAsync(
+            Snapshot(), attempt, TestContext.CancellationToken));
+        Assert.IsFalse(attempt.ShowedError);
+        Assert.IsTrue(scripted.Looks > 1);
+    }
+
     public TestContext TestContext { get; set; } = null!;
 
     private static WindowsSandboxWindowSnapshot Snapshot(nint foreground = 0) => new(new(foreground));
