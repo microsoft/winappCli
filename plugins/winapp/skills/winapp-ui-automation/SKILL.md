@@ -1,6 +1,6 @@
 ---
 name: winapp-ui-automation
-description: "Inspect, drive, and verify a running Windows app UI via winapp ui (UI Automation): find elements, click, type, read text/values, wait for state, take screenshots. Works with WinUI, WPF, WinForms, Win32, and Electron. Use to check, test, or act on a live app; to edit WinUI live, use winui-devtools."
+description: "Inspect, drive, and verify a running Windows app UI via winapp ui (UI Automation): find elements, click, type, read text/values, wait for state, take screenshots in WinUI, WPF, WinForms, Win32, or Electron apps. Use to check, test, or act on a live app; for WinUI XAML internals, use winui-devtools."
 ---
 
 **If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
@@ -10,8 +10,8 @@ description: "Inspect, drive, and verify a running Windows app UI via winapp ui 
 - AI agents interacting with Windows applications (clicking buttons, reading text, taking screenshots)
 - Verifying UI state during development or testing
 - Automating UI workflows without Playwright or Selenium
-- Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs
-- Not for changing a WinUI 3 app's text or properties live: use `winui-devtools`
+- Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs by what the user sees and can operate
+- Not for a WinUI 3 app's XAML internals (why a value or binding resolved the way it did, which XAML line made an element, live property edits, UI review comments): use `winui-devtools`
 
 ## Prerequisites
 For WinUI 3 XAML source/tree, bindings or dependency-property diagnosis and edits,
