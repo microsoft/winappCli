@@ -514,32 +514,14 @@ try {
             $baseline = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
             Check ($baseline.result.handle -eq [string]$heading[0].handle -and
                 $heading[0].handle -ne $narrow[0].handle) 'tree-scroll baseline selects a different exact element'
-            $before = Invoke-Cli @('ui', 'get-property', 'TreeScroll', '-a', $app)
-            for ($scrollAttempt = 0; $scrollAttempt -lt 20 -and [double]$before.properties.ScrollHorizontalPercent -gt 0; $scrollAttempt++) {
-                $null = Invoke-Cli @('ui', 'scroll', 'TreeScroll', '-a', $app, '--direction', 'left')
-                $before = Invoke-Cli @('ui', 'get-property', 'TreeScroll', '-a', $app)
-            }
-            Check ([double]$before.properties.ScrollHorizontalPercent -eq 0) 'tree-scroll observation starts at a proven zero horizontal offset'
             $null = Invoke-Cli @('devtools', 'call', 'Selection.select', "handle=$($narrow[0].handle)", '-a', $app)
             $selected = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
             Check ($selected.result.handle -eq [string]$narrow[0].handle) 'tree-scroll observation selected the exact owned narrow element'
             Start-Sleep -Milliseconds 250
-            $after = Invoke-Cli @('ui', 'get-property', 'TreeScroll', '-a', $app)
-            Check ([double]$after.properties.ScrollHorizontalPercent -eq 0) 'selection preserves the zero horizontal tree offset'
-            $null = Invoke-Cli @('ui', 'scroll', 'TreeScroll', '-a', $app, '--direction', 'right')
-            Start-Sleep -Milliseconds 250
-            $manualBefore = Invoke-Cli @('ui', 'get-property', 'TreeScroll', '-a', $app)
-            Check ([double]$manualBefore.properties.ScrollHorizontalPercent -gt 0) 'manual horizontal scrolling remains available'
-            $null = Invoke-Cli @('devtools', 'call', 'Selection.select', "handle=$($heading[0].handle)", '-a', $app)
-            $manualSelected = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
-            Check ($manualSelected.result.handle -eq [string]$heading[0].handle) 'manual-scroll control selects a distinct exact row'
-            Start-Sleep -Milliseconds 250
-            $manualAfter = Invoke-Cli @('ui', 'get-property', 'TreeScroll', '-a', $app)
-            Check ([double]$manualAfter.properties.ScrollHorizontalPercent -eq
-                [double]$manualBefore.properties.ScrollHorizontalPercent) 'selection preserves the user-chosen nonzero horizontal offset'
-            [ordered]@{ observationOnly = $false; before = $before.properties; after = $after.properties;
-                manualBefore = $manualBefore.properties; manualAfter = $manualAfter.properties;
-                baselineHandle = [string]$heading[0].handle; selectedHandle = [string]$narrow[0].handle } | ConvertTo-Json -Depth 20 |
+            # A label wider than the pane ends in an ellipsis (its tooltip has the full text), so the tree never scrolls sideways.
+            $scroll = Invoke-Cli @('ui', 'get-property', 'TreeScroll', '-a', $app)
+            Check ([double]$scroll.properties.ScrollHorizontalPercent -eq -1) 'a long tree label does not make the tree scroll horizontally'
+            [ordered]@{ scroll = $scroll.properties; selectedHandle = [string]$narrow[0].handle } | ConvertTo-Json -Depth 20 |
                 Set-Content (Join-Path $evidence 'tree-scroll-observation.json')
         }
         finally {
