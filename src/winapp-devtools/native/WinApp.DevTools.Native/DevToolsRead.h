@@ -119,6 +119,9 @@ std::vector<std::wstring> DevToolsRead_FieldLabels(const std::wstring& valueType
 
 std::wstring DevToolsRead_DeriveWriteType(const std::wstring& declaredType, bool isEnum);
 
+// The value types DevToolsRead_DeriveWriteType accepts as written text: each must also read back as text.
+const std::vector<std::wstring>& DevToolsRead_ParsableTypes();
+
 // Whether the SUB-PROPERTIES of a complex value may be written in place.
 // Child edits mutate a referenced object, so resource-backed/shared values must be refused.
 bool DevToolsRead_ChildEditingIsSafe(const std::wstring& valueSource, const std::wstring& authoredKind);

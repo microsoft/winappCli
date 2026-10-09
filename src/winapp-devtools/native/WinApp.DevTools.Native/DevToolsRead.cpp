@@ -404,17 +404,22 @@ std::vector<std::wstring> DevToolsRead_FieldLabels(const std::wstring& valueType
     return {};
 }
 
+const std::vector<std::wstring>& DevToolsRead_ParsableTypes()
+{
+    static const std::vector<std::wstring> kParsable = {
+        L"Double", L"Single", L"Int32", L"Int64", L"Boolean", L"String", L"Thickness", L"CornerRadius",
+        L"Point", L"Vector3", L"Vector2",
+    };
+    return kParsable;
+}
+
 std::wstring DevToolsRead_DeriveWriteType(const std::wstring& declaredType, bool isEnum)
 {
     if (declaredType.empty()) return std::wstring();
     size_t dot = declaredType.find_last_of(L'.');
     std::wstring st = (dot == std::wstring::npos) ? declaredType : declaredType.substr(dot + 1);
     if (isEnum) return st;
-    static const wchar_t* const kParsable[] = {
-        L"Double", L"Single", L"Int32", L"Int64", L"Boolean", L"String", L"Thickness", L"CornerRadius",
-        L"Point", L"Vector3", L"Vector2",
-    };
-    for (const wchar_t* p : kParsable)
+    for (const auto& p : DevToolsRead_ParsableTypes())
         if (st == p) return st;
     if (st == L"Brush" || (st.size() > 5 && st.compare(st.size() - 5, 5, L"Brush") == 0))
         return L"SolidColorBrush";

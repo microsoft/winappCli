@@ -6,6 +6,7 @@
 #include <roerrorapi.h>
 #include <objidl.h>
 #include "../native/WinApp.DevTools.Native/DevToolsProjected.h"
+#include <winrt/Windows.Foundation.Numerics.h>
 static HRESULT ObserveInputText(void*, HSTRING*);
 static HRESULT ObserveContent(void*, IInspectable**);
 static HRESULT ObservePlaceholder(void*, HSTRING*);
@@ -630,6 +631,33 @@ static void CheckEffectiveValues(const std::function<void(bool,const char*)>& ch
         tree.nullValue = true;
         row = read();
         check(row.valueState == L"null" && row.value.empty(), "null bound Content differs from failed or complex reads");
+        // The write contract: every type DevToolsRead_DeriveWriteType lets you write reads back as text, even when the
+        // runtime leaves the chain's text empty (it does for CornerRadius), so a successful edit is confirmed.
+        tree.nullValue = false; tree.bound = false; tree.reportHandle = false;
+        namespace WF = winrt::Windows::Foundation;
+        for (const auto& writable : DevToolsRead_ParsableTypes()) {
+            if (writable == L"String") continue;  // "" is a real string value, not a failed read
+            WF::IInspectable boxed{nullptr};
+            std::wstring ns = L"Windows.Foundation.", expected;
+            if (writable == L"Double") boxed = winrt::box_value(2.5), expected = L"2.5";
+            else if (writable == L"Single") boxed = winrt::box_value(2.5f), expected = L"2.5";
+            else if (writable == L"Int32") boxed = winrt::box_value(int32_t{7}), expected = L"7";
+            else if (writable == L"Int64") boxed = winrt::box_value(int64_t{7}), expected = L"7";
+            else if (writable == L"Boolean") boxed = winrt::box_value(true), expected = L"True";
+            else if (writable == L"Thickness") boxed = winrt::box_value(DevToolsX::Thickness{1, 2, 3, 4}), ns = L"Microsoft.UI.Xaml.", expected = L"1,2,3,4";
+            else if (writable == L"CornerRadius") boxed = winrt::box_value(DevToolsX::CornerRadius{4, 4, 4, 4}), ns = L"Microsoft.UI.Xaml.", expected = L"4,4,4,4";
+            else if (writable == L"Point") boxed = winrt::box_value(WF::Point{1, 2}), expected = L"1,2";
+            else if (writable == L"Vector2") boxed = winrt::box_value(WF::Numerics::float2{1, 2}), ns = L"Windows.Foundation.Numerics.", expected = L"1,2";
+            else if (writable == L"Vector3") boxed = winrt::box_value(WF::Numerics::float3{1, 2, 3}), ns = L"Windows.Foundation.Numerics.", expected = L"1,2,3";
+            std::string label; for (wchar_t ch : writable) label += static_cast<char>(ch);
+            check(boxed != nullptr, ("contract test knows how to box writable type " + label).c_str());
+            if (!boxed) continue;
+            tree.name = L"Probe"; tree.type = ns + writable;
+            diag.value = boxed;
+            row = read();
+            check(row.value == expected,
+                ("writable " + label + " reads back its live value when the runtime's text is empty").c_str());
+        }
         check(tree.writes == 0, "effective value reads never mutate the app");
         g_diag = nullptr; g_vts3 = nullptr;
     }

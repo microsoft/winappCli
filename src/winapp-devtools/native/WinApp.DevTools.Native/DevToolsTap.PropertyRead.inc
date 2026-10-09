@@ -150,6 +150,35 @@ static HRESULT ReadInspectableValue(IInspectable* value, const std::wstring& nam
         }
         return s;
     };
+    // Value-type structs box as IReference<T>. The runtime's chain text covers most of them but is empty for
+    // CornerRadius, so these are read from the live value, in the same comma form the chain uses for Thickness.
+    {
+        namespace WF = winrt::Windows::Foundation;
+        WF::IInspectable boxed{ nullptr };
+        winrt::copy_from_abi(boxed, value);
+        auto join = [&](std::initializer_list<double> parts) {
+            std::wstring s;
+            for (double d : parts) { if (!s.empty()) s += L','; s += num(d); }
+            return s;
+        };
+        std::wstring text, type;
+        if (auto c = boxed.try_as<WF::IReference<DevToolsX::CornerRadius>>()) {
+            const auto r = c.Value(); text = join({ r.TopLeft, r.TopRight, r.BottomRight, r.BottomLeft }); type = L"Microsoft.UI.Xaml.CornerRadius";
+        } else if (auto t = boxed.try_as<WF::IReference<DevToolsX::Thickness>>()) {
+            const auto r = t.Value(); text = join({ r.Left, r.Top, r.Right, r.Bottom }); type = L"Microsoft.UI.Xaml.Thickness";
+        } else if (auto pt = boxed.try_as<WF::IReference<WF::Point>>()) {
+            const auto r = pt.Value(); text = join({ r.X, r.Y }); type = L"Windows.Foundation.Point";
+        } else if (auto v2 = boxed.try_as<WF::IReference<WF::Numerics::float2>>()) {
+            const auto r = v2.Value(); text = join({ r.x, r.y }); type = L"Windows.Foundation.Numerics.Vector2";
+        } else if (auto v3 = boxed.try_as<WF::IReference<WF::Numerics::float3>>()) {
+            const auto r = v3.Value(); text = join({ r.x, r.y, r.z }); type = L"Windows.Foundation.Numerics.Vector3";
+        }
+        if (!type.empty()) {
+            *out = std::move(text);
+            if (effectiveType) *effectiveType = type;
+            return S_OK;
+        }
+    }
     winrt::com_ptr<IInspectable> typed;
     HRESULT hr = value->QueryInterface(DevToolsIid<winrt::Windows::Foundation::IPropertyValue>(), typed.put_void());
     if (SUCCEEDED(hr) && typed) {
@@ -202,6 +231,15 @@ static HRESULT ReadInspectableValue(IInspectable* value, const std::wstring& nam
         return S_OK;
     }
     return S_FALSE;
+}
+
+// A type DevToolsRead_DeriveWriteType accepts as text, other than String (whose "" is a real value).
+static bool IsParsableValueType(const std::wstring& declaredType)
+{
+    const auto type = ShortTypeName(declaredType);
+    if (type == L"String") return false;
+    const auto& parsable = DevToolsRead_ParsableTypes();
+    return std::find(parsable.begin(), parsable.end(), type) != parsable.end();
 }
 
 static bool ReadEvaluatedValue(InstanceHandle owner, const PropertyChainValue& row,
@@ -417,6 +455,10 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                 bool evaluatedNull = false;
                 if (ReadEvaluatedValue(h, v[i], name, declaredType, &evaluated, &prop.type, &evaluatedNull)) prop.value = evaluated;
                 else { prop.value.clear(); prop.valueState = evaluatedNull ? L"null" : L"unresolved"; }
+            } else if (!isNull && !isHandle && rawValue.empty() && IsParsableValueType(declaredType)) {
+                // A writable value the runtime gave no text for (CornerRadius) is read live, so an edit can be confirmed.
+                std::wstring live;
+                if (ReadEvaluatedValue(h, v[i], name, declaredType, &live, nullptr)) prop.value = std::move(live);
             } else if (name == L"FontFamily" && !isNull && (!isHandle || !readable)) {
                 std::wstring source;
                 if (ReadEvaluatedValue(h, v[i], name, declaredType, &source, &prop.type)) {
@@ -555,7 +597,9 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
             }
             for (auto& prop : *out) {
                 auto it = chains.find(prop.name);
-                if (it != chains.end() && it->second.size() > 1) prop.chain = std::move(it->second);
+                if (it == chains.end() || it->second.size() <= 1) continue;
+                for (auto& e : it->second) if (e.winner && e.value.empty()) e.value = prop.value;
+                prop.chain = std::move(it->second);
             }
         }
     }
