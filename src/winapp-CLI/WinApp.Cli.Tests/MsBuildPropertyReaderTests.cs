@@ -32,6 +32,32 @@ public class MsBuildPropertyReaderTests
     }
 
     [TestMethod]
+    public void ParseItemMetadata_ReturnsEachItemsMetadataCaseInsensitively()
+    {
+        var stdout = """
+            warning preamble {not json}
+            {
+              "Properties": { "RuntimeIdentifier": "" },
+              "Items": {
+                "ProjectReference": [
+                  { "Identity": "..\\Lib\\Lib.csproj", "FullPath": "C:\\repo\\Lib\\Lib.csproj" },
+                  { "Identity": "..\\Gen\\Gen.csproj", "FullPath": "C:\\repo\\Gen\\Gen.csproj", "OutputItemType": "Analyzer", "ReferenceOutputAssembly": "false" }
+                ]
+              }
+            }
+            """;
+
+        var items = MsBuildPropertyReader.ParseItemMetadata(stdout, "ProjectReference");
+
+        Assert.HasCount(2, items);
+        Assert.AreEqual(@"C:\repo\Lib\Lib.csproj", items[0]["fullpath"]);
+        Assert.IsFalse(items[0].ContainsKey("OutputItemType"));
+        Assert.AreEqual("Analyzer", items[1]["OutputItemType"]);
+        Assert.IsEmpty(MsBuildPropertyReader.ParseItemMetadata(stdout, "Compile"));
+        Assert.IsEmpty(MsBuildPropertyReader.ParseItemMetadata("""{ "Properties": {} }""", "ProjectReference"));
+    }
+
+    [TestMethod]
     public void Parse_LookupIsCaseInsensitive()
     {
         var stdout = """{ "Properties": { "TargetDir": "X" } }""";

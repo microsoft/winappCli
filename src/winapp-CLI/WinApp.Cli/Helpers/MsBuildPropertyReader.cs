@@ -108,6 +108,48 @@ internal static class MsBuildPropertyReader
     }
 
     /// <summary>
+    /// Parses the stdout of <c>dotnet msbuild --getItem:<paramref name="itemName"/></c> into each item's
+    /// metadata (including <c>Identity</c> and well-known metadata such as <c>FullPath</c>), in order.
+    /// Returns an empty list when the output carries no such item group.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyDictionary<string, string>> ParseItemMetadata(string stdout, string itemName)
+    {
+        var result = new List<IReadOnlyDictionary<string, string>>();
+        if (string.IsNullOrWhiteSpace(stdout))
+        {
+            return result;
+        }
+
+        TryScanJsonObject(stdout.Trim(), root =>
+        {
+            if (!root.TryGetProperty("Items", out var items) || items.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (items.TryGetProperty(itemName, out var group) && group.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in group.EnumerateArray().Where(i => i.ValueKind == JsonValueKind.Object))
+                {
+                    var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var value in item.EnumerateObject())
+                    {
+                        metadata[value.Name] = value.Value.ValueKind == JsonValueKind.String
+                            ? value.Value.GetString() ?? string.Empty
+                            : value.Value.ToString();
+                    }
+
+                    result.Add(metadata);
+                }
+            }
+
+            return true;
+        });
+
+        return result;
+    }
+
+    /// <summary>
     /// Scans <paramref name="text"/> for the first JSON object carrying an <c>"Items"</c> object and fills
     /// <paramref name="result"/> with each group's identities.
     /// </summary>

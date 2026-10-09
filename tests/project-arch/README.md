@@ -43,8 +43,10 @@ Requirements: Windows with Developer Mode, the .NET 10 SDK plus the .NET 8 runti
 `ProjectArch.psm1` defines the catalog in `Get-ProjectArchFixtures`. Each entry states what it guards. The axes are:
 
 - **App:** packaged WinUI, Windows App SDK self-contained, unpackaged, WPF, console; `<Platforms>` in the project, in `Directory.Build.props`, absent, or missing the target architecture.
-- **References:** `netstandard2.0`, WinUI libraries with and without `<Platforms>`/`<RuntimeIdentifiers>`, libraries that enable MSIX tooling, multi-targeted, diamond, `GlobalPropertiesToRemove="RuntimeIdentifier"`, `AnyCPU`-only, and a solution.
+- **References:** `netstandard2.0`, WinUI libraries with and without `<Platforms>`/`<RuntimeIdentifiers>`, libraries that enable MSIX tooling, multi-targeted, diamond, `GlobalPropertiesToRemove="RuntimeIdentifier"`, `AnyCPU`-only, a referenced helper executable, and a solution.
 - **Project settings:** .NET `SelfContained`, `PublishAot` built without `--aot`, a hard-coded or `win-$(Platform)` `RuntimeIdentifier`, Visual Studio publish profiles, a trimmed build whose `$(Platform)` profile makes it self-contained, and `EnableDynamicPlatformResolution`.
+- **Where a setting is declared:** on the app, on a referenced project, or through an import (`Directory.Build.props`/`.targets`, a `$(…)` path). A setting that matters on the app usually matters on a referenced project too, so cover both.
+- **Architecture:** the host's, and `x86` (fixtures with an `-x86` suffix, plus `X01`–`X03`), which is cross-architecture on both x64 and arm64 hosts. Project-referenced analyzers and source generators only break cross-architecture builds.
 - **Windows App SDK:** 1.6, 1.8 and 2.x.
 
 To cover a new shape, add an entry with a short `Why`, run it against the current CLI, and confirm it fails without the fix it protects.

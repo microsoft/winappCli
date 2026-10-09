@@ -30,7 +30,7 @@ function New-AppSpec([hashtable]$Overrides = @{}) {
 #>
 function Get-ProjectArchFixtures {
     $msixLib = @{ EnableMsixTooling = 'true' }
-    @(
+    $fixtures = @(
         # App shapes
         @{ Id = 'A01-packaged'; Sdk = '1.8'; App = (New-AppSpec); Why = 'Packaged WinUI app' }
         @{ Id = 'A01-packaged-wasdk16'; Sdk = '1.6'; App = (New-AppSpec); Why = 'Packaged WinUI app on WinAppSDK 1.6' }
@@ -89,7 +89,29 @@ function Get-ProjectArchFixtures {
 
         # Cross-architecture builds (Arch differs from x64 and arm64 hosts; x86 runs on both)
         @{ Id = 'X01-generator-cross-arch'; Sdk = '1.8'; Arch = 'x86'; ExpectRid = $true; App = (New-AppSpec @{ Kind = 'console'; Packaged = $false; Platforms = $null; Rids = $null; Refs = @(@{ Name = 'Gen'; Meta = @{ OutputItemType = 'Analyzer'; ReferenceOutputAssembly = 'false' } }) }); Libs = @(@{ Name = 'Gen'; Kind = 'generator' }); Why = 'Project-referenced source generator built for another architecture (the compiler must still load it)' }
+        @{ Id = 'X02-generator-imported'; Sdk = '1.8'; Arch = 'x86'; ExpectRid = $true; App = (New-AppSpec @{ Kind = 'console'; Packaged = $false; Platforms = $null; Rids = $null }); Libs = @(@{ Name = 'Gen'; Kind = 'generator' }); TargetsXml = '<ItemGroup Condition="''$(MSBuildProjectName)'' == ''App''"><ProjectReference Include="$(MSBuildThisFileDirectory)Gen\Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" /></ItemGroup>'; Why = 'Generator reference added by an imported Directory.Build.targets, cross-architecture' }
+        @{ Id = 'X03-generator-macro-path'; Sdk = '1.8'; Arch = 'x86'; ExpectRid = $true; App = (New-AppSpec @{ Kind = 'console'; Packaged = $false; Platforms = $null; Rids = $null; Refs = @(@{ Name = 'Gen'; Include = '$(MSBuildThisFileDirectory)..\Gen\Gen.csproj'; Meta = @{ OutputItemType = 'Analyzer'; ReferenceOutputAssembly = 'false' } }) }); Libs = @(@{ Name = 'Gen'; Kind = 'generator' }); Why = 'Generator reference through a $(...) path, cross-architecture' }
     )
+
+    # Settings on referenced projects (the decision must look past the app)
+    $fixtures += @(
+        @{ Id = 'R18-nested-edpr'; Sdk = '1.8'; ExpectRid = $true; App = (New-AppSpec @{ Refs = @('LibW') }); Libs = @(@{ Name = 'LibW'; Kind = 'winui'; Refs = @('LibP'); Extra = @{ EnableDynamicPlatformResolution = 'true' } }, @{ Name = 'LibP'; Kind = 'plain' }); Why = 'EnableDynamicPlatformResolution on a referenced project (needs the RID)' }
+        @{ Id = 'R19-ref-hardcoded-rid'; Sdk = '1.8'; ExpectRid = $true; App = (New-AppSpec @{ Refs = @('LibW') }); Libs = @(@{ Name = 'LibW'; Kind = 'winui'; Extra = @{ RuntimeIdentifier = 'win-x86' } }); Why = 'Referenced project with a hard-coded RuntimeIdentifier for another arch (needs the RID)' }
+        @{ Id = 'R20-ref-rid-from-platform'; Sdk = '1.8'; ExpectRid = $true; App = (New-AppSpec @{ Refs = @('LibW') }); Libs = @(@{ Name = 'LibW'; Kind = 'winui'; Platforms = 'X86;X64;ARM64'; Extra = @{ RuntimeIdentifier = 'win-$(Platform)' } }); Why = 'Referenced project with RuntimeIdentifier=win-$(Platform) and upper-case platforms (needs the RID)' }
+        @{ Id = 'R21-ref-exe'; Sdk = '1.8'; App = (New-AppSpec @{ Refs = @('Helper') }); Libs = @(@{ Name = 'Helper'; Kind = 'exe' }); Why = 'Referenced helper executable' }
+    )
+
+    # The same shapes built cross-architecture: --arch x86 runs on both x64 and arm64 hosts.
+    $crossArch = 'A01-packaged', 'A01-packaged-wasdk16', 'A04-wasdk-selfcontained', 'A05-unpackaged', 'A07-wpf-wasdk', 'P06-publish-profiles', 'P08-trimmed-profile-anycpu-lib', 'R02-winui-lib-wasdk16', 'R10-fluentstore', 'R12-solution', 'R14-msix-lib', 'R21-ref-exe'
+    foreach ($fixture in @($fixtures | Where-Object { $_.Id -in $crossArch })) {
+        $copy = $fixture.Clone()
+        $copy.Id = "$($fixture.Id)-x86"
+        $copy.Arch = 'x86'
+        $copy.Why = "$($fixture.Why), built for x86"
+        $fixtures += $copy
+    }
+
+    $fixtures
 }
 
 function Write-FixtureFile([string]$Path, [string]$Text) {
@@ -111,7 +133,8 @@ function Format-References($references) {
         if ($reference.ContainsKey('Meta')) {
             $metadata = ($reference.Meta.GetEnumerator() | ForEach-Object { " $($_.Name)=`"$($_.Value)`"" }) -join ''
         }
-        "    <ProjectReference Include=`"..\$($reference.Name)\$($reference.Name).csproj`"$metadata />"
+        $include = if ($reference.ContainsKey('Include')) { $reference.Include } else { "..\$($reference.Name)\$($reference.Name).csproj" }
+        "    <ProjectReference Include=`"$include`"$metadata />"
     }
     "  <ItemGroup>`n$($items -join "`n")`n  </ItemGroup>"
 }
@@ -145,7 +168,8 @@ function New-ProjectArchFixture([hashtable]$Fixture, [string]$Root) {
     if ($Fixture.ContainsKey('PlatformsInProps') -and $Fixture.PlatformsInProps) { $props += "<Platforms>$script:AllPlatforms</Platforms>" }
     $props += '</PropertyGroup></Project>'
     Write-FixtureFile "$Root\Directory.Build.props" $props
-    Write-FixtureFile "$Root\Directory.Build.targets" '<Project />'
+    $targets = if ($Fixture.ContainsKey('TargetsXml')) { $Fixture.TargetsXml } else { '' }
+    Write-FixtureFile "$Root\Directory.Build.targets" "<Project>$targets</Project>"
 
     foreach ($library in @($Fixture['Libs'])) {
         if (-not $library) { continue }
@@ -154,6 +178,10 @@ function New-ProjectArchFixture([hashtable]$Fixture, [string]$Root) {
         $winui = $library.Kind -eq 'winui'
         switch ($library.Kind) {
             'plain' { $properties.TargetFramework = 'netstandard2.0' }
+            'exe' {
+                $properties.TargetFramework = $sdk.Tfm
+                $properties.OutputType = 'Exe'
+            }
             'generator' {
                 $properties.TargetFramework = 'netstandard2.0'
                 $properties.IsRoslynComponent = 'true'
@@ -204,6 +232,9 @@ namespace $name
             continue
         }
         Write-FixtureFile "$Root\$name\Class1.cs" "namespace $name { public static class Class1 { public static string Hello() { return `"$name`"; } } }"
+        if ($library.Kind -eq 'exe') {
+            Write-FixtureFile "$Root\$name\Program.cs" "namespace $name { public static class Program { public static void Main() { System.Console.WriteLine(Class1.Hello()); } } }"
+        }
         if ($winui) {
             Write-FixtureFile "$Root\$name\Control1.xaml" @"
 <UserControl x:Class="$name.Control1" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">

@@ -2756,31 +2756,28 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    [DataRow("x86", true, DisplayName = "Cross-architecture build keeps the RID so the generator stays loadable")]
-    [DataRow("arm64", false, DisplayName = "Native build conveys the architecture with Platform")]
-    public async Task RunBuild_ProjectReferencedGenerator_CrossArchKeepsRid(string arch, bool expectRid)
+    [DataRow("plain", "arm64", false, DisplayName = "Plain reference graph conveys the architecture with Platform")]
+    [DataRow("edpr", "arm64", true, DisplayName = "Referenced project with dynamic platform resolution keeps the RID")]
+    [DataRow("rid", "arm64", true, DisplayName = "Referenced project with its own conflicting RID keeps the RID")]
+    [DataRow("generator", "x86", true, DisplayName = "Generator behind a library keeps the RID for a cross-architecture build")]
+    [DataRow("generator", "arm64", false, DisplayName = "Generator behind a library uses Platform for a native build")]
+    public async Task RunBuild_ReferenceGraphDecidesArchitectureCarrier(string scenario, string arch, bool expectRid)
     {
-        WriteFileAt(@"Gen\Gen.csproj", """
-            <Project Sdk="Microsoft.NET.Sdk">
-              <PropertyGroup>
-                <TargetFramework>netstandard2.0</TargetFramework>
-              </PropertyGroup>
-            </Project>
-            """);
-        var csproj = WriteFile("App.csproj", """
-            <Project Sdk="Microsoft.NET.Sdk">
-              <PropertyGroup>
-                <OutputType>Exe</OutputType>
-                <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
-              </PropertyGroup>
-              <ItemGroup>
-                <ProjectReference Include="Gen\Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-              </ItemGroup>
-            </Project>
-            """);
-        var dotnet = ArchitectureProbeDotnet("""
-            "RuntimeIdentifier":"","EnableDynamicPlatformResolution":"","NETCoreSdkRuntimeIdentifier":"win-arm64"
-            """);
+        // App -> Lib -> (Gen as analyzer, or Leaf). Properties come from MSBuild evaluation of each project, so
+        // values set by imports or on referenced projects count.
+        var graph = new Dictionary<string, (string Properties, (string Project, bool BuildOnly)[] References)>
+        {
+            ["App"] = ("", [("Lib", false)]),
+            ["Lib"] = (scenario switch
+            {
+                "edpr" => "\"EnableDynamicPlatformResolution\":\"true\"",
+                "rid" => "\"RuntimeIdentifier\":\"win-x86\"",
+                _ => "",
+            }, scenario == "generator" ? [("Gen", true)] : [("Leaf", false)]),
+            ["Leaf"] = ("", []),
+        };
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureGraphDotnet(graph);
         var service = NewServiceWith(dotnet, out _);
 
         await service.BuildAndResolveAsync(csproj, PlatformOptions(arch), CancellationToken.None);
@@ -2790,36 +2787,96 @@ public class ProjectRunServiceTests
         Assert.AreEqual(!expectRid, build.Contains($"-p:Platform={arch}", StringComparison.Ordinal), build);
     }
 
-    [TestMethod]
-    public void ProjectReferenceClosureHasBuildOnlyReference_FindsGeneratorBehindLibrary()
-    {
-        WriteFileAt(@"Gen\Gen.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
-        WriteFileAt(@"Lib\Lib.csproj", """
-            <Project Sdk="Microsoft.NET.Sdk">
-              <ItemGroup>
-                <ProjectReference Include="..\Gen\Gen.csproj">
-                  <OutputItemType>Analyzer</OutputItemType>
-                </ProjectReference>
-              </ItemGroup>
-            </Project>
-            """);
-        var withGenerator = WriteFile("App.csproj", """
-            <Project Sdk="Microsoft.NET.Sdk">
-              <ItemGroup>
-                <ProjectReference Include="Lib\Lib.csproj" />
-              </ItemGroup>
-            </Project>
-            """);
-        var withoutGenerator = WriteFile("Plain.csproj", """
-            <Project Sdk="Microsoft.NET.Sdk">
-              <ItemGroup>
-                <ProjectReference Include="Gen\Gen.csproj" />
-              </ItemGroup>
-            </Project>
-            """);
+    private static readonly string[] DiamondRuntimeProjects = ["App", "A", "B", "Shared"];
 
-        Assert.IsTrue(ProjectRunService.ProjectReferenceClosureHasBuildOnlyReference(withGenerator));
-        Assert.IsFalse(ProjectRunService.ProjectReferenceClosureHasBuildOnlyReference(withoutGenerator));
+    [TestMethod]
+    public async Task RunBuild_ReferenceGraph_EvaluatesEachRuntimeProjectOnceAndSkipsAnalyzers()
+    {
+        // Diamond: App -> A, App -> B, A -> Shared, B -> Shared; App -> Gen as an analyzer.
+        var graph = new Dictionary<string, (string Properties, (string Project, bool BuildOnly)[] References)>
+        {
+            ["App"] = ("", [("A", false), ("B", false), ("Gen", true)]),
+            ["A"] = ("", [("Shared", false)]),
+            ["B"] = ("", [("Shared", false)]),
+            ["Shared"] = ("", []),
+        };
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureGraphDotnet(graph);
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions("arm64"), CancellationToken.None);
+
+        var evaluated = dotnet.StringInvocations
+            .Where(a => a.Contains(ArchitectureProbeMarker, StringComparison.Ordinal))
+            .Select(a => Path.GetFileNameWithoutExtension(a.Split(' ')[1]))
+            .ToList();
+        CollectionAssert.AreEquivalent(DiamondRuntimeProjects, evaluated);
+        StringAssert.Contains(BuildPass(dotnet), "-p:Platform=arm64");
+        Assert.IsTrue(dotnet.StringInvocations.Where(a => a.Contains(ArchitectureProbeMarker, StringComparison.Ordinal) && !a.Contains("App.csproj", StringComparison.Ordinal))
+            .All(a => !a.Contains("-p:TargetFramework=", StringComparison.Ordinal)), "referenced projects are evaluated without the app's pinned framework");
+    }
+
+    [TestMethod]
+    public async Task RunBuild_ReferencedProjectProbeFailure_KeepsRid()
+    {
+        var graph = new Dictionary<string, (string Properties, (string Project, bool BuildOnly)[] References)>
+        {
+            ["App"] = ("", [("Lib", false)]),
+            ["Lib"] = ("", []),
+        };
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var dotnet = ArchitectureGraphDotnet(graph, failingProject: "Lib");
+        var service = NewServiceWith(dotnet, out _);
+
+        await service.BuildAndResolveAsync(csproj, PlatformOptions("arm64"), CancellationToken.None);
+
+        StringAssert.Contains(BuildPass(dotnet), "-r win-arm64");
+    }
+
+    /// <summary>
+    /// A fake whose architecture probe answers per project with its properties and <c>ProjectReference</c>
+    /// items (written to disk so their <c>FullPath</c> exists), like <c>dotnet msbuild --getItem</c>.
+    /// </summary>
+    private FakeDotNetService ArchitectureGraphDotnet(
+        Dictionary<string, (string Properties, (string Project, bool BuildOnly)[] References)> graph,
+        string? failingProject = null)
+    {
+        foreach (var name in graph.Keys.Concat(graph.Values.SelectMany(v => v.References.Select(r => r.Project))).Distinct())
+        {
+            if (name != "App")
+            {
+                WriteFileAt($@"{name}\{name}.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+            }
+        }
+
+        string PathOf(string name) => name == "App"
+            ? Path.Combine(_tempDir.FullName, "App.csproj")
+            : Path.Combine(_tempDir.FullName, name, $"{name}.csproj");
+
+        return new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (!args.Contains(ArchitectureProbeMarker, StringComparison.Ordinal))
+                {
+                    return (0, PackagedPropertiesJson(), string.Empty);
+                }
+
+                var name = graph.Keys.Single(n => args.StartsWith($"msbuild {PathOf(n)} ", StringComparison.Ordinal));
+                if (name == failingProject)
+                {
+                    return (1, string.Empty, "error");
+                }
+
+                var (properties, references) = graph[name];
+                var items = references.Select(r => r.BuildOnly
+                    ? new Dictionary<string, string> { ["Identity"] = PathOf(r.Project), ["FullPath"] = PathOf(r.Project), ["OutputItemType"] = "Analyzer", ["ReferenceOutputAssembly"] = "false" }
+                    : new Dictionary<string, string> { ["Identity"] = PathOf(r.Project), ["FullPath"] = PathOf(r.Project) });
+                var propertiesJson = "{\"NETCoreSdkRuntimeIdentifier\":\"win-arm64\"" + (properties.Length > 0 ? "," + properties : "") + "}";
+                var itemsJson = System.Text.Json.JsonSerializer.Serialize(items);
+                return (0, "{\"Properties\":" + propertiesJson + ",\"Items\":{\"ProjectReference\":" + itemsJson + "}}", string.Empty);
+            },
+        };
     }
 
     [TestMethod]
