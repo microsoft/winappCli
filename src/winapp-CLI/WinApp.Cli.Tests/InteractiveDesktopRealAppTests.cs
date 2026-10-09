@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
-using Spectre.Console.Testing;
 using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Tests;
@@ -81,7 +80,7 @@ public class InteractiveDesktopRealAppTests : IDisposable
             _store, paths, participants, new UiOwnerResolver(), inspector,
             new TickCountClock(), new RealPollDelay(),
             new ParticipantSignals(inspector, NullLogger<ParticipantSignals>.Instance),
-            new TestConsole(), NullLogger<InteractiveDesktopLock>.Instance);
+            NullLogger<InteractiveDesktopLock>.Instance);
 
         _fixture = new UiaTestFixture();
     }

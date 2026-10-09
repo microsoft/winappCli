@@ -27,10 +27,12 @@ public partial class InteractiveDesktopLockTests
     private InteractiveDesktopStateStore _store = null!;
     private InteractiveDesktopLock _coordinator = null!;
     private FakeParticipantSignals _signals = null!;
+    private System.Text.StringBuilder _statusOut = null!;
 
     [TestInitialize]
     public void Setup()
     {
+        _statusOut = new System.Text.StringBuilder();
         _lockDirectory = Path.Combine(Path.GetTempPath(), $"winapp-lock-svc-{Guid.NewGuid():N}");
         _previousLockOverride = Environment.GetEnvironmentVariable(
             InteractiveDesktopPaths.LockDirectoryOverrideVariable);
@@ -56,8 +58,8 @@ public partial class InteractiveDesktopLockTests
             new TickCountClock(),
             new FakePollDelay(),
             _signals,
-            new TestConsole(),
-            NullLogger<InteractiveDesktopLock>.Instance);
+            NullLogger<InteractiveDesktopLock>.Instance,
+            new StringWriter(_statusOut));
     }
 
     [TestCleanup]
@@ -458,7 +460,8 @@ public partial class InteractiveDesktopLockTests
     /// which keeps the cancellation contract deterministically testable. (Genuine cross-process
     /// behavior is covered separately by the multiprocess lane.)
     /// </remarks>
-    private FileStream OccupyTurnWithAnotherOwner(int foreignPid = 424242, long foreignStart = 987654321)
+    private FileStream OccupyTurnWithAnotherOwner(
+        int foreignPid = 424242, long foreignStart = 987654321, string operation = "ui click", long turnStartedTick64 = 0)
     {
         _paths.EnsureDirectories();
         var leaseStream = new FileStream(
@@ -472,6 +475,7 @@ public partial class InteractiveDesktopLockTests
         using var stateLock = _store.AcquireStateLock(CancellationToken.None);
         var state = InteractiveDesktopState.CreateFresh();
         state.TurnId = 1;
+        state.TurnStartedTick64 = turnStartedTick64;
         state.NextTicket = 2;
         state.Owner = new OwnerRecord { Kind = UiOwnerKind.Workflow, Key = "some-other-workflow" };
         state.OwnerCommands.Add(new OwnerCommandEntry
@@ -479,7 +483,7 @@ public partial class InteractiveDesktopLockTests
             Ticket = 1,
             Pid = foreignPid,
             ProcessStartTicksUtc = foreignStart,
-            Operation = "ui click",
+            Operation = operation,
             Mode = UiTurnMode.DesktopExclusive,
             Status = UiCommandStatus.Running,
         });
@@ -597,6 +601,113 @@ public partial class InteractiveDesktopLockTests
     private Task<int> RunAsyncWithToken(
         UiTurnMode mode, string operation, Func<IUiTurn, CancellationToken, Task<int>> body, CancellationToken token)
         => _coordinator.RunCoordinatedAsync(mode, operation, Parse(), body, token);
+
+    private static ParseResult ParseArgs(params string[] args)
+    {
+        var command = new Command("probe");
+        command.Options.Add(WinAppRootCommand.JsonOption);
+        command.Options.Add(WinAppRootCommand.QuietOption);
+        command.Options.Add(WinAppRootCommand.VerboseOption);
+        return command.Parse(args);
+    }
+
+    [TestMethod]
+    public async Task AWaitingCommandExplainsWhatHoldsTheDesktopOnTheStatusWriter()
+    {
+        using var foreignLease = OccupyTurnWithAnotherOwner(
+            operation: "ui record", turnStartedTick64: Environment.TickCount64 - 125_000);
+
+        using var cts = new CancellationTokenSource();
+        var queued = _coordinator.RunCoordinatedAsync(
+            UiTurnMode.DesktopExclusive, "ui click", ParseArgs(),
+            (_, _) => Task.FromResult(0), cts.Token);
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (_statusOut.ToString().Length == 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
+
+        await cts.CancelAsync();
+        Assert.AreEqual(InteractiveDesktopLock.CancelledExitCode, await queued);
+
+        var notice = _statusOut.ToString();
+        StringAssert.Contains(notice, "another workflow is using the desktop ('ui record')");
+        StringAssert.Contains(notice, "has held it for 2m");
+        StringAssert.Contains(notice, "WINAPP_UI_WORKFLOW_ID");
+        Assert.IsFalse(notice.Contains("some-other-workflow", StringComparison.Ordinal),
+            "the notice must never identify the other workflow");
+        Assert.IsFalse(notice.Contains("424242", StringComparison.Ordinal),
+            "the default notice must not expose the holder's PID");
+    }
+
+    [TestMethod]
+    public async Task AWaitingCommandInTheSameWorkflowNamesTheExclusiveCommandItWaitsBehind()
+    {
+        // Same workflow: a running recording (turn-shared, ticket 1) and a screenshot (exclusive,
+        // ticket 2). A new click (ticket 3) waits for the screenshot, not the recording.
+        _paths.EnsureDirectories();
+        using var recordLease = new FileStream(_paths.LeasePath(424242, 987654321), FileMode.Create,
+            FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+        using var screenshotLease = new FileStream(_paths.LeasePath(424243, 987654322), FileMode.Create,
+            FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+        using (var stateLock = _store.AcquireStateLock(CancellationToken.None))
+        {
+            var state = InteractiveDesktopState.CreateFresh();
+            state.TurnId = 1;
+            state.NextTicket = 3;
+            state.Owner = new OwnerRecord
+            {
+                Kind = UiOwnerKind.Workflow,
+                Key = UiOwnerResolver.ComputeWorkflowKey("interactive-desktop-lock-tests"),
+            };
+            state.OwnerCommands.Add(new OwnerCommandEntry
+            {
+                Ticket = 1, Pid = 424242, ProcessStartTicksUtc = 987654321, Operation = "ui record",
+                Mode = UiTurnMode.TurnShared, Status = UiCommandStatus.Running,
+            });
+            state.OwnerCommands.Add(new OwnerCommandEntry
+            {
+                Ticket = 2, Pid = 424243, ProcessStartTicksUtc = 987654322, Operation = "ui screenshot",
+                Mode = UiTurnMode.DesktopExclusive, Status = UiCommandStatus.Running,
+            });
+            _store.Publish(state);
+        }
+
+        using var cts = new CancellationTokenSource();
+        var queued = _coordinator.RunCoordinatedAsync(
+            UiTurnMode.DesktopExclusive, "ui click", ParseArgs(),
+            (_, _) => Task.FromResult(0), cts.Token);
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (_statusOut.ToString().Length == 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
+
+        await cts.CancelAsync();
+        Assert.AreEqual(InteractiveDesktopLock.CancelledExitCode, await queued);
+        StringAssert.Contains(_statusOut.ToString(), "an earlier 'ui screenshot' in this workflow must finish first.");
+    }
+
+    [TestMethod]
+    [DataRow("--json")]
+    [DataRow("--quiet")]
+    public async Task AWaitingCommandStaysSilentUnderJsonAndQuiet(string flag)
+    {
+        using var foreignLease = OccupyTurnWithAnotherOwner(operation: "ui record");
+
+        using var cts = new CancellationTokenSource();
+        var queued = _coordinator.RunCoordinatedAsync(
+            UiTurnMode.DesktopExclusive, "ui click", ParseArgs(flag),
+            (_, _) => Task.FromResult(0), cts.Token);
+
+        await Task.Delay(UiCoordinationWaitReporter.FirstReportAfterMs + 400);
+        await cts.CancelAsync();
+        await queued;
+
+        Assert.AreEqual("", _statusOut.ToString());
+    }
 
     // ------------------------------------------ cancellation must not swallow coordination faults
 

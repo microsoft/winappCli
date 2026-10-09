@@ -63,8 +63,9 @@ Rules that matter when driving this from an agent:
   else for its whole duration.
 - **Ordering is owner affinity, then FIFO.** An active workflow may keep issuing commands ahead of
   others already waiting; once it yields or its grace expires, waiters are served in arrival order.
-- **Waiting is indefinite and cancellable.** A status line appears after one second; Ctrl+C exits
-  `130` with error code `cancelled` and the command never ran.
+- **Waiting is indefinite and cancellable.** After one second a notice on stderr says what holds the
+  desktop and for how long (silent under `--json` and `--quiet`); Ctrl+C exits `130` with error code
+  `cancelled` and the command never ran.
 - **There is no hard cap** — a long script, unbounded recording, or failure loop can block other
   mutating workflows until it finishes or is stopped.
 
