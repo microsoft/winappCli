@@ -6,6 +6,7 @@
 #include "DevToolsOwnedState.h"
 #include "DevToolsProtocol.h"
 
+#include <cwchar>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,26 @@ struct PreviewFacts
     unsigned int line = 0, endLine = 0, column = 0;
     bool Empty() const { return automationId.empty() && !line; }
 };
+
+// An element's one-line caption: its text, else its icon glyph as a code point, else its AutomationId.
+inline std::wstring Caption(std::wstring text, std::wstring glyph, const std::wstring& automationId)
+{
+    // An icon given as text (a private-use code point, as NavigationView's buttons use) prints as blank; treat it
+    // as the glyph it is.
+    bool privateUse = !text.empty();
+    for (wchar_t c : text) privateUse = privateUse && c >= 0xE000 && c <= 0xF8FF;
+    if (privateUse) { glyph = text; text.clear(); }
+    std::wstring out;
+    if (!text.empty()) out = text;
+    else if (!glyph.empty()) {
+        wchar_t buf[16]; _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"U+%04X", (unsigned)(unsigned short)glyph[0]);
+        out = buf;
+    }
+    else if (!automationId.empty()) out = automationId;
+    for (auto& c : out) if (c == L'\r' || c == L'\n' || c == L'\t') c = L' ';
+    if (out.size() > 42) { out.resize(41); out += L'\u2026'; }
+    return out;
+}
 
 inline bool ParsePreviewHandles(const std::wstring& list, size_t cap,
                                std::vector<unsigned long long>& out, size_t& outCount, bool& truncated)

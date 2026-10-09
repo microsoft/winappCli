@@ -175,6 +175,17 @@ void TestReleaseJsonMatchesTheTracker()
         "the axis another connection owns is retained, and the caller's own is released");
 }
 
+void TestCaptionShowsIconGlyphsAsCodePoints()
+{
+    std::printf("A caption never ends in an icon glyph that prints as blank\n");
+    // NavigationView's back button carries its icon as text content; a private-use code point prints as nothing.
+    CheckJson(DevToolsBatch::Caption(L"\uE72B", L"", L""), L"U+E72B", "an icon glyph given as text reads as its code point");
+    CheckJson(DevToolsBatch::Caption(L"", L"\uE713", L""), L"U+E713", "a FontIcon glyph still reads as its code point");
+    CheckJson(DevToolsBatch::Caption(L"Save \uE74E", L"", L""), L"Save \uE74E", "text that is not only a glyph is kept as written");
+    CheckJson(DevToolsBatch::Caption(L"", L"", L"SaveButton"), L"SaveButton", "no text or glyph falls back to the AutomationId");
+    CheckJson(DevToolsBatch::Caption(L"a\nb", L"", L""), L"a b", "line breaks are flattened");
+}
+
 } // namespace
 
 int RunBatchTests()
@@ -188,5 +199,6 @@ int RunBatchTests()
     TestPreviewJsonCarriesConfirmedLocationAndAutomationId();
     TestReleaseJsonNamesBothLists();
     TestReleaseJsonMatchesTheTracker();
+    TestCaptionShowsIconGlyphsAsCodePoints();
     return g_batchFailures;
 }

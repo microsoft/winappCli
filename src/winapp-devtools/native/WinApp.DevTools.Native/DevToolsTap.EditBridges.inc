@@ -461,14 +461,7 @@ static void Route1ReadPreview(InstanceHandle wire, std::wstring& out, std::wstri
     }
     insp->Release();
 
-    if (!text.empty()) out = text;
-    else if (!glyph.empty()) {
-        wchar_t buf[16]; _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"U+%04X", (unsigned)(unsigned short)glyph[0]);
-        out = buf;
-    }
-    else if (!autoId.empty()) out = autoId;
-    for (auto& c : out) if (c == L'\r' || c == L'\n' || c == L'\t') c = L' ';
-    if (out.size() > 42) { out.resize(41); out += L'\u2026'; }
+    out = DevToolsBatch::Caption(text, glyph, autoId);
 }
 
 // UI thread: the element's AutomationId and its confirmed declaration. The declaration comes from the cached runtime

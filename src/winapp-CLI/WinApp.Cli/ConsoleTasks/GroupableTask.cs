@@ -193,8 +193,13 @@ internal class GroupableTask<T> : GroupableTask
 
         if (task.SuccessfullyCompleted != null)
         {
-            string FormatCheckMarkMessage(string indentStr, string message)
+            string? FormatCheckMarkMessage(string indentStr, string message)
             {
+                // A step that succeeded with nothing to say prints nothing rather than a bare check mark.
+                if (task.SuccessfullyCompleted == true && string.IsNullOrWhiteSpace(message))
+                {
+                    return null;
+                }
                 bool firstCharIsEmojiOrOpenBracket = false;
                 if (message.Length > 0)
                 {
