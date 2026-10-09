@@ -66,6 +66,30 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
+    public void SearchGrouped_MatchesControlByDescriptionOnlyTerm()
+    {
+        // "tabular" appears ONLY in DataGrid's ControlDescription — not in its
+        // name, id, or scenario header. The description is the only control field
+        // carrying task vocabulary (what a control is *for* rather than what it is
+        // *called*), so if it is ever dropped from the BM25 document again, intent
+        // queries silently stop reaching their control and this test fails.
+        var engine = BuildEngine();
+        var groups = engine.SearchGrouped("tabular", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "expected the description term to match");
+        Assert.AreEqual("DataGrid", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void Search_MatchesControlByDescriptionOnlyTerm()
+    {
+        // Same guarantee for the ungrouped path, which builds its own BM25 document.
+        var engine = BuildEngine();
+        var results = engine.Search("tabular", maxResults: 5);
+        Assert.IsTrue(results.Count > 0, "expected the description term to match");
+        Assert.AreEqual("toolkit-datagrid-1", results[0].Id);
+    }
+
+    [TestMethod]
     public void HasSource_LoadedSource_True()
     {
         var engine = BuildEngine();

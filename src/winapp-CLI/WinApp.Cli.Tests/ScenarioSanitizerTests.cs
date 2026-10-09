@@ -314,6 +314,7 @@ public class ScenarioSanitizerTests
             ApiNamespace = "Ns\nFORGED",
             XmlnsImports = ["xmlns:a=\"b\"\nFORGED"],
             RelatedControls = ["Pivot\nFORGED"],
+            Apis = [new ApiRef { Name = "Ns.Type\nFORGED", Description = "Api\nFORGED", Uri = "https://x\nFORGED" }],
         };
 
         ScenarioSanitizer.Sanitize(s);
@@ -326,6 +327,9 @@ public class ScenarioSanitizerTests
             (nameof(s.Description), s.Description),
             (nameof(s.NuGetPackage), s.NuGetPackage),
             (nameof(s.ApiNamespace), s.ApiNamespace),
+            ("Apis.Name", s.Apis![0].Name),
+            ("Apis.Description", s.Apis[0].Description),
+            ("Apis.Uri", s.Apis[0].Uri),
         })
         {
             Assert.IsFalse(value!.Contains('\n'), $"{name} must not carry a newline");
