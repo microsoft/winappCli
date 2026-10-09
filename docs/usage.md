@@ -2289,7 +2289,7 @@ winapp ui [command] [options]
 - `pen` - Inject synthetic pen/stylus input — taps and ink strokes with configurable pressure, tilt, and eraser mode
 - `send-keys` - Send synthetic keyboard input (named keys, combos, raw vk=0xNN, or literal text) to a window
 - `set-value` - Set value on editable element (text, number); falls back to LegacyIAccessible `put_accValue` for TextPattern-only rich-edit controls
-- `focus` - Move keyboard focus
+- `focus` - Move keyboard focus to an element, or restore and activate the window when no selector is given
 - `scroll-into-view` - Scroll element visible
 - `wait-for` - Wait for element state
 - `list-windows` - List all windows for an app

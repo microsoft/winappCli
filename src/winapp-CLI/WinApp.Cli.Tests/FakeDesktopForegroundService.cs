@@ -59,7 +59,11 @@ internal sealed class FakeDesktopForegroundService : IDesktopForegroundService
 
     public bool IsMinimized(long hwnd) => AllWindowsMinimized || MinimizedWindows.Contains(hwnd);
 
-    public void Restore(long hwnd) => RestoreRequests.Add(hwnd);
+    public void Restore(long hwnd)
+    {
+        RestoreRequests.Add(hwnd);
+        MinimizedWindows.Remove(hwnd);
+    }
 
     public void ShowWithoutActivation(long hwnd) => ShowWithoutActivationRequests.Add(hwnd);
 }

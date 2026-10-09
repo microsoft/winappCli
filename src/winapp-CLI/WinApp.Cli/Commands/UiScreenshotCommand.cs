@@ -347,7 +347,7 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
                     parseResult, selectorParser, uiAutomation, singleTarget, selector, searchOtherWindows: false, ct).ConfigureAwait(false);
                 if (exact is null)
                 {
-                    UiErrors.ElementNotFound(logger, selector, json);
+                    UiErrors.ElementNotFound(logger, selector, json, target: singleTarget);
                     return new CapturePass(1, singleTarget, selector, [], [], IsComposite: false);
                 }
                 selector = exact.Selector!;

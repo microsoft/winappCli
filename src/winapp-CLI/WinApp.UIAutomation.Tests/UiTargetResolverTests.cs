@@ -239,6 +239,33 @@ public class UiSessionServiceTests
     }
 
     [TestMethod]
+    public async Task ResolveByPid_MinimizedHostedApp_UsesFrameNotDetachedContentWindow()
+    {
+        // While minimized, the app's CoreWindow detaches from the frame and becomes its only
+        // top-level window. That window is empty in UIA; the frame is the window to act on.
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys).ProcessesById[880] = new UiProcessInfo(880, "CalculatorApp", 0, "");
+        uia.WindowsByPidResult = [((nint)0x501, 880, "Calculatrice")];
+        sys.WindowClassNameByHwnd[0x501] = "Windows.UI.Core.CoreWindow";
+
+        AssertHostedFrameTarget(await service.ResolveAsync(app: "880", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveByPid_CoreWindowWithoutFrame_KeepsProcessWindow()
+    {
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[880] = new UiProcessInfo(880, "CalculatorApp", 0, "");
+        uia.WindowsByPidResult = [((nint)0x501, 880, "Calculatrice")];
+        sys.WindowClassNameByHwnd[0x501] = "Windows.UI.Core.CoreWindow";
+
+        var uiTarget = await service.ResolveAsync(app: "880", hwnd: null, CancellationToken.None);
+
+        Assert.AreEqual(0x501L, uiTarget.WindowHandle);
+        Assert.AreEqual(880, uiTarget.ProcessId);
+    }
+
+    [TestMethod]
     public async Task ResolveByPartialName_ProcessWithoutWindow_UsesHostingFrameNotTitleMatches()
     {
         var (service, uia, sys) = NewService();
