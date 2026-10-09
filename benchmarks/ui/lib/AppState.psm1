@@ -404,7 +404,8 @@ function Invoke-InstanceSetup {
         foreach ($id in @(& $get 'waitFor') | Where-Object { $_ }) { [void](Wait-InstanceElement -ProcessId $started.pid -Selector $id -TimeoutSeconds 30) }
         foreach ($id in @(& $get 'invoke') | Where-Object { $_ }) { Invoke-Element (Wait-InstanceElement -ProcessId $started.pid -Selector $id -TimeoutSeconds 30).Element }
     }
-    foreach ($k in @((& $get 'expect') ?? @{}).Keys) { $expect[$k] = $Instance.expect[$k] }
+    $extra = & $get 'expect'
+    if ($extra) { foreach ($k in $extra.Keys) { $expect[$k] = $extra[$k] } }
     $state = Wait-InstanceValues -AppInfo $AppInfo -ProcessId $started.pid -Expect $expect
     $hwnd = Find-InstanceWindow -ProcessId $started.pid
     $minimize = [bool](& $get 'minimize')
@@ -573,7 +574,7 @@ function Start-ScenarioInstances {
         Save-OwnedLedger -Path $LedgerPath -Entries @($Owned)
         $setup.Add($si)
     }
-    return , $setup
+    return $setup.ToArray()
 }
 
 function Get-SetupSnapshot {

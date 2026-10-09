@@ -344,3 +344,6 @@ finally {
     if (-not $KeepArtifacts) { Remove-Item -Recurse -Force -LiteralPath $tempRoot -ErrorAction SilentlyContinue }
     Write-Host "Summary: $summaryPath"
 }
+# Without an explicit exit, the script would return whatever native command ran last.
+$failedSequences = @($results.sequences | Where-Object { $_.status -ne 'pass' })
+exit ([int]([bool]$abort -or $failedSequences.Count -gt 0))

@@ -15,7 +15,7 @@
     { "id": "wait-for", "op": "wait-for", "scenario": "calc-running", "selector": "CalculatorResults", "timeout": 5000 },
     { "id": "focus", "op": "focus", "scenario": "calc-running", "selector": "num5Button" },
     { "id": "screenshot", "op": "screenshot", "scenario": "calc-running" },
-    { "id": "set-value", "op": "set-value", "scenario": "gallery-combobox", "selector": "controlsSearchBox", "value": "Button" }
+    { "id": "set-value", "op": "set-value", "scenario": "gallery-combobox", "selector": "TextBox", "value": "Button", "note": "The edit box inside controlsSearchBox." }
   ],
   "sequences": [
     {
