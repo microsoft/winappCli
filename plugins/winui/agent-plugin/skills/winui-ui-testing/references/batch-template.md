@@ -2,7 +2,7 @@
 
 ### Step 2: Write the host-side batch
 
-Create `ui-tests.ps1`, replace the sample AutomationIds/expected values with the app's requirements, and add the relevant examples below **inside the outer `try`**, before its `finally`. The two small command helpers only route and check CLI calls; they do not implement a target manager. Use them for **every** added command so an earlier native failure cannot be hidden by a later success.
+Create `ui-tests.ps1`, replace the sample AutomationIds/expected values with the app's requirements, and add the relevant examples from `SKILL.md` and `references/advanced-interactions.md` **inside the outer `try`**, before its `finally`. The two small command helpers only route and check CLI calls; they do not implement a target manager. Use them for **every** added command so an earlier native failure cannot be hidden by a later success.
 
 ```powershell
 # ui-tests.ps1

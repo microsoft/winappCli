@@ -52,7 +52,8 @@ Top-level shape (elements are nested under `windows[]`):
     }
   ]
 }
-```n
+```
+
 `windowDpi` is the target window's effective DPI from `GetDpiForWindow(hwnd)`,
 not unconditional monitor DPI. `scale` is `windowDpi / 96`.
 `dpiAwareness` is `unaware`, `system-aware`, or `per-monitor-aware`:

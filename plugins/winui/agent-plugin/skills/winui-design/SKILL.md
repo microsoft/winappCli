@@ -129,7 +129,7 @@ public static bool Not(bool v) => !v;
 |---------|--------------|
 | Reflexively build every app as `NavigationView` Left | Pick the closest row in the silhouette table; hero / document / utility shapes are equally valid |
 | Treat brand colour or tinted backdrop as off-pattern | Overriding `SystemAccentColor` or using a tinted `DesktopAcrylicBackdrop` is how Microsoft's own first-party apps differentiate |
-| Tiny content island on an oversized window | Either size the window to the content (see *Window sizing*) or let content fill the available space |
+| Tiny content island on an oversized window | Either size the window to the content (see `references/window-sizing.md`) or let content fill the available space |
 | Custom pill / segmented tab switcher built by hand | `NavigationView` Top or `SelectorBar` |
 | Equal-width 50/50 column split where one pane is structural | Stable size for the structural pane, flexible for content — only if a structural pane is part of the silhouette at all |
 | Hard-coded color literals (`#RRGGBB`, `White`) | `{ThemeResource}` brushes by semantic name |
