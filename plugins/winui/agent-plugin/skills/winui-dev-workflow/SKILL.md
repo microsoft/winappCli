@@ -50,7 +50,7 @@ For intended AOT deployment, set `<PublishAot>true</PublishAot>` in the app proj
 winapp run . --aot -c Release --arch <x64|arm64> --detach --json
 winapp run . --aot -c Release --arch <x64|arm64> -p PublishAot=true --detach --json
 ```
-Fix IL/CsWinRT warnings rather than suppressing them. See `winui-packaging`'s `references/sourcegen-patterns.md`.
+Fix IL/CsWinRT warnings rather than suppressing them. For patterns, load the `winui-packaging` skill and read its `sourcegen-patterns.md` reference.
 
 ### Diagnosing Crashes
 

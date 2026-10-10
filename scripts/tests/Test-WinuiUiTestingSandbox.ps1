@@ -1,6 +1,9 @@
 $ErrorActionPreference = 'Stop'
-$skillPath = Join-Path $PSScriptRoot '..\..\plugins\winui\agent-plugin\skills\winui-ui-testing\SKILL.md'
-$content = Get-Content -LiteralPath $skillPath -Raw
+$skillDir = Join-Path $PSScriptRoot '..\..\plugins\winui\agent-plugin\skills\winui-ui-testing'
+# The template and advanced examples live in references, so check the core and every reference together.
+$skillFiles = @(Get-Item -LiteralPath (Join-Path $skillDir 'SKILL.md')) +
+    @(Get-ChildItem -LiteralPath (Join-Path $skillDir 'references') -Filter *.md -File | Sort-Object Name)
+$content = ($skillFiles | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join "`n"
 $blocks = @([regex]::Matches($content, '(?ms)^```powershell\r?\n(.*?)^```'))
 if (-not $blocks.Count) { throw 'No PowerShell examples found.' }
 foreach ($block in $blocks) {

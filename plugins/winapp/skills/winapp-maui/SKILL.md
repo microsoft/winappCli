@@ -176,17 +176,7 @@ Example for x64 — pack the resolved manifest and sign. Store a self-signed (or
 - A **self-signed** cert produces a valid signature but does **not** clear SmartScreen reputation for other users — only an OV/EV cert from a trusted CA builds reputation. See `winapp-signing`.
 - Add `devcert.pfx` and decoded PFX paths to `.gitignore`; never commit certificates.
 
-### End-to-end validation script
-
-For a practical repo-level check of the MAUI workflow, run:
-
-```powershell
-.\scripts\test-samples.ps1 -Samples maui-app
-```
-
-This executes `samples\maui-app\test.Tests.ps1`, which creates a MAUI app from scratch, publishes the Windows head, packages with the generated resizetizer manifest, and signs the unpackaged executable.
-
-The repository also includes a concrete MAUI sample project under `samples\maui-app\`.
+For a complete project, see the [MAUI sample](https://github.com/microsoft/WinAppCli/tree/main/samples/maui-app).
 
 ## Tips
 

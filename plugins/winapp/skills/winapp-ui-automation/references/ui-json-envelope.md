@@ -1,12 +1,23 @@
 # `winapp ui --json` envelopes
 
 The `--json` output for the `winapp ui` command group uses the envelopes below.
-The inspect, search, wait-for, and get-focused envelopes were reshaped in
-v0.3.1; the DPI context and typed get-property element are available in v0.6.3+.
+
+## Highlights
+
+The DPI context and typed `get-property` element need v0.6.3 or later.
+
+- `ui inspect --json` nests elements under `windows[].elements[]`.
+- Each inspected window and the `ui status --json` target reports `windowDpi`, `scale`, `dpiAwareness`, and `coordinateSpace: "physical-screen-pixels"`. This is the target window's DPI context. The selected target fails fast on an unreadable DPI instead of defaulting to 96; a secondary window that disappears mid-walk carries `dpiError` and omits the four context fields.
+- Successful `ui get-focused --json` queries emit `{ "hasFocus": false }` or `{ "hasFocus": true, "element": {...} }`; query failures exit nonzero with the standard JSON error on stderr, not a `hasFocus` result.
+- `ui search --json` returns `{ "matchCount", "hasMore", "matches" }`; `ui wait-for --json` returns `{ "found", "waitedMs", "element"?, "timedOut" }`.
+- `ui get-property --json` preserves `elementId` and its string-valued `properties` map, and adds a typed, scrubbed `element`.
+- Typed elements use `type` and numeric `x`, `y`, `width`, and `height` in physical screen pixels. `0,0,0,0` is UIA's empty/no-displayed-UI rectangle; `isOffscreen` remains independent.
+- Search and wait-for elements may include an `invokableAncestor` field (element-shaped).
+- Elements have no `id`, `parentSelector`, or `windowHandle` field — use `selector` as the public handle.
 
 ## `ui inspect --json`
 
-Top-level shape (elements are now nested under `windows[]`, not flat):
+Top-level shape (elements are nested under `windows[]`):
 
 ```json
 {
@@ -42,10 +53,6 @@ Top-level shape (elements are now nested under `windows[]`, not flat):
   ]
 }
 ```
-
-Pre-0.3.1 the shape was `{ "elements": [...] }`. Per-element `id`,
-`parentSelector`, and `windowHandle` fields have been **removed** —
-`selector` is the public handle.
 
 `windowDpi` is the target window's effective DPI from `GetDpiForWindow(hwnd)`,
 not unconditional monitor DPI. `scale` is `windowDpi / 96`.
@@ -91,8 +98,6 @@ through a control's parent window when the control omits its own process ID.
 An actual focus or window-ownership query failure exits nonzero and emits the
 standard `{ "error": { ... } }` envelope on stderr, without a `hasFocus` result.
 Retry `get-focused`; rediscover the window with `list-windows` if it has closed.
-
-Pre-0.3.1 emitted bare `null` when nothing was focused.
 
 ## `ui search --json`
 

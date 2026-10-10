@@ -35,7 +35,7 @@ Cheaper than allocating a `SolidColorBrush` per theme and stays correct if the p
 ## High Contrast rules
 
 - **Only `SystemColor*Brush` resources** are allowed inside an HC dictionary. Never set `Opacity` on them. Hard-coded fills/strokes in icons disappear in Contrast themes — use `Foreground`-driven `PathIcon` / `BitmapIcon`.
-- See the HC pairing table in `brushes-and-icons.md` for which background pairs with which foreground.
+- See the HC pairing table in `brushes.md` for which background pairs with which foreground.
 - If the platform brushes already work in Contrast themes (they usually do), keep the dictionary empty: `<ResourceDictionary x:Key="HighContrast" />`.
 - Never set `HighContrastAdjustment="None"` to "fix" a contrast issue — it silences the system's auto-adjustment, so unless you've supplied correct system-aware brushes everywhere it makes things worse.
 
