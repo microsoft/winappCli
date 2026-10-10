@@ -189,7 +189,7 @@ For full debugging scenarios and IDE setup, see the [Debugging Guide](https://gi
 ## Related skills
 
 - `winapp-manifest` — declare the extension or capability the feature needs
-- `winapp-setup` — Electron and other framework specifics
+- `winapp-frameworks` — Electron and other framework specifics
 - `winapp-troubleshoot` — registration errors
 
 Run `winapp <command> --help` for current command options, or `winapp --cli-schema` for the complete machine-readable command schema.
