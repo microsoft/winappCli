@@ -252,6 +252,24 @@ public class UiSessionServiceTests
     }
 
     [TestMethod]
+    public async Task ResolveByPid_TwoMinimizedFrames_ReportsAmbiguityInsteadOfGuessing()
+    {
+        // Two minimized windows of the same app can't be tied to a process, so the resolver must
+        // surface the ambiguity rather than fall back to the detached content window.
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[880] = new UiProcessInfo(880, "CalculatorApp", 0, "");
+        sys.HostedFramesErrorByPid[880] = new AmbiguousHostedAppFrameException([0x302, 0x304]);
+        uia.WindowsByPidResult = [((nint)0x501, 880, "Calculatrice")];
+        sys.WindowClassNameByHwnd[0x501] = "Windows.UI.Core.CoreWindow";
+
+        var ex = await Assert.ThrowsExactlyAsync<AmbiguousHostedAppFrameException>(
+            () => service.ResolveAsync(app: "880", hwnd: null, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "HWND 770, HWND 772");
+        StringAssert.Contains(ex.Message, "--window <HWND>");
+    }
+
+    [TestMethod]
     public async Task ResolveByPid_CoreWindowWithoutFrame_KeepsProcessWindow()
     {
         var (service, uia, sys) = NewService();

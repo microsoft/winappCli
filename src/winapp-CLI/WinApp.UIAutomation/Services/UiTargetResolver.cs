@@ -150,7 +150,17 @@ public sealed class UiTargetResolver(
             return windows;
         }
 
-        var frames = HostedAppFrameWindows(s_sharedQuery, pid);
+        List<(nint Hwnd, int Pid, string Title)> frames;
+        try
+        {
+            frames = HostedAppFrameWindows(s_sharedQuery, pid);
+        }
+        catch (AmbiguousHostedAppFrameException ex)
+        {
+            // Listing does not select a window, so show every candidate for the user to pick with -w.
+            frames = ex.Frames.Select(h => ToFrameWindow(s_sharedQuery, h)).ToList();
+        }
+
         return frames.Count > 0 ? frames : windows;
     }
 
@@ -158,9 +168,10 @@ public sealed class UiTargetResolver(
         => string.Equals(query.GetWindowClassName((long)hwnd), CoreWindowClass, StringComparison.Ordinal);
 
     private static List<(nint Hwnd, int Pid, string Title)> HostedAppFrameWindows(ISystemUiQuery query, int pid)
-        => query.FindHostedAppFrames(pid)
-            .Select(h => ((nint)h, (int)query.GetProcessIdForWindow(h), query.GetWindowText(h) ?? ""))
-            .ToList();
+        => query.FindHostedAppFrames(pid).Select(h => ToFrameWindow(query, h)).ToList();
+
+    private static (nint Hwnd, int Pid, string Title) ToFrameWindow(ISystemUiQuery query, long hwnd)
+        => ((nint)hwnd, (int)query.GetProcessIdForWindow(hwnd), query.GetWindowText(hwnd) ?? "");
 
     /// <summary>
     /// Auto-selects the best window from multiple candidates silently.

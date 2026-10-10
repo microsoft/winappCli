@@ -198,9 +198,10 @@ internal sealed class SystemUiQuery : ISystemUiQuery
     /// <summary>
     /// While a hosted app is minimized, Windows detaches its CoreWindow from the frame, so the frame
     /// can only be linked to the process by their shared AppUserModelID. Returns the frame only when
-    /// exactly one minimized, contentless frame carries the process's AppUserModelID; two minimized
-    /// windows of the same app are ambiguous, so none is returned rather than guessing.
+    /// exactly one minimized, contentless frame carries the process's AppUserModelID. Two minimized
+    /// windows of the same app are ambiguous, so this throws rather than guessing.
     /// </summary>
+    /// <exception cref="AmbiguousHostedAppFrameException">More than one minimized frame matches.</exception>
     private static List<long> NativeFindMinimizedHostedAppFrame(int pid)
     {
         var aumid = NativeGetProcessAppUserModelId(pid);
@@ -225,7 +226,7 @@ internal sealed class SystemUiQuery : ISystemUiQuery
             }
         }
 
-        return matches.Count == 1 ? matches : [];
+        return matches.Count > 1 ? throw new AmbiguousHostedAppFrameException(matches) : matches;
     }
 
     private static string? NativeGetProcessAppUserModelId(int pid)

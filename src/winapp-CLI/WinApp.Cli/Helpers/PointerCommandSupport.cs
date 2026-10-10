@@ -36,7 +36,7 @@ internal static class PointerCommandSupport
         var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
         if (element is null)
         {
-            UiErrors.ElementNotFound(logger, selectorStr!, json);
+            UiErrors.ElementNotFound(logger, selectorStr!, json, target: uiTarget);
             return default;
         }
 

@@ -133,6 +133,9 @@ internal class UiListWindowsCommand : Command, IShortDescription, IHelpExamples
                     windows = uiAutomation.FindWindowsByTitle("");
                 }
 
+                // Instances of one packaged app can report the same ApplicationFrameHost frame.
+                windows = windows.DistinctBy(w => w.Hwnd).ToList();
+
                 if (json)
                 {
                     var foregroundHwnd = (long)Windows.Win32.PInvoke.GetForegroundWindow();

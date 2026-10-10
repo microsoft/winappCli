@@ -44,6 +44,39 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
+    [DoNotParallelize] // redirects the process-wide Console.Error to capture the JSON error envelope
+    [DataRow("touch")]
+    [DataRow("pen")]
+    public async Task PointerElementNotFound_MinimizedTarget_TellsHowToRestoreTheWindow(string verb)
+    {
+        _fakeUia.FindSingleResult = null;
+        System.CommandLine.Command command = verb == "touch"
+            ? GetRequiredService<UiTouchCommand>()
+            : GetRequiredService<UiPenCommand>();
+
+        // touch and pen write the JSON error straight to Console.Error.
+        var previousErr = Console.Error;
+        var errCapture = new StringWriter();
+        Console.SetError(errCapture);
+        int exitCode;
+        try
+        {
+            exitCode = await RunWithMinimizedTargetAsync(command, ["num7Button", "-a", "calculator", "--json"]);
+        }
+        finally
+        {
+            Console.SetError(previousErr);
+        }
+
+        Assert.AreEqual(1, exitCode);
+        var error = errCapture.ToString();
+        AssertJsonErrorCodeIn(error, "element_not_found");
+        StringAssert.Contains(error, "\"recoveryHint\"");
+        StringAssert.Contains(error, "focus -w 4242");
+        Assert.IsEmpty(_fakeDesktopForeground.RestoreRequests, "A failed lookup must not restore the window itself.");
+    }
+
+    [TestMethod]
     public async Task ElementNotFound_VisibleTarget_KeepsSelectorAdvice()
     {
         _fakeUia.FindSingleResult = null;
