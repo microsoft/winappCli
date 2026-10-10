@@ -623,6 +623,7 @@ public sealed class ProjectRunServiceAotTests
 
         Assert.AreEqual(17, outcome.ExitCode);
         StringAssert.Contains(_consoles.Last().Output, "Native linker failed");
+        StringAssert.Contains(_consoles.Last().Output, "Command: dotnet publish", "a failed publish shows the command to rerun it");
         Assert.IsFalse(File.Exists(dotnet.ResultOutputFiles.Single()));
     }
 
