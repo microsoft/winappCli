@@ -4032,6 +4032,8 @@ public class ProjectRunServiceTests
         StringAssert.Contains(output, "Command:");
         StringAssert.Contains(output, "dotnet restore");
         StringAssert.Contains(output, "NuGetApiKey=***");
+        Assert.IsTrue(output.Split('\n').Any(line => line.Contains("Command: dotnet restore", StringComparison.Ordinal) && line.Contains("NuGetApiKey=***", StringComparison.Ordinal)),
+            "the failed command stays on one line so it can be copied and rerun");
         Assert.IsFalse(output.Contains("top-secret", StringComparison.Ordinal));
     }
 

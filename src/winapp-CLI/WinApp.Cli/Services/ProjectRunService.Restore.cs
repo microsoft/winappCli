@@ -355,8 +355,9 @@ internal sealed partial class ProjectRunService
     }
 
     /// <summary>Shows the exact command of a failed step so the failure is reproducible.</summary>
+    // Written raw, not through Spectre, which would wrap a long command across lines and break copy and paste.
     private void PrintFailedCommand(string command) =>
-        ansiConsole.MarkupLineInterpolated($"[dim]   Command: {command}[/]");
+        ansiConsole.Profile.Out.Writer.WriteLine($"   Command: {command}");
 
     /// <summary>
     /// Restores the owning solution's managed sibling projects before the target build so build-dependency
