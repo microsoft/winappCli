@@ -924,9 +924,10 @@ internal sealed partial class ProjectRunService(
                 cancellationToken: cancellationToken);
         }
 
-        // Inherited stdio bypasses winapp's redaction, so dotnet gets the console only when nothing the build
-        // prints can quote a secret: no restore (which may emit authenticated NuGet source URLs), no credential
-        // in the arguments, and no redacted text in the restore output the build replays as warnings.
+        // Inherited stdio bypasses winapp's redaction, so dotnet gets the console only when nothing NuGet or winapp
+        // adds to the build can quote a secret: no restore (which may emit authenticated NuGet source URLs), no
+        // credential in the arguments, and no redacted text in the restore output the build replays as warnings.
+        // Text a project's own targets choose to print is shown as `dotnet build` would show it.
         var nativeTerminal = UsesNativeTerminalBuild(options) && options.NoRestore && !redactOutput;
         if (nativeTerminal)
         {

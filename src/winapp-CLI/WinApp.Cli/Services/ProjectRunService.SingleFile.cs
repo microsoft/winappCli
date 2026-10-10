@@ -600,8 +600,9 @@ internal sealed partial class ProjectRunService
         var interactive = NativeTerminalGateOverrideForTests?.Invoke()
             ?? ProgressDisplay.ShouldUseLiveSpinner(ansiConsole, logger);
 
-        // Dotnet gets the console only when nothing the build prints can quote a secret. A file-based app's
-        // assets live in an SDK-managed folder winapp doesn't inspect, so a user --no-restore build streams.
+        // Dotnet gets the console only when nothing NuGet or winapp adds to the build can quote a secret (as in
+        // project mode, a project's own targets print what they print under `dotnet build` too). A file-based
+        // app's assets live in an SDK-managed folder winapp doesn't inspect, so a user --no-restore build streams.
         var nativeTerminal = interactive && !options.NoRestore;
         if (nativeTerminal)
         {
