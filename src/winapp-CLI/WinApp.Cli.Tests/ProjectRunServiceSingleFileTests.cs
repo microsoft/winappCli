@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Spectre.Console.Testing;
 using WinApp.Cli.Models;
@@ -290,7 +291,136 @@ public class ProjectRunServiceSingleFileTests : IDisposable
 
     #endregion
 
+    #region Build output
+
+    private (ProjectRunService Service, FakeDotNetService DotNet, FileInfo SingleFile) NewOutputScenario(
+        LogLevel level, Func<string, Action<string>?, Action<string>?, int>? streaming = null)
+    {
+        var singleFile = WriteSingleFile();
+        var output = _tempDir.CreateSubdirectory("bin").CreateSubdirectory("debug");
+        File.WriteAllText(Path.Join(output.FullName, "counter.exe"), "exe");
+        var evaluated = "{\"Properties\": {\"TargetDir\": \"" + output.FullName.Replace("\\", "\\\\") +
+            "\", \"AssemblyName\": \"counter\", \"RuntimeIdentifier\": \"win-x64\", \"WindowsPackageType\": \"MSIX\", \"OutputType\": \"Exe\"}}";
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, evaluated, string.Empty),
+            RunDotnetArgumentListHandler = _ => (0, evaluated, string.Empty),
+            RunDotnetStreamingHandler = streaming,
+        };
+        var service = new ProjectRunService(
+            dotnet,
+            new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, dotnet),
+            new FakeCsWinRTMetadataShimService(),
+            _testConsole,
+            new LevelLogger<ProjectRunService>(level), new FakeMSBuildService())
+        {
+            NativeTerminalGateOverrideForTests = () => true,
+        };
+        return (service, dotnet, singleFile);
+    }
+
+    [TestMethod]
+    public async Task RealTerminal_RestoresThroughWinappThenBuildsWithTheNativeTerminalLogger()
+    {
+        // Restore output can quote an authenticated feed URL, so it runs through winapp's redaction; only
+        // the --no-restore build gets the console, so it looks like `dotnet build app.cs`.
+        var (service, dotnet, singleFile) = NewOutputScenario(LogLevel.Information);
+        var options = new SingleFileRunOptions("Debug", "x64", ArchitectureIsExplicit: false, NoBuild: false, NoRestore: false, []);
+
+        await service.BuildAndResolveSingleFileAsync(singleFile, options, TestContext.CancellationToken);
+
+        Assert.IsTrue(dotnet.StreamingCalls.Any(a => a.StartsWith($"restore {singleFile.FullName}", StringComparison.Ordinal)),
+            "the restore must stream through winapp");
+        Assert.IsFalse(dotnet.InheritedCalls.Any(a => a.StartsWith("restore ", StringComparison.Ordinal)));
+        var build = dotnet.InheritedCalls.Single();
+        StringAssert.StartsWith(build, $"build {singleFile.FullName}");
+        StringAssert.Contains(build, "--no-restore", "only a build that can't restore may inherit the console");
+    }
+
+    [TestMethod]
+    public async Task RealTerminal_RestoreQuotedACredential_BuildStreamsThroughRedaction()
+    {
+        // The build replays restore warnings, so a restore that needed redaction keeps the build redacted too.
+        var (service, dotnet, singleFile) = NewOutputScenario(LogLevel.Information, (_, onOut, _) =>
+        {
+            onOut?.Invoke("counter.cs : warning NU1801: Unable to load https://feed.example/v3/index.json?sig=SF_REPLAYED");
+            return 0;
+        });
+        var options = new SingleFileRunOptions("Debug", "x64", ArchitectureIsExplicit: false, NoBuild: false, NoRestore: false, []);
+
+        await service.BuildAndResolveSingleFileAsync(singleFile, options, TestContext.CancellationToken);
+
+        Assert.IsEmpty(dotnet.InheritedCalls);
+        var build = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal) && !a.Contains("--getProperty", StringComparison.Ordinal));
+        StringAssert.Contains(build, "--no-restore");
+        StringAssert.Contains(build, "-tl:off");
+        Assert.IsFalse(_testConsole.Output.Contains("SF_REPLAYED", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task RealTerminal_UserNoRestore_BuildStreamsThroughRedaction()
+    {
+        // winapp can't see the earlier restore whose warnings a --no-restore build replays, so it streams.
+        var (service, dotnet, singleFile) = NewOutputScenario(LogLevel.Information, (_, onOut, _) =>
+        {
+            onOut?.Invoke("warning NU1801: https://user:SF_PASSWORD@feed.example/v3/index.json");
+            return 0;
+        });
+        var options = new SingleFileRunOptions("Debug", "x64", ArchitectureIsExplicit: false, NoBuild: false, NoRestore: true, []);
+
+        await service.BuildAndResolveSingleFileAsync(singleFile, options, TestContext.CancellationToken);
+
+        Assert.IsEmpty(dotnet.InheritedCalls);
+        Assert.IsFalse(dotnet.StreamingCalls.Any(a => a.StartsWith("restore ", StringComparison.Ordinal)));
+        Assert.IsFalse(_testConsole.Output.Contains("SF_PASSWORD", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // redirects the process-wide Console.Error
+    public async Task Json_RedactsBuildOutputOnStderr()
+    {
+        var (service, _, singleFile) = NewOutputScenario(LogLevel.Information, (_, onOut, _) =>
+        {
+            onOut?.Invoke("error NU1301: https://feed.example/v3/index.json?sig=SF_JSON_SECRET");
+            return 0;
+        });
+        var options = new SingleFileRunOptions("Debug", "x64", ArchitectureIsExplicit: false, NoBuild: false, NoRestore: false, [], Json: true);
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        try
+        {
+            await service.BuildAndResolveSingleFileAsync(singleFile, options, TestContext.CancellationToken);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        StringAssert.Contains(stderr.ToString(), "?<redacted>");
+        Assert.IsFalse(stderr.ToString().Contains("SF_JSON_SECRET", StringComparison.Ordinal));
+    }
+
+    #endregion
+
     #region Argument construction
+
+    [TestMethod]
+    public void RestoreArguments_MirrorTheBuildGraph()
+    {
+        // `dotnet restore -r` only adds the RID to RuntimeIdentifiers, so RuntimeIdentifier is set as well, as
+        // `dotnet build -r` would, for the --no-restore build to find its assets.
+        var singleFile = WriteSingleFile();
+
+        var args = ProjectRunService.BuildSingleFileRestoreArguments(
+            singleFile, Options(configuration: "Release", injectedRid: "win-x64", properties: ["Foo=Bar", "RuntimeIdentifier=win-arm64"]));
+
+        StringAssert.StartsWith(args, $"restore {singleFile.FullName}");
+        StringAssert.Contains(args, "-r win-x64 -p:RuntimeIdentifier=win-x64");
+        StringAssert.Contains(args, "-p:Configuration=Release");
+        StringAssert.Contains(args, "-p:Foo=Bar");
+        Assert.IsFalse(args.Contains("win-arm64", StringComparison.Ordinal));
+    }
 
     private static SingleFileRunOptions Options(
         string configuration = "Debug",

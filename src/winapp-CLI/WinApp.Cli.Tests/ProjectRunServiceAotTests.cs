@@ -623,6 +623,7 @@ public sealed class ProjectRunServiceAotTests
 
         Assert.AreEqual(17, outcome.ExitCode);
         StringAssert.Contains(_consoles.Last().Output, "Native linker failed");
+        StringAssert.Contains(_consoles.Last().Output, "Command: dotnet publish", "a failed publish shows the command to rerun it");
         Assert.IsFalse(File.Exists(dotnet.ResultOutputFiles.Single()));
     }
 
@@ -712,6 +713,40 @@ public sealed class ProjectRunServiceAotTests
         Assert.IsTrue(dotnet.ArgumentListInvocations[0].Contains("--getProperty:AppxPackageOutput"),
             "the argument-list overload must carry the native packaging publish");
         Assert.AreEqual(1, dotnet.ArgumentListEnvironmentInvocations.Count, "the AOT publish environment must be threaded (value is machine-dependent, presence is not)");
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // redirects the process-wide Console.Error
+    public async Task PublishNativeMsix_JsonFailure_PrintsTheExactCommandOnStderr()
+    {
+        var project = WriteProject();
+        var assets = WriteFile("obj\\project.assets.json", "{}");
+        var properties = PropertyJson(project, assets, publishAot: false, packaging: "MSIX", enableMsixTooling: true);
+        var packageDir = _tempDirectory.CreateSubdirectory("pkgout");
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, properties, string.Empty),
+            RunDotnetArgumentListHandler = _ => (1, string.Empty, "App.csproj : error MSB4018: packaging failed"),
+        };
+        var service = NewService(dotnet);
+        var preparation = await service.PreparePackageAsync(project, Options() with { Json = true }, CancellationToken.None);
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        Console.SetError(stderr);
+        NativeMsixPublishOutcome outcome;
+        try
+        {
+            outcome = await service.PublishNativeMsixAsync(project, preparation, packageDir, CancellationToken.None);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+
+        Assert.AreEqual(1, outcome.ExitCode);
+        StringAssert.Contains(stderr.ToString(), "error MSB4018");
+        var command = stderr.ToString().Split('\n').Single(line => line.StartsWith("Command: dotnet ", StringComparison.Ordinal));
+        StringAssert.Contains(command, "--getProperty:AppxPackageOutput");
     }
 
     private static FakeDotNetService SuccessfulDotnet(string properties) =>

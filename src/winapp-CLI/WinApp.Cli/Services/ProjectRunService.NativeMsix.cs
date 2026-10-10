@@ -28,13 +28,13 @@ internal sealed partial class ProjectRunService
         var display = RedactSecretsForDisplay(argString);
 
         // --getProperty suppresses MSBuild's normal console output, so print the status up front (the SDK's
-        // native packaging can take a while, especially with Native AOT codegen) and keep the invocation
-        // discoverable at debug.
-        if (!options.Json && logger.IsEnabled(LogLevel.Information))
+        // native packaging can take a while, especially with Native AOT codegen). The invocation is shown
+        // under --verbose and when packaging fails.
+        var showStatus = !options.Json && logger.IsEnabled(LogLevel.Information);
+        if (showStatus)
         {
             ansiConsole.MarkupLineInterpolated(
                 $"{UiSymbols.Package} Packaging {csproj.Name} ({options.Configuration} | {options.Architecture})...");
-            ansiConsole.MarkupLineInterpolated($"[dim]   dotnet {Markup.Escape(display)}[/]");
         }
         logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, display);
 
@@ -53,6 +53,14 @@ internal sealed partial class ProjectRunService
             foreach (var line in SplitDiagnosticLines(stderr).Concat(SplitDiagnosticLines(stdout)))
             {
                 Console.Error.WriteLine(NugetErrorMessage.Redact(line));
+            }
+            if (showStatus && !logger.IsEnabled(LogLevel.Debug))
+            {
+                PrintFailedCommand($"dotnet {display}");
+            }
+            else if (options.Json)
+            {
+                Console.Error.WriteLine($"Command: dotnet {display}");
             }
             logger.LogError(
                 "{UISymbol} Native MSIX packaging failed for {Project} (exit code {ExitCode}).",

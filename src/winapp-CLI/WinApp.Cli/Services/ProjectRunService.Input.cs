@@ -529,19 +529,34 @@ internal sealed partial class ProjectRunService
         ManagedProjectExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// What a solution build must restore besides the target.
+    /// </summary>
+    /// <param name="ManagedSiblings">Managed projects on disk, excluding the target, in solution order.</param>
+    /// <param name="ManagedSiblingEntries">
+    /// The same projects as the solution spells them, which a solution filter must repeat verbatim.
+    /// </param>
+    /// <param name="MissingProjects">Listed projects that aren't on disk, as the solution spells them.</param>
+    /// <param name="CanUseSolutionFilter">
+    /// Whether MSBuild can read the solution without opening entries winapp didn't vet. MSBuild opens every
+    /// <c>.etp</c> entry a solution lists, and the files it references, even through a solution filter, and
+    /// it decodes <c>%XX</c> escapes in entries; either can lead it to a share.
+    /// </param>
+    internal sealed record SolutionRestorePlan(
+        IReadOnlyList<FileInfo> ManagedSiblings,
+        IReadOnlyList<string> ManagedSiblingEntries,
+        IReadOnlyList<string> MissingProjects,
+        bool CanUseSolutionFilter = true);
+
+    /// <summary>
     /// Computes the restore plan for a solution build. VS (and <c>dotnet build &lt;sln&gt;</c>) restore the
     /// <em>whole solution</em> before building — including build-dependency projects that aren't
     /// <c>ProjectReference</c>s of the target — whereas <c>winapp run</c> restores only the target, so those
     /// siblings lack a <c>project.assets.json</c> and the build fails with <c>NETSDK1004</c>. Enumerates the
-    /// solution's listed projects (pure text parse — no shell-out, no <c>File.Exists</c> gating) and returns
-    /// the managed siblings to restore, excluding the target.
-    /// <para>
-    /// <paramref name="AllManaged"/> is true when every listed project is a restorable managed type. When
-    /// false (a native <c>.vcxproj</c>/<c>.wapproj</c>/<c>.shproj</c> is present, which <c>dotnet restore
-    /// &lt;sln&gt;</c> can't handle VS-less), the caller restores managed siblings individually.
-    /// </para>
+    /// solution's listed projects from its text (no shell-out) and returns the managed siblings on disk to
+    /// restore, excluding the target, plus the listed projects that are missing (for example, in an
+    /// uninitialized git submodule). Rooted and reparse-redirected entries are left out entirely.
     /// </summary>
-    internal static (bool AllManaged, List<FileInfo> ManagedSiblings) ComputeSolutionRestorePlan(FileInfo solution, FileInfo target)
+    internal static SolutionRestorePlan ComputeSolutionRestorePlan(FileInfo solution, FileInfo target)
     {
         string text;
         try
@@ -550,28 +565,48 @@ internal sealed partial class ProjectRunService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return (true, []);
+            return new SolutionRestorePlan([], [], []);
         }
 
         var solutionDir = solution.Directory?.FullName ?? Directory.GetCurrentDirectory();
-        var projectPaths = (string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
-                ? ExtractSlnxAllProjectPaths(text)
-                : ExtractSlnAllProjectPaths(text))
-            // Drop classic-.sln solution-folder entries (their "path" is the folder name, no ...proj extension).
-            .Where(p => p.EndsWith("proj", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var entries = string.Equals(solution.Extension, ".slnx", StringComparison.OrdinalIgnoreCase)
+            ? ExtractSlnxAllProjectPaths(text)
+            : ExtractSlnAllProjectPaths(text);
 
-        var allManaged = projectPaths.All(IsManagedProjectPath);
+        // Drop classic-.sln solution-folder entries (their "path" is the folder name, no ...proj extension).
+        var projectPaths = entries.Where(p => p.EndsWith("proj", StringComparison.OrdinalIgnoreCase)).ToList();
 
-        var resolvedSiblings = projectPaths
-            .Where(IsManagedProjectPath)
-            .Select(relative => TryResolveSolutionRelativePath(solutionDir, relative))
-            .Where(full => full is not null && !string.Equals(full, target.FullName, StringComparison.OrdinalIgnoreCase))
-            .Select(full => full!);
+        var siblings = new List<FileInfo>();
+        var siblingEntries = new List<string>();
+        var missing = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var relative in projectPaths)
+        {
+            // TryResolve rejects rooted and reparse-redirected entries, so File.Exists below never probes a share.
+            var full = TryResolveSolutionRelativePath(solutionDir, relative);
+            if (full is null || !seen.Add(full))
+            {
+                continue;
+            }
+            if (!File.Exists(full))
+            {
+                missing.Add(relative);
+                continue;
+            }
 
-        var siblings = DistinctProjectFiles(resolvedSiblings);
+            if (IsManagedProjectPath(relative) && !string.Equals(full, target.FullName, StringComparison.OrdinalIgnoreCase))
+            {
+                siblings.Add(new FileInfo(full));
+                siblingEntries.Add(relative);
+            }
+        }
 
-        return (allManaged, siblings);
+        // Check the raw text and the parsed entries (a .slnx path can be spelled with XML character references).
+        // MSBuild also decodes %XX escapes in an entry, so the file it opens may not be the one vetted above.
+        var canUseSolutionFilter = !text.Contains(".etp", StringComparison.OrdinalIgnoreCase)
+            && !entries.Any(entry => entry.Contains(".etp", StringComparison.OrdinalIgnoreCase) || entry.Contains('%'));
+
+        return new SolutionRestorePlan(siblings, siblingEntries, missing, canUseSolutionFilter);
     }
 
     /// <summary>
