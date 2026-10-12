@@ -542,5 +542,8 @@ public class WinUiTemplateCatalogTests
 
         var (foundPrefixVersion, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 9, "0.0.6");
         Assert.IsFalse(foundPrefixVersion, "A version that is only a prefix of the mounted one must not match.");
+
+        var (foundEquivalentVersion, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 9, "0.0.6.0-alpha");
+        Assert.IsTrue(foundEquivalentVersion, "A NuGet-equivalent spelling of the mounted version must match.");
     }
 }

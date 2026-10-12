@@ -662,7 +662,8 @@ internal static class WinUiTemplateCatalog
 
     /// <summary>
     /// True when the template's mount point is the nupkg of <paramref name="packageId"/> (and, when
-    /// <paramref name="packVersion"/> is given, of exactly that version).
+    /// <paramref name="packVersion"/> is given, of a NuGet-equivalent version, so <c>0.0.6.0-alpha</c>
+    /// matches a mounted <c>0.0.6-alpha</c>).
     /// </summary>
     private static bool TemplateBelongsToPackage(JsonElement template, string packageId, string? packVersion)
     {
@@ -674,8 +675,24 @@ internal static class WinUiTemplateCatalog
         }
 
         var mountPoint = mount.GetString() ?? string.Empty;
-        var expected = string.IsNullOrEmpty(packVersion) ? packageId : $"{packageId}.{packVersion}.nupkg";
-        return mountPoint.Contains(expected, StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(packVersion))
+        {
+            return mountPoint.Contains(packageId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // The mounted nupkg is named "<PackageId>.<version>.nupkg"; compare that version semantically.
+        var fileName = mountPoint[(mountPoint.LastIndexOfAny(['/', '\\']) + 1)..];
+        const string extension = ".nupkg";
+        var prefix = packageId + ".";
+        if (!fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || !fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
+            || fileName.Length <= prefix.Length + extension.Length)
+        {
+            return false;
+        }
+
+        var mountedVersion = fileName[prefix.Length..^extension.Length];
+        return NuGetVersionHelper.NuGetVersionsEquivalent(mountedVersion, packVersion);
     }
 
     /// <summary>True when <paramref name="shortName"/> is one of the template's short names.</summary>
