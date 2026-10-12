@@ -19,6 +19,7 @@ on:
           - cpp-app
           - cpp-winui-app
           - dotnet-app
+          - dotnet-file-app
           - electron
           - flutter-app
           - maui-app
