@@ -103,24 +103,12 @@ internal sealed partial class GalleryProvider : CachedProviderBase
     [GeneratedRegex(@"((?:ms-appx:///)?/?Assets/)(?:SampleMedia|Tiles)/([^""'\s<>)]+)")]
     private static partial Regex GalleryAssetRegex();
 
-    /// <summary>Extensions that make the placeholder an image rather than a generic asset. The
-    /// extension itself is always preserved: a <c>MediaPlayerElement</c> pointed at a .png is a
-    /// different kind of broken than one pointed at a file the user has yet to add.</summary>
-    private static readonly string[] ImageExtensions =
-        [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico"];
-
     /// <summary>Rewrite every Gallery-only asset path to an obvious placeholder. The result is
     /// equally absent from the user's app — that is the point: it fails visibly, where the
     /// upstream path fails as a blank control with nothing to explain it.</summary>
     private static string ReplaceGalleryAssets(string content) =>
         GalleryAssetRegex().Replace(content, static m =>
-        {
-            var extension = Path.GetExtension(m.Groups[2].Value);
-            var name = ImageExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase)
-                ? "YourImage"
-                : "YourAsset";
-            return m.Groups[1].Value + name + extension;
-        });
+            ControlSnippetText.AssetPlaceholder(m.Groups[1].Value, m.Groups[2].Value));
 
     /// <summary>
     /// Make one index scenario pasteable.
@@ -137,8 +125,8 @@ internal sealed partial class GalleryProvider : CachedProviderBase
     /// that resolve only against Gallery's own assembly and package. The sample still teaches
     /// exactly what upstream wrote it to teach.</para>
     ///
-    /// <para><see cref="ToolkitFetcher"/> runs the same normalization over its own source;
-    /// this is Gallery's half of it.</para>
+    /// <para><see cref="ToolkitProvider.NormalizeForPaste"/> runs the same normalization over
+    /// its own source; this is Gallery's half of it.</para>
     ///
     /// <para>Internal for direct testing: the corpus guards in <c>EmbeddedSnapshotTests</c>
     /// only prove the baked data is clean, which passes vacuously if upstream stops shipping

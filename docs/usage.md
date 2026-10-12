@@ -1864,6 +1864,16 @@ and capture-readiness failures.
 
 Search **WinUI** controls and samples for a working code example. WinUI-only: the corpus is the [WinUI 3 Gallery](https://github.com/microsoft/WinUI-Gallery) and the [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows) (plus a few curated core patterns) — it does **not** cover WPF, WinForms, or other UI frameworks. A third source, the [microsoft-ui-reactor ReactorGallery](https://github.com/microsoft/microsoft-ui-reactor), is **opt-in**: it is excluded from a normal search and only searched when you pass `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app, so reach for it only when building a Reactor/MVU project).
 
+Not everything the Toolkit contributes is a control. Searching `--source toolkit` also reaches its helpers, converters, behaviors, and extensions. Converters, behaviors, and triggers are grouped under an umbrella entry — `Converters`, `Behaviors`, `Header Behaviors`, `Triggers` — whose individual samples are named for the specific type. Helpers and extensions are not grouped: each is a top-level entry under its own name, such as `NetworkHelper` or `TextBoxExtensions`. Either way, search by the type name, the group name, or a plain description:
+
+```bash
+winapp find-ui "FileSizeToFriendlyStringConverter" --source toolkit   # the specific type
+winapp find-ui "converters" --source toolkit                          # the whole group
+winapp find-ui "convert bool to visibility" --source toolkit          # described in words
+```
+
+These samples are indexed by the words in their type names, so a plain description finds one when it shares those words — `convert bool to visibility` reaches `VisibilityToBoolConverter` — but not when it shares none, so `check internet connection` misses `NetworkHelper`. If a description comes back empty, retry with the type name or the group name, or use `--list` to browse the group.
+
 ```bash
 winapp find-ui "<query>" [options]
 ```
@@ -1891,6 +1901,9 @@ winapp find-ui "tabbed layout"
 
 # Restrict to the Windows Community Toolkit
 winapp find-ui "settings card" --source toolkit
+
+# The Toolkit also carries helpers, converters, and behaviors, not just controls
+winapp find-ui "converters" --source toolkit
 
 # Restrict to Reactor (opt-in; C#-only declarative WinUI — Reactor projects only)
 winapp find-ui "flex layout" --source reactor
