@@ -267,6 +267,36 @@ public class WindowsSandboxSetupTests
     }
 
     [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task DescribeHost_PendingRestart_IsTheOnlyFailureLikeRun(bool featurePresent, bool packageRegistered)
+    {
+        var setup = new WindowsSandboxSetup(new FixedProbe(Facts() with
+        {
+            FeaturePayloadPresent = featurePresent,
+            PackageRegistered = packageRegistered,
+            PackageStatus = packageRegistered ? "PackageOffline" : null,
+            RestartPending = true,
+        }))
+        { SupportsSandboxCli = () => true };
+
+        var host = await setup.DescribeHostAsync(TestContext.CancellationToken);
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            setup.EnsureReadyAsync(TestContext.CancellationToken));
+
+        var failed = host.Checks.Where(c => c.Status == TargetHostCheckStatus.Failed).ToArray();
+        Assert.HasCount(1, failed);
+        Assert.AreEqual("restartPending", failed[0].Name);
+        Assert.AreEqual(error.Error.UserAction, failed[0].Fix);
+        foreach (var name in new[] { "sandboxFeature", "sandboxClient", "wsb" })
+        {
+            Assert.AreEqual(TargetHostCheckStatus.NotChecked, Check(host, name).Status, name);
+            Assert.AreEqual("Restart Windows first.", Check(host, name).Detail, name);
+        }
+    }
+
+    [TestMethod]
     public async Task DescribeHost_OldWindows_FailsOsVersion()
     {
         var host = await new WindowsSandboxSetup(new FixedProbe(Facts() with { RestartPending = true }))

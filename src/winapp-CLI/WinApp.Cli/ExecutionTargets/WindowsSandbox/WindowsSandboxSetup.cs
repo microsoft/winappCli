@@ -98,6 +98,24 @@ internal sealed class WindowsSandboxSetup(IWindowsSandboxHostProbe probe) : IWin
             };
         }
 
+        // Match run: a pending restart comes before feature and client setup, which may finish after it.
+        if (facts.State == WindowsSandboxSetupState.RestartRequired)
+        {
+            const string waitingOnRestart = "Restart Windows first.";
+            return new TargetHostReadiness
+            {
+                Ready = false,
+                Checks =
+                [
+                    osCheck,
+                    NotChecked("sandboxFeature", waitingOnRestart),
+                    NotChecked("sandboxClient", waitingOnRestart),
+                    NotChecked("wsb", waitingOnRestart),
+                    RestartCheck(facts.RestartPending, ready),
+                ],
+            };
+        }
+
         TargetHostCheck featureCheck;
         if (facts.FeaturePayloadPresent)
         {
