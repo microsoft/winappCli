@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text.Json;
 using WinApp.Cli.Services.Performance;
 
@@ -84,9 +86,45 @@ public class PerfCaptureCompletionTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ControlConnectionAcceptsOnlyTheUserSid(bool administratorOwner)
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        if (administratorOwner && !new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
+        {
+            Assert.Inconclusive("An elevated token is required to create an Administrators-owned pipe.");
+        }
+        var id = Guid.NewGuid().ToString("N");
+        var security = new PipeSecurity();
+        security.SetAccessRuleProtection(true, false);
+        security.SetOwner(administratorOwner
+            ? new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null)
+            : identity.User!);
+        security.AddAccessRule(new PipeAccessRule(identity.User!, PipeAccessRights.FullControl, AccessControlType.Allow));
+        using var server = NamedPipeServerStreamAcl.Create(PerfControlChannel.PipeName(id), PipeDirection.InOut, 1,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var connection = server.WaitForConnectionAsync(timeout.Token);
+        if (administratorOwner)
+        {
+            var error = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                PerfControlChannel.ConnectAsync(id, PipeDirection.InOut, timeout.Token));
+            Assert.Contains("not owned by the current user", error.Message);
+        }
+        else
+        {
+            using var client = await PerfControlChannel.ConnectAsync(id, PipeDirection.InOut, timeout.Token);
+            Assert.IsTrue(client.IsConnected);
+        }
+        await connection;
+    }
+
+    [TestMethod]
     public async Task MalformedControlFrameDoesNotTerminateWorker()
     {
         var directory = Directory.CreateTempSubdirectory("WinApp-Perf-Control-");
+        Task<int>? workerTask = null;
         try
         {
             var id = Guid.NewGuid().ToString("N");
@@ -103,12 +141,10 @@ public class PerfCaptureCompletionTests
                 SessionName = "WinApp-Perf-" + id,
             }.Save();
 
-            var workerTask = PerfCaptureWorker.RunAsync([PerfCaptureWorker.InternalVerb, registrationPath]);
-            using (var malformed = new NamedPipeClientStream(".", PerfControlChannel.PipeName(id),
-                PipeDirection.Out, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly))
+            workerTask = PerfCaptureWorker.RunAsync([PerfCaptureWorker.InternalVerb, registrationPath]);
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+            using (var malformed = await PerfControlChannel.ConnectAsync(id, PipeDirection.Out, timeout.Token))
             {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await malformed.ConnectAsync(timeout.Token);
                 await malformed.WriteAsync(BitConverter.GetBytes(5000), timeout.Token);
                 await malformed.FlushAsync(timeout.Token);
             }
@@ -122,7 +158,17 @@ public class PerfCaptureCompletionTests
         }
         finally
         {
-            directory.Delete(recursive: true);
+            try
+            {
+                if (workerTask is not null)
+                {
+                    await workerTask.WaitAsync(TimeSpan.FromSeconds(35));
+                }
+            }
+            finally
+            {
+                directory.Delete(recursive: true);
+            }
         }
     }
 

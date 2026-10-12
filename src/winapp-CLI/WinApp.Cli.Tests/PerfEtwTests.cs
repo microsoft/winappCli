@@ -230,11 +230,9 @@ public sealed class PerfEtwTests
             Assert.IsGreaterThan(0L, bound.ProcessResources.Samples[0].Values.PrivateBytes);
             await Task.Delay(1100);
 
-            using (var malformed = new NamedPipeClientStream(".", PerfControlChannel.PipeName(id),
-                PipeDirection.Out, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly))
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+            using (var malformed = await PerfControlChannel.ConnectAsync(id, PipeDirection.Out, timeout.Token))
             {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await malformed.ConnectAsync(timeout.Token);
                 await malformed.WriteAsync(BitConverter.GetBytes(5000), timeout.Token);
                 await malformed.FlushAsync(timeout.Token);
             }

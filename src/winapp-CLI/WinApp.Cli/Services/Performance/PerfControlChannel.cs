@@ -3,6 +3,7 @@
 
 using System.Buffers.Binary;
 using System.IO.Pipes;
+using System.Security.Principal;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
@@ -11,6 +12,28 @@ namespace WinApp.Cli.Services.Performance;
 internal static class PerfControlChannel
 {
     public static string PipeName(string id) => "winapp-perf-" + id;
+
+    internal static async Task<NamedPipeClientStream> ConnectAsync(string id, PipeDirection direction,
+        CancellationToken token)
+    {
+        var pipe = new NamedPipeClientStream(".", PipeName(id), direction, PipeOptions.Asynchronous);
+        try
+        {
+            await pipe.ConnectAsync(token);
+            using var identity = WindowsIdentity.GetCurrent();
+            // CurrentUserOnly compares against the token owner, which can be Administrators when elevated.
+            if (pipe.GetAccessControl().GetOwner(typeof(SecurityIdentifier)) != identity.User)
+            {
+                throw new UnauthorizedAccessException("The performance control pipe is not owned by the current user.");
+            }
+            return pipe;
+        }
+        catch
+        {
+            pipe.Dispose();
+            throw;
+        }
+    }
 
     public static async Task<T> ReadAsync<T>(Stream stream, JsonTypeInfo<T> type, int limit, CancellationToken token)
     {
@@ -46,9 +69,7 @@ internal static class PerfControlChannel
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(request.Operation == "bind" ? 30 : 8));
-        using var pipe = new NamedPipeClientStream(".", PipeName(registration.Id), PipeDirection.InOut,
-            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-        await pipe.ConnectAsync(timeout.Token);
+        using var pipe = await ConnectAsync(registration.Id, PipeDirection.InOut, timeout.Token);
         await WriteAsync(pipe, request, PerfJsonContext.Default.PerfControlRequest, timeout.Token);
         var response = await ReadAsync(pipe, PerfJsonContext.Default.PerfControlResponse, 262144, timeout.Token);
         if (response.Error is { } error)
