@@ -43,6 +43,8 @@ Because `app.cs` references `Microsoft.Windows.SDK.BuildTools.WinApp`, plain `do
 dotnet run app.cs
 ```
 
+If you already ran `winapp run app.cs`, `dotnet run` warns that it is replacing an existing registration installed from a different location. This is expected: both commands register the same app, but build it into different output folders. You can ignore the warning.
+
 ## Customize It
 
 Every `#:property` that shapes the package is optional. For example, add capabilities or set a version:

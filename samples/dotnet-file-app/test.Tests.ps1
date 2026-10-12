@@ -14,6 +14,8 @@ Describe ".NET File-Based App Workflow" {
         $script:tempDir = $null
         $script:sampleDir = $PSScriptRoot
         $script:sampleApp = Join-Path $PSScriptRoot "app.cs"
+        # Only unregister the sample if this run registered it, so a developer's own registration survives skipped runs.
+        $script:sampleRegistered = $false
 
         if ($script:skip) { return }
 
@@ -26,7 +28,9 @@ Describe ".NET File-Based App Workflow" {
 
     AfterAll {
         # Registrations outlive the run, so remove them even when a test failed midway.
-        foreach ($app in @($script:scratchApp, $script:sampleApp)) {
+        $apps = @($script:scratchApp)
+        if ($script:sampleRegistered) { $apps += $script:sampleApp }
+        foreach ($app in $apps) {
             if ($app -and (Test-Path $app)) {
                 try { Invoke-WinappCommand -Arguments "unregister `"$app`"" | Out-Null } catch { }
             }
@@ -79,6 +83,7 @@ Describe ".NET File-Based App Workflow" {
         It "Should run the sample via winapp run" -Skip:$script:skip {
             Push-Location $script:sampleDir
             try {
+                $script:sampleRegistered = $true
                 $output = Invoke-WinappCommand -Arguments "run app.cs"
                 ($output -join "`n") | Should -Match 'Package Family Name: winapp\.samples\.fileapp_'
             } finally { Pop-Location }
@@ -88,12 +93,14 @@ Describe ".NET File-Based App Workflow" {
             Push-Location $script:sampleDir
             try {
                 Invoke-WinappCommand -Arguments "unregister app.cs"
+                $script:sampleRegistered = $false
             } finally { Pop-Location }
         }
 
         It "Should run the sample via dotnet run" -Skip:$script:skip {
             Push-Location $script:sampleDir
             try {
+                $script:sampleRegistered = $true
                 $output = & dotnet run app.cs
                 $LASTEXITCODE | Should -Be 0
                 ($output -join "`n") | Should -Match 'Package Family Name: winapp\.samples\.fileapp_'
