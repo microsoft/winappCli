@@ -136,6 +136,10 @@ internal class UiSearchCommand : Command, IShortDescription, IHelpExamples
                     var moreText = hasMore ? $" (showing first {maxResults})" : "";
                     logger.LogInformation("Found {Count} matches{MoreText}", matches.Length, moreText);
                 }
+                if (matches.Length == 0 && UiErrors.MinimizedWindowHint(uiTarget) is { } minimizedHint)
+                {
+                    logger.LogWarning("{Message}", minimizedHint);
+                }
                 return matches.Length > 0 ? 0 : 1;
             }
             catch (UiAmbiguousSelectorException ex)

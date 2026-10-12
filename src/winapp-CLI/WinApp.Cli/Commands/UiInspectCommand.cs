@@ -115,7 +115,7 @@ internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamp
                         parseResult, selectorParser, uiAutomation, uiTarget, selector, searchOtherWindows: false, cancellationToken);
                     if (exact is null)
                     {
-                        UiErrors.ElementNotFound(logger, selector, json);
+                        UiErrors.ElementNotFound(logger, selector, json, target: uiTarget);
                         return 1;
                     }
                     selector = exact.Selector!;
@@ -321,6 +321,11 @@ internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamp
                 }
 
                 logger.LogDebug("Inspect returned {Count} elements at depth {Depth}", elements.Length, depth);
+                // A minimized frame-hosted app shows only its root element; Win32 apps keep their full tree.
+                if (elements.Count(e => e.Type != "---") <= 1 && UiErrors.MinimizedWindowHint(uiTarget) is { } minimizedHint)
+                {
+                    logger.LogWarning("{Message}", minimizedHint);
+                }
                 return 0;
             }
             catch (UiAmbiguousSelectorException ex)

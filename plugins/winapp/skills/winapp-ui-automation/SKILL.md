@@ -361,7 +361,10 @@ for units and state meanings, and `references/ui-json-envelope.md` for the JSON 
 ### Set values
 To prepare a control for keyboard input, use `winapp ui focus <selector> -a <app>`
 (keep `--on sandbox` when working in Sandbox). It activates the control's window
-and verifies both foreground and keyboard focus before success. Do not use a
+and verifies both foreground and keyboard focus before success. It restores a
+minimized window first. If a command reports the target window is minimized (some
+apps, such as Calculator, hide their UI until restored), run
+`winapp ui focus -a <app>` (no selector) to restore and activate it, then retry. Do not use a
 screenshot as a focus workaround. If activation is refused, inspect for a blocking
 dialog and ask the user to activate the intended window; do not retry in a loop
 or switch to the local desktop. See the [focus reference](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#focus)

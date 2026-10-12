@@ -122,7 +122,7 @@ internal class UiInvokeCommand : Command, IShortDescription, IHelpExamples
 
                 if (element is null)
                 {
-                    UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error);
+                    UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error, target: uiTarget);
                     return 1;
                 }
 
@@ -152,7 +152,7 @@ internal class UiInvokeCommand : Command, IShortDescription, IHelpExamples
                         element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
                         if (element is null)
                         {
-                            UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error);
+                            UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error, target: uiTarget);
                             return 1;
                         }
                     }
