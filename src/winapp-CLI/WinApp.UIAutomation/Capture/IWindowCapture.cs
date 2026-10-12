@@ -11,6 +11,13 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 public interface IFrameGrabber : IDisposable
 {
     /// <summary>
+    /// The effective root capture backend: <c>wgc</c> or <c>printwindow</c>.
+    /// Including menus or tooltips rendered by another backend does not change this value.
+    /// Defaults to <c>wgc</c> for existing graphics-capture implementations.
+    /// </summary>
+    string RootCaptureBackend => "wgc";
+
+    /// <summary>
     /// <see langword="true"/> once the capture session has ended — typically because the captured
     /// window closed. Callers should stop sampling and finish up.
     /// </summary>
@@ -28,6 +35,37 @@ public interface IFrameGrabber : IDisposable
     /// <paramref name="timeout"/> elapses first.
     /// </summary>
     Task<bool> WaitForFirstFrameAsync(TimeSpan timeout, CancellationToken ct);
+
+    /// <summary>
+    /// Gets an available BGRA frame, waiting within <paramref name="timeout"/> when necessary.
+    /// May return a cached frame; does not require a new arrival. Returns <see langword="null"/>
+    /// on timeout. The returned frame remains usable independently of subsequent reads.
+    /// </summary>
+    async Task<(byte[] Pixels, int Width, int Height, long Version)?> GetFrameAsync(
+        TimeSpan timeout, CancellationToken ct)
+    {
+        var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
+        ct.ThrowIfCancellationRequested();
+        if (!await WaitForFirstFrameAsync(timeout, ct).ConfigureAwait(false))
+        {
+            return null;
+        }
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var frame = TryGetLatest();
+            if (frame is not null)
+            {
+                return frame;
+            }
+            var remaining = deadline - Environment.TickCount64;
+            if (remaining <= 0)
+            {
+                return null;
+            }
+            await Task.Delay((int)Math.Min(30, remaining), ct).ConfigureAwait(false);
+        }
+    }
 }
 
 /// <summary>

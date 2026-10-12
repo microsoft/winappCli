@@ -47,6 +47,8 @@ public class InteractiveDesktopRealAppTests : IDisposable
     private Stopwatch? _graceWatch;
     private readonly List<Process> _children = [];
 
+    public TestContext TestContext { get; set; } = null!;
+
     [TestInitialize]
     public void Setup()
     {
@@ -134,7 +136,8 @@ public class InteractiveDesktopRealAppTests : IDisposable
     // ------------------------------------------------------------------ real winapp.exe agents
 
     private sealed record AgentRun(
-        Process Process, Task<int> Completion, Task<string> Output, Task<string> StandardOutput);
+        Process Process, Task<int> Completion, Task<string> Output, Task<string> StandardOutput,
+        StringBuilder OutputSnapshot, StringBuilder ErrorSnapshot);
 
     /// <summary>
     /// Launches a real <c>winapp.exe</c> as <paramref name="ownerId"/> against the fixture window.
@@ -167,20 +170,48 @@ public class InteractiveDesktopRealAppTests : IDisposable
         var process = Process.Start(startInfo)!;
         _children.Add(process);
 
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        async Task<string> ReadErrorAsync()
+        var outputSnapshot = new StringBuilder();
+        var errorSnapshot = new StringBuilder();
+        async Task<string> ReadPipeAsync(
+            StreamReader reader, StringBuilder snapshot, Action<string>? onLine = null)
         {
-            var error = new StringBuilder();
-            while (await process.StandardError.ReadLineAsync() is { } line)
+            var buffer = new char[4096];
+            var pendingLine = new StringBuilder();
+            int count;
+            while ((count = await reader.ReadAsync(buffer.AsMemory())) > 0)
             {
-                error.AppendLine(line);
-                onErrorLine?.Invoke(line);
+                lock (snapshot)
+                {
+                    snapshot.Append(buffer, 0, count);
+                }
+
+                if (onLine is not null)
+                {
+                    for (var i = 0; i < count; i++)
+                    {
+                        if (buffer[i] == '\n')
+                        {
+                            onLine(pendingLine.ToString().TrimEnd('\r'));
+                            pendingLine.Clear();
+                        }
+                        else
+                        {
+                            pendingLine.Append(buffer[i]);
+                        }
+                    }
+                }
             }
 
-            return error.ToString();
+            if (onLine is not null && pendingLine.Length > 0)
+            {
+                onLine(pendingLine.ToString());
+            }
+
+            return Snapshot(snapshot);
         }
 
-        var stderr = ReadErrorAsync();
+        var stdout = ReadPipeAsync(process.StandardOutput, outputSnapshot);
+        var stderr = ReadPipeAsync(process.StandardError, errorSnapshot, onErrorLine);
         var completion = Task.Run(async () =>
         {
             await process.WaitForExitAsync();
@@ -188,7 +219,15 @@ public class InteractiveDesktopRealAppTests : IDisposable
         });
         var output = Task.Run(async () => await stdout + await stderr);
 
-        return new AgentRun(process, completion, output, stdout);
+        return new AgentRun(process, completion, output, stdout, outputSnapshot, errorSnapshot);
+    }
+
+    private static string Snapshot(StringBuilder buffer)
+    {
+        lock (buffer)
+        {
+            return buffer.ToString();
+        }
     }
 
     private async Task<(int ExitCode, string Output)> RunAgentAsync(string ownerId, params string[] args)
@@ -238,18 +277,22 @@ public class InteractiveDesktopRealAppTests : IDisposable
     /// surface only as an opaque "state never reached" timeout that says nothing about the real cause.
     /// </remarks>
     private async Task WaitForAgentStateAsync(
-        AgentRun agent, Func<InteractiveDesktopState, bool> predicate, string because, int timeoutMs = 20_000)
+        AgentRun agent, Func<InteractiveDesktopState, bool> predicate, string because, int timeoutMs = 20_000,
+        Func<bool>? recordingStarted = null)
     {
         var deadline = Stopwatch.StartNew();
+        InteractiveDesktopState? latestState = null;
         while (deadline.ElapsedMilliseconds < timeoutMs)
         {
-            if (predicate(ReadState()))
+            latestState = ReadState();
+            if (predicate(latestState))
             {
                 return;
             }
 
             if (agent.Process.HasExited)
             {
+                WriteAgentDiagnostics(agent, latestState, recordingStarted);
                 Assert.Fail(
                     $"{because}, but the agent exited early with code {agent.Process.ExitCode}. Output: {await agent.Output}");
             }
@@ -257,7 +300,24 @@ public class InteractiveDesktopRealAppTests : IDisposable
             await Task.Delay(50);
         }
 
+        WriteAgentDiagnostics(agent, latestState, recordingStarted);
         Assert.Fail($"{because}, but the state was never reached within {timeoutMs} ms.");
+    }
+
+    private void WriteAgentDiagnostics(
+        AgentRun agent, InteractiveDesktopState? latestState, Func<bool>? recordingStarted)
+    {
+        var hasExited = agent.Process.HasExited;
+        TestContext.WriteLine("Agent readiness failure diagnostics: " + JsonSerializer.Serialize(new
+        {
+            Pid = agent.Process.Id,
+            HasExited = hasExited,
+            ExitCode = hasExited ? agent.Process.ExitCode : (int?)null,
+            RecordingStarted = recordingStarted?.Invoke(),
+            LatestPersistedState = latestState,
+            StandardOutput = Snapshot(agent.OutputSnapshot),
+            StandardError = Snapshot(agent.ErrorSnapshot),
+        }));
     }
 
     /// <summary>
@@ -448,7 +508,8 @@ public class InteractiveDesktopRealAppTests : IDisposable
                 && s.Owner?.Key == KeyOf(OwnerA) && s.OwnerCommands.Any(
                     c => c.Pid == recorder.Process.Id
                         && c.Mode == UiTurnMode.TurnShared && c.Status == UiCommandStatus.Running),
-            "the recording must commit its first frame while holding agent A's shared turn");
+            "the recording must commit its first frame while holding agent A's shared turn",
+            recordingStarted: () => recordingStarted.Task.IsCompletedSuccessfully);
 
         // A different owner's mutation must not interleave with the recording.
         var agentB = StartAgent(OwnerB, WithTarget("ui", "click", "btnInvoke"));

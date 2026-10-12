@@ -5,12 +5,10 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 using Microsoft.Extensions.Logging;
 using Windows.Graphics.Capture;
-using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using D3D = Windows.Win32.Graphics.Direct3D11;
-using D3DCommon = Windows.Win32.Graphics.Direct3D;
 using DxgiCommon = Windows.Win32.Graphics.Dxgi.Common;
 using WinRT;
 
@@ -49,92 +47,39 @@ internal static partial class WgcCapture
     /// </remarks>
     public static async Task<(byte[] Pixels, int Width, int Height)> CaptureAsync(HWND hwnd, ILogger logger, CancellationToken ct)
     {
-        if (!s_isSupported())
+        using var grabber = s_startGrabber(hwnd, logger, 0);
+        var deadline = Environment.TickCount64 + 2000;
+        (byte[] Pixels, int Width, int Height, long Version)? frame = null;
+        var framesSeen = 0;
+        while (true)
         {
-            throw new PlatformNotSupportedException("Windows.Graphics.Capture is not supported on this system.");
-        }
-
-        PInvoke.D3D11CreateDevice(
-            pAdapter: null,
-            D3DCommon.D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_HARDWARE,
-            Software: default,
-            D3D.D3D11_CREATE_DEVICE_FLAG.D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-            pFeatureLevels: default,
-            SDKVersion: D3D11_SDK_VERSION,
-            out var device,
-            out _,
-            out var context).ThrowOnFailure();
-
-        try
-        {
-            var winrtDevice = CreateDirect3DDevice(device);
-            var item = CreateItemForWindow(hwnd);
-            using var pool = Direct3D11CaptureFramePool.CreateFreeThreaded(
-                winrtDevice,
-                DirectXPixelFormat.B8G8R8A8UIntNormalized,
-                numberOfBuffers: 2,
-                item.Size);
-            using var uiTarget = pool.CreateCaptureSession(item);
-            uiTarget.IsCursorCaptureEnabled = false;
-
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-
-            var framesSeen = 0;
-            var tcs = new TaskCompletionSource<Direct3D11CaptureFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
-            pool.FrameArrived += (sender, _) =>
+            ct.ThrowIfCancellationRequested();
+            var next = grabber.TryGetLatest();
+            if (next is null)
             {
-                Direct3D11CaptureFrame? frame = null;
-                try
-                {
-                    frame = sender.TryGetNextFrame();
-                    if (frame is null)
-                    {
-                        return;
-                    }
-
-                    if (!tcs.TrySetResult(frame))
-                    {
-                        frame.Dispose();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    frame?.Dispose();
-                    tcs.TrySetException(ex);
-                }
-            };
-
-            uiTarget.StartCapture();
-
-            while (true)
-            {
-                linkedCts.Token.ThrowIfCancellationRequested();
-                using var frame = await tcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
-                var result = CopyFrame(device, context, frame);
-                framesSeen++;
-                if (!IsBlankCapture(result.Pixels) || framesSeen >= 5)
-                {
-                    if (framesSeen > 1)
-                    {
-                        logger.LogDebug("WGC returned non-blank frame after {FrameCount} attempts", framesSeen);
-                    }
-
-                    return result;
-                }
-
-                logger.LogDebug("WGC returned blank frame; waiting for next frame");
-                await Task.Delay(50, linkedCts.Token).ConfigureAwait(false);
-                tcs = new TaskCompletionSource<Direct3D11CaptureFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+                next = await grabber.GetFrameAsync(
+                    TimeSpan.FromMilliseconds(Math.Max(0, deadline - Environment.TickCount64)), ct).ConfigureAwait(false);
             }
-        }
-        finally
-        {
-            // ID3D11Device and ID3D11DeviceContext are COM objects projected by CsWin32
-            // as IDisposable; release the underlying COM refs so repeated captures
-            // don't leak GPU/COM resources.
-            (context as IDisposable)?.Dispose();
-            (device as IDisposable)?.Dispose();
+            if (next is { } fresh && (frame is null || fresh.Version > frame.Value.Version))
+            {
+                frame = fresh;
+                framesSeen++;
+                if (!IsBlankCapture(fresh.Pixels))
+                {
+                    return (fresh.Pixels, fresh.Width, fresh.Height);
+                }
+                if (framesSeen >= 5)
+                {
+                    throw new InvalidOperationException("WGC returned five blank capture frames.");
+                }
+                logger.LogDebug("WGC returned blank frame; waiting for next frame");
+            }
+            var remaining = deadline - Environment.TickCount64;
+            if (remaining <= 0)
+            {
+                throw new TimeoutException("WGC did not produce fresh nonblank pixels within the capture deadline.");
+            }
+            await Task.Delay((int)Math.Min(50, remaining), ct).ConfigureAwait(false);
         }
     }
 
@@ -197,14 +142,15 @@ internal static partial class WgcCapture
             var interop = ComInterfaceMarshaller<IGraphicsCaptureItemInterop>.ConvertToManaged((void*)interopPtr)!;
             interopPtr = IntPtr.Zero;
 
-            interop.CreateForWindow(hwnd, in GraphicsCaptureItemGuid, out itemPtr).ThrowIfFailed("GraphicsCaptureItem.CreateForWindow");
+            CheckCreateForWindowResult(hwnd, interop.CreateForWindow(hwnd, in GraphicsCaptureItemGuid, out itemPtr));
 
             // FromAbi takes ownership of itemPtr.
             var item = MarshalInspectable<GraphicsCaptureItem>.FromAbi(itemPtr);
             itemPtr = IntPtr.Zero;
             return item;
         }
-        finally
+
+            finally
         {
             if (itemPtr != IntPtr.Zero)
             {
@@ -217,6 +163,18 @@ internal static partial class WgcCapture
             }
         }
     }
+
+    internal static void CheckCreateForWindowResult(HWND hwnd, int result)
+    {
+        if (result == unchecked((int)0x80070057))
+        {
+            throw new UnsupportedCaptureWindowException(hwnd);
+        }
+        result.ThrowIfFailed("GraphicsCaptureItem.CreateForWindow");
+    }
+
+    internal sealed class UnsupportedCaptureWindowException(HWND hwnd)
+        : COMException($"GraphicsCaptureItem.CreateForWindow rejected HWND {(nint)hwnd}.", unchecked((int)0x80070057));
 
     /// <remarks>
     /// Coverage ceiling (issue #630): GPU-to-CPU readback depends on live WGC/D3D frame resources.

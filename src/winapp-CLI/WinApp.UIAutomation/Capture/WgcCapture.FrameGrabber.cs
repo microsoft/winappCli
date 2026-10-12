@@ -26,7 +26,10 @@ internal static partial class WgcCapture
     /// seam. This method itself performs D3D11CreateDevice and WGC FramePool/session creation for a
     /// real HWND, which requires native GPU/WinRT resources unavailable in deterministic headless runs.
     /// </remarks>
-    public static FrameGrabber StartGrabber(HWND hwnd, ILogger logger, int fps = 0)
+    public static IFrameGrabber StartGrabber(HWND hwnd, ILogger logger, int fps = 0)
+        => WindowCaptureSession.Start(hwnd, logger, fps);
+
+    internal static FrameGrabber StartSingleWindowGrabber(HWND hwnd, ILogger logger, int fps = 0)
     {
         if (!s_isSupported())
         {
@@ -86,22 +89,18 @@ internal static partial class WgcCapture
         private readonly GraphicsCaptureItem _item;
         private readonly ILogger _logger;
         private readonly Lock _callbackLock = new();
-        private readonly Lock _lock = new();
         private byte[]? _latestPixels;
         private int _latestWidth;
         private int _latestHeight;
         private long _version;
         private bool _disposed;
+        private Direct3D11CaptureFrame? _pendingFrame;
         // Track the pool's current creation size so we can detect window resizes.
         private global::Windows.Graphics.SizeInt32 _poolSize;
         // Set to true when the captured item closes mid-recording.
         private volatile bool _isClosed;
 
-        // Throttle: track when we last did the expensive GPU→CPU copy so arrivals faster than
-        // the target FPS are discarded without copying. A residual TOCTOU race means at most
-        // ~2 copies can occur in the same sampling interval (two threads both pass the check
-        // before either updates _lastSampleMs), but this is harmless — the second copy simply
-        // overwrites the cached frame with an identical (or slightly newer) one.
+        // Retain the latest throttled frame: static windows may not produce another arrival.
         private long _lastSampleMs;
         private readonly int _minIntervalMs; // 0 = no throttle
 
@@ -196,6 +195,8 @@ internal static partial class WgcCapture
                                 {
                                     frame.Dispose();
                                     frame = null;
+                                    _pendingFrame?.Dispose();
+                                    _pendingFrame = null;
                                 },
                                 () =>
                                 {
@@ -211,27 +212,10 @@ internal static partial class WgcCapture
                         return; // Skip copying the first frame at the new size — wait for next arrival
                     }
 
-                    // Throttle BEFORE the expensive GPU→CPU readback: skip arrivals that are faster
-                    // than the target sampling interval. At 4K this can prevent gigabytes/sec of
-                    // unnecessary memory allocation and copy when the display refresh rate exceeds fps.
-                    if (_minIntervalMs > 0)
-                    {
-                        var nowMs = Environment.TickCount64;
-                        if (nowMs - Interlocked.Read(ref _lastSampleMs) < _minIntervalMs)
-                        {
-                            return; // too soon — discard without copying
-                        }
-                        Interlocked.Exchange(ref _lastSampleMs, nowMs);
-                    }
-
-                    var (pixels, width, height) = CopyFrame(_device, _context, frame);
-                    lock (_lock)
-                    {
-                        _latestPixels = pixels;
-                        _latestWidth = width;
-                        _latestHeight = height;
-                        _version++;
-                    }
+                    _pendingFrame?.Dispose();
+                    _pendingFrame = frame;
+                    frame = null;
+                    CopyPendingFrame();
                 }
                 catch (Exception ex)
                 {
@@ -241,6 +225,32 @@ internal static partial class WgcCapture
                 {
                     frame?.Dispose();
                 }
+            }
+        }
+
+        // Called only under _callbackLock, including readback from the sampling thread.
+        private void CopyPendingFrame()
+        {
+            if (_pendingFrame is null ||
+                (_minIntervalMs > 0 && Environment.TickCount64 - _lastSampleMs < _minIntervalMs))
+            {
+                return;
+            }
+
+            using var frame = _pendingFrame;
+            _pendingFrame = null;
+            try
+            {
+                _lastSampleMs = Environment.TickCount64;
+                var (pixels, width, height) = CopyFrame(_device, _context, frame);
+                _latestPixels = pixels;
+                _latestWidth = width;
+                _latestHeight = height;
+                _version++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "WGC frame copy failed during recording");
             }
         }
 
@@ -256,13 +266,17 @@ internal static partial class WgcCapture
 
         /// <summary>Returns the most recently captured frame, or <see langword="null"/> if none has arrived yet.</summary>
         /// <remarks>
-        /// Coverage ceiling (issue #630): the real cache is populated only by live WGC callbacks; the
+        /// Coverage ceiling (issue #630): the real cache requires frames from live WGC callbacks; the
         /// recorder paths that consume cached frames are covered with a deterministic fake grabber.
         /// </remarks>
         public (byte[] Pixels, int Width, int Height, long Version)? TryGetLatest()
         {
-            lock (_lock)
+            lock (_callbackLock)
             {
+                if (!_disposed)
+                {
+                    CopyPendingFrame();
+                }
                 if (_latestPixels is null)
                 {
                     return null;
@@ -309,6 +323,8 @@ internal static partial class WgcCapture
                 // handlers are removed, pool disposal cannot re-enter this callback path.
                 _pool.FrameArrived -= OnFrameArrived;
                 _item.Closed -= OnItemClosed;
+                _pendingFrame?.Dispose();
+                _pendingFrame = null;
                 _session.Dispose();
                 _pool.Dispose();
                 (_context as IDisposable)?.Dispose();

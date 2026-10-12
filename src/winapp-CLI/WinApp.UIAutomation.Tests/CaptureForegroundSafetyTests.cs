@@ -7,6 +7,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording;
 using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.TestSupport;
 using Windows.Win32.Foundation;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 
@@ -19,6 +21,143 @@ public class CaptureForegroundSafetyTests
     {
         ForegroundGuard.ResetNativeSeams();
         UiAutomationService.ResetNativeSeams();
+        WgcCapture.s_isSupported = global::Windows.Graphics.Capture.GraphicsCaptureSession.IsSupported;
+        WgcCapture.s_startGrabber = (hwnd, logger, fps) => WgcCapture.StartGrabber(hwnd, logger, fps);
+    }
+
+    [TestMethod]
+    public async Task ScreenshotAsync_MenuOpeningDuringFrameAcquisitionNeverFallsBackToRootOnlyCapture()
+    {
+        using var fixture = new UiaTestFixture();
+        var service = NewAutomationService();
+        var discoveries = 0;
+        WgcCapture.s_isSupported = () => true;
+        WgcCapture.s_startGrabber = (_, logger, _) => new WindowCaptureSession(
+            new ScreenshotGrabber(), () => new(0, 0, 1, 1),
+            () => ++discoveries <= 1 ? [] : [new(42, new(0, 0, 1, 1))],
+            _ => new ScreenshotGrabber { HasFrame = false }, logger: logger);
+        var rootCaptures = 0;
+        UiAutomationService.s_captureFromWindow = (_, width, height) =>
+        {
+            rootCaptures++;
+            var pixels = new byte[width * height * 4];
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                pixels[i + 2] = 255;
+                pixels[i + 3] = 255;
+            }
+            return pixels;
+        };
+        UiAutomationService.s_foregroundWindowForBlankRetry = _ => Assert.Fail("Menu failure must not foreground the root.");
+        UiAutomationService.s_sleepForBlankRetry = _ => Assert.Fail("Menu failure must not trigger blank retry.");
+
+        var failure = await Assert.ThrowsExactlyAsync<WindowCaptureException>(() =>
+            service.ScreenshotAsync(TargetFor(fixture), null, false, false, CancellationToken.None));
+
+        Assert.IsInstanceOfType<TimeoutException>(failure.InnerException);
+        Assert.AreEqual(0, rootCaptures);
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    public async Task ScreenshotAsync_ChildCaptureFailureNeverFallsBackToRootOnlyCapture(int boundary)
+    {
+        using var fixture = new UiaTestFixture();
+        var service = NewAutomationService();
+        Exception cause = boundary switch
+        {
+            0 => new COMException("Child startup rejected"),
+            1 => new Win32Exception(5, "Strict child GDI failed"),
+            2 => new InvalidOperationException("Child is protected from capture"),
+            _ => new TimeoutException("Child has no frame")
+        };
+        long clocks = 0;
+        WgcCapture.s_isSupported = () => true;
+        WgcCapture.s_startGrabber = (_, logger, _) => new WindowCaptureSession(
+            new ScreenshotGrabber(), () => new(0, 0, 1, 1),
+            () => [new(42, new(0, 0, 1, 1))],
+            _ => boundary == 0 ? throw cause : new ScreenshotGrabber
+            {
+                Failure = boundary == 3 ? null : cause,
+                HasFrame = boundary != 3
+            }, clock: () => clocks++ == 0 ? 100 : 3000, logger: logger);
+        var rootCaptures = 0;
+        var foregrounds = 0;
+        UiAutomationService.s_captureFromWindow = (_, _, _) =>
+        {
+            rootCaptures++;
+            throw new AssertFailedException("A failed child must not become a root-only screenshot.");
+        };
+        UiAutomationService.s_foregroundWindowForBlankRetry = _ => foregrounds++;
+        UiAutomationService.s_sleepForBlankRetry = _ => Assert.Fail("A failed child must not trigger blank retry.");
+
+        var failure = await Assert.ThrowsExactlyAsync<WindowCaptureException>(() =>
+            service.ScreenshotAsync(TargetFor(fixture), null, false, false, CancellationToken.None));
+        if (boundary == 3)
+        {
+            Assert.IsInstanceOfType<TimeoutException>(failure.InnerException);
+        }
+        else
+        {
+            Assert.AreSame(cause, failure.InnerException);
+        }
+        Assert.AreEqual(0, rootCaptures);
+        Assert.AreEqual(0, foregrounds);
+    }
+
+    [TestMethod]
+    public async Task ScreenshotAsync_RootWgcFailureRetainsGdiFallbackAndBlankRetry()
+    {
+        using var fixture = new UiaTestFixture();
+        var service = NewAutomationService();
+        WgcCapture.s_isSupported = () => true;
+        WgcCapture.s_startGrabber = (_, _, _) => throw new COMException("Root WGC initialization failed");
+        var rootCaptures = 0;
+        var foregrounds = 0;
+        byte[]? expected = null;
+        UiAutomationService.s_captureFromWindow = (_, width, height) =>
+        {
+            var pixels = new byte[width * height * 4];
+            if (++rootCaptures == 2)
+            {
+                for (var i = 0; i < pixels.Length; i += 4)
+                {
+                    pixels[i + 2] = 255;
+                    pixels[i + 3] = 255;
+                }
+                expected = pixels;
+            }
+            return pixels;
+        };
+        UiAutomationService.s_foregroundWindowForBlankRetry = _ => foregrounds++;
+        UiAutomationService.s_sleepForBlankRetry = _ => { };
+
+        var result = await service.ScreenshotAsync(TargetFor(fixture), null, false, false, CancellationToken.None);
+        Assert.AreSame(expected, result.Pixels);
+        Assert.AreEqual(result.Width * result.Height * 4, result.Pixels.Length);
+        Assert.AreEqual(2, rootCaptures);
+        Assert.AreEqual(1, foregrounds);
+    }
+
+    private sealed class ScreenshotGrabber : IFrameGrabber
+    {
+        internal Exception? Failure { get; init; }
+        internal bool HasFrame { get; init; } = true;
+        public bool IsClosed => false;
+        public (byte[] Pixels, int Width, int Height, long Version)? TryGetLatest()
+        {
+            if (Failure is not null)
+            {
+                throw Failure;
+            }
+            return HasFrame ? (new byte[] { 0, 0, 255, 255 }, 1, 1, 1) : null;
+        }
+        public Task<bool> WaitForFirstFrameAsync(TimeSpan timeout, CancellationToken ct)
+            => Task.FromResult(TryGetLatest() is not null);
+        public void Dispose() { }
     }
 
     [TestMethod]
