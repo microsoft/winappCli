@@ -17,7 +17,7 @@ For every option, see [Single-file mode](../../docs/usage.md#single-file-mode-ne
 - .NET SDK 10.0.300 or newer
 - winapp CLI
 
-## Run It
+## Building and Running
 
 ```powershell
 winapp run app.cs
