@@ -3934,11 +3934,19 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
-    public async Task BuildAndResolveAsync_RealTerminalFrameworkOverride_SeparateRestorePinsTheFramework()
+    public async Task BuildAndResolveAsync_RealTerminalFrameworkOverride_SeparateRestoreDoesNotPinTheFramework()
     {
-        // The --no-restore build passes -f, so the separate restore must restore that framework's graph, or a
-        // project whose file targets another framework fails with NETSDK1005.
-        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        // App (net8.0-windows) references Lib (netstandard2.0;net8.0). A restore pinned with -p:TargetFramework
+        // passes it to Lib too, so Lib's assets lack net8.0 and the --no-restore build fails with NETSDK1005.
+        // Like dotnet build's own restore, the separate restore leaves the framework to the build's -f.
+        var csproj = WriteFile("App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net8.0-windows10.0.19041.0</TargetFramework></PropertyGroup>
+              <ItemGroup><ProjectReference Include="Lib\Lib.csproj" /></ItemGroup>
+            </Project>
+            """);
+        WriteFileAt(Path.Join("Lib", "Lib.csproj"),
+            """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks></PropertyGroup></Project>""");
         var dotnet = new FakeDotNetService
         {
             RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
@@ -3950,7 +3958,8 @@ public class ProjectRunServiceTests
         await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
 
         var restore = dotnet.StreamingCalls.Single(a => a.StartsWith($"restore {csproj.FullName}", StringComparison.Ordinal));
-        StringAssert.Contains(restore, "-p:TargetFramework=net8.0-windows10.0.19041.0");
+        Assert.IsFalse(restore.Contains("TargetFramework", StringComparison.OrdinalIgnoreCase),
+            "a pinned framework would flow to the multi-targeted reference's restore");
         StringAssert.Contains(dotnet.InheritedCalls.Single(), "-f net8.0-windows10.0.19041.0");
     }
 
