@@ -2,7 +2,7 @@
 
 This sample is a complete Windows app in a single `.cs` file: no `.csproj`, manifest, or image assets. `winapp run` builds it, generates a manifest from its `#:property` directives, and launches it with package identity.
 
-For every option, see [Single-file mode](../../docs/usage.md#single-file-mode-net-file-based-apps) in the usage docs.
+For a complete step-by-step guide, see the [.NET File-Based Apps Guide](../../docs/guides/dotnet-file-based.md). For every option, see [Single-file mode](../../docs/usage.md#single-file-mode-net-file-based-apps) in the usage docs.
 
 ## What This Sample Shows
 

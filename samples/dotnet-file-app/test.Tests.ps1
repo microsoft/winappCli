@@ -57,10 +57,28 @@ Describe ".NET File-Based App Workflow" {
                 '#:property OutputType=Exe'
                 '#:property TargetFramework=net10.0-windows10.0.19041.0'
                 ''
-                'Console.WriteLine($"Package Family Name: {Windows.ApplicationModel.Package.Current.Id.FamilyName}");'
+                'using Windows.ApplicationModel;'
+                ''
+                'try'
+                '{'
+                '    Console.WriteLine($"Package Family Name: {Package.Current.Id.FamilyName}");'
+                '}'
+                'catch (InvalidOperationException)'
+                '{'
+                '    Console.WriteLine("Not packaged");'
+                '}'
             ) | Set-Content -Path $script:scratchApp -Encoding utf8
 
             $script:scratchApp | Should -Exist
+        }
+
+        It "Should run without identity via dotnet run" -Skip:$script:skip {
+            Push-Location $script:tempDir
+            try {
+                $output = & dotnet run hello.cs
+                $LASTEXITCODE | Should -Be 0
+                ($output -join "`n") | Should -Match 'Not packaged'
+            } finally { Pop-Location }
         }
 
         It "Should run with package identity via winapp run" -Skip:$script:skip {
