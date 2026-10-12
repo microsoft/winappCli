@@ -180,6 +180,29 @@ public class AppLauncherServiceTests
         Assert.IsNull(result);
     }
 
+    [TestMethod]
+    public void GetPackageFullName_DefaultImpl_InstalledForCurrentUser_ReturnsFullName()
+    {
+        // Must succeed without elevation: a query that needs admin rights would throw, and
+        // GetPackageFullName would swallow that into null, leaving --unregister-on-exit unable
+        // to remove the package (#1065).
+        var installed = new Windows.Management.Deployment.PackageManager()
+            .FindPackagesForUser(string.Empty)
+            .FirstOrDefault();
+        if (installed is null)
+        {
+            Assert.Inconclusive("No packages are registered for the current user.");
+        }
+
+        var result = _service.GetPackageFullName(installed.Id.FamilyName);
+
+        var familyFullNames = new Windows.Management.Deployment.PackageManager()
+            .FindPackagesForUser(string.Empty, installed.Id.FamilyName)
+            .Select(p => p.Id.FullName)
+            .ToList();
+        CollectionAssert.Contains(familyFullNames, result);
+    }
+
     // ---- GetRegisteredPackageOrThrow -----------------------------------------
 
     /// <summary>
