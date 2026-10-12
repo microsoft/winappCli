@@ -199,19 +199,20 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
             // Set _stdinMonitorStopped before disposing this source.
             var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _stdinMonitorStopped = false;
+            UiTarget? uiTarget = null;
             try
             {
                 RecordingArtifactPublisher.ValidateDestination(filePath, GetFramesDirectory(filePath), overwrite);
                 Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
-                var uiTarget = IsDesktop ? null : await ResolveSubjectAsync(parseResult, cancellationToken);
+                uiTarget = IsDesktop ? null : await ResolveSubjectAsync(parseResult, cancellationToken);
                 if (uiTarget is not null && selector is not null)
                 {
                     var exact = await UiQueryOptions.ResolveExactSelectorAsync(
                         parseResult, selectorParser, uiAutomation, uiTarget, selector, searchOtherWindows: true, cancellationToken);
                     if (exact is null)
                     {
-                        UiErrors.ElementNotFound(logger, selector, json);
+                        UiErrors.ElementNotFound(logger, selector, json, target: uiTarget);
                         return 1;
                     }
                     selector = exact.Selector!;
@@ -400,7 +401,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
             }
             catch (UiElementNotFoundException notFoundEx)
             {
-                UiErrors.ElementNotFound(logger, notFoundEx.Selector, json);
+                UiErrors.ElementNotFound(logger, notFoundEx.Selector, json, target: uiTarget);
                 return 1;
             }
             catch (ForegroundLostException foregroundEx)
