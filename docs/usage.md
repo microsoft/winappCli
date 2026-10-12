@@ -1817,7 +1817,8 @@ for directory layout, link handling, and running a copied script.
 
 #### target snapshot
 
-Report readiness, deployments, and guest windows without starting a Sandbox.
+Report host prerequisites, readiness, deployments, and guest windows without starting a
+Sandbox. Failed host checks include the fix to apply.
 
 ```powershell
 winapp target snapshot <target> [--json]
