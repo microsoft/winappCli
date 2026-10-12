@@ -528,4 +528,22 @@ public class WinUiTemplateCatalogTests
         var (foundMalformed, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption("{ not json", PackageId, "winui", 9);
         Assert.IsFalse(foundMalformed);
     }
+
+    [TestMethod]
+    public void DeriveTfmOption_PackVersion_MatchesOnlyThatPackVersion()
+    {
+        // CacheJson describes 0.0.6-alpha. A cache for any other pack version is stale for the caller.
+        var (foundSameVersion, option, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 9, "0.0.6-ALPHA");
+        Assert.IsTrue(foundSameVersion);
+        Assert.AreEqual("dotnet-version", option);
+
+        var (foundOtherVersion, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 9, "0.0.7-alpha");
+        Assert.IsFalse(foundOtherVersion);
+
+        var (foundPrefixVersion, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 9, "0.0.6");
+        Assert.IsFalse(foundPrefixVersion, "A version that is only a prefix of the mounted one must not match.");
+
+        var (foundEquivalentVersion, _, _, _) = WinUiTemplateCatalog.DeriveTfmOption(CacheJson, PackageId, "winui", 9, "0.0.6.0-alpha");
+        Assert.IsTrue(foundEquivalentVersion, "A NuGet-equivalent spelling of the mounted version must match.");
+    }
 }

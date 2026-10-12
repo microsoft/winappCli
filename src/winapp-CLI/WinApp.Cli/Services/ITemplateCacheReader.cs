@@ -14,9 +14,9 @@ internal interface ITemplateCacheReader
 {
     /// <summary>
     /// Returns the raw JSON of every <c>templatecache.json</c> the template engine has written for the
-    /// current user (one per SDK version). Order is unspecified; callers scan for the template they
-    /// need. Returns an empty sequence when the template engine cache directory does not exist or can't
-    /// be read, so callers can fall back gracefully.
+    /// current user (one per SDK version), most recently written first so a cache rebuilt by the active
+    /// SDK precedes stale ones left by older SDK bands. Returns an empty sequence when the template
+    /// engine cache directory does not exist or can't be read, so callers can fall back gracefully.
     /// </summary>
     IReadOnlyList<string> ReadTemplateCacheDocuments();
 }
