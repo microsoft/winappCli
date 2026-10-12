@@ -1,0 +1,21 @@
+{
+  "id": "c23-tauri-windows-stack-overflow",
+  "description": "Tauri v2 Windows debug runs overflow the main thread stack when many commands, permissions, and add-ons are generated into the context, based on https://github.com/tauri-apps/tauri/issues/9882.",
+  "set": "demand",
+  "cohort": "trap",
+  "prompt": "My Tauri app migrated from v1 runs on macOS and Linux, but Windows 11 dies in debug with `thread 'main' has overflowed its stack`. If I remove random permissions or add-ons it sometimes starts, but I need those features for the app.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

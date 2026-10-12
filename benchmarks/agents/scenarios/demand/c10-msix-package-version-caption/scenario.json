@@ -1,0 +1,21 @@
+{
+  "id": "c10-msix-package-version-caption",
+  "description": "A WPF app migrated to MSIX reads the assembly version instead of the installed package version, based on https://stackoverflow.com/questions/62161949/read-msix-package-appxmanifest-version.",
+  "set": "demand",
+  "cohort": "implicit",
+  "prompt": "We moved an in-house WPF app from ClickOnce to MSIX and the window title now shows the wrong version. The package manifest has the version I want users to see, but `Assembly.GetEntryAssembly()` still returns the app assembly version.\n\nCan you tell me what code/project change I should make?",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

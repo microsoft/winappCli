@@ -1,0 +1,6 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+ <PropertyGroup Label="Globals">
+  <ProjectName>VireoBeacon</ProjectName>
+  <WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>
+ </PropertyGroup>
+</Project>

@@ -1,0 +1,28 @@
+{
+  "cluster": "c04",
+  "framework": "MAUI",
+  "goal": "Help the developer avoid or upgrade past a known MAUI Windows FlexLayout layout-cycle regression involving wrapping image buttons.",
+  "must_include": [
+    "Calls out the specific combination in the fixture: Windows MAUI 8.0.10-era build, wrapping `FlexLayout`, narrow width, and a `Button` with `ImageSource`.",
+    "Recommends upgrading to a MAUI servicing build where the issue was fixed or temporarily reverting to 8.0.7 if the project cannot upgrade.",
+    "Gives a developer-side layout workaround, such as avoiding `FlexLayout` wrapping for this toolbar on Windows, removing the image-bearing `Button` from the wrapped row, or replacing the toolbar with `Grid`/`HorizontalStackLayout` plus explicit overflow behavior.",
+    "Explains that catching exceptions around page construction is not a reliable fix because the failure is a layout measure/arrange cycle or hang."
+  ],
+  "must_not": [
+    "Blame the PNG asset path alone while leaving the same wrapping image-button layout in place.",
+    "Recommend disabling resizing for the whole app as the only fix.",
+    "Tell the developer this is an Android/iOS-only MAUI issue."
+  ],
+  "acceptable_alternatives": [
+    "Use platform-specific XAML for Windows to choose a non-wrapping toolbar layout.",
+    "Constrain the toolbar/button sizes so the FlexLayout does not enter the failing wrap case."
+  ],
+  "solved": "The answer identifies the MAUI Windows FlexLayout image-button regression and provides either a servicing-version path or a concrete layout workaround.",
+  "partial": "The answer recognizes a layout-cycle problem but offers only generic UI simplification without identifying the narrow FlexLayout/ImageSource trigger.",
+  "sources": ["https://github.com/dotnet/maui/issues/21548"],
+  "verified_with": [
+    "https://github.com/dotnet/maui/issues/21548",
+    "https://learn.microsoft.com/en-us/dotnet/maui/user-interface/layouts/flexlayout?view=net-maui-8.0"
+  ],
+  "notes": "The issue comments indicate the regression was introduced after 8.0.7 and later serviced; exact availability depends on the MAUI workload installed by the developer."
+}

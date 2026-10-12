@@ -153,6 +153,15 @@ test('buildUiRecordArgs: no selector produces no -- terminator', () => {
   assert.ok(!args.includes('--'), 'no selector means no -- terminator');
 });
 
+test('buildUiRecordArgs: explicit empty element filters are forwarded like the CLI', () => {
+  // The CLI rejects --type "" and matches an empty ClassName exactly, so dropping '' would widen the match.
+  const args = buildUiRecordArgs({ durationSec: 5, selector: 'Save', type: '', root: '', className: '', app: '' });
+  assert.deepEqual(args.slice(args.indexOf('--class-name'), args.indexOf('--class-name') + 2), ['--class-name', '']);
+  assert.deepEqual(args.slice(args.indexOf('--root'), args.indexOf('--root') + 2), ['--root', '']);
+  assert.deepEqual(args.slice(args.indexOf('--type'), args.indexOf('--type') + 2), ['--type', '']);
+  assert.ok(!args.includes('--app'), 'other value options keep omitting empty strings');
+});
+
 // ---------------------------------------------------------------------------
 // M7 — _uiRecordWithCapture: full success-path test (mocked capture function)
 // ---------------------------------------------------------------------------

@@ -13,9 +13,15 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiSendKeysCommand : Command, IShortDescription
+internal class UiSendKeysCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Send synthetic keyboard input (keys, combos, and text) to a window";
+    public string ShortDescription => "Keyboard shortcuts, or text where set-value is not supported (shortcuts need --via send-input)";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui send-keys ctrl+s -a <app> --via send-input",
+        "winapp ui send-keys \"<text>\" --target <selector> -a <app> --verbatim",
+    ];
 
     public static Argument<string?> KeysArgument { get; } = new("keys")
     {

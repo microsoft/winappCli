@@ -1,0 +1,33 @@
+{
+  "id": "explicit-winapp-cli-package",
+  "description": "Explicit tool request: user says to use the winapp CLI (never names a skill).",
+  "set": "dev",
+  "cohort": "explicit-command",
+  "prompt": "Use the winapp CLI to make a dev certificate and package bin\\Release\\net8.0-windows\\publish into an MSIX I can install locally.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "msix.package"
+      ],
+      "acceptable": [
+        "msix.sign"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples"
+      ]
+    },
+    "commands": [
+      "^(package|pack)$",
+      "^cert",
+      "^sign$"
+    ],
+    "maxSkills": 3
+  }
+}

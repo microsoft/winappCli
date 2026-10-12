@@ -1,0 +1,6 @@
+build\icon.ico
+build\appx\StoreLogo.png
+build\appx\Square44x44Logo.png
+build\appx\Square44x44Logo.scale-200.png
+build\appx\Square150x150Logo.png
+build\appx\Wide310x150Logo.png

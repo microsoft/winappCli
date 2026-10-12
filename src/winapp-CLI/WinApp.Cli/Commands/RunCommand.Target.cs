@@ -81,7 +81,18 @@ internal partial class RunCommand
                                 identity = await msixService.MaterializeLooseLayoutAsync(
                                     resolvedManifest, inputFolder, layout, taskContext, layoutOutput.Reconciliation,
                                     executable, projectFile, framework, noRestore,
-                                    selfContained, aliasDecision.UseAlias, packageGraph, appxRecipe, ct);
+                                    selfContained, aliasDecision.UseAlias, packageGraph, appxRecipe,
+                                    new DevelopmentIdentityOptions(projectFile?.FullName ?? inputFolder.FullName, _uniqueIdentityRequested),
+                                    ct);
+                                _runIdentity = identity.Identity;
+                                if (_runIdentity is { } unique)
+                                {
+                                    taskContext.AddStatusMessage($"{UiSymbols.Info} Unique identity: {unique.PackageFamilyName}");
+                                    foreach (var (original, renamed) in unique.Aliases)
+                                    {
+                                        taskContext.AddStatusMessage($"{UiSymbols.Link} Execution alias: {original} -> {renamed}");
+                                    }
+                                }
                                 return (0, $"{identity.PackageName} ready to deploy");
                             }
                             catch (OperationCanceledException) when (ct.IsCancellationRequested)

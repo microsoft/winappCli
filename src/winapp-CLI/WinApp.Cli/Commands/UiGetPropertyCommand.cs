@@ -14,12 +14,18 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiGetPropertyCommand : Command, IShortDescription
+internal class UiGetPropertyCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Read property values from an element";
+    public string ShortDescription => "Read UIA properties from an element";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui get-property <selector> -a <app> --property IsEnabled",
+        "winapp ui get-property \"Save\" --type Button -a <app>",
+    ];
 
     public UiGetPropertyCommand()
-        : base("get-property", "Read UIA property values from an element. Specify --property for a single property or omit for all. " +
+        : base("get-property", "Read UIA properties from an element. Specify --property for a single property or omit for all. " +
             "Includes whole-document TextPattern formatting: FontWeight, FontName, FontSize, ForegroundColor, IsItalic, StrikethroughStyle.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);

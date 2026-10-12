@@ -1,0 +1,22 @@
+{
+  "id": "aspnet-iis-500",
+  "description": "Near-miss: ASP.NET Core 500.30 on IIS.",
+  "set": "dev",
+  "cohort": "near-miss",
+  "prompt": "The API returns HTTP Error 500.30 - ASP.NET Core app failed to start, right after we deployed to IIS on the Windows Server box. web.config is in the repo. What did we miss?",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "winui-control-sample-request",
+  "description": "WinUI: user explicitly wants a real Gallery/Toolkit sample for inline feedback (find-ui route).",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Need a success/error message above the editor that users can dismiss. Is there already a WinUI control for this? A sample would help.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "ui.samples"
+      ],
+      "acceptable": [
+        "winui.design"
+      ],
+      "forbid": [
+        "ui.automate",
+        "ui.test",
+        "msix.package",
+        "msix.sign",
+        "winui.migrate"
+      ]
+    }
+  }
+}

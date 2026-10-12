@@ -30,6 +30,9 @@ internal class FakeMsixService : IMsixService
     public List<string?> AddLooseLayoutRuntimeIdentifierCalls { get; } = [];
     public List<string?> AddLooseLayoutRecipeCalls { get; } = [];
 
+    /// <summary>Records the identity options passed to each layout call (local and target).</summary>
+    public List<DevelopmentIdentityOptions?> DevelopmentIdentityCalls { get; } = [];
+
     /// <summary>Records the <c>projectAssetsFile</c> passed to each <see cref="EnsureWindowsAppRuntimeInstalledAsync"/> call.</summary>
     public List<string?> EnsureRuntimeInstalledAssetsFileCalls { get; } = [];
 
@@ -110,8 +113,10 @@ internal class FakeMsixService : IMsixService
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
         FileInfo? appxRecipe = null,
+        DevelopmentIdentityOptions? developmentIdentity = null,
         CancellationToken cancellationToken = default)
     {
+        DevelopmentIdentityCalls.Add(developmentIdentity);
         AddLooseLayoutCalls.Add((appxManifestPath.FullName, clean));
         AddLooseLayoutDirectoryCalls.Add((inputDirectory.FullName, outputAppXDirectory.FullName));
         LayoutReconciliations.Add(reconciliation);
@@ -156,8 +161,10 @@ internal class FakeMsixService : IMsixService
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
         FileInfo? appxRecipe = null,
+        DevelopmentIdentityOptions? developmentIdentity = null,
         CancellationToken cancellationToken = default)
     {
+        DevelopmentIdentityCalls.Add(developmentIdentity);
         MaterializeLooseLayoutCalls.Add((appxManifestPath.FullName, outputAppXDirectory.FullName));
         LayoutReconciliations.Add(reconciliation);
         AddLooseLayoutRecipeCalls.Add(appxRecipe?.FullName);

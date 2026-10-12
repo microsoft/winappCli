@@ -13,9 +13,15 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiScrollCommand : Command, IShortDescription
+internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
 {
     public string ShortDescription => "Scroll a container element";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui scroll <selector> -a <app> --direction down",
+        "winapp ui scroll \"Items\" --type List -a <app> --to bottom",
+    ];
 
     /// <summary>One mouse-wheel detent in WHEEL_DELTA units, the granularity SendInput's wheel expects.</summary>
     private const int WheelDelta = 120;
@@ -44,13 +50,14 @@ internal class UiScrollCommand : Command, IShortDescription
     }
 
     public UiScrollCommand()
-        : base("scroll", "Scroll a container element using ScrollPattern. " +
+        : base("scroll", "Scroll a container element. " +
                "Use --direction to scroll incrementally, --to to jump to top/bottom, or --wheel to synthesize mouse-wheel input.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
         Options.Add(SharedUiOptions.WindowOption);
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
         Options.Add(DirectionOption);
         Options.Add(ToOption);
         Options.Add(WheelOption);
@@ -124,7 +131,7 @@ internal class UiScrollCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -141,8 +148,8 @@ internal class UiScrollCommand : Command, IShortDescription
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = selectorParser.Parse(selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+                var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
                 if (element is null)
                 {
@@ -168,7 +175,8 @@ internal class UiScrollCommand : Command, IShortDescription
                     {
                         var stable = await GestureTargeting.ResolveStableAsync(
                             uiAutomation, uiTarget, selector, element,
-                            GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
+                            GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken,
+                            requireUnique: UiQueryOptions.HasFilters(parseResult));
                         if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, "scroll --wheel"))
                         {
                             return 1;
@@ -198,7 +206,8 @@ internal class UiScrollCommand : Command, IShortDescription
                         await Task.Delay(CursorSettleMs, cancellationToken);
 
                         var confirmed = await GestureTargeting.ConfirmStillAsync(
-                            uiAutomation, uiTarget, selector, stable.Element, cancellationToken);
+                            uiAutomation, uiTarget, selector, stable.Element, cancellationToken,
+                            requireUnique: UiQueryOptions.HasFilters(parseResult));
                         if (!UiInjectionReporting.TryReport(confirmed, logger, json, selectorStr, "scroll --wheel"))
                         {
                             return 1;
@@ -240,6 +249,11 @@ internal class UiScrollCommand : Command, IShortDescription
                 }
 
                 return 0;
+            }
+            catch (UiAmbiguousSelectorException ex)
+            {
+                UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
+                return 1;
             }
             catch (System.Runtime.InteropServices.COMException comEx)
             {

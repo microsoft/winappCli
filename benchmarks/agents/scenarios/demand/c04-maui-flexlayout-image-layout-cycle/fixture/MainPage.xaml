@@ -1,0 +1,20 @@
+<ContentPage
+    x:Class="GlyphBoard.MainPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+
+    <Grid RowDefinitions="Auto,*">
+        <FlexLayout
+            Grid.Row="0"
+            x:Name="Toolbar"
+            Wrap="Wrap"
+            HorizontalOptions="StartAndExpand"
+            JustifyContent="SpaceBetween"
+            MaximumWidthRequest="720">
+            <Button ImageSource="glyph_save.png" />
+            <Button Text="Refresh" />
+        </FlexLayout>
+
+        <CollectionView Grid.Row="1" />
+    </Grid>
+</ContentPage>

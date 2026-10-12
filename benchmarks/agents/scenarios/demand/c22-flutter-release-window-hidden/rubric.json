@@ -1,0 +1,30 @@
+{
+  "cluster": "c22",
+  "framework": "Flutter",
+  "goal": "Ensure the packaged Flutter Windows release window is shown reliably after startup.",
+  "must_include": [
+    "Recognizes the affected Windows runner template race: `SetNextFrameCallback` may be registered after the first frame has already rendered, so the hidden window is never shown.",
+    "Recommends upgrading to Flutter 3.13 or later and letting the Windows project migration update `windows\\runner\\flutter_window.cpp` when possible.",
+    "For a modified Windows runner, adds `flutter_controller_->ForceRedraw();` immediately after the `SetNextFrameCallback` block and before returning from `FlutterWindow::OnCreate()`.",
+    "Mentions the temporary workaround of calling `this->Show()` directly only as a stopgap for older Flutter versions where `ForceRedraw` is not available."
+  ],
+  "must_not": [
+    "Adds arbitrary sleeps or message boxes to make the race less likely.",
+    "Claims it is fixed by setting `restorationScopeId` in Dart as the primary solution.",
+    "Deletes and recreates the whole Windows folder without warning that custom runner changes must be preserved or reviewed."
+  ],
+  "acceptable_alternatives": [
+    "Regenerate the Windows runner from a fixed Flutter SDK and reapply local customizations.",
+    "Temporarily use Flutter 3.3.10 or the direct `this->Show()` workaround while scheduling an SDK upgrade.",
+    "Patch only the Windows runner file if the rest of the app cannot yet move SDK versions."
+  ],
+  "solved": "The answer either upgrades/regenerates to a fixed Windows runner or patches `flutter_window.cpp` with `ForceRedraw` so the release exe consistently shows a window.",
+  "partial": "The answer identifies a Flutter Windows runner race but gives only a workaround that may hide regressions or does not specify where to patch.",
+  "sources": ["https://github.com/flutter/flutter/issues/119415"],
+  "verified_with": [
+    "https://github.com/flutter/flutter/issues/119415",
+    "https://github.com/flutter/flutter/pull/127046",
+    "https://docs.flutter.dev/platform-integration/windows/building"
+  ],
+  "notes": "The `ForceRedraw` API was added after Flutter 3.10. On older SDKs the direct `Show()` change was discussed as a temporary workaround."
+}

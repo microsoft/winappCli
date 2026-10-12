@@ -15,7 +15,7 @@ internal enum WinAppRunMode
     /// <summary>Input is a build-output folder — the existing, unchanged behavior.</summary>
     Folder,
 
-    /// <summary>Input is a <c>.csproj</c> (or a directory containing exactly one buildable one).</summary>
+    /// <summary>Input is a <c>.csproj</c> or C++ <c>.vcxproj</c> (or a directory/solution that resolves to one).</summary>
     Project,
 
     /// <summary>
@@ -44,7 +44,7 @@ internal enum ProjectPackaging
 /// folder-mode path) or it is <see cref="WinAppRunMode.Project"/> and <see cref="Csproj"/> is set.
 /// </summary>
 /// <param name="Mode">The resolved run mode.</param>
-/// <param name="Csproj">The resolved project file, when <see cref="Mode"/> is Project.</param>
+/// <param name="Csproj">The resolved project file (<c>.csproj</c> or <c>.vcxproj</c>), when <see cref="Mode"/> is Project.</param>
 /// <param name="ProjectDirectory">The directory containing the project (project mode) or the input folder.</param>
 /// <param name="Solution">The solution the project was resolved from (defines <c>$(SolutionDir)</c> and siblings for the build/evaluate passes); null for a bare <c>.csproj</c>/directory input.</param>
 /// <param name="SelectionReason">Why this project was chosen for an ambiguous input (shown in the context line); null if unambiguous.</param>
@@ -84,6 +84,8 @@ internal sealed record PackageGraphSource(FileInfo AssetsFile, string? RuntimeId
 /// <param name="NoRestore">Mirrors <c>ProjectRunOptions.NoRestore</c>; threaded into the unpackaged <c>dotnet list package</c> discovery so it can't trigger a restore the user skipped.</param>
 /// <param name="RunArguments">Leading launch arguments MSBuild pairs with a non-apphost <see cref="RunCommand"/> (e.g. <c>exec "&lt;app&gt;.dll"</c>); prepended before the user's app args. Null for a plain apphost launch.</param>
 /// <param name="ProjectAssetsFile">The evaluated <c>ProjectAssetsFile</c> — restore's output for the inputs this build ran with. Package discovery reads the graph from it because <c>dotnet package list</c> re-evaluates the project and accepts no <c>-c</c>/<c>-r</c>/<c>-p</c>, and MSBuild ranks environment properties below a value the project assigns, so those inputs cannot be reproduced any other way.</param>
+/// <param name="Configuration">The evaluated MSBuild <c>Configuration</c> the output was built for. Set for C++ projects.</param>
+/// <param name="Platform">The evaluated MSBuild <c>Platform</c> (e.g. <c>x64</c>, <c>ARM64</c>, <c>Win32</c>) the output was built for. Set for C++ projects.</param>
 internal sealed record ProjectRunResolution(
     FileInfo Csproj,
     string TargetDir,
@@ -100,7 +102,9 @@ internal sealed record ProjectRunResolution(
     string? ProjectAssetsRuntimeIdentifier = null,
     bool IsAot = false,
     string? AppxManifestPath = null,
-    string? AppxRecipePath = null);
+    string? AppxRecipePath = null,
+    string? Configuration = null,
+    string? Platform = null);
 
 /// <summary>
 /// User-provided build inputs for project mode, forwarded to <c>dotnet build</c> / <c>dotnet msbuild</c>.

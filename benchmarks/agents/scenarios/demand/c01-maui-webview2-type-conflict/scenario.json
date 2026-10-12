@@ -1,0 +1,21 @@
+{
+  "id": "c01-maui-webview2-type-conflict",
+  "description": "A Windows .NET MAUI build started failing after a Visual Studio update with duplicate WebView2 types from generated WinRT source, based on https://github.com/dotnet/maui/issues/25160.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "After updating VS 2022 to 17.11.5, the Windows target of our MAUI app stopped compiling. We do not directly use WebView2, but the build now repeats: `error CS0433: The type 'CoreWebView2' exists in both 'Microsoft.Web.WebView2.Core, Version=1.0.864.35' and 'Microsoft.WinUI, Version=3.0.0.0'` from `obj\\Debug\\net8.0-windows10.0.19041.0\\win10-x64\\intermediatexaml\\WinRT.SourceGenerator\\Generator.RcwReflectionFallbackGenerator\\RcwFallbackInitializer.g.cs`.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

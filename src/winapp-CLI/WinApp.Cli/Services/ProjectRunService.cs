@@ -18,7 +18,8 @@ internal sealed partial class ProjectRunService(
     IProjectDetectionService projectDetectionService,
     ICsWinRTMetadataShimService csWinRTMetadataShimService,
     IAnsiConsole ansiConsole,
-    ILogger<ProjectRunService> logger) : IProjectRunService
+    ILogger<ProjectRunService> logger,
+    IMSBuildService msBuildService) : IProjectRunService
 {
     /// <summary>MSBuild properties requested from the evaluate step (always ≥2 → JSON output).</summary>
     private static readonly string[] RequestedProperties =
@@ -295,7 +296,9 @@ internal sealed partial class ProjectRunService(
         FileInfo csproj,
         ProjectRunOptions options,
         CancellationToken cancellationToken)
-        => BuildOrPublishAndResolveAsync(csproj, options, cancellationToken);
+        => IsCppProject(csproj)
+            ? BuildAndResolveCppAsync(csproj, options, cancellationToken)
+            : BuildOrPublishAndResolveAsync(csproj, options, cancellationToken);
 
     /// <summary>
     /// Publishes the project (<c>dotnet publish</c>) and resolves the evaluated <c>PublishDir</c> as the
@@ -319,6 +322,10 @@ internal sealed partial class ProjectRunService(
         var publish = preparation is not null;
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
         WarnOnOverriddenFlags(options);
+        if (!options.NoBuild)
+        {
+            ThrowIfReferencesCppProject(csproj);
+        }
 
         // Restore output must remain visible: NuGet can spend minutes retrying an unreachable feed, and
         // buffering those diagnostics makes the command look frozen. Property discovery remains buffered
@@ -638,6 +645,7 @@ internal sealed partial class ProjectRunService(
         CancellationToken cancellationToken)
     {
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+        ThrowIfReferencesCppProject(csproj, packaging: true);
         (_, options, var metadata) = await PrepareBuildInputsAsync(
             csproj, options, workingDir, cancellationToken, publish: true);
         var props = await EvaluatePreparedPropertiesAsync(csproj, options, workingDir, metadata, cancellationToken);

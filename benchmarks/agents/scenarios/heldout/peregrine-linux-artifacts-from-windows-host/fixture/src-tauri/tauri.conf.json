@@ -1,0 +1,10 @@
+{
+ "productName": "Peregrine Scribe",
+ "version": "1.0.0",
+ "identifier": "io.peregrine.scribe",
+ "bundle": {
+  "active": true,
+  "targets": ["deb", "appimage"],
+  "windows": {"certificateThumbprint": null, "digestAlgorithm": "sha256"}
+ }
+}

@@ -274,48 +274,6 @@ public class WindowsSandboxCliClassificationTests
     }
 
     [TestMethod]
-    public async Task Start_PassesTheCallerAssignedId()
-    {
-        _runner.Result = new ProcessRunResult(0, """{"Id":"caller-assigned"}""", string.Empty);
-
-        var id = await _cli.StartAsync("caller-assigned", configuration: null, TestContext.CancellationToken);
-
-        Assert.AreEqual("caller-assigned", id);
-
-        var arguments = _runner.Requests.Single().Arguments.ToList();
-        var idIndex = arguments.IndexOf("--id");
-
-        Assert.IsGreaterThanOrEqualTo(0, idIndex, "wsb start must be given the ID winapp assigned.");
-        Assert.AreEqual("caller-assigned", arguments[idIndex + 1]);
-    }
-
-    [TestMethod]
-    public async Task Start_ThatReportsNoId_SaysWhichIdItAskedFor()
-    {
-        // The caller needs the requested ID in the failure so it can reconcile that exact instance
-        // rather than guess from a list.
-        _runner.Result = new ProcessRunResult(0, "{}", string.Empty);
-
-        var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
-            () => _cli.StartAsync("caller-assigned", configuration: null, TestContext.CancellationToken));
-
-        Assert.AreEqual(ExecutionTargetErrorCodes.StartFailed, failure.Error.Code);
-        Assert.AreEqual("caller-assigned", failure.Error.Context!["requestedId"]);
-    }
-
-    [TestMethod]
-    public async Task Start_ThatFailsWithAnHResult_CarriesItInContext()
-    {
-        _runner.Result = new ProcessRunResult(1, string.Empty, "Sandbox failed to start. (0x80070002)");
-
-        var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
-            () => _cli.StartAsync("caller-assigned", configuration: null, TestContext.CancellationToken));
-
-        Assert.AreEqual("0x80070002", failure.Error.Context![WsbHResult.ContextKey]);
-        Assert.AreEqual("start", failure.Error.Context["wsbVerb"]);
-    }
-
-    [TestMethod]
     public async Task IsResolvable_IsFalseRatherThanThrowingWhenTheGuestDoesNotAnswer()
     {
         _runner.Result = new ProcessRunResult(0, """{"Networks":[]}""", string.Empty);
@@ -360,7 +318,7 @@ public class WindowsSandboxCliClassificationTests
     public TestContext TestContext { get; set; } = null!;
 }
 
-/// <summary>Tests for <see cref="WsbHResult"/>: recognising the two statuses that change behaviour.</summary>
+/// <summary>Tests for <see cref="WsbHResult"/>: recognising the statuses <c>wsb</c> reports.</summary>
 [TestClass]
 public class WsbHResultTests
 {
@@ -369,7 +327,7 @@ public class WsbHResultTests
     {
         var result = new ProcessRunResult(unchecked((int)0x800401F6), string.Empty, string.Empty);
 
-        Assert.AreEqual(WsbHResult.AppSingleUse, WsbHResult.Extract(result));
+        Assert.AreEqual(unchecked((int)0x800401F6), WsbHResult.Extract(result));
     }
 
     [TestMethod]
@@ -377,7 +335,7 @@ public class WsbHResultTests
     {
         var result = new ProcessRunResult(1, string.Empty, "The system cannot find the file specified. (0x80070002)");
 
-        Assert.AreEqual(WsbHResult.FileNotFound, WsbHResult.Extract(result));
+        Assert.AreEqual(unchecked((int)0x80070002), WsbHResult.Extract(result));
     }
 
     [TestMethod]
@@ -385,7 +343,7 @@ public class WsbHResultTests
     {
         var result = new ProcessRunResult(1, "Error 0x800401F6 occurred.", string.Empty);
 
-        Assert.AreEqual(WsbHResult.AppSingleUse, WsbHResult.Extract(result));
+        Assert.AreEqual(unchecked((int)0x800401F6), WsbHResult.Extract(result));
     }
 
     [TestMethod]
@@ -393,7 +351,7 @@ public class WsbHResultTests
     {
         // Only a value with the failure bit set is a status. A plain eight-digit hexadecimal number
         // in a message -- an identifier, an offset -- must not be classified as one, because doing so
-        // would route an unrelated failure into singleton-reuse or partial-start recovery.
+        // would attach a misleading status to an unrelated failure.
         var result = new ProcessRunResult(1, string.Empty, "Instance 0x00ABCDEF was not found.");
 
         Assert.IsNull(WsbHResult.Extract(result));
@@ -416,7 +374,7 @@ public class WsbHResultTests
     [TestMethod]
     public void Format_MatchesTheShapeWsbPrints()
     {
-        Assert.AreEqual("0x80070002", WsbHResult.Format(WsbHResult.FileNotFound));
-        Assert.AreEqual("0x800401F6", WsbHResult.Format(WsbHResult.AppSingleUse));
+        Assert.AreEqual("0x80070002", WsbHResult.Format(unchecked((int)0x80070002)));
+        Assert.AreEqual("0x800401F6", WsbHResult.Format(unchecked((int)0x800401F6)));
     }
 }

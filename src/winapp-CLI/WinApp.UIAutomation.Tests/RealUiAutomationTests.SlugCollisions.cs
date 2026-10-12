@@ -408,6 +408,8 @@ public partial class RealUiAutomationTests
             UiAutomationService.s_getAllAppWindows = (_, _) => [];
             UiAutomationService.s_compareElements = (_, left, right) => ReferenceEquals(left, right);
             UiAutomationService.s_getElementProcessId = _ => Environment.ProcessId;
+            // The synthetic windows 42-44 model live app windows; any other handle is closed.
+            SystemUiQuery.s_getProcessIdForWindow = hwnd => hwnd is >= 42 and <= 44 ? (uint)Environment.ProcessId : 0;
         }
 
         public void ConfigureAppWindows(bool mainMatch, bool collision)
@@ -508,6 +510,7 @@ public partial class RealUiAutomationTests
 
         public void Dispose()
         {
+            SystemUiQuery.ResetNativeSeams();
             // Hashing borrows these arrays; the fixture owns and destroys each exactly once.
             _ = SlugGeneratorTests.SafeArrayDestroy(_firstId);
             _ = SlugGeneratorTests.SafeArrayDestroy(_secondId);

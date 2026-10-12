@@ -1,0 +1,14 @@
+{
+  "name": "starlane-desktop",
+  "version": "2.6.0",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "pack:win": "electron-builder --win --config .electron-builder.config.ts",
+    "build:main": "tsc -p tsconfig.main.json"
+  },
+  "devDependencies": {
+    "electron": "41.10.6",
+    "electron-builder": "24.3.0",
+    "typescript": "5.0.4"
+  }
+}

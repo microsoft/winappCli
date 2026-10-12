@@ -1,0 +1,34 @@
+{
+  "cluster": "c10",
+  "framework": "WPF",
+  "goal": "Help the developer display the installed MSIX package version instead of an assembly version.",
+  "must_include": [
+    "Uses `Windows.ApplicationModel.Package.Current.Id.Version` to read the MSIX package identity version when the app is running packaged.",
+    "Formats the returned `PackageVersion` fields (`Major`, `Minor`, `Build`, `Revision`) rather than reading `Assembly.GetEntryAssembly()` or `Assembly.GetCallingAssembly()`.",
+    "Adds the Windows SDK/WinRT projection needed by the WPF target, such as `Microsoft.Windows.SDK.Contracts` for older .NET Core WPF projects or a modern `netX.0-windows` target that exposes Windows SDK APIs.",
+    "Mentions that `Package.Current` only works for a packaged process; for local debugging, start the packaging project or handle the unpackaged case separately."
+  ],
+  "must_not": [
+    "Keeps using assembly attributes as the source of truth for the MSIX version shown to users.",
+    "Suggests parsing the installed `AppxManifest.xml` from disk at runtime as the primary solution.",
+    "Claims this requires publishing through the Microsoft Store.",
+    "Uses `Package.Current` without acknowledging the packaged-process requirement."
+  ],
+  "acceptable_alternatives": [
+    "Generate the assembly informational version from the same CI variable as the package manifest if the product deliberately wants both values identical.",
+    "Use `Windows.Management.Deployment.PackageManager` for tools that need to inspect a package from outside the packaged app process.",
+    "Read the package version in a small platform service and fall back to assembly version only for unpackaged developer runs.",
+    "the winapp CLI's equivalent debug launch (`winapp run <packaged project or output folder>`) to run with package identity while testing `Package.Current`."
+  ],
+  "solved": "The answer gives code that reads `Package.Current.Id.Version`, includes the required Windows SDK reference/targeting guidance, and explains the packaged-debugging condition.",
+  "partial": "The answer points to `Package.Current.Id.Version` but omits either the projection/reference requirement or the packaged-process caveat.",
+  "sources": [
+    "https://stackoverflow.com/questions/62161949/read-msix-package-appxmanifest-version"
+  ],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/uwp/api/windows.applicationmodel.package.current",
+    "https://learn.microsoft.com/en-us/uwp/api/windows.applicationmodel.packageid.version",
+    "docs\\usage.md#run"
+  ],
+  "notes": "The accepted Stack Overflow answer used `Microsoft.Windows.SDK.Contracts`; modern SDK-style WPF projects may get the API through their Windows-targeted TFM."
+}

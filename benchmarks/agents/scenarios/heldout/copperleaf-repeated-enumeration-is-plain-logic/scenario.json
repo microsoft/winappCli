@@ -1,0 +1,29 @@
+{
+  "id": "copperleaf-repeated-enumeration-is-plain-logic",
+  "description": "Avoids Windows-specific help for a LINQ side-effect bug in an ordinary console program.",
+  "set": "heldout",
+  "cohort": "near-miss",
+  "persona": "10",
+  "framework": "Plain .NET console / LINQ",
+  "conflictingSignal": false,
+  "sources": [],
+  "prompt": "Copperleaf Streams sends each message twice when I print both the count and the summary. Can you fix this LINQ code so it sends once but still prints both?",
+  "paraphrases": {
+    "novice": "Copperleaf Streams sends the same items again when it prints their names after the count. How do I keep both pieces of information without repeating the sends?",
+    "terse": "Copperleaf LINQ: Count then Join sends twice. Keep summaries, send once."
+  },
+  "configurations": [
+    "none",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

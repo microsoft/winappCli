@@ -1,0 +1,8 @@
+{
+  "version": "1.0",
+  "components": [
+    "Microsoft.VisualStudio.Workload.ManagedDesktop",
+    "Microsoft.Net.Component.4.8.SDK",
+    "Microsoft.NetCore.Component.SDK"
+  ]
+}

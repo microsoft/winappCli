@@ -1,0 +1,4 @@
+Client: Rowan Claims
+Current distribution: WiX MSI
+Planned experiment: receive Windows share requests
+MSI replacement is out of scope.

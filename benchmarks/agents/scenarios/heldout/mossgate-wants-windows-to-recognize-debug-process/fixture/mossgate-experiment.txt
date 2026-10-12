@@ -1,0 +1,6 @@
+Frontend: React, unchanged.
+The native helper experiments with Windows.ApplicationModel.StartupTask.
+GetCurrentPackageFullName on the ordinary debug process returns 15700.
+No package registration exists for that process.
+Existing MSI deployment is a customer requirement.
+Application payload must continue to live outside a full MSIX container.

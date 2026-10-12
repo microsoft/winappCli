@@ -1,0 +1,7 @@
+{
+ "service": "Azure Artifact Signing",
+ "profileType": "PublicTrust",
+ "authentication": "workload identity federation",
+ "privateKeyExportAllowed": false,
+ "accountOwner": "Quillmark Software Ltd"
+}

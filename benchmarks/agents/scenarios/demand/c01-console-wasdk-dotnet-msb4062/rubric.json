@@ -1,0 +1,30 @@
+{
+  "cluster": "c01",
+  "framework": ".NET console",
+  "goal": "Make the Windows App SDK console host build from the .NET CLI without relying on Visual Studio-only PRI tasks.",
+  "must_include": [
+    "Identifies that the project is taking the non-MSIX MRT/PRI path that looks for Visual Studio packaging tasks under the dotnet SDK.",
+    "Adds `<EnableMsixTooling>true</EnableMsixTooling>` to the executable project so Windows App SDK single-project MSIX build tasks are used even for this host.",
+    "Ensures the Windows target framework is fully versioned, for example `net8.0-windows10.0.19041.0`.",
+    "Adds a Windows runtime identifier such as `<RuntimeIdentifiers>win-x64</RuntimeIdentifiers>` or the set `win-x86;win-x64;win-arm64` so restore/build has RID-specific assets."
+  ],
+  "must_not": [
+    "Tell them to edit files under the NuGet package cache or the dotnet SDK folder.",
+    "Tell them to copy `Microsoft.Build.Packaging.Pri.Tasks.dll` into `C:\\Program Files\\dotnet`.",
+    "Disable MRT/PRI generation as the primary fix for a project that uses XAML resources."
+  ],
+  "acceptable_alternatives": [
+    "Build with Visual Studio MSBuild when the goal is only local IDE builds.",
+    "Use a normal WinUI app template instead of a console host if the console entry point is not required.",
+    "Use multiple RuntimeIdentifiers when the same project is packaged for several architectures."
+  ],
+  "solved": "The project file is changed so `dotnet build` can load Windows App SDK MSIX tooling and restore the required Windows runtime assets.",
+  "partial": "The answer notices the missing packaging/MSBuild tooling but omits either `EnableMsixTooling` or RID restoration.",
+  "sources": ["https://github.com/microsoft/WindowsAppSDK/issues/3548"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/project-properties",
+    "https://learn.microsoft.com/en-us/dotnet/core/rid-catalog",
+    "https://github.com/microsoft/WindowsAppSDK/issues/3548"
+  ],
+  "notes": "The issue thread records Microsoft guidance to use `EnableMsixTooling`, a fully versioned Windows TFM, and runtime identifiers for dotnet CLI builds of this shape."
+}

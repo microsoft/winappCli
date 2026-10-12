@@ -48,6 +48,7 @@ public partial class RealRecordingTests
         public Task<UiElement[]> SearchAsync(UiTarget s, UiSelector sel, int max, CancellationToken ct) => inner.SearchAsync(s, sel, max, ct);
         public Task<UiElement?> FindSingleElementAsync(UiTarget s, UiSelector sel, CancellationToken ct) => inner.FindSingleElementAsync(s, sel, ct);
         public Task<UiElement?> FindSingleElementAsync(UiTarget s, UiSelector sel, bool requireUnique, CancellationToken ct) => inner.FindSingleElementAsync(s, sel, requireUnique, ct);
+        public bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct) => inner.IsSameElement(selected, current, ct);
         public Task<Dictionary<string, object?>> GetPropertiesAsync(UiTarget s, UiElement e, string? p, CancellationToken ct) => inner.GetPropertiesAsync(s, e, p, ct);
         public Task<(byte[] Pixels, int Width, int Height)> ScreenshotAsync(UiTarget s, string? id, bool screen, bool focus, CancellationToken ct) => inner.ScreenshotAsync(s, id, screen, focus, ct);
         public Task<string> InvokeAsync(UiTarget s, UiElement e, CancellationToken ct) => inner.InvokeAsync(s, e, ct);

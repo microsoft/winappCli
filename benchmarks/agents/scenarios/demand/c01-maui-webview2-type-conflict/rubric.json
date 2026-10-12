@@ -1,0 +1,30 @@
+{
+  "cluster": "c01",
+  "framework": "MAUI",
+  "goal": "Restore the MAUI Windows build by applying the targeted CsWinRT workaround for the generated WebView2 type collision.",
+  "must_include": [
+    "Recognizes this as a generated CsWinRT/Windows SDK projection conflict introduced by the Windows toolchain update, not as evidence that the app added WebView2 controls.",
+    "Adds `<CsWinRTRcwFactoryFallbackGeneratorForceOptOut>true</CsWinRTRcwFactoryFallbackGeneratorForceOptOut>` in a Windows-only property group.",
+    "Keeps the property scoped to the Windows target framework condition instead of affecting Android, iOS, or Mac Catalyst builds.",
+    "Recommends cleaning `bin`/`obj` and restoring/building again after changing the project file, and treating the property as a workaround to revisit after updating to serviced .NET MAUI/CsWinRT/Windows App SDK versions."
+  ],
+  "must_not": [
+    "Tell them to delete generated files under `obj` as the fix.",
+    "Tell them to remove all WebView2 or WinUI references from a MAUI project.",
+    "Add `<AllowUnsafeBlocks>true</AllowUnsafeBlocks>` as the primary fix for this WebView2 duplicate-type error.",
+    "Apply a Windows SDK package version downgrade globally without explaining that it can introduce other generated-source errors."
+  ],
+  "acceptable_alternatives": [
+    "Update to a serviced .NET MAUI/.NET SDK/CsWinRT combination that contains the upstream fix.",
+    "Temporarily pin the team to the previous known-good Visual Studio/.NET SDK while applying and validating the targeted project workaround."
+  ],
+  "solved": "The Windows build no longer emits duplicate `CoreWebView2` definitions from `RcwFallbackInitializer.g.cs` and the workaround is scoped to Windows.",
+  "partial": "The answer identifies the issue family but gives only a broad update/rollback suggestion or applies the property without target-framework scoping.",
+  "sources": ["https://github.com/dotnet/maui/issues/25160"],
+  "verified_with": [
+    "https://github.com/dotnet/maui/issues/25160",
+    "https://github.com/dotnet/maui/issues/25132",
+    "https://raw.githubusercontent.com/microsoft/CsWinRT/master/src/Authoring/WinRT.SourceGenerator/AnalyzerReleases.Shipped.md"
+  ],
+  "notes": "The source thread reports the exact duplicate WebView2 error after VS 17.11.5 and confirms the fallback-generator opt-out as the targeted workaround."
+}

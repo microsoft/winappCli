@@ -1,0 +1,21 @@
+{
+  "id": "c01-console-wasdk-dotnet-msb4062",
+  "description": "A console project that references the Windows App SDK fails under dotnet build with a PRI task load error, based on https://github.com/microsoft/WindowsAppSDK/issues/3548.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I'm experimenting with a tiny .NET console host that opens a WinUI Window, and Visual Studio builds it but `dotnet build` fails. The first error is: `MrtCore.PriGen.targets(913,5): error MSB4062: The \"Microsoft.Build.Packaging.Pri.Tasks.ExpandPriContent\" task could not be loaded from the assembly C:\\Program Files\\dotnet\\sdk\\8.0.206\\Microsoft\\VisualStudio\\v17.0\\AppxPackage\\Microsoft.Build.Packaging.Pri.Tasks.dll`. What is the project missing?",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

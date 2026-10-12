@@ -17,6 +17,7 @@ on:
         options:
           - all
           - cpp-app
+          - cpp-winui-app
           - dotnet-app
           - electron
           - flutter-app
@@ -72,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sample: [cpp-app, dotnet-app, electron, flutter-app, maui-app, node-winui, packaging-cli, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app]
+        sample: [cpp-app, cpp-winui-app, dotnet-app, electron, flutter-app, maui-app, node-winui, packaging-cli, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app]
     runs-on: windows-latest
     name: ${{ matrix.sample }}
 
@@ -145,7 +146,7 @@ jobs:
     - name: Setup Node.js
       if: >-
         steps.check.outputs.skip != 'true' &&
-        contains(fromJson('["electron", "node-winui", "tauri-app", "cpp-app", "dotnet-app", "wpf-app", "sparse-app", "rust-app", "flutter-app", "packaging-cli", "maui-app", "winui-app", "winui-solution", "winui-unpackaged-app"]'), matrix.sample)
+        contains(fromJson('["electron", "node-winui", "tauri-app", "cpp-app", "cpp-winui-app", "dotnet-app", "wpf-app", "sparse-app", "rust-app", "flutter-app", "packaging-cli", "maui-app", "winui-app", "winui-solution", "winui-unpackaged-app"]'), matrix.sample)
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: '22'

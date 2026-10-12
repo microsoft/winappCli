@@ -37,6 +37,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
     public static Option<bool> UnregisterOnExitOption { get; }
     public static Option<bool> DetachOption { get; }
     public static Option<bool> CleanOption { get; }
+    public static Option<bool> UniqueIdentityOption { get; }
     public static Option<bool> SymbolsOption { get; }
     public static Option<string?> ExecutableOption { get; }
 
@@ -62,7 +63,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
     {
         InputArgument = new Argument<FileSystemInfo>("input")
         {
-            Description = "Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory).",
+            Description = "Path to the app to run: a build-output folder, a .cs .NET file-based app, a .csproj or C++ .vcxproj project, a .sln/.slnx solution, or a directory containing one of those at its top level (default: current directory).",
             Arity = ArgumentArity.ZeroOrOne
         };
 
@@ -137,6 +138,11 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         CleanOption = new Option<bool>("--clean")
         {
             Description = "Remove the existing package's application data (LocalState, settings, etc.) before re-deploying. By default, application data is preserved across re-deployments."
+        };
+
+        UniqueIdentityOption = new Option<bool>("--unique-identity")
+        {
+            Description = "Give this checkout its own package identity and execution aliases, derived from its path, so copies of a packaged app in different worktrees can be registered side by side. Your source manifest is not changed. Not supported for unpackaged apps, sparse packages, bundles, manifests with several applications, or apps that register protocols, file types, COM servers, or other system-wide extensions."
         };
 
         SymbolsOption = new Option<bool>("--symbols")
@@ -236,7 +242,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         return true;
     }
 
-    public RunCommand() : base("run", "Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.sln, or a build-output folder. In project mode, invokes dotnet build — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
+    public RunCommand() : base("run", "Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.vcxproj/.sln, or a build-output folder. In project mode, invokes dotnet build (MSBuild for C++ .vcxproj) — or the project's configured Native AOT publish with --aot — then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
     {
         Arguments.Add(InputArgument);
         Arguments.Add(PassthroughArgument);
@@ -251,6 +257,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         Options.Add(UnregisterOnExitOption);
         Options.Add(DetachOption);
         Options.Add(CleanOption);
+        Options.Add(UniqueIdentityOption);
         Options.Add(SymbolsOption);
         Options.Add(ExecutableOption);
         Options.Add(ConfigurationOption);
@@ -288,6 +295,9 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         ILogger<RunCommand> logger,
         PerfCaptureService? perfCaptureService = null) : AsynchronousCommandLineAction
     {
+        private bool _uniqueIdentityRequested;
+        private DevelopmentIdentity? _runIdentity;
+
         // Test seams for the execution-alias launch path. They isolate the two operating-system
         // boundaries — resolving the Windows App Execution Alias proxy location and starting the
         // resolved process — so tests can exercise all of the surrounding validation, debug,
@@ -333,6 +343,9 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             {
                 return await InvokeGuestLaunchAsync(parseResult, cancellationToken);
             }
+
+            _uniqueIdentityRequested = parseResult.GetValue(UniqueIdentityOption);
+            _runIdentity = null;
 
             // input is optional (ArgumentArity.ZeroOrOne). The final FileSystemInfo is resolved
             // below, AFTER the passthrough split, because a bare `winapp run -- <app-arg>` makes the
@@ -619,6 +632,16 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             // behavior is identical to before project mode existed.
             var inputFolder = inputResolution.ProjectDirectory;
 
+            // A folder whose only projects are C++ libraries has nothing to run. Say so instead of the generic
+            // "manifest not found", but only when folder mode has no manifest to use either.
+            if (manifest is null
+                && !FindManifest(inputFolder.FullName).Exists
+                && !FindManifest(currentDirectoryProvider.GetCurrentDirectory()).Exists
+                && ProjectRunService.DescribeCppLibraryOnlyFolder(inputFolder) is { } libraryOnly)
+            {
+                return Fail(libraryOnly, isJson);
+            }
+
             // Breadcrumb: we reached folder mode because no top-level .csproj/.sln/.slnx with a runnable
             // app was found, so the path is treated as a pre-built layout (nothing is built). Without
             // this, a user troubleshooting why a source directory was not built only sees a later
@@ -629,7 +652,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
             if (!isJson && inputFsi is DirectoryInfo && logger.IsEnabled(LogLevel.Debug))
             {
                 ansiConsole.MarkupLineInterpolated(
-                    $"{UiSymbols.Search} No .csproj/.sln/.slnx with a runnable app found in '{inputFolder.FullName}' — running it as a build-output folder.");
+                    $"{UiSymbols.Search} No .csproj/.vcxproj/.sln/.slnx with a runnable app found in '{inputFolder.FullName}' — running it as a build-output folder.");
             }
 
             // Folder mode has no project to evaluate, so console-ness is read from the built binary's PE
@@ -747,6 +770,9 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                     runtimeArch, projectFile, framework, noRestore, selfContained, packageGraph, appxRecipe, cancellationToken);
             }
 
+            // The identity is derived from the project or .cs file when there is one, otherwise the folder.
+            var developmentIdentity = new DevelopmentIdentityOptions(projectFile?.FullName ?? inputFolder.FullName, _uniqueIdentityRequested);
+
             uint processId = 0;
             var resolvedUseAlias = aliasDecision.UseAlias;
             string? packageFamilyName = null;
@@ -836,6 +862,15 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         var probeAlias = declaredAliases.Count > 0
                             ? declaredAliases[0]
                             : ExecutionAliasResolver.BuildDefaultAliasName(probeFamily);
+                        if (developmentIdentity.UniqueIdentity && probeFamily is not null)
+                        {
+                            // Check the renamed alias this run will register, not the original one.
+                            var derived = DevelopmentIdentityHelper.Create(probe, developmentIdentity.OwnerPath);
+                            probeFamily = derived.PackageFamilyName;
+                            probeAlias = declaredAliases.Count > 0
+                                ? DevelopmentIdentityHelper.RenameAlias(declaredAliases[0], derived.PackageName)
+                                : ExecutionAliasResolver.BuildDefaultAliasName(probeFamily);
+                        }
 
                         if (!TryConfirmAliasIsAvailable(effectiveAlias with { AliasName = probeAlias }, probeFamily, isJson))
                         {
@@ -870,9 +905,19 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         effectiveAlias.UseAlias,
                         packageGraph,
                         appxRecipe,
+                        developmentIdentity,
                         cancellationToken);
 
                     resolvedUseAlias = effectiveAlias.UseAlias;
+                    _runIdentity = identityResult.Identity;
+                    if (_runIdentity is { } unique)
+                    {
+                        taskContext.AddStatusMessage($"{UiSymbols.Info} Unique identity: {unique.PackageFamilyName}");
+                        foreach (var (original, renamed) in unique.Aliases)
+                        {
+                            taskContext.AddStatusMessage($"{UiSymbols.Link} Execution alias: {original} -> {renamed}");
+                        }
+                    }
 
                     packageFamilyName = appLauncherService.ComputePackageFamilyName(
                         identityResult.PackageName,
@@ -1106,6 +1151,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 ProcessId = processId,
                 Error = errorMessage,
                 Profile = profileRun?.Result,
+                Identity = _runIdentity,
             };
 
             var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Default.RunCommandResult);
@@ -1537,6 +1583,9 @@ internal sealed class RunCommandResult
     public uint? ProcessId { get; set; }
     public string? Error { get; set; }
     public RunProfileResult? Profile { get; set; }
+
+    /// <summary>The derived identity, for <c>--unique-identity</c> runs only.</summary>
+    public DevelopmentIdentity? Identity { get; set; }
 
     /// <summary>True when the app ran on an execution target rather than on this machine.</summary>
     /// <remarks>

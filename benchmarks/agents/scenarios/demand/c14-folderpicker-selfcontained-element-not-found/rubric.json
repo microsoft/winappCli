@@ -1,0 +1,29 @@
+{
+  "cluster": "c14",
+  "framework": "WinUI3",
+  "goal": "Connect the picker failure to the Windows App SDK preview self-contained single-project packaging resource issue and give a safe fix or workaround.",
+  "must_include": [
+    "Uses the fixture details to identify the failing combination as Windows App SDK 1.8 preview, packaged MSIX, `WindowsAppSDKSelfContained=true`, and the new `Microsoft.Windows.Storage.Pickers.FolderPicker`.",
+    "Mentions the upstream issue was missing packaged PRI/resource files and was fixed in Windows App SDK 1.8 / newer MSIX build tooling.",
+    "Recommends upgrading to a fixed Windows App SDK or directly referencing `Microsoft.Windows.SDK.BuildTools.MSIX` 1.7.20250829.1 or later when staying on the affected preview.",
+    "Gives a workaround such as using a separate packaging project or running unpackaged while waiting for the fixed tooling."
+  ],
+  "must_not": [
+    "Blames the `AppWindow.Id` constructor call as the primary bug in this fixture.",
+    "Suggests adding broad file-system capabilities as the fix for the picker creation exception.",
+    "Tells the developer to run elevated to make the picker work."
+  ],
+  "acceptable_alternatives": [
+    "Move from the preview SDK to the latest stable Windows App SDK that contains the packaging fix.",
+    "Use an external Windows Application Packaging Project until the single-project packaging toolchain is updated.",
+    "Temporarily disable self-contained packaging if that matches the app's deployment needs."
+  ],
+  "solved": "The answer tells the developer to update or work around the affected self-contained single-project packaging toolchain rather than rewriting the picker code.",
+  "partial": "The answer notices the issue is tied to self-contained packaging but does not name an upgrade or packaging workaround.",
+  "sources": ["https://github.com/microsoft/WindowsAppSDK/issues/5749"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/apps/develop/files/using-file-folder-pickers",
+    "https://github.com/microsoft/WindowsAppSDK/issues/5749"
+  ],
+  "notes": "The log intentionally contains only the runtime exception and debug noise; the missing PRI cause is in the source issue comments, not in the fixture log."
+}

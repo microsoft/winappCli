@@ -1,0 +1,7 @@
+<Page x:Class="ContosoReader.LibraryPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:ContosoReader">
+  <ListView ItemsSource="{x:Bind Books}">
+    <ListView.ItemTemplate>
+      <DataTemplate x:DataType="local:Book"><TextBlock Text="{x:Bind Title}" /></DataTemplate>
+    </ListView.ItemTemplate>
+  </ListView>
+</Page>

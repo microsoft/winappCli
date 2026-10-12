@@ -1,6 +1,6 @@
 ---
 name: winui-wpf-migration
-description: "Migrate WPF applications to WinUI 3 — namespace replacement (System.Windows → Microsoft.UI.Xaml), control mapping (DataGrid→ListView, WrapPanel→ItemsRepeater, TabControl→TabView), threading (Dispatcher→DispatcherQueue), imaging (System.Drawing→BitmapImage), MVVM conversion to CommunityToolkit.Mvvm, and DynamicResource→ThemeResource. Use when converting WPF code, replacing WPF namespaces, or fixing migration build errors."
+description: "Migrate or port a WPF app to WinUI 3: namespaces (System.Windows to Microsoft.UI.Xaml), control mapping (DataGrid, WrapPanel, TabControl), Dispatcher to DispatcherQueue, imaging, MVVM with CommunityToolkit.Mvvm, ThemeResource. Use when converting WPF code or fixing migration build errors."
 ---
 
 ### Migration Process

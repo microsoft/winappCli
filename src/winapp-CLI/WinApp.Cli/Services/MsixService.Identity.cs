@@ -118,12 +118,12 @@ internal partial class MsixService
         return new MsixIdentityResult(debugIdentity.PackageName, debugIdentity.Publisher, debugIdentity.ApplicationId);
     }
 
-    public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation = LayoutReconciliation.Additive, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, FileInfo? appxRecipe = null, CancellationToken cancellationToken = default)
-        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Registered, reconciliation, clean, executable, runtimeArch, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, appxRecipe, cancellationToken);
+    public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation = LayoutReconciliation.Additive, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, FileInfo? appxRecipe = null, DevelopmentIdentityOptions? developmentIdentity = null, CancellationToken cancellationToken = default)
+        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Registered, reconciliation, clean, executable, runtimeArch, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, appxRecipe, developmentIdentity, cancellationToken);
 
     /// <inheritdoc/>
-    public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation, string? executable = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, FileInfo? appxRecipe = null, CancellationToken cancellationToken = default)
-        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Materialized, reconciliation, clean: false, executable, runtimeArch: null, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, appxRecipe, cancellationToken);
+    public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation, string? executable = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, FileInfo? appxRecipe = null, DevelopmentIdentityOptions? developmentIdentity = null, CancellationToken cancellationToken = default)
+        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Materialized, reconciliation, clean: false, executable, runtimeArch: null, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, appxRecipe, developmentIdentity, cancellationToken);
 
     /// <summary>How far <see cref="BuildLooseLayoutAsync"/> takes a loose layout.</summary>
     private enum LooseLayoutOutcome
@@ -151,7 +151,7 @@ internal partial class MsixService
     /// to reproduce locally.
     /// </para>
     /// </remarks>
-    private async Task<MsixIdentityResult> BuildLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LooseLayoutOutcome outcome, LayoutReconciliation reconciliation, bool clean, string? executable, string? runtimeArch, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained, bool ensureExecutionAlias, PackageGraphSource? packageGraph, FileInfo? appxRecipe, CancellationToken cancellationToken)
+    private async Task<MsixIdentityResult> BuildLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LooseLayoutOutcome outcome, LayoutReconciliation reconciliation, bool clean, string? executable, string? runtimeArch, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained, bool ensureExecutionAlias, PackageGraphSource? packageGraph, FileInfo? appxRecipe, DevelopmentIdentityOptions? developmentIdentity, CancellationToken cancellationToken)
     {
         // Validate inputs
         if (!appxManifestPath.Exists)
@@ -176,6 +176,16 @@ internal partial class MsixService
         // When MSBuild-generated, the build output includes a .appxrecipe file that
         // lists all files and their correct source paths for the AppX layout.
         var doc = AppxManifestDocument.Parse(manifestContent);
+        // Derived from the source manifest, never the staged copy, so a rerun can't derive twice.
+        DevelopmentIdentity? uniqueIdentity = null;
+        if (developmentIdentity is { UniqueIdentity: true })
+        {
+            doc.ValidateUniqueIdentitySupport();
+            uniqueIdentity = DevelopmentIdentityHelper.Create(doc, developmentIdentity.OwnerPath);
+        }
+
+        var packageName = uniqueIdentity?.PackageName ?? doc.IdentityName;
+
         var isMSBuildGenerated = doc.Document.Root?
             .Element(AppxManifestDocument.BuildNs + "Metadata")?
             .Elements(AppxManifestDocument.BuildNs + "Item")
@@ -187,6 +197,7 @@ internal partial class MsixService
 
             // Snapshot the previous registered manifest BEFORE the copy/sync overwrites it (issue #537).
             var previousManifestBytes = TryReadExistingLayoutManifestBytes(outputAppXDirectory);
+            var previousPackageName = DiscardResourcesFromAnotherIdentity(previousManifestBytes, packageName, outputAppXDirectory, taskContext);
 
             var recipeFile = appxRecipe
                 ?? inputDirectory.EnumerateFiles("*.build.appxrecipe", SearchOption.TopDirectoryOnly).FirstOrDefault();
@@ -223,6 +234,16 @@ internal partial class MsixService
             // through RegisterLooseLayoutPackageAsync's error.
             var registrationManifest = ResolveLayoutRegistrationManifest(outputAppXDirectory);
 
+            if (uniqueIdentity is not null)
+            {
+                var staged = AppxManifestDocument.Load(registrationManifest.FullName);
+                uniqueIdentity = staged.ApplyDevelopmentIdentity(uniqueIdentity);
+                staged.Save(registrationManifest.FullName);
+                registrationManifest.Refresh();
+                await priService.ReindexIdentityAsync(outputAppXDirectory, uniqueIdentity.PackageName, taskContext, cancellationToken);
+                identity = identity with { PackageName = uniqueIdentity.PackageName };
+            }
+
             // Stage the alias into the manifest the recipe just laid down. This branch has its own
             // staging path, so the mutation applied to the raw-manifest branch below does not reach it —
             // without this, a recipe-backed project asking for alias launch registers fine and then fails
@@ -240,7 +261,7 @@ internal partial class MsixService
 
             if (outcome == LooseLayoutOutcome.Materialized)
             {
-                return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId);
+                return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId) { Identity = uniqueIdentity };
             }
 
             // Install the Windows App Runtime framework packages if not already present. Pin the package
@@ -255,13 +276,23 @@ internal partial class MsixService
                 await EnsureWindowsAppRuntimeInstalledAsync(msbuildPackageList, runtimeArch, taskContext, cancellationToken);
             }
 
+            // Install any other framework package the build resolved and the manifest depends on (e.g. the
+            // Debug VCLibs a C++ app needs), as Visual Studio's deploy does. Without it, registration fails
+            // with 0x80073CF3.
+            if (recipeFile is not null)
+            {
+                await InstallRecipeFrameworkPackagesAsync(recipeFile, registrationManifest, runtimeArch, taskContext, cancellationToken);
+            }
+
+            await RemoveRegistrationOfAnotherIdentityAsync(previousPackageName, identity.PackageName, identity.Publisher, outputAppXDirectory, clean, taskContext, cancellationToken);
+
             var skipResult = TrySkipRegistration(
                 identity.PackageName, identity.Publisher, identity.ApplicationId,
                 previousManifestBytes, registrationManifest, outputAppXDirectory,
                 clean, taskContext, cancellationToken);
             if (skipResult is not null)
             {
-                return skipResult;
+                return skipResult with { Identity = uniqueIdentity };
             }
 
             // Unregister any existing package first (preserving app data by default)
@@ -275,7 +306,7 @@ internal partial class MsixService
             // Register from the AppX layout directory
             await RegisterLooseLayoutPackageAsync(registrationManifest, taskContext, cancellationToken);
 
-            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId);
+            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId) { Identity = uniqueIdentity };
         }
 
         // --- Non-MSBuild manifest path (raw Package.appxmanifest with unresolved placeholders) ---
@@ -287,6 +318,7 @@ internal partial class MsixService
 
         // Snapshot the previously-registered manifest BEFORE Sync overwrites it (issue #537).
         var previousRawManifestBytes = TryReadExistingLayoutManifestBytes(outputAppXDirectory);
+        var previousRawPackageName = DiscardResourcesFromAnotherIdentity(previousRawManifestBytes, packageName, outputAppXDirectory, taskContext);
 
         SyncFilesToOutputDirectory(inputDirectory, outputAppXDirectory, appxManifestPath, taskContext, reconciliation);
 
@@ -373,6 +405,13 @@ internal partial class MsixService
             sparse: false, selfContained,
             dotNetPackageList, taskContext, cancellationToken);
 
+        if (uniqueIdentity is not null)
+        {
+            var staged = AppxManifestDocument.Parse(manifestContent);
+            uniqueIdentity = staged.ApplyDevelopmentIdentity(uniqueIdentity);
+            manifestContent = staged.ToXml();
+            await priService.ReindexIdentityAsync(outputAppXDirectory, uniqueIdentity.PackageName, taskContext, cancellationToken);
+        }
         // Give the app an execution alias when it needs one to reach this terminal and does not author one
         // itself. This edits the manifest STAGED in the AppX layout, never the one the user checked in —
         // the alias is a launch mechanism winapp chose, so it should not appear in their source tree.
@@ -405,7 +444,7 @@ internal partial class MsixService
 
             if (outcome == LooseLayoutOutcome.Materialized)
             {
-                return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId);
+                return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId) { Identity = uniqueIdentity };
             }
 
             // Install the Windows App Runtime framework packages if not already present. A self-contained
@@ -416,13 +455,15 @@ internal partial class MsixService
             }
 
             // See MSBuild branch above for the rationale (issue #537).
+            await RemoveRegistrationOfAnotherIdentityAsync(previousRawPackageName, identity.PackageName, identity.Publisher, outputAppXDirectory, clean, taskContext, cancellationToken);
+
             var skipResult = TrySkipRegistration(
                 identity.PackageName, identity.Publisher, identity.ApplicationId,
                 previousRawManifestBytes, copiedAppxManifestPath, outputAppXDirectory,
                 clean, taskContext, cancellationToken);
             if (skipResult is not null)
             {
-                return skipResult;
+                return skipResult with { Identity = uniqueIdentity };
             }
 
             // Unregister any existing package first (preserving app data by default)
@@ -436,7 +477,7 @@ internal partial class MsixService
             // Register the new debug manifest with external location
             await RegisterLooseLayoutPackageAsync(copiedAppxManifestPath, taskContext, cancellationToken);
 
-            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId);
+            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId) { Identity = uniqueIdentity };
         }
     }
 
@@ -546,7 +587,9 @@ internal partial class MsixService
 
         foreach (var entry in rawEntries)
         {
-            var sourcePath = entry.Attribute("Include")?.Value;
+            // MSBuild writes item specs escaped, e.g. "Program Files %28x86%29" for the Debug CRT.
+            var rawSourcePath = entry.Attribute("Include")?.Value;
+            var sourcePath = rawSourcePath is null ? null : Uri.UnescapeDataString(rawSourcePath);
             var rawPackagePath = entry.Element(msbuildNs + "PackagePath")?.Value;
 
             if (string.IsNullOrWhiteSpace(rawPackagePath))
@@ -635,6 +678,123 @@ internal partial class MsixService
     /// winapp never put there and cannot recognize, so it is only ever copied into.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Framework packages (<c>ResolvedSDKReference</c> items with a <c>FrameworkIdentity</c>) the build
+    /// recipe lists for <paramref name="architecture"/>, with the package file MSBuild resolved for each.
+    /// </summary>
+    internal static List<(string Name, Version Version, string PackagePath)> ReadRecipeFrameworkPackages(FileInfo recipeFile, string architecture)
+    {
+        System.Xml.Linq.XDocument recipe;
+        try
+        {
+            recipe = System.Xml.Linq.XDocument.Load(recipeFile.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return [];
+        }
+
+        System.Xml.Linq.XNamespace msbuildNs = "http://schemas.microsoft.com/developer/msbuild/2003";
+        var arch = NormalizeRecipeArchitecture(architecture);
+        return recipe.Descendants(msbuildNs + "ResolvedSDKReference")
+            .Where(e => e.Element(msbuildNs + "FrameworkIdentity") is not null
+                && NormalizeRecipeArchitecture(e.Element(msbuildNs + "Architecture")?.Value) == arch)
+            .Select(e => (
+                Name: e.Element(msbuildNs + "Name")?.Value.Trim() ?? string.Empty,
+                Version: Version.TryParse(e.Element(msbuildNs + "Version")?.Value, out var v) ? v : null,
+                Location: Uri.UnescapeDataString(e.Element(msbuildNs + "AppxLocation")?.Value ?? string.Empty)))
+            .Where(f => f.Name.Length > 0 && f.Version is not null && Path.IsPathFullyQualified(f.Location))
+            .Select(f => (f.Name, f.Version!, Path: LocalRecipePackagePath(f.Location)))
+            .Where(f => f.Path is not null)
+            .Select(f => (f.Name, f.Item2, f.Path!))
+            .DistinctBy(f => f.Item3, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// The recipe is a build output that can be committed or crafted, and probing a network location would send
+    /// the user's credentials to that host. Returns the normalized local path, or null for anything on a network
+    /// share, a mapped network drive, or behind a link to one. Normalizes without <see cref="Path.GetFullPath(string)"/>,
+    /// which expands 8.3 names (<c>A~1</c>) by querying the target and would reach a UNC host before any check.
+    /// </summary>
+    private static string? LocalRecipePackagePath(string location)
+    {
+        var normalized = PathSafety.NormalizeLocalPathWithoutProbing(location);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        // Drop the \\?\ prefix the normalizer adds to a drive path, for the package installer and messages.
+        var isDrivePath = normalized.StartsWith(@"\\?\", StringComparison.Ordinal) && normalized.Length > 6 && normalized[5] == ':';
+        var local = isDrivePath ? normalized[4..] : normalized;
+
+        // Only the bare drive root (e.g. "Z:\") goes to the drive-type check: it recognizes plain drive letters, and
+        // a root has no 8.3 name to expand, so checking it can't touch a mapped share.
+        if ((isDrivePath && PathSafety.IsNetworkDriveRoot(local[..3])) || PathSafety.RedirectsToNetwork(normalized))
+        {
+            return null;
+        }
+
+        return local;
+    }
+
+    private static string NormalizeRecipeArchitecture(string? architecture) =>
+        architecture?.Trim().ToLowerInvariant() switch
+        {
+            "win32" => "x86",
+            var a => a ?? string.Empty,
+        };
+
+    private async Task InstallRecipeFrameworkPackagesAsync(FileInfo recipeFile, FileInfo registrationManifest, string? runtimeArch, TaskContext taskContext, CancellationToken cancellationToken)
+    {
+        // Read the staged manifest that will be registered: the recipe can replace the input manifest.
+        AppxManifestDocument manifest;
+        try
+        {
+            manifest = AppxManifestDocument.Parse(await File.ReadAllTextAsync(registrationManifest.FullName, Encoding.UTF8, cancellationToken));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return;
+        }
+
+        var architecture = manifest.IdentityProcessorArchitecture ?? runtimeArch;
+        if (string.IsNullOrWhiteSpace(architecture))
+        {
+            return;
+        }
+
+        // Only frameworks the app actually depends on: a self-contained app's recipe still lists the
+        // Windows App Runtime, but its manifest doesn't reference it.
+        foreach (var (name, version, packagePath) in ReadRecipeFrameworkPackages(recipeFile, architecture)
+                     .Where(f => manifest.HasPackageDependency(f.Name)))
+        {
+            if (Version.TryParse(packageRegistrationService.GetInstalledVersion(name, NormalizeRecipeArchitecture(architecture)), out var installed)
+                && installed >= version)
+            {
+                continue;
+            }
+
+            if (!File.Exists(packagePath))
+            {
+                taskContext.AddDebugMessage($"{UiSymbols.Warning} Framework package {name} {version} was not found at '{packagePath}'.");
+                continue;
+            }
+
+            taskContext.AddStatusMessage($"{UiSymbols.Package} Installing framework package {name} {version}...");
+            try
+            {
+                await packageRegistrationService.InstallPackageAsync(packagePath, forceApplicationShutdown: false, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Registration reports the missing dependency itself; keep the install failure visible.
+                taskContext.AddStatusMessage($"{UiSymbols.Warning} Could not install framework package {name}: {ex.Message}");
+            }
+        }
+    }
+
     private static async Task CopyFilesFromRecipeAsync(
         FileInfo recipeFile,
         DirectoryInfo outputDir,
@@ -1217,6 +1377,61 @@ internal partial class MsixService
         }
 
         RemoveCompetingLayoutManifests(outputAppXDirectory, taskContext);
+    }
+
+    /// <summary>
+    /// Returns the package name the layout last held when it differs from <paramref name="packageName"/>
+    /// (a switch to or from <c>--unique-identity</c>, or an edited <c>Identity/@Name</c>), and deletes
+    /// the layout's <c>resources.pri</c> because it was indexed for that other name. Staging copies the
+    /// build's own PRI back, or generates a new one.
+    /// </summary>
+    private static string? DiscardResourcesFromAnotherIdentity(byte[]? previousManifest, string? packageName, DirectoryInfo layout, TaskContext taskContext)
+    {
+        string? previousName;
+        try
+        {
+            previousName = previousManifest is null ? null : AppxManifestDocument.Parse(Encoding.UTF8.GetString(previousManifest)).IdentityName;
+        }
+        catch (System.Xml.XmlException)
+        {
+            return null;
+        }
+        if (previousName is null || packageName is null || string.Equals(previousName, packageName, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var pri = new FileInfo(Path.Join(layout.FullName, "resources.pri"));
+        if (pri.Exists)
+        {
+            pri.Delete();
+            taskContext.AddDebugMessage($"{UiSymbols.Trash} Removed resources.pri indexed for {previousName}");
+        }
+        return previousName;
+    }
+
+    /// <summary>
+    /// Removes the development package this layout was registered under before its identity changed.
+    /// Only a registration from this exact layout is removed, so another checkout's copy is left alone.
+    /// </summary>
+    private async Task RemoveRegistrationOfAnotherIdentityAsync(
+        string? previousName, string packageName, string publisher, DirectoryInfo layout, bool clean, TaskContext taskContext, CancellationToken cancellationToken)
+    {
+        if (previousName is null || string.Equals(previousName, packageName, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var layoutPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(layout.FullName));
+        var registeredHere = packageRegistrationService.FindDevPackages(previousName).Where(package =>
+            package.IsDevelopmentMode && package.InstallLocation is { Length: > 0 } location
+            && string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(location)), layoutPath, StringComparison.OrdinalIgnoreCase)
+            && (package.Publisher is null || string.Equals(package.Publisher, publisher, StringComparison.OrdinalIgnoreCase)));
+        foreach (var package in registeredHere)
+        {
+            taskContext.AddDebugMessage($"{UiSymbols.Trash} Removing {package.FullName}, which this layout was registered as before");
+            await packageRegistrationService.UnregisterByFullNameAsync(package.FullName, preserveAppData: !clean, cancellationToken);
+        }
     }
 
     /// <summary>

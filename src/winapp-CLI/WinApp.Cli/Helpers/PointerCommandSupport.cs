@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.CommandLine;
 using Microsoft.Extensions.Logging;
+using WinApp.Cli.Commands;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
 
@@ -14,6 +16,7 @@ internal static class PointerCommandSupport
     public static async Task<ResolvedPoint> ResolvePointAsync(
         IUiAutomation uiAutomation,
         IUiSelectorParser selectorParser,
+        ParseResult parseResult,
         UiTarget uiTarget,
         string? selectorStr,
         PointerPoint? explicitPoint,
@@ -29,8 +32,8 @@ internal static class PointerCommandSupport
             return new ResolvedPoint(true, explicitPoint.Value, uiTarget.WindowHandle, explicitLabel);
         }
 
-        var selector = selectorParser.Parse(selectorStr!);
-        var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
+        var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr!);
+        var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
         if (element is null)
         {
             UiErrors.ElementNotFound(logger, selectorStr!, json);
@@ -50,7 +53,8 @@ internal static class PointerCommandSupport
 
         var stable = await GestureTargeting.ResolveStableAsync(
             uiAutomation, uiTarget, selector, element,
-            GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken);
+            GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken,
+            requireUnique: UiQueryOptions.HasFilters(parseResult));
         if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr!, action))
         {
             return default;

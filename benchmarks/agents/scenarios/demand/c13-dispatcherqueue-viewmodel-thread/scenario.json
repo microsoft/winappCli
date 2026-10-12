@@ -1,0 +1,10 @@
+{
+  "id": "c13-dispatcherqueue-viewmodel-thread",
+  "description": "A WinUI 3 developer needs the UI DispatcherQueue from a view model after coming from WPF Dispatcher, based on https://stackoverflow.com/questions/69885338/how-to-get-dispatcherqueue-in-winui-3-desktop-using-windows-app-sdk.",
+  "set": "demand",
+  "cohort": "implicit",
+  "prompt": "In WPF I could get Dispatcher from almost any control. In this WinUI 3 app my view model starts background work and then DispatcherQueue.GetForCurrentThread() is null, so the status text update never runs. What's the right pattern?",
+  "configurations": ["none", "winapp", "winui", "both"],
+  "fixture": "fixture",
+  "expect": { "capabilities": { "primary": [], "acceptable": [], "forbid": [] } }
+}

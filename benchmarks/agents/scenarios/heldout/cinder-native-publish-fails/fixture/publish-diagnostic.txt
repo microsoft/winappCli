@@ -1,0 +1,4 @@
+Debug configuration completes.
+Release native compilation stops at ChartCodec.Encode.
+IL3050: Using member 'System.Text.Json.JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)' which has 'RequiresDynamicCodeAttribute' can break functionality when AOT compiling.
+WarningsAsErrors promotes IL3050 to a failure.

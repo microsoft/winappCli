@@ -1,0 +1,5 @@
+HTTP Error 500.30 - ASP.NET Core app failed to start
+System.InvalidOperationException: ConnectionStrings:LedgerDb is required.
+Environment: Production
+IIS application pool: RedwoodGate
+Startup reads configuration before accepting requests.

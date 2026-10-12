@@ -1,0 +1,21 @@
+{
+  "id": "c25-clickonce-webview2loader-dll",
+  "description": "A WPF ClickOnce deployment crashes with `DllNotFoundException` because WebView2Loader.dll is not installed with the app, based on https://stackoverflow.com/questions/71265161/webview2-works-in-debug-but-not-when-published-with-clickonce.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "WebView2 works when I debug the WPF app, but the ClickOnce-installed app crashes as soon as the browser view opens. I can see `WebView2Loader.dll` next to the publish output, but it is not in the final install folder.\n\n```\nException Info: System.DllNotFoundException: Dll was not found.\n   at Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateCoreWebView2EnvironmentWithOptions(...)\n   at Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(...)\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

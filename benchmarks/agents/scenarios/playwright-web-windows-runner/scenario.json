@@ -1,0 +1,22 @@
+{
+  "id": "playwright-web-windows-runner",
+  "description": "Trap: Playwright web tests on a Windows CI runner are not desktop UI automation.",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "Our Playwright tests for the web dashboard should also run on windows-latest. Update the workflow.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

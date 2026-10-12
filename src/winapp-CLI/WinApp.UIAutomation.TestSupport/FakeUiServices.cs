@@ -15,6 +15,8 @@ public class FakeUiAutomationService : IUiAutomation
     public Exception? FindUniqueThrow { get; set; }
     public List<bool> FindSingleRequireUniqueCalls { get; } = [];
     public List<UiSelector> Queries { get; } = [];
+    public List<UiTarget> QueryTargets { get; } = [];
+    public Action? OnFindSingle { get; set; }
 
     /// <summary>
     /// Optional per-call results for <see cref="FindSingleElementAsync"/>. When non-empty, the first
@@ -164,9 +166,17 @@ public class FakeUiAutomationService : IUiAutomation
         return FindSingleElementAsync(uiTarget, selector, ct);
     }
 
+    public bool IsSameElement(UiElement selected, UiElement current, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return ReferenceEquals(selected, current);
+    }
+
     public Task<UiElement?> FindSingleElementAsync(UiTarget uiTarget, UiSelector selector, CancellationToken ct)
     {
+        OnFindSingle?.Invoke();
         Queries.Add(selector);
+        QueryTargets.Add(uiTarget);
         if (FindSingleElementThrowException is not null) { throw FindSingleElementThrowException; }
         if (FindSingleThrow is not null) { throw FindSingleThrow; }
         if (FindSingleThrowCount > 0)
@@ -570,7 +580,11 @@ public sealed class FakeSystemUiQuery : ISystemUiQuery
     public uint GetProcessIdForWindow(long hwnd)
         => ProcessIdByHwnd.TryGetValue(hwnd, out var pid) ? pid : ProcessIdForWindowResult;
 
-    public string? GetWindowText(long hwnd) => WindowTextResult;
+    /// <summary>Per-HWND titles for <see cref="GetWindowText"/>; unmapped handles fall back to <see cref="WindowTextResult"/>.</summary>
+    public Dictionary<long, string?> WindowTextByHwnd { get; } = [];
+
+    public string? GetWindowText(long hwnd)
+        => WindowTextByHwnd.TryGetValue(hwnd, out var text) ? text : WindowTextResult;
 
     public (int Width, int Height) GetWindowSize(long hwnd)
         => WindowSizeByHwnd.TryGetValue(hwnd, out var size) ? size : (0, 0);
@@ -586,6 +600,12 @@ public sealed class FakeSystemUiQuery : ISystemUiQuery
 
     public long GetRootWindow(long hwnd)
         => RootWindowByHwnd.TryGetValue(hwnd, out var root) ? root : hwnd;
+
+    /// <summary>Per-PID ApplicationFrameHost frames for <see cref="FindHostedAppFrames"/>. Unmapped PIDs host none.</summary>
+    public Dictionary<int, List<long>> HostedFramesByPid { get; } = [];
+
+    public IReadOnlyList<long> FindHostedAppFrames(int pid)
+        => HostedFramesByPid.TryGetValue(pid, out var frames) ? frames : [];
 }
 
 /// <summary>

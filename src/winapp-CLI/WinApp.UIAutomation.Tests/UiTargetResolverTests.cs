@@ -118,7 +118,7 @@ public class UiSessionServiceTests
     public async Task ResolveByPid_Found_NoWindows_UsesMainWindowTitle()
     {
         var (service, uia, sys) = NewService();
-        sys.ProcessesById[500] = new UiProcessInfo(500, "myapp", 0, "Main Title");
+        sys.ProcessesById[500] = new UiProcessInfo(500, "myapp", 0x50, "Main Title");
         uia.WindowsByPidResult = []; // no discoverable windows
 
         var uiTarget = await service.ResolveAsync(app: "500", hwnd: null, CancellationToken.None);
@@ -134,12 +134,174 @@ public class UiSessionServiceTests
     public async Task ResolveByPid_Found_NoWindows_EmptyMainTitle_YieldsNullTitle()
     {
         var (service, uia, sys) = NewService();
-        sys.ProcessesById[501] = new UiProcessInfo(501, "myapp", 0, "");
+        sys.ProcessesById[501] = new UiProcessInfo(501, "myapp", 0x51, "");
         uia.WindowsByPidResult = [];
 
         var uiTarget = await service.ResolveAsync(app: "501", hwnd: null, CancellationToken.None);
 
         Assert.IsNull(uiTarget.WindowTitle);
+    }
+
+    [TestMethod]
+    public async Task ResolveByPid_NoWindowYet_KeepsProcessTarget()
+    {
+        // An app that is still starting has no window yet; wait-for polls the process until one appears.
+        var (service, uia, sys) = NewService();
+        sys.ProcessesById[502] = new UiProcessInfo(502, "CalculatorApp", 0, "");
+        uia.WindowsByPidResult = [];
+        uia.WindowsByTitleResult = [((nint)0x77, 999, "502 unrelated")];
+        sys.WindowClassNameByHwnd[0x77] = "ApplicationFrameWindow";
+
+        var uiTarget = await service.ResolveAsync(app: "502", hwnd: null, CancellationToken.None);
+
+        Assert.AreEqual(502, uiTarget.ProcessId, "A PID never falls back to a title match.");
+        Assert.AreEqual(0L, (long)uiTarget.WindowHandle);
+        Assert.IsFalse(uiTarget.IsExplicitWindow);
+    }
+
+    // ---- Hosted (ApplicationFrameHost) apps -------------------------------
+
+    private static FakeSystemUiQuery SeedHostedCalculator(FakeSystemUiQuery sys)
+    {
+        // CalculatorApp (PID 880) owns no top-level window; ApplicationFrameHost (PID 882) owns the
+        // frame 0x302 that hosts its CoreWindow. The title is localized, so it never matches "-a".
+        sys.HostedFramesByPid[880] = [0x302];
+        sys.ProcessIdByHwnd[0x302] = 882;
+        sys.WindowTextByHwnd[0x302] = "Calculatrice";
+        sys.ProcessesById[882] = new UiProcessInfo(882, "ApplicationFrameHost", 0x302, "Calculatrice");
+        return sys;
+    }
+
+    private static void AssertHostedFrameTarget(UiTarget uiTarget)
+    {
+        Assert.AreEqual(0x302L, uiTarget.WindowHandle, "The frame hosting the process must be used.");
+        Assert.AreEqual(882, uiTarget.ProcessId);
+        Assert.AreEqual("Calculatrice", uiTarget.WindowTitle);
+        Assert.IsTrue(uiTarget.IsExplicitWindow,
+            "A frame target must stay in its window: ApplicationFrameHost also owns every other packaged app's frame.");
+    }
+
+    [TestMethod]
+    public async Task ResolveByExactName_ProcessWithoutWindow_UsesHostingFrame()
+    {
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys).ByNameResult = [new UiProcessInfo(880, "CalculatorApp", 0, "")];
+        uia.WindowsByPidResult = [];
+
+        AssertHostedFrameTarget(await service.ResolveAsync(app: "CalculatorApp", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveByExactName_TwoHostedInstances_AsksToDisambiguate()
+    {
+        // Two Calculators: neither process has a main window, but each has its own hosting frame.
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys);
+        sys.HostedFramesByPid[881] = [0x304];
+        sys.WindowTextByHwnd[0x304] = "Calculatrice";
+        sys.ByNameResult =
+        [
+            new UiProcessInfo(880, "CalculatorApp", 0, ""),
+            new UiProcessInfo(881, "CalculatorApp", 0, ""),
+        ];
+        uia.WindowsByPidResult = [];
+
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => service.ResolveAsync(app: "CalculatorApp", hwnd: null, CancellationToken.None));
+
+        StringAssert.Contains(ex.Message, "Multiple 'CalculatorApp' windows found");
+        StringAssert.Contains(ex.Message, "PID 880: \"Calculatrice\"");
+        StringAssert.Contains(ex.Message, "PID 881: \"Calculatrice\"");
+    }
+
+    [TestMethod]
+    public async Task ResolveByExactName_OneHostedInstanceAmongWindowless_UsesItsFrame()
+    {
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys).ByNameResult =
+        [
+            new UiProcessInfo(879, "CalculatorApp", 0, ""), // suspended/background: no frame
+            new UiProcessInfo(880, "CalculatorApp", 0, ""),
+        ];
+        uia.WindowsByPidResult = [];
+
+        AssertHostedFrameTarget(await service.ResolveAsync(app: "CalculatorApp", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveByPid_ProcessWithoutWindow_UsesHostingFrame()
+    {
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys).ProcessesById[880] = new UiProcessInfo(880, "CalculatorApp", 0, "");
+        uia.WindowsByPidResult = [];
+
+        AssertHostedFrameTarget(await service.ResolveAsync(app: "880", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveByPartialName_ProcessWithoutWindow_UsesHostingFrameNotTitleMatches()
+    {
+        var (service, uia, sys) = NewService();
+        SeedHostedCalculator(sys).MatchingResult = [new UiProcessInfo(880, "CalculatorApp", 0, "")];
+        uia.WindowsByPidResult = [];
+        // Another packaged app's frame titled like the input must not win over the hosting frame.
+        uia.WindowsByTitleResult = [((nint)0x303, 882, "Calculator notes")];
+        sys.WindowClassNameByHwnd[0x303] = "ApplicationFrameWindow";
+
+        AssertHostedFrameTarget(await service.ResolveAsync(app: "calculator", hwnd: null, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveByName_ProcessWithoutWindow_IgnoresTitleMatches()
+    {
+        // While "myapp" starts it has no window; title matches (even frames) belong to other apps.
+        var (service, uia, sys) = NewService();
+        sys.ByNameResult = [new UiProcessInfo(890, "myapp", 0, null)];
+        uia.WindowsByPidResult = [];
+        uia.WindowsByTitleResult =
+        [
+            ((nint)0x501, 999, "myapp - Visual Studio Code"),
+            ((nint)0x502, 998, "myapp"),
+        ];
+        sys.WindowClassNameByHwnd[0x501] = "Chrome_WidgetWin_1";
+        sys.WindowClassNameByHwnd[0x502] = "ApplicationFrameWindow";
+
+        var uiTarget = await service.ResolveAsync(app: "myapp", hwnd: null, CancellationToken.None);
+
+        Assert.AreEqual(890, uiTarget.ProcessId);
+        Assert.AreEqual(0L, (long)uiTarget.WindowHandle);
+    }
+
+    [TestMethod]
+    public async Task ResolveByTitle_NoProcess_PrefersAppFrame()
+    {
+        var (service, uia, sys) = NewService();
+        uia.WindowsByTitleResult =
+        [
+            ((nint)0x301, 881, "calculator.cs - Editor"),
+            ((nint)0x302, 882, "Calculator"),
+        ];
+        sys.WindowClassNameByHwnd[0x301] = "Chrome_WidgetWin_1";
+        sys.WindowClassNameByHwnd[0x302] = "ApplicationFrameWindow";
+        sys.DefaultProcessById = new UiProcessInfo(0, "ApplicationFrameHost", 0, null);
+
+        var uiTarget = await service.ResolveAsync(app: "calculator", hwnd: null, CancellationToken.None);
+
+        Assert.AreEqual(0x302L, uiTarget.WindowHandle, "The ApplicationFrameWindow must win over other title matches.");
+        Assert.IsTrue(uiTarget.IsExplicitWindow);
+    }
+
+    [TestMethod]
+    public async Task ResolveByTitle_PlainWindows_AreNotMarkedExplicit()
+    {
+        var (service, uia, sys) = NewService();
+        uia.WindowsByTitleResult = [((nint)0x401, 910, "Doc")];
+        sys.WindowClassNameByHwnd[0x401] = "Notepad";
+        sys.DefaultProcessById = new UiProcessInfo(0, "notepad", 0, null);
+
+        var uiTarget = await service.ResolveAsync(app: "Doc", hwnd: null, CancellationToken.None);
+
+        Assert.IsFalse(uiTarget.IsExplicitWindow);
     }
 
     [TestMethod]
@@ -197,7 +359,7 @@ public class UiSessionServiceTests
     public async Task ResolveByName_ExactSingle_ReturnsProcess()
     {
         var (service, uia, sys) = NewService();
-        sys.ByNameResult = [new UiProcessInfo(800, "calc", 0, null)];
+        sys.ByNameResult = [new UiProcessInfo(800, "calc", 0x80, null)];
         uia.WindowsByPidResult = [];
 
         var uiTarget = await service.ResolveAsync(app: "calc", hwnd: null, CancellationToken.None);
@@ -251,7 +413,7 @@ public class UiSessionServiceTests
             new UiProcessInfo(830, "xy", 0, null),
             new UiProcessInfo(831, "xy", 0, ""),
         ];
-        sys.MatchingResult = [new UiProcessInfo(832, "xyz", 0, null)];
+        sys.MatchingResult = [new UiProcessInfo(832, "xyz", 0x83, null)];
         uia.WindowsByPidResult = [];
 
         var uiTarget = await service.ResolveAsync(app: "xy", hwnd: null, CancellationToken.None);

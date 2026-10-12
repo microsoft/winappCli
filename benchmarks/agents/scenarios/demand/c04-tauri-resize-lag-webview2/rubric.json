@@ -1,0 +1,29 @@
+{
+  "cluster": "c04",
+  "framework": "Tauri",
+  "goal": "Point the developer toward known Windows WebView2/Tauri resize performance causes and practical mitigations instead of profiling the tiny web page first.",
+  "must_include": [
+    "Uses the Windows-only behavior, old WebView2 108, Tauri 1.2.x, and transparent borderless window as evidence that the shell/WebView resize path is suspect.",
+    "Recommends testing on current Tauri/WebView2 runtime versions because the source issue reports the behavior became much smoother with later WebView2/Tauri changes.",
+    "Suggests reducing or retesting transparent/window-effect/titlebar customizations on Windows because they can worsen resize/drag performance.",
+    "If offering the small resize-delay workaround, presents it as a temporary mitigation to validate the issue rather than as the preferred permanent fix."
+  ],
+  "must_not": [
+    "Tell the developer to rewrite the frontend framework before checking the shell/WebView2 path.",
+    "Claim this is Linux-related when the fixture says Linux is smooth.",
+    "Recommend disabling hardware acceleration as the only solution without acknowledging WebView2/Tauri version and window-effect factors."
+  ],
+  "acceptable_alternatives": [
+    "Create a minimal Tauri repro with and without transparency/decorations to isolate the window effect.",
+    "Compare against a current Tauri 2 project and the latest Evergreen WebView2 runtime before changing app UI code."
+  ],
+  "solved": "The answer identifies the Windows Tauri/WebView2 resize path and gives update plus configuration/temporary mitigation steps.",
+  "partial": "The answer says to profile resize performance but does not connect the symptoms to Tauri/WebView2/window transparency evidence.",
+  "sources": ["https://github.com/tauri-apps/tauri/issues/6322"],
+  "verified_with": [
+    "https://github.com/tauri-apps/tauri/issues/6322",
+    "https://v2.tauri.app/reference/javascript/api/namespacewindow/#onresized",
+    "https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution"
+  ],
+  "notes": "The issue ultimately closed after later WebView2/Tauri behavior improved; older Tauri 1.x projects may still need configuration workarounds."
+}

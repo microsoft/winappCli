@@ -13,11 +13,13 @@ namespace WinApp.Cli.ExecutionTargets.WindowsSandbox;
 /// <c>wsb connect</c> process that asked for it. That parentage is what makes ownership provable:
 /// a client whose parent is this launcher is the one winapp asked for, and a client whose parent is
 /// anything else belongs to another caller — a distinction that holds however the two connects
-/// happen to be interleaved.
+/// happen to be interleaved. When winapp opens a new Sandbox it launches the client itself, and then
+/// the launcher <em>is</em> the client.
 /// </remarks>
 /// <param name="LauncherProcessId">
-/// The <c>wsb connect</c> process winapp started. Valid only while the attempt that produced it is
-/// undisposed, which is what keeps Windows from recycling the number underneath the comparison.
+/// The <c>wsb connect</c> or client process winapp started. Valid only while the attempt that
+/// produced it is undisposed, which is what keeps Windows from recycling the number underneath the
+/// comparison.
 /// </param>
 /// <param name="StartTicksUtc">
 /// UTC ticks that launcher started. A process ID alone is a reusable number, and the parent ID
@@ -65,6 +67,14 @@ internal sealed class SandboxConnectAttempt : IDisposable
     /// Placement started as soon as the caller received this attempt, if exact ownership was available.
     /// </summary>
     internal Task<SandboxClientWindow?>? Placement { get; set; }
+
+    /// <summary>
+    /// Whether the client winapp launched directly showed Windows Sandbox's error page, such as "Only
+    /// one running instance of Windows Sandbox is allowed", while no other Sandbox window was open.
+    /// The Sandbox that won the singleton then has no window at all, as when started by
+    /// <c>wsb start</c>.
+    /// </summary>
+    internal bool LostToWindowlessSandbox { get; set; }
 
     /// <summary>Wraps a launched connect process, keeping its ID reserved.</summary>
     /// <remarks>

@@ -1,0 +1,10 @@
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+ xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+ IgnorableNamespaces="uap">
+ <Identity Name="Meadow.Relay" Publisher="CN=Meadow Communications" Version="3.0.0.0" ProcessorArchitecture="x64" />
+ <Properties><DisplayName>Meadow Relay</DisplayName><PublisherDisplayName>Meadow Communications</PublisherDisplayName><Logo>Badge.png</Logo></Properties>
+ <Resources><Resource Language="en-us" /></Resources>
+ <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
+ <Applications><Application Id="Relay" Executable="MeadowRelay.exe" EntryPoint="Windows.FullTrustApplication"><uap:VisualElements DisplayName="Meadow Relay" Description="Messaging" Square150x150Logo="Tile.png" Square44x44Logo="Badge.png" BackgroundColor="transparent" /></Application></Applications>
+ <Capabilities><Capability Name="internetClient" /></Capabilities>
+</Package>

@@ -496,6 +496,33 @@ public class TargetSelectionParserTests : BaseCommandTests
     }
 
     /// <summary>
+    /// Help and the CLI schema describe a command without executing it, so they run here even when
+    /// --on names another target; otherwise `ui invoke --on sandbox --help` prepares a Sandbox.
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("winapp ui invoke", "ui", "invoke", "--on=sandbox", "--help")]
+    [DataRow("\"name\": \"invoke\"", "ui", "invoke", "--on=sandbox", "--cli-schema")]
+    [DataRow("Description:", "init", "--on=sandbox", "--help")]
+    public async Task HelpWithASelector_PrintsLocally(string expected, params string[] args)
+    {
+        var (stdout, stderr, exitCode) = await InvokeProgramAsync(args);
+
+        Assert.AreEqual(0, exitCode, stderr);
+        StringAssert.Contains(stdout, expected);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(stderr), stderr);
+    }
+
+    [TestMethod]
+    public void RealCommandWithASelector_IsNotTreatedAsHelp()
+    {
+        var parsed = Parse(["ui", "status", "--on=sandbox"]);
+
+        Assert.IsFalse(Program.IsDescriptiveAction(parsed));
+        Assert.IsTrue(ExecutionTargetUiRouter.ShouldRoute(parsed));
+    }
+
+    /// <summary>
     /// An option-looking positional is caught even when the selector itself is fine, so the target
     /// is never prepared for a command line that was going to fail anyway.
     /// </summary>

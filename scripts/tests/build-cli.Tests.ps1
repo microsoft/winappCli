@@ -505,6 +505,14 @@ Describe 'build-cli.ps1 control flow' {
         $result.Trace | Should -Match 'package-msix 1.2.3.17 Stable=True'
     }
 
+    It 'stamps plugin versions with the flags start-release.ps1 uses' {
+        # start-release.ps1 builds with exactly these flags after it writes version.json.
+        $result = Invoke-BuildFixture $root -Flags @{ SkipTests = $true; SkipNpm = $true; SkipMsix = $true }
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $result.Calls.Name | Should -Contain 'generate-llm-docs'
+    }
+
     It 'fails the build when live schema generation fails instead of reporting success' {
         $result = Invoke-BuildFixture $root -Flags @{ SkipTests = $true } -Fail 'generate-llm-docs'
         $result.ExitCode | Should -Not -Be 0

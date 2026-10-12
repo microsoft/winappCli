@@ -1,0 +1,7 @@
+Window: Silverfin Album
+Process: SilverfinAlbum.exe
+  Pane Name=Photo deck AutomationId=PhotoDeck
+    ControlType=Unknown LocalizedControlType=flip view
+    SupportedPatterns=Selection,Scroll
+    Button Name=Previous photo AutomationId=PreviousPhoto
+    Button Name=Next photo AutomationId=NextPhoto

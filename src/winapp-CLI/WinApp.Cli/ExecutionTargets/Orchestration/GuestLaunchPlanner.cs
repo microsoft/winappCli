@@ -66,7 +66,8 @@ internal static class GuestLaunchPlanner
         {
             arguments.Add("--json");
         }
-        if (options.Quiet)
+        // The guest rejects --quiet with --json, and --json already keeps its stdout machine-readable.
+        if (options.Quiet && !options.Json)
         {
             arguments.Add("--quiet");
         }

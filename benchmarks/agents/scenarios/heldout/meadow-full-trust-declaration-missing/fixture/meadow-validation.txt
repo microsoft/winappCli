@@ -1,0 +1,5 @@
+Package validation failed: 0x80080204
+A Windows.FullTrustApplication entry point requires a runFullTrust declaration.
+The manifest does not declare it.
+Credential checks have not been reached.
+Framework: Electron.

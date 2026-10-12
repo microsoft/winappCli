@@ -1,0 +1,8 @@
+OS: Windows 11 Pro, x64
+VS Code: present
+Visual Studio: absent
+.NET SDK: absent
+C++ compiler: absent
+Windows development kits: absent
+Developer Mode: off
+No application source has been assigned.

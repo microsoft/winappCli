@@ -49,13 +49,28 @@ public class FocusedElementTests
     [DataRow(0, 999, 456L, false)]
     [DataRow(0, 999, 456L, true)]
     [DataRow(999, 123, 456L, false)]
-    [DataRow(999, 123, 456L, true)]
     [DataRow(123, 123, 789L, true)]
     [DataRow(0, 123, 789L, true)]
     public async Task ForeignProcessOrExplicitWindow_ReturnsNull(int ownPid, int nativePid, long root, bool explicitWindow)
     {
         InstallTree(ownPid, 0, nativePid, root);
         Assert.IsNull(await _service.GetFocusedElementAsync(Target(explicitWindow), CancellationToken.None));
+    }
+
+    [TestMethod]
+    [DataRow(TargetHwnd, true)]
+    [DataRow(789L, false)]
+    public async Task HostedAppContent_ExplicitFrame_VerifiedByWindowAncestry(long root, bool expectFocused)
+    {
+        // A packaged app's control (CalculatorApp, PID 999) lives in a CoreWindow (HWND 111, also
+        // PID 999) whose top-level root is the ApplicationFrameHost frame the target is scoped to.
+        InstallTree(999, 999, 999, root);
+        SystemUiQuery.s_getProcessIdForWindow = hwnd => hwnd == root ? (uint)TargetPid : 999u;
+
+        var result = await _service.GetFocusedElementAsync(Target(true), CancellationToken.None);
+
+        Assert.AreEqual(expectFocused, result is not null,
+            "Content inside the target frame is focused there; content in another frame is not.");
     }
 
     [TestMethod]

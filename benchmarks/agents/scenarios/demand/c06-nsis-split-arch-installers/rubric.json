@@ -1,0 +1,31 @@
+{
+  "cluster": "c06",
+  "framework": "Electron",
+  "goal": "Show the developer how to produce separate NSIS installers for each Windows architecture without relying on the default universal installer.",
+  "must_include": [
+    "Identifies that electron-builder's NSIS target builds one universal installer by default when multiple architectures are targeted.",
+    "Uses `nsis.buildUniversalInstaller: false` when the installed electron-builder version supports it, and keeps `win.target` entries for each desired architecture.",
+    "Ensures artifact names cannot overwrite each other by including `${arch}` or relying on the supported arch suffix behavior when separate installers are built.",
+    "Notes that `nsis-web` still requires a universal web installer and is not the right target when the requirement is separate offline installers."
+  ],
+  "must_not": [
+    "Suggests deleting the combined `.exe` after the build as the only fix while leaving update metadata and artifact naming ambiguous.",
+    "Tells them to switch to `nsis-web` to get separate offline installers.",
+    "Ignores the native module constraint and recommends a universal package that contains only the last-built native binary."
+  ],
+  "acceptable_alternatives": [
+    "Run electron-builder once per architecture using the programmatic API or separate command-line invocations on older versions.",
+    "Publish a web installer only if the product requirement changes to one small downloader that selects the architecture at install time.",
+    "Use a separate MSI/WiX pipeline for enterprise deployment while keeping per-architecture NSIS installers for direct downloads."
+  ],
+  "solved": "The answer gives a concrete configuration or per-architecture build flow that emits only distinct x64 and arm64 NSIS installers with non-conflicting names.",
+  "partial": "The answer notices the universal-installer default but omits either the `buildUniversalInstaller`/separate-build mechanism or the naming/update metadata implications.",
+  "sources": [
+    "https://github.com/electron-userland/electron-builder/issues/8298"
+  ],
+  "verified_with": [
+    "https://github.com/electron-userland/electron-builder/issues/8298",
+    "https://www.electron.build/docs/nsis"
+  ],
+  "notes": "The source issue predates the documented `buildUniversalInstaller` option; accept programmatic separate builds for projects pinned to older electron-builder releases."
+}

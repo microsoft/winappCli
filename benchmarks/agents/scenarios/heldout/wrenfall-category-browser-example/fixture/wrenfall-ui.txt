@@ -1,0 +1,6 @@
+Framework: Microsoft.UI.Xaml, WinUI 3
+Categories: News, Research, Archive
+Research children: Field notes, Lab notes
+Content should remain on the right.
+Current category must be perceivable with keyboard and assistive technology.
+A reference implementation or equivalent concrete design is acceptable.

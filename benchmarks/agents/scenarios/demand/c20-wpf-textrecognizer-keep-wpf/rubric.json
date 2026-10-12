@@ -1,0 +1,30 @@
+{
+  "cluster": "c20",
+  "framework": "WPF",
+  "goal": "Avoid an unnecessary UI rewrite while explaining the Windows AI API requirements and the specific TextRecognizer failure conditions.",
+  "must_include": [
+    "Explicitly says a full WPF-to-WinUI rewrite is not required just to call Windows App SDK/WinRT APIs from a WPF process.",
+    "Checks the documented Windows AI prerequisites: Text Recognition runs on supported NPU/Copilot+ hardware, requires the model/readiness flow, and requires package identity for Windows AI APIs in this development setup.",
+    "Uses `TextRecognizer.GetReadyState()`, `EnsureReadyAsync()`, and `ExtendedError`/failure handling instead of calling `CreateAsync()` blindly.",
+    "Recognizes the source issue as an upstream or environment-specific failure reported with Windows App SDK 1.7.250513003 on Arm, so the safe path is to update Windows/App SDK, verify on supported hardware, compare x64 if possible, or track the upstream issue rather than porting the UI."
+  ],
+  "must_not": [
+    "Tells the developer to rewrite the app in WinUI as the first or only fix.",
+    "Claims Windows AI text recognition will fall back to CPU on unsupported hardware.",
+    "Ignores package identity and model readiness checks."
+  ],
+  "acceptable_alternatives": [
+    "Keep WPF and place the OCR integration behind a service that can be disabled or replaced when `EnsureReadyAsync` fails.",
+    "Use the older `Windows.Media.Ocr.OcrEngine` if its accuracy and platform support are sufficient for the app.",
+    "Use a separate helper process only if the app already needs isolation, not as a requirement for WPF."
+  ],
+  "solved": "The answer keeps the WPF app, verifies identity/hardware/readiness, handles the failure gracefully, and identifies SDK/OS update or upstream tracking as the likely resolution path.",
+  "partial": "The answer avoids a rewrite but only gives generic exception-handling advice without checking the Windows AI prerequisites.",
+  "sources": ["https://github.com/microsoft/WindowsAppSDK/issues/5684"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/ai/apis/",
+    "https://learn.microsoft.com/en-us/windows/ai/apis/text-recognition",
+    "docs/debugging.md"
+  ],
+  "notes": "This is the required trap scenario: the developer asks about a modern feature but must keep WPF. Do not grade answers higher for proposing a UI migration."
+}

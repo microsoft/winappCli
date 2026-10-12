@@ -1,0 +1,7 @@
+Observed in WillowBank.ReportPreview:
+
+- Constructor runs.
+- `ShowHtmlAsync` reaches `await webView.EnsureCoreWebView2Async(null)`.
+- No exception is thrown.
+- The user control remains blank.
+- Setting `webView.Source = new Uri("https://example.com")` in a different XAML-declared WebView2 loads a page.

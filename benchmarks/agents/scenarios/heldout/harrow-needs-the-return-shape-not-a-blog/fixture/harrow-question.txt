@@ -1,0 +1,3 @@
+Question is about declarations and names only.
+No application is being run.
+Do not modify the target or enable a startup task.

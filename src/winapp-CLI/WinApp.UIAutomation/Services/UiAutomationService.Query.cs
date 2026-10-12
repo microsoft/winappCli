@@ -11,6 +11,26 @@ internal sealed partial class UiAutomationService
     private UiElement[] SearchConstrained(UiTarget target, UiSelector selector, int maxResults,
         bool requireUnique = false, CancellationToken ct = default)
     {
+        // A window-scoped target whose window has closed has no elements left, so a `--gone`
+        // wait succeeds instead of failing on the dead provider. Other failures still surface.
+        if (ExplicitWindowClosed(target)) { return []; }
+        try
+        {
+            return SearchConstrainedCore(target, selector, maxResults, requireUnique, ct);
+        }
+        catch (System.Runtime.InteropServices.COMException) when (ExplicitWindowClosed(target))
+        {
+            return [];
+        }
+    }
+
+    private static bool ExplicitWindowClosed(UiTarget target) =>
+        target.IsExplicitWindow && target.WindowHandle != 0
+        && SystemUiQuery.s_getProcessIdForWindow(target.WindowHandle) == 0;
+
+    private UiElement[] SearchConstrainedCore(UiTarget target, UiSelector selector, int maxResults,
+        bool requireUnique, CancellationToken ct)
+    {
         var matches = QueryConstrained(target, selector, maxResults, requireUnique, ct);
         var nextId = 0;
         var results = new List<UiElement>();

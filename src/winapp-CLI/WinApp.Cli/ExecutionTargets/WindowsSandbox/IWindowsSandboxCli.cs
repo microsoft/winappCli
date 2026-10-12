@@ -53,15 +53,27 @@ internal interface IWindowsSandboxCli
     Task<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Starts a Sandbox under the caller's own instance ID and returns the ID it reports.
+    /// Opens a new Sandbox in its own window, exactly as opening Windows Sandbox from Start does.
     /// </summary>
     /// <remarks>
-    /// The caller assigns the ID so that a start which fails <em>after</em> creating an instance can
-    /// still be reconciled: without one, a later command could only guess which listed instance was
-    /// the one it had just tried to create, and guessing from a list delta would attribute someone
-    /// else's Sandbox to winapp.
+    /// <para>
+    /// The Sandbox belongs to that window. Closing it asks the user to confirm, then ends the
+    /// Sandbox; ending its process ends the Sandbox without asking. <c>wsb start</c> has no such
+    /// owner, so a Sandbox it creates keeps running, out of sight, after its window is closed.
+    /// </para>
+    /// <para>
+    /// Windows assigns the instance ID, so the caller finds it with <see cref="ListAsync"/>. The
+    /// returned attempt names the client process itself, which is what lets the caller prove that
+    /// the window that reached a session is the one it launched.
+    /// </para>
     /// </remarks>
-    Task<string> StartAsync(string instanceId, string? configuration, CancellationToken cancellationToken);
+    /// <returns>
+    /// The launched client, which the callback receives immediately and the caller must dispose once
+    /// it has finished identifying the client's window.
+    /// </returns>
+    Task<SandboxConnectAttempt> LaunchAsync(
+        Action<SandboxConnectAttempt> onLaunched,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Terminates the Sandbox with the given ID.
@@ -70,7 +82,8 @@ internal interface IWindowsSandboxCli
     /// Deliberately has no production caller. <c>--on sandbox</c> reuses and takes over instances but
     /// never ends one, because a running Sandbox may hold work winapp cannot see — so stopping is
     /// offered to the user as advisory guidance and exercised by tests, and wiring it into a
-    /// failure or cleanup path would break the guarantee the rest of this type is built on.
+    /// failure or cleanup path would break the guarantee the rest of this type is built on. Ending a
+    /// Sandbox winapp opened is left to the user closing its window, where Windows asks first.
     /// </remarks>
     Task StopAsync(string id, CancellationToken cancellationToken);
 
@@ -161,14 +174,11 @@ internal sealed class WsbEnvironment
     public string? Id { get; init; }
 }
 
-/// <summary>Payload of <c>wsb list --raw</c> and <c>wsb start --raw</c>.</summary>
+/// <summary>Payload of <c>wsb list --raw</c>.</summary>
 internal sealed class WsbEnvironmentList
 {
-    /// <summary>Running environments, or the one just created.</summary>
+    /// <summary>Running environments.</summary>
     public List<WsbEnvironment>? WindowsSandboxEnvironments { get; init; }
-
-    /// <summary>Some verbs report a bare ID at the root instead of a list.</summary>
-    public string? Id { get; init; }
 }
 
 /// <summary>One entry of <c>wsb ip --raw</c>.</summary>

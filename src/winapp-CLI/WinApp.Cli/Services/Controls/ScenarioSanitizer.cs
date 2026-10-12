@@ -28,6 +28,10 @@ using System.Xml;
 /// upstream samples produce unparseable XAML.</item>
 /// <item>Drops C# whose braces don't balance or whose body still contains a live
 /// substitution placeholder for the same reason.</item>
+/// <item>Drops any <c>Usings</c> entry that isn't a namespace name. Imports are rendered
+/// on a single-line "Namespace:" row outside the code fence, and there is nothing to
+/// salvage in a malformed one, so an entry carrying a line break or markdown is removed
+/// instead of folded.</item>
 /// </list>
 /// Curated core patterns are hand-authored and trusted, so they don't go through here.
 /// </summary>
@@ -66,6 +70,12 @@ internal static partial class ScenarioSanitizer
         s.ApiNamespace = StripLineControlChars(s.ApiNamespace);
         s.XmlnsImports = StripLineControlChars(s.XmlnsImports);
         s.RelatedControls = StripLineControlChars(s.RelatedControls);
+
+        // Usings are rendered on the single-line "**Namespace:** `…`" row, so a line break in
+        // one would end the row and let the rest of the value be read as markdown prose that
+        // looks like it came from winapp. A using is also a namespace name, never prose, so
+        // anything that isn't one is dropped outright rather than cleaned.
+        s.Usings = KeepNamespaceNames(s.Usings);
 
         var xaml = StripControlChars(s.Xaml);
         s.Xaml = !string.IsNullOrWhiteSpace(xaml)
@@ -172,6 +182,33 @@ internal static partial class ScenarioSanitizer
             result[i] = StripLineControlChars(values[i]) ?? "";
         }
         return result;
+    }
+
+    /// <summary>A C# namespace name: dot-separated identifiers, nothing else.</summary>
+    [GeneratedRegex(@"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$")]
+    private static partial Regex NamespaceNameRegex();
+
+    /// <summary>
+    /// Keep only the entries of <paramref name="values"/> that are namespace names, after
+    /// trimming surrounding whitespace. Unlike the prose fields there is nothing to salvage
+    /// in a malformed entry — the rendered line is a list of import names — so a value
+    /// carrying a line break, a control character or any other markdown is dropped rather
+    /// than folded onto one line.
+    /// </summary>
+    private static string[] KeepNamespaceNames(string[] values)
+    {
+        if (values.Length == 0) return values;
+
+        var kept = new List<string>(values.Length);
+        foreach (var value in values)
+        {
+            var trimmed = value?.Trim();
+            if (!string.IsNullOrEmpty(trimmed) && NamespaceNameRegex().IsMatch(trimmed))
+            {
+                kept.Add(trimmed);
+            }
+        }
+        return kept.Count == values.Length && kept.SequenceEqual(values) ? values : [.. kept];
     }
 
     /// <summary>

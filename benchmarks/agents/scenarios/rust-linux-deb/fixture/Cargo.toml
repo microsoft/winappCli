@@ -1,0 +1,8 @@
+[package]
+name = "tallyho"
+version = "0.8.1"
+edition = "2021"
+description = "Log tally CLI"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }

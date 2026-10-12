@@ -1,0 +1,8 @@
+Installer payload inventory:
+  LedgerView.exe
+  LedgerView.dll
+  LedgerView.deps.json
+  Microsoft.Web.WebView2.Core.dll
+  Microsoft.Web.WebView2.Wpf.dll
+  PresentationCore.dll
+  PresentationFramework.dll

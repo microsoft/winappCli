@@ -1,0 +1,29 @@
+{
+  "id": "willowmere-venting-is-not-a-retrospective",
+  "description": "Avoids session analysis or Windows storage help when the user wants a plain C# arithmetic fix.",
+  "set": "heldout",
+  "cohort": "trap",
+  "persona": "8",
+  "framework": "C# logic / incidental Windows.Storage",
+  "conflictingSignal": true,
+  "sources": [],
+  "prompt": "The AI keeps going in circles on Willowmere Math and I'm fed up. Why does Percent(1, 4) return 0 instead of 25? Fix the calculation.",
+  "paraphrases": {
+    "novice": "The assistant hasn't managed to fix Willowmere Math's percentage calculation and it's driving me nuts. One out of four should be 25%, not zero. Can you correct it?",
+    "terse": "Willowmere Percent(1,4): 0, expected 25. Fix this already."
+  },
+  "configurations": [
+    "none",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

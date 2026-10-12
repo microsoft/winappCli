@@ -1,0 +1,5 @@
+cargo build
+winapp create-debug-identity .\target\debug\tide-alert.exe
+.\target\debug\tide-alert.exe
+
+winapp run .\target\debug --with-alias

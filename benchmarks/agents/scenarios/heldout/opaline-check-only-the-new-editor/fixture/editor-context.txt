@@ -1,0 +1,4 @@
+Editor project uses Microsoft.UI.Xaml and UseWinUI=true.
+This pane is recreated when switching documents.
+TitleBroadcast is raised on the UI thread.
+Reviewer should inspect source, not drive a running app.

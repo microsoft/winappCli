@@ -14,12 +14,18 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiStatusCommand : Command, IShortDescription
+internal class UiStatusCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Connect to a running app and show connection info";
+    public string ShortDescription => "Check that winapp can connect to an app";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui status -a <app>",
+        "winapp ui status -w <hwnd>",
+    ];
 
     public UiStatusCommand()
-        : base("status", "Connect to a target app and display connection info.")
+        : base("status", "Check that winapp can connect to an app. Shows the connected process and window.")
     {
         Options.Add(SharedUiOptions.AppOption);
         Options.Add(SharedUiOptions.WindowOption);

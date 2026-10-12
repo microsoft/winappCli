@@ -353,4 +353,48 @@ Describe 'winui-app sample' {
             $LASTEXITCODE | Should -Be 0
         }
     }
+
+    Context 'Phase 3: Unique identity for parallel checkouts' -Tag 'UniqueIdentity' {
+        It 'Keeps two copies registered side by side and removes each by its input' -Skip:$script:skip {
+            $root = New-TempTestDirectory -Prefix 'winui-unique'
+            $sourceManifest = Join-Path $script:sampleDir 'Package.appxmanifest'
+            $originalHash = (Get-FileHash -LiteralPath $sourceManifest).Hash
+            $projects = @()
+            try {
+                foreach ($name in @('worktree-a', 'worktree-b')) {
+                    $copy = Join-Path $root $name
+                    Get-ChildItem -Path $script:sampleDir -Recurse -File |
+                        Where-Object { $_.Name -ne 'test.Tests.ps1' -and $_.FullName -notmatch '\\(bin|obj|AppX)\\' } |
+                        ForEach-Object {
+                            $target = Join-Path $copy $_.FullName.Substring($script:sampleDir.Length).TrimStart('\')
+                            New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null
+                            Copy-Item -Path $_.FullName -Destination $target
+                        }
+                    $projects += Join-Path $copy 'winui-app.csproj'
+                }
+
+                $identities = foreach ($project in $projects) {
+                    $output = Invoke-WinappCommand -Arguments "run `"$project`" --unique-identity --no-launch --json"
+                    (($output -join "`n") | ConvertFrom-Json).Identity
+                }
+
+                $identities[0].PackageName | Should -Not -Be $identities[1].PackageName
+                foreach ($identity in $identities) {
+                    $identity.OriginalPackageName | Should -Be 'winui-app-sample'
+                    @(Get-AppxPackage -Name $identity.PackageName).Count | Should -Be 1
+                }
+                (Get-FileHash -LiteralPath $sourceManifest).Hash | Should -Be $originalHash
+
+                for ($i = 0; $i -lt $projects.Count; $i++) {
+                    Invoke-WinappCommand -Arguments "unregister `"$($projects[$i])`"" | Out-Null
+                    @(Get-AppxPackage -Name $identities[$i].PackageName).Count | Should -Be 0
+                }
+            } finally {
+                foreach ($project in $projects) {
+                    try { Invoke-WinappCommand -Arguments "unregister `"$project`"" | Out-Null } catch { }
+                }
+                if (-not $SkipCleanup) { Remove-TempTestDirectory -Path $root }
+            }
+        }
+    }
 }

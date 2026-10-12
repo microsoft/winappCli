@@ -172,7 +172,8 @@ internal interface IDotNetService
     /// </summary>
     /// <param name="projectOrFile">
     /// The project to query. A <c>.cs</c> .NET file-based app is also accepted and is queried through
-    /// the SDK 10 <c>dotnet package list --file</c> form.
+    /// the SDK 10 <c>dotnet package list --file</c> form. A C++ <c>.vcxproj</c> is read from its
+    /// <c>packages.config</c> without running <c>dotnet</c>.
     /// </param>
     /// <param name="includeTransitive">When true, includes transitive package references in the output.</param>
     /// <param name="noRestore">When true, pass <c>--no-restore</c> so the query doesn't trigger an implicit restore.</param>

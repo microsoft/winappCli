@@ -1,0 +1,21 @@
+{
+  "id": "c01-winui-template-workload-missing",
+  "description": "A developer cannot find WinUI 3 templates in Visual Studio, based on https://stackoverflow.com/questions/70271811/where-is-winui3-in-visual-studio-2022.",
+  "set": "demand",
+  "cohort": "vague",
+  "prompt": "I installed Visual Studio 2022 on a clean machine for a small desktop rewrite, but when I create a project I cannot find any WinUI 3 template. I only see WPF, Windows Forms, and a few UWP entries. Did I install the wrong thing?",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

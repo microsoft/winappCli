@@ -1,0 +1,29 @@
+{
+  "cluster": "c25",
+  "framework": "WPF",
+  "goal": "Help the developer initialize a WPF WebView2 for in-memory HTML by putting the control in the visual tree before awaiting initialization.",
+  "must_include": [
+    "Identifies that the code-created WebView2 is never added to a WPF container/visual tree before initialization.",
+    "Adds the WebView2 to the `Grid`/`ContentControl`/other parent, or declares it in XAML, before calling `EnsureCoreWebView2Async`.",
+    "Runs initialization from the UI thread at an appropriate lifecycle point such as `Loaded`, then calls `NavigateToString` after `CoreWebView2` is ready.",
+    "Avoids setting `Source` to a fake page or writing the in-memory HTML to disk as a workaround."
+  ],
+  "must_not": [
+    "Moves `EnsureCoreWebView2Async` to a background thread to avoid blocking the UI.",
+    "Requires the HTML to be saved to a temporary file before WebView2 can display it.",
+    "Creates the WebView2 and immediately awaits initialization while it remains unattached to any WPF parent.",
+    "Treats the symptom as a missing runtime without checking the control-lifecycle bug shown in the fixture."
+  ],
+  "acceptable_alternatives": [
+    "Define the WebView2 in XAML without a `Source` and call `NavigateToString` in the control's `Loaded` handler.",
+    "Use a placeholder container and assign its `Content` to the WebView2 before awaiting initialization.",
+    "Set creation properties before initialization if a custom user-data folder is also needed."
+  ],
+  "solved": "The answer changes the lifecycle so the WebView2 is attached to the WPF UI before `EnsureCoreWebView2Async`, and then loads the in-memory HTML with `NavigateToString`.",
+  "partial": "The answer mentions `EnsureCoreWebView2Async` and `NavigateToString` but misses that the unattached control is why initialization stalls.",
+  "sources": ["https://stackoverflow.com/questions/65139090/how-can-i-initialize-the-webview2-in-wpf"],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/dotnet/api/microsoft.web.webview2.wpf.webview2.ensurecorewebview2async"
+  ],
+  "notes": "The accepted Stack Overflow answer demonstrates the missing `Controls.Add`/parenting step; this WPF variant uses the same control-lifecycle principle with WPF containers."
+}

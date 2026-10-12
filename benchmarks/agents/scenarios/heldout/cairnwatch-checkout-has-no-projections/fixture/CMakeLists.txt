@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.25)
+project(Cairnwatch LANGUAGES CXX)
+add_executable(Cairnwatch WIN32 probe.cpp)
+target_compile_features(Cairnwatch PRIVATE cxx_std_20)
+target_include_directories(Cairnwatch PRIVATE "${CMAKE_SOURCE_DIR}/generated/include")

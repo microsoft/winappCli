@@ -47,8 +47,16 @@ internal class FakeAppLauncherService : IAppLauncherService
         return FakeProcessId;
     }
 
+    /// <summary>When set, <see cref="LaunchExecutable"/> throws this instead of starting the process.</summary>
+    public Exception? LaunchExecutableThrows { get; set; }
+
     public ILaunchedProcess LaunchExecutable(string exePath, string? arguments = null, string? workingDirectory = null, LaunchStdioMode stdioMode = LaunchStdioMode.Inherit)
     {
+        if (LaunchExecutableThrows is not null)
+        {
+            throw LaunchExecutableThrows;
+        }
+
         LaunchExecutableCalls.Add((exePath, arguments, workingDirectory));
         LastLaunchStdioMode = stdioMode;
         LastLaunchedProcess = new FakeLaunchedProcess(FakeProcessId, FakeExitCode);

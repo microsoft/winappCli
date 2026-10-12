@@ -1,0 +1,21 @@
+{
+  "id": "c24-electron-ts-config-colon-cache",
+  "description": "Electron-builder fails to compile a TypeScript configuration on Windows because config-file-ts creates a cache folder containing a drive-colon path, based on https://github.com/electron-userland/electron-builder/issues/7572.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I converted my `electron-builder` config to TypeScript and now Windows packaging fails before it gets to NSIS. Is this my tsconfig or something in the builder?\n\n```\nCould not write file 'C:/Users/runner/.cache/config-file-ts/:-repo-starlane-electron-.electron-builder.config.ts/repo/starlane/electron/.electron-builder.config.js': EINVAL: invalid argument, mkdir 'C:/Users/runner/.cache/config-file-ts/:-repo-starlane-electron-.electron-builder.config.ts'.\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

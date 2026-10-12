@@ -1,0 +1,15 @@
+appId: io.gardenbox.notes
+productName: GardenBox Notes
+asar: false
+directories:
+  output: release/${version}
+files:
+  - dist
+  - electron
+icon: public/editor-icon.png
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  artifactName: "${productName}_${version}.${ext}"

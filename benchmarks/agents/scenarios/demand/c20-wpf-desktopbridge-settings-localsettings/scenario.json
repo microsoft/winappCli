@@ -1,0 +1,10 @@
+{
+  "id": "c20-wpf-desktopbridge-settings-localsettings",
+  "description": "A WPF app packaged with Desktop Bridge loses user settings after MSIX updates, based on https://stackoverflow.com/questions/61781890/cant-upgrade-settings-when-updating-a-wpf-desktop-bridge-universal-app.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "Our WPF app is packaged as an MSIX and users lose their saved preferences after updates. Settings.Default.Upgrade() runs on startup, but every installed version gets a different App.exe_Url_... folder and no values migrate.",
+  "configurations": ["none", "winapp", "winui", "both"],
+  "fixture": "fixture",
+  "expect": { "capabilities": { "primary": [], "acceptable": [], "forbid": [] } }
+}

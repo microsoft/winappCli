@@ -1,0 +1,21 @@
+{
+  "id": "c24-electron-wincodesign-symlink-cache",
+  "description": "Electron-builder Windows packaging fails extracting winCodeSign symlinks, based on https://github.com/electron-userland/electron-builder/issues/8149.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I'm trying to make a Windows installer with `electron-builder --win --x64 --config ./build_win.js`, but both nsis and portable fail before any installer is produced. I don't have admin on our CI runner, so \"run PowerShell as Administrator\" isn't a usable answer.\n\n```\nERROR: Cannot create symbolic link : A required privilege is not held by the client. : C:\\Users\\build\\AppData\\Local\\electron-builder\\Cache\\winCodeSign\\618674575\\darwin\\10.12\\lib\\libcrypto.dylib\nERROR: Cannot create symbolic link : A required privilege is not held by the client. : C:\\Users\\build\\AppData\\Local\\electron-builder\\Cache\\winCodeSign\\618674575\\darwin\\10.12\\lib\\libssl.dylib\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

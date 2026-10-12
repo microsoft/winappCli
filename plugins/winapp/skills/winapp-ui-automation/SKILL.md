@@ -1,7 +1,10 @@
 ---
 name: winapp-ui-automation
-description: Inspect and interact with running Windows app UIs from the command line using UI Automation (UIA). Use when an AI agent or developer needs to inspect a UI element tree, find controls, take screenshots, click buttons, read or set text, or verify UI state in a running Windows app. Works with any framework WinUI 3, WPF, WinForms, Win32, Electron.
+description: "Inspect, drive, and verify a running Windows app UI with winapp ui (UI Automation): find elements, click, type, read text and values, wait for state, take screenshots. Works with WinUI, WPF, WinForms, Win32, and Electron. Use to check, test, or act on a live app."
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
+
 ## When to use
 - Inspecting a running Windows app's UI from the command line
 - AI agents interacting with Windows applications (clicking buttons, reading text, taking screenshots)
@@ -56,8 +59,9 @@ Rules that matter when driving this from an agent:
   else for its whole duration.
 - **Ordering is owner affinity, then FIFO.** An active workflow may keep issuing commands ahead of
   others already waiting; once it yields or its grace expires, waiters are served in arrival order.
-- **Waiting is indefinite and cancellable.** A status line appears after one second; Ctrl+C exits
-  `130` with error code `cancelled` and the command never ran.
+- **Waiting is indefinite and cancellable.** After one second a notice on stderr says what holds the
+  desktop and for how long (silent under `--json` and `--quiet`); Ctrl+C exits `130` with error code
+  `cancelled` and the command never ran.
 - **There is no hard cap** — a long script, unbounded recording, or failure loop can block other
   mutating workflows until it finishes or is stopped.
 
@@ -87,7 +91,9 @@ winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value Ready --t
 ```
 
 Use `--root`, `--type`, and `--class-name` together or separately on `search`,
-`get-property`, `get-value`, and `wait-for`. The root must be unique; only its
+`get-property`, `get-value`, `wait-for`, and the commands that act on one
+selected element (`invoke`, `set-value`, `click`, `focus`, and so on; not `send-keys --target`).
+For `touch` and `pen`, filters need a selector; they can't be combined with `--at` or `--path`. The root must be unique; only its
 descendants match. `wait-for` re-resolves it every poll, including when it is
 initially absent. Type names and literal whole ClassName values ignore case.
 The only type aliases are `TextBox` → `Edit` and `TextBlock` → `Text`.
@@ -128,11 +134,16 @@ winapp ui invoke itm-samples-3f2c -a myapp; winapp ui wait-for pn-samplespage-b4
 ```powershell
 winapp ui invoke SettingsCategory -a myapp --action select
 winapp ui invoke AgreeCheckbox -a myapp --action toggle-on --json
+winapp ui invoke Open -w <dialog-HWND> --type Button --action invoke
 ```
 
 Use `--action` to avoid automatic pattern and ancestor fallback. Omit it for the
-existing automatic behavior. See the [action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
-for supported actions, idempotent toggles, and failure recovery, and the
+existing automatic behavior. With `--root`, `--type`, or `--class-name`, the
+filters follow the same matching rules as read queries: exactly one element must
+match inside the selected app/window, or the command fails without acting, and
+the ancestor fallback is skipped. See the
+[action reference](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md#invoke)
+for supported actions, scope, idempotent toggles, and failure recovery, and the
 [JSON envelope](references/ui-json-envelope.md#ui-invoke---json) for action results.
 
 ### Disambiguate duplicate elements
@@ -150,7 +161,7 @@ winapp ui invoke Submit -a myapp
 - **AutomationId selectors**: When an element has a unique AutomationId, it becomes the selector directly (e.g., `[MinimizeButton]`). These survive layout changes and localization — preferred for stable targeting.
 - **Slug selectors**: When no unique AutomationId exists, a generated slug is used (e.g., `[btn-close-a2b3]`). Format: `prefix-name-hash`. May go stale after UI changes.
 - **Plain text search**: `search` and `invoke` accept plain text — `search Minimize` finds elements with "Minimize" in their Name or AutomationId (substring, case-insensitive). No special syntax needed.
-- **`--interactive` flag**: Filters to invokable elements only with auto-depth 8 — the fastest way to see what you can click
+- **`--interactive` flag**: Filters to elements you can invoke, click, or set-value (including text documents) with auto-depth 8 — the fastest way to see what you can act on
 - **Invokable ancestor surfacing**: When a search result isn't invokable, the nearest invokable parent is shown with its selector
 - **`;` chaining**: Chain commands with `;` to run multiple operations in one call, reducing agent round-trips
 - **`-a` vs `-w`**: Use `-a` to find apps by name/title/PID. Use `-w <HWND>` for stable window targeting
@@ -160,13 +171,13 @@ winapp ui invoke Submit -a myapp
 
 ### Connect and discover
 ```powershell
-# Connect and see interactive elements in one call
+# Core loop and examples: `winapp ui --help`. Connect and see interactive elements in one call:
 winapp ui status -a myapp; winapp ui inspect -a myapp --interactive
 ```
 
 ### Inspect element tree
 ```powershell
-winapp ui inspect -a myapp --interactive      # invokable elements only, auto-depth 8
+winapp ui inspect -a myapp --interactive      # elements you can invoke, click, or set-value; auto-depth 8
 winapp ui inspect -a myapp --depth 5          # deeper tree at depth 5
 winapp ui inspect txt-searchbox-e5f6 -a myapp  # subtree rooted at element
 winapp ui inspect btn-settings-a1b2 -a myapp --ancestors  # walk up from element to root
@@ -397,7 +408,7 @@ winapp ui wait-for itm-status-c3d4 -a myapp --value "Complete" --timeout 5000
 ```
 
 ## Tips
-- Use `--interactive` with `inspect` as your first command — it shows only what you can click
+- Use `--interactive` with `inspect` as your first command — it shows only what you can act on
 - Chain commands with `;` to reduce round-trips (see note below on why not `&&`)
 - Use slugs from output to target specific elements — they're hash-validated and shell-safe
 - Use plain text search to find elements: `search Minimize`, `invoke Submit`

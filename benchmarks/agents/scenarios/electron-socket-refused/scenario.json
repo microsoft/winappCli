@@ -1,0 +1,22 @@
+{
+  "id": "electron-socket-refused",
+  "description": "Near-miss: Electron client cannot reach a local server because of a port mismatch.",
+  "set": "dev",
+  "cohort": "near-miss",
+  "prompt": "Windows desktop client gets ECONNREFUSED 127.0.0.1:3000. The server is up. Can you find the mismatch?",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

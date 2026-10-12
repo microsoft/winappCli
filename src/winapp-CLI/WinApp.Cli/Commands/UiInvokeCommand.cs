@@ -14,9 +14,16 @@ using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
 
-internal class UiInvokeCommand : Command, IShortDescription
+internal class UiInvokeCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Activate an element via UIA patterns (Invoke, Toggle, etc.)";
+    public string ShortDescription => "Activate an element (Invoke, Toggle, Select, Expand)";
+
+    public IReadOnlyList<string> Examples { get; } =
+    [
+        "winapp ui invoke \"Save\" -a <app>",
+        "winapp ui invoke \"Save\" --type Button -a <app>",
+        "winapp ui invoke <selector> -a <app> --action toggle-on",
+    ];
 
     public static Option<string?> ActionOption { get; } = new("--action")
     {
@@ -36,9 +43,9 @@ internal class UiInvokeCommand : Command, IShortDescription
     };
 
     public UiInvokeCommand()
-        : base("invoke", "Activate an element by slug or text search. " +
-               "Without --action, tries InvokePattern, TogglePattern, SelectionItemPattern, and ExpandCollapsePattern in order, then an invokable ancestor. " +
-               "Use --action for an exact operation on only the selected element.")
+        : base("invoke", "Activate an element. Tries the Invoke, Toggle, SelectionItem, and ExpandCollapse patterns in order, " +
+               "then the nearest invokable ancestor. Use --action to require one exact action on the selected element. " +
+               "With --type, --root, or --class-name the selector must match exactly one element, and the ancestor fallback is skipped.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -46,6 +53,7 @@ internal class UiInvokeCommand : Command, IShortDescription
         Options.Add(ActionOption);
 
         Options.Add(WinAppRootCommand.JsonOption);
+        UiQueryOptions.AddTo(this);
         Validators.Add(result =>
         {
             if (result.GetResult(ActionOption) is { Tokens.Count: 1 } action &&
@@ -89,7 +97,7 @@ internal class UiInvokeCommand : Command, IShortDescription
                 return 1;
             }
 
-            return null;
+            return UiQueryOptions.Validate(parseResult, logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
@@ -101,39 +109,57 @@ internal class UiInvokeCommand : Command, IShortDescription
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var requestedAction = parseResult.GetValue(ActionOption);
             var action = ParseAction(requestedAction);
+            // Filters, like --action, commit to exactly one element: an ambiguous match is an error
+            // rather than the first hit, and there is no fallback to an invokable ancestor.
+            var filtered = UiQueryOptions.HasFilters(parseResult);
 
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = selectorParser.Parse(selectorStr);
-                var element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, requireUnique: action is not null, cancellationToken);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+                var element = await uiAutomation.FindSingleElementAsync(
+                    uiTarget, selector, requireUnique: action is not null || filtered, cancellationToken);
 
                 if (element is null)
                 {
-                    UiErrors.ElementNotFound(logger, selectorStr, json);
+                    UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error);
                     return 1;
                 }
 
                 string pattern;
                 string performedAction;
-                UiElement invokedElement = element;
+                UiElement invokedElement;
 
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
+                    if (filtered)
+                    {
+                        // Keep the identity selected before the wait, while proving the same
+                        // filtered query still has exactly that one match under the turn.
+                        var current = await uiAutomation.FindSingleElementAsync(
+                            uiTarget, selector, requireUnique: true, cancellationToken);
+                        if (current is null || current.WindowHandle != element.WindowHandle ||
+                            !uiAutomation.IsSameElement(element, current, cancellationToken))
+                        {
+                            UiErrors.StaleElement(logger, json, parseResult.InvocationConfiguration.Error);
+                            return 1;
+                        }
+                    }
                     // Explicit mode commits to the initial identity. Its service overload resolves
                     // that identity inside the turn, rather than rerunning a possibly broad text query.
-                    if (action is null)
+                    else if (action is null)
                     {
                         element = await uiAutomation.FindSingleElementAsync(uiTarget, selector, cancellationToken);
                         if (element is null)
                         {
-                            UiErrors.ElementNotFound(logger, selectorStr, json);
+                            UiErrors.ElementNotFound(logger, selectorStr, json, parseResult.InvocationConfiguration.Error);
                             return 1;
                         }
                     }
 
+                    // All branches above have resolved an element or returned.
                     if (!DesktopTargetValidation.TryConfirmTargetWindow(
-                            systemQuery, element.WindowHandle ?? uiTarget.WindowHandle, uiTarget.ProcessId,
+                            systemQuery, element!.WindowHandle ?? uiTarget.WindowHandle, uiTarget.ProcessId,
                             logger, json, "invoke", parseResult.InvocationConfiguration.Error))
                     {
                         return 1;
@@ -154,7 +180,7 @@ internal class UiInvokeCommand : Command, IShortDescription
                         }
                         invokedElement = element;
                     }
-                    catch (InvalidOperationException) when (action is null && element.InvokableAncestor is { } ancestor)
+                    catch (InvalidOperationException) when (action is null && !filtered && element.InvokableAncestor is { } ancestor)
                     {
                         // Element isn't invokable but has an invokable ancestor — invoke that instead
                         if (!DesktopTargetValidation.TryConfirmTargetWindow(
@@ -203,7 +229,7 @@ internal class UiInvokeCommand : Command, IShortDescription
 
                 return 0;
             }
-            catch (UiAmbiguousSelectorException ex) when (action is not null)
+            catch (UiAmbiguousSelectorException ex) when (action is not null || filtered)
             {
                 UiErrors.AmbiguousSelector(logger, ex.Message, json, parseResult.InvocationConfiguration.Error);
                 return 1;

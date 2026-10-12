@@ -225,3 +225,4 @@ devcert.pfx
 !/src/winapp-NuGet/build/
 # Local agent benchmark results
 /benchmarks/agents/results/
+/benchmarks/agents/experiments/

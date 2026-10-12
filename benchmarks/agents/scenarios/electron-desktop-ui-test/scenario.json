@@ -1,0 +1,31 @@
+{
+  "id": "electron-desktop-ui-test",
+  "description": "Drive a running Electron desktop window and verify state (UIA, not WinUI design or browser tests).",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "The exporter is open. Export report.csv and check that it gets to Finished.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "ui.automate",
+        "ui.test"
+      ],
+      "forbid": [
+        "ui.samples",
+        "msix.package",
+        "msix.sign",
+        "project.*",
+        "toolchain.prereqs",
+        "winui.*"
+      ]
+    },
+    "maxSkills": 2
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "id": "c22-flutter-black-screen-old-gpu",
+  "description": "Flutter 3.22 Windows builds can render a black window or fail with GL_INVALID_VALUE on older GPUs until the Windows engine fix in 3.24.1, based on https://github.com/flutter/flutter/issues/150546.",
+  "set": "demand",
+  "cohort": "vague",
+  "prompt": "A few customers with older Windows 10/11 PCs say my Flutter desktop app opens to a black window after I updated from 3.19. The buttons still seem clickable, and one debug run on a customer PC printed `Fatal GL Error GL_INVALID_VALUE(1281) encountered on call to glTexImage2D`; what should I ship?",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

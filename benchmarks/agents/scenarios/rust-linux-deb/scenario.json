@@ -1,0 +1,22 @@
+{
+  "id": "rust-linux-deb",
+  "description": "Trap: Rust tool that already ships on Windows needs a Linux .deb.",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "We already ship the Windows build of this tool. Set up cargo-deb so it also produces a .deb for Ubuntu.",
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "forbid": [
+        "*"
+      ]
+    },
+    "maxSkills": 0
+  }
+}

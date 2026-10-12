@@ -1,0 +1,765 @@
+[
+  {
+    "id": "c04",
+    "name": "Diagnose crashes, hangs, runtime exceptions, and performance",
+    "description": "Crashes, hangs, runtime exceptions, rendering/GPU failures, and performance regressions in desktop apps.",
+    "frameworks": {
+      "WinUI3": 24,
+      "Flutter": 11,
+      "MAUI": 8,
+      "Tauri": 5,
+      "Electron": 2,
+      "WPF": 1,
+      "WinForms": 1,
+      "other/unknown": 1
+    },
+    "share_percent": 14.9,
+    "signals": {
+      "sample_count": 53,
+      "sample_share_percent": 17.7,
+      "engagement_weight": 1559.3,
+      "search_total_count": 713,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0001",
+      "P0008",
+      "P0010"
+    ],
+    "example_urls": [
+      "https://github.com/dotnet/maui/issues/15533",
+      "https://github.com/tauri-apps/tauri/issues/6322",
+      "https://github.com/flutter/flutter/issues/178916"
+    ]
+  },
+  {
+    "id": "c07",
+    "name": "Sign packages and executables with certificates",
+    "description": "Certificate creation, trust, timestamping, SignTool, EV/OV signing, publisher mismatches, and unsigned package failures.",
+    "frameworks": {
+      "other/unknown": 12,
+      "Electron": 4,
+      "Tauri": 2,
+      "MAUI": 1,
+      "WPF": 1
+    },
+    "share_percent": 6.7,
+    "signals": {
+      "sample_count": 20,
+      "sample_share_percent": 6.7,
+      "engagement_weight": 608.2,
+      "search_total_count": 119,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0015",
+      "P0038",
+      "P0046"
+    ],
+    "example_urls": [
+      "https://github.com/electron-userland/electron-builder/issues/7652",
+      "https://github.com/electron/electron/issues/44264",
+      "https://github.com/electron-userland/electron-builder/issues/8854"
+    ]
+  },
+  {
+    "id": "c01",
+    "name": "Set up Windows desktop SDKs and toolchains",
+    "description": "Installing/selecting Windows SDKs, Visual Studio workloads, .NET workloads, package feeds, and generated tooling needed before a desktop project can build.",
+    "frameworks": {
+      "WinUI3": 12,
+      "other/unknown": 3,
+      ".NET console": 2,
+      "C++/Win32": 1,
+      "MAUI": 1
+    },
+    "share_percent": 6.1,
+    "signals": {
+      "sample_count": 19,
+      "sample_share_percent": 6.3,
+      "engagement_weight": 434.9,
+      "search_total_count": 119,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0013",
+      "P0040",
+      "P0067"
+    ],
+    "example_urls": [
+      "https://github.com/dotnet/maui/issues/25160",
+      "https://github.com/microsoft/WindowsAppSDK/issues/3548",
+      "https://github.com/microsoft/WindowsAppSDK/issues/3594"
+    ]
+  },
+  {
+    "id": "c25",
+    "name": "Handle WebView2 and embedded web content",
+    "description": "WebView2 runtime installation, initialization, user-data folders, navigation failures, and embedded web content behavior.",
+    "frameworks": {
+      "WPF": 6,
+      "WinForms": 3,
+      "other/unknown": 2,
+      ".NET console": 1,
+      "MAUI": 1,
+      "Tauri": 1
+    },
+    "share_percent": 5.0,
+    "signals": {
+      "sample_count": 14,
+      "sample_share_percent": 4.7,
+      "engagement_weight": 395.7,
+      "search_total_count": 88,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0138",
+      "P0262",
+      "P0032"
+    ],
+    "example_urls": [
+      "https://github.com/tauri-apps/tauri/issues/8196",
+      "https://github.com/microsoft/microsoft-ui-xaml/issues/9650",
+      "https://stackoverflow.com/questions/70246403/how-to-fix-msedgewebview2-error-in-vs2022-when-admin"
+    ]
+  },
+  {
+    "id": "c05",
+    "name": "Package apps as MSIX, AppX, or app bundles",
+    "description": "Creating MSIX/AppX packages or bundles, package layout, MakeAppx, PRI/resource indexing, and package validation.",
+    "frameworks": {
+      "MAUI": 5,
+      "WinUI3": 4,
+      "Electron": 2,
+      "WPF": 2,
+      ".NET console": 1,
+      "other/unknown": 1
+    },
+    "share_percent": 4.7,
+    "signals": {
+      "sample_count": 15,
+      "sample_share_percent": 5.0,
+      "engagement_weight": 540.8,
+      "search_total_count": 7,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0003",
+      "P0200",
+      "P0020"
+    ],
+    "example_urls": [
+      "https://github.com/dotnet/maui/issues/25832",
+      "https://github.com/microsoft/WindowsAppSDK/issues/4881",
+      "https://github.com/dotnet/maui/issues/16975"
+    ]
+  },
+  {
+    "id": "c24",
+    "name": "Package, sign, update, and debug Electron Windows apps",
+    "description": "Electron/electron-builder Windows installers, package contents, signing, updater metadata, native modules, and Windows runtime failures.",
+    "frameworks": {
+      "Electron": 13
+    },
+    "share_percent": 4.6,
+    "signals": {
+      "sample_count": 13,
+      "sample_share_percent": 4.3,
+      "engagement_weight": 497,
+      "search_total_count": 21,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0002",
+      "P0007",
+      "P0025"
+    ],
+    "example_urls": [
+      "https://github.com/electron-userland/electron-builder/issues/8149",
+      "https://github.com/electron-userland/electron-builder/issues/8970",
+      "https://github.com/electron/electron/issues/38184"
+    ]
+  },
+  {
+    "id": "c02",
+    "name": "Build and compile Windows desktop apps",
+    "description": "MSBuild, compiler, linker, resource, XAML compiler, NuGet restore, and generated-code failures that block a Windows desktop build.",
+    "frameworks": {
+      "WinUI3": 5,
+      "Flutter": 2,
+      "Tauri": 2,
+      "MAUI": 1
+    },
+    "share_percent": 4.2,
+    "signals": {
+      "sample_count": 10,
+      "sample_share_percent": 3.3,
+      "engagement_weight": 190.3,
+      "search_total_count": 209,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0050",
+      "P0062",
+      "P0085"
+    ],
+    "example_urls": [
+      "https://github.com/dotnet/maui/issues/25132",
+      "https://github.com/tauri-apps/tauri/issues/6746",
+      "https://github.com/tauri-apps/tauri/issues/10013"
+    ]
+  },
+  {
+    "id": "c06",
+    "name": "Choose or configure MSI, NSIS, WiX, and setup installers",
+    "description": "Selecting/configuring non-MSIX installers such as MSI, NSIS, WiX, setup.exe, and ClickOnce-style deployment.",
+    "frameworks": {
+      "Electron": 10,
+      "Tauri": 2
+    },
+    "share_percent": 4.0,
+    "signals": {
+      "sample_count": 12,
+      "sample_share_percent": 4.0,
+      "engagement_weight": 274,
+      "search_total_count": 31,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0029",
+      "P0033",
+      "P0036"
+    ],
+    "example_urls": [
+      "https://github.com/electron-userland/electron-builder/issues/7973",
+      "https://github.com/electron-userland/electron-builder/issues/7574",
+      "https://github.com/electron-userland/electron-builder/issues/8131"
+    ]
+  },
+  {
+    "id": "c10",
+    "name": "Install, upgrade, uninstall, and version apps correctly",
+    "description": "End-user install failures, version rules, upgrade/downgrade behavior, uninstall cleanup, dependency packages, and app data preservation.",
+    "frameworks": {
+      "WinUI3": 5,
+      "MAUI": 3,
+      "Electron": 2,
+      "Flutter": 2,
+      "WPF": 2,
+      "other/unknown": 2
+    },
+    "share_percent": 4.0,
+    "signals": {
+      "sample_count": 16,
+      "sample_share_percent": 5.3,
+      "engagement_weight": 528.5,
+      "search_total_count": 0,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0006",
+      "P0016",
+      "P0017"
+    ],
+    "example_urls": [
+      "https://github.com/flutter/flutter/issues/117890",
+      "https://github.com/microsoft/WindowsAppSDK/issues/5730",
+      "https://github.com/flutter/flutter/issues/124883"
+    ]
+  },
+  {
+    "id": "c21",
+    "name": "Build and deploy .NET MAUI Windows apps",
+    "description": "MAUI Windows target build, packaging, WinUI host behavior, single-project assets, and Windows-specific MAUI failures.",
+    "frameworks": {
+      "MAUI": 6
+    },
+    "share_percent": 3.9,
+    "signals": {
+      "sample_count": 6,
+      "sample_share_percent": 2.0,
+      "engagement_weight": 187.8,
+      "search_total_count": 609,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0108",
+      "P0112",
+      "P0215"
+    ],
+    "example_urls": [
+      "https://github.com/dotnet/maui/issues/15718",
+      "https://github.com/dotnet/maui/issues/21559",
+      "https://github.com/dotnet/maui/issues/19763"
+    ]
+  },
+  {
+    "id": "c12",
+    "name": "Build and ship ARM64 or multi-architecture apps",
+    "description": "Targeting x64/x86/ARM64, native dependencies, runtime identifiers, platform targets, and multi-architecture bundles.",
+    "frameworks": {
+      "WinUI3": 3,
+      "Electron": 2,
+      "Flutter": 2,
+      "MAUI": 1
+    },
+    "share_percent": 3.8,
+    "signals": {
+      "sample_count": 8,
+      "sample_share_percent": 2.7,
+      "engagement_weight": 218,
+      "search_total_count": 143,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0009",
+      "P0026",
+      "P0055"
+    ],
+    "example_urls": [
+      "https://github.com/microsoft/WindowsAppSDK/issues/3842",
+      "https://github.com/dotnet/maui/issues/17330",
+      "https://github.com/electron-userland/electron-builder/issues/8687"
+    ]
+  },
+  {
+    "id": "c17",
+    "name": "Get XAML layout, binding, controls, and resources right",
+    "description": "XAML layout, x:Bind/data binding, styles, resources, templates, NavigationView/ListView/Grid, and runtime XAML errors.",
+    "frameworks": {
+      "WinUI3": 10,
+      "MAUI": 2,
+      "Electron": 1
+    },
+    "share_percent": 3.8,
+    "signals": {
+      "sample_count": 13,
+      "sample_share_percent": 4.3,
+      "engagement_weight": 351.4,
+      "search_total_count": 6,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0110",
+      "P0111",
+      "P0209"
+    ],
+    "example_urls": [
+      "https://github.com/dotnet/maui/issues/14537",
+      "https://github.com/microsoft/microsoft-ui-xaml/issues/10970",
+      "https://github.com/electron/electron/issues/41928"
+    ]
+  },
+  {
+    "id": "c11",
+    "name": "Deliver auto-updates and app installer feeds",
+    "description": "App Installer files, update feeds, updater metadata, update intervals, silent/background updates, and update channel behavior.",
+    "frameworks": {
+      "Electron": 4,
+      "other/unknown": 4,
+      "Tauri": 2,
+      "MAUI": 1,
+      "WPF": 1
+    },
+    "share_percent": 3.3,
+    "signals": {
+      "sample_count": 12,
+      "sample_share_percent": 4.0,
+      "engagement_weight": 246.6,
+      "search_total_count": 5,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0039",
+      "P0058",
+      "P0064"
+    ],
+    "example_urls": [
+      "https://github.com/electron-userland/electron-builder/issues/7807",
+      "https://github.com/electron-userland/electron-builder/issues/7398",
+      "https://github.com/electron-userland/electron-builder/issues/7784"
+    ]
+  },
+  {
+    "id": "c13",
+    "name": "Integrate Win32, HWND, COM, and native APIs",
+    "description": "HWND ownership, P/Invoke, COM, C++/WinRT, message loops, window handles, HRESULTs, and other desktop interop.",
+    "frameworks": {
+      "WinUI3": 7,
+      "C++/Win32": 2,
+      "MAUI": 1,
+      "WPF": 1
+    },
+    "share_percent": 3.1,
+    "signals": {
+      "sample_count": 11,
+      "sample_share_percent": 3.7,
+      "engagement_weight": 239.8,
+      "search_total_count": 4,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0023",
+      "P0071",
+      "P0088"
+    ],
+    "example_urls": [
+      "https://github.com/microsoft/WindowsAppSDK/issues/3439",
+      "https://github.com/microsoft/WindowsAppSDK/issues/4651",
+      "https://github.com/microsoft/microsoft-ui-xaml/issues/11068"
+    ]
+  },
+  {
+    "id": "c23",
+    "name": "Bundle, sign, and debug Tauri Windows apps",
+    "description": "Tauri Windows bundle formats, WebView2/runtime dependencies, MSI/NSIS/WiX config, signing, updater, and Windows runtime failures.",
+    "frameworks": {
+      "Tauri": 8
+    },
+    "share_percent": 3.1,
+    "signals": {
+      "sample_count": 8,
+      "sample_share_percent": 2.7,
+      "engagement_weight": 171,
+      "search_total_count": 33,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0035",
+      "P0056",
+      "P0068"
+    ],
+    "example_urls": [
+      "https://github.com/tauri-apps/tauri/issues/9045",
+      "https://github.com/tauri-apps/tauri/issues/11546",
+      "https://github.com/tauri-apps/tauri/issues/10834"
+    ]
+  },
+  {
+    "id": "c22",
+    "name": "Build, package, and publish Flutter Windows apps",
+    "description": "Flutter Windows desktop build/run/package/sign/publish problems, including Windows runner and desktop plugin issues.",
+    "frameworks": {
+      "Flutter": 9
+    },
+    "share_percent": 3.0,
+    "signals": {
+      "sample_count": 9,
+      "sample_share_percent": 3.0,
+      "engagement_weight": 341,
+      "search_total_count": 5,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0004",
+      "P0011",
+      "P0018"
+    ],
+    "example_urls": [
+      "https://github.com/flutter/flutter/issues/121366",
+      "https://github.com/flutter/flutter/issues/150546",
+      "https://github.com/flutter/flutter/issues/119415"
+    ]
+  },
+  {
+    "id": "c14",
+    "name": "Use file pickers, dialogs, and storage APIs",
+    "description": "File/folder pickers, save dialogs, ContentDialog, hwnd initialization for dialogs, StorageFile, and packaged storage access.",
+    "frameworks": {
+      "WinUI3": 3,
+      "other/unknown": 3,
+      "Electron": 1,
+      "Tauri": 1
+    },
+    "share_percent": 2.6,
+    "signals": {
+      "sample_count": 8,
+      "sample_share_percent": 2.7,
+      "engagement_weight": 127.9,
+      "search_total_count": 12,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0051",
+      "P0060",
+      "P0086"
+    ],
+    "example_urls": [
+      "https://github.com/microsoft/microsoft-ui-xaml/issues/8476",
+      "https://github.com/electron/electron/issues/37239",
+      "https://github.com/microsoft/WindowsAppSDK/issues/3489"
+    ]
+  },
+  {
+    "id": "c20",
+    "name": "Migrate WPF, UWP, WinForms, or desktop code to newer stacks",
+    "description": "Porting between WPF/UWP/WinForms/WinUI/MAUI, replacing APIs, project migration, and desktop bridge modernization.",
+    "frameworks": {
+      "WPF": 5,
+      "Electron": 2,
+      "Tauri": 1
+    },
+    "share_percent": 2.6,
+    "signals": {
+      "sample_count": 8,
+      "sample_share_percent": 2.7,
+      "engagement_weight": 170.0,
+      "search_total_count": 7,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0063",
+      "P0072",
+      "P0073"
+    ],
+    "example_urls": [
+      "https://github.com/microsoft/WindowsAppSDK/issues/5684",
+      "https://github.com/electron-userland/electron-builder/issues/7946",
+      "https://github.com/electron/electron/issues/39278"
+    ]
+  },
+  {
+    "id": "c03",
+    "name": "Run, deploy, and debug packaged or unpackaged apps",
+    "description": "Local registration, launch, F5 deployment, unpackaged activation, debugging, and startup failures.",
+    "frameworks": {
+      "other/unknown": 4,
+      "Electron": 2,
+      "MAUI": 2,
+      "WinUI3": 2
+    },
+    "share_percent": 2.5,
+    "signals": {
+      "sample_count": 10,
+      "sample_share_percent": 3.3,
+      "engagement_weight": 208.7,
+      "search_total_count": 1,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0059",
+      "P0076",
+      "P0077"
+    ],
+    "example_urls": [
+      "https://github.com/microsoft/WindowsAppSDK/issues/3339",
+      "https://github.com/electron/electron/issues/44881",
+      "https://github.com/microsoft/WindowsAppSDK/issues/5832"
+    ]
+  },
+  {
+    "id": "c09",
+    "name": "Publish or pass certification in Microsoft Store",
+    "description": "Partner Center, Store submission/certification, package flighting, ingestion, Store policy, and Store-only failures.",
+    "frameworks": {
+      "other/unknown": 3,
+      "WinUI3": 2,
+      "MAUI": 1
+    },
+    "share_percent": 2.5,
+    "signals": {
+      "sample_count": 6,
+      "sample_share_percent": 2.0,
+      "engagement_weight": 170.1,
+      "search_total_count": 14,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0005",
+      "P0078",
+      "P0092"
+    ],
+    "example_urls": [
+      "https://github.com/microsoft/WindowsAppSDK/issues/4480",
+      "https://github.com/microsoft/WindowsAppSDK/issues/6564",
+      "https://stackoverflow.com/questions/73940053/how-do-i-publish-a-winui3-msix-bundle-to-the-microsoft-store"
+    ]
+  },
+  {
+    "id": "c26",
+    "name": "Manage dependencies, native libraries, and redistributables",
+    "description": "Shipping VC++ runtimes, DLLs, framework packages, native assets, and missing dependency errors on user machines.",
+    "frameworks": {
+      "WPF": 2,
+      "WinUI3": 2
+    },
+    "share_percent": 2.3,
+    "signals": {
+      "sample_count": 4,
+      "sample_share_percent": 1.3,
+      "engagement_weight": 43.4,
+      "search_total_count": 51,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0090",
+      "P0094",
+      "P0104"
+    ],
+    "example_urls": [
+      "https://stackoverflow.com/questions/74466154/packaging-project-fails-with-mismatch-between-the-processor-architecture-etc",
+      "https://stackoverflow.com/questions/70843636/how-to-call-powershell-functions-from-c-in-winui-3",
+      "https://stackoverflow.com/questions/73051142/packaged-shell-extension-killing-application"
+    ]
+  },
+  {
+    "id": "c28",
+    "name": "Build and package Windows apps in CI/CD",
+    "description": "GitHub Actions/Azure DevOps/CI build, packaging, signing, and environment failures specific to Windows desktop apps.",
+    "frameworks": {
+      "Electron": 1,
+      "Tauri": 1,
+      "WPF": 1,
+      "other/unknown": 1
+    },
+    "share_percent": 2.3,
+    "signals": {
+      "sample_count": 4,
+      "sample_share_percent": 1.3,
+      "engagement_weight": 77.4,
+      "search_total_count": 40,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0093",
+      "P0096",
+      "P0043"
+    ],
+    "example_urls": [
+      "https://github.com/electron-userland/electron-builder/issues/8613",
+      "https://github.com/tauri-apps/tauri/issues/7024",
+      "https://stackoverflow.com/questions/77644744/net-8-in-azure-devops-gives-error-netsdk1112-the-runtime-pack-for-microsoft-n"
+    ]
+  },
+  {
+    "id": "c08",
+    "name": "Fix package identity, manifest, capabilities, and activation",
+    "description": "Package identity, AppxManifest schema, capabilities, protocol/file associations, app IDs, publisher IDs, and identity-dependent APIs.",
+    "frameworks": {
+      "other/unknown": 3,
+      "Electron": 1
+    },
+    "share_percent": 2.0,
+    "signals": {
+      "sample_count": 4,
+      "sample_share_percent": 1.3,
+      "engagement_weight": 69,
+      "search_total_count": 18,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0027",
+      "P0080",
+      "P0177"
+    ],
+    "example_urls": [
+      "https://github.com/microsoft/WindowsAppSDK/issues/5820",
+      "https://github.com/microsoft/winappCli/issues/151",
+      "https://github.com/microsoft/WindowsAppSDK/issues/5636"
+    ]
+  },
+  {
+    "id": "c15",
+    "name": "Send notifications, toasts, badges, and background tasks",
+    "description": "Toast/local notifications, badges, push/activation, identity requirements, and background task activation.",
+    "frameworks": {
+      "other/unknown": 5,
+      "WinUI3": 2,
+      "Electron": 1
+    },
+    "share_percent": 1.9,
+    "signals": {
+      "sample_count": 8,
+      "sample_share_percent": 2.7,
+      "engagement_weight": 105.7,
+      "search_total_count": 1,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0065",
+      "P0075",
+      "P0081"
+    ],
+    "example_urls": [
+      "https://github.com/microsoft/WindowsAppSDK/issues/6071",
+      "https://github.com/microsoft/WindowsAppSDK/issues/3815",
+      "https://github.com/microsoft/winappCli/issues/352"
+    ]
+  },
+  {
+    "id": "c18",
+    "name": "Apply dark mode, Mica, Fluent, and theming",
+    "description": "Dark/light/high-contrast theme, Mica/Acrylic/Fluent backdrops, brushes, materials, and theme resources.",
+    "frameworks": {
+      "WinUI3": 3,
+      "Tauri": 1
+    },
+    "share_percent": 1.4,
+    "signals": {
+      "sample_count": 4,
+      "sample_share_percent": 1.3,
+      "engagement_weight": 36.5,
+      "search_total_count": 4,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0184",
+      "P0191",
+      "P0193"
+    ],
+    "example_urls": [
+      "https://github.com/microsoft/microsoft-ui-xaml/issues/9895",
+      "https://github.com/tauri-apps/tauri/issues/14643",
+      "https://github.com/microsoft/microsoft-ui-xaml/issues/10766"
+    ]
+  },
+  {
+    "id": "c16",
+    "name": "Implement windows, title bars, DPI, and display behavior",
+    "description": "AppWindow, title bars, multiple windows, tray/window icons, DPI scaling, fullscreen, resize, monitor, and display behavior.",
+    "frameworks": {
+      "WPF": 1
+    },
+    "share_percent": 0.9,
+    "signals": {
+      "sample_count": 1,
+      "sample_share_percent": 0.3,
+      "engagement_weight": 25.0,
+      "search_total_count": 5,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0257"
+    ],
+    "example_urls": [
+      "https://stackoverflow.com/questions/69097246/how-to-support-for-windows-11-snap-layout-to-the-custom-maximize-restore-butto"
+    ]
+  },
+  {
+    "id": "c27",
+    "name": "Distribute through enterprise or non-Store channels",
+    "description": "Winget, Intune, sideloading, enterprise/private deployment, policy, app attach, and download distribution.",
+    "frameworks": {
+      "other/unknown": 3,
+      "WPF": 1
+    },
+    "share_percent": 0.8,
+    "signals": {
+      "sample_count": 4,
+      "sample_share_percent": 1.3,
+      "engagement_weight": 42.0,
+      "search_total_count": 0,
+      "frequency_method": "0.50*corrected sample share + 0.30*log(search counts from the same cluster queries) + 0.20*corrected engagement share, normalized to 100"
+    },
+    "example_problem_ids": [
+      "P0099",
+      "P0097",
+      "P0098"
+    ],
+    "example_urls": [
+      "https://github.com/microsoft/WindowsAppSDK/issues/6639",
+      "https://stackoverflow.com/questions/67060229/open-a-windows-app-programmatically-when-it-was-installed-with-msix-application",
+      "https://stackoverflow.com/questions/67271306/why-does-the-msix-not-automatically-check-for-updates-every-time-the-application"
+    ]
+  }
+]

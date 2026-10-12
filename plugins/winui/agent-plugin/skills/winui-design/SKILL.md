@@ -1,9 +1,9 @@
 ---
 name: winui-design
-description: "Use when designing, reviewing, or fixing WinUI 3: sample/control discovery with winapp find-ui, project-aware API checks with winapp find-api, layout planning, Fluent Design, theming, accessibility, and XAML binding. Requires WinApp CLI 0.7+. Load before authoring new XAML, reviewing UI PRs, migrating desktop UI, or choosing WinUI controls/patterns. Also use to find WinUI Gallery or Community Toolkit samples."
+description: "Read before writing or changing WinUI 3 XAML: choosing controls, pages and navigation, layout, Fluent Design, theming, accessibility, x:Bind, real samples, and checking that APIs exist with winapp find-api. Not for WPF or WinForms UI, even if the app uses the Windows App SDK."
 ---
 
-
+**Scope: WinUI 3 apps only.** The Windows App SDK is not WinUI. A WPF, WinForms, Electron, or other app that references the Windows App SDK (for notifications, packaging, or other APIs) is not a WinUI app; keep its framework and don't apply this skill unless the task is to port it to WinUI 3. A WinUI 3 project has `<UseWinUI>true</UseWinUI>` or uses `Microsoft.UI.Xaml`.
 
 ## Search samples before writing XAML
 

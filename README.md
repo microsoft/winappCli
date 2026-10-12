@@ -259,7 +259,7 @@ See also: [Security guidance](./docs/security.md) — what development certifica
 **Discovery** (agent-first — built for AI coding agents to ground generated code in real metadata and real samples, and usable by hand):
 
 - [`find-api`](./docs/usage.md#find-api) - Search and inspect the Windows/WinRT API surface (types, members, enums, namespaces) a project references
-- [`find-ui`](./docs/usage.md#find-ui) - Search WinUI controls & samples (WinUI 3 Gallery + Windows Community Toolkit; Reactor is opt-in via `--source reactor`) for a working code example
+- [`find-ui`](./docs/usage.md#find-ui) - Search WinUI controls & samples (WinUI 3 Gallery + Windows Community Toolkit, including its helpers, converters, and behaviors; Reactor is opt-in via `--source reactor`) for a working code example
 
 **Node.js/Electron Specific:**
 
@@ -277,6 +277,7 @@ This repository includes samples demonstrating how to use the CLI with various f
 | Sample | Description |
 |--------|-------------|
 | [C++ App](/samples/cpp-app/README.md) | Native C++ Win32 application with CMake |
+| [C++ WinUI App](/samples/cpp-winui-app/README.md) | Packaged C++/WinRT WinUI 3 app (Visual Studio `.vcxproj`, XAML) launched via `winapp run <vcxproj>` |
 | [.NET Console](/samples/dotnet-app/README.md) | .NET console application |
 | [WPF App](/samples/wpf-app/README.md) | WPF desktop application |
 | [WinUI App](/samples/winui-app/README.md) | Packaged WinUI 3 app registered and launched via `winapp run <csproj>` |

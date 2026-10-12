@@ -1,0 +1,21 @@
+{
+  "id": "c22-flutter-release-window-hidden",
+  "description": "Flutter Windows release executables created with affected 3.7/3.10 templates can stay hidden because the first-frame callback is registered too late, based on https://github.com/flutter/flutter/issues/119415.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My Flutter Windows release build runs only the first time. After I close it, double-clicking the exe creates processes in Task Manager but no window; debug mode is fine, and renaming the output folder makes it show once again.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

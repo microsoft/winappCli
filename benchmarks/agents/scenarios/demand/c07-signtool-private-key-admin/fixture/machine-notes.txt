@@ -1,0 +1,4 @@
+# developer machine notes
+Certificate appears under certmgr.msc > Personal > Certificates as "Orbit Analytics".
+Running the same build from an elevated Developer Command Prompt signs successfully.
+Builds normally run under the domain account ORBIT\jules, not LocalSystem.

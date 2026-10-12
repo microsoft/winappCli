@@ -1,0 +1,9 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Contoso CAD" Manufacturer="Contoso" Version="3.2.0" UpgradeCode="6f1c2a52-0d55-4f37-9a7e-1d1b0c2f8a11">
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLDIR" Name="Contoso\CAD">
+        <Component><File Source="ContosoCAD.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>

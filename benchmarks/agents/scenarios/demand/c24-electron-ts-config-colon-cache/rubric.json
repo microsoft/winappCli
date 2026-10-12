@@ -1,0 +1,29 @@
+{
+  "cluster": "c24",
+  "framework": "Electron",
+  "goal": "Make the Electron Windows package use a builder configuration format that does not hit the invalid Windows cache path.",
+  "must_include": [
+    "Explains that the failing path contains a literal `:` from the Windows drive path inside the `config-file-ts` cache directory, which Windows rejects.",
+    "Recommends avoiding direct TypeScript config loading on Windows by precompiling `electron-builder.config.ts` to JavaScript and invoking `electron-builder --config electron-builder.config.js`, or converting the config to JS/YAML/JSON.",
+    "Preserves the existing NSIS Windows target and app metadata while changing only the config loading path.",
+    "Notes that this was an upstream `config-file-ts`/`read-config-file` issue rather than a TypeScript compiler error in the app."
+  ],
+  "must_not": [
+    "Suggests creating a directory whose name contains `:` on NTFS.",
+    "Tells the developer to rename the `C:` drive or remove Windows drive letters from absolute paths.",
+    "Treats this as a missing `ts-node` dependency without addressing the invalid cache path."
+  ],
+  "acceptable_alternatives": [
+    "Use a plain `electron-builder.yml` or package.json `build` section instead of a TypeScript config.",
+    "Add a build script that runs `tsc --esModuleInterop electron-builder.config.ts` before packaging.",
+    "Upgrade the upstream config loader if a version is available that sanitizes Windows drive paths."
+  ],
+  "solved": "The answer changes the project to use a JS/YAML/JSON builder config or a precompiled JS config so packaging no longer asks Windows to create the invalid `:-...` cache directory.",
+  "partial": "The answer identifies that `:` is illegal in the generated path but does not provide a usable electron-builder configuration workaround.",
+  "sources": ["https://github.com/electron-userland/electron-builder/issues/7572"],
+  "verified_with": [
+    "https://www.electron.build/docs/configuration/",
+    "https://github.com/electron-userland/electron-builder/issues/7572"
+  ],
+  "notes": "The prompt names electron-builder because the source developer did. The correct fix need not require changing application TypeScript."
+}

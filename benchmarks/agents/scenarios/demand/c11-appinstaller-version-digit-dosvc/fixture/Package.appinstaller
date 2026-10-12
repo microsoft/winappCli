@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppInstaller xmlns="http://schemas.microsoft.com/appx/appinstaller/2018"
+              Uri="https://downloads.litwaregrid.example.com/helios/Package.appinstaller"
+              Version="1.0.10.0">
+  <MainPackage Name="Helios.Workbench"
+               Publisher="CN=Litware Grid LLC"
+               Version="1.0.10.0"
+               ProcessorArchitecture="x64"
+               Uri="https://downloads.litwaregrid.example.com/helios/Helios.Workbench_1.0.10.0_x64.msix" />
+  <UpdateSettings>
+    <OnLaunch HoursBetweenUpdateChecks="1" />
+    <AutomaticBackgroundTask />
+  </UpdateSettings>
+</AppInstaller>

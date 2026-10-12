@@ -1,0 +1,9 @@
+{
+ "initialWindow": "Welcome to Umber Ledger",
+ "organizationField": "Organization",
+ "input": "Cedar Research",
+ "advanceButton": "Continue",
+ "expectedWindow": "Umber Ledger",
+ "expectedText": "Cedar Research",
+ "failureEvidence": ["screen image", "element tree", "step result"]
+}

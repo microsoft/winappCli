@@ -1,0 +1,33 @@
+{
+  "cluster": "c07",
+  "framework": "Tauri",
+  "goal": "Help the developer avoid signing a non-executable bundled resource while keeping the Windows installer signing flow intact.",
+  "must_include": [
+    "Identifies that `packaging\\README.md` from `bundle.resources` is being passed to the Windows signing command even though it is not an Authenticode-signable binary.",
+    "Recommends pinning or downgrading the affected Tauri CLI to 2.4.1, or upgrading once a fix that skips non-binary resources is available.",
+    "Offers a workaround that removes or relocates the text resource from the auto-signed resource set, or uses a custom sign command that skips non-PE files.",
+    "Keeps signing configured for the Tauri executable/MSI and does not treat the code-signing certificate itself as bad."
+  ],
+  "must_not": [
+    "Suggests converting the README to an executable or renaming it to `.exe`/`.dll`.",
+    "Deletes all `bundle.windows` signing configuration as the final answer.",
+    "Claims the MSI target cannot be signed by Tauri."
+  ],
+  "acceptable_alternatives": [
+    "Move the README into the app content after signing via an installer customization that does not send it to SignTool.",
+    "Use Tauri's `signCommand` to call a wrapper that signs only `.exe`, `.dll`, `.msi`, and other signable Windows binaries.",
+    "Temporarily build with `@tauri-apps/cli@2.4.1` while tracking the upstream regression."
+  ],
+  "solved": "The answer calls out the non-binary resource signing regression and gives a version or configuration workaround that still produces signed Windows binaries/installers.",
+  "partial": "The answer notices the README is involved but only says to disable signing or retry with a different certificate.",
+  "sources": [
+    "https://github.com/tauri-apps/tauri/issues/13341"
+  ],
+  "verified_with": [
+    "https://github.com/tauri-apps/tauri/issues/13341",
+    "https://v2.tauri.app/distribute/sign/windows/",
+    "https://v2.tauri.app/reference/config/#windowsconfig",
+    "https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool"
+  ],
+  "notes": "The real issue was an upstream regression after Tauri CLI 2.4.1; answers can mention both downgrade and fixed-version upgrade strategies."
+}

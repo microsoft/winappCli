@@ -1,0 +1,29 @@
+{
+  "cluster": "c04",
+  "framework": "WinUI3",
+  "goal": "Distinguish this debugger-only access violation from an app crash and point to the XAML Hot Reload in-app toolbar workaround.",
+  "must_include": [
+    "Uses the debugger-only timing and `.vs` setting to suspect the XAML Hot Reload in-app toolbar overlay.",
+    "Recommends disabling only the in-app toolbar option while keeping XAML Hot Reload itself enabled if desired.",
+    "Mentions that this was a Windows App SDK 1.4 / Visual Studio 17.7-era tooling/runtime interaction and should be retested after updating Visual Studio and Windows App SDK.",
+    "Treats the crash as a native access violation in Microsoft UI/windowing code, so normal managed exception handlers will not make it safe to continue."
+  ],
+  "must_not": [
+    "Tell the developer to remove their second window or rewrite the app as a single-window app.",
+    "Suggest adding a broad `try/catch` around window activation as the fix for the access violation.",
+    "Recommend disabling all debugging or all XAML Hot Reload before trying the narrower toolbar setting."
+  ],
+  "acceptable_alternatives": [
+    "Temporarily disable XAML Hot Reload entirely if the toolbar-specific setting is unavailable.",
+    "Upgrade Visual Studio and the Windows App SDK, then re-enable the toolbar to verify whether the crash is fixed."
+  ],
+  "solved": "The answer identifies the in-app XAML Hot Reload toolbar as the likely trigger and gives the disable-toolbar/update-and-retest path.",
+  "partial": "The answer recognizes a native Visual Studio/debugger/tooling interaction but does not name the in-app toolbar setting.",
+  "sources": ["https://github.com/microsoft/microsoft-ui-xaml/issues/8806"],
+  "verified_with": [
+    "https://github.com/microsoft/microsoft-ui-xaml/issues/8806",
+    "https://learn.microsoft.com/en-us/visualstudio/xaml-tools/xaml-hot-reload?view=vs-2022",
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads"
+  ],
+  "notes": "The scenario intentionally baits an app-code investigation; the fixture points to Visual Studio Hot Reload settings instead."
+}

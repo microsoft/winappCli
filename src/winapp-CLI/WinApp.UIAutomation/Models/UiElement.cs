@@ -80,6 +80,10 @@ public sealed class UiElement
     /// <summary>True when this element supports a directly invokable UIA pattern (Invoke/Toggle/SelectionItem/ExpandCollapse). Used by --interactive filtering.</summary>
     public bool IsInvokable { get; set; }
 
+    /// <summary>True when the element exposes a writable UIA Value pattern, so <c>set-value</c> can
+    /// change its text or value; <see langword="null"/> otherwise. Used by --interactive filtering.</summary>
+    public bool? IsEditable { get; set; }
+
     /// <summary>True when the element has additional descendants that were not included
     /// because the inspect depth limit was reached. Hint to re-run with a deeper --depth.</summary>
     public bool? HasMoreChildren { get; set; }

@@ -1,0 +1,8 @@
+name: contoso_field
+description: Contoso field app
+version: 1.3.0+7
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter

@@ -1,0 +1,31 @@
+{
+  "cluster": "c26",
+  "framework": "WPF",
+  "goal": "Resolve the packaging-project mismatch by correcting the Windows target/minimum version and architecture alignment instead of papering over native asset selection.",
+  "must_include": [
+    "Calls out that the packaging project still has `TargetPlatformMinVersion` set to `10.0.17763.0` while the WPF app targets `net6.0-windows10.0.19041.0`.",
+    "Sets the packaging project's `TargetPlatformMinVersion` to `10.0.19041.0` to match the app's Windows App SDK-era target floor.",
+    "Checks that the packaging project and WPF application are built for the same concrete architecture when producing architecture-specific packages.",
+    "Explains that the architecture warning is a packaging/build configuration symptom, not a reason to change application code."
+  ],
+  "must_not": [
+    "Tell them to suppress MSB3270/MSIL architecture warnings and ship anyway.",
+    "Tell them to change the WPF app back to an older Windows target to match the package project.",
+    "Set `Prefer32Bit` or `PlatformTarget` randomly without fixing the packaging project's target platform minimum."
+  ],
+  "acceptable_alternatives": [
+    "Recreate the Windows Application Packaging Project and choose `10.0.19041.0` as the minimum version in the wizard.",
+    "Edit the `.wapproj` file directly.",
+    "Build architecture-specific packages or a bundle after the package and app project settings agree.",
+    "Remove `<SkipGetTargetFrameworkProperties>True</SkipGetTargetFrameworkProperties>` from the app's `ProjectReference` in the `.wapproj`, the other fix reported in the source thread, so the packaging project resolves the app's target framework and runtime identifier."
+  ],
+  "solved": "The package project uses `TargetPlatformMinVersion` 10.0.19041.0 (or an acceptable alternative fix of the package project's reference to the app) and the package build no longer reports the MSIL/x86 mismatch.",
+  "partial": "The answer aligns the architectures but misses the stale `TargetPlatformMinVersion` in the `.wapproj` file.",
+  "sources": ["https://stackoverflow.com/questions/74466154/packaging-project-fails-with-mismatch-between-the-processor-architecture-etc"],
+  "verified_with": [
+    "https://api.stackexchange.com/2.3/questions/74466154?site=stackoverflow&filter=withbody",
+    "https://api.stackexchange.com/2.3/questions/74466154/answers?site=stackoverflow&filter=withbody",
+    "https://learn.microsoft.com/en-us/windows/msix/package/packaging-uwp-apps"
+  ],
+  "notes": "This problem is included in c26 because the visible failure is architecture/native asset selection during package creation, though the accepted fix is the packaging project's minimum Windows version."
+}

@@ -1,0 +1,33 @@
+{
+  "id": "winforms-hello-stays-winforms",
+  "description": "Trap: WinForms developer wants a Windows Hello check (a WinRT API) and will not port to WinUI; needs .NET framework guidance, not WinUI.",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "Before the cost columns show up in this WinForms stock tool, the user should confirm it's them with their fingerprint or PIN through Windows Hello. There's no budget to redo the UI, so it remains WinForms. What do I change in the project so I can call that from C#?",
+  "paraphrases": {
+    "novice": "my manager wants people to scan a finger or type their PIN before they can see prices in our WinForms program. do I need to rebuild the whole thing in WinUI for that? we really can't rewrite it"
+  },
+  "configurations": [
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "framework.guidance"
+      ],
+      "acceptable": [
+        "api.lookup",
+        "project.setup"
+      ],
+      "forbid": [
+        "winui.*",
+        "ui.samples",
+        "project.scaffold",
+        "msix.package"
+      ]
+    }
+  }
+}

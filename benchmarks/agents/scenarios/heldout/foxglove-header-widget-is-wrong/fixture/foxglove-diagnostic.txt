@@ -1,0 +1,4 @@
+Unknown member 'HeaderTemplateSelector' on 'ListView'.
+UI framework: Microsoft.UI.Xaml, not WPF.
+Desired behavior: filter row does not scroll away.
+Accessibility requirement: Windows text size 200%.

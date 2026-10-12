@@ -1,0 +1,21 @@
+{
+  "id": "c07-signtool-private-key-admin",
+  "description": "SignTool can see a certificate only from an elevated prompt because the build account lacks private-key access, based on https://stackoverflow.com/questions/56563732/why-does-signtool-exe-only-find-certificate-when-run-as-admin.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I'm setting up a new dev laptop and our normal build can't sign `Orbit.Reporting.dll` unless I start the developer command prompt as admin. The cert is visible in my Personal certificates.\n\nAfter Private Key filter, 0 certs were left.\nSignTool Error: No certificates were found that met all the given criteria.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

@@ -1,0 +1,6 @@
+<Project>
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Maui.Controls" Version="8.0.91" />
+    <PackageVersion Include="Microsoft.Maui.Controls.Compatibility" Version="8.0.91" />
+  </ItemGroup>
+</Project>

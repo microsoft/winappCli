@@ -1,6 +1,6 @@
 ---
 name: winui-code-review
-description: "Code quality review for WinUI 3 apps — MVVM compliance, x:Bind correctness, accessibility, theming, security, and performance. Use before committing to catch issues that the compiler and UI tests won't find."
+description: "Review WinUI 3 code or changes for quality: MVVM, x:Bind correctness, accessibility, theming, security, performance, and WinUI analyzer findings. Use when asked to review or audit a WinUI app or its pending changes, or before committing. Catches issues the compiler and UI tests miss."
 ---
 
 ### When to Use

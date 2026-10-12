@@ -64,6 +64,52 @@ public class WindowsSandboxCliTests
         Assert.AreSame(launchError, error.InnerException);
     }
 
+    /// <summary>
+    /// A share refused with <c>E_ACCESSDENIED</c> names the folder and the account that needs
+    /// access, and never sends the user to restart the host.
+    /// </summary>
+    /// <remarks>
+    /// Reproduced with <c>winapp target exec sandbox</c>: the Sandbox was healthy, but the bootstrap
+    /// folder's DACL locked SYSTEM out, and the user was told "If it keeps failing, restart the host",
+    /// which cannot help.
+    /// </remarks>
+    [TestMethod]
+    public async Task Share_AccessDenied_NamesTheFolderAndNeverSuggestsRestartingTheHost()
+    {
+        _cli.UseExecutable(@"C:\test\wsb.exe");
+        _runner.Result = new ProcessRunResult(
+            unchecked((int)0x80070005),
+            string.Empty,
+            "Access is denied. (0x80070005 (E_ACCESSDENIED))");
+        const string HostPath = @"C:\Users\someone\.winapp\state\targets\sandbox\bootstrap-0123";
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            _cli.ShareFolderAsync("sandbox-1", HostPath, @"C:\WinAppBootstrap-0123", allowWrite: false, CancellationToken.None));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, error.Error.Code);
+        StringAssert.Contains(error.Error.Message, HostPath);
+        StringAssert.Contains(error.Error.UserAction, "SYSTEM");
+        StringAssert.Contains(error.Error.UserAction, HostPath);
+        StringAssert.Contains(error.Error.UserAction, $"icacls \"{HostPath}\" /grant \"*S-1-5-18:(OI)(CI)F\"", "The message must show how to grant SYSTEM access.");
+        Assert.DoesNotContain("restart the host", error.Error.UserAction!, StringComparison.OrdinalIgnoreCase);
+        Assert.AreEqual("0x80070005", error.Error.Context![WsbHResult.ContextKey]);
+        Assert.AreEqual(HostPath, error.Error.Context["hostPath"]);
+    }
+
+    /// <summary>Any other share failure still never suggests restarting the host.</summary>
+    [TestMethod]
+    public async Task Share_OtherFailure_NeverSuggestsRestartingTheHost()
+    {
+        _cli.UseExecutable(@"C:\test\wsb.exe");
+        _runner.Result = new ProcessRunResult(1, string.Empty, "The system cannot find the file specified.");
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            _cli.ShareFolderAsync("sandbox-1", @"C:\host", @"C:\guest", allowWrite: true, CancellationToken.None));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.TransportFailed, error.Error.Code);
+        Assert.DoesNotContain("restart the host", error.Error.UserAction!, StringComparison.OrdinalIgnoreCase);
+    }
+
     [TestMethod]
     public void ResolveTrustedAlias_ReturnsAFullyQualifiedPath()
     {
@@ -289,6 +335,50 @@ public class WindowsSandboxCliTests
         CollectionAssert.AreEqual(
             ConnectArguments,
             captured.ArgumentList.ToArray());
+    }
+
+    /// <summary>
+    /// A new Sandbox is opened the way Start opens one: the client alias beside <c>wsb.exe</c>, with
+    /// no arguments, shown normally because that process is the window that owns the Sandbox.
+    /// </summary>
+    [TestMethod]
+    public async Task LaunchAsync_OpensTheClientBesideWsbWithNoArguments()
+    {
+        if (WindowsSandboxHostProbe.ResolveTrustedAlias() is not { } wsb)
+        {
+            Assert.Inconclusive("wsb.exe is not installed on this machine.");
+            return;
+        }
+
+        System.Diagnostics.ProcessStartInfo? captured = null;
+        _cli.ConnectLauncher = startInfo =>
+        {
+            captured = startInfo;
+            return null;
+        };
+
+        using var attempt = await _cli.LaunchAsync(_ => { }, TestContext.CancellationTokenSource.Token);
+
+        Assert.IsNotNull(captured);
+        Assert.AreEqual(
+            Path.Join(Path.GetDirectoryName(wsb), WindowsSandboxCli.ClientExecutableName),
+            captured.FileName);
+        Assert.IsFalse(captured.UseShellExecute);
+        Assert.AreEqual(System.Diagnostics.ProcessWindowStyle.Normal, captured.WindowStyle);
+        Assert.IsFalse(captured.RedirectStandardOutput);
+        Assert.IsEmpty(captured.ArgumentList);
+        Assert.IsEmpty(captured.Arguments);
+    }
+
+    [TestMethod]
+    public async Task LaunchAsync_WithoutTheClientAliasBesideWsb_ReportsWindowsSandboxAsNotInstalled()
+    {
+        // An ordinary file named wsb.exe has no client alias beside it, so nothing is launched.
+        _cli.UseExecutable(Path.Join(Environment.SystemDirectory, "wsb.exe"));
+        _cli.ConnectLauncher = _ => throw new AssertFailedException("Nothing may be launched.");
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => _cli.LaunchAsync(_ => { }, TestContext.CancellationTokenSource.Token));
     }
 
     [TestMethod]

@@ -1,0 +1,21 @@
+{
+  "id": "c04-tauri-resize-lag-webview2",
+  "description": "A Tauri Windows app feels frozen when resizing because of old Tauri/WebView2 resize performance and window effect behavior, from https://github.com/tauri-apps/tauri/issues/6322.",
+  "set": "demand",
+  "cohort": "vague",
+  "prompt": "My desktop app feels like the computer is crashing whenever I drag-resize the window on Windows. It is smooth enough on Linux and the UI itself is just a tiny vanilla page, so I don't know where to look.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

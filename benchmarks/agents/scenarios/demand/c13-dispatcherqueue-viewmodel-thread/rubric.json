@@ -1,0 +1,26 @@
+{
+  "cluster": "c13",
+  "framework": "WinUI3",
+  "goal": "Teach the developer to capture the WinUI 3 `Microsoft.UI.Dispatching.DispatcherQueue` on the UI thread and use it to marshal updates.",
+  "must_include": [
+    "Says `DispatcherQueue.GetForCurrentThread()` must be called on the UI thread; it can return null on a ThreadPool/background thread.",
+    "Uses `Microsoft.UI.Dispatching.DispatcherQueue`, not WPF `Dispatcher` and not `Windows.System.DispatcherQueue` for this WinUI 3 app.",
+    "Captures the queue in a page/window constructor, app startup, or UI-thread-created service and injects/passes it into the view model.",
+    "Uses `TryEnqueue` to run UI-bound work back on the queue and handles a false return or shutdown case."
+  ],
+  "must_not": [
+    "Blocks the UI thread with `.Wait()` or `.Result` to make the dispatcher available.",
+    "Creates a new dispatcher queue on the background thread for XAML UI access.",
+    "Tells the developer to use `System.Windows.Threading.Dispatcher` in a WinUI 3 project."
+  ],
+  "acceptable_alternatives": [
+    "Pass `DispatcherQueue.GetForCurrentThread()` from `MainPage` to the view model constructor.",
+    "Register an `IDispatcherQueueService` singleton on the UI thread and inject it into view models.",
+    "Move the UI state update back to the page code-behind while keeping non-UI work in the view model."
+  ],
+  "solved": "The answer changes the pattern so the view model receives a UI-thread `Microsoft.UI.Dispatching.DispatcherQueue` and uses `TryEnqueue` for UI updates.",
+  "partial": "The answer names `DispatcherQueue.GetForCurrentThread()` but does not explain why the current background-thread call returns null.",
+  "sources": ["https://stackoverflow.com/questions/69885338/how-to-get-dispatcherqueue-in-winui-3-desktop-using-windows-app-sdk"],
+  "verified_with": ["https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.dispatching.dispatcherqueue.getforcurrentthread?view=windows-app-sdk-1.8"],
+  "notes": "This is about UI-thread dispatching, not general task scheduling or dependency injection architecture."
+}

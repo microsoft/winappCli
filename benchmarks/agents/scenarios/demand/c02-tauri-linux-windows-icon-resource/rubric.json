@@ -1,0 +1,29 @@
+{
+  "cluster": "c02",
+  "framework": "Tauri",
+  "goal": "Fix the Windows cross-compile by installing/configuring the Windows resource compiler toolchain rather than changing the app icon.",
+  "must_include": [
+    "Recognizes this as a Windows resource-compilation/toolchain failure during cross-compilation, not as proof that `icons/icon.ico` is missing.",
+    "Mentions that Tauri Windows cross-compilation is experimental and should use a Windows host when possible.",
+    "Installs/configures the Windows cross tools needed for resources, such as `binutils-mingw-w64` for `windres` in the v1 issue context or LLVM `llvm-rc`/`cargo-xwin` for current MSVC cross-compilation guidance.",
+    "Keeps MSI expectations realistic: Tauri's MSI bundling is Windows-host-only; cross-compilation should target NSIS or just the executable depending on version and config."
+  ],
+  "must_not": [
+    "Tell them to remove the Windows icon from `tauri.conf.json` as the primary fix.",
+    "Tell them to switch from `x86_64-pc-windows-msvc` to a made-up Rust target.",
+    "Assume a Linux-produced MSI is supported by Tauri."
+  ],
+  "acceptable_alternatives": [
+    "Run the Windows build job on a Windows CI runner instead of cross-compiling.",
+    "Use `cargo-xwin` with the MSVC target and the current Tauri CLI arguments.",
+    "For older Tauri v1 cross builds, install the mingw resource tools required by the Tauri issue thread."
+  ],
+  "solved": "The cross-build image has the Windows resource compiler/toolchain configured, and the app no longer fails at icon resource compilation.",
+  "partial": "The answer identifies a missing cross-compile tool but does not state which resource compiler/tool package or Tauri bundling limitation matters.",
+  "sources": ["https://github.com/tauri-apps/tauri/issues/6746"],
+  "verified_with": [
+    "https://github.com/tauri-apps/tauri/issues/6746",
+    "https://v2.tauri.app/distribute/windows-installer/#cross-compilation"
+  ],
+  "notes": "The historical issue specifically mentions installing mingw binutils; current Tauri docs describe the MSVC cross-compilation path with `llvm-rc` and `cargo-xwin`."
+}

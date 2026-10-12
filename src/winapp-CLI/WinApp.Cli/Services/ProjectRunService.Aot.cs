@@ -26,6 +26,7 @@ internal sealed partial class ProjectRunService
         {
             throw new ProjectRunException("--aot supports only x64 and ARM64 Windows targets.");
         }
+        ThrowIfReferencesCppProject(csproj);
 
         WarnOnOverriddenFlags(options);
         var workingDirectory = csproj.Directory
