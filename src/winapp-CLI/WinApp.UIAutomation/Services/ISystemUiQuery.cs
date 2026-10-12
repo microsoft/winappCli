@@ -70,6 +70,6 @@ public interface ISystemUiQuery
     /// such an app is minimized its CoreWindow detaches from the frame; the minimized frame is then
     /// matched by AppUserModelID, and returned only when exactly one frame matches.
     /// </summary>
-    /// <exception cref="AmbiguousHostedAppFrameException">More than one minimized frame matches the app.</exception>
+    /// <exception cref="InvalidOperationException">More than one minimized frame matches the app.</exception>
     IReadOnlyList<long> FindHostedAppFrames(int pid);
 }

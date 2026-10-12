@@ -8,7 +8,7 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 /// ApplicationFrameHost frame. A minimized frame can only be linked to its app by
 /// AppUserModelID, so two minimized windows of the same app cannot be told apart.
 /// </summary>
-public sealed class AmbiguousHostedAppFrameException : InvalidOperationException
+internal sealed class AmbiguousHostedAppFrameException : InvalidOperationException
 {
     /// <summary>Creates an exception listing the candidate frames.</summary>
     /// <param name="frames">Window handles of the minimized frames that match the app.</param>

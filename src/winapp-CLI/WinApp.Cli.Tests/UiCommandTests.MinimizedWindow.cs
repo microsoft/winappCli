@@ -56,7 +56,7 @@ public partial class UiCommandTests
 
         // touch and pen write the JSON error straight to Console.Error.
         var previousErr = Console.Error;
-        var errCapture = new StringWriter();
+        using var errCapture = new StringWriter();
         Console.SetError(errCapture);
         int exitCode;
         try
