@@ -3875,6 +3875,28 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task BuildAndResolveAsync_Verbose_ProjectNameWithBrackets_IsShownLiterally()
+    {
+        // The streamed restore banner and the dim command lines interpolate a project path; MarkupLineInterpolated
+        // escapes it, so brackets render literally instead of being read as styles.
+        var csproj = WriteFile("App[1].csproj", ExecutableCsproj);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = _ => (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var service = NewServiceWith(dotnet, LogLevel.Debug, out var console);
+        console.Profile.Width = 4000;
+        service.NativeTerminalGateOverrideForTests = () => true;
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        var outcome = await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.IsNotNull(outcome.Resolution);
+        StringAssert.Contains(console.Output, "Restoring App[1]...");
+        StringAssert.Contains(console.Output, $"dotnet build {csproj.FullName}");
+    }
+
+    [TestMethod]
     public async Task RunBuildPassAsync_RealTerminalWithSecretInArguments_StreamsAndRedactsInsteadOfInheriting()
     {
         // A project target can print a property, so a credential passed with -p must never reach inherited stdio.
