@@ -23,10 +23,6 @@ internal static class Program
         {
             return await Services.Performance.PerfCaptureWorker.RunAsync(args);
         }
-        if (args.Length > 0 && args[0] == Services.Performance.PerfStartupHelper.InternalVerb)
-        {
-            return await Services.Performance.PerfStartupHelper.RunAsync(args);
-        }
 
         // Hidden internal verb: the WinUI DbgEng triage pass runs in this isolated child process so
         // its modern dbgeng.dll is not poisoned by the system32 dbghelp.dll the parent already loaded.

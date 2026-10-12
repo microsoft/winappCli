@@ -9,8 +9,6 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public class AppLauncherServiceTests
 {
-    public TestContext TestContext { get; set; } = null!;
-
     private readonly AppLauncherService _service = new(
         new Microsoft.Extensions.Logging.Abstractions.NullLogger<AppLauncherService>());
 
@@ -212,10 +210,8 @@ public class AppLauncherServiceTests
     // ---- LaunchExecutable (real stdio paths) -------------------------------
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
     [DoNotParallelize]
-    public async Task LaunchExecutable_SuppressMode_DrainsChattyOutputAndHonorsWorkingDir(bool profile)
+    public async Task LaunchExecutable_SuppressMode_DrainsChattyOutputAndHonorsWorkingDir()
     {
         var workingDir = Directory.CreateTempSubdirectory("winapp-launch-suppress-");
         try
@@ -223,10 +219,7 @@ public class AppLauncherServiceTests
             // 500 echoed lines would fill and block on a full stdout pipe if the child's output weren't
             // drained; the relative `marker.txt` write confirms the working directory + arguments took.
             var args = "/c \"echo ok> marker.txt & for /L %i in (1,1,500) do @echo line%i\"";
-            using var launched = profile
-                ? await _service.LaunchExecutableForProfilingAsync(Path.Join(Environment.SystemDirectory, "cmd.exe"),
-                    args, workingDir.FullName, LaunchStdioMode.Suppress, _ => Task.CompletedTask, TestContext.CancellationToken)
-                : _service.LaunchExecutable("cmd.exe", args, workingDir.FullName, LaunchStdioMode.Suppress);
+            using var launched = _service.LaunchExecutable("cmd.exe", args, workingDir.FullName, LaunchStdioMode.Suppress);
 
             Assert.IsTrue(launched.ProcessId > 0);
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -243,17 +236,12 @@ public class AppLauncherServiceTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
     [DoNotParallelize]
-    public async Task LaunchExecutable_InheritMode_HonorsArgumentsAndReturnsExitCode(bool profile)
+    public async Task LaunchExecutable_InheritMode_HonorsArgumentsAndReturnsExitCode()
     {
         // Inherit mode leaves stdio unredirected (streams inline like `dotnet run`); a trivial child
         // that just sets an exit code exercises the non-suppress path and confirms arguments are honored.
-        using var launched = profile
-            ? await _service.LaunchExecutableForProfilingAsync(Path.Join(Environment.SystemDirectory, "cmd.exe"),
-                "/c exit 3", null, LaunchStdioMode.Inherit, _ => Task.CompletedTask, TestContext.CancellationToken)
-            : _service.LaunchExecutable("cmd.exe", "/c exit 3", null, LaunchStdioMode.Inherit);
+        using var launched = _service.LaunchExecutable("cmd.exe", "/c exit 3", null, LaunchStdioMode.Inherit);
 
         Assert.IsTrue(launched.ProcessId > 0);
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -263,10 +251,8 @@ public class AppLauncherServiceTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
     [DoNotParallelize]
-    public async Task LaunchExecutable_SuppressMode_ChildDoesNotInheritOurStdHandles(bool profile)
+    public async Task LaunchExecutable_SuppressMode_ChildDoesNotInheritOurStdHandles()
     {
         // H1 regression: point THIS process's STD_OUTPUT at an inheritable pipe, launch a long-lived child
         // in Suppress mode, then close our own write end. If the child inherited a copy of our stdout handle
@@ -283,11 +269,8 @@ public class AppLauncherServiceTests
         try
         {
             SetStdHandle(STD_OUTPUT_HANDLE, writeHandle);
-            using var launched = profile
-                ? await _service.LaunchExecutableForProfilingAsync(Path.Join(Environment.SystemDirectory, "cmd.exe"),
-                    "/c ping 127.0.0.1 -n 60 > nul", null, LaunchStdioMode.Suppress,
-                    _ => Task.CompletedTask, TestContext.CancellationToken)
-                : _service.LaunchExecutable("cmd.exe", "/c ping 127.0.0.1 -n 60 > nul", null, LaunchStdioMode.Suppress);
+            var launched = _service.LaunchExecutable(
+                "cmd.exe", "/c ping 127.0.0.1 -n 60 > nul", null, LaunchStdioMode.Suppress);
             child = Process.GetProcessById((int)launched.ProcessId);
         }
         finally

@@ -70,7 +70,7 @@ public class PerfCallQueryTests
         var result = fixture.Query(new(View: "summary", Limit: 100));
 
         Assert.AreEqual(7u, result.PrimaryUiThread);
-        Assert.AreEqual("Parsing,Layout,Render,Other observed XAML,Image decode/load,Unclassified",
+        Assert.AreEqual("Parsing,Layout,Render,Composition submission,Other observed XAML,Image decode/load,Unclassified",
             string.Join(',', result.Activity!.Select(category => category.Category)));
         Assert.AreEqual(100d, result.Activity!.Sum(category => category.ObservedMs), 0.000001);
         AssertActivity(result, "Parsing", 5);
@@ -117,6 +117,41 @@ public class PerfCallQueryTests
 
         Assert.AreEqual(7u, result.PrimaryUiThread);
         AssertActivity(result, "Image decode/load", 0);
+    }
+
+    [TestMethod]
+    public void CompositionSubmissionIsDistinctFromRenderAndDoesNotSelectAWorkerAsTheUiThread()
+    {
+        using var fixture = new Fixture([
+            Call("render", 0, 20) with { Name = "SubmitFrame", Family = "frames", Thread = 7 },
+            Call("commit", 10, 15, "render") with { Name = "CommitMainDevice", Family = "composition", Thread = 7 },
+            Call("surface", 0, 90) with { Name = "DCompBeginDraw", Family = "composition", Thread = 42 },
+        ]);
+        fixture.Capture.ProviderStates = [new(PerfProviders.DirectComposition, "enabled", false)];
+        var summary = fixture.Query(new(View: "summary"));
+        Assert.AreEqual(7u, summary.PrimaryUiThread);
+        AssertActivity(summary, "Render", 15);
+        AssertActivity(summary, "Composition submission", 5);
+        AssertActivity(summary, "Unclassified", 80);
+        Assert.AreEqual("enabled", summary.DirectCompositionProvider!.State);
+        var calls = fixture.Query(new(View: "calls", Family: "composition"));
+        Assert.AreEqual("surface,commit", string.Join(',', calls.Rows.Select(row => row.Id)));
+        Assert.IsTrue(calls.Rows.All(row => row.Call!.ElementId is null));
+        Assert.Throws<ArgumentException>(() => fixture.Query(new(View: "summary", Thread: 42)));
+    }
+
+    [TestMethod]
+    public void OptionalCompositionStatusDoesNotDiscardXamlEvidenceOrInventSupportInOldCaptures()
+    {
+        using var fixture = new Fixture([Call("layout", 0, 10)]);
+        fixture.Capture.ProviderStates = [new(PerfProviders.DirectComposition, "unavailable", null, "Access denied")];
+        var result = fixture.Query(new());
+        Assert.IsTrue(result.Coverage.Complete);
+        Assert.AreEqual("unavailable", result.DirectCompositionProvider!.State);
+        Assert.AreEqual("Access denied", result.DirectCompositionProvider.Error);
+        Assert.IsNotEmpty(result.Rows);
+        fixture.Capture.Providers = [PerfProviders.All.Single(provider => provider.Id == PerfProviders.Xaml)];
+        Assert.AreEqual("not-recorded", fixture.Query(new()).DirectCompositionProvider!.State);
     }
 
     [TestMethod]

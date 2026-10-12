@@ -26,6 +26,18 @@ internal static class WinUiEventDecoder
 
     private static readonly Dictionary<ushort, Schema> Main = CreateMain();
     private static readonly Dictionary<ushort, Schema> Diagnostics = CreateDiagnostics();
+    // Version-0 contracts from the registered Microsoft-Windows-DirectComposition manifest.
+    // Resource/device IDs are fixed UInt64 fields, including in 32-bit events; they are not XAML element IDs.
+    private static readonly Dictionary<ushort, Schema> Composition = new()
+    {
+        [2] = new("DCompBeginDraw", "composition", 1, "u:channelHandle u:resourceType p:resourcePointer i:left i:top i:right i:bottom"),
+        [3] = new("DCompBeginDraw", "composition", 2, ""),
+        [4] = new("DCompEndDraw", "composition", 1, "u:channelHandle u:resourceType p:resourcePointer"),
+        [5] = new("DCompEndDraw", "composition", 2, ""),
+        [10] = new("DCompUpdateToken", "composition", 1, "u:channelHandle u:resourceType p:resourcePointer"),
+        [11] = new("DCompUpdateToken", "composition", 2, ""),
+        [25] = new("DCompDeviceCommit", "composition", 0, "p:DeviceId u:ChannelHandle u:LastCommittedBatchId u:LastConfirmedBatchId"),
+    };
 
     private static Dictionary<ushort, Schema> CreateMain()
     {
@@ -78,6 +90,7 @@ internal static class WinUiEventDecoder
         Pair(result, 63, 65, "Frame", "frames");
         Pair(result, 93, 94, "RenderWalk", "frames");
         Pair(result, 100, 102, "SubmitFrame", "frames");
+        Pair(result, 329, 330, "CommitMainDevice", "composition");
         Pair(result, 159, 160, "PointerWheel", "input");
         Pair(result, 199, 200, "VirtualizationMeasure", "virtualization");
         Pair(result, 201, 202, "VirtualizationCleanup", "virtualization");
@@ -125,7 +138,8 @@ internal static class WinUiEventDecoder
         {
             return DecodeSelfDescribing(raw, id, origin, frequency);
         }
-        var schemas = raw.Provider == PerfProviders.Xaml ? Main :
+        var schemas = raw.Provider == PerfProviders.DirectComposition ? Composition :
+            raw.Provider == PerfProviders.Xaml ? Main :
             raw.Provider == PerfProviders.Diagnostics ? Diagnostics : null;
         if (schemas is null || !schemas.TryGetValue(raw.EventId, out var schema))
         {

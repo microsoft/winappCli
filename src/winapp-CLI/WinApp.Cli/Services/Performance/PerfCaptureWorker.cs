@@ -5,7 +5,9 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Pipes;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 
@@ -22,6 +24,7 @@ internal sealed class PerfCaptureWorker : IDisposable
     private Process? target;
     private long deadline;
     private long lastProbe;
+    private long lastResourceProbe;
 
     private PerfCaptureWorker(PerfControlRegistration registration, string registrationPath, IPrivateEtwApi? etwApi)
     {
@@ -54,7 +57,13 @@ internal sealed class PerfCaptureWorker : IDisposable
         }
         try
         {
-            using var worker = new PerfCaptureWorker(PerfCaptureService.ReadRegistration(args[1]), args[1], etwApi);
+            var registration = PerfCaptureService.ReadRegistration(args[1]);
+            using var identity = WindowsIdentity.GetCurrent();
+            var elevated = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+            using var directories = elevated || registration.Mode == PerfProfileModes.Elevated
+                ? PerfCaptureDirectoryLease.Open(Path.GetDirectoryName(Path.GetFullPath(args[1]))!, registration.Directory)
+                : null;
+            using var worker = new PerfCaptureWorker(registration, args[1], etwApi);
             return await worker.RunAsync();
         }
         catch (Exception ex)
@@ -68,8 +77,11 @@ internal sealed class PerfCaptureWorker : IDisposable
     {
         try
         {
-            using var pipe = new NamedPipeServerStream(PerfControlChannel.PipeName(capture.Id), PipeDirection.InOut,
-                1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+            if (capture.Mode == PerfProfileModes.Elevated)
+            {
+                StopStaleElevatedSessions();
+            }
+            using var pipe = CreatePipe(capture.Id);
             capture.Save();
             using var lifetime = new CancellationTokenSource();
             var connection = pipe.WaitForConnectionAsync(lifetime.Token);
@@ -95,6 +107,7 @@ internal sealed class PerfCaptureWorker : IDisposable
                     break;
                 }
                 ProbeRuntime();
+                ProbeResources();
                 if (!connection.IsCompleted)
                 {
                     continue;
@@ -112,7 +125,7 @@ internal sealed class PerfCaptureWorker : IDisposable
                     }
                     catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
                     {
-                        if (request.Operation == "bind" && capture.ReadyQpc is null)
+                        if (request.Operation is "arm" or "bind" && capture.ReadyQpc is null)
                         {
                             capture.Error = ex.Message;
                             Finish("binding-failed");
@@ -174,10 +187,23 @@ internal sealed class PerfCaptureWorker : IDisposable
         {
             case "status":
                 return new(capture);
-            case "bind":
-                if (session is not null || capture.Target is not null || request.Target is null)
+            case "arm":
+                // An elevated capture starts recording before launch, scoped to the app that is about to start.
+                if (capture.Mode != PerfProfileModes.Elevated || session is not null || request.Scope is null ||
+                    request.Scope.IsPrivate)
                 {
-                    throw new InvalidOperationException("A capture can bind to exactly one target process.");
+                    throw new InvalidOperationException("Only an elevated capture can start recording before launch.");
+                }
+                BeginRecording(request.Scope, null);
+                capture.Save();
+                return new(capture);
+            case "bind":
+                var armed = capture.Mode == PerfProfileModes.Elevated;
+                if (capture.Target is not null || request.Target is null || armed != (session is not null))
+                {
+                    throw new InvalidOperationException(armed
+                        ? "An elevated capture must start recording before it binds to exactly one target process."
+                        : "A capture can bind to exactly one target process.");
                 }
                 target = request.Target.Open();
                 capture.Target = request.Target;
@@ -185,19 +211,12 @@ internal sealed class PerfCaptureWorker : IDisposable
                 SaveRegistration();
                 capture.StartupCoverage = request.StartupCoverage ?? capture.StartupCoverage;
                 capture.DebuggerAttached = request.DebuggerAttached;
-                var activeSession = StartSession(target);
-                foreach (var provider in capture.Providers)
+                if (!armed)
                 {
-                    capture.ProviderStates.Add(EnableProvider(activeSession, provider));
+                    BeginRecording(new(ProcessId: target.Id), target);
                 }
-                if (UnfilteredProvidersWarning(capture) is { } unfiltered)
-                {
-                    capture.Warnings.Add(unfiltered);
-                }
-                capture.ReadyQpc = Stopwatch.GetTimestamp();
-                capture.ReadyUtc = DateTime.UtcNow;
-                deadline = capture.ReadyQpc.Value + capture.DurationSec * Stopwatch.Frequency;
-                capture.State = "recording";
+                capture.ProcessResources = new();
+                ProbeResources(force: true);
                 capture.Save();
                 return new(capture);
             case "mark":
@@ -263,6 +282,30 @@ internal sealed class PerfCaptureWorker : IDisposable
         }
     }
 
+    private void ProbeResources(bool force = false)
+    {
+        if (target is null || capture.ProcessResources is not { } resources ||
+            !force && Stopwatch.GetTimestamp() - lastResourceProbe < Stopwatch.Frequency)
+        {
+            return;
+        }
+        lastResourceProbe = Stopwatch.GetTimestamp();
+        try
+        {
+            if (resources.Samples.Count >= PerfProcessResources.MaximumSamples)
+            {
+                throw new InvalidOperationException("Process resource sample limit reached.");
+            }
+            resources.Samples.Add(PerfProcessResources.Read(target));
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            resources.FailedSamples++;
+            resources.LastError = ex.Message.Length > 512 ? ex.Message[..512] : ex.Message;
+        }
+        capture.Save();
+    }
+
     internal static string? UnfilteredProvidersWarning(PerfCaptureDocument capture)
     {
         // Private ETW sessions accept only scope filters, so Windows can reject event-ID filtering
@@ -292,12 +335,29 @@ internal sealed class PerfCaptureWorker : IDisposable
         }
     }
 
-    private PrivateEtwSession StartSession(Process process)
+    private void BeginRecording(PerfEtwScope scope, Process? process)
+    {
+        var activeSession = StartSession(scope, process);
+        foreach (var provider in capture.Providers)
+        {
+            capture.ProviderStates.Add(EnableProvider(activeSession, provider));
+        }
+        if (UnfilteredProvidersWarning(capture) is { } unfiltered)
+        {
+            capture.Warnings.Add(unfiltered);
+        }
+        capture.ReadyQpc = Stopwatch.GetTimestamp();
+        capture.ReadyUtc = DateTime.UtcNow;
+        deadline = capture.ReadyQpc.Value + capture.DurationSec * Stopwatch.Frequency;
+        capture.State = "recording";
+    }
+
+    private PrivateEtwSession StartSession(PerfEtwScope scope, Process? process)
     {
         var until = Stopwatch.GetTimestamp() + 5 * Stopwatch.Frequency;
         while (true)
         {
-            session = new(capture.SessionName, capture.SessionId, process.Id,
+            session = new(capture.SessionName, capture.SessionId, scope,
                 Path.Join(capture.Directory, "trace.etl"), capture.MaxSizeMiB, etwApi);
             if (session.CanEnable)
             {
@@ -307,7 +367,7 @@ internal sealed class PerfCaptureWorker : IDisposable
             // initialization. Finalize that request before retrying the same PID scope.
             session.Dispose();
             session = null;
-            if (process.HasExited || Stopwatch.GetTimestamp() >= until)
+            if (process is null || process.HasExited || Stopwatch.GetTimestamp() >= until)
             {
                 throw new PerfEtwTargetNotReadyException();
             }
@@ -315,13 +375,86 @@ internal sealed class PerfCaptureWorker : IDisposable
         }
     }
 
+    /// <summary>
+    /// Creates the control pipe so only the current user can open it. The owner is set explicitly because an
+    /// elevated worker would otherwise create a pipe owned by Administrators, which a non-elevated controller rejects.
+    /// </summary>
+    private static NamedPipeServerStream CreatePipe(string id)
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var security = new PipeSecurity();
+        security.SetAccessRuleProtection(true, false);
+        security.SetOwner(identity.User!);
+        security.AddAccessRule(new PipeAccessRule(identity.User!, PipeAccessRights.FullControl, AccessControlType.Allow));
+        return NamedPipeServerStreamAcl.Create(PerfControlChannel.PipeName(id), PipeDirection.InOut, 1,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
+    }
+
+    /// <summary>
+    /// An elevated session is owned by the system, so it keeps recording if its worker is killed. Stop sessions
+    /// left behind by earlier elevated workers that are no longer running; only an elevated caller can.
+    /// </summary>
+    private void StopStaleElevatedSessions()
+    {
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(registrationPath));
+        if (root is null || !Directory.Exists(root))
+        {
+            return;
+        }
+        foreach (var path in Directory.EnumerateFiles(root, "control.json", SearchOption.AllDirectories))
+        {
+            try
+            {
+                var other = PerfCaptureService.ReadRegistration(path);
+                if (other.Id == registration.Id || other.Mode != PerfProfileModes.Elevated || other.Worker is null ||
+                    IsRunning(other.Worker))
+                {
+                    continue;
+                }
+                PrivateEtwSession.StopOwned("WinApp-Perf-" + other.Id, other.SessionId, null,
+                    Path.Join(other.Directory, "trace.etl"));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or
+                JsonException or InvalidOperationException or Win32Exception)
+            {
+                // A session that cannot be verified as this capture's is left alone.
+            }
+        }
+
+        static bool IsRunning(PerfProcessIdentity worker)
+        {
+            try
+            {
+                using var process = worker.Open();
+                return !process.HasExited;
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                return false;
+            }
+        }
+    }
+
     private void Finish(string reason)
     {
+        if (target?.HasExited == false)
+        {
+            ProbeResources(force: true);
+        }
         ProbeRuntime();
         capture.State = "stopping";
         capture.StopReason = reason;
         capture.Save();
-        session?.Stop();
+        try
+        {
+            session?.Stop();
+        }
+        catch (Win32Exception) when (session is { Stopped: false } && TargetExitsSoon())
+        {
+            // A crashing app can stay frozen for error reporting; its private session ends with the process.
+            capture.TargetExited = true;
+            capture.StopReason = "target-exited";
+        }
         capture.StopQpc = Stopwatch.GetTimestamp();
         capture.StoppedUtc = DateTime.UtcNow;
         capture.EventsLost = session?.EventsLost;
@@ -331,6 +464,9 @@ internal sealed class PerfCaptureWorker : IDisposable
         SetFinalState(capture, session?.Stopped == true);
         capture.Save();
     }
+
+    private bool TargetExitsSoon() =>
+        capture.Mode == PerfProfileModes.Attach && target is not null && target.WaitForExit(TimeSpan.FromSeconds(30));
 
     internal static void SetFinalState(PerfCaptureDocument capture, bool sessionStopped)
     {

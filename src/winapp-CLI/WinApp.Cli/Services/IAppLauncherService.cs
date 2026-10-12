@@ -58,16 +58,6 @@ internal interface IAppLauncherService
     ILaunchedProcess LaunchExecutable(string exePath, string? arguments = null, string? workingDirectory = null, LaunchStdioMode stdioMode = LaunchStdioMode.Inherit);
 
     /// <summary>
-    /// Holds a new app at its executable entry point until <paramref name="ready"/> enables recording.
-    /// Terminates the app if startup recording fails before it can resume.
-    /// </summary>
-    Task<ILaunchedProcess> LaunchExecutableForProfilingAsync(string exePath, string? arguments,
-        string? workingDirectory, LaunchStdioMode stdioMode, Func<uint, Task> ready, CancellationToken token);
-
-    /// <summary>Enables the package activation debugger until the returned scope is disposed.</summary>
-    IDisposable EnablePackageDebugging(string packageFullName, string debuggerCommandLine);
-
-    /// <summary>
     /// Terminates all processes belonging to a packaged application using
     /// <c>IPackageDebugSettings.TerminateAllProcesses</c>. Falls back to killing a
     /// single process by PID when the package-level termination fails.

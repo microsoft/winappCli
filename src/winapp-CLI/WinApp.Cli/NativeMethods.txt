@@ -121,16 +121,4 @@ STARTUPINFOEXW
 PROC_THREAD_ATTRIBUTE_JOB_LIST
 PROC_THREAD_ATTRIBUTE_HANDLE_LIST
 ResumeThread
-SuspendThread
-GetProcessIdOfThread
-TerminateProcess
-SetThreadContext
-Wow64GetThreadContext
-Wow64SetThreadContext
-WriteProcessMemory
-VirtualProtectEx
-FlushInstructionCache
-DuplicateHandle
-GetCurrentProcess
-GetPackageFullName
 GetKeyState

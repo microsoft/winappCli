@@ -454,8 +454,11 @@ internal partial class RunCommand
                 // would keep the npm wrapper's captured stdout pipe open (blocking a detached launch) and let
                 // app output corrupt --json stdout. A foreground, non-JSON run streams inline like `dotnet run`.
                 var stdioMode = (detach || isJson) ? LaunchStdioMode.Suppress : LaunchStdioMode.Inherit;
-                launched = await LaunchExecutableWithProfileAsync(exePath, launchArgs, workingDirectory,
-                    stdioMode, cancellationToken);
+                await PrepareProfileAsync(new(ExecutableName: Path.GetFileName(exePath)), cancellationToken);
+
+                var launchedAfter = DateTime.UtcNow;
+                launched = appLauncherService.LaunchExecutable(exePath, launchArgs, workingDirectory, stdioMode);
+                await BindProfileAsync(launched.ProcessId, launchedAfter, cancellationToken);
             }
             catch (Exception ex)
             {

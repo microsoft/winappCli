@@ -59,6 +59,8 @@ internal sealed class PerfQueryRow
     public PerfEvent? Event { get; set; }
     public PerfCall? Call { get; set; }
     public PerfGcInterval? GcInterval { get; set; }
+    public PerfResourceSample? ResourceSample { get; init; }
+    public double? TimeMs { get; init; }
     public PerfGcOverlap? GcOverlap { get; set; }
     public List<PerfHotspotOperation>? DominantOperations { get; set; }
     public string[] Evidence { get; set; } = [];
@@ -80,6 +82,8 @@ internal sealed class PerfQueryResult
     public bool ByteBudgetLimited { get; set; }
     public string? RootCallId { get; init; }
     public PerfGcCoverage? GcCoverage { get; init; }
+    public PerfResourceSummary? ProcessResources { get; init; }
+    public PerfProviderState? DirectCompositionProvider { get; init; }
     public uint? PrimaryUiThread { get; init; }
     public List<PerfActivityRow>? Activity { get; init; }
     public List<PerfParsingResource>? ParsingResources { get; init; }
@@ -89,8 +93,9 @@ internal sealed class PerfQueryResult
     public string[] Limitations { get; set; } =
     [
         "Durations and self time are elapsed time, not CPU time. Inclusive totals overlap.",
-        "Frames are UI-side phases, not presented frames or FPS. Temporal proximity is not causation.",
-        "Missing layout during compositor scrolling is inconclusive. CPU, kernel waits and GPU are not recorded.",
+        "Frames are UI-side phases, not presented frames or FPS. Composition scopes measure app-side API elapsed time; device commits are notifications, not display completion. Temporal proximity is not causation.",
+        "Missing layout during compositor scrolling is inconclusive. CPU stacks, kernel waits and GPU are not recorded.",
+        "Process counters cover the bound process, not children; CPU deltas span observed samples only. One-second sampling can miss spikes and final counters after exit. Memory is not allocation attribution.",
         "Element IDs and addresses are trace-local; parents/source are observed metadata, not a complete visual tree or UIA mapping.",
         "Mean/max/p95 use complete calls wholly inside the range; boundary overlaps are reported separately.",
         "Call trees are instrumented operations, not CPU stacks. Exclusive time subtracts child spans; element self time has separate accounting.",
@@ -396,6 +401,12 @@ internal static class PerfQuery
             Total = rows.Count, Rows = page, RootCallId = root?.Id, GcCoverage = gcCoverage,
             NextOffset = (long)options.Offset + options.Limit < rows.Count ? options.Offset + options.Limit : null,
             PrimaryUiThread = primaryUiThread,
+            ProcessResources = options.View == "summary" ? PerfResourceSummary.Create(analysis.Capture, range) : null,
+            DirectCompositionProvider = analysis.Capture.Providers.Any(p => p.Id == PerfProviders.DirectComposition)
+                ? analysis.Capture.ProviderStates.FirstOrDefault(p => p.Id == PerfProviders.DirectComposition) is { } compositionState
+                    ? compositionState with { Error = Clip(compositionState.Error, 256) }
+                    : new(PerfProviders.DirectComposition, "unconfirmed", null)
+                : new(PerfProviders.DirectComposition, "not-recorded", null),
             Activity = options.View == "summary" ? activity!.Categories : null,
             ParsingResources = options.View == "summary" ? activity!.Resources.Take(10).ToList() : null,
             ParsingResourcesTotal = options.View == "summary" ? activity!.Resources.Count : null,
@@ -406,6 +417,56 @@ internal static class PerfQuery
                 families, reasons.Take(8).Select(r => Clip(r, 256)!).ToArray(),
                 manifest.DecodeErrors, manifest.IncompleteCalls,
                 manifest.IncompleteReasons.Take(8).Select(r => Clip(r, 256)!).ToArray()),
+        };
+        Fit(result, options.MaxBytes);
+        return result;
+    }
+
+    public static PerfQueryResult ExecuteResources(PerfCaptureDocument capture, PerfQueryOptions options)
+    {
+        Validate(options);
+        if (!capture.Finalized || capture.Target is null || capture.ReadyQpc is null)
+        {
+            throw new InvalidDataException("Stop the capture before querying process resources.");
+        }
+        capture.ProcessResources?.Validate();
+        if (capture.ProcessResources is not { Samples.Count: > 0 } resources)
+        {
+            throw new InvalidDataException("No process resource samples were recorded. " +
+                (capture.ProcessResources?.LastError ?? "Record a new capture with the current winapp recorder."));
+        }
+        var from = Marker(capture, options.FromMarker) ?? options.FromMs ?? 0;
+        var to = Marker(capture, options.ToMarker) ?? options.ToMs ??
+            (capture.StopQpc is { } stopped ? (stopped - capture.ReadyQpc.Value) * 1000.0 / capture.Frequency :
+                PerfResourceSummary.TimeMs(capture, resources.Samples[^1]));
+        if (!double.IsFinite(from) || !double.IsFinite(to) || from > to)
+        {
+            throw new ArgumentException("The time range must be finite and ordered.");
+        }
+        var range = new PerfRange(from, to);
+        var rows = resources.Samples.Select((sample, index) => new PerfQueryRow
+        {
+            Id = "sample:" + (index + 1), Kind = "process-resources",
+            ResourceSample = sample, TimeMs = PerfResourceSummary.TimeMs(capture, sample),
+        }).Where(row => row.TimeMs >= from && row.TimeMs <= to).ToList();
+        var reasons = new List<string>();
+        if (resources.FailedSamples > 0)
+        {
+            reasons.Add($"Process counters could not be read on {resources.FailedSamples} sampling attempts. {resources.LastError}");
+        }
+        var recordedEnd = capture.StopQpc is { } stop ? (stop - capture.ReadyQpc.Value) * 1000.0 / capture.Frequency :
+            PerfResourceSummary.TimeMs(capture, resources.Samples[^1]);
+        if (from < 0 || to > recordedEnd)
+        {
+            reasons.Add("The selected time range extends beyond the recording.");
+        }
+        var result = new PerfQueryResult
+        {
+            CaptureId = capture.Id, View = "resources", Range = range, Offset = options.Offset,
+            Rows = rows.Skip(options.Offset).Take(options.Limit).ToList(), Total = rows.Count,
+            NextOffset = (long)options.Offset + options.Limit < rows.Count ? options.Offset + options.Limit : null,
+            ProcessResources = PerfResourceSummary.Create(capture, range),
+            Coverage = new(reasons.Count == 0, capture.StartupCoverage, 0, 0, null, null, [], reasons.ToArray()),
         };
         Fit(result, options.MaxBytes);
         return result;
@@ -424,7 +485,8 @@ internal static class PerfQuery
         if (requested is { } thread)
         {
             if (!complete.Any(call => call.Thread == thread &&
-                (call.Name == "Frame" && call.Family == "frames" || Category(call) is not null)))
+                (call.Name == "Frame" && call.Family == "frames" ||
+                    Category(call) is not null && (call.Family != "composition" || call.Name == "CommitMainDevice"))))
             {
                 throw new ArgumentException($"Thread {thread} has no complete WinUI activity in the selected range.");
             }
@@ -447,7 +509,8 @@ internal static class PerfQuery
         {
             return frameThread.Thread;
         }
-        var activityThread = complete.Where(call => Category(call) is not null and not "Image decode/load")
+        var activityThread = complete.Where(call => Category(call) is not null and not "Image decode/load" &&
+                (call.Family != "composition" || call.Name == "CommitMainDevice"))
             .GroupBy(call => call.Thread)
             .Select(group => new
             {
@@ -585,13 +648,14 @@ internal static class PerfQuery
     }
 
     private static readonly string[] ActivityCategories =
-        ["Parsing", "Layout", "Render", "Other observed XAML", "Image decode/load"];
+        ["Parsing", "Layout", "Render", "Composition submission", "Other observed XAML", "Image decode/load"];
 
     private static string? Category(PerfCall call) => call.Family switch
     {
         "parsing" => "Parsing",
         "layout" => "Layout",
         "images" => "Image decode/load",
+        "composition" => "Composition submission",
         "frames" when call.Name is "RenderWalk" or "SubmitFrame" => "Render",
         "frames" when call.Name == "Frame" => null,
         "gc" or "metadata" or "unknown" => null,
@@ -603,6 +667,7 @@ internal static class PerfQuery
         "Parsing" => 6,
         "Layout" => 5,
         "Render" => 4,
+        "Composition submission" => 4,
         "Image decode/load" => 3,
         _ => 1,
     };
@@ -847,25 +912,27 @@ internal static class PerfQuery
         return result;
     }
 
-    private static double? Marker(PerfAnalysis analysis, string? name)
+    private static double? Marker(PerfAnalysis analysis, string? name) => Marker(analysis.Capture, name);
+
+    private static double? Marker(PerfCaptureDocument capture, string? name)
     {
         if (name is null)
         {
             return null;
         }
-        var marker = analysis.Capture.Markers.SingleOrDefault(m => m.Name == name)
+        var marker = capture.Markers.SingleOrDefault(m => m.Name == name)
             ?? throw new ArgumentException($"Marker '{name}' was not recorded.");
-        return (marker.Qpc - analysis.Capture.ReadyQpc!.Value) * 1000.0 / analysis.Capture.Frequency;
+        return (marker.Qpc - capture.ReadyQpc!.Value) * 1000.0 / capture.Frequency;
     }
 
     internal static void Validate(PerfQueryOptions options)
     {
-        if (options.View is not ("summary" or "parsing" or "elements" or "element" or "frames" or "hotspots" or "events" or "calls" or "call" or "gc") ||
+        if (options.View is not ("summary" or "parsing" or "elements" or "element" or "frames" or "hotspots" or "events" or "calls" or "call" or "gc" or "resources") ||
             options.Limit is < 1 or > 100 || options.Offset < 0 || options.MaxBytes is < 4096 or > 1048576 ||
             options.Sort is not ("self" or "inclusive" or "count" or "duration") || options.Depth is < 0 or > 4 ||
             options.MinFrameMs is { } minimum && (!double.IsFinite(minimum) || minimum < 0))
         {
-            throw new ArgumentException("Invalid query: views summary/parsing/elements/element/frames/hotspots/events/calls/call/gc; limit 1-100; offset >=0; max-bytes 4096-1048576; sort self/inclusive/count/duration; depth 0-4; min-frame-ms finite and >=0.");
+            throw new ArgumentException("Invalid query: views summary/parsing/elements/element/frames/hotspots/events/calls/call/gc/resources; limit 1-100; offset >=0; max-bytes 4096-1048576; sort self/inclusive/count/duration; depth 0-4; min-frame-ms finite and >=0.");
         }
         if (options.Id is not null && options.View is not ("element" or "call" or "gc") ||
             options.Depth is not null && options.View is not ("element" or "call") ||
@@ -873,7 +940,7 @@ internal static class PerfQuery
             options.Type is not null && options.View is not ("elements" or "element") ||
             (options.Provider is not null || options.Event is not null || options.Element is not null) && options.View != "events" ||
             options.Family is not null && options.View != "calls" ||
-            options.Thread is not null && options.View == "gc" ||
+            options.Thread is not null && options.View is "gc" or "resources" ||
             options.View is "summary" or "elements" or "element" && options.Sort == "duration" ||
             options.View == "gc" && options.Sort is not ("self" or "duration") ||
             options.View is not ("summary" or "parsing" or "elements" or "element" or "gc") && options.Sort != "self" ||

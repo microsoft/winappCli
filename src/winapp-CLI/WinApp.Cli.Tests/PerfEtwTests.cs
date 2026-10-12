@@ -4,6 +4,9 @@
 extern alias winappcli;
 
 using System.Diagnostics;
+using System.IO.Pipes;
+using System.Text.Json;
+using WinApp.Cli.Commands;
 using WinApp.Cli.Services.Performance;
 using Native = winappcli::Windows.Win32.PInvoke;
 using EventDescriptor = winappcli::Windows.Win32.System.Diagnostics.Etw.EVENT_DESCRIPTOR;
@@ -18,6 +21,10 @@ namespace WinApp.Cli.Tests;
 [DoNotParallelize]
 public sealed class PerfEtwTests
 {
+    private static readonly uint[] PidAndEventIdFilters = [0x80000004u, 0x80000200u];
+    private static readonly uint[] PackageAndEventIdFilters = [0x80000010u, 0x80000200u];
+    private static readonly uint[] ExecutableFilterOnly = [0x80000008u];
+
     [TestMethod]
     public void XamlProviderCapturesParserAppModelAndImageKeywords()
     {
@@ -60,6 +67,222 @@ public sealed class PerfEtwTests
     }
 
     [TestMethod]
+    public void PidScopeStartsPrivateSessionWithPidFilter()
+    {
+        var api = new FakeEtwApi { StartedHandle = 123 };
+        using var trace = new PrivateEtwSession("owned", Guid.NewGuid(), Environment.ProcessId, @"C:\trace.etl", 1, api);
+        Assert.AreEqual(0x801u, api.StartedLogFileMode);
+        Assert.AreEqual(1u, api.StartedFilterCount);
+        trace.Enable(Guid.NewGuid(), ulong.MaxValue, eventIds: [1, 2]);
+        CollectionAssert.AreEqual(PidAndEventIdFilters, api.EnabledFilterTypes.Single());
+    }
+
+    [TestMethod]
+    public void PackageScopeStartsNormalSessionAndFiltersAtEnable()
+    {
+        var api = new FakeEtwApi { StartedHandle = 123 };
+        using var trace = new PrivateEtwSession("owned", Guid.NewGuid(),
+            new PerfEtwScope(PackageFullName: "Contoso.App_1.0.0.0_x64__abc"), @"C:\trace.etl", 1, api);
+        Assert.AreEqual(1u, api.StartedLogFileMode);
+        Assert.AreEqual(0u, api.StartedFilterCount);
+        trace.Enable(Guid.NewGuid(), ulong.MaxValue, eventIds: [1]);
+        CollectionAssert.AreEqual(PackageAndEventIdFilters, api.EnabledFilterTypes.Single());
+        Assert.AreEqual("Contoso.App_1.0.0.0_x64__abc", api.EnabledScopeName);
+    }
+
+    [TestMethod]
+    public void ExecutableScopeKeepsNameFilterWhenEventIdsAreRejected()
+    {
+        var api = new FakeEtwApi { StartedHandle = 123, RejectEventIds = true };
+        using var trace = new PrivateEtwSession("owned", Guid.NewGuid(),
+            new PerfEtwScope(ExecutableName: "app.exe"), @"C:\trace.etl", 1, api);
+        Assert.IsFalse(trace.Enable(Guid.NewGuid(), ulong.MaxValue, eventIds: [1]));
+        Assert.AreEqual(2, api.EnableCalls);
+        CollectionAssert.AreEqual(ExecutableFilterOnly, api.EnabledFilterTypes[1]);
+        Assert.AreEqual("app.exe", api.EnabledScopeName);
+    }
+
+    [TestMethod]
+    [DataRow(null, null)]
+    [DataRow("", null)]
+    [DataRow(" ", null)]
+    [DataRow(null, "")]
+    [DataRow(null, " ")]
+    public async Task EmptyScopeFailsBeforeStartingSessionOrPreparingElevatedCapture(string? executableName, string? packageFullName)
+    {
+        var scope = new PerfEtwScope(ExecutableName: executableName, PackageFullName: packageFullName);
+        var api = new FakeEtwApi { StartedHandle = 123 };
+        Assert.Throws<ArgumentException>(() => new PrivateEtwSession("owned", Guid.NewGuid(), scope, @"C:\trace.etl", 1, api));
+        Assert.AreEqual(0, api.StartCalls);
+        Assert.AreEqual(0, api.EnableCalls);
+
+        var root = Directory.CreateTempSubdirectory("WinApp-Perf-Empty-Scope-");
+        try
+        {
+            var service = new PerfCaptureService(new FakeWinappDirectoryService(root), new FakeAppLauncherService());
+            var output = Path.Join(root.FullName, "capture");
+            var run = new PerfRunCapture(service, output, 30, 128, PerfProfileModes.Elevated, false);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => run.PrepareAsync(scope, CancellationToken.None));
+            StringAssert.Contains(error.Message, "--profile-mode attach");
+            Assert.IsFalse(Directory.Exists(output));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void OverlongScopeNameIsRejectedBeforeStartingSession()
+    {
+        var api = new FakeEtwApi { StartedHandle = 123 };
+        Assert.Throws<ArgumentException>(() => new PrivateEtwSession("owned", Guid.NewGuid(),
+            new PerfEtwScope(ExecutableName: new string('a', 600)), @"C:\trace.etl", 1, api));
+        Assert.AreEqual(0, api.StartCalls);
+    }
+
+    [TestMethod]
+    public async Task WorkerRejectsUnscopedElevatedRecordingWithoutStartingEtw()
+    {
+        var root = Directory.CreateTempSubdirectory("WinApp-Perf-Worker-Scope-");
+        Task<int>? worker = null;
+        try
+        {
+            var id = Guid.NewGuid().ToString("N");
+            var directory = root.CreateSubdirectory("capture");
+            var registry = Directory.CreateDirectory(Path.Join(root.FullName, "perf-control", id));
+            var registrationPath = Path.Join(registry.FullName, "control.json");
+            var registration = new PerfControlRegistration(id, directory.FullName, new string('a', 64),
+                Guid.NewGuid(), 30, 128, Mode: PerfProfileModes.Elevated);
+            File.WriteAllText(registrationPath,
+                JsonSerializer.Serialize(registration, PerfJsonContext.Default.PerfControlRegistration));
+            new PerfCaptureDocument
+            {
+                Id = id, Directory = directory.FullName, SessionId = registration.SessionId,
+                SessionName = "WinApp-Perf-" + id, Mode = PerfProfileModes.Elevated,
+            }.Save();
+            var api = new FakeEtwApi { StartedHandle = 123 };
+            worker = PerfCaptureWorker.RunAsync([PerfCaptureWorker.InternalVerb, registrationPath], api);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                PerfCaptureService.ArmAsync(registration, new PerfEtwScope(), CancellationToken.None));
+
+            StringAssert.Contains(error.Message, "requires a process ID, executable name, or package full name");
+            Assert.AreEqual(1, await worker.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(0, api.StartCalls);
+            Assert.AreEqual(0, api.EnableCalls);
+            var capture = PerfCaptureDocument.Load(directory.FullName);
+            Assert.AreEqual("failed", capture.State);
+            Assert.AreEqual("binding-failed", capture.StopReason);
+            Assert.IsNull(capture.ReadyQpc);
+            Assert.IsEmpty(directory.GetFiles("trace.etl*"));
+        }
+        finally
+        {
+            try
+            {
+                if (worker is not null)
+                {
+                    await worker.WaitAsync(TimeSpan.FromSeconds(35));
+                }
+            }
+            finally
+            {
+                root.Delete(recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task ElevatedWorkerPinsCaptureAndControlPathsThroughFinalization()
+    {
+        var root = Directory.CreateTempSubdirectory("WinApp-Perf-Worker-Paths-");
+        Task<int>? worker = null;
+        try
+        {
+            var id = Guid.NewGuid().ToString("N");
+            var directory = root.CreateSubdirectory("output").CreateSubdirectory("capture");
+            var registry = root.CreateSubdirectory("perf-control").CreateSubdirectory(id);
+            var registrationPath = Path.Join(registry.FullName, "control.json");
+            var registration = new PerfControlRegistration(id, directory.FullName, new string('a', 64),
+                Guid.NewGuid(), 30, 128, Mode: PerfProfileModes.Elevated);
+            File.WriteAllText(registrationPath,
+                JsonSerializer.Serialize(registration, PerfJsonContext.Default.PerfControlRegistration));
+            new PerfCaptureDocument
+            {
+                Id = id, Directory = directory.FullName, SessionId = registration.SessionId,
+                SessionName = "WinApp-Perf-" + id, Mode = PerfProfileModes.Elevated,
+            }.Save();
+            var api = new FakeEtwApi { StartedHandle = 123, BeforeStop = AssertPathsPinned };
+            using (PerfCaptureDirectoryLease.Open(directory.FullName, registry.FullName))
+            {
+                worker = PerfCaptureWorker.RunAsync([PerfCaptureWorker.InternalVerb, registrationPath], api);
+                await PerfCaptureService.ArmAsync(registration, new PerfEtwScope(ExecutableName: "app.exe"),
+                    CancellationToken.None);
+            }
+            AssertPathsPinned();
+            using var target = Process.GetCurrentProcess();
+            await PerfCaptureService.BindAsync(registration, PerfProcessIdentity.Read(target),
+                "recorded from launch (elevated session)", false, CancellationToken.None);
+            Assert.AreEqual(Environment.ProcessId, PerfCaptureService.ReadRegistration(registrationPath).Target?.Pid);
+            var bound = PerfCaptureDocument.Load(directory.FullName);
+            Assert.AreEqual(1, bound.ProcessResources!.Samples.Count);
+            Assert.IsGreaterThan(0L, bound.ProcessResources.Samples[0].Values.PrivateBytes);
+            await Task.Delay(1100);
+
+            using (var malformed = new NamedPipeClientStream(".", PerfControlChannel.PipeName(id),
+                PipeDirection.Out, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly))
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await malformed.ConnectAsync(timeout.Token);
+                await malformed.WriteAsync(BitConverter.GetBytes(5000), timeout.Token);
+                await malformed.FlushAsync(timeout.Token);
+            }
+            var marked = await PerfControlChannel.SendAsync(registration,
+                new(registration.Credential, "mark", Name: "paths-still-owned"), CancellationToken.None);
+            StringAssert.Contains(marked.LastControlError!, "size limit");
+            Assert.AreEqual("paths-still-owned", PerfCaptureDocument.Load(directory.FullName).Markers.Single().Name);
+            AssertPathsPinned();
+
+            var stopped = await PerfControlChannel.SendAsync(registration,
+                new(registration.Credential, "stop"), CancellationToken.None);
+            Assert.AreEqual("requested", stopped.StopReason);
+            Assert.AreEqual(1, await worker.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(1, api.StartCalls);
+            Assert.AreEqual(1, api.StopCalls);
+            Assert.IsNotNull(PerfCaptureDocument.Load(directory.FullName).StopQpc);
+            var resources = PerfCaptureDocument.Load(directory.FullName).ProcessResources!;
+            Assert.IsGreaterThanOrEqualTo(3, resources.Samples.Count,
+                "Binding, periodic polling, and finalization must all sample the target.");
+            Assert.AreEqual(0, resources.FailedSamples);
+            Directory.Move(directory.FullName, directory.FullName + "-moved");
+            Directory.Move(registry.FullName, registry.FullName + "-moved");
+
+            void AssertPathsPinned()
+            {
+                foreach (var path in new[] { root, directory.Parent!, directory, registry.Parent!, registry })
+                {
+                    Assert.Throws<IOException>(() => Directory.Move(path.FullName, path.FullName + "-moved"));
+                }
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (worker is not null)
+                {
+                    await worker.WaitAsync(TimeSpan.FromSeconds(35));
+                }
+            }
+            finally
+            {
+                root.Delete(recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void FailedStopOfZeroSessionHandleRemainsRetryable()
     {
         var api = new FakeEtwApi { FailStop = true };
@@ -76,6 +299,7 @@ public sealed class PerfEtwTests
 
     private sealed unsafe class FakeEtwApi : IPrivateEtwApi
     {
+        public int StartCalls { get; private set; }
         public int EnableCalls { get; private set; }
         public ulong EnabledHandle { get; private set; }
         public int StopCalls { get; private set; }
@@ -84,10 +308,20 @@ public sealed class PerfEtwTests
         public bool FailStop { get; set; }
         public ulong StartedHandle { get; set; }
         public bool FailClr { get; set; }
+        public bool FailComposition { get; set; }
         public bool RejectEventIds { get; set; }
+        public Action? BeforeStop { get; set; }
+        public uint StartedLogFileMode { get; private set; }
+        public uint StartedFilterCount { get; private set; }
+        public List<uint[]> EnabledFilterTypes { get; } = [];
+        public string? EnabledScopeName { get; private set; }
 
         public NativeError Start(ulong* handle, char* name, Etw.EVENT_TRACE_PROPERTIES* properties)
         {
+            StartCalls++;
+            var v2 = (Etw.EVENT_TRACE_PROPERTIES_V2*)properties;
+            StartedLogFileMode = v2->LogFileMode;
+            StartedFilterCount = v2->FilterDescCount;
             *handle = StartedHandle;
             return NativeError.ERROR_SUCCESS;
         }
@@ -97,18 +331,31 @@ public sealed class PerfEtwTests
         {
             EnableCalls++;
             EnabledHandle = handle;
-            if (RejectEventIds && parameters->FilterDescCount == 2)
+            var types = new uint[parameters->FilterDescCount];
+            for (var i = 0; i < types.Length; i++)
+            {
+                types[i] = parameters->EnableFilterDesc[i].Type;
+            }
+            EnabledFilterTypes.Add(types);
+            if (types.Length > 0 && types[0] is 0x80000008u or 0x80000010u)
+            {
+                EnabledScopeName = new string((char*)parameters->EnableFilterDesc[0].Ptr);
+            }
+            if (RejectEventIds && types.Contains(0x80000200u))
             {
                 return NativeError.ERROR_INVALID_PARAMETER;
             }
-            Assert.AreEqual(1u, parameters->FilterDescCount);
-            Assert.AreEqual(0x80000004u, parameters->EnableFilterDesc->Type);
-            Assert.AreEqual((uint)Environment.ProcessId, *(uint*)parameters->EnableFilterDesc->Ptr);
-            return FailClr && *provider == PerfProviders.Clr ? NativeError.ERROR_ACCESS_DENIED : NativeError.ERROR_SUCCESS;
+            if (types.Length > 0 && types[0] == 0x80000004u)
+            {
+                Assert.AreEqual((uint)Environment.ProcessId, *(uint*)parameters->EnableFilterDesc->Ptr);
+            }
+            return FailClr && *provider == PerfProviders.Clr || FailComposition && *provider == PerfProviders.DirectComposition
+                ? NativeError.ERROR_ACCESS_DENIED : NativeError.ERROR_SUCCESS;
         }
 
         public NativeError Stop(ulong handle, char* name, Etw.EVENT_TRACE_PROPERTIES* properties)
         {
+            BeforeStop?.Invoke();
             StopCalls++;
             StoppedHandle = handle;
             StoppedName = new string(name);
@@ -118,12 +365,18 @@ public sealed class PerfEtwTests
     }
 
         [TestMethod]
-        public void OptionalGcFailurePreservesTheOwnedXamlSessionAndError()
+        [DataRow(false)]
+        [DataRow(true)]
+        public void OptionalProviderFailurePreservesTheOwnedXamlSessionAndError(bool composition)
         {
-            var api = new FakeEtwApi { StartedHandle = 123, RejectEventIds = true, FailClr = true };
+            var api = new FakeEtwApi
+            {
+                StartedHandle = 123, RejectEventIds = true, FailClr = !composition, FailComposition = composition,
+            };
             using var trace = new PrivateEtwSession("owned", Guid.NewGuid(), Environment.ProcessId, @"C:\trace.etl", 1, api);
             var xaml = PerfCaptureWorker.EnableProvider(trace, PerfProviders.All.Single(p => p.Id == PerfProviders.Xaml));
-            var gc = PerfCaptureWorker.EnableProvider(trace, PerfProviders.All.Single(p => p.Id == PerfProviders.Clr));
+            var gc = PerfCaptureWorker.EnableProvider(trace, PerfProviders.All.Single(p =>
+                p.Id == (composition ? PerfProviders.DirectComposition : PerfProviders.Clr)));
             Assert.AreEqual("enabled", xaml.State);
             Assert.AreEqual("unavailable", gc.State);
             Assert.IsNotNull(gc.Error);

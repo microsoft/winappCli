@@ -699,6 +699,7 @@ winapp manifest update-assets mylogo.png --verbose
 ### run
 
 To record native WinUI performance while launching, add `--profile <empty-directory>`.
+Add `--profile-mode elevated` to record startup (one UAC prompt for the recorder).
 See the [performance guide](guides/winui-performance.md) for duration/size options,
 startup coverage, detached capture, and offline analysis.
 
@@ -2197,7 +2198,9 @@ winapp perf analyze .\traces\scenario --json
 Record and query WinUI 3 layout, frame, input and scrolling evidence. Stop the
 capture before analysis. The default analysis reports mutually exclusive observed
 activity on the primary UI thread, the hottest parsed XAML resources, and a
-detailed operation ranking. Use marker or millisecond bounds for before/after
+detailed operation ranking. Process resources are summarized alongside timings;
+use `--view resources` for their timeline. Use `--view calls --family composition`
+for app-side commit and surface-update timings. Use marker or millisecond bounds for before/after
 comparisons. See the [performance guide](guides/winui-performance.md) for the
 complete start/mark/stop/query workflow and interpretation limits.
 

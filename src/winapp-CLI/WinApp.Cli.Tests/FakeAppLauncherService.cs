@@ -55,27 +55,6 @@ internal class FakeAppLauncherService : IAppLauncherService
         return LastLaunchedProcess;
     }
 
-    public async Task<ILaunchedProcess> LaunchExecutableForProfilingAsync(string exePath, string? arguments,
-        string? workingDirectory, LaunchStdioMode stdioMode, Func<uint, Task> ready, CancellationToken token)
-    {
-        var process = LaunchExecutable(exePath, arguments, workingDirectory, stdioMode);
-        await ready(process.ProcessId);
-        return process;
-    }
-
-    public List<(string Package, string Command)> PackageDebuggingCalls { get; } = [];
-
-    public IDisposable EnablePackageDebugging(string packageFullName, string debuggerCommandLine)
-    {
-        PackageDebuggingCalls.Add((packageFullName, debuggerCommandLine));
-        return new EmptyScope();
-    }
-
-    private sealed class EmptyScope : IDisposable
-    {
-        public void Dispose() { }
-    }
-
     public string ComputePackageFamilyName(string packageName, string publisher)
     {
         return $"{packageName}_fakefamily";

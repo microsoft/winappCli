@@ -23,7 +23,7 @@ The final buffered events or loss counters may be unavailable after process exit
 so coverage can still be partial. Stop explicitly before closing the app when
 preserving the final moments is important.
 
-For startup coverage and launch failures, see [Record startup layout](#record-startup-layout).
+For startup coverage, see [Record startup layout](#record-startup-layout).
 `--no-launch` cannot be combined with `--profile`.
 Existing `run` restrictions still apply; for example,
 `--debug-output` cannot be combined with `--detach` or `--json`. Debugger pauses
@@ -77,32 +77,41 @@ and move captures only after stopping them.
 ## Record startup layout
 
 ```powershell
-winapp run . --profile .\traces\startup --detach --json
+winapp run . --profile .\traces\startup --profile-mode elevated --detach --json
 ```
 
-For a new process, `winapp` pauses before the executable entry point, enables
-the recording providers, then resumes the app. This covers initial WinUI
-initialization, XAML parsing, and layout without adding sleeps, replacing a
-generated `Main`, or changing the executable on disk. Unpackaged launches,
-packaged activation, and execution aliases use this startup gate.
+By default, `run --profile` starts recording just after the app launches, so
+early WinUI initialization, XAML parsing, and first layout can be missed.
+`Profile.StartupCoverage` reports `post-launch attachment; early startup may be
+missing`. That is fine for scenarios that happen after launch, such as
+navigation or scrolling.
 
-Coverage begins before the executable entry point, not before Windows loads the
-process. Earlier DLL initialization and thread-local-storage (TLS) callbacks
-are not recorded. Check `Profile.StartupCoverage` in the launch result and the
-analysis coverage instead of assuming every startup operation was captured.
+To record startup, add `--profile-mode elevated`. Windows shows one
+administrator approval (UAC) prompt for the recorder; your app still runs
+unelevated under your account. The recording starts before launch and
+`Profile.StartupCoverage` reports `recorded from launch (elevated session)`.
+Do not add startup delays or replace a generated `Main` to capture startup.
+
+Choose an empty output directory on a local drive, without symbolic links or
+junctions in its path. Elevated recording also requires a link-free local path
+for winapp's control directory. The recorder prevents these directories and their
+parents from being renamed or redirected until it exits. If a path cannot be
+secured, recording fails; use the direct directory path or record after launch
+with `--profile-mode attach`.
+
+Elevated recording is limited to the launched app's package (packaged apps) or
+executable name (unpackaged apps), and analysis keeps only the launched process.
+Other instances of the same app that run during the recording also count
+toward `--profile-max-size-mib`. If the UAC prompt is declined, `run` fails
+before launching; rerun without `--profile-mode elevated` to record after launch.
+
 If activation reuses an existing process, coverage is labeled
 `attached-to-existing; startup not recorded`. Close that instance before
 launching when you need its startup.
 
-On ARM64 Windows, use the ARM64 winapp CLI for `run --profile`, including when
-profiling an emulated x64 app. An emulated x64 CLI rejects startup profiling
-before building or launching. You can still launch normally and use
-`perf start --app <pid>` to record an existing app.
-
-If startup recording cannot become ready, the new paused process is terminated
-and `run` reports failure rather than letting startup proceed without recording.
-Launch without `--profile`, then use `perf start --app <pid>` to record a later
-scenario. Do not modify app code to work around a recording failure.
+If an elevated recorder is terminated unexpectedly, its recording keeps running
+until its size limit, the next elevated recording, or until you stop it from an
+administrator terminal with `logman stop WinApp-Perf-<capture-id> -ets`.
 
 ## Analyze the recording
 
@@ -110,7 +119,8 @@ scenario. Do not modify app code to work around a recording failure.
 winapp perf analyze .\traces\scroll --from-marker scenario-start --to-marker scenario-end
 ```
 
-The default report starts with observed activity on the primary UI thread, then
+The default report starts with [process resources](#compare-process-resource-cost),
+then observed activity on the primary UI thread. It
 lists the 10 XAML resources with the most parsing time, followed by the detailed
 operation ranking. The text report skips the parsing-resource section when it is
 empty. Each activity interval belongs to only one category, so nested
@@ -130,6 +140,7 @@ include the structured `limitations` field.
 | Parsing | Timed XAML parsing and component-loading scopes |
 | Layout | Template application, measure, arrange, and related timed layout scopes |
 | Render | Concrete UI-thread render-walk and frame-submission scopes; the enclosing frame is not counted as rendering |
+| Composition submission | Main-device commit and DComp surface-update calls on the selected UI thread; not GPU execution or display latency |
 | Other observed XAML | Other timed XAML framework, input, scrolling, virtualization, and initialization work |
 | Image decode/load | Timed image work on the selected UI thread; off-thread decode does not contribute |
 | Unclassified | The remaining selected-range time, including idle, waits, and uninstrumented work |
@@ -160,7 +171,7 @@ Replace element and event IDs with IDs from your results.
 
 | View | What it returns |
 |---|---|
-| `summary` | Primary-UI-thread activity, the 10 hottest parsed resources, then recorded phases and elements ranked by exclusive or self time |
+| `summary` | Process resources, primary-UI-thread activity, the 10 hottest parsed resources, then recorded phases and elements ranked by exclusive or self time |
 | `parsing` | Complete pageable XAML resource ranking by observed parsing time |
 | `elements` | Element rankings; `--type` filters observed type names, and `--sort` accepts `self`, `inclusive`, or `count` |
 | `element` | One trace-local element and, with `--depth`, elements observed beneath it during the selected range |
@@ -170,10 +181,12 @@ Replace element and event IDs with IDs from your results.
 | `calls` | Instrumented operations, longest first; `--family layout` restricts the operation family |
 | `call` | One operation and its execution subtree, selected with `--id`; default depth 2, maximum 4 |
 | `gc` | CLR collection lifetimes and runtime suspension episodes, in time order |
+| `resources` | Process CPU counters, private bytes, working set, thread count, and handle count, in time order |
 
 All views accept `--from-ms` and `--to-ms`. `--thread` selects the UI thread for
 `summary` and `parsing`, and restricts UI operations or raw events in other
-applicable views. It does not apply to `gc`, whose boundaries can cross threads.
+applicable views. It does not apply to `gc`, whose boundaries can cross threads,
+or process-wide `resources`.
 Milliseconds are relative
 to provider readiness; negative times can occur while the provider set is being
 enabled. A marker and a millisecond boundary cannot specify the same range end.
@@ -272,6 +285,87 @@ workflow and its permissions; it is not another event source this private logger
 can enable. Logical network or file-request duration, where separately recorded,
 also does not by itself prove UI blocking.
 
+## Compare process resource cost
+
+```powershell
+winapp perf analyze .\traces\startup --view resources
+winapp perf analyze .\traces\scroll --view resources --from-marker scenario-start --to-marker scenario-end --json
+```
+
+Process counters are collected automatically in both attach and elevated captures,
+including native C++ apps, without requiring extra elevation. Sampling starts when
+the recorder binds to the target process, repeats approximately once per second,
+and takes a final sample when stopping if the process is still alive.
+
+The default analysis includes a `processResources` summary. Use `--view resources`
+for the paged timeline, with the same marker/millisecond bounds, `--limit`,
+`--offset`, and `--max-bytes`. This view reads `capture.json` directly, so it also
+works when a finalized capture has no usable XAML events or ETL files.
+
+The summary shows first, last, and **maximum observed** private bytes, working set,
+thread count, and handle count within the selected range. Private bytes measure
+private committed memory; working set measures resident memory and can include
+shared pages. These are process costs, not allocation counts or memory attributed
+to XAML, compositor, or driver components.
+
+Summary user/kernel/total CPU milliseconds are differences between the first and
+last samples in the selected range, across all target-process threads. The
+timeline's user/kernel CPU values are cumulative since process creation.
+`firstSampleMs` and `lastSampleMs` identify the actual observed span, relative to
+recording readiness. CPU can exceed elapsed time when multiple cores work
+concurrently. No CPU percentage or per-thread/module attribution is inferred.
+
+Counters exclude child processes. Even an elevated startup capture cannot recover
+counter snapshots from before binding. Sampling can miss brief memory/thread
+spikes, and process exit can prevent a final sample; observed maxima are not exact
+lifetime peaks. Range boundaries are not interpolated. With fewer than two
+samples, interval CPU is unavailable, not zero.
+
+Older captures report `not-recorded` in the summary and cannot gain counters
+retroactively. A range without samples reports `not-observed`. Failed sampling
+attempts appear as `failedSamples` and `lastError`, without discarding the ETW
+recording. A resource query returns retained samples with a nonzero exit status
+when sampling failures occurred; keep stdout and inspect `coverage.reasons`.
+
+## Separate XAML work from composition submission
+
+```powershell
+winapp perf analyze .\traces\scroll --view calls --family composition --from-marker scenario-start --to-marker scenario-end --json
+winapp perf analyze .\traces\scroll --view events --event DCompDeviceCommit --from-marker scenario-start --to-marker scenario-end --json
+```
+
+`CommitMainDevice` measures elapsed time inside WinUI's main composition-device
+commit call. Compare it with layout and render-walk timings; the default report
+separates **Composition submission** from **Render** on the selected UI thread.
+These scopes can nest, so their inclusive totals must not be added together.
+
+New captures also request optional DirectComposition events:
+
+| Evidence | What it tells you |
+|---|---|
+| `DCompBeginDraw` | Elapsed time entering a surface update; start-event fields identify the resource and update rectangle |
+| `DCompEndDraw` | Elapsed time finishing a surface update |
+| `DCompUpdateToken` | Elapsed time updating the surface token |
+| `DCompDeviceCommit` | A notification containing device/channel IDs and the last committed/confirmed batch IDs; it has no inferred duration |
+
+The calls view includes all target-process threads unless you add `--thread`.
+Use `--view call --id <call-id>` to inspect a timed operation and `--view events
+--event <event-id>` to inspect its referenced start/end evidence. Resource/device
+IDs are trace-local identifiers, not XAML elements or UI Automation selectors.
+
+Both attach and elevated captures request the same app-side composition evidence.
+The query's `directCompositionProvider` reports whether that optional provider
+was enabled, unavailable, unconfirmed, or not recorded; text summaries also show
+its status. If unavailable, inspect its error and retain the XAML results.
+Missing events are not zero composition cost. Older recordings can reveal
+`CommitMainDevice` when the XAML events are already present, but cannot gain
+DirectComposition events that were never recorded.
+
+These timings include any waits inside the calls, not just CPU execution.
+Neither a returned commit call nor a confirmed batch establishes when pixels
+reached the display. This does not record DXGI presents, DWM's cross-process
+composition work, GPU execution, displayed FPS, or input-to-display latency.
+
 ## Interpret the evidence
 
 - **Inclusive time** includes nested work. **Exclusive time** subtracts the union
@@ -301,7 +395,7 @@ also does not by itself prove UI blocking.
 
 ## Files, privacy, and troubleshooting
 
-`capture.json` records identity, runtime provenance, limits, markers, actual ETL
+`capture.json` records identity, runtime provenance, limits, markers, process counter samples, actual ETL
 filenames, and stop/loss information. The standard `trace.etl` files are the raw
 evidence. Windows tools such as WPA or PerfView may need manifests matching the
 recorded WinUI runtime to interpret legacy events.
@@ -313,11 +407,11 @@ decoding ETL again; content fingerprints detect changed inputs. If cache integri
 checks fail, remove **only** that capture's `analysis` directory and analyze again.
 
 Recording uses the target PID and native XAML, XAML diagnostics, XAML operational,
-and Controls.Perf providers, plus optional CLR GC events. Controls.Debug, kernel
+and Controls.Perf providers, plus optional CLR GC and DirectComposition events. Controls.Debug, kernel
 tracing, CPU sampling, and EventPipe are not enabled. Where Windows rejects a
 narrower event-ID filter, PID filtering stays enabled and the corresponding
 `providerStates` entry has `eventIdFilterApplied: false`.
-That fallback can record additional informational GC or XAML diagnostics data
+That fallback can record additional informational GC, composition, or XAML diagnostics data
 and increase overhead.
 
 Raw ETL and metadata can contain names, source paths, URIs, resource keys, and
@@ -328,9 +422,10 @@ does not sanitize the raw files.
 |---|---|
 | No usable events | Verify the real WinUI app PID, record again, and exercise navigation or scrolling while recording |
 | Runtime not observed | Confirm the target loads `Microsoft.UI.Xaml.dll`; a launcher, non-WinUI app, or already-exited process is not a supported target |
-| Native access error | Use an app running under your own account and inspect the native error; winapp does not elevate or change tracing permissions |
+| Native access error | Use an app running under your own account and inspect the native error; winapp elevates only the startup recorder, and only with `run --profile-mode elevated` |
 | Unsupported descriptors or payloads | Keep the ETL and runtime version for investigation; unsupported events are not decoded using an unrelated installed manifest |
 | Partial tail after app exit | Recording is finalized normally; analyze the retained events. For more reliable final-moment coverage, stop recording before closing the app |
 | Loss or file cap | Use a shorter focused scenario; target-resident private buffers may be lost at exit |
 | Analysis resource limit | Capture a smaller scenario; the report marks incomplete evidence rather than truncating the raw ETL |
 | GC unavailable or not observed | Inspect `providerStates`, `managedRuntimes` and `gcCoverage`; preserve XAML results, and do not conclude that no GC occurred |
+| Composition unavailable or not observed | Inspect `directCompositionProvider` and its error; retain XAML evidence and do not infer zero composition or presentation cost |

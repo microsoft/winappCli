@@ -9,14 +9,29 @@ using Windows.Win32.System.Diagnostics.Etw;
 
 namespace WinApp.Cli.Services.Performance;
 
-/// <summary>A PID-scoped private file logger. It never changes ETW access permissions.</summary>
+/// <summary>
+/// The processes a capture records. A PID-scoped private logger attaches to a running process without
+/// administrator rights. An executable- or package-scoped system logger requires elevation and is started
+/// before launch, so it records the app from its first event.
+/// </summary>
+internal sealed record PerfEtwScope(int? ProcessId = null, string? ExecutableName = null, string? PackageFullName = null)
+{
+    public bool IsPrivate => ProcessId is not null;
+    public bool IsEmpty => ProcessId is null && string.IsNullOrWhiteSpace(PackageFullName ?? ExecutableName);
+}
+
+/// <summary>An ETW file logger for one capture. It never changes ETW access permissions.</summary>
 internal sealed unsafe class PrivateEtwSession : IDisposable
 {
     private const uint PidFilterType = 0x80000004;
+    private const uint ExecutableNameFilterType = 0x80000008;
+    private const uint PackageIdFilterType = 0x80000010;
+    private const uint PrivateLoggerMode = 0x800;
+    private const uint SequentialFileMode = 1;
     private const int StringBytes = 2048;
     private EVENT_TRACE_PROPERTIES_V2* properties;
     private EVENT_FILTER_DESCRIPTOR* filter;
-    private uint* pid;
+    private void* filterData;
     private ulong handle;
     // A successful StartTrace can return zero; the handle is not a lifetime sentinel.
     private bool active;
@@ -31,8 +46,21 @@ internal sealed unsafe class PrivateEtwSession : IDisposable
 
     public PrivateEtwSession(string name, Guid sessionId, int processId, string outputPath, int maximumSizeMiB,
         IPrivateEtwApi? api = null)
+        : this(name, sessionId, new PerfEtwScope(ProcessId: processId), outputPath, maximumSizeMiB, api)
     {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(processId);
+    }
+
+    public PrivateEtwSession(string name, Guid sessionId, PerfEtwScope scope, string outputPath, int maximumSizeMiB,
+        IPrivateEtwApi? api = null)
+    {
+        if (scope.IsEmpty)
+        {
+            throw new ArgumentException("An ETW capture requires a process ID, executable name, or package full name.", nameof(scope));
+        }
+        if (scope.ProcessId is { } processId)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(processId);
+        }
         if (maximumSizeMiB is < 1 or > 1024)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumSizeMiB));
@@ -49,10 +77,7 @@ internal sealed unsafe class PrivateEtwSession : IDisposable
         {
             properties = (EVENT_TRACE_PROPERTIES_V2*)NativeMemory.AllocZeroed(
                 (nuint)(sizeof(EVENT_TRACE_PROPERTIES_V2) + 2 * StringBytes));
-            pid = (uint*)NativeMemory.Alloc((nuint)sizeof(uint));
-            *pid = (uint)processId;
-            filter = (EVENT_FILTER_DESCRIPTOR*)NativeMemory.AllocZeroed((nuint)sizeof(EVENT_FILTER_DESCRIPTOR));
-            *filter = new() { Ptr = (ulong)pid, Size = sizeof(uint), Type = PidFilterType };
+            filter = CreateScopeFilter(scope, out filterData);
             properties->Wnode.BufferSize = (uint)(sizeof(EVENT_TRACE_PROPERTIES_V2) + 2 * StringBytes);
             properties->Wnode.Guid = sessionId;
             properties->Wnode.ClientContext = 1;
@@ -61,11 +86,15 @@ internal sealed unsafe class PrivateEtwSession : IDisposable
             properties->MinimumBuffers = 32;
             properties->MaximumBuffers = 256;
             properties->MaximumFileSize = (uint)maximumSizeMiB;
-            properties->LogFileMode = 0x800 | 1;
+            properties->LogFileMode = scope.IsPrivate ? PrivateLoggerMode | SequentialFileMode : SequentialFileMode;
             properties->FlushTimer = 1;
             properties->Anonymous2.V2Control = 2;
-            properties->FilterDescCount = 1;
-            properties->FilterDesc = filter;
+            if (scope.IsPrivate)
+            {
+                // A private logger runs inside the target process, so its scope is part of the session.
+                properties->FilterDescCount = 1;
+                properties->FilterDesc = filter;
+            }
             properties->LoggerNameOffset = (uint)sizeof(EVENT_TRACE_PROPERTIES_V2);
             properties->LogFileNameOffset = properties->LoggerNameOffset + StringBytes;
             WriteString(properties->LogFileNameOffset, outputPath);
@@ -84,6 +113,39 @@ internal sealed unsafe class PrivateEtwSession : IDisposable
         }
     }
 
+    private static EVENT_FILTER_DESCRIPTOR* CreateScopeFilter(PerfEtwScope scope, out void* data)
+    {
+        data = null;
+        uint size;
+        uint type;
+        if (scope.ProcessId is { } processId)
+        {
+            data = NativeMemory.Alloc(sizeof(uint));
+            *(uint*)data = (uint)processId;
+            size = sizeof(uint);
+            type = PidFilterType;
+        }
+        else if ((scope.PackageFullName ?? scope.ExecutableName) is { Length: > 0 } value)
+        {
+            // Scope filter strings are null-terminated UTF-16 and limited to 1024 bytes.
+            size = checked((uint)(2 * (value.Length + 1)));
+            if (size > 1024)
+            {
+                throw new ArgumentException("The executable or package name is too long for an ETW scope filter.");
+            }
+            data = NativeMemory.AllocZeroed(size);
+            value.AsSpan().CopyTo(new Span<char>(data, value.Length));
+            type = scope.PackageFullName is not null ? PackageIdFilterType : ExecutableNameFilterType;
+        }
+        else
+        {
+            throw new ArgumentException("An ETW capture requires a process ID, executable name, or package full name.", nameof(scope));
+        }
+        var descriptor = (EVENT_FILTER_DESCRIPTOR*)NativeMemory.AllocZeroed((nuint)sizeof(EVENT_FILTER_DESCRIPTOR));
+        *descriptor = new() { Ptr = (ulong)data, Size = size, Type = type };
+        return descriptor;
+    }
+
     public bool Enable(Guid provider, ulong keywords, byte level = 5, ushort[]? eventIds = null)
     {
         ObjectDisposedException.ThrowIf(properties == null || !active, this);
@@ -91,11 +153,17 @@ internal sealed unsafe class PrivateEtwSession : IDisposable
         {
             throw new PerfEtwTargetNotReadyException();
         }
+        var scopeCount = filter is null ? 0u : 1u;
+        var descriptors = stackalloc EVENT_FILTER_DESCRIPTOR[2];
+        if (filter is not null)
+        {
+            descriptors[0] = *filter;
+        }
         var parameters = new ENABLE_TRACE_PARAMETERS
         {
             Version = 2,
-            EnableFilterDesc = filter,
-            FilterDescCount = 1,
+            EnableFilterDesc = scopeCount == 0 ? null : descriptors,
+            FilterDescCount = scopeCount,
         };
         if (eventIds is { Length: > 0 })
         {
@@ -108,30 +176,27 @@ internal sealed unsafe class PrivateEtwSession : IDisposable
             idFilter[1] = 0;
             *(ushort*)(idFilter + 2) = (ushort)eventIds.Length;
             eventIds.AsSpan().CopyTo(new Span<ushort>(idFilter + 4, eventIds.Length));
-            var descriptors = stackalloc EVENT_FILTER_DESCRIPTOR[2];
-            descriptors[0] = *filter;
-            descriptors[1] = new()
+            descriptors[scopeCount] = new()
             {
                 Ptr = (ulong)idFilter,
                 Size = (uint)(4 + 2 * eventIds.Length),
                 Type = 0x80000200,
             };
             parameters.EnableFilterDesc = descriptors;
-            parameters.FilterDescCount = 2;
+            parameters.FilterDescCount = scopeCount + 1;
             var filtered = api.Enable(handle, &provider, level, keywords, &parameters);
             if ((uint)filtered != 87)
             {
                 Check(filtered, $"EnableTraceEx2({provider}, event IDs)");
                 return true;
             }
-            parameters.EnableFilterDesc = filter;
-            parameters.FilterDescCount = 1;
+            parameters.EnableFilterDesc = scopeCount == 0 ? null : descriptors;
+            parameters.FilterDescCount = scopeCount;
         }
         Check(api.Enable(handle, &provider, level, keywords, &parameters),
             $"EnableTraceEx2({provider})");
         return false;
     }
-
     public void Stop()
     {
         if (!active)
@@ -156,21 +221,28 @@ internal sealed unsafe class PrivateEtwSession : IDisposable
         BuffersLost = properties->LogBuffersLost;
     }
 
-    public static bool StopOwned(string name, Guid sessionId, int processId, string outputPath)
+    /// <summary>
+    /// Stops a capture's session after its worker is gone. Pass the target PID for a private session,
+    /// or null for an elevated system session (which only an elevated caller can stop).
+    /// </summary>
+    public static bool StopOwned(string name, Guid sessionId, int? processId, string outputPath)
     {
         var size = sizeof(EVENT_TRACE_PROPERTIES_V2) + 2 * StringBytes;
         var query = (EVENT_TRACE_PROPERTIES_V2*)NativeMemory.AllocZeroed((nuint)size);
         try
         {
-            uint pid = checked((uint)processId);
+            uint pid = checked((uint)(processId ?? 0));
             var filter = new EVENT_FILTER_DESCRIPTOR { Ptr = (ulong)&pid, Size = sizeof(uint), Type = PidFilterType };
             query->Wnode.BufferSize = (uint)size;
             query->Wnode.Guid = sessionId;
             query->Wnode.Flags = 0x00020000 | 0x00800000;
-            query->LogFileMode = 0x800 | 1;
+            query->LogFileMode = processId is null ? SequentialFileMode : PrivateLoggerMode | SequentialFileMode;
             query->Anonymous2.V2Control = 2;
-            query->FilterDesc = &filter;
-            query->FilterDescCount = 1;
+            if (processId is not null)
+            {
+                query->FilterDesc = &filter;
+                query->FilterDescCount = 1;
+            }
             query->LoggerNameOffset = (uint)sizeof(EVENT_TRACE_PROPERTIES_V2);
             query->LogFileNameOffset = query->LoggerNameOffset + StringBytes;
             fixed (char* loggerName = name)
@@ -223,16 +295,26 @@ internal sealed unsafe class PrivateEtwSession : IDisposable
     {
         NativeMemory.Free(properties);
         NativeMemory.Free(filter);
-        NativeMemory.Free(pid);
+        NativeMemory.Free(filterData);
         properties = null;
         filter = null;
-        pid = null;
+        filterData = null;
     }
 
     public void Dispose()
     {
-        Stop();
-        Free();
+        try
+        {
+            Stop();
+        }
+        catch (Win32Exception)
+        {
+            // The failure was already reported by the explicit Stop; disposal must still release memory.
+        }
+        finally
+        {
+            Free();
+        }
     }
 }
 

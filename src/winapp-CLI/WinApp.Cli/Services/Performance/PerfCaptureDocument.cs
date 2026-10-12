@@ -45,6 +45,7 @@ internal sealed class PerfCaptureDocument
     public string? LastControlError { get; set; }
     public string? StopReason { get; set; }
     public string StartupCoverage { get; set; } = "attached; startup not recorded";
+    public string Mode { get; set; } = PerfProfileModes.Attach;
     public bool DebuggerAttached { get; set; }
     public int DurationSec { get; set; } = 30;
     public int MaxSizeMiB { get; set; } = 512;
@@ -56,6 +57,7 @@ internal sealed class PerfCaptureDocument
     public PerfRuntime? Runtime { get; set; }
     public List<PerfRuntime> ManagedRuntimes { get; set; } = [];
     public string? RuntimeProbeError { get; set; }
+    public PerfProcessResources? ProcessResources { get; set; }
     public string WindowsVersion { get; set; } = Environment.OSVersion.VersionString;
     public string CollectorVersion { get; set; } = VersionHelper.GetVersionString();
     [JsonNumberHandling(JsonNumberHandling.WriteAsString | JsonNumberHandling.AllowReadingFromString)]
@@ -101,6 +103,7 @@ internal sealed class PerfCaptureDocument
             }
         }
         capture.Directory = file.DirectoryName!;
+        capture.ProcessResources?.Validate();
         return capture;
     }
 }
@@ -112,6 +115,7 @@ internal static class PerfProviders
     public static readonly Guid Operational = new("2DC72F6E-E4D1-5F58-3245-09A4243799DD");
     public static readonly Guid Controls = new("F55F7011-988D-4674-A724-E01B39DC7AF6");
     public static readonly Guid Clr = new("e13c0d23-ccbc-4e12-931b-d9cc2eee27e4");
+    public static readonly Guid DirectComposition = new("c44219d0-f344-11df-a5e2-b307dfd72085");
 
     public static readonly PerfProvider[] All =
     [
@@ -121,14 +125,26 @@ internal static class PerfProviders
         new(Diagnostics, "Microsoft-Windows-XAML-Diagnostics", "ffffffffffffffff", 5,
             [1, 2, 26, 27, 59, 60, 61, 62, 64, 65, 66, 67, 83]),
         new(Clr, "Microsoft-Windows-DotNETRuntime", "1", 4, [1, 2, 3, 7, 8, 9], Optional: true),
+        new(DirectComposition, "Microsoft-Windows-DirectComposition", "3", 5,
+            [2, 3, 4, 5, 10, 11, 25], Optional: true),
     ];
 }
 
+internal static class PerfProfileModes
+{
+    /// <summary>Attaches a private session to the launched process; no elevation, startup may be missed.</summary>
+    public const string Attach = "attach";
+    /// <summary>Starts an elevated session before launch so startup is recorded.</summary>
+    public const string Elevated = "elevated";
+}
+
 internal sealed record PerfControlRequest(string Credential, string Operation,
-    PerfProcessIdentity? Target = null, string? Name = null, string? StartupCoverage = null, bool DebuggerAttached = false);
+    PerfProcessIdentity? Target = null, string? Name = null, string? StartupCoverage = null, bool DebuggerAttached = false,
+    PerfEtwScope? Scope = null);
 internal sealed record PerfControlResponse(PerfCaptureDocument? Capture, string? Error = null);
 internal sealed record PerfControlRegistration(string Id, string Directory, string Credential,
-    Guid SessionId, int DurationSec, int MaxSizeMiB, PerfProcessIdentity? Worker = null, PerfProcessIdentity? Target = null);
+    Guid SessionId, int DurationSec, int MaxSizeMiB, PerfProcessIdentity? Worker = null, PerfProcessIdentity? Target = null,
+    string Mode = PerfProfileModes.Attach);
 internal sealed record PerfCommandError(string Code, string Message, bool PartialOutput);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -137,12 +153,12 @@ internal sealed record PerfCommandError(string Code, string Message, bool Partia
 [JsonSerializable(typeof(PerfControlRequest))]
 [JsonSerializable(typeof(PerfControlResponse))]
 [JsonSerializable(typeof(PerfControlRegistration))]
-[JsonSerializable(typeof(PerfStartupRegistration))]
 [JsonSerializable(typeof(PerfEvent))]
 [JsonSerializable(typeof(PerfCall))]
 [JsonSerializable(typeof(PerfGcInterval))]
 [JsonSerializable(typeof(PerfElement))]
 [JsonSerializable(typeof(PerfAnalysisManifest))]
 [JsonSerializable(typeof(PerfQueryResult))]
+[JsonSerializable(typeof(PerfResourceSample))]
 [JsonSerializable(typeof(PerfCommandError))]
 internal sealed partial class PerfJsonContext : JsonSerializerContext;

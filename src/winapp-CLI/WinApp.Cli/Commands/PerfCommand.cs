@@ -12,10 +12,10 @@ namespace WinApp.Cli.Commands;
 
 internal sealed class PerfCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Record and query WinUI operation timings and managed GC suspension context";
+    public string ShortDescription => "Record WinUI and composition timings, GC context, and process counters";
 
     public PerfCommand(PerfCaptureService service, IUiTargetResolver targetResolver, IAnsiConsole console)
-        : base("perf", "Record PID-scoped WinUI 3 ETW without elevation, then query compact offline performance evidence. Raw ETL can contain app data; elapsed timings are not CPU/GPU measurements.")
+        : base("perf", "Record PID-scoped WinUI 3 ETW, app-side composition activity, and process resource counters without elevation, then query compact offline performance evidence. Raw ETL can contain app data; elapsed timings are not CPU/GPU measurements or display latency.")
     {
         Options.Add(WinAppRootCommand.JsonOption);
         SetAction(parse =>
@@ -39,7 +39,7 @@ internal sealed class PerfCommand : Command, IShortDescription
             var resolved = await targetResolver.ResolveAsync(parse.GetRequiredValue(app), null, token);
             using var target = Process.GetProcessById(resolved.ProcessId);
             var identity = PerfProcessIdentity.Read(target);
-            var registration = await service.PrepareAsync(parse.GetRequiredValue(output), parse.GetValue(duration), parse.GetValue(size), token);
+            var registration = await service.PrepareAsync(parse.GetRequiredValue(output), parse.GetValue(duration), parse.GetValue(size), PerfProfileModes.Attach, token);
             var capture = await PerfCaptureService.BindAsync(registration, identity, "attached; startup not recorded", false, token);
             PrintCapture(capture, parse.GetValue(WinAppRootCommand.JsonOption), console, "start");
             return 0;
@@ -79,7 +79,7 @@ internal sealed class PerfCommand : Command, IShortDescription
 
         var analyze = new Command("analyze", "Query a finalized winapp capture directory. ETL stays authoritative; derived NDJSON is cached locally. Partial evidence is returned with nonzero exit status.");
         var directory = new Argument<string>("directory") { Description = "Capture directory containing capture.json and its ETL files." };
-        var view = new Option<string>("--view") { Description = "summary, parsing, elements, element, frames, hotspots, events, calls, call, or gc.", DefaultValueFactory = _ => "summary" };
+        var view = new Option<string>("--view") { Description = "summary, parsing, elements, element, frames, hotspots, events, calls, call, gc, or resources.", DefaultValueFactory = _ => "summary" };
         var limit = new Option<int>("--limit") { Description = "Rows per page, 1-100.", DefaultValueFactory = _ => 10 };
         var offset = new Option<int>("--offset") { Description = "Zero-based row offset.", DefaultValueFactory = _ => 0 };
         var maxBytes = new Option<int>("--max-bytes") { Description = "Whole JSON response byte budget, 4096-1048576.", DefaultValueFactory = _ => 16384 };
@@ -95,7 +95,7 @@ internal sealed class PerfCommand : Command, IShortDescription
         var eventFilter = new Option<string?>("--event") { Description = "Exact event name or evidence ID for the events view." };
         var sort = new Option<string>("--sort") { Description = "Ranking: self, inclusive, or count for summary/elements; duration for gc.", DefaultValueFactory = _ => "self" };
         var depth = new Option<int?>("--depth") { Description = "Expansion depth, 0-4. Defaults: call 2, element 0. Call trees show instrumented operations, not CPU stacks." };
-        var family = new Option<string?>("--family") { Description = "Exact operation family for --view calls, for example layout, frames, input, or initialization." };
+        var family = new Option<string?>("--family") { Description = "Exact operation family for --view calls, for example layout, frames, composition, input, or initialization." };
         var minFrameMs = new Option<double?>("--min-frame-ms") { Description = "Minimum complete Frame duration for --view hotspots. Default: 16.67 ms." };
         analyze.Arguments.Add(directory);
         foreach (var option in new Option[] { view, limit, offset, maxBytes, from, to, fromMarker, toMarker,
@@ -118,8 +118,9 @@ internal sealed class PerfCommand : Command, IShortDescription
             {
                 throw new ArgumentException("--sort accepts self/inclusive/count for summary and element rankings, or duration for GC. Calls, frames, and hotspots are longest-first; events and unsorted GC intervals are chronological.");
             }
-            var analysis = PerfAnalysisStore.Open(parse.GetRequiredValue(directory), token);
-            var result = PerfQuery.Execute(analysis, options);
+            var result = options.View == "resources"
+                ? PerfQuery.ExecuteResources(PerfCaptureDocument.Load(parse.GetRequiredValue(directory)), options)
+                : PerfQuery.Execute(PerfAnalysisStore.Open(parse.GetRequiredValue(directory), token), options);
             var json = parse.GetValue(WinAppRootCommand.JsonOption);
             if (json)
             {
@@ -131,6 +132,16 @@ internal sealed class PerfCommand : Command, IShortDescription
                     ? $", primary UI thread {primaryThread}"
                     : "";
                 console.MarkupLineInterpolated($"[dim]Capture {result.CaptureId}: {result.View}{threadDescription}, {result.Range.FromMs:F2}-{result.Range.ToMs:F2} ms[/]");
+                if (result.DirectCompositionProvider is { } composition &&
+                    (options.View == "summary" || options.Family == "composition" ||
+                        options.Provider is not null && Guid.Parse(options.Provider) == PerfProviders.DirectComposition))
+                {
+                    console.WriteLine($"DirectComposition provider: {composition.State}. {composition.Error}");
+                }
+                if (result.ProcessResources is { } processResources)
+                {
+                    PrintResources(console, processResources);
+                }
                 if (result.Activity is { } activity)
                 {
                     WriteSection(console, "Observed UI-thread activity");
@@ -155,12 +166,19 @@ internal sealed class PerfCommand : Command, IShortDescription
                     }
                     WriteSection(console, "Detailed summary");
                 }
-                var columnHeaders = result.View == "parsing"
+                var columnHeaders = result.View == "resources"
+                    ? $"{"Time ms",10} {"User CPU ms",12} {"Kernel CPU ms",14} {"Private MiB",12} {"Working MiB",12} {"Threads",8} {"Handles",8}"
+                    : result.View == "parsing"
                     ? $"{"Resource",-42} {"Observed ms",11} {"Count",7}"
                     : $"{"Operation / element",-42} {"Elapsed ms",9} {"Exclusive",10} {"Elem self",9}";
                 console.MarkupLineInterpolated($"[grey]{columnHeaders}[/]");
                 foreach (var row in result.Rows)
                 {
+                    if (row.ResourceSample is { } sample)
+                    {
+                        console.WriteLine($"{row.TimeMs,10:F2} {sample.UserCpuMs,12:F2} {sample.KernelCpuMs,14:F2} {sample.Values.PrivateBytes / 1048576.0,12:F2} {sample.Values.WorkingSetBytes / 1048576.0,12:F2} {sample.Values.ThreadCount,8} {sample.Values.HandleCount,8}");
+                        continue;
+                    }
                     if (result.View == "parsing")
                     {
                         console.WriteLine($"{ResourceLabel(row.Name ?? row.Id, 42),-42} {row.InclusiveMs,11:F3} {row.Count,7}");
@@ -229,7 +247,7 @@ internal sealed class PerfCommand : Command, IShortDescription
                         console.WriteLine($"  More children: query --view call --id {row.Id} --depth 2.");
                     }
                 }
-                if (result.View != "summary")
+                if (result.View is not ("summary" or "resources"))
                 {
                     console.WriteLine($"GC coverage: {result.GcCoverage?.Availability}; selected-range complete={result.GcCoverage?.Complete}. {result.GcCoverage?.Error}");
                 }
@@ -270,6 +288,28 @@ internal sealed class PerfCommand : Command, IShortDescription
         command.Options.Add(WinAppRootCommand.JsonOption);
         command.Options.Add(WinAppRootCommand.VerboseOption);
         command.Options.Add(WinAppRootCommand.QuietOption);
+    }
+
+    internal static void PrintResources(IAnsiConsole console, PerfResourceSummary resources)
+    {
+        WriteSection(console, "Process resources");
+        console.MarkupLineInterpolated($"[dim]{resources.SampleCount} samples; {resources.Availability}; sampling failures: {resources.FailedSamples}[/]");
+        if (resources.LastError is { } error)
+        {
+            console.WriteLine("Process counter error: " + error);
+        }
+        if (resources.First is not { } first || resources.Last is not { } last ||
+            resources.MaximumObserved is not { } maximum)
+        {
+            return;
+        }
+        console.WriteLine($"Observed span: {resources.FirstSampleMs:F2}-{resources.LastSampleMs:F2} ms; CPU: {Timing(resources.TotalCpuMs)} ms (user {Timing(resources.UserCpuMs)}, kernel {Timing(resources.KernelCpuMs)}).");
+        console.WriteLine($"{"Metric",-20} {"First",12} {"Last",12} {"Observed max",14}");
+        console.WriteLine($"{"Private MiB",-20} {first.PrivateBytes / 1048576.0,12:F2} {last.PrivateBytes / 1048576.0,12:F2} {maximum.PrivateBytes / 1048576.0,14:F2}");
+        console.WriteLine($"{"Working set MiB",-20} {first.WorkingSetBytes / 1048576.0,12:F2} {last.WorkingSetBytes / 1048576.0,12:F2} {maximum.WorkingSetBytes / 1048576.0,14:F2}");
+        console.WriteLine($"{"Threads",-20} {first.ThreadCount,12} {last.ThreadCount,12} {maximum.ThreadCount,14}");
+        console.WriteLine($"{"Handles",-20} {first.HandleCount,12} {last.HandleCount,12} {maximum.HandleCount,14}");
+        console.WriteLine("Counters cover the bound process only. One-second sampling can miss spikes; CPU spans observed samples, not the entire startup. Timeline CPU values are cumulative since process creation.");
     }
 
     private static string ResourceLabel(string value, int width)
@@ -351,6 +391,11 @@ internal sealed class PerfCommand : Command, IShortDescription
                         break;
                 }
             }
+            if (operation == "mark")
+            {
+                // Capture warnings were reported by start and are repeated by status and stop.
+                return;
+            }
             foreach (var warning in capture.Warnings)
             {
                 console.WriteLine(warning);
@@ -358,6 +403,10 @@ internal sealed class PerfCommand : Command, IShortDescription
             foreach (var state in capture.ProviderStates.Where(p => p.State == "unavailable"))
             {
                 console.WriteLine($"Optional provider {state.Id} unavailable: {state.Error}");
+            }
+            if (capture.ProcessResources is { FailedSamples: > 0 } resources)
+            {
+                console.WriteLine($"Process resource sampling failed {resources.FailedSamples} times: {resources.LastError}");
             }
         }
     }
