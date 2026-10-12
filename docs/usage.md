@@ -986,6 +986,7 @@ winapp run counter.cs
 ```
 
 Or run it with plain `dotnet run` — see [Running with `dotnet run`](#running-with-dotnet-run) below.
+For a complete example, see the [.NET file-based app sample](../samples/dotnet-file-app/README.md).
 
 You do not author a manifest. Describe the package with `#:property` directives instead:
 
