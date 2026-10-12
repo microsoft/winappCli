@@ -856,12 +856,17 @@ the accessibility label instead, use `get-property --property Name`.
 ### focus
 ```bash
 winapp ui focus txt-textbox-a4b1 -a notepad
+winapp ui focus -a calculator        # no selector: restore and activate the window itself
 ```
 
 Activates the selected control's window when needed, then focuses the control.
-The selector is required; use `-a <app>` or `-w <HWND>` to choose the target.
-Success means that window was foreground and the selected control confirmed
-`HasKeyboardFocus` before the command returned. The command allows up to 500 ms
+Use `-a <app>` or `-w <HWND>` to choose the target. If the window is minimized,
+`focus` restores it first; this matters for packaged apps such as Calculator,
+which hide their controls while minimized. Without a selector, `focus` restores
+and activates the target window and succeeds once it is in the foreground.
+With a selector, success means that window was foreground and the selected control confirmed
+`HasKeyboardFocus` before the command returned (a selected `Window` element only
+needs to be in the foreground). The command allows up to 500 ms
 for the control to report focus; it stops if the target disappears or loses the
 foreground rather than trying to take focus back. An owned dialog in front of the
 main window is not enough: select a control in the dialog if that is your target.
@@ -1044,6 +1049,7 @@ for example `MSTest.Windows.UIAutomation`, whose `WindowTest.MainWindow` is a UI
 | "does not support any invoke pattern" | Element can't be invoked | Use `inspect` on the element to find an invokable child |
 | "No UIA window found" | UIA can't see the process | Use `list-windows` to find the HWND, then `-w` |
 | "Window has zero size" | Window is minimized | App will be auto-restored |
+| `element_not_found` or an empty `search`/`inspect` with "is minimized" | Some apps, such as Calculator, hide their UI while minimized | Run the suggested `winapp ui focus -w <HWND>` (or `winapp ui focus -a <app>`), then retry |
 | Popup/dropdown not in screenshot | Default capture is per-window and doesn't include unowned overlays | Follow the [screenshot overlay workflow](#screenshot) to select a window with `-w <hwnd> --capture-screen` |
 | `foreground_not_target` from `--capture-screen` | Windows refused the activation, so a screen capture would have recorded whatever window is actually in front | Click the target window or close the focus-stealing window and retry, or drop `--capture-screen` |
 | `element_not_found` during record | Selector given but no matching element | Re-run `inspect` or `search` to get a fresh selector |

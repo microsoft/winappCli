@@ -99,7 +99,7 @@ internal class UiGetPropertyCommand : Command, IShortDescription, IHelpExamples
 
                 if (element is null)
                 {
-                    UiErrors.ElementNotFound(logger, selectorStr, json);
+                    UiErrors.ElementNotFound(logger, selectorStr, json, target: uiTarget);
                     return 1;
                 }
 
