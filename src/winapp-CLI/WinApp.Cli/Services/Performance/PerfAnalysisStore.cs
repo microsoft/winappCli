@@ -21,7 +21,6 @@ internal sealed class PerfAnalysisManifest
     public int Calls { get; set; }
     public int Elements { get; set; }
     public int DecodeErrors { get; set; }
-    public int IncompleteCalls { get; set; }
     public int GcIntervals { get; set; }
     public int IncompleteGcIntervals { get; set; }
     public int OmittedPayloadFields { get; set; }
@@ -184,6 +183,7 @@ internal static class PerfAnalysisStore
             callWriter.WriteLine(JsonSerializer.Serialize(call, PerfJsonContext.Default.PerfCall));
             manifest.Calls++;
         });
+        var coverageDecodeErrors = 0;
         try
         {
             foreach (var original in events.OrderBy(e => e.Qpc))
@@ -208,6 +208,10 @@ internal static class PerfAnalysisStore
                 if (e.DecodeError is not null)
                 {
                     manifest.DecodeErrors++;
+                    if (e.Family != "diagnostics")
+                    {
+                        coverageDecodeErrors++;
+                    }
                 }
                 else
                 {
@@ -231,7 +235,6 @@ internal static class PerfAnalysisStore
             }
         }
         manifest.Elements = analyzer.Elements.Count;
-        manifest.IncompleteCalls = analyzer.IncompleteCalls;
         if (capture.State != "completed")
         {
             manifest.IncompleteReasons.Add(capture.Error ?? "The capture did not complete normally.");
@@ -249,13 +252,9 @@ internal static class PerfAnalysisStore
             manifest.IncompleteReasons.Add("The app's WinUI runtime version could not be identified.");
         }
         manifest.CaptureReasons.AddRange(manifest.IncompleteReasons);
-        if (manifest.DecodeErrors > 0)
+        if (coverageDecodeErrors > 0)
         {
             manifest.IncompleteReasons.Add("Selected events have unsupported descriptors or malformed payloads.");
-        }
-        if (manifest.IncompleteCalls > 0)
-        {
-            manifest.IncompleteReasons.Add("Some scope boundaries are missing or inconsistent; their durations are unavailable.");
         }
         if (manifest.IncompleteGcIntervals > 0)
         {
@@ -299,7 +298,7 @@ internal static class PerfAnalysisStore
     private static string Fingerprint(PerfCaptureDocument capture, CancellationToken token)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        hash.AppendData(Encoding.UTF8.GetBytes("decoder:2;analyzer:3;" + VersionHelper.GetVersionString()));
+        hash.AppendData(Encoding.UTF8.GetBytes("decoder:1;analyzer:1;" + VersionHelper.GetVersionString()));
         hash.AppendData(JsonSerializer.SerializeToUtf8Bytes(capture, PerfJsonContext.Default.PerfCaptureDocument));
         long total = 0;
         foreach (var file in capture.TraceFiles)

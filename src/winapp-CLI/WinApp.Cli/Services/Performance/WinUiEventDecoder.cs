@@ -206,7 +206,9 @@ internal static class WinUiEventDecoder
             "FoundCompletedDownload" or "ImageDownloadCompleteNotification" or "RequestDecodeToRenderSize" or
             "QueueProcessDecodeRequests" or "ProcessDecodeRequests" or "QueueDecodeFromImageCache" or
             "QueueOffThreadDecode" or "DecodeResultAvailable";
-        var family = raw.Provider == PerfProviders.Controls ? "virtualization" :
+        // WinUI's WIL fallback logger emits a failure report, not a timed scope.
+        var family = raw.Provider == PerfProviders.Xaml && raw.Opcode == 0 && name == "FallbackError" ? "diagnostics" :
+            raw.Provider == PerfProviders.Controls ? "virtualization" :
             name.StartsWith("FlowLayout", StringComparison.Ordinal) || name.StartsWith("Items", StringComparison.Ordinal) ? "virtualization" :
             name.StartsWith("Scroll", StringComparison.Ordinal) ? "scrolling" :
             name.StartsWith("Pointer", StringComparison.Ordinal) ? "input" :

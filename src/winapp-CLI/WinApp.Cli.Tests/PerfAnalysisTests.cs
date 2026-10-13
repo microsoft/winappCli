@@ -39,7 +39,6 @@ public class PerfAnalysisTests
         Assert.AreEqual(10, parent.DurationMs);
         Assert.AreEqual(4, parent.SelfMs);
         Assert.AreEqual(6, calls.Single(c => c.StartMs == 2).SelfMs);
-        Assert.AreEqual(0, analyzer.IncompleteCalls);
     }
 
     [TestMethod]
@@ -62,7 +61,7 @@ public class PerfAnalysisTests
     }
 
     [TestMethod]
-    public void MissingNestedBoundaryNeverFabricatesDuration()
+    public void MissingChildIsOmittedWithoutInventingParentSelfTime()
     {
         var calls = new List<PerfCall>();
         var analyzer = new PerfAnalyzer(calls.Add);
@@ -70,8 +69,11 @@ public class PerfAnalysisTests
         analyzer.Accept(Event("MeasureElement", "begin", 1));
         analyzer.Accept(Event("ArrangeElement", "end", 5));
         analyzer.Complete();
-        Assert.AreEqual(2, analyzer.IncompleteCalls);
-        Assert.IsTrue(calls.All(c => c.DurationMs is null && c.SelfMs is null));
+        var parent = calls.Single();
+        Assert.AreEqual("ArrangeElement", parent.Name);
+        Assert.AreEqual(5d, parent.DurationMs);
+        Assert.IsNull(parent.SelfMs);
+        Assert.IsNull(parent.ExclusiveMs);
     }
 
     [TestMethod]
@@ -82,7 +84,53 @@ public class PerfAnalysisTests
         analyzer.Accept(Event("MeasureElement", "begin", 0, thread: 1));
         analyzer.Accept(Event("MeasureElement", "end", 1, thread: 2));
         analyzer.Complete();
-        Assert.AreEqual(2, analyzer.IncompleteCalls);
+        Assert.IsEmpty(calls);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void CompleteDescendantsSkipUnmatchedParents(bool frameCloses)
+    {
+        var calls = new List<PerfCall>();
+        var analyzer = new PerfAnalyzer(calls.Add);
+        analyzer.Accept(Event("Frame", "begin", 0, address: null, family: "frames"));
+        analyzer.Accept(Event("Layout", "begin", 1, address: null));
+        analyzer.Accept(Event("UnmatchedWrapper", "begin", 1.5, address: null));
+        analyzer.Accept(Event("MeasureElement", "begin", 2));
+        analyzer.Accept(Event("MeasureElement", "end", 3));
+        if (frameCloses)
+        {
+            analyzer.Accept(Event("Frame", "end", 4, address: null, family: "frames"));
+        }
+        analyzer.Complete();
+
+        Assert.AreEqual(frameCloses ? 2 : 1, calls.Count);
+        var child = calls.Single(c => c.Name == "MeasureElement");
+        Assert.AreEqual(1d, child.DurationMs);
+        Assert.AreEqual(1d, child.SelfMs);
+        Assert.AreEqual(1d, child.ExclusiveMs);
+        Assert.AreEqual(calls.SingleOrDefault(c => c.Name == "Frame")?.Id, child.ParentCallId);
+        if (frameCloses)
+        {
+            Assert.IsNull(calls.Single(c => c.Name == "Frame").ExclusiveMs);
+        }
+    }
+
+    [TestMethod]
+    public void IncompleteChildAccountingPropagatesToAncestors()
+    {
+        var calls = new List<PerfCall>();
+        var analyzer = new PerfAnalyzer(calls.Add);
+        analyzer.Accept(Event("ArrangeElement", "begin", 0));
+        analyzer.Accept(Event("MeasureElement", "begin", 1));
+        analyzer.Accept(Event("MeasureOverride", "begin", 2));
+        analyzer.Accept(Event("MeasureElement", "end", 5));
+        analyzer.Accept(Event("ArrangeElement", "end", 10));
+        analyzer.Complete();
+
+        Assert.AreEqual(2, calls.Count);
+        Assert.IsTrue(calls.All(c => c.DurationMs is not null && c.SelfMs is null && c.ExclusiveMs is null));
     }
 
     [TestMethod]
@@ -216,7 +264,6 @@ public class PerfAnalysisTests
         Assert.AreEqual("info", image.Phase);
         Assert.AreEqual("Assets/Image.png", image.Fields["URI"]);
         Assert.AreEqual((byte)2, image.Opcode);
-        Assert.AreEqual(0, analyzer.IncompleteCalls);
         Assert.AreEqual(1, calls.Count);
         Assert.AreEqual(20d, calls.Single().DurationMs);
     }
@@ -239,10 +286,9 @@ public class PerfAnalysisTests
         analyzer.Accept(Event("Frame", "end", 12, address: null, family: "frames"));
         analyzer.Complete();
 
-        Assert.AreEqual("unknown", diagnostic.Family);
+        Assert.AreEqual("diagnostics", diagnostic.Family);
         Assert.AreEqual("unknown", diagnostic.Phase);
         Assert.IsNotNull(diagnostic.DecodeError, "Unsupported diagnostic evidence must remain visible.");
-        Assert.AreEqual(0, analyzer.IncompleteCalls);
         Assert.AreEqual(3, calls.Count);
         Assert.IsTrue(calls.All(call => call.Status == "complete"));
         var frame = calls.Single(call => call.Name == "Frame");
@@ -260,7 +306,27 @@ public class PerfAnalysisTests
     }
 
     [TestMethod]
-    public void MalformedKnownScopeStillCorruptsOpenOperationTimings()
+    [DataRow("FallbackError", true, (byte)0, true)]
+    [DataRow("FallbackError", true, (byte)1, false)]
+    [DataRow("FallbackError", true, (byte)2, false)]
+    [DataRow("FallbackError", false, (byte)0, false)]
+    [DataRow("UnknownDiagnostic", true, (byte)0, false)]
+    [DataRow("PublicApiCall", true, (byte)0, false)]
+    public void OnlyTheVerifiedFallbackDiagnosticIsClassifiedAsNonTiming(string name, bool xamlProvider,
+        byte opcode, bool diagnostic)
+    {
+        var raw = new PerfRawEvent(5000, 1, 1, xamlProvider ? PerfProviders.Xaml : PerfProviders.Operational,
+            0, 0, opcode, Guid.Empty, 8, true, [], name, null,
+            "Unsupported structured or variable-length TDH property.");
+
+        var decoded = WinUiEventDecoder.Decode(raw, "diagnostic", 0, 1000)!;
+
+        Assert.AreEqual(diagnostic, decoded.Family == "diagnostics");
+        Assert.IsNotNull(decoded.DecodeError);
+    }
+
+    [TestMethod]
+    public void MalformedKnownScopeStillDropsUnreliableOperationTimings()
     {
         var calls = new List<PerfCall>();
         var analyzer = new PerfAnalyzer(calls.Add);
@@ -276,13 +342,29 @@ public class PerfAnalysisTests
 
         Assert.AreEqual("layout", boundary.Family);
         Assert.IsNotNull(boundary.DecodeError);
-        Assert.AreEqual(2, analyzer.IncompleteCalls);
-        Assert.IsTrue(calls.All(call => call.Status == "corrupt-boundaries" &&
-            call.DurationMs is null && call.ExclusiveMs is null && call.SelfMs is null));
+        Assert.IsEmpty(calls);
     }
 
     [TestMethod]
-    public void UnexpectedEndStillReportsMissingBoundariesAndCorruptsItsAncestor()
+    public void CompletedChildSurvivesADiscardedCorruptParent()
+    {
+        var calls = new List<PerfCall>();
+        var analyzer = new PerfAnalyzer(calls.Add);
+        analyzer.Accept(Event("Frame", "begin", 0, address: null, family: "frames"));
+        analyzer.Accept(Event("MeasureElement", "begin", 1));
+        analyzer.Accept(Event("MeasureElement", "end", 2));
+        analyzer.Accept(Event("Layout", "begin", 3, address: null) with { DecodeError = "malformed boundary" });
+        analyzer.Accept(Event("Frame", "end", 4, address: null, family: "frames"));
+        analyzer.Complete();
+
+        var child = calls.Single();
+        Assert.AreEqual("MeasureElement", child.Name);
+        Assert.AreEqual(1d, child.DurationMs);
+        Assert.IsNull(child.ParentCallId);
+    }
+
+    [TestMethod]
+    public void UnexpectedEndDoesNotCorruptACompleteOperation()
     {
         var calls = new List<PerfCall>();
         var analyzer = new PerfAnalyzer(calls.Add);
@@ -291,10 +373,11 @@ public class PerfAnalysisTests
         analyzer.Accept(Event("MeasureElement", "end", 2));
         analyzer.Complete();
 
-        Assert.AreEqual(2, analyzer.IncompleteCalls);
-        Assert.AreEqual("missing-begin", calls[0].Status);
-        Assert.AreEqual("corrupt-boundaries", calls[1].Status);
-        Assert.IsTrue(calls.All(c => c.DurationMs is null));
+        var call = calls.Single();
+        Assert.AreEqual("MeasureElement", call.Name);
+        Assert.AreEqual(2d, call.DurationMs);
+        Assert.AreEqual(2d, call.SelfMs);
+        Assert.AreEqual(2d, call.ExclusiveMs);
     }
 
     [TestMethod]
@@ -322,7 +405,7 @@ public class PerfAnalysisTests
         var result = new PerfQueryResult
         {
             CaptureId = Guid.NewGuid().ToString("N"), View = "events", Range = new(0, 1),
-            Coverage = new(true, "attached", 0, 0, 0, 0, [], []),
+            Coverage = new(true, "attached", 0, 0, 0, [], []),
             Total = 10, Offset = 0,
             Rows = Enumerable.Range(0, 10).Select(i => new PerfQueryRow
             {
@@ -473,7 +556,7 @@ public class PerfAnalysisTests
     }
 
     [TestMethod]
-    public void QueryPercentilesExcludeClippedAndIncompleteCalls()
+    public void QueryPercentilesExcludeClippedCalls()
     {
         var directory = Directory.CreateTempSubdirectory("WinApp-Perf-Query-");
         try
@@ -489,7 +572,6 @@ public class PerfAnalysisTests
                 new PerfCall("c2", "MeasureElement", "layout", 1, "e1", null, "v3", "v4", 3, 8, 5, 5, "complete"),
                 new PerfCall("c3", "MeasureElement", "layout", 1, "e1", null, "v5", "v6", 0, 10, 10, 10, "complete"),
                 new PerfCall("c4", "MeasureElement", "layout", 1, "e1", null, "v7", "v8", -5, 5, 10, 10, "complete"),
-                new PerfCall("c5", "MeasureElement", "layout", 1, "e1", null, "v9", null, 1, null, null, null, "missing-end"),
             };
             File.WriteAllLines(Path.Join(directory.FullName, "calls.ndjson"),
                 calls.Select(c => JsonSerializer.Serialize(c, PerfJsonContext.Default.PerfCall)));

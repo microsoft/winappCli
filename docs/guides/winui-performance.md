@@ -211,8 +211,8 @@ preview; `parsingResourcesTotal` and `parsingResourcesOmitted` describe that
 preview independently of the detailed summary page.
 
 Usable partial results are written to stdout with a nonzero exit status. Text
-output explains why the results may be incomplete on stderr, such as missing
-operation start/end events or a time range extending beyond the recording.
+output explains why the results may be incomplete on stderr, such as lost
+events, undecodable timing payloads, or a time range extending beyond the recording.
 With `--json`, stderr contains a structured `partial_data` error and the reasons
 are in stdout's `coverage.reasons`. **Do not discard stdout solely because
 the exit code is nonzero.** No usable performance evidence is an error, not a
@@ -233,8 +233,8 @@ operations, not a sampled CPU stack or the visual tree.
 
 Without explicit time boundaries, `call` selects the operation's observed start
 and end. `clippedOverlapMs` is its overlap with the query range; the full elapsed
-duration is kept separately. Missing boundaries remain unknown. When expansion
-stops at the depth limit, query the indicated child call to continue.
+duration is kept separately. When expansion stops at the depth limit, query the
+indicated child call to continue.
 
 JSON rows include parent IDs, depth, ancestor IDs, child counts and `depthLimited`.
 Follow `nextOffset` to page the same tree without losing its context. A frame
@@ -373,8 +373,7 @@ composition work, GPU execution, displayed FPS, or input-to-display latency.
   work without subtracting the same-object override wrapper twice. Both are
   elapsed time, including waits and interruptions, not CPU execution time.
 - Mean, maximum and nearest-rank p95 use complete calls wholly inside the selected
-  range. Boundary overlaps are clipped and counted separately. Missing or corrupt
-  begin/end boundaries have unavailable durations.
+  range. Boundary overlaps are clipped and counted separately.
 - `layoutBusyMsByThread` is the interval union of observed layout work on each
   thread. It is not CPU utilization; summing threads is not global wall time.
 - Frame phases are not presented frames or FPS. Input and scrolling events show
@@ -388,10 +387,9 @@ composition work, GPU execution, displayed FPS, or input-to-display latency.
   tree or a mapping to UI Automation IDs. Attaching after creation often leaves
   anonymous elements. Re-navigating during capture can improve metadata coverage.
 - `coverage` describes the selected range/thread and capture-wide collection
-  constraints. Capture-wide decode/boundary counts remain visible separately;
+  constraints. Capture-wide decode counts remain visible separately;
   an error elsewhere is not automatically an error in the selected interval.
-  An unfinished operation may still overlap a later range even when its begin
-  event is outside it. Optional GC coverage is reported independently of XAML.
+  Optional GC coverage is reported independently of XAML.
 
 ## Files, privacy, and troubleshooting
 

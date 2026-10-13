@@ -3,6 +3,7 @@
 
 using System.CommandLine;
 using System.Diagnostics;
+using System.Diagnostics.Tracing;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -141,6 +142,139 @@ public class PerfCommandTests : BaseCommandTests
         Assert.AreEqual("", stdout);
         using var error = JsonDocument.Parse(stderr);
         Assert.AreEqual("invalid_arguments", error.RootElement.GetProperty("code").GetString());
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task UndecodableDiagnosticAndRecordingBoundariesDoNotMakeTimingAnalysisPartial(bool unmatched)
+    {
+        var directory = Directory.CreateTempSubdirectory("WinApp-Perf-Diagnostic-");
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            using var source = new XamlDiagnosticEventSource();
+            var provider = PerfProviders.All.Single(p => p.Id == PerfProviders.Xaml);
+            var id = Guid.NewGuid().ToString("N");
+            var capture = new PerfCaptureDocument
+            {
+                Id = id, Directory = directory.FullName, SessionName = "WinApp-Perf-" + id,
+                SessionId = Guid.NewGuid(), Target = PerfProcessIdentity.Read(process), Providers = [provider],
+                Runtime = new("diagnostic test fixture", null, null, null),
+            };
+            using (var trace = new PrivateEtwSession(capture.SessionName, capture.SessionId, process.Id,
+                Path.Join(directory.FullName, "trace.etl"), 16))
+            {
+                capture.ProviderStates.Add(PerfCaptureWorker.EnableProvider(trace, provider));
+                Assert.IsTrue(source.IsEnabled());
+                capture.ReadyQpc = Stopwatch.GetTimestamp();
+                if (unmatched)
+                {
+                    source.Write("PublicApiCall", new EventSourceOptions { Level = EventLevel.Informational },
+                        new { IsStart = 0, MethodName = "Layout", ObjectPointer = 42UL });
+                }
+                source.Write("PublicApiCall", new EventSourceOptions { Level = EventLevel.Informational },
+                    new { IsStart = 1, MethodName = "Layout", ObjectPointer = 42UL });
+                source.Write("FallbackError", new EventSourceOptions { Level = EventLevel.Error },
+                    new { Failure = new { Code = -1, Message = "diagnostic fixture" } });
+                if (unmatched)
+                {
+                    source.Write("PublicApiCall", new EventSourceOptions { Level = EventLevel.Informational },
+                        new { IsStart = 1, MethodName = "UnfinishedChild", ObjectPointer = 43UL });
+                }
+                Thread.Sleep(10);
+                source.Write("PublicApiCall", new EventSourceOptions { Level = EventLevel.Informational },
+                    new { IsStart = 0, MethodName = "Layout", ObjectPointer = 42UL });
+                if (unmatched)
+                {
+                    source.Write("PublicApiCall", new EventSourceOptions { Level = EventLevel.Informational },
+                        new { IsStart = 1, MethodName = "RecordingTail", ObjectPointer = 44UL });
+                }
+                trace.Stop();
+                capture.StopQpc = Stopwatch.GetTimestamp();
+                capture.EventsLost = trace.EventsLost;
+                capture.BuffersLost = trace.BuffersLost;
+            }
+            capture.TraceFiles = directory.GetFiles("trace.etl*").Select(f => f.Name).ToArray();
+            capture.State = "completed";
+            capture.Save();
+
+            var (stdout, stderr, code) = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--json"]);
+
+            Assert.AreEqual(0, code, stderr);
+            Assert.AreEqual("", stderr);
+            using (var summary = JsonDocument.Parse(stdout))
+            {
+                Assert.IsTrue(summary.RootElement.GetProperty("coverage").GetProperty("complete").GetBoolean());
+                Assert.AreEqual(0, summary.RootElement.GetProperty("coverage").GetProperty("decodeErrors").GetInt32());
+                Assert.IsTrue(summary.RootElement.GetProperty("rows").GetArrayLength() > 0);
+                Assert.IsFalse(summary.RootElement.GetProperty("coverage").TryGetProperty("incompleteCalls", out _));
+            }
+            var analysis = PerfAnalysisStore.Open(directory.FullName, CancellationToken.None);
+            Assert.AreEqual(1, analysis.Manifest.DecoderVersion);
+            Assert.AreEqual(1, analysis.Manifest.AnalyzerVersion);
+            Assert.AreEqual(1, analysis.Manifest.Calls);
+            Assert.AreEqual(1, analysis.Manifest.DecodeErrors, "The diagnostic decoding failure must remain recorded.");
+            Assert.IsEmpty(analysis.Manifest.IncompleteReasons);
+            var call = PerfAnalysisStore.Read(analysis, "calls.ndjson", PerfJsonContext.Default.PerfCall).Single();
+            Assert.AreEqual("PublicApiCall:Layout", call.Name);
+            Assert.IsGreaterThan(0d, call.DurationMs!.Value);
+            if (unmatched)
+            {
+                Assert.IsNull(call.ExclusiveMs);
+                var raw = await InvokeProgramAsync(
+                    ["perf", "analyze", directory.FullName, "--view", "events", "--event", "PublicApiCall:RecordingTail", "--json"]);
+                Assert.AreEqual(0, raw.ExitCode, raw.Stderr);
+                using var tail = JsonDocument.Parse(raw.Stdout);
+                Assert.AreEqual("begin", tail.RootElement.GetProperty("rows")[0].GetProperty("event").GetProperty("phase").GetString());
+            }
+            var diagnostic = PerfAnalysisStore.Read(analysis, "events.ndjson", PerfJsonContext.Default.PerfEvent)
+                .Single(e => e.Name == "FallbackError");
+            StringAssert.Contains(diagnostic.DecodeError!, "Unsupported structured or variable-length TDH property");
+            Assert.AreEqual("diagnostics", diagnostic.Family);
+
+            var evidence = await InvokeProgramAsync(
+                ["perf", "analyze", directory.FullName, "--view", "events", "--event", "FallbackError", "--json"]);
+            Assert.AreEqual(1, evidence.ExitCode, "The requested diagnostic payload is still incomplete.");
+            using var events = JsonDocument.Parse(evidence.Stdout);
+            Assert.AreEqual(1, events.RootElement.GetProperty("rows").GetArrayLength());
+            StringAssert.Contains(events.RootElement.GetProperty("rows")[0].GetProperty("event")
+                .GetProperty("decodeError").GetString()!, "Unsupported structured");
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [EventSource(Name = "Microsoft-Windows-XAML", Guid = "531A35AB-63CE-4BCF-AA98-F88C7A89E455")]
+    private sealed class XamlDiagnosticEventSource : EventSource
+    {
+        public XamlDiagnosticEventSource() : base(EventSourceSettings.EtwSelfDescribingEventFormat)
+        {
+        }
+    }
+
+    [TestMethod]
+    public async Task UnmatchedOnlyCaptureReturnsAnEvidenceErrorInsteadOfZeroCost()
+    {
+        var directory = CreateCachedAnalysis([], events:
+            [new("v1", 10, 10, 1, PerfProviders.Xaml, 47, 0, 1, Guid.Empty,
+                "MeasureElement", "layout", "begin", "a", [])]);
+        try
+        {
+            var (stdout, stderr, code) = await InvokeProgramAsync(["perf", "analyze", directory.FullName, "--json"]);
+            Assert.AreEqual(1, code);
+            Assert.AreEqual("", stdout);
+            using var error = JsonDocument.Parse(stderr);
+            StringAssert.Contains(error.RootElement.GetProperty("message").GetString()!,
+                "No usable requested performance evidence was recorded");
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
     }
 
     [TestMethod]
@@ -458,9 +592,9 @@ public class PerfCommandTests : BaseCommandTests
             [
                 new("c1", "Layout", "layout", 1, null, null, "v1", "v2",
                     0, 10, 10, null, "complete", 10),
-                new("c2", "Measure", "layout", 1, null, null, "v3", null,
-                    20, null, null, null, "missing-end"),
-            ]);
+            ],
+            events: [new("v3", 20, 20, 1, PerfProviders.Xaml, 47, 0, 1, Guid.Empty,
+                "MeasureElement", "layout", "unknown", null, [], "unsupported timing payload")]);
         var previous = Console.Error;
         using var stderr = new StringWriter();
         try
@@ -487,7 +621,7 @@ public class PerfCommandTests : BaseCommandTests
                 error = stderr.ToString();
                 StringAssert.Contains(error, "Results may be incomplete:");
                 StringAssert.Contains(error, "- The selected time range extends beyond the recording.");
-                StringAssert.Contains(error, "- Some UI operations have missing or inconsistent start/end events");
+                StringAssert.Contains(error, "- Some events in the selected time range could not be decoded");
                 Assert.IsFalse(error.Contains("coverage.reasons", StringComparison.Ordinal));
                 Assert.IsFalse(error.Contains("manifests", StringComparison.Ordinal));
                 Assert.IsFalse(TestAnsiConsole.Output.Contains("Coverage:", StringComparison.Ordinal));

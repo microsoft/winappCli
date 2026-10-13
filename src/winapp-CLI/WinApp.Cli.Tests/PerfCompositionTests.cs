@@ -35,7 +35,6 @@ public sealed class PerfCompositionTests
         Assert.AreEqual(5, commit.ExclusiveMs);
         Assert.AreEqual(15, calls.Single(call => call.Name == "SubmitFrame").ExclusiveMs);
         Assert.IsNull(commit.ElementId);
-        Assert.AreEqual(0, analyzer.IncompleteCalls);
     }
 
     [TestMethod]
@@ -118,15 +117,14 @@ public sealed class PerfCompositionTests
     }
 
     [TestMethod]
-    public void UnknownCompositionDescriptorsAreNotGuessedAndMissingStopsHaveNoDuration()
+    public void UnknownCompositionDescriptorsAreNotGuessedAndUnmatchedCallsAreOmitted()
     {
         Assert.IsNull(WinUiEventDecoder.Decode(Raw(999, 0, []), "v1", 0, 1000));
         var calls = new List<PerfCall>();
         var analyzer = new PerfAnalyzer(calls.Add);
         analyzer.Accept(WinUiEventDecoder.Decode(Raw(4, 1, new byte[16]), "v1", 0, 1000)!);
         analyzer.Complete();
-        Assert.AreEqual("missing-end", calls.Single().Status);
-        Assert.IsNull(calls.Single().DurationMs);
+        Assert.IsEmpty(calls);
     }
 
     [TestMethod]

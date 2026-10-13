@@ -11,9 +11,9 @@ internal sealed record PerfQueryOptions(string View = "summary", int Limit = 10,
     string? Provider = null, string? Event = null, string Sort = "self", int? Depth = null, string? Family = null,
     double? MinFrameMs = null);
 internal sealed record PerfRange(double FromMs, double ToMs);
-internal sealed record PerfCoverage(bool Complete, string Startup, int DecodeErrors, int IncompleteCalls,
+internal sealed record PerfCoverage(bool Complete, string Startup, int DecodeErrors,
     uint? EventsLost, uint? BuffersLost, Dictionary<string, int> Families, string[] Reasons,
-    int CaptureDecodeErrors = 0, int CaptureIncompleteCalls = 0, string[]? CaptureReasons = null);
+    int CaptureDecodeErrors = 0, string[]? CaptureReasons = null);
 internal sealed record PerfGcCoverage(string Availability, int RecordedEvents, int DecodeErrors,
     int IncompleteIntervals, bool Complete, string? Error = null);
 internal sealed record PerfGcOverlap(double ObservedOverlapMs, string[] IntervalIds, int OmittedIntervals);
@@ -119,7 +119,7 @@ internal static class PerfQuery
         public List<double> Durations { get; } = [];
         public List<string> Evidence { get; } = [];
         public double Inclusive { get; set; }
-        public double Self { get; set; }
+        public double? Self { get; set; } = 0;
         public int Overlaps { get; set; }
         public double Clipped { get; set; }
 
@@ -143,17 +143,17 @@ internal static class PerfQuery
     {
         Validate(options);
         var manifest = analysis.Manifest;
+        var calls = PerfAnalysisStore.Read(analysis, "calls.ndjson", PerfJsonContext.Default.PerfCall).ToList();
         var hasRequestedEvidence = options.View switch
         {
             "events" => manifest.Events > 0,
             "gc" => manifest.Events > 0,
-            _ => manifest.Families.Any(p => p.Key is not ("metadata" or "unknown" or "gc") && p.Value > 0),
+            _ => calls.Count > 0,
         };
         if (!hasRequestedEvidence)
         {
             throw new InvalidDataException("No usable requested performance evidence was recorded. Exercise the UI while recording and retry.");
         }
-        var calls = PerfAnalysisStore.Read(analysis, "calls.ndjson", PerfJsonContext.Default.PerfCall).ToList();
         var gc = PerfAnalysisStore.Read(analysis, "gc.ndjson", PerfJsonContext.Default.PerfGcInterval).ToList();
         var root = options.View == "call" ? calls.SingleOrDefault(c => c.Id == options.Id)
             ?? throw new ArgumentException("The call ID was not observed in this capture.") : null;
@@ -226,7 +226,10 @@ internal static class PerfQuery
             }
             if (e.DecodeError is not null)
             {
-                decodeErrors++;
+                if (options.View == "events" || e.Family != "diagnostics")
+                {
+                    decodeErrors++;
+                }
             }
             else
             {
@@ -365,9 +368,6 @@ internal static class PerfQuery
                 }
             }
         }
-        var incomplete = options.View is "gc" or "events" ? 0 : calls.Count(c => c.Status != "complete" &&
-            Overlaps(c.StartMs, c.EndMs, range) && (selectedThread is null || c.Thread == selectedThread) &&
-            (options.Family is null || c.Family == options.Family));
         var reasons = manifest.CaptureReasons.ToList();
         var recordedEnd = analysis.Capture.StopQpc is { } stop && analysis.Capture.ReadyQpc is { } ready
             ? (stop - ready) * 1000.0 / analysis.Capture.Frequency : manifest.LastEventMs;
@@ -378,10 +378,6 @@ internal static class PerfQuery
         if (decodeErrors > 0)
         {
             reasons.Add("Some events in the selected time range could not be decoded because their format is unsupported or their data is invalid.");
-        }
-        if (incomplete > 0)
-        {
-            reasons.Add("Some UI operations have missing or inconsistent start/end events and may overlap the selected time range. Their durations are unavailable.");
         }
         if (options.View == "gc" && gcIncomplete > 0)
         {
@@ -413,9 +409,9 @@ internal static class PerfQuery
             ParsingResourcesOmitted = options.View == "summary" ? Math.Max(0, activity!.Resources.Count - 10) : null,
             LayoutBusyMsByThread = busy.ToDictionary(p => p.Key, p => PerfAnalyzer.Union(p.Value)),
             Coverage = new(reasons.Count == 0, Clip(analysis.Capture.StartupCoverage, 160)!,
-                decodeErrors, incomplete, analysis.Capture.EventsLost, analysis.Capture.BuffersLost,
+                decodeErrors, analysis.Capture.EventsLost, analysis.Capture.BuffersLost,
                 families, reasons.Take(8).Select(r => Clip(r, 256)!).ToArray(),
-                manifest.DecodeErrors, manifest.IncompleteCalls,
+                manifest.DecodeErrors,
                 manifest.IncompleteReasons.Take(8).Select(r => Clip(r, 256)!).ToArray()),
         };
         Fit(result, options.MaxBytes);
@@ -466,7 +462,7 @@ internal static class PerfQuery
             Rows = rows.Skip(options.Offset).Take(options.Limit).ToList(), Total = rows.Count,
             NextOffset = (long)options.Offset + options.Limit < rows.Count ? options.Offset + options.Limit : null,
             ProcessResources = PerfResourceSummary.Create(capture, range),
-            Coverage = new(reasons.Count == 0, capture.StartupCoverage, 0, 0, null, null, [], reasons.ToArray()),
+            Coverage = new(reasons.Count == 0, capture.StartupCoverage, 0, null, null, [], reasons.ToArray()),
         };
         Fit(result, options.MaxBytes);
         return result;
@@ -817,7 +813,7 @@ internal static class PerfQuery
         }
         aggregate.Durations.Add(call.DurationMs.Value);
         aggregate.Inclusive += call.DurationMs.Value;
-        aggregate.Self += kind == "element" ? call.SelfMs!.Value : call.ExclusiveMs ?? 0;
+        aggregate.Self += kind == "element" ? call.SelfMs : call.ExclusiveMs;
     }
 
     public static void Fit(PerfQueryResult result, int maxBytes)

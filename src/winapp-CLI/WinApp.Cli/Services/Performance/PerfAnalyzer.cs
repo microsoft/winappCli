@@ -31,23 +31,26 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
         public string Id { get; } = id;
         public string? Element { get; } = element;
         public string? Parent { get; } = parent;
+        public Scope? Root { get; init; }
         public List<(double Start, double End)> Children { get; } = [];
         public List<(double Start, double End)> DirectChildren { get; } = [];
+        public List<PerfCall> CompletedCalls { get; } = [];
+        public Dictionary<string, string?> OmittedParents { get; } = new(StringComparer.Ordinal);
+        public bool IncompleteChildren { get; set; }
         public bool Corrupt { get; set; }
     }
 
     private readonly Dictionary<string, PerfElement> current = new(StringComparer.Ordinal);
     private readonly Dictionary<uint, List<Scope>> stacks = [];
     public List<PerfElement> Elements { get; } = [];
-    public int IncompleteCalls { get; private set; }
     private int callSequence;
 
     public string? Accept(PerfEvent e)
     {
         if (e.DecodeError is not null)
         {
-            // Unclassified diagnostics do not establish operation boundaries.
-            if (e.Family is not ("metadata" or "unknown") && stacks.TryGetValue(e.Thread, out var broken))
+            // Diagnostic records do not establish operation boundaries.
+            if (e.Family is not ("metadata" or "unknown" or "diagnostics") && stacks.TryGetValue(e.Thread, out var broken))
             {
                 foreach (var scope in broken)
                 {
@@ -73,7 +76,10 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
             {
                 throw new PerfAnalysisLimitException("Scope nesting exceeded 512 levels.");
             }
-            stack.Add(new(e, "c" + ++callSequence, element?.Id, stack.LastOrDefault()?.Id));
+            stack.Add(new(e, "c" + ++callSequence, element?.Id, stack.LastOrDefault()?.Id)
+            {
+                Root = stack.FirstOrDefault(),
+            });
         }
         else if (e.Phase == "end")
         {
@@ -82,21 +88,14 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
                 (e.Activity == Guid.Empty || s.Begin.Activity == e.Activity));
             if (match < 0)
             {
-                foreach (var ancestor in stack)
-                {
-                    ancestor.Corrupt = true;
-                }
-                IncompleteCalls++;
-                emitCall(new("c" + ++callSequence, e.Name, e.Family, e.Thread, element?.Id, null,
-                    null, e.Id, null, e.TimeMs, null, null, "missing-begin"));
                 return element?.Id;
             }
             var scope = stack[match];
             matchedScopeElement = scope.Element;
             for (var i = stack.Count - 1; i > match; i--)
             {
-                EmitIncomplete(stack[i], "missing-end");
-                scope.Corrupt = true;
+                Publish(stack[i]);
+                scope.IncompleteChildren = true;
             }
             stack.RemoveRange(match, stack.Count - match);
             if (scope.Corrupt || e.TimeMs < scope.Begin.TimeMs)
@@ -105,19 +104,19 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
                 {
                     ancestor.Corrupt = true;
                 }
-                IncompleteCalls++;
-                emitCall(new(scope.Id, e.Name, e.Family, e.Thread, scope.Element, scope.Parent,
-                    scope.Begin.Id, e.Id, scope.Begin.TimeMs, e.TimeMs, null, null, "corrupt-boundaries"));
+                Publish(scope);
             }
             else
             {
                 var duration = e.TimeMs - scope.Begin.TimeMs;
-                double? self = IsElementOperation(scope.Begin.Name) ? Math.Max(0, duration - Union(scope.Children)) : null;
-                emitCall(new(scope.Id, e.Name, e.Family, e.Thread, scope.Element, scope.Parent,
+                double? self = !scope.IncompleteChildren && IsElementOperation(scope.Begin.Name)
+                    ? Math.Max(0, duration - Union(scope.Children)) : null;
+                Publish(scope, new(scope.Id, e.Name, e.Family, e.Thread, scope.Element, scope.Parent,
                     scope.Begin.Id, e.Id, scope.Begin.TimeMs, e.TimeMs, duration, self, "complete",
-                    Math.Max(0, duration - Union(scope.DirectChildren))));
+                    scope.IncompleteChildren ? null : Math.Max(0, duration - Union(scope.DirectChildren))));
                 if (stack.LastOrDefault() is { } parent)
                 {
+                    parent.IncompleteChildren |= scope.IncompleteChildren;
                     parent.DirectChildren.Add((scope.Begin.TimeMs, e.TimeMs));
                     if (IsElementOperation(scope.Begin.Name) &&
                         !(scope.Begin.Name.EndsWith("Override", StringComparison.Ordinal) &&
@@ -139,19 +138,43 @@ internal sealed class PerfAnalyzer(Action<PerfCall> emitCall)
     {
         foreach (var stack in stacks.Values)
         {
-            foreach (var scope in stack)
+            for (var i = stack.Count - 1; i >= 0; i--)
             {
-                EmitIncomplete(scope, "missing-end");
+                Publish(stack[i]);
             }
         }
         stacks.Clear();
     }
 
-    private void EmitIncomplete(Scope scope, string status)
+    private void Publish(Scope scope, PerfCall? call = null)
     {
-        IncompleteCalls++;
-        emitCall(new(scope.Id, scope.Begin.Name, scope.Begin.Family, scope.Begin.Thread, scope.Element,
-            scope.Parent, scope.Begin.Id, null, scope.Begin.TimeMs, null, null, null, status));
+        // Buffer descendants until their parent closes so omitted scopes leave no dangling parent IDs.
+        var root = scope.Root ?? scope;
+        if (call is null)
+        {
+            root.OmittedParents.Add(scope.Id, scope.Parent);
+        }
+        else
+        {
+            root.CompletedCalls.Add(call);
+        }
+        if (scope.Root is not null)
+        {
+            return;
+        }
+        foreach (var child in root.CompletedCalls)
+        {
+            var parent = child.ParentCallId;
+            while (parent is not null && root.OmittedParents.TryGetValue(parent, out var ancestor))
+            {
+                parent = ancestor;
+            }
+            if (child.ParentCallId is { } omitted && parent != omitted)
+            {
+                root.OmittedParents[omitted] = parent;
+            }
+            emitCall(child.ParentCallId == parent ? child : child with { ParentCallId = parent });
+        }
     }
 
     private PerfElement? ResolveElement(PerfEvent e)

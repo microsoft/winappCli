@@ -254,10 +254,8 @@ public class PerfCallQueryTests
         using var fixture = new Fixture(calls.ToArray(), events);
         fixture.Capture.StopQpc = 582;
         fixture.Manifest.LastEventMs = 581.73;
-        fixture.Manifest.IncompleteCalls = analyzer.IncompleteCalls;
 
         var summary = fixture.Query(new(View: "summary", FromMs: 400.57, ToMs: 581.73));
-        Assert.AreEqual(0, analyzer.IncompleteCalls);
         Assert.AreEqual(3, events.Length);
         Assert.AreEqual("42", events[0].Fields["FrameNumber"]);
         Assert.AreEqual(1, calls.Count);
@@ -327,15 +325,81 @@ public class PerfCallQueryTests
     }
 
     [TestMethod]
-    public void AnEarlierMissingEndRemainsUncertainInALaterRange()
+    [DataRow("summary")]
+    [DataRow("calls")]
+    [DataRow("hotspots")]
+    [DataRow("elements")]
+    public void UnmatchedEventsCannotReportSuccessfulEmptyTimings(string view)
     {
-        using var fixture = new Fixture([
-            new("c1", "Layout", "layout", 1, null, null, "v1", null, -20, null, null, null, "missing-end"),
-        ]);
-        var result = fixture.Query(new(View: "calls", FromMs: 40, ToMs: 50));
-        Assert.AreEqual(1, result.Returned);
-        Assert.IsFalse(result.Coverage.Complete);
-        Assert.IsNull(result.Rows[0].InclusiveMs);
+        var unmatched = PerfGcTests.Event("Layout", 10) with
+        {
+            Provider = PerfProviders.Xaml, Family = "layout", Phase = "begin",
+        };
+        using var fixture = new Fixture([], [unmatched]);
+
+        Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: view)));
+        var events = fixture.Query(new(View: "events"));
+        Assert.IsTrue(events.Coverage.Complete);
+        Assert.AreEqual("begin", events.Rows.Single().Event!.Phase);
+    }
+
+    [TestMethod]
+    public void RetainedTreesAndHotspotsSkipUnmatchedScopes()
+    {
+        static PerfEvent Timed(string name, string phase, double time) =>
+            PerfGcTests.Event(name, time) with
+            {
+                Provider = PerfProviders.Xaml, Family = name == "Frame" ? "frames" : "layout", Phase = phase,
+            };
+        var events = new[]
+        {
+            Timed("Frame", "begin", 0), Timed("Layout", "begin", 1),
+            Timed("MeasureElement", "begin", 2), Timed("MeasureElement", "end", 3),
+            Timed("Frame", "end", 25),
+        };
+        var calls = new List<PerfCall>();
+        var analyzer = new PerfAnalyzer(calls.Add);
+        foreach (var e in events)
+        {
+            analyzer.Accept(e);
+        }
+        analyzer.Complete();
+        using var fixture = new Fixture(calls, events);
+        var frame = calls.Single(c => c.Name == "Frame");
+        var child = calls.Single(c => c.Name == "MeasureElement");
+
+        var tree = fixture.Query(new(View: "call", Id: frame.Id, Depth: 4));
+        Assert.IsTrue(tree.Coverage.Complete);
+        Assert.AreEqual(2, tree.Returned);
+        var childRow = tree.Rows.Single(r => r.Id == child.Id);
+        Assert.AreEqual(1, childRow.Depth);
+        CollectionAssert.AreEqual(new[] { frame.Id }, childRow.AncestorIds);
+        Assert.IsNull(tree.Rows.Single(r => r.Id == frame.Id).ExclusiveMs);
+        var hotspot = fixture.Query(new(View: "hotspots")).Rows.Single();
+        Assert.AreEqual(child.Id, hotspot.DominantOperations!.Single().Id);
+    }
+
+    [TestMethod]
+    public void UnknownSelfTimeRemainsUnknownInElementAndPhaseAggregates()
+    {
+        var incompleteChildren = Call("c1", 10, 20) with
+        {
+            Name = "MeasureElement", ElementId = "e1", SelfMs = null, ExclusiveMs = null,
+        };
+        var complete = Call("c2", 30, 40) with
+        {
+            Name = "MeasureElement", ElementId = "e1", SelfMs = 10, ExclusiveMs = 10,
+        };
+        using var fixture = new Fixture([incompleteChildren, complete],
+            elements: [new() { Id = "e1", ObjectId = "a", Type = "Panel" }]);
+
+        var element = fixture.Query(new(View: "elements")).Rows.Single();
+        Assert.AreEqual(2, element.Count);
+        Assert.AreEqual(20d, element.InclusiveMs);
+        Assert.IsNull(element.SelfMs);
+        var summary = fixture.Query(new(View: "summary"));
+        Assert.IsTrue(summary.Coverage.Complete);
+        Assert.IsNull(summary.Rows.Single(r => r.Kind == "phase").ExclusiveMs);
     }
 
     [TestMethod]
@@ -375,6 +439,73 @@ public class PerfCallQueryTests
         fixture.Manifest.Families["gc"] = 1;
 
         Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: "hotspots")));
+    }
+
+    [TestMethod]
+    [DataRow("summary")]
+    [DataRow("calls")]
+    [DataRow("hotspots")]
+    [DataRow("elements")]
+    public void FallbackDiagnosticDoesNotMakeTimingQueriesPartial(string view)
+    {
+        var diagnostic = WinUiEventDecoder.Decode(new PerfRawEvent(5, 1, 1, PerfProviders.Xaml,
+            0, 0, 0, Guid.Empty, 8, true, [], "FallbackError", null,
+            "Unsupported structured or variable-length TDH property."), "diagnostic", 0, 1000)!;
+        using var fixture = new Fixture([Frame("frame", 0, 20), Call("layout", 2, 10, "frame")], [diagnostic]);
+        fixture.Manifest.DecodeErrors = 1;
+
+        var result = fixture.Query(new(View: view));
+
+        Assert.IsTrue(result.Coverage.Complete);
+        Assert.AreEqual(0, result.Coverage.DecodeErrors);
+        Assert.AreEqual(1, result.Coverage.CaptureDecodeErrors);
+    }
+
+    [TestMethod]
+    [DataRow("summary")]
+    [DataRow("calls")]
+    [DataRow("hotspots")]
+    [DataRow("elements")]
+    public void DiagnosticOnlyCaptureCannotReportSuccessfulEmptyTimings(string view)
+    {
+        var diagnostic = WinUiEventDecoder.Decode(new PerfRawEvent(5, 1, 1, PerfProviders.Xaml,
+            0, 0, 0, Guid.Empty, 8, true, [], "FallbackError", [], null), "diagnostic", 0, 1000)!;
+        using var fixture = new Fixture([], [diagnostic]);
+        fixture.Manifest.Families.Clear();
+        fixture.Manifest.Families["diagnostics"] = 1;
+
+        Assert.Throws<InvalidDataException>(() => fixture.Query(new(View: view)));
+    }
+
+    [TestMethod]
+    public void RecordingLossStillMakesMatchedTimingsPartial()
+    {
+        using var fixture = new Fixture([Call("c1", 10, 20)]);
+        fixture.Capture.EventsLost = 1;
+        fixture.Manifest.CaptureReasons.Add("Recording events were lost.");
+
+        var result = fixture.Query(new(View: "calls"));
+
+        Assert.IsFalse(result.Coverage.Complete);
+        Assert.AreEqual(1u, result.Coverage.EventsLost);
+        Assert.AreEqual(10d, result.Rows.Single().InclusiveMs);
+        Assert.Contains("Recording events were lost.", result.Coverage.Reasons);
+    }
+
+    [TestMethod]
+    [DataRow("UnknownDiagnostic")]
+    [DataRow("PublicApiCall")]
+    public void UnknownOrMalformedScopeDecodingStillMakesTimingQueriesPartial(string name)
+    {
+        var unsupported = WinUiEventDecoder.Decode(new PerfRawEvent(5, 1, 1, PerfProviders.Xaml,
+            0, 0, 0, Guid.Empty, 8, true, [], name, null,
+            "Unsupported structured or variable-length TDH property."), "unsupported", 0, 1000)!;
+        using var fixture = new Fixture([Call("c1", 0, 10)], [unsupported]);
+
+        var result = fixture.Query(new(View: "calls"));
+
+        Assert.IsFalse(result.Coverage.Complete);
+        Assert.AreEqual(1, result.Coverage.DecodeErrors);
     }
 
     [TestMethod]
