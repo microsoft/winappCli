@@ -80,6 +80,7 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
             psi.RedirectStandardOutput = true;
             psi.RedirectStandardError = true;
             psi.RedirectStandardInput = true;
+            psi.CreateNoWindow = true;
         }
 
         if (!string.IsNullOrEmpty(arguments))

@@ -118,6 +118,21 @@ console.log(tree);
 
 Open the target application before inspecting it.
 
+`perfAnalyze` with `json: true` is the one exception to rejecting on a nonzero
+exit. When the capture is missing some evidence, it resolves with `exitCode: 1`
+and the usable results in `stdout`. Check `coverage.complete` before treating
+the results as complete:
+
+```typescript
+import { perfAnalyze } from '@microsoft/winappcli';
+
+const result = await perfAnalyze({ directory: './capture', json: true });
+const evidence = JSON.parse(result.stdout);
+if (!evidence.coverage.complete) {
+  console.warn(result.stderr);
+}
+```
+
 ### Calls are non-interactive
 
 Command wrappers capture output and use piped stdin, so commands cannot ask for

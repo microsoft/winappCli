@@ -171,9 +171,20 @@ internal class FakeDotNetService : IDotNetService
     /// <summary>Records the argument strings passed to <see cref="RunDotnetStreamingAsync"/> (build passes).</summary>
     public List<string> StreamingCalls { get; } = [];
 
+    /// <summary>
+    /// Contents of each temporary solution filter (<c>.slnf</c>) a streamed call received, read during the
+    /// call because the caller deletes the file afterwards.
+    /// </summary>
+    public List<string> SolutionFilterContents { get; } = [];
+
     public Task<int> RunDotnetStreamingAsync(DirectoryInfo workingDirectory, string arguments, Action<string>? onOutputLine, Action<string>? onErrorLine, IReadOnlyDictionary<string, string>? environmentOverrides = null, CancellationToken cancellationToken = default)
     {
         StreamingCalls.Add(arguments);
+        foreach (var token in WinApp.Cli.Helpers.WindowsCommandLine.SplitArguments(arguments)
+            .Where(token => token.EndsWith(".slnf", StringComparison.OrdinalIgnoreCase) && File.Exists(token)))
+        {
+            SolutionFilterContents.Add(File.ReadAllText(token));
+        }
         if (RunDotnetStreamingHandler is not null)
         {
             return Task.FromResult(RunDotnetStreamingHandler(arguments, onOutputLine, onErrorLine));

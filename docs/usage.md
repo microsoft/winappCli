@@ -708,6 +708,11 @@ winapp manifest update-assets mylogo.png --verbose
 
 ### run
 
+To record native WinUI performance while launching, add `--profile <empty-directory>`.
+Add `--profile-mode elevated` to record startup (one UAC prompt for the recorder).
+See the [performance guide](guides/winui-performance.md) for duration/size options,
+startup coverage, detached capture, and offline analysis.
+
 Create a loose layout package from a build output folder, register it with Windows using the `Windows.Management.Deployment.PackageManager` API, and launch the application — simulating a full MSIX install for debugging. Returns the process ID for debugger attachment.
 
 `winapp run` operates in one of three modes, chosen automatically from the input:
@@ -901,12 +906,12 @@ For apps that use package identity without a generated MSIX layout, include `Pac
 - `--aot` - Run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`. Rejected in folder and single-file modes.
 - `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value. *(Also honored in single-file mode, where it is the only way to set `TargetFramework`.)*
 
-**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. Restore and build output stream live, with credentials from authenticated feed URLs redacted. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
+**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. In an interactive terminal, restore reports one line and the build looks like `dotnet build`; agents, CI, and redirected output stream plain text. Credentials from authenticated feed URLs are redacted, and a failed restore or build shows its full output and the exact `dotnet` command. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
 | *(default)* | `minimal` | — |
-| `--verbose` | `minimal` | winapp's build decision traces |
+| `--verbose` | `minimal` | the exact `dotnet` commands and winapp's build decision traces |
 | `--quiet` | `quiet` | — |
 
 Native AOT publish output streams as it arrives. Under `--json`, restore/build invocations and child output go to stderr so stdout stays pure JSON. Under `--quiet`, invocations are suppressed and dotnet's quiet restore/build output is routed to stderr so stdout stays clean. Native AOT publish output also goes to stderr under either option.
@@ -2277,6 +2282,23 @@ one-shot workflow, even when several are launched from one shell, so hosts that 
 per command must inject the same explicit value into each one. The value is opaque, is never treated
 as a credential, and is only ever persisted as a SHA-256 hash. See
 [UI Automation → Coordinating concurrent UI workflows](ui-automation.md#coordinating-concurrent-ui-workflows).
+
+### perf
+
+```powershell
+$capture = winapp perf start --app 1234 --output .\traces\scenario --json | ConvertFrom-Json
+winapp perf stop $capture.id
+winapp perf analyze .\traces\scenario --json
+```
+
+Record and query WinUI 3 layout, frame, input and scrolling evidence. Stop the
+capture before analysis. The default analysis reports mutually exclusive observed
+activity on the primary UI thread, the hottest parsed XAML resources, and a
+detailed operation ranking. Process resources are summarized alongside timings;
+use `--view resources` for their timeline. Use `--view calls --family composition`
+for app-side commit and surface-update timings. Use marker or millisecond bounds for before/after
+comparisons. See the [performance guide](guides/winui-performance.md) for the
+complete start/mark/stop/query workflow and interpretation limits.
 
 ### ui
 

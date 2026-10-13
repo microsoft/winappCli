@@ -627,10 +627,14 @@ public sealed class ProjectRunServicePublishProfileTests
             arguments.StartsWith($"restore {solution.FullName}", StringComparison.Ordinal)));
         var siblingRestore = dotnet.StreamingCalls.Single(arguments =>
             arguments.StartsWith("restore ", StringComparison.Ordinal)
-            && arguments.Contains("Server.csproj", StringComparison.Ordinal));
+            && arguments.Contains(".slnf", StringComparison.Ordinal));
         Assert.IsFalse(
             siblingRestore.Contains("-p:PublishProfile=", StringComparison.Ordinal),
             "the selected app's profile must not flow into an unrelated solution sibling");
+        var filter = dotnet.SolutionFilterContents.Single();
+        StringAssert.Contains(filter, "Server/Server.csproj", "the sibling restores through the solution filter");
+        Assert.IsFalse(filter.Contains("App.csproj", StringComparison.Ordinal),
+            "the target restores separately under its profile, not through the sibling filter");
         var appBuild = dotnet.StreamingCalls.Single(arguments =>
             arguments.StartsWith($"build {app.FullName}", StringComparison.Ordinal));
         StringAssert.Contains(appBuild, "-p:PublishProfile=win-arm64.pubxml");
