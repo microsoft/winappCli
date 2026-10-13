@@ -8,6 +8,9 @@ Many Windows APIs (push notifications, background tasks, share target, startup t
 
 ## Two approaches: `winapp run` vs `create-debug-identity`
 
+For slow WinUI layout or scrolling rather than crashes or identity setup, use the
+[WinUI performance recording and query workflow](guides/winui-performance.md).
+
 | | `winapp run` | `create-debug-identity` |
 |---|---|---|
 | **What it registers** | Full loose layout package (entire folder) | Sparse package (single exe) |
