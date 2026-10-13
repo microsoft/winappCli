@@ -906,12 +906,12 @@ For apps that use package identity without a generated MSIX layout, include `Pac
 - `--aot` - Run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`. Rejected in folder and single-file modes.
 - `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value. *(Also honored in single-file mode, where it is the only way to set `TargetFramework`.)*
 
-**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. Restore and build output stream live, with credentials from authenticated feed URLs redacted. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
+**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. In an interactive terminal, restore reports one line and the build looks like `dotnet build`; agents, CI, and redirected output stream plain text. Credentials from authenticated feed URLs are redacted, and a failed restore or build shows its full output and the exact `dotnet` command. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
 | *(default)* | `minimal` | — |
-| `--verbose` | `minimal` | winapp's build decision traces |
+| `--verbose` | `minimal` | the exact `dotnet` commands and winapp's build decision traces |
 | `--quiet` | `quiet` | — |
 
 Native AOT publish output streams as it arrives. Under `--json`, restore/build invocations and child output go to stderr so stdout stays pure JSON. Under `--quiet`, invocations are suppressed and dotnet's quiet restore/build output is routed to stderr so stdout stays clean. Native AOT publish output also goes to stderr under either option.
