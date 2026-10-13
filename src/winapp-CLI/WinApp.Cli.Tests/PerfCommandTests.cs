@@ -166,7 +166,9 @@ public class PerfCommandTests : BaseCommandTests
                 Path.Join(directory.FullName, "trace.etl"), 16))
             {
                 capture.ProviderStates.Add(PerfCaptureWorker.EnableProvider(trace, provider));
-                Assert.IsTrue(source.IsEnabled());
+                // ETW may deliver the enable callback to an in-process EventSource after EnableTraceEx2 returns.
+                Assert.IsTrue(SpinWait.SpinUntil(source.IsEnabled, TimeSpan.FromSeconds(5)),
+                    "The private ETW session did not enable the in-process XAML EventSource.");
                 capture.ReadyQpc = Stopwatch.GetTimestamp();
                 if (unmatched)
                 {
