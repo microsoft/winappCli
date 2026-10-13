@@ -3,7 +3,6 @@
 
 using System.CommandLine;
 using System.Diagnostics;
-using System.Diagnostics.Tracing;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -153,7 +152,7 @@ public class PerfCommandTests : BaseCommandTests
         try
         {
             using var process = Process.GetCurrentProcess();
-            using var source = new XamlDiagnosticEventSource();
+            using var xaml = new XamlTraceLoggingWriter();
             var provider = PerfProviders.All.Single(p => p.Id == PerfProviders.Xaml);
             var id = Guid.NewGuid().ToString("N");
             var capture = new PerfCaptureDocument
@@ -166,31 +165,22 @@ public class PerfCommandTests : BaseCommandTests
                 Path.Join(directory.FullName, "trace.etl"), 16))
             {
                 capture.ProviderStates.Add(PerfCaptureWorker.EnableProvider(trace, provider));
-                // ETW may deliver the enable callback to an in-process EventSource after EnableTraceEx2 returns.
-                Assert.IsTrue(SpinWait.SpinUntil(source.IsEnabled, TimeSpan.FromSeconds(5)),
-                    "The private ETW session did not enable the in-process XAML EventSource.");
                 capture.ReadyQpc = Stopwatch.GetTimestamp();
                 if (unmatched)
                 {
-                    source.Write("PublicApiCall", new EventSourceOptions { Level = EventLevel.Informational },
-                        new { IsStart = 0, MethodName = "Layout", ObjectPointer = 42UL });
+                    xaml.PublicApiCall(isStart: 0, "Layout", 42);
                 }
-                source.Write("PublicApiCall", new EventSourceOptions { Level = EventLevel.Informational },
-                    new { IsStart = 1, MethodName = "Layout", ObjectPointer = 42UL });
-                source.Write("FallbackError", new EventSourceOptions { Level = EventLevel.Error },
-                    new { Failure = new { Code = -1, Message = "diagnostic fixture" } });
+                xaml.PublicApiCall(isStart: 1, "Layout", 42);
+                xaml.FallbackError(-1, "diagnostic fixture");
                 if (unmatched)
                 {
-                    source.Write("PublicApiCall", new EventSourceOptions { Level = EventLevel.Informational },
-                        new { IsStart = 1, MethodName = "UnfinishedChild", ObjectPointer = 43UL });
+                    xaml.PublicApiCall(isStart: 1, "UnfinishedChild", 43);
                 }
                 Thread.Sleep(10);
-                source.Write("PublicApiCall", new EventSourceOptions { Level = EventLevel.Informational },
-                    new { IsStart = 0, MethodName = "Layout", ObjectPointer = 42UL });
+                xaml.PublicApiCall(isStart: 0, "Layout", 42);
                 if (unmatched)
                 {
-                    source.Write("PublicApiCall", new EventSourceOptions { Level = EventLevel.Informational },
-                        new { IsStart = 1, MethodName = "RecordingTail", ObjectPointer = 44UL });
+                    xaml.PublicApiCall(isStart: 1, "RecordingTail", 44);
                 }
                 trace.Stop();
                 capture.StopQpc = Stopwatch.GetTimestamp();
@@ -247,14 +237,6 @@ public class PerfCommandTests : BaseCommandTests
         finally
         {
             directory.Delete(recursive: true);
-        }
-    }
-
-    [EventSource(Name = "Microsoft-Windows-XAML", Guid = "531A35AB-63CE-4BCF-AA98-F88C7A89E455")]
-    private sealed class XamlDiagnosticEventSource : EventSource
-    {
-        public XamlDiagnosticEventSource() : base(EventSourceSettings.EtwSelfDescribingEventFormat)
-        {
         }
     }
 
