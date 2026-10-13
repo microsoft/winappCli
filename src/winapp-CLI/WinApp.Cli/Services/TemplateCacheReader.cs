@@ -53,7 +53,7 @@ internal sealed class TemplateCacheReader : ITemplateCacheReader
                 return documents;
             }
 
-            root = Path.Combine(home, ".templateengine", "dotnetcli");
+            root = Path.Join(home, ".templateengine", "dotnetcli");
         }
         catch (Exception ex) when (ex is ArgumentException or PlatformNotSupportedException)
         {
