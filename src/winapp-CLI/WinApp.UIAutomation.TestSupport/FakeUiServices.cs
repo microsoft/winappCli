@@ -604,8 +604,12 @@ public sealed class FakeSystemUiQuery : ISystemUiQuery
     /// <summary>Per-PID ApplicationFrameHost frames for <see cref="FindHostedAppFrames"/>. Unmapped PIDs host none.</summary>
     public Dictionary<int, List<long>> HostedFramesByPid { get; } = [];
 
+    /// <summary>Per-PID exceptions thrown by <see cref="FindHostedAppFrames"/>, such as an ambiguous minimized frame.</summary>
+    public Dictionary<int, Exception> HostedFramesErrorByPid { get; } = [];
+
     public IReadOnlyList<long> FindHostedAppFrames(int pid)
-        => HostedFramesByPid.TryGetValue(pid, out var frames) ? frames : [];
+        => HostedFramesErrorByPid.TryGetValue(pid, out var error) ? throw error
+            : HostedFramesByPid.TryGetValue(pid, out var frames) ? frames : [];
 }
 
 /// <summary>

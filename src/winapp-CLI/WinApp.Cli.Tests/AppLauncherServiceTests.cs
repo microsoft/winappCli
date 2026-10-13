@@ -97,6 +97,37 @@ public class AppLauncherServiceTests
     }
 
     [TestMethod]
+    public void LaunchByAumid_ActivationNeverReturns_ThrowsTimeoutException()
+    {
+        using var release = new ManualResetEventSlim();
+        _service.ActivationTimeout = TimeSpan.FromMilliseconds(100);
+        _service.ActivateApplicationImpl = (_, _) =>
+        {
+            release.Wait();
+            return 1;
+        };
+
+        try
+        {
+            var ex = Assert.ThrowsExactly<TimeoutException>(() => _service.LaunchByAumid("Contoso.App_abc!App"));
+            StringAssert.Contains(ex.Message, "Contoso.App_abc!App");
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [TestMethod]
+    public void LaunchByAumid_ActivatorThrows_PropagatesOriginalException()
+    {
+        _service.ActivateApplicationImpl = (_, _) => throw new System.Runtime.InteropServices.COMException("activation refused", unchecked((int)0x80270254));
+
+        var ex = Assert.ThrowsExactly<System.Runtime.InteropServices.COMException>(() => _service.LaunchByAumid("Contoso.App_abc!App"));
+        Assert.AreEqual("activation refused", ex.Message);
+    }
+
+    [TestMethod]
     public void LaunchByAumid_DefaultActivator_BogusAumid_Throws()
     {
         // Exercises the real DefaultActivateApplication COM path. A non-existent

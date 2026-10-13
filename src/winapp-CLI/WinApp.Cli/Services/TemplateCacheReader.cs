@@ -34,9 +34,14 @@ internal sealed class TemplateCacheReader : ITemplateCacheReader
         IEnumerable<string> caches;
         try
         {
-            // One templatecache.json per SDK version folder. The TFM choices come from the template
-            // pack (not the SDK), so any cache containing the pack's template yields the same answer.
-            caches = Directory.EnumerateFiles(root, "templatecache.json", SearchOption.AllDirectories);
+            // One templatecache.json per SDK version folder. Folders for SDKs that are no longer used
+            // keep describing whatever pack version was installed back then, so order newest-first:
+            // the cache the active SDK just rebuilt comes before stale ones from older SDK bands.
+            caches = new DirectoryInfo(root)
+                .EnumerateFiles("templatecache.json", SearchOption.AllDirectories)
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .Select(f => f.FullName)
+                .ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
