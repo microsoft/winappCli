@@ -42,6 +42,16 @@ internal sealed partial class HotReloadSession
     private static bool IsGenerated(string path) =>
         path.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".g.i.cs", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The app's own project file (a package or project reference added): Directory.Build files still restart.</summary>
+    private bool IsAppProjectFile(string path) => string.Equals(Path.GetFullPath(path), Path.GetFullPath(_options.ProjectFile), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>NEW TYPES: the .xbf content the app last got, by .xbf path; first the launch build's (obj before any save).</summary>
+    private Dictionary<string, string>? _sentXbf;
+
+    private static Dictionary<string, string> XbfSnapshot(string intermediate) =>
+        Directory.EnumerateFiles(intermediate, "*.xbf", SearchOption.AllDirectories)
+            .ToDictionary(p => p, p => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(p))), StringComparer.OrdinalIgnoreCase);
+
     private async Task<SaveResult> ProcessRealCompilerAsync(IReadOnlyCollection<string> paths, CancellationToken cancellationToken)
     {
         var save = Math.Max(Interlocked.Increment(ref s_spikeSave), SpikeLog is { Length: > 0 } && Directory.Exists(SpikeLog) ? Directory.GetDirectories(SpikeLog).Length + 1 : 0);
@@ -52,6 +62,14 @@ internal sealed partial class HotReloadSession
         report.AppendLine($"save {save}: {string.Join(", ", paths.Select(Relative))}");
 
         // 1. The user's own sources, as saved.
+        if (paths.FirstOrDefault(p => !Path.GetFullPath(p).StartsWith(_projectDirectory.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) is { } outside)
+        {
+            // NEW TYPES: a referenced library's code and markup are compiled into its own assembly and .pri, which this
+            // path doesn't rebuild or reload yet. Saying so beats an "applied" that changed nothing.
+            report.AppendLine("library file: " + outside);
+            WriteSpikeReport(logDirectory, report);
+            return new SaveResult(Outcome.Restart, $"{Relative(outside)}: changes to a referenced library take effect when the app restarts");
+        }
         foreach (var path in paths.Where(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && IsSource(p) && !IsGenerated(p)))
         {
             var ids = _solution.GetDocumentIdsWithFilePath(path);
@@ -69,6 +87,22 @@ internal sealed partial class HotReloadSession
         }
 
         // 2. The real compiler, into the project's obj (Prototype A's ledger lives there).
+        if (paths.Any(IsAppProjectFile))
+        {
+            // NEW TYPES: a package or project reference added. Restore, re-read the references into the workspace (the
+            // compiler's type universe is the build's, so the msbuild below sees them too), and deploy the new assemblies
+            // and their .pri next to the running app, as the rewrite path does.
+            var referenceWatch = System.Diagnostics.Stopwatch.StartNew();
+            var referencesError = await RefreshReferencesAsync(restore: true, [], cancellationToken).ConfigureAwait(false);
+            report.AppendLine($"references: {referenceWatch.ElapsedMilliseconds} ms, new assemblies: {(_newAssemblies.Count == 0 ? "none" : string.Join(", ", _newAssemblies))}");
+            if (referencesError is not null)
+            {
+                report.AppendLine("references failed: " + referencesError);
+                WriteSpikeReport(logDirectory, report);
+                return new SaveResult(Outcome.Error, referencesError);
+            }
+        }
+        _sentXbf ??= XbfSnapshot(intermediate);
         var built = File.Exists(_options.CscArgsFile + ".props")
             ? File.ReadAllLines(_options.CscArgsFile + ".props").Where(line => line.Contains('=') && !line.EndsWith('=')).ToList()
             : [];
@@ -154,26 +188,36 @@ internal sealed partial class HotReloadSession
                 reasons.Count > 0 ? string.Join(Environment.NewLine + "  ", reasons) : "the change can't be applied to the running app");
         }
 
-        // 5. The compiler's .xbf for each saved page, and the page runs InitializeComponent again.
-        var request = new HotReloadRequest { Op = "apply" };
+        // 5. The compiler's .xbf for each page whose markup changed since the app last got it (a saved page, and one
+        //    whose earlier save failed), and the page runs InitializeComponent again.
+        var request = new HotReloadRequest { Op = "apply", Assemblies = [.. _newAssemblies] };
         request.Deltas.AddRange(result.Deltas.Select(d => new DeltaPayload { ModuleId = d.ModuleId, Metadata = d.Metadata, IL = d.IL, Pdb = d.Pdb, UpdatedTypes = d.UpdatedTypes }));
-        foreach (var path in paths.Where(p => p.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) && File.Exists(p)))
+        var sending = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (xbf, hash) in XbfSnapshot(intermediate))
         {
-            var xbf = Path.Combine(intermediate, Path.ChangeExtension(Path.GetRelativePath(_projectDirectory, path), ".xbf"));
-            var className = System.Xml.Linq.XDocument.Load(path).Root?.Attribute(System.Xml.Linq.XName.Get("Class", "http://schemas.microsoft.com/winfx/2006/xaml"))?.Value;
-            if (!File.Exists(xbf))
+            if (_sentXbf!.TryGetValue(xbf, out var sent) && sent == hash)
             {
-                report.AppendLine($"no .xbf at {xbf}");
                 continue;
             }
-            request.Markup.Add(new MarkupPayload { Kind = MarkupKind.Component, Uri = UriFor(path), Xbf = await File.ReadAllBytesAsync(xbf, cancellationToken).ConfigureAwait(false), Manifest = new ComponentManifest { ClassName = className ?? "" } });
+            var path = Path.Combine(_projectDirectory, Path.ChangeExtension(Path.GetRelativePath(intermediate, xbf), ".xaml"));
+            if (!File.Exists(path))
+            {
+                report.AppendLine($"no source for {xbf}");
+                continue;
+            }
+            sending[xbf] = hash;
+            var root = System.Xml.Linq.XDocument.Load(path).Root;
+            var className = root?.Attribute(System.Xml.Linq.XName.Get("Class", "http://schemas.microsoft.com/winfx/2006/xaml"))?.Value;
+            // NEW TYPES: a Themes/Generic.xaml holds default styles; the runtime reads it through the markup override.
+            var generic = className is null && string.Equals(Path.GetRelativePath(_projectDirectory, path), Path.Combine("Themes", "Generic.xaml"), StringComparison.OrdinalIgnoreCase);
+            request.Markup.Add(new MarkupPayload { Kind = generic ? MarkupKind.Generic : MarkupKind.Component, Uri = UriFor(path), Xbf = await File.ReadAllBytesAsync(xbf, cancellationToken).ConfigureAwait(false), Manifest = new ComponentManifest { ClassName = className ?? "" } });
             _sources[UriFor(path)] = path;
             if (className is not null)
             {
                 // SPIKE: WINAPP_HOT_RELOAD_SPIKE_RECREATE=1 re-creates pages (new instance, state lost) instead of re-initializing them in place.
                 (Environment.GetEnvironmentVariable("WINAPP_HOT_RELOAD_SPIKE_RECREATE") == "1" ? request.RecreateTypes : request.RefreshTypes).Add(className);
             }
-            report.AppendLine($"markup: {UriFor(path)} ({new FileInfo(xbf).Length} bytes .xbf){(className is null ? "" : $", {className} re-initialized")}");
+            report.AppendLine($"markup: {UriFor(path)} ({new FileInfo(xbf).Length} bytes .xbf){(generic ? ", default styles" : className is null ? "" : $", {className} re-initialized")}");
         }
         HotReloadResponse response;
         try
@@ -195,6 +239,11 @@ internal sealed partial class HotReloadSession
             return new SaveResult(Outcome.Restart, response.Error ?? "the app could not apply the update");
         }
         Commit();
+        foreach (var (xbf, hash) in sending)
+        {
+            _sentXbf![xbf] = hash;
+        }
+        _newAssemblies.Clear();
         foreach (var line in response.Errors.Concat(response.Messages))
         {
             report.AppendLine("  app: " + line);

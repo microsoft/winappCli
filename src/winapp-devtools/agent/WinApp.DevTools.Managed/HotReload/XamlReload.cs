@@ -207,7 +207,7 @@ internal static class XamlReload
             if (request.Assemblies.Count > 0)
             {
                 ReflectionMetadataProvider.AddAssemblies(request.Assemblies);
-                s_service?.InvalidateTypeCaches();
+                InvalidateTypeCaches();
                 // A library with default styles: controls pick them up as they are re-created.
                 everything |= request.Assemblies.Aggregate(false, (any, name) => AddLibraryMarkup(name) | any);
             }
@@ -219,7 +219,7 @@ internal static class XamlReload
                 {
                     ClassUris[markup.Manifest.ClassName] = markup.Uri;
                 }
-                if (markup.Kind is MarkupKind.Application or MarkupKind.Generic)
+                if (markup.Kind is MarkupKind.Application or MarkupKind.Generic && markup.Xbf is null)
                 {
                     try
                     {
@@ -256,6 +256,8 @@ internal static class XamlReload
                     {
                         ReportError($"{markup.Uri}: {Marshal.GetExceptionForHR(binaryResult)?.Message}");
                     }
+                    // NEW TYPES: default styles changed; controls pick them up as they are re-created.
+                    everything |= binaryResult >= 0 && markup.Kind == MarkupKind.Generic;
                     continue;
                 }
                 if (markup.Kind == MarkupKind.Component)
@@ -297,7 +299,7 @@ internal static class XamlReload
             }
             if (request.Deltas.Count > 0)
             {
-                s_service?.InvalidateTypeCaches();
+                InvalidateTypeCaches();
             }
             try
             {
@@ -802,8 +804,27 @@ internal static class XamlReload
     /// provider builds its type tables once, so a type added by an update isn't found, and an inserted type shifts the
     /// indexes the updated CreateXamlType uses. A new provider builds them again with the updated code.
     /// </summary>
+    /// <summary>
+    /// NEW TYPES experiment: WINAPP_HR_NO_INVALIDATE=1 skips WinUI's type cache invalidation (cached misses), to measure
+    /// what new types need from WinUI once the app's own XamlTypeInfo is updated by .NET hot reload.
+    /// </summary>
+    private static void InvalidateTypeCaches()
+    {
+        if (Environment.GetEnvironmentVariable("WINAPP_HR_NO_INVALIDATE") == "1")
+        {
+            HotReloadAgent.Log("experiment: WinUI type caches NOT invalidated");
+            return;
+        }
+        s_service?.InvalidateTypeCaches();
+    }
+
     public static void SpikeResetTypeInfo()
     {
+        if (Environment.GetEnvironmentVariable("WINAPP_HR_NO_RESET") == "1")
+        {
+            HotReloadAgent.Log("experiment: the app's XamlTypeInfo provider NOT reset");
+            return;
+        }
         if (RealCompilerSpike && Application.Current is { } app && app.GetType().GetField("__appProvider", InstanceMembers) is { } field)
         {
             field.SetValue(app, null);

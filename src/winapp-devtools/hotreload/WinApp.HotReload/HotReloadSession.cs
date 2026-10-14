@@ -469,7 +469,7 @@ internal sealed partial class HotReloadSession
     {
         await _warmUp.ConfigureAwait(false);
         _phase.Restart();
-        if (RealCompiler && !paths.Any(IsBuildFile) && paths.All(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase)))
+        if (RealCompiler && !paths.Any(IsBuildFile) && paths.All(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) || IsAppProjectFile(p)))
         {
             return await ProcessRealCompilerAsync(paths, cancellationToken).ConfigureAwait(false);
         }
