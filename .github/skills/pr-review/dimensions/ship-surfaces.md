@@ -52,7 +52,11 @@ yourself.
 - A new top-level command that warrants its own shipped skill needs a new
   `plugins/winapp/skills/winapp-<area>/SKILL.md` and plugin installation smoke test.
 
-Internal refactors need none of these. User documentation explains what to type,
+Internal refactors need none of these. A missing doc update is a finding only
+when a user would get stuck or do the wrong thing without it; never ask for docs
+"for completeness". When a PR does change docs, read the whole page: flag
+additions that repeat existing text, leave outdated text behind, or bury the
+page's main task under new paragraphs. User documentation explains what to type,
 what happens, and how to recover from failure; it never narrates implementation
 details, review history, or review-round identifiers. Keep each fact on one
 canonical surface and link to it elsewhere.

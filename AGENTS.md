@@ -4,6 +4,50 @@ This file provides focused, actionable information to help an AI coding agent be
 
 ## Audience contracts
 
+### Plain language (everything you write for people)
+
+This covers PRs, issues, review comments, chat replies, commit messages, and
+docs. Don't assume the reader knows this change, this code, or this
+conversation.
+
+- **Lead with what the user sees**, then why. Say the cause after the effect.
+- **Show, don't describe.** Add one concrete example for each claim that isn't
+  obvious: a command and its output, a file tree, or a short code snippet.
+- **Explain the context, not the basics.** Define a project or Windows term the
+  first time in a few words, for example "AUMID (the ID Windows uses for an
+  installed app)". Don't explain git, JSON, or what a CLI flag is.
+- **Use short sentences and everyday words.** Write "use", not "leverage". Name
+  each thing one way and stick to it.
+- **Don't talk down.** Never write "simply", "just", "obviously", "as you know",
+  or "it's easy". Leave out filler, hedging, and praise ("robust",
+  "comprehensive", "seamless").
+- **When asking someone to choose,** assume they know nothing about the
+  feature. First say what decision is needed and why it matters. Then, for each
+  option, say in simple words what the user would see, with an example, and
+  what it costs: extra code, time, or risk. Recommend one and say why.
+- **Check before posting:** could someone who joined this week explain the
+  change back after one read? If not, rewrite it. Don't add more text.
+
+Example of a choice:
+
+- Hard to follow: "Option A: fail fast on ambiguous AUMID. Option B: heuristic
+  frame selection."
+- Clear: "Two Calculator windows are minimized, so winapp can't tell which one
+  you mean. (A) Stop and list both windows so you pick one with `-w`. It's
+  always correct, but it costs one extra step. (B) Pick the most recently used
+  window. There's no extra step, but it's sometimes the wrong window. I
+  recommend A, because acting on the wrong window is confusing."
+
+Example of an explanation:
+
+- Hard to follow: "Resolves the target via the AUMID-matched frame when the
+  content HWND detaches under minimization; surfaces `recoveryHint` in the JSON
+  envelope."
+- Clear: "When Calculator is minimized, `winapp ui search` finds nothing,
+  because Windows detaches the app's content while it's minimized. Now
+  `winapp ui focus -a calculator` restores the window, and the other commands
+  tell you to run it."
+
 ### User documentation
 
 Write for someone using winapp. Lead with the smallest command or input that
@@ -42,6 +86,74 @@ Example:
   update loop; expected: succeeds without updating SDKs.
 - **Why it matters:** documented automation stops before initialization.
 - **Smallest fix:** skip the package-update loop when the value is `none`.
+
+### Pull requests and issues
+
+Ask before opening a PR or filing an issue unless the user asked for one.
+
+Write PR bodies and issues so anyone on the team, including someone who joined
+this week, understands them in one read. Follow Plain language above and
+`.github/PULL_REQUEST_TEMPLATE.md`. Keep only what helps the reader understand
+the change; cut everything else.
+
+1. **What and why:** what changes for the user, and why, in simple words.
+2. **Before / after:** screenshots of the same command on `main` and on the
+   branch. For CLI output, run
+   `.\scripts\capture-terminal.ps1 -Command 'winapp ...' -Output after.png`.
+   For multi-step flows or output that changes over time, record a video
+   instead: `-Video -Output flow.mp4 -Command 'step 1', 'step 2'`. For UI
+   changes, use `winapp ui screenshot` or `winapp ui record` on the app. Long,
+   static output reads better as text in a collapsed `<details>` block than as
+   a video. If you can't capture (for example, a cloud agent with no desktop),
+   paste the text output instead. Skip this only when nothing a user runs or
+   sees has changed.
+3. **Not tested / risks:** what you could not verify, or "None".
+
+Do not list every file, every edge case, or review history. If reviewers need
+design reasoning or rejected alternatives, put a few lines in the collapsed
+**Notes for reviewers** section at the bottom of the template, not in the main
+body or in separate comments.
+
+An issue is: the problem in simple words, the smallest repro
+(command -> actual -> expected), and the winapp version.
+
+### What blocks a PR
+
+Only these block a merge:
+
+- Wrong output, a crash, data loss, or a broken build or install.
+- A break of a published contract (see Compatibility boundary).
+- An in-scope security issue. winapp is a local dev tool that runs as the user.
+  An attacker who can already write the user's files, environment, PATH, or
+  config is out of scope, unless winapp is running a step as administrator. A
+  security finding must name a realistic attacker, what they control, and what
+  they gain. Drop it if they could already do the same thing another way, or if
+  the effect isn't harmful. If the attack is unlikely and the fix means
+  redesigning the feature, file a follow-up issue instead of blocking, unless
+  it would leak signing keys or secrets or run code on other people's machines.
+- A new public command with no tests.
+
+Everything else is optional and must be labeled as optional. Reviews must not
+ask for new commands, flags, config keys, output fields, or abstractions unless
+they fix a blocking defect.
+
+### Addressing review feedback
+
+Applies to humans and agents, including automated PR loops and Copilot review
+comments.
+
+- Fix blocking findings with the smallest change, then reply in one line:
+  "Fixed in <commit>: <what changes for the user>." The diff shows the rest, so
+  don't restate it or list the tests and code you touched.
+- For anything else, reply in one line ("Not changing in this PR: <reason>")
+  and resolve the thread. Do not implement it.
+- Don't post progress, status, or "here's what I did" comments. Update the PR
+  body instead.
+- Stop and ask a human before a fix adds a public command, flag, config key, or
+  output field, adds a new service or abstraction, or grows the PR's diff by
+  more than about half.
+- Run at most two review-and-fix rounds. If blocking findings remain, stop and
+  hand the PR to a human with a short summary.
 
 ## Compatibility boundary
 
@@ -199,8 +311,27 @@ concluding a failure is environmental.
 
 ## Update affected user-facing documentation
 
-When observable behavior changes, update only the surfaces that teach or expose
-that behavior. Internal refactors do not require user documentation. Never use
+Docs are not always needed. Most bug fixes, refactors, and internal changes
+need none. Update docs only when a user would otherwise get stuck or do the
+wrong thing: a new or changed command, flag, default, workflow, or an error they
+must act on. If you're unsure, ask.
+
+When you do change a page, read the whole page first, the way a user would.
+Then:
+
+- Put the new information where a reader would look for it. Rewrite the
+  surrounding section if needed instead of appending another paragraph.
+- Remove or shorten anything your change makes outdated or repetitive.
+- Reread the page as a new user: is every part there for a reason, and can they
+  find what they need without being overwhelmed? A page that grows with every
+  PR is a sign that people append instead of edit.
+- Prefer one short example over a paragraph of explanation.
+
+If the `Docs Update Check` workflow fails and no docs are needed, add the
+`docs-not-needed` label (or ask a maintainer to). Don't write docs only to pass
+the check.
+
+Update only the surfaces that teach or expose the changed behavior. Never use
 documentation to explain internal implementation details or review history.
 Choose affected surfaces from:
 

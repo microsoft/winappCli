@@ -211,7 +211,9 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
     private static string? DefaultFindPackageFullName(string packageFamilyName)
     {
         var pm = new PackageManager();
-        var packages = pm.FindPackages(packageFamilyName);
+        // Current-user scope: FindPackages(familyName) searches all users and requires
+        // administrative rights, so it throws in a normal terminal.
+        var packages = pm.FindPackagesForUser(string.Empty, packageFamilyName);
         return packages.FirstOrDefault()?.Id.FullName;
     }
 
