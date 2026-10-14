@@ -2,7 +2,7 @@
 
 ## What and why
 
-<!-- What changes for the user, and why, in simple words. -->
+<!-- What changes for the user, and why, in simple words. Describe outcomes, not a list of files; the diff shows those. -->
 
 Fixes #
 
@@ -13,7 +13,7 @@ For CLI output: .\scripts\capture-terminal.ps1 -Command 'winapp ...' -Output aft
 For multi-step flows or output that changes over time (progress, prompts), record a
 video: add -Video, pass each step to -Command, and use -Output flow.mp4.
 For UI changes, use a screenshot or video of the app. If you can't capture,
-paste the text output instead. Skip this section for refactors, tests, and CI.
+paste the text output instead. Skip this section only when nothing a user runs or sees has changed.
 
 **Before**
 

@@ -105,7 +105,8 @@ the change; cut everything else.
    changes, use `winapp ui screenshot` or `winapp ui record` on the app. Long,
    static output reads better as text in a collapsed `<details>` block than as
    a video. If you can't capture (for example, a cloud agent with no desktop),
-   paste the text output instead. Skip this for refactors, tests, and CI.
+   paste the text output instead. Skip this only when nothing a user runs or
+   sees has changed.
 3. **Not tested / risks:** what you could not verify, or "None".
 
 Do not list every file, every edge case, or review history. If reviewers need
