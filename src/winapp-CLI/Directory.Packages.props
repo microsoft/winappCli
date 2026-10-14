@@ -31,6 +31,9 @@
     <PackageVersion Include="NuGet.Configuration" Version="7.9.0" />
     <PackageVersion Include="NuGet.Versioning" Version="7.9.0" />
     <PackageVersion Include="NuGet.Credentials" Version="7.9.0" />
+    <!-- NuGet.Packaging 7.9.0 brings in 8.0.1, which has CVE-2026-70162 and CVE-2026-84008. Drop this
+         pin once NuGet.Packaging depends on a fixed version. -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <!-- Native debugging engine bits for WinUI stowed-exception triage (the run debug-output flag).
          Restore-only (ExcludeAssets="all"): pins versions and populates the NuGet global cache for
          dev/CI; the published single-file CLI resolves these at runtime from the cache or downloads
