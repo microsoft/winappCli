@@ -33,6 +33,8 @@ $ErrorActionPreference = 'Stop'
 if (-not (Get-Command wt.exe -ErrorAction SilentlyContinue)) { throw 'Windows Terminal (wt.exe) is required.' }
 $winapp = (Get-Command winapp -ErrorAction SilentlyContinue).Source
 if (-not $winapp) { throw 'winapp must be on PATH.' }
+$WorkingDirectory = (Resolve-Path -LiteralPath $WorkingDirectory).ProviderPath
+if (-not (Test-Path -LiteralPath $WorkingDirectory -PathType Container)) { throw "Not a directory: $WorkingDirectory" }
 
 $id = [guid]::NewGuid().ToString('N').Substring(0, 8)
 $title = "winapp-capture-$id"
@@ -49,10 +51,14 @@ $steps = ($Command | ForEach-Object { "Write-Host $(Quote "> $_")`n$_`nWrite-Hos
 $inner = @"
 Set-Location -LiteralPath $(Quote $WorkingDirectory)
 Clear-Host
-while (-not (Test-Path $(Quote $goMarker))) { Start-Sleep -Milliseconds 100 }
+while (-not (Test-Path $(Quote $goMarker))) {
+    if (Test-Path $(Quote $releaseMarker)) { Remove-Item $(Quote $releaseMarker); exit 1 }
+    Start-Sleep -Milliseconds 100
+}
 $steps
 New-Item -ItemType File -Path $(Quote $doneMarker) -Force | Out-Null
 while (-not (Test-Path $(Quote $releaseMarker))) { Start-Sleep -Milliseconds 200 }
+Remove-Item $(Quote $goMarker), $(Quote $doneMarker), $(Quote $releaseMarker) -ErrorAction SilentlyContinue
 exit 0
 "@
 $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))
@@ -104,8 +110,7 @@ try {
 }
 finally {
     if ($recorder -and -not $recorder.HasExited) { $recorder.Kill() }
-    # Releasing the shell makes it exit, which closes the window.
+    # The shell exits (closing the window) and deletes the markers once it sees this,
+    # even if it's still running a command after a timeout.
     New-Item -ItemType File -Path $releaseMarker -Force | Out-Null
-    Start-Sleep -Seconds 1
-    Remove-Item $goMarker, $doneMarker, $releaseMarker -ErrorAction SilentlyContinue
 }
