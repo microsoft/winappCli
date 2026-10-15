@@ -90,6 +90,29 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task QueryFilterOnly_TypedText_ExactNameWinsBeforeTheAmbiguityListing()
+    {
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var query = new UiSelector { Query = "Child 1", ControlType = "Button" };
+
+        // No element is named exactly "Child 1", so every substring match is listed for reads and actions.
+        var read = await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() =>
+            svc.FindSingleElementAsync(target, query, CancellationToken.None));
+        var action = await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() =>
+            svc.FindSingleElementAsync(target, query, requireUnique: true, CancellationToken.None));
+        StringAssert.Contains(read.Message, "  ... and ");
+        Assert.AreEqual(action.Message.Split('\n')[0], read.Message.Split('\n')[0], "reads and actions count the same matches");
+
+        // One exact Name match is preferred before any ambiguity is reported.
+        fx.OnUiThread(() => fx.ScrollPanel.Controls["pnlChild10"]!.AccessibleName = "Child 1");
+        Assert.AreEqual("pnlChild10", (await svc.FindSingleElementAsync(target, query, CancellationToken.None))?.AutomationId);
+        Assert.AreEqual("pnlChild10",
+            (await svc.FindSingleElementAsync(target, query, requireUnique: true, CancellationToken.None))?.AutomationId);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task QueryFilterOnly_AmbiguousRead_ListingFailureKeepsTheAmbiguityError(bool invalidCast)
