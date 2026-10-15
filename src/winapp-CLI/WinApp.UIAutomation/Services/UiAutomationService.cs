@@ -673,9 +673,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
             var constrainedMatches = SearchConstrained(uiTarget, selector, 2, ct: ct);
             if (constrainedMatches.Length > 1)
             {
-                throw new UiAmbiguousSelectorException(
-                    $"Selector matched multiple elements: {string.Join(", ", constrainedMatches.Select(m => m.Selector))}. " +
-                    "Use a unique slug or narrow --root, --type, or --class-name.");
+                throw new UiAmbiguousSelectorException(FormatAmbiguousMatches(
+                    ListAmbiguousMatches(uiTarget, selector, constrainedMatches, ct),
+                    "Use a unique slug from 'inspect' or narrow --root, --type, or --class-name."));
             }
             return Task.FromResult(constrainedMatches.FirstOrDefault());
         }

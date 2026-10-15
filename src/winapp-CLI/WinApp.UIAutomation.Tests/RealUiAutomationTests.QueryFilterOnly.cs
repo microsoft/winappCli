@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.TestSupport;
+using Windows.Win32.UI.Accessibility;
 
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 
@@ -61,6 +62,52 @@ public partial class RealUiAutomationTests
         var slug = listed[0][(listed[0].LastIndexOf("-> ", StringComparison.Ordinal) + 3)..];
         var picked = await svc.FindSingleElementAsync(target, new UiSelector { Slug = slug }, requireUnique: true, CancellationToken.None);
         Assert.AreEqual("Button", picked?.Type);
+    }
+
+    [TestMethod]
+    public async Task QueryFilterOnly_AmbiguousRead_ListsEveryMatchCountLikeActions()
+    {
+        // get-value, get-property and wait-for use the read lookup, which stops at a second match.
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var target = SessionFor(fx);
+        var query = new UiSelector { ControlType = "Button" };
+        var all = await svc.SearchAsync(target, query, 1000, CancellationToken.None);
+
+        var read = await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() =>
+            svc.FindSingleElementAsync(target, query, CancellationToken.None));
+        var action = await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() =>
+            svc.FindSingleElementAsync(target, query, requireUnique: true, CancellationToken.None));
+
+        StringAssert.StartsWith(read.Message, $"Selector matched {all.Length} elements:");
+        StringAssert.Contains(read.Message, $"  ... and {all.Length - 5} more");
+        var readLines = read.Message.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+        var actionLines = action.Message.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+        Assert.AreEqual(actionLines.Length, readLines.Length, read.Message);
+        Assert.IsTrue(readLines.Skip(1).Take(5).All(l => l.StartsWith("  Button \"", StringComparison.Ordinal) && l.Contains("  -> ")),
+            read.Message);
+        Assert.AreEqual(actionLines[^1], readLines[^1], "reads and actions give the same advice");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task QueryFilterOnly_AmbiguousRead_ListingFailureKeepsTheAmbiguityError(bool invalidCast)
+    {
+        // The read finds two buttons in bulk, so only the uncapped listing walks the tree.
+        using var fx = new UiaTestFixture();
+        var svc = NewService();
+        var realWalker = UiAutomationService.s_getControlViewWalker(svc);
+        Exception failure = invalidCast
+            ? new InvalidCastException("Provider interrupted the walk.")
+            : new System.Runtime.InteropServices.COMException("Provider interrupted the walk.", unchecked((int)0x80040201));
+        UiAutomationService.s_getControlViewWalker = _ => ComProxy<IUIAutomationTreeWalker>(
+            (method, args) => method.Name == "GetFirstChildElement" ? throw failure : method.Invoke(realWalker, args));
+
+        var error = await Assert.ThrowsAsync<UiAmbiguousSelectorException>(() =>
+            svc.FindSingleElementAsync(SessionFor(fx), new UiSelector { ControlType = "Button" }, CancellationToken.None));
+
+        StringAssert.StartsWith(error.Message, "Selector matched 2 elements:");
     }
 
     [TestMethod]

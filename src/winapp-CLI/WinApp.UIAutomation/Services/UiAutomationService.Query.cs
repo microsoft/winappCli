@@ -250,6 +250,28 @@ internal sealed partial class UiAutomationService
             GetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_ClassNamePropertyId)), selector.ClassName, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// Every match of an ambiguous read, for the error listing. The read stopped at its second match, so
+    /// this repeats the same lookup without that cap. It runs only after the read has already failed as
+    /// ambiguous, and falls back to the two matches it found if the repeat fails or the UI changed.
+    /// </summary>
+    private List<IUIAutomationElement> ListAmbiguousMatches(
+        UiTarget target, UiSelector selector, UiElement[] found, CancellationToken ct)
+    {
+        try
+        {
+            var all = QueryConstrained(target, selector, int.MaxValue, requireUnique: false, ct)
+                .Select(match => match.Element).ToList();
+            if (all.Count > 1) { return all; }
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException
+            or InvalidOperationException)
+        {
+            _logger.LogDebug(ex, "Could not list every match of an ambiguous selector");
+        }
+        return found.Select(match => match.Context?.AutomationElement).OfType<IUIAutomationElement>().ToList();
+    }
+
+    /// <summary>
     /// The message for a selector that had to match one element but matched several: the count, the first
     /// five matches with a selector for each, and <paramref name="advice"/>.
     /// </summary>
