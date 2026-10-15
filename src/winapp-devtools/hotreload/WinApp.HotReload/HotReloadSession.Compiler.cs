@@ -334,6 +334,7 @@ internal sealed partial class HotReloadSession
             _xamlImage = image.ToArray();
             _xamlImageStale = false;
         }
+        var compiledEverything = false;
         if (_xamlFullCompilePending)
         {
             // A restarted compiler: every page once (pass 1, then pass 2 with XamlTypeInfo) against the current code.
@@ -349,6 +350,7 @@ internal sealed partial class HotReloadSession
             }
             await UseGeneratedAsync(all2, xaml, typeInfo: true, cancellationToken).ConfigureAwait(false);
             _xamlFullCompilePending = false;
+            compiledEverything = true;
         }
         if (removedMembers.Count > 0)
         {
@@ -369,7 +371,7 @@ internal sealed partial class HotReloadSession
         {
             return (null, pass2Error);
         }
-        if (pass2.XamlTypeInfoMayBeStale)
+        if (pass2.XamlTypeInfoMayBeStale && !compiledEverything)
         {
             // The pages use a type or member XamlTypeInfo doesn't have yet: regenerated as a build does (the service
             // replays the other pages' type information from its cache).
