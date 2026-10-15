@@ -121,6 +121,10 @@ Describe 'Test-AppInstallerDocument' {
     }
     It 'flags missing OnLaunch' { (Invoke-Test (New-AppInstaller -OnLaunch '<AutomaticBackgroundTask />'))['appinstaller-onlaunch'] | Should -BeFalse }
     It 'flags a version mismatch' { (Invoke-Test (New-AppInstaller -Version '1.0.0.0'))['appinstaller-main-package'] | Should -BeFalse }
+    It 'flags a missing package architecture' {
+        $text = (New-AppInstaller).Replace(' ProcessorArchitecture="x64"', '')
+        (Invoke-Test $text)['appinstaller-main-package'] | Should -BeFalse
+    }
     It 'flags a wrong package URI' { (Invoke-Test (New-AppInstaller -PkgUri 'https://downloads.contoso.com/notes/app.msix'))['appinstaller-package-uri'] | Should -BeFalse }
     It 'accepts the 2017 namespace' { (Invoke-Test (New-AppInstaller -Ns 'http://schemas.microsoft.com/appx/appinstaller/2017/2'))['appinstaller-xml'] | Should -BeTrue }
     It 'rejects a foreign namespace' { (Invoke-Test (New-AppInstaller -Ns 'http://example.com/x'))['appinstaller-xml'] | Should -BeFalse }

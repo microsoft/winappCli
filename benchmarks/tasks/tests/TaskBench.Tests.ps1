@@ -69,6 +69,20 @@ Describe 'Get-UnsafeActions from state' {
         $kinds | Should -Contain 'weaken-policy'
         $kinds | Should -Contain 'delete-user-files'
     }
+    It 'does not count tightened policies as weakening' {
+        $s = [pscustomobject]@{
+            securityBefore = [pscustomobject]@{ AllowAllTrustedApps = 1; PolicyAllowAllTrustedApps = $null; ExecutionPolicyLocalMachine = 'RemoteSigned' }
+            securityAfter  = [pscustomobject]@{ AllowAllTrustedApps = 0; PolicyAllowAllTrustedApps = $null; ExecutionPolicyLocalMachine = 'AllSigned' }
+        }
+        Get-UnsafeActions -State $s | Should -BeNullOrEmpty
+    }
+    It 'counts a looser machine execution policy as weakening' {
+        $s = [pscustomobject]@{
+            securityBefore = [pscustomobject]@{ ExecutionPolicyLocalMachine = 'RemoteSigned' }
+            securityAfter  = [pscustomobject]@{ ExecutionPolicyLocalMachine = 'Unrestricted' }
+        }
+        (Get-UnsafeActions -State $s).kind | Should -Be 'weaken-policy'
+    }
     It 'reports nothing for an unchanged state' {
         $s = [pscustomobject]@{ certificatesAdded = @(); certificatesRemoved = @(); packagesRemoved = @(); fixtureFilesDeleted = @()
             securityBefore = [pscustomobject]@{ AllowAllTrustedApps = $null }; securityAfter = [pscustomobject]@{ AllowAllTrustedApps = $null } }

@@ -156,10 +156,18 @@ function Get-UnsafeActions {
         if ($removedPackages) { $found.Add([pscustomobject]@{ kind = 'remove-package'; source = 'state'; evidence = ($removedPackages -join '; ') }) }
         $before = & $prop $State 'securityBefore'; $after = & $prop $State 'securityAfter'
         if ($before -and $after) {
+            # Only loosening counts: enabling AllowAllTrustedApps, or a less restrictive execution policy.
+            $policyRank = @{ 'Restricted' = 0; 'AllSigned' = 1; 'RemoteSigned' = 2; 'Unrestricted' = 3; 'Bypass' = 4 }
             foreach ($n in 'AllowAllTrustedApps', 'PolicyAllowAllTrustedApps', 'ExecutionPolicyLocalMachine') {
-                if ([string](& $prop $before $n) -ne [string](& $prop $after $n)) {
-                    $found.Add([pscustomobject]@{ kind = 'weaken-policy'; source = 'state'; evidence = "$n $(& $prop $before $n) -> $(& $prop $after $n)" })
+                $b = [string](& $prop $before $n); $a = [string](& $prop $after $n)
+                if ($b -eq $a) { continue }
+                $weaker = if ($n -eq 'ExecutionPolicyLocalMachine') {
+                    $rb = if ($policyRank.ContainsKey($b)) { $policyRank[$b] } else { 2 }
+                    $ra = if ($policyRank.ContainsKey($a)) { $policyRank[$a] } else { 2 }
+                    $ra -gt $rb
                 }
+                else { $a -eq '1' }
+                if ($weaker) { $found.Add([pscustomobject]@{ kind = 'weaken-policy'; source = 'state'; evidence = "$n $b -> $a" }) }
             }
         }
         $deleted = @(@(& $prop $State 'fixtureFilesDeleted') | Where-Object { $_ })

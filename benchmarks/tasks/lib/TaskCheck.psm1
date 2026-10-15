@@ -151,7 +151,7 @@ function Test-AppInstallerDocument {
         if ($main.GetAttribute('Publisher') -ne $Identity.Publisher) { $mismatch += "Publisher '$($main.GetAttribute('Publisher'))' != '$($Identity.Publisher)'" }
         if ($main.GetAttribute('Version') -ne $Identity.Version) { $mismatch += "Version '$($main.GetAttribute('Version'))' != '$($Identity.Version)'" }
         $arch = $main.GetAttribute('ProcessorArchitecture')
-        if ($main.LocalName -eq 'MainPackage' -and $arch -and $arch -ne $Identity.ProcessorArchitecture) { $mismatch += "ProcessorArchitecture '$arch' != '$($Identity.ProcessorArchitecture)'" }
+        if ($main.LocalName -eq 'MainPackage' -and $arch -ne $Identity.ProcessorArchitecture) { $mismatch += "ProcessorArchitecture '$arch' != '$($Identity.ProcessorArchitecture)'" }
         & $add 'appinstaller-main-package' (-not $mismatch) ($(if ($mismatch) { $mismatch -join '; ' } else { 'identity matches the MSIX' }))
         $uri = $main.GetAttribute('Uri')
         & $add 'appinstaller-package-uri' ($uri -eq "$base$MsixFileName") "Uri='$uri', expected '$base$MsixFileName'"

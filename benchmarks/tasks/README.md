@@ -74,9 +74,9 @@ pwsh benchmarks\tasks\run.ps1 -Summarize benchmarks\tasks\results\<stamp>
 | `-Winapp <folder\|release>` | `artifacts\cli\win-x64` | winapp mapped to `C:\Program Files\WinAppCli` in the Sandbox |
 | `-WinAppPlugin`, `-WinUIPlugin <folder>` | this repo's plugins | Plugins are copied once per invocation |
 | `-CopilotVersion <v>` | the version `copilot --version` reports | Every Copilot call uses `--prefer-version <v>`; the build is copied from `%LOCALAPPDATA%\copilot\pkg` |
-| `-Validate` | | Runs `solve.ps1` and a no-op instead of an agent |
-| `-KeepSandbox` | off | Leaves the Sandbox running after the first run, for debugging. Stop it with `wsb stop --id <id>` |
-| `-OutDir <path>` | `results\<timestamp>` | Ignored by git. An existing folder resumes: runs already in its `runs.jsonl` (other than harness errors) are skipped, and their credits count toward `-MaxCredits` |
+| `-Validate` | | Runs `solve.ps1` and a no-op instead of an agent. Exits 1 unless every reference solution passes and every no-op fails |
+| `-KeepSandbox` | off | Stops after the first run and leaves its Sandbox running with its staged input, for debugging. Stop it with `wsb stop --id <id>` |
+| `-OutDir <path>` | `results\<timestamp>` | Ignored by git. An existing folder resumes: runs already in its `runs.jsonl` are skipped except harness errors, which run again under a new run number. Every recorded attempt's credits count toward `-MaxCredits` |
 
 ## What each run does
 

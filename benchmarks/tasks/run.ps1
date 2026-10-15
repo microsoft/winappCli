@@ -240,7 +240,11 @@ function Start-BenchSandbox {
     $r = Invoke-Wsb -Arguments @('start', '--config', $xml, '--raw') -TimeoutSeconds 300 -LogName 'start'
     if ($r.Text -notmatch '"Id":\s*"([^"]+)"') { throw "wsb start failed: $($r.Text)" }
     $id = $Matches[1]
-    Confirm-BenchLogin $id
+    try { Confirm-BenchLogin $id }
+    catch {
+        if (-not $KeepSandbox) { Stop-BenchSandbox $id }
+        throw
+    }
     return $id
 }
 
@@ -277,21 +281,22 @@ $measured = [System.Collections.Generic.List[double]]::new()
 $records = [System.Collections.Generic.List[object]]::new()
 $index = 0
 $sandboxId = $null
-# Resume: an existing runs.jsonl in -OutDir keeps its runs (except harness errors) and its credits.
+# Resume: an existing runs.jsonl in -OutDir keeps every recorded attempt, its credits, and its run
+# number; only runs that ended in a harness error are tried again.
 $completed = [System.Collections.Generic.HashSet[string]]::new()
 $runKey = { param($task, $config, $model, $iteration, $mode) "$task|$config|$model|$iteration|$mode" }
 if (Test-Path $runsPath) {
     foreach ($prior in Get-Content $runsPath | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json }) {
-        if ($prior.taskStatus -in 'harness_error') { continue }
-        [void]$completed.Add((& $runKey $prior.task $prior.configuration $prior.model $prior.iteration $prior.mode))
         $records.Add($prior)
         if ($null -ne $prior.aiCredits) { $measured.Add([double]$prior.aiCredits); $spent += [double]$prior.aiCredits }
         $n = [int]($prior.runId -replace '^(\d+)-.*$', '$1')
         if ($n -gt $index) { $index = $n }
+        if ($prior.taskStatus -ne 'harness_error') { [void]$completed.Add((& $runKey $prior.task $prior.configuration $prior.model $prior.iteration $prior.mode)) }
     }
-    if ($completed.Count) { Write-Host "Resuming: $($completed.Count) runs already recorded, $([Math]::Round($spent, 1)) credits spent." }
+    if ($records.Count) { Write-Host "Resuming: $($completed.Count) runs already recorded, $([Math]::Round($spent, 1)) credits spent." }
 }
 $pending = @($runList | Where-Object { -not $completed.Contains((& $runKey $_.Task.Id $_.Configuration $_.Model $_.Iteration $_.Mode)) })
+$step = 0
 try {
     foreach ($run in $pending) {
         $index++
@@ -299,7 +304,8 @@ try {
         $t = $run.Task
         $spec = Get-ConfigurationSpec $run.Configuration
         $runId = '{0:D3}-{1}-{2}-{3}-{4}' -f $index, $t.Id, $run.Configuration, ($run.Model -replace '[^\w.-]', '_'), $run.Iteration
-        Write-Host "[$($records.Count + 1)/$($runList.Count)] $runId" -ForegroundColor Cyan
+        $step++
+        Write-Host "[$($runList.Count - $pending.Count + $step)/$($runList.Count)] $runId" -ForegroundColor Cyan
         $runOut = Join-Path $OutDir "runs\$runId"
         $in = Join-Path $stage "$runId\in"
         $check = Join-Path $stage "$runId\check"
@@ -412,6 +418,11 @@ try {
         $color = switch ($record.taskStatus) { 'pass' { 'Green' } 'partial' { 'Yellow' } default { 'Red' } }
         Write-Host ("  -> {0} in {1:0.0} min, {2} credits, skills [{3}], winapp [{4}]{5}" -f $record.taskStatus, ($record.durationMs / 60000), $record.aiCredits,
             ($record.skillsLoaded -join ', '), ($record.winappCommandsRun -join ', '), $(if ($record.taskStatus -ne 'pass') { " — $($record.taskReason)" })) -ForegroundColor $color
+        if ($KeepSandbox) {
+            # Only one Sandbox can run at a time: keep this one, and its staged input, for debugging.
+            Write-Host "Kept Sandbox $sandboxId and its input at $(Join-Path $stage $runId). Stop it with: wsb stop --id $sandboxId"
+            break
+        }
         Remove-Item -Recurse -Force (Join-Path $stage $runId) -ErrorAction SilentlyContinue
     }
 }
@@ -423,4 +434,21 @@ finally {
         Write-Host "Summary: $(Join-Path $OutDir 'summary.md')"
     }
     if (-not $KeepSandbox) { Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue }
+}
+
+if ($Validate) {
+    # Every reference solution must pass and every no-op must fail; missing results count as mismatches.
+    $latest = @{}
+    foreach ($r in Select-EffectiveRuns @($records)) { $latest["$($r.task)|$($r.mode)"] = $r }
+    $mismatches = foreach ($run in $runList) {
+        $want = if ($run.Mode -eq 'solve') { 'pass' } else { 'fail' }
+        $got = $latest["$($run.Task.Id)|$($run.Mode)"]
+        if (-not $got -or $got.taskStatus -ne $want) { "$($run.Task.Id) $($run.Mode): expected $want, got $(if ($got) { $got.taskStatus } else { 'no result' })" }
+    }
+    if ($mismatches) {
+        Write-Host 'Checker validation failed:' -ForegroundColor Red
+        $mismatches | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+        exit 1
+    }
+    Write-Host "Checker validation passed: $($runList.Count) runs." -ForegroundColor Green
 }
