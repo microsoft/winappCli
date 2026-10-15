@@ -221,7 +221,7 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
         var sameData = liveData.Values.Count == freshData.Values.Count && liveData.Values.All(v => freshData.Values.TryGetValue(v.Key, out var f) && f == v.Value);
         foreach (var (key, (element, values)) in live)
         {
-            var where = AuthoredTree.Describe(key);
+            var where = key == AuthoredTree.PageKey ? page.GetType().Name : AuthoredTree.Describe(key);
             if (!fresh.TryGetValue(key, out var other))
             {
                 continue;
@@ -241,6 +241,14 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
                     // The live page shows what the markup and constructor give it; a restart then runs the code that sets
                     // it (OnNavigatedTo, Loaded), which reloading in place doesn't run again.
                     notes.Add($"{subject} shows '{value}' here but '{restart}' after a restart: the page's code sets it after InitializeComponent (in OnNavigatedTo or Loaded), and reloading in place put back the markup's value");
+                    continue;
+                }
+                if (cause is null && key == AuthoredTree.PageKey && constructed is not null && constructed.TryGetValue(key, out var built) &&
+                    built.Values.TryGetValue(property, out var fromMarkup) && fromMarkup == restart)
+                {
+                    // The page object survives an in-place reload, and InitializeComponent only sets what the markup's
+                    // root element has: a property an earlier version set and this one no longer does keeps its value.
+                    notes.Add($"{subject} shows '{value}' here but '{restart}' after a restart: an earlier version of the markup set it on the page element, and reloading in place doesn't clear a property removed from the root");
                     continue;
                 }
                 if (cause is null && (AuthoredTree.IsInput(element, property) || !sameData))

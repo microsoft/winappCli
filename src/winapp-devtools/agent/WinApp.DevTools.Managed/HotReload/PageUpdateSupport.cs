@@ -178,9 +178,14 @@ internal static class AuthoredTree
                 Visit(child, named ? "#" + name : $"{key}/{typeName}[{seen[typeName]}]");
             }
         }
+        // The page element itself: its properties come from the root of its markup.
+        result[PageKey] = (page, Values(page));
         Visit(page.Content, "");
         return result;
     }
+
+    /// <summary>The key of the page element itself.</summary>
+    public const string PageKey = "(page)";
 
     /// <summary>"CaseLate" for a named element, "TextBlock[1] under Root" otherwise.</summary>
     public static string Describe(string key)
@@ -193,6 +198,14 @@ internal static class AuthoredTree
         var anchor = parts.Length > 1 && parts[0].StartsWith('#') ? " under " + parts[0][1..] : "";
         return (parts.Length > 0 ? parts[^1] : "(page content)") + anchor;
     }
+
+    /// <summary>"#FFFF0000" for a solid color, the type for any other brush.</summary>
+    private static string Brush(Microsoft.UI.Xaml.Media.Brush? brush) => brush switch
+    {
+        null => "null",
+        Microsoft.UI.Xaml.Media.SolidColorBrush solid => solid.Color.ToString(),
+        _ => "{" + brush.GetType().Name + "}",
+    };
 
     private static IEnumerable<DependencyObject> Children(DependencyObject node)
     {
@@ -289,6 +302,18 @@ internal static class AuthoredTree
         {
             values["Width"] = PageData.Format(framework.Width);
             values["Height"] = PageData.Format(framework.Height);
+            values["Tag"] = PageData.Format(framework.Tag);
+        }
+        var background = node switch
+        {
+            Panel panel => panel.Background,
+            Control styled => styled.Background,
+            Border border => border.Background,
+            _ => null,
+        };
+        if (node is Panel or Control or Border)
+        {
+            values["Background"] = Brush(background);
         }
         if (node is Control control)
         {
