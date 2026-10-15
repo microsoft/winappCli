@@ -43,6 +43,9 @@ internal sealed partial class WatchSession
                 GenXbfPath="$(GenXbfPath)" PrecompiledHeaderFile="$(PrecompiledHeaderFile)"
                 EnableHotReloadStableConnectionIds="$(EnableHotReloadStableConnectionIds)"
                 EnabledXamlOptionalChanges="$(EnabledXamlOptionalChanges)" DisabledXamlOptionalChanges="$(DisabledXamlOptionalChanges)" />
+            <!-- The compiler's hot reload code generation follows EnableXamlHotReload. Older packages' InputSerializer has no
+                 such parameter (an unknown one fails the build), so it's recorded beside the inputs and set by winapp. -->
+            <WriteLinesToFile File="$(WinAppHotReloadXamlInputs).hotreload" Lines="$(EnableXamlHotReload)" Overwrite="true" />
           </Target>
         </Project>
         """;
@@ -289,6 +292,7 @@ internal sealed partial class CppXamlSession : IDisposable
             .ToDictionary(p => Path.GetFileName(p), File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
 
         Directory.CreateDirectory(workDirectory);
+        inputs = await WithHotReloadSettingAsync(inputs, workDirectory, cancellationToken);
         var start = new ProcessStartInfo(compiler)
         {
             WorkingDirectory = projectDirectory,
@@ -335,6 +339,31 @@ internal sealed partial class CppXamlSession : IDisposable
             session.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// The inputs with the build's EnableXamlHotReload (recorded beside them), so the service generates the same code the
+    /// build did. Returns the original path when the build didn't record it or the inputs already carry it.
+    /// </summary>
+    internal static async Task<string> WithHotReloadSettingAsync(string inputs, string workDirectory, CancellationToken cancellationToken)
+    {
+        var recorded = inputs + ".hotreload";
+        if (!File.Exists(recorded) || !bool.TryParse((await File.ReadAllTextAsync(recorded, cancellationToken)).Trim(), out var enabled))
+        {
+            return inputs;
+        }
+        if (System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(inputs, cancellationToken)) is not System.Text.Json.Nodes.JsonObject json)
+        {
+            return inputs;
+        }
+        if (json["EnableXamlHotReload"]?.GetValueKind() is JsonValueKind.True or JsonValueKind.False && json["EnableXamlHotReload"]!.GetValue<bool>() == enabled)
+        {
+            return inputs;
+        }
+        json["EnableXamlHotReload"] = enabled;
+        var patched = Path.Combine(workDirectory, Path.GetFileName(inputs));
+        await File.WriteAllTextAsync(patched, json.ToJsonString(), cancellationToken);
+        return patched;
     }
 
     private static List<string> Items(JsonElement root, string name) =>
@@ -435,10 +464,12 @@ internal sealed partial class CppXamlSession : IDisposable
             {
                 return CppSaveOutcome.Restart($"{file}: no x:Class, or its generated InitializeComponent wasn't found");
             }
-            if (_baseline.TryGetValue(name + ".g.h", out var classCode) && CompiledBindings().IsMatch(classCode))
+            if (_baseline.TryGetValue(name + ".g.h", out var classCode) && CompiledBindings().IsMatch(classCode) &&
+                !(_baseline.TryGetValue(name + ".g.hpp", out var connectCode) && connectCode.Contains(BindingsRestartMarker, StringComparison.Ordinal)))
             {
                 // Loading the markup again gives the page a new compiled Bindings object, which starts on the page's
                 // Loading event; a page that is already loaded never raises it again, so x:Bind targets would stay empty.
+                // Hot reload builds of newer compilers start it themselves (and stop the old one): those apply live.
                 return CppSaveOutcome.Restart($"{file}: the page uses x:Bind, and a running C++ page can't start its compiled bindings again (they start when the page first loads)");
             }
             var xbfPath = Path.Combine(_workDirectory, $"{Path.GetFileNameWithoutExtension(name)}.{++_xbfCount}.xbf");
@@ -544,6 +575,12 @@ internal sealed partial class CppXamlSession : IDisposable
     /// <summary>The page class's compiled x:Bind object (C++/WinRT: a Bindings member of the generated base).</summary>
     [GeneratedRegex(@"XamlBindings>\s+Bindings\s*;")]
     private static partial Regex CompiledBindings();
+
+    /// <summary>
+    /// In a hot reload build's generated GetBindingConnector: the compiled Bindings of a page that is loaded again stop the
+    /// previous ones and start themselves when the page is already loaded.
+    /// </summary>
+    private const string BindingsRestartMarker = "_hotReloadBindingsStartToken";
 
     private sealed record ReloadResult(string? Error, int Instances, int Reloaded, IReadOnlyList<string> Notes, IReadOnlyList<string> Errors);
 
