@@ -875,7 +875,7 @@ internal sealed partial class HotReloadSession
         var applied = new List<string>();
         var waiting = new List<string>();
         Phase("edit and continue");
-        var notes = await NotesAsync(cancellationToken).ConfigureAwait(false);
+        var notes = await NotesAsync(compiled?.Classes ?? [], cancellationToken).ConfigureAwait(false);
         notes.AddRange(_pendingNotes);
         _pendingNotes.Clear();
         foreach (var component in _components.Values.Where(c => !c.Pending && c.MissingHandlers > 0 && c.Latest is not null))
@@ -1009,7 +1009,8 @@ internal sealed partial class HotReloadSession
     /// What an "applied" doesn't tell: changes to code that only runs at startup (App.OnLaunched, the App
     /// constructor), and constructors replayed on reload that start timers or threads, which then run once more.
     /// </summary>
-    private async Task<List<string>> NotesAsync(CancellationToken cancellationToken)
+    /// <param name="reloaded">Classes whose markup the XAML compiler rebuilt this save (their constructors replay).</param>
+    private async Task<List<string>> NotesAsync(IReadOnlyCollection<string> reloaded, CancellationToken cancellationToken)
     {
         var notes = new List<string>();
         var oldProject = _committed.GetProject(_projectId)!;
@@ -1086,7 +1087,7 @@ internal sealed partial class HotReloadSession
                 }
             }
         }
-        foreach (var component in _components.Values.Where(c => c.Pending && c.ClassName is not null && !c.ReplayDisabled))
+        foreach (var component in _components.Values.Where(c => (c.Pending || reloaded.Contains(c.ClassName ?? "")) && c.ClassName is not null && !c.ReplayDisabled))
         {
             if (compilation.GetTypeByMetadataName(component.ClassName!) is not { } type)
             {
@@ -1217,7 +1218,11 @@ internal sealed partial class HotReloadSession
         {
             if (project.GetAddedDocuments().Any() || project.GetRemovedDocuments().Any() || project.GetAddedMetadataReferences().Any() ||
                 project.GetRemovedMetadataReferences().Any() || project.OldProject.ParseOptions != project.NewProject.ParseOptions ||
-                project.OldProject.CompilationOptions != project.NewProject.CompilationOptions)
+                project.OldProject.CompilationOptions != project.NewProject.CompilationOptions ||
+                // A generator's input (an additional file, .editorconfig) or the generators themselves: its output can change.
+                project.GetChangedAdditionalDocuments().Any() || project.GetAddedAdditionalDocuments().Any() || project.GetRemovedAdditionalDocuments().Any() ||
+                project.GetChangedAnalyzerConfigDocuments().Any() || project.GetAddedAnalyzerConfigDocuments().Any() || project.GetRemovedAnalyzerConfigDocuments().Any() ||
+                project.GetAddedAnalyzerReferences().Any() || project.GetRemovedAnalyzerReferences().Any())
             {
                 return false;
             }

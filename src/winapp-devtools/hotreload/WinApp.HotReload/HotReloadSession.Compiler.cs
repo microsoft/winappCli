@@ -54,6 +54,8 @@ internal sealed partial class HotReloadSession
 
     /// <summary>The compiler started again (new references) and hasn't compiled every page yet.</summary>
     private bool _xamlFullCompilePending;
+    /// <summary>Set once the service restarted or reloaded its references: its per-page XamlTypeInfo cache misses types.</summary>
+    private bool _xamlTypeInfoCacheUntrusted;
 
     /// <summary>The XAML compiler's C#: Page.g.cs (pass 2) and the pass 1 part, Page.i.g.cs (hot reload builds) or Page.g.i.cs.</summary>
     private static bool IsGenerated(string path) =>
@@ -350,6 +352,7 @@ internal sealed partial class HotReloadSession
             }
             await UseGeneratedAsync(all2, xaml, typeInfo: true, cancellationToken).ConfigureAwait(false);
             _xamlFullCompilePending = false;
+            _xamlTypeInfoCacheUntrusted = true;
             compiledEverything = true;
         }
         if (removedMembers.Count > 0)
@@ -374,8 +377,9 @@ internal sealed partial class HotReloadSession
         if (pass2.XamlTypeInfoMayBeStale && !compiledEverything)
         {
             // The pages use a type or member XamlTypeInfo doesn't have yet: regenerated as a build does (the service
-            // replays the other pages' type information from its cache).
-            var full = await _xaml.Pass2Async(xaml, _xamlImage, typeInfo: true, cancellationToken).ConfigureAwait(false);
+            // replays the other pages' type information from its cache). After the service restarted or reloaded its
+            // references, that cache lacks the types added while the app ran: every page is compiled instead.
+            var full = await _xaml.Pass2Async(_xamlTypeInfoCacheUntrusted ? null : xaml, _xamlImage, typeInfo: true, cancellationToken).ConfigureAwait(false);
             if (Failed(full) is { } fullError)
             {
                 return (null, fullError);
@@ -406,6 +410,13 @@ internal sealed partial class HotReloadSession
                     payload.DroppedKeys = [.. before.Except(keys)];
                 }
                 _applicationKeys[path] = keys;
+                // Settings on <Application> itself (RequestedTheme, HighContrastAdjustment...) only apply when it starts.
+                var settings = ApplicationSettings(await ReadSharedAsync(path, cancellationToken).ConfigureAwait(false));
+                if (_applicationSettings.TryGetValue(path, out var settingsBefore) && settingsBefore != settings)
+                {
+                    _pendingNotes.Add($"{Relative(path)}: settings on <Application> ({ChangedSettings(settingsBefore, settings)}) only apply at startup: this change takes effect when the app restarts");
+                }
+                _applicationSettings[path] = settings;
             }
             compiled.Markup.Add(payload);
             _sources[UriFor(path)] = path;
