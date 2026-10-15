@@ -31,7 +31,7 @@ If the WinUI plugin is installed, use its skills for WinUI 3 app work: `winui-de
 
 1. `winapp init` adds Windows files to an existing project; it never creates one. Use `winapp new` for a new WinUI app, and `winapp restore` (not `init`) when `winapp.yaml` already exists.
 2. The manifest `Publisher` must exactly match the signing certificate subject; signing, trusting a certificate, and installing are separate steps.
-3. Ask before admin-only actions (`winapp cert install`, `winapp run --profile-mode elevated`), removing packages, rebooting, or setting up Windows Sandbox.
+3. A request to install, trust, or run the app on this machine is consent for `winapp cert install` and the install. Check elevation first (`([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrator')`): if `True`, proceed; if not, say so and give the exact command to run in an elevated terminal. Ask before admin actions the user didn't request (`winapp run --profile-mode elevated`), removing packages, rebooting, or setting up Windows Sandbox. Never trust a development certificate as a root CA.
 4. Use `--on sandbox` only when asked, and never drop it to get past an error.
 5. Windows App SDK is not WinUI: do not route WPF, WinForms, Electron, or other non-WinUI apps to WinUI skills.
 6. For exact options, run `winapp <command> --help` or `winapp --cli-schema`.

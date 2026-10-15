@@ -22,9 +22,9 @@ ETW performance capture is separate from debugger output and crash analysis.
 | "winapp.yaml not found" | Running `restore` or `update` without config | Run `winapp init` first, or `cd` to the directory containing `winapp.yaml` |
 | "Package.appxmanifest not found" | Running `package`, `create-debug-identity`, or `cert generate --manifest` | Run `winapp init` or `winapp manifest generate` first, or pass `--manifest <path>` |
 | "Publisher mismatch" | Certificate publisher ≠ manifest publisher | Regenerate cert: `winapp cert generate --manifest`, or edit `Package.appxmanifest` `Identity.Publisher` to match |
-| "Access denied" / "elevation required" | `cert install` without admin | Run terminal as Administrator for `winapp cert install` |
-| "Package installation failed" | Cert not trusted, or stale package registration | For a certificate error, `winapp cert install ./devcert.pfx` (admin). For registration conflicts, see the rows below rather than deleting packages by name |
-| "Certificate not trusted" | Dev cert not installed on machine | `winapp cert install ./devcert.pfx` (admin) |
+| "Access denied" / "elevation required" | `cert install` ran without elevation | Give the user the exact `winapp cert install` command to run in an elevated terminal |
+| "Package installation failed" | Cert not trusted, or stale package registration | For a certificate error, `winapp cert install ./devcert.pfx` (elevated; check first). For registration conflicts, see the rows below rather than deleting packages by name |
+| "Certificate not trusted" | Dev cert not installed on machine | `winapp cert install ./devcert.pfx` (elevated; check first) |
 | "Build tools not found" | First run, tools not yet downloaded | Run `winapp update` to download tools; ensure internet access |
 | "Failed to add package identity" | Stale debug identity or untrusted cert | Run `winapp unregister` with your app's input (or `--manifest` for `create-debug-identity`); install a certificate only if the error asks for it |
 | "Certificate file already exists" | `devcert.pfx` already present | Use `winapp cert generate --if-exists overwrite` or `--if-exists skip` |

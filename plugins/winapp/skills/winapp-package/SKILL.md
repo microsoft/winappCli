@@ -71,7 +71,7 @@ winapp package ./bin/Release --cert ./devcert.pfx --cert-password MyP@ssw0rd
 # Auto-generate cert, sign, and package
 winapp package ./bin/Release --generate-cert
 
-# Also install the cert to trust it on this machine (requires admin)
+# Also trust the cert on this machine (needs an elevated terminal; check first, see `winapp-signing`)
 winapp package ./bin/Release --generate-cert --install-cert
 ```
 
@@ -114,7 +114,8 @@ Output: a `.msix` file that can be installed on Windows via double-click or `Add
 ## Installing the MSIX for testing
 
 ```powershell
-# Trust the dev certificate first (one-time, requires admin)
+# Trust the dev certificate first (one-time; needs an elevated terminal: check first,
+# and if not elevated, give the user this command to run in one)
 winapp cert install ./devcert.pfx
 
 # Install the MSIX
@@ -128,7 +129,7 @@ Get-AppxPackage *myapp* | Remove-AppxPackage
 
 1. **Build** your app (`dotnet build`, `cmake --build`, `npm run make`, etc.)
 2. **Package** — `winapp package <build-output> --cert ./devcert.pfx`
-3. **Trust cert** (first time) — `winapp cert install ./devcert.pfx` (admin)
+3. **Trust cert** (first time) — `winapp cert install ./devcert.pfx` (elevated)
 4. **Install** — double-click the `.msix` or `Add-AppxPackage ./myapp.msix`
 5. **Test** the installed app from the Start menu
 
@@ -233,7 +234,7 @@ The `.msix` contains only the manifest — binaries and assets are resolved from
 |-------|-------|----------|
 | "Package.appxmanifest not found" | No manifest in input folder or current dir | Run `winapp init` or `winapp manifest generate` first |
 | "Publisher mismatch" | Cert publisher ≠ manifest publisher | Regenerate cert with `winapp cert generate --manifest`, or edit manifest |
-| "Package installation failed" | Cert not trusted or stale package | Run `winapp cert install ./devcert.pfx` (admin). If an earlier `winapp run` registration is in the way, remove it with `winapp unregister <input>` rather than deleting packages by name |
+| "Package installation failed" | Cert not trusted or stale package | Run `winapp cert install ./devcert.pfx` (elevated). If an earlier `winapp run` registration is in the way, remove it with `winapp unregister <input>` rather than deleting packages by name |
 | "makeappx not found" | Build tools not downloaded | Run `winapp update` or `winapp tool makeappx --help` to trigger download |
 
 ## CLI reference
