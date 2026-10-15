@@ -757,7 +757,7 @@ internal static class XamlReload
                     else if (s_pageUpdate is { } strategy && replay.Contains(type))
                     {
                         var update = new PageUpdate(page, frame, ClassUris.GetValueOrDefault(type) ?? "", s_savedFiles, InPlace, () => Recreate(frame, page),
-                            s_notes ?? [], s_restarts ?? [], s_settled ?? []);
+                            s_notes ?? [], s_restarts ?? [], s_settled ?? []) { StateBefore = state };
                         try
                         {
                             strategy.Update(update);
@@ -998,6 +998,7 @@ internal static class XamlReload
             }
         }
         s_detachedLists.Clear();
+        s_statesBefore = null;
     }
 
     public static void StopTracking(IReadOnlyCollection<string> types)
@@ -1015,6 +1016,9 @@ internal static class XamlReload
             }
             if (!s_detachedLists.ContainsKey(component))
             {
+                // The UI state first (a list's selection reads -1 once it has no items).
+                s_statesBefore ??= new Dictionary<object, UiState.Snapshot?>(ReferenceEqualityComparer.Instance);
+                s_statesBefore.TryAdd(component, UiState.Take(ContentRoot(component)));
                 // Its lists let go of their items now, while the code of their item templates still matches them: after
                 // the update a template whose bindings class was replaced recycles them into a tombstone, which throws,
                 // and the list stays subscribed to the collection it showed.
