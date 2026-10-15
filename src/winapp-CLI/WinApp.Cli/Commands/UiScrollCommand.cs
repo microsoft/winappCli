@@ -21,6 +21,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
     [
         "winapp ui scroll <selector> -a <app> --direction down",
         "winapp ui scroll \"Items\" --type List -a <app> --to bottom",
+        "winapp ui scroll <selector> -a <app> --wheel-horizontal 3",
     ];
 
     /// <summary>One mouse-wheel detent in WHEEL_DELTA units, the granularity SendInput's wheel expects.</summary>
@@ -29,6 +30,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
     public static Option<string?> DirectionOption { get; }
     public static Option<string?> ToOption { get; }
     public static Option<int?> WheelOption { get; }
+    public static Option<int?> WheelHorizontalOption { get; }
 
     static UiScrollCommand()
     {
@@ -47,11 +49,17 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
             Description = "Rotate the mouse wheel over the element by this many notches (1 = one notch up, -1 = one notch down). " +
                           "Synthesizes real wheel input instead of using ScrollPattern."
         };
+
+        WheelHorizontalOption = new Option<int?>("--wheel-horizontal")
+        {
+            Description = "Tilt the horizontal mouse wheel over the element by this many notches (1 = one notch right, -1 = one notch left). " +
+                          "Synthesizes real wheel input instead of using ScrollPattern."
+        };
     }
 
     public UiScrollCommand()
         : base("scroll", "Scroll a container element. " +
-               "Use --direction to scroll incrementally, --to to jump to top/bottom, or --wheel to synthesize mouse-wheel input.")
+               "Use --direction to scroll incrementally, --to to jump to top/bottom, or --wheel/--wheel-horizontal to synthesize mouse-wheel input.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -61,6 +69,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
         Options.Add(DirectionOption);
         Options.Add(ToOption);
         Options.Add(WheelOption);
+        Options.Add(WheelHorizontalOption);
     }
 
     public class Handler(
@@ -81,7 +90,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
         protected override string Operation => "ui scroll";
 
         /// <remarks>
-        /// Two different commands share one name. <c>--wheel</c> synthesizes real mouse input at screen
+        /// Two different commands share one name. <c>--wheel</c>/<c>--wheel-horizontal</c> synthesize real mouse input at screen
         /// coordinates, so it foregrounds the target and needs the desktop exclusively. <c>--direction</c>
         /// and <c>--to</c> drive UIA <c>ScrollPattern</c> in the background: they never take
         /// <c>active.lock</c> and stay usable on a locked or headless session, but they do move the
@@ -89,7 +98,9 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
         /// somebody else's click.
         /// </remarks>
         protected override UiTurnMode ResolveMode(ParseResult parseResult)
-            => parseResult.GetValue(WheelOption) is not null ? UiTurnMode.DesktopExclusive : UiTurnMode.TurnShared;
+            => parseResult.GetValue(WheelOption) is not null || parseResult.GetValue(WheelHorizontalOption) is not null
+                ? UiTurnMode.DesktopExclusive
+                : UiTurnMode.TurnShared;
 
         protected override int? Preflight(ParseResult parseResult)
         {
@@ -107,27 +118,29 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
             var direction = parseResult.GetValue(DirectionOption);
             var to = parseResult.GetValue(ToOption);
             var wheel = parseResult.GetValue(WheelOption);
+            var wheelHorizontal = parseResult.GetValue(WheelHorizontalOption);
 
-            if (string.IsNullOrWhiteSpace(selectorStr))
+            if (!UiQueryOptions.HasQuery(parseResult, selectorStr))
             {
                 UiErrors.MissingSelector(logger, "scroll", json);
                 return 1;
             }
 
-            if (direction is null && to is null && wheel is null)
+            int modeCount = (direction is not null ? 1 : 0) + (to is not null ? 1 : 0)
+                + (wheel is not null ? 1 : 0) + (wheelHorizontal is not null ? 1 : 0);
+            if (modeCount == 0)
             {
-                logger.LogError("{Symbol} Specify --direction (up/down/left/right), --to (top/bottom), or --wheel (delta).", UiSymbols.Error);
+                logger.LogError("{Symbol} Specify --direction (up/down/left/right), --to (top/bottom), --wheel (notches), or --wheel-horizontal (notches).", UiSymbols.Error);
                 UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments,
-                    "Specify --direction (up/down/left/right), --to (top/bottom), or --wheel (delta).");
+                    "Specify --direction (up/down/left/right), --to (top/bottom), --wheel (notches), or --wheel-horizontal (notches).");
                 return 1;
             }
 
-            int modeCount = (direction is not null ? 1 : 0) + (to is not null ? 1 : 0) + (wheel is not null ? 1 : 0);
             if (modeCount > 1)
             {
-                logger.LogError("{Symbol} Specify only one of --direction, --to, or --wheel.", UiSymbols.Error);
+                logger.LogError("{Symbol} Specify only one of --direction, --to, --wheel, or --wheel-horizontal.", UiSymbols.Error);
                 UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments,
-                    "Specify only one of --direction, --to, or --wheel — they are mutually exclusive.");
+                    "Specify only one of --direction, --to, --wheel, or --wheel-horizontal — they are mutually exclusive.");
                 return 1;
             }
 
@@ -137,18 +150,19 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            // Preflight rejected a missing selector, so this is non-null by construction.
-            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            var selectorArg = parseResult.GetValue(SharedUiOptions.SelectorArgument);
+            var selectorStr = UiQueryOptions.Describe(parseResult, selectorArg);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var direction = parseResult.GetValue(DirectionOption);
             var to = parseResult.GetValue(ToOption);
             var wheel = parseResult.GetValue(WheelOption);
+            var wheelHorizontal = parseResult.GetValue(WheelHorizontalOption);
 
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorArg);
                 var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
                 if (element is null)
@@ -159,8 +173,11 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
 
                 var targetHwnd = element.WindowHandle ?? uiTarget.WindowHandle;
 
-                if (wheel is int notches)
+                if ((wheel ?? wheelHorizontal) is int notches)
                 {
+                    bool horizontal = wheel is null;
+                    string action = horizontal ? "scroll --wheel-horizontal" : "scroll --wheel";
+
                     if (element.Width == 0 || element.Height == 0)
                     {
                         logger.LogError("{Symbol} Element has zero size — cannot scroll-wheel over it.", UiSymbols.Error);
@@ -177,7 +194,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
                             uiAutomation, uiTarget, selector, element,
                             GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken,
                             requireUnique: UiQueryOptions.HasFilters(parseResult));
-                        if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, "scroll --wheel"))
+                        if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr, action))
                         {
                             return 1;
                         }
@@ -186,7 +203,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
                         centerY = stable.CenterY;
 
                         if (!DesktopTargetValidation.TryConfirmTargetWindow(
-                                systemQuery, targetHwnd, uiTarget.ProcessId, logger, json, "scroll --wheel", parseResult.InvocationConfiguration.Error))
+                                systemQuery, targetHwnd, uiTarget.ProcessId, logger, json, action, parseResult.InvocationConfiguration.Error))
                         {
                             return 1;
                         }
@@ -197,7 +214,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
                             await Task.Delay(100, cancellationToken);
                         }
 
-                        if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "scroll --wheel"))
+                        if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, action))
                         {
                             return 1;
                         }
@@ -208,21 +225,28 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
                         var confirmed = await GestureTargeting.ConfirmStillAsync(
                             uiAutomation, uiTarget, selector, stable.Element, cancellationToken,
                             requireUnique: UiQueryOptions.HasFilters(parseResult));
-                        if (!UiInjectionReporting.TryReport(confirmed, logger, json, selectorStr, "scroll --wheel"))
+                        if (!UiInjectionReporting.TryReport(confirmed, logger, json, selectorStr, action))
                         {
                             return 1;
                         }
                         centerX = confirmed.CenterX;
                         centerY = confirmed.CenterY;
 
-                        if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, "scroll --wheel"))
+                        if (!foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, action))
                         {
                             return 1;
                         }
 
-                        // --wheel is expressed in notches for ergonomics; SendInput's mouse wheel works in
+                        // Wheel options are expressed in notches for ergonomics; SendInput's mouse wheel works in
                         // WHEEL_DELTA units (120 per detent), so scale up to the raw delta the OS expects.
-                        mouseInput.ScrollWheel(centerX, centerY, notches * WheelDelta, settleMs: 0);
+                        if (horizontal)
+                        {
+                            mouseInput.ScrollWheelHorizontal(centerX, centerY, notches * WheelDelta, settleMs: 0);
+                        }
+                        else
+                        {
+                            mouseInput.ScrollWheel(centerX, centerY, notches * WheelDelta, settleMs: 0);
+                        }
                     }
                 }
                 else
@@ -238,6 +262,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
                         Direction = direction,
                         To = to,
                         Wheel = wheel,
+                        WheelHorizontal = wheelHorizontal,
                         Hwnd = targetHwnd
                     };
                     ansiConsole.Profile.Out.Writer.WriteLine(

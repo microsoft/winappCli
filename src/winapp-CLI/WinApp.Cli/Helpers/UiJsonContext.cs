@@ -147,6 +147,9 @@ internal sealed class UiClickResult
     public int X { get; set; }
     public int Y { get; set; }
     public long Hwnd { get; set; }
+
+    /// <summary>Non-fatal advisories (e.g. an --at point outside the target window). Omitted when empty.</summary>
+    public string[]? Warnings { get; set; }
 }
 
 internal sealed class UiScreenshotResult
@@ -316,6 +319,7 @@ internal sealed class UiScrollResult
     public string? Direction { get; set; }
     public string? To { get; set; }
     public int? Wheel { get; set; }
+    public int? WheelHorizontal { get; set; }
     public long Hwnd { get; set; }
 }
 
@@ -357,6 +361,9 @@ internal sealed class UiHoverResult
     public int Y { get; set; }
     public int DwellTimeMs { get; set; }
     public long Hwnd { get; set; }
+
+    /// <summary>Non-fatal advisories (e.g. an --at point outside the target window). Omitted when empty.</summary>
+    public string[]? Warnings { get; set; }
 }
 
 internal sealed class UiSendKeysResult
