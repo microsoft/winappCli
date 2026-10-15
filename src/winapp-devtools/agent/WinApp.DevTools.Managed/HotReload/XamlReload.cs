@@ -1873,11 +1873,13 @@ internal static class XamlReload
             {
                 Wire(component, manifest);
             }
-            else if (Compiler && !HasHotReloadCodegen(component.GetType().Assembly) && (component is Window || component is FrameworkElement { IsLoaded: true }))
+            else if (Compiler && ((component is Window && s_loadedDuringRefresh is not null) ||
+                (!HasHotReloadCodegen(component.GetType().Assembly) && (component is Window || component is FrameworkElement { IsLoaded: true }))))
             {
                 // Re-initialized in place: the compiled x:Bind starts on the page's Loading or the window's Activated,
                 // which already happened, so start it here once the constructor has finished (within the update when
-                // there is one, so problems are reported with it).
+                // there is one, so problems are reported with it). A window's generated re-init only starts it when its
+                // new content is already loaded, which it isn't yet.
                 if (s_deferredBinds is { } deferred)
                 {
                     deferred.Add(() => UpdateCompiledBindings(component));

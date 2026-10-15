@@ -284,18 +284,44 @@ internal sealed class WatchSession
     public bool HasUnappliedSave() => LastSettled is { } settled &&
         Directory.EnumerateFiles(_project.DirectoryName!, "*", SearchOption.AllDirectories).Any(file => IsSource(file) && File.GetLastWriteTimeUtc(file) > settled);
 
-    public IReadOnlyList<string> BuildProperties =>
-    [
-        "ProvideCommandLineArgs=true",
-        $"CustomAfterMicrosoftCommonTargets={_targets}",
-        "WinAppHotReloadCapture=true",
-        $"WinAppHotReloadOut={_compilerArgs}",
-        // The compiler pipeline applies the XAML compiler's code as .NET hot reload deltas: stable connection IDs keep an
-        // element's generated members when elements are inserted or removed before it. WINAPP_HOT_RELOAD_STABLE_IDS=0 turns them off.
-        .. string.Equals(Environment.GetEnvironmentVariable("WINAPP_HOT_RELOAD_PIPELINE"), "compiler", StringComparison.OrdinalIgnoreCase) &&
-            Environment.GetEnvironmentVariable("WINAPP_HOT_RELOAD_STABLE_IDS") != "0"
-            ? new[] { "EnableHotReloadStableConnectionIds=true" } : [],
-    ];
+    public IReadOnlyList<string> BuildProperties
+    {
+        get
+        {
+            EnsureTargets();
+            return
+            [
+                "ProvideCommandLineArgs=true",
+                $"CustomAfterMicrosoftCommonTargets={_targets}",
+                "WinAppHotReloadCapture=true",
+                $"WinAppHotReloadOut={_compilerArgs}",
+                // The compiler pipeline applies the XAML compiler's code as .NET hot reload deltas: stable connection IDs keep an
+                // element's generated members when elements are inserted or removed before it. WINAPP_HOT_RELOAD_STABLE_IDS=0 turns them off.
+                .. string.Equals(Environment.GetEnvironmentVariable("WINAPP_HOT_RELOAD_PIPELINE"), "compiler", StringComparison.OrdinalIgnoreCase) &&
+                    Environment.GetEnvironmentVariable("WINAPP_HOT_RELOAD_STABLE_IDS") != "0"
+                    ? new[] { "EnableHotReloadStableConnectionIds=true" } : [],
+            ];
+        }
+    }
+
+    /// <summary>
+    /// The build imports the session's targets from %TEMP%: written again when something removed them since (a temp
+    /// cleanup), or the build would silently skip reporting its compiler command line.
+    /// </summary>
+    private void EnsureTargets()
+    {
+        if (File.Exists(_targets))
+        {
+            return;
+        }
+        _targetsRestored = true;
+        Directory.CreateDirectory(_directory);
+        File.WriteAllText(Path.Combine(_directory, OwnerFile), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        File.WriteAllText(_targets, Targets);
+        File.SetLastWriteTimeUtc(_targets, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    private bool _targetsRestored;
 
     public IReadOnlyDictionary<string, string?> Augment(IReadOnlyDictionary<string, string?>? environment)
     {
@@ -315,7 +341,9 @@ internal sealed class WatchSession
         Launched = true;
         if (!File.Exists(_compilerArgs))
         {
-            console.MarkupLine("[yellow][[watch]] hot reload is unavailable: the build did not report its compiler command line.[/]");
+            console.MarkupLine(File.Exists(_targets) && !_targetsRestored
+                ? "[yellow][[watch]] hot reload is unavailable: the build did not report its compiler command line.[/]"
+                : $"[yellow][[watch]] hot reload is unavailable: its temporary files in {Markup.Escape(_directory)} were removed during the build; close the app and run winapp again.[/]");
             return await WaitAsync(app, cancellationToken);
         }
         var start = new ProcessStartInfo("dotnet")

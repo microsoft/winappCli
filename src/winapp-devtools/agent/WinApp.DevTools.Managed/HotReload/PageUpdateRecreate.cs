@@ -7,7 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 namespace WinApp.DevTools.Managed.HotReload;
 
 /// <summary>
-/// WINAPP_HOT_RELOAD_PAGE_UPDATE=recreate: the page is built again as a restart would build it. A new instance is
+/// WINAPP_HOT_RELOAD_PAGE_UPDATE=recreate (the default): the page is built again as a restart would build it. A new instance is
 /// navigated in place of the old one (same Frame, same navigation parameter, back stack unchanged), then what the user
 /// entered (text, selection, checked and expanded state, scroll offsets, focus) is put back by element path. The page's
 /// fields and the view models it owns start over; the save names the ones that held something else.

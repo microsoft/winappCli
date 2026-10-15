@@ -1125,66 +1125,6 @@ internal sealed partial class HotReloadSession
         return notes;
     }
 
-    /// <summary>Marks the note about a changed window constructor, which turns the save into a restart.</summary>
-    private const string WindowConstructorPrefix = "\u0001window:";
-
-    /// <summary>
-    /// A reload runs InitializeComponent again, not the constructor: a changed constructor of a XAML class shows on
-    /// instances created from now on (a page re-created by the "recreate" strategy is one).
-    /// </summary>
-    private async Task<List<string>> ConstructorNotesAsync(CancellationToken cancellationToken)
-    {
-        var notes = new List<string>();
-        var oldProject = _committed.GetProject(_projectId)!;
-        var compilation = (await Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
-        foreach (var id in Project.GetChanges(oldProject).GetChangedDocuments())
-        {
-            var document = _solution.GetDocument(id)!;
-            if (document.FilePath is not { } path || !IsSource(path) || await oldProject.GetDocument(id)!.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false) is not { } oldRoot)
-            {
-                continue;
-            }
-            var tree = (await document.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false))!;
-            var model = compilation.GetSemanticModel(tree);
-            foreach (var type in tree.GetRoot(cancellationToken).DescendantNodes().OfType<ClassDeclarationSyntax>())
-            {
-                if (model.GetDeclaredSymbol(type, cancellationToken) is not { } symbol || symbol.GetMembers("InitializeComponent").IsEmpty)
-                {
-                    continue;
-                }
-                var kind = "instances";
-                for (var t = symbol.BaseType; t is not null; t = t.BaseType)
-                {
-                    kind = t.ToDisplayString() switch
-                    {
-                        "Microsoft.UI.Xaml.Controls.Page" => "pages",
-                        "Microsoft.UI.Xaml.Window" => "windows",
-                        "Microsoft.UI.Xaml.Application" => "",
-                        _ => kind,
-                    };
-                }
-                if (kind.Length == 0 || (kind == "pages" && PageUpdateName == "recreate"))
-                {
-                    continue;
-                }
-                var oldType = oldRoot.DescendantNodes().OfType<ClassDeclarationSyntax>().FirstOrDefault(c => c.Identifier.ValueText == type.Identifier.ValueText);
-                foreach (var constructor in type.Members.OfType<ConstructorDeclarationSyntax>().Where(c => !c.Modifiers.Any(SyntaxKind.StaticKeyword)))
-                {
-                    var before = oldType?.Members.OfType<ConstructorDeclarationSyntax>().FirstOrDefault(c => !c.Modifiers.Any(SyntaxKind.StaticKeyword) &&
-                        c.ParameterList.IsEquivalentTo(constructor.ParameterList));
-                    if (before is null || !before.IsEquivalentTo(constructor))
-                    {
-                        notes.Add(kind == "windows"
-                            ? $"{WindowConstructorPrefix}{Relative(path)}: {type.Identifier.ValueText}'s constructor changed, and a window isn't created again while the app runs; it takes effect when the app restarts"
-                            : $"{type.Identifier.ValueText}'s constructor ran when it was created and a reload doesn't run it again: this change shows on {kind} created from now on");
-                        break;
-                    }
-                }
-            }
-        }
-        return notes;
-    }
-
     /// <summary>"Type.Field" (or "Type.cctor") to the initializer (or body) of each static member in a file.</summary>
     private static Dictionary<string, SyntaxNode> StaticInitializers(SyntaxNode root)
     {

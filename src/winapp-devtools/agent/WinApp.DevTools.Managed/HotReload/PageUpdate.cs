@@ -87,7 +87,7 @@ public sealed class PageUpdate
     public void WhenSettled(Func<Task> work) => _settled.Add(work);
 }
 
-/// <summary>The default: the page keeps its instance, fields and view model, and InitializeComponent runs again.</summary>
+/// <summary>The page keeps its instance, fields and view model, and InitializeComponent runs again.</summary>
 [PageUpdateStrategy("inplace")]
 internal sealed class InPlacePageUpdate : IPageUpdateStrategy
 {
@@ -96,7 +96,7 @@ internal sealed class InPlacePageUpdate : IPageUpdateStrategy
 
 internal static class PageUpdateStrategies
 {
-    public const string Default = "inplace";
+    public const string Default = "recreate";
 
     private static readonly Dictionary<string, Type> Known = typeof(PageUpdateStrategies).Assembly.GetTypes()
         .Where(t => typeof(IPageUpdateStrategy).IsAssignableFrom(t) && !t.IsAbstract && t.GetCustomAttribute<PageUpdateStrategyAttribute>() is not null)
