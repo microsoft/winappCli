@@ -316,6 +316,19 @@ jobs:
         name: cli-binaries
         path: artifacts/cli
 
+    # Real builds of packaged WinUI apps with project references (see tests/project-references/README.md).
+    - name: Run project-reference build tests
+      run: |
+        $pester = Get-Module -Name Pester -ListAvailable | Where-Object { $_.Version.Major -ge 5 } | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $pester) { throw 'Pester 5 is required.' }
+        Import-Module $pester -Force
+        $platform = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
+        $config = New-PesterConfiguration
+        $config.Run.Container = New-PesterContainer -Path tests/project-references/ProjectReferences.Tests.ps1 -Data @{ WinappPath = "artifacts/cli/win-$platform/winapp.exe" }
+        $config.Run.Exit = $true
+        $config.Output.Verbosity = 'Detailed'
+        Invoke-Pester -Configuration $config
+
     - name: Run WinUI UI E2E test
       run: |
         $platform = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }

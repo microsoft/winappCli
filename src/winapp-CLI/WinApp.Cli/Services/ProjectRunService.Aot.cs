@@ -119,7 +119,7 @@ internal sealed partial class ProjectRunService
             var (exitCode, output, error) = await dotNetService.RunDotnetCommandAsync(
                 workingDirectory,
                 [.. arguments, $"--getResultOutputFile:{resultFile}"],
-                BuildAotPublishEnvironment(),
+                WithPackagingReferenceTargets(BuildAotPublishEnvironment()),
                 writeLine,
                 writeLine,
                 cancellationToken);
