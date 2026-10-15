@@ -23,7 +23,7 @@ public class DetectedProjectTests
     [DataRow((int)DetectedProjectType.Dotnet, ".NET")]
     [DataRow((int)DetectedProjectType.Rust, "Rust")]
     [DataRow((int)DetectedProjectType.CPP, "C++")]
-    [DataRow((int)DetectedProjectType.Python, "Python")]
+    [DataRow((int)DetectedProjectType.Python, "Possible Python")]
     public void TypeLabel_KnownTypes_MapToFriendlyNames(int typeValue, string expected)
     {
         Assert.AreEqual(expected, Make((DetectedProjectType)typeValue, ".", "proj").TypeLabel);
