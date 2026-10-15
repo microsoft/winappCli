@@ -1336,6 +1336,27 @@ int wmain(int argc, wchar_t** argv)
         g_sourceInfo[1] = SourceInfoEntry{ L"ms-appx:///Pages/NotInProject.xaml", 0 };
         ReleaseSRWLockExclusive(&g_sourceUriLock);
         check(PickTarget(3) == 3, "an ancestor whose source is not a project file is not treated as authored");
+        {
+            // A packaged app compiles its own pages into resources.pri, while a referenced library's XAML is copied
+            // loose beside the exe. With a source root, "your XAML" follows the project on disk, as a pick does,
+            // not that layout scan: the app's page is authored and the library's file outside the project is not.
+            AcquireSRWLockExclusive(&g_sourceUriLock);
+            g_sourceInfo[1] = SourceInfoEntry{ L"ms-appx:///Pages/Main.xaml", 0 };
+            g_sourceInfo[2] = SourceInfoEntry{ L"ms-appx:///LibW/Control1.xaml", 0 };
+            ReleaseSRWLockExclusive(&g_sourceUriLock);
+            const bool had1 = g_type.count(1) != 0, had2 = g_type.count(2) != 0;
+            if (!had1) { MintSlot_nolock(1); g_type[1] = L"Page"; }
+            if (!had2) { MintSlot_nolock(2); g_type[2] = L"TextBlock"; }
+            CensusSnapshot cs;
+            cs.type = g_type; cs.children = { g_children.begin(), g_children.end() }; cs.parent = { g_parent.begin(), g_parent.end() };
+            for (auto& kv : g_type) cs.wire[kv.first] = PackWire_nolock(kv.first);
+            SourceInfo_Snapshot(cs.sourceUri);
+            const AuthoredVerdicts verdicts = ClassifyAuthored(cs, true);
+            check(!verdicts.err && verdicts.authored.count(1) == 1 && verdicts.authored.count(2) == 0 && !verdicts.denylistFallback,
+                  "with a source root, the default tree shows the project's page and not a library file outside it");
+            if (!had1) g_type.erase(1);
+            if (!had2) g_type.erase(2);
+        }
         // An app-authored ControlTemplate (NavigationViewItem -> template Border "Backplate" -> text): a pick on
         // the template part selects the item the developer declared, not the part.
         const std::wstring styles = root + L"\\Styles.xaml";

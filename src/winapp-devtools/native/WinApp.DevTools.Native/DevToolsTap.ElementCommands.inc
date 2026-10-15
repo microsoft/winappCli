@@ -471,13 +471,25 @@ static AuthoredVerdicts ClassifyAuthored(CensusSnapshot& cs, bool onUiThread)
         srcUris.push_back(su->second);
     }
     std::vector<char> verdicts;
-    DevToolsAppXaml_ClassifyBatch(srcUris, verdicts);
+    if (DevToolsAuthored_HasSourceRoot()) {
+        // A launch that knows the project judges by its files on disk, as a pick does. The layout scan below is
+        // fooled when a library's XAML is copied loose while the app's own pages are compiled into resources.pri.
+        std::map<std::wstring, char> project;
+        verdicts.reserve(srcUris.size());
+        for (const auto& uri : srcUris) {
+            auto known = project.find(uri);
+            if (known == project.end()) known = project.emplace(uri, DevToolsAuthored_IsProjectSource(uri) ? 1 : 0).first;
+            verdicts.push_back(known->second);
+        }
+    } else {
+        DevToolsAppXaml_ClassifyBatch(srcUris, verdicts);
+    }
     for (size_t i = 0; i < verdicts.size() && i < srcHandles.size(); ++i)
         if (verdicts[i]) out.authored.insert(srcHandles[i]);
 
     out.sourceInstrumented = !srcUris.empty();
     out.truncated = included.size() < cs.type.size() || out.classifiedNodes < included.size();
-    out.denylistFallback = DevToolsAppXaml_ScanDiscredited();
+    out.denylistFallback = !DevToolsAuthored_HasSourceRoot() && DevToolsAppXaml_ScanDiscredited();
     return out;
 }
 
