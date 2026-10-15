@@ -597,16 +597,8 @@ internal sealed partial class UiAutomationService : IUiAutomation
         if (matches.Count == 0) { return Task.FromResult<UiElement?>(null); }
         if (matches.Count > 1)
         {
-            var listing = new System.Text.StringBuilder();
-            listing.AppendLine($"Selector matched {matches.Count} elements:");
-            var nextId = 0;
-            foreach (var candidate in matches.Take(5))
-            {
-                var suggestion = ToUiElement(candidate.Element, "", ref nextId);
-                listing.AppendLine($"  {suggestion.Type} \"{suggestion.Name}\"  -> {suggestion.Selector ?? "(run inspect for an exact selector)"}");
-            }
-            listing.Append("Use a slug from 'inspect' to target a specific element.");
-            throw new UiAmbiguousSelectorException(listing.ToString());
+            throw new UiAmbiguousSelectorException(FormatAmbiguousMatches(
+                matches.Select(m => m.Element).ToList(), "Use a slug from 'inspect' to target a specific element."));
         }
 
         var id = 0;
@@ -684,9 +676,9 @@ internal sealed partial class UiAutomationService : IUiAutomation
             var constrainedMatches = SearchConstrained(uiTarget, selector, 2, preferExactName: true, ct: ct);
             if (constrainedMatches.Length > 1)
             {
-                throw new UiAmbiguousSelectorException(
-                    $"Selector matched multiple elements: {string.Join(", ", constrainedMatches.Select(m => m.Selector))}. " +
-                    "Use a unique slug or narrow --root, --type, or --class-name.");
+                throw new UiAmbiguousSelectorException(FormatAmbiguousMatches(
+                    ListAmbiguousMatches(uiTarget, selector, constrainedMatches, ct),
+                    "Use a unique slug from 'inspect' or narrow --root, --type, or --class-name."));
             }
             return Task.FromResult(constrainedMatches.FirstOrDefault());
         }

@@ -294,7 +294,8 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
             // the multi-window expansion below is skipped: running it would send `-w <hwnd>` into the
             // ambiguity guard, and `-w <hwnd>` is the documented way OUT of that ambiguity. Without a
             // window the app may still resolve to several candidates, and that stays an error.
-            var expandsToSeveralWindows = selector is null && !(captureScreen && window is not null and > 0);
+            var targetsElement = selector is not null || UiQueryOptions.HasElementFilters(parseResult);
+            var expandsToSeveralWindows = !targetsElement && !(captureScreen && window is not null and > 0);
 
             // Screenshot handles multi-window discovery itself (avoids duplicate warning from session resolution)
             if (expandsToSeveralWindows)
@@ -341,13 +342,13 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
                 return new CapturePass(1, singleTarget, selector, [], [], IsComposite: false);
             }
 
-            if (selector is not null)
+            if (targetsElement)
             {
                 var exact = await UiQueryOptions.ResolveExactSelectorAsync(
                     parseResult, selectorParser, uiAutomation, singleTarget, selector, searchOtherWindows: false, ct).ConfigureAwait(false);
                 if (exact is null)
                 {
-                    UiErrors.ElementNotFound(logger, selector, json, target: singleTarget);
+                    UiErrors.ElementNotFound(logger, UiQueryOptions.Describe(parseResult, selector), json, target: singleTarget);
                     return new CapturePass(1, singleTarget, selector, [], [], IsComposite: false);
                 }
                 selector = exact.Selector!;

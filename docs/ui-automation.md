@@ -61,16 +61,28 @@ winapp ui get-property Subject -a myapp --root MailRow --type Edit --property Va
 winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value "Ready" --timeout 10000
 winapp ui invoke Open -w <dialog-HWND> --type Button
 winapp ui set-value "Text editor" "hello" -a notepad --type Document
+
+# No text selector: --type and --class-name can be the whole query
+winapp ui search --class-name CalendarSurface -a myapp
+winapp ui click --class-name CalendarSurface -a myapp
 ```
 
 These commands accept optional filters on their element selector:
-`inspect` (with a selector), `search`, `get-property`, `get-value`, `wait-for`,
+`inspect`, `search`, `get-property`, `get-value`, `wait-for`,
 `invoke`, `set-value`, `click`, `focus`, `hover`, `scroll`, `scroll-into-view`,
 `screenshot`, `record`, `touch`, and `pen`. `drag` (two selectors) and `send-keys --target` do not.
-The selector and every supplied filter must match the **same element**. Filters narrow a
-selector, so `inspect`, `screenshot`, and `record`, whose selector is optional, fail with
-`invalid_arguments` when given filters without one. For `click`, `hover`, `touch`, and `pen`, filters need a
-selector; they can't be combined with `--at` or `--path` (`invalid_arguments`):
+The selector and every supplied filter must match the **same element**.
+
+`--type` and `--class-name` also work without a selector. `search` lists every element
+they match. Every other command needs exactly one match and fails with
+`ambiguous_selector` otherwise. The error lists the first five matches with a slug for each;
+pass one of those slugs, or add `--root` or the other filter to narrow it. Without a
+selector, `inspect`, `screenshot`, `record`, and `focus` then act on that element instead
+of the whole window. `--root` alone is not a query: give it a selector, `--type`, or
+`--class-name`, or run `inspect <root>` to see everything inside it. `set-value` takes the
+value as its second argument, so pass `""` as the selector:
+`winapp ui set-value "" "hello" -a notepad --type Document`. For `click`, `hover`, `touch`,
+and `pen`, filters can't be combined with `--at` or `--path` (`invalid_arguments`):
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
   never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.

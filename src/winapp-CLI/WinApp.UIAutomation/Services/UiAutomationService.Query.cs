@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Runtime.InteropServices.Marshalling;
+using Microsoft.Extensions.Logging;
 using Windows.Win32.UI.Accessibility;
 
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
@@ -165,9 +166,9 @@ internal sealed partial class UiAutomationService
         }
         if (requireUnique && results.Count > 1)
         {
-            throw new UiAmbiguousSelectorException(
-                $"Selector matched {results.Count} elements. " +
-                "Use a unique slug from 'inspect' or narrow --root, --type, or --class-name.");
+            throw new UiAmbiguousSelectorException(FormatAmbiguousMatches(
+                results.Select(r => r.Element).ToList(),
+                "Use a unique slug from 'inspect' or narrow --root, --type, or --class-name."));
         }
         return results.Count > maxResults ? results.GetRange(0, maxResults) : results;
 
@@ -256,4 +257,69 @@ internal sealed partial class UiAutomationService
         (selector.ControlType is null || (int)element.get_CurrentControlType() == UiControlTypes.GetId(selector.ControlType))
         && (selector.ClassName is null || string.Equals(
             GetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_ClassNamePropertyId)), selector.ClassName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Every match of an ambiguous read, for the error listing. The read stopped at its second match, so
+    /// this repeats the same lookup without that cap. It runs only after the read has already failed as
+    /// ambiguous, and falls back to the two matches it found if the repeat fails or the UI changed.
+    /// </summary>
+    private List<IUIAutomationElement> ListAmbiguousMatches(
+        UiTarget target, UiSelector selector, UiElement[] found, CancellationToken ct)
+    {
+        try
+        {
+            var all = QueryConstrained(target, selector, int.MaxValue, requireUnique: false, ct)
+                .Select(match => match.Element).ToList();
+            if (all.Count > 1) { return all; }
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException
+            or InvalidOperationException)
+        {
+            _logger.LogDebug(ex, "Could not list every match of an ambiguous selector");
+        }
+        return found.Select(match => match.Context?.AutomationElement).OfType<IUIAutomationElement>().ToList();
+    }
+
+    /// <summary>
+    /// The message for a selector that had to match one element but matched several: the count, the first
+    /// five matches with a selector for each, and <paramref name="advice"/>.
+    /// </summary>
+    private string FormatAmbiguousMatches(List<IUIAutomationElement> matches, string advice)
+    {
+        const int Shown = 5;
+        var listing = new System.Text.StringBuilder();
+        listing.AppendLine($"Selector matched {matches.Count} elements:");
+        foreach (var candidate in matches.Take(Shown))
+        {
+            try
+            {
+                // Identity properties only: describing a candidate must not read its control patterns.
+                var type = GetControlTypeName(candidate.get_CurrentControlType());
+                var name = SafeGetBstr(() => s_getCurrentBstr(candidate, UIA_PROPERTY_ID.UIA_NamePropertyId));
+                var automationId = SafeGetBstr(() => s_getCurrentBstr(candidate, UIA_PROPERTY_ID.UIA_AutomationIdPropertyId));
+                string? slug = null;
+                try
+                {
+                    unsafe { slug = SlugGenerator.GenerateSlugFromSafeArray(type, automationId, name, candidate.GetRuntimeId()); }
+                }
+                catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException)
+                {
+                    // Without a runtime ID the line still names the element; the fallback text says how to get a selector.
+                    _logger.LogDebug(ex, "Could not build a slug for an ambiguous match");
+                }
+                listing.AppendLine($"  {type} \"{name}\"  -> {slug ?? "(run inspect for an exact selector)"}");
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                // A match that went away while listing must not hide the ambiguity itself.
+                listing.AppendLine("  (element is no longer available)");
+            }
+        }
+        if (matches.Count > Shown)
+        {
+            listing.AppendLine($"  ... and {matches.Count - Shown} more");
+        }
+        listing.Append(advice);
+        return listing.ToString();
+    }
 }

@@ -88,12 +88,15 @@ winapp ui yield
 winapp ui search "Welcome to MyApp" -a myapp --root MailRow --type Text --class-name TextBlock
 winapp ui get-value Subject -a myapp --root MailRow --type TextBox
 winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value Ready --timeout 10000
+winapp ui search --class-name CalendarSurface -a myapp   # no text selector needed
 ```
 
 Use `--root`, `--type`, and `--class-name` together or separately on `search`,
 `get-property`, `get-value`, `wait-for`, and the commands that act on one
 selected element (`invoke`, `set-value`, `click`, `focus`, and so on; not `send-keys --target`).
-For `click`, `hover`, `touch`, and `pen`, filters need a selector; they can't be combined with `--at` or `--path`. The root must be unique; only its
+`--type` and `--class-name` work without a selector; commands other than `search` then need
+exactly one match, and an ambiguous match lists the first five with their slugs. `--root` alone is not a query. For `set-value`, pass `""` as the selector.
+For `click`, `hover`, `touch`, and `pen`, filters can't be combined with `--at` or `--path`. The root must be unique; only its
 descendants match. `wait-for` re-resolves it every poll, including when it is
 initially absent. Type names and literal whole ClassName values ignore case.
 The only type aliases are `TextBox` → `Edit` and `TextBlock` → `Text`.
