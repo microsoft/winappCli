@@ -18,7 +18,7 @@ To measure WinUI work while driving a scenario, use the
 [performance skill](../winapp-performance/SKILL.md) to bracket UI actions with capture markers.
 
 - For UIA mode (any app): No setup needed — works with any running Windows app
-- For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
+- For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`/`--wheel-horizontal`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
 - `screenshot` is **not** in that group: it always takes an exclusive turn, so it queues behind other UI workflows, and capture can need a usable interactive desktop — the engine restores the target if it is minimized, and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used.
 - `--capture-screen` needs **exactly one window**. `-w <hwnd>` gives it one: that window's screen region, including anything visibly on top of it. If `-a` matches several top-level or owned windows the command fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`.
 - **If other UI workflows may run at the same time**, set one workflow id per logical workflow (see below). Nothing breaks without it, but your commands will not be recognized as belonging together.
@@ -72,7 +72,7 @@ queue behind another workflow. Inside your own workflow they overlap with other 
 is how `record` captures the `set-value` calls it is recording — but they still wait behind an
 earlier `DesktopExclusive` command of your own workflow, so a `click` followed by a `set-value` runs
 in the order you wrote it.
-Commands that take the desktop exclusively: `invoke`, `click`, `drag`, `hover`, `scroll --wheel`,
+Commands that take the desktop exclusively: `invoke`, `click`, `drag`, `hover`, `scroll --wheel`/`--wheel-horizontal`,
 `touch`, `pen`, `focus`, `send-keys`, `screenshot`.
 
 ```powershell
@@ -322,9 +322,9 @@ winapp ui touch -a myapp --at 320,240
 winapp ui touch tile-photo-7b3c -a myapp --gesture long-press --hold-ms 600
 winapp ui touch -a myapp --at 100,300 --gesture swipe --to-point 400,300
 winapp ui touch img-map-9f8e -a myapp --gesture pinch --distance 200
-winapp ui touch img-map-9f8e -a myapp --gesture stretch --distance 200
+winapp ui touch img-map-9f8e -a myapp --gesture stretch --distance 200 --angle 90
 ```
-- Gestures: `tap` (default), `double-tap`, `long-press`, `swipe`, `pinch`, `stretch`. `--fingers` 1–10 (pinch/stretch always 2). Refuses without a non-zero foregrounded target (`no_target`/`foreground_not_target`/`no_interactive_desktop`); every coordinate is checked against the target window, and a point outside it produces a non-fatal warning (`warnings[]` in `--json`) while injection still proceeds — consistent with the mouse verbs. If injected touch is unsupported on the device, the command surfaces the real Win32 error rather than a false success. In a Remote Desktop/VM session delivery isn't guaranteed even on exit 0 — the command appends a delivery-uncertainty warning (`warnings[]` in `--json`); verify the effect with a screenshot.
+- Gestures: `tap` (default), `double-tap`, `long-press`, `swipe`, `pinch`, `stretch`. `--fingers` 1–10 (pinch/stretch always 2). `--angle` 0–359 sets the pinch/stretch finger axis (0 horizontal, 90 vertical). Refuses without a non-zero foregrounded target (`no_target`/`foreground_not_target`/`no_interactive_desktop`); every coordinate is checked against the target window, and a point outside it produces a non-fatal warning (`warnings[]` in `--json`) while injection still proceeds — consistent with the mouse verbs. If injected touch is unsupported on the device, the command surfaces the real Win32 error rather than a false success. In a Remote Desktop/VM session delivery isn't guaranteed even on exit 0 — the command appends a delivery-uncertainty warning (`warnings[]` in `--json`); verify the effect with a screenshot.
 
 ### Pen / stylus (taps and ink strokes)
 Inject synthetic pen input (Windows 10 1809+). Target an element center, an explicit `--at`, or a full `--path` ink stroke, with pressure/tilt/eraser control.
@@ -414,6 +414,9 @@ winapp ui scroll pn-scrollview-bfef --direction down -a myapp; winapp ui search 
 
 # Synthesize real mouse-wheel input over the element (1 = one notch up, -1 = down) — tests wheel handlers (zoom, custom scroll)
 winapp ui scroll img-map-a1b2 --wheel -1 -a myapp
+
+# Horizontal (tilt) wheel: 1 = one notch right, -1 = left — pans timelines and other horizontal-wheel handlers
+winapp ui scroll pn-timeline-c3d4 --wheel-horizontal 3 -a myapp
 ```
 
 ### Wait for UI state

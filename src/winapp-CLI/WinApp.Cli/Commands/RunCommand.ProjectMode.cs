@@ -451,7 +451,8 @@ internal partial class RunCommand
                             // Report whether the runtime was actually prepared: a plain console/desktop app
                             // with no Windows App SDK reference is skipped inside, so claiming "ready" would
                             // be a lie. Surface the skip honestly instead.
-                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), ct);
+                            var packageDir = resolution.WindowsAppSdkPackageDir is { } dir ? new DirectoryInfo(dir) : null;
+                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), packageDir, ct);
                             return (0, prepared ? "Windows App Runtime ready" : "No Windows App SDK reference — runtime not needed");
                         }
                         catch (OperationCanceledException) when (ct.IsCancellationRequested)

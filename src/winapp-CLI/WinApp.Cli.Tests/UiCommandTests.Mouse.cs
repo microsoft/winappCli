@@ -419,6 +419,72 @@ public partial class UiCommandTests
     }
 
     // ---------------------------------------------------------------------
+    // scroll --wheel-horizontal (#1092) — synthetic horizontal (tilt) wheel input
+    // ---------------------------------------------------------------------
+
+    [TestMethod]
+    public async Task Scroll_WheelHorizontal_SendsHorizontalDeltaAtElementCenter()
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "List", Selector = "lst-items-1234", X = 50, Y = 60, Width = 120, Height = 40 };
+
+        var command = GetRequiredService<UiScrollCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-items-1234", "-a", "TestApp", "--wheel-horizontal", "3", "--json"]);
+        Assert.AreEqual(0, exitCode);
+
+        Assert.AreEqual(1, _fakeMouse.ScrollWheelCalls.Count);
+        var wheel = _fakeMouse.ScrollWheelCalls[0];
+        Assert.IsTrue(wheel.Horizontal);
+        Assert.AreEqual(110, wheel.ScreenX);
+        Assert.AreEqual(80, wheel.ScreenY);
+        Assert.AreEqual(360, wheel.Delta); // 3 notches right * 120 (WHEEL_DELTA)
+
+        var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(TestAnsiConsole.Output);
+        Assert.AreEqual(3, result.GetProperty("wheelHorizontal").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task Scroll_Wheel_IsVertical()
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "List", Selector = "lst-items-1234", X = 0, Y = 0, Width = 100, Height = 100 };
+
+        var command = GetRequiredService<UiScrollCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-items-1234", "-a", "TestApp", "--wheel", "1", "--json"]);
+        Assert.AreEqual(0, exitCode);
+
+        Assert.AreEqual(1, _fakeMouse.ScrollWheelCalls.Count);
+        Assert.IsFalse(_fakeMouse.ScrollWheelCalls[0].Horizontal);
+    }
+
+    [TestMethod]
+    [DataRow("--wheel", "1")]
+    [DataRow("--direction", "left")]
+    [DataRow("--to", "top")]
+    public async Task Scroll_WheelHorizontal_WithAnotherMode_ReturnsError(string otherOption, string otherValue)
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "List", Selector = "lst-items-1234", X = 0, Y = 0, Width = 100, Height = 100 };
+
+        var command = GetRequiredService<UiScrollCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-items-1234", "-a", "TestApp", "--wheel-horizontal", "-1", otherOption, otherValue, "--json"]);
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeMouse.ScrollWheelCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task Scroll_WheelHorizontal_ForegroundGuardDenies_NamesTheOption()
+    {
+        _fakeUia.FindSingleResult = new UiElement { Id = "e0", Type = "List", Selector = "lst-items-1234", X = 50, Y = 60, Width = 120, Height = 40, WindowHandle = 7777 };
+        _fakeForeground.Allow = false;
+        _fakeForeground.DenyReason = ForegroundCheck.ForegroundNotTarget;
+
+        var command = GetRequiredService<UiScrollCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["lst-items-1234", "-a", "TestApp", "--wheel-horizontal", "-1", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeMouse.ScrollWheelCalls.Count);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "refusing to scroll --wheel-horizontal");
+    }
+
+    // ---------------------------------------------------------------------
     // click / hover --at x,y (#1091) — act on a screen point instead of an element
     // ---------------------------------------------------------------------
 
