@@ -139,6 +139,8 @@ foreach ($a in $reportApproaches) {
             ParityDiffs = [int](@($parityChecks | ForEach-Object { if ($null -ne $_.Diffs) { [int]$_.Diffs } elseif (-not $_.Ok) { 1 } else { 0 } }) | Measure-Object -Sum).Sum
             SameProcess = -not @($rows | Where-Object { -not $_.SameProcess })
             Reasons = @($rows | Where-Object { $_.Outcome -in 'restart', 'error', 'waiting', 'timeout' } | ForEach-Object { [pscustomobject]@{ Action = $_.Action; Outcome = $_.Outcome; Reason = $_.Reason } })
+            # What winapp told the developer alongside a save (D's "shows X here but Y after a restart", say).
+            Notes = @($rows | ForEach-Object { $action = $_.Action; @([string]$_.Detail -split "`n" | Where-Object { $_ -match '^\s+note:' }) | ForEach-Object { [pscustomobject]@{ Action = $action; Note = (($_ -replace '^\s+note:\s*', '') -replace '\s*\(\d+ ms\)\s*$', '') } } })
             Saves_ = @($rows | ForEach-Object { [pscustomobject]@{ Kind = $(if ($_.Kind) { $_.Kind } else { 'other' }); WallMs = $_.WallMs; Ms = $_.Ms; Outcome = $_.Outcome } })
         })
     }
@@ -154,7 +156,7 @@ $md.Add('Approaches: ' + ((@($reportApproaches | ForEach-Object {
     "**$id** $($_.title)$(if ($v) { " (winapp $v)" })"
 })) -join '; ') + '.')
 $md.Add('')
-$md.Add('Cell: live/restart/error saves · UI checks passed/total · parity differences · state kept/checked. `-` = not run.')
+$md.Add('Cell: live/restart/error saves · UI checks passed/total · parity differences · state kept/checked · notes winapp printed. `-` = not run.')
 $md.Add('')
 $md.Add('| Journey | ' + ($ids -join ' | ') + ' |')
 $md.Add('|---|' + (($ids | ForEach-Object { '---' }) -join '|') + '|')
@@ -169,7 +171,8 @@ foreach ($j in $journeys) {
                 $parityText = if ($c.ParityChecks) { "parity $($c.ParityDiffs)" } else { 'parity off' }
                 $stateText = if ($c.State) { " · state $($c.StateOk)/$($c.State)" } else { '' }
                 $proc = if ($c.SameProcess) { '' } else { ' · new process' }
-                " $($c.Live)/$($c.Restart)/$($c.Error)$(if ($c.Timeout) { " +$($c.Timeout) timeout" }) · $($c.ChecksOk)/$($c.Checks) · $parityText$stateText$proc |"
+                $notesText = if (@($c.Notes).Count) { " · notes $(@($c.Notes).Count)" } else { '' }
+                " $($c.Live)/$($c.Restart)/$($c.Error)$(if ($c.Timeout) { " +$($c.Timeout) timeout" }) · $($c.ChecksOk)/$($c.Checks) · $parityText$stateText$notesText$proc |"
             }
     }
     $md.Add($line)
@@ -177,13 +180,13 @@ foreach ($j in $journeys) {
 $md.Add('')
 $md.Add('## Totals')
 $md.Add('')
-$md.Add('| Approach | Journeys | Saves | Live | Restart | Error | Timeout | UI checks | Parity diffs (checks ok) | State kept | Same process |')
-$md.Add('|---|---|---|---|---|---|---|---|---|---|---|')
+$md.Add('| Approach | Journeys | Saves | Live | Restart | Error | Timeout | UI checks | Parity diffs (checks ok) | State kept | Notes | Same process |')
+$md.Add('|---|---|---|---|---|---|---|---|---|---|---|---|')
 foreach ($id in $ids) {
     $ran = @($cells | Where-Object { $_.Approach -eq $id -and $_.Status -eq 'ran' })
-    if (-not $ran) { $md.Add("| $id | 0 | | | | | | | | | |"); continue }
+    if (-not $ran) { $md.Add("| $id | 0 | | | | | | | | | | |"); continue }
     $sum = { param($p) [int](($ran | ForEach-Object { $_.$p }) | Measure-Object -Sum).Sum }
-    $md.Add("| $id | $($ran.Count) | $(& $sum Saves) | $(& $sum Live) | $(& $sum Restart) | $(& $sum Error) | $(& $sum Timeout) | $(& $sum ChecksOk)/$(& $sum Checks) | $(& $sum ParityDiffs) ($(& $sum ParityOk)/$(& $sum ParityChecks)) | $(& $sum StateOk)/$(& $sum State) | $(@($ran | Where-Object SameProcess).Count)/$($ran.Count) journeys |")
+    $md.Add("| $id | $($ran.Count) | $(& $sum Saves) | $(& $sum Live) | $(& $sum Restart) | $(& $sum Error) | $(& $sum Timeout) | $(& $sum ChecksOk)/$(& $sum Checks) | $(& $sum ParityDiffs) ($(& $sum ParityOk)/$(& $sum ParityChecks)) | $(& $sum StateOk)/$(& $sum State) | $(@($ran | ForEach-Object { @($_.Notes) }).Count) | $(@($ran | Where-Object SameProcess).Count)/$($ran.Count) journeys |")
 }
 $md.Add('')
 $md.Add('## Latency per save kind (seconds from save until the app shows it; a restart counts until the app is back)')
@@ -202,13 +205,14 @@ foreach ($id in $ids) {
     $md.Add($line)
 }
 $md.Add('')
-$md.Add('## Restarts, errors and lost state')
+$md.Add('## Restarts, errors, notes and lost state')
 foreach ($id in $ids) {
     $md.Add('')
     $md.Add("### $id")
     $any = $false
     foreach ($c in @($cells | Where-Object { $_.Approach -eq $id -and $_.Status -eq 'ran' })) {
         foreach ($r in @($c.Reasons)) { $md.Add("- $($c.Journey) / $($r.Action): **$($r.Outcome)** $($r.Reason)"); $any = $true }
+        foreach ($n in @($c.Notes)) { $md.Add("- $($c.Journey) / $($n.Action): note: $($n.Note)"); $any = $true }
         if ($c.StateLost) { $md.Add("- $($c.Journey): state lost: $(@($c.StateLost) -join ', ')"); $any = $true }
         if ($c.ParityDiffs) { $md.Add("- $($c.Journey): $($c.ParityDiffs) parity difference(s), see $($c.Run)\*\parity\*\parity.json"); $any = $true }
     }
