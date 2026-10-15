@@ -15,6 +15,46 @@ struct __declspec(uuid("73A07052-1BFE-40CD-8DC4-FB3D7A5BCECF")) IDevToolsXamlHot
     virtual HRESULT STDMETHODCALLTYPE RemoveComponentMarkup(LPCWSTR uri) = 0;
 };
 
+// IXamlHotReloadService2 (experimental): the live components LoadComponent loaded from a URI, including Windows, which
+// XAML diagnostics doesn't expose. Declared by vtable slot; only GetLiveComponents (slot 10) is called.
+struct __declspec(uuid("873A3D6E-441A-44AC-AC29-8D6F357FAC81")) IDevToolsXamlHotReloadService2 : IUnknown
+{
+    virtual HRESULT STDMETHODCALLTYPE Slot3() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Slot4() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Slot5() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Slot6() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Slot7() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Slot8() = 0;
+    virtual HRESULT STDMETHODCALLTYPE ReloadComponents(LPCWSTR uri, UINT32* count) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetLiveComponents(LPCWSTR uri, UINT32* count, IInspectable*** components) = 0;
+};
+
+// The calling UI thread's live components loaded from `uri`, or false when this WinUI can't say (no service 2).
+static bool HotReloadTrackedComponents_ui(const std::wstring& uri, std::vector<winrt::Windows::Foundation::IInspectable>* found)
+{
+    IUnknown* service = g_hotReloadService.load();
+    winrt::com_ptr<IDevToolsXamlHotReloadService2> service2;
+    if (!service || FAILED(service->QueryInterface(__uuidof(IDevToolsXamlHotReloadService2), service2.put_void())) || !service2) return false;
+    UINT32 count = 0;
+    IInspectable** components = nullptr;
+    const HRESULT hr = service2->GetLiveComponents(uri.c_str(), &count, &components);
+    if (FAILED(hr)) {
+        Log(L"hot reload: GetLiveComponents(%s) hr=0x%08X", uri.c_str(), hr);
+        return false;
+    }
+    for (UINT32 i = 0; i < count; ++i) {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::attach_abi(object, components[i]);
+        // As handed to LoadComponent by the generated InitializeComponent: the app's outer object.
+        if (auto window = object.try_as<DevToolsX::Window>()) object = window.as<winrt::Windows::Foundation::IInspectable>();
+        else if (auto element = object.try_as<DevToolsX::DependencyObject>()) object = element.as<winrt::Windows::Foundation::IInspectable>();
+        if (object) found->push_back(object);
+    }
+    CoTaskMemFree(components);
+    Log(L"hot reload: GetLiveComponents(%s) = %u", uri.c_str(), count);
+    return true;
+}
+
 static constexpr HRESULT kXamlHotReloadNotEnabled = static_cast<HRESULT>(0x802B0029);
 static constexpr size_t kHotReloadMaxXbfBytes = 64u * 1024u * 1024u;
 
@@ -209,9 +249,10 @@ static std::wstring HotReloadReloadComponent_ui(const std::wstring& id, const st
     std::vector<std::wstring> notes, errors;
     size_t reloaded = 0;
     // The Application is found directly: a C++/WinRT App often has no runtime class of its own to match by name.
-    const auto components = application
-        ? std::vector<winrt::Windows::Foundation::IInspectable>{ DevToolsX::Application::Current().as<winrt::Windows::Foundation::IInspectable>() }
-        : HotReloadLiveComponents_ui(className);
+    // Otherwise the runtime's own list of what it loaded from the URI (covers Windows), else the diagnostics census.
+    std::vector<winrt::Windows::Foundation::IInspectable> components;
+    if (application) components.push_back(DevToolsX::Application::Current().as<winrt::Windows::Foundation::IInspectable>());
+    else if (!HotReloadTrackedComponents_ui(uri, &components)) components = HotReloadLiveComponents_ui(className);
     for (auto const& component : components) {
         std::wstring error;
         if (SUCCEEDED(HotReloadReloadOne_ui(component, uri, location, &notes, &error))) ++reloaded;
