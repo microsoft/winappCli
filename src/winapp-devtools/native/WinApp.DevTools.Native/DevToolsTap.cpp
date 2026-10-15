@@ -184,6 +184,7 @@ extern "C" HRESULT __stdcall DevToolsTap_GetXamlHotReloadService(IUnknown** serv
 #include "DevToolsTap.Route1Read.inc"
 #include "DevToolsTap.OverlayState.inc"
 #include "DevToolsTap.Commands.inc"
+#include "DevToolsTap.HotReloadComponent.inc"
 #include "DevToolsTap.Rpc.inc"
 #include "DevToolsTap.EditBridges.inc"
 #include "DevToolsTap.Lifecycle.inc"

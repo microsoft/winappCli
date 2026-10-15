@@ -13,8 +13,9 @@ internal partial class RunCommand
     public static Option<bool> WatchOption { get; } = new("--watch")
     {
         Description = "Keep the app running and apply saved .cs, .xaml and project file changes to it live (WinUI 3 .NET projects). " +
+            "For C++/WinRT projects, a saved .xaml applies live when the XAML compiler's generated C++ for it doesn't change. " +
             "Changes that can't be applied in place rebuild and restart the app. Uses the DevTools agent even when DevTools is off (then without the toolbar). " +
-            "Requires the .NET SDK and a project that builds in a debuggable configuration such as Debug.",
+            "Requires the .NET SDK (Visual Studio's C++ build tools for C++ projects) and a project that builds in a debuggable configuration such as Debug.",
     };
 
     public partial class Handler

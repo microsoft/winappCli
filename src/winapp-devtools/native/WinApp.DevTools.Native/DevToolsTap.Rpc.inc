@@ -490,6 +490,8 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         return DevToolsRpcResult(id, L"null");
     }
 
+    if (m == L"HotReload.reloadComponent") return HandleHotReloadReloadComponent(conn, id, p);
+
     if (m == L"HotReload.clearProperty") {
         std::wstring name   = p.GetString(L"name");
         std::wstring handle = p.GetString(L"handle");

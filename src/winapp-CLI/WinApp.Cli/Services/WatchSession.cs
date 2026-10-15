@@ -13,7 +13,7 @@ namespace WinApp.Cli.Services;
 /// The CLI half of 'winapp run --watch': instruments the build so the hot reload helper can reproduce the exact
 /// compilation, launches the app with the in-app agent, and runs the helper until the app exits or needs a restart.
 /// </summary>
-internal sealed class WatchSession
+internal sealed partial class WatchSession
 {
     private const int RestartExitCode = 3;
 
@@ -73,7 +73,7 @@ internal sealed class WatchSession
         }
         _targets = Path.Combine(_directory, "winapp-hotreload.targets");
         _compilerArgs = Path.Combine(_directory, "csc.rsp");
-        File.WriteAllText(_targets, Targets);
+        File.WriteAllText(_targets, IsCpp ? CppTargets : Targets);
         // An old timestamp keeps the import from making the rest of the build (e.g. the XAML compiler) out of date.
         File.SetLastWriteTimeUtc(_targets, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     }
@@ -269,6 +269,10 @@ internal sealed class WatchSession
 
     private bool IsSource(string path)
     {
+        if (IsCpp)
+        {
+            return IsCppSource(path);
+        }
         var segments = Path.GetRelativePath(_project.DirectoryName!, path).Split(Path.DirectorySeparatorChar);
         return Path.GetExtension(path).ToLowerInvariant() is ".cs" or ".xaml" or ".csproj" or ".appxmanifest" or ".resw" &&
             !segments.SkipLast(1).Any(s => s.Equals("bin", StringComparison.OrdinalIgnoreCase) || s.Equals("obj", StringComparison.OrdinalIgnoreCase));
@@ -284,7 +288,7 @@ internal sealed class WatchSession
     public bool HasUnappliedSave() => LastSettled is { } settled &&
         Directory.EnumerateFiles(_project.DirectoryName!, "*", SearchOption.AllDirectories).Any(file => IsSource(file) && File.GetLastWriteTimeUtc(file) > settled);
 
-    public IReadOnlyList<string> BuildProperties =>
+    public IReadOnlyList<string> BuildProperties => IsCpp ? CppBuildProperties :
     [
         "ProvideCommandLineArgs=true",
         $"CustomAfterMicrosoftCommonTargets={_targets}",
@@ -308,6 +312,10 @@ internal sealed class WatchSession
     {
         RestartRequested = false;
         Launched = true;
+        if (IsCpp)
+        {
+            return await RunCppAsync(app, console, cancellationToken);
+        }
         if (!File.Exists(_compilerArgs))
         {
             console.MarkupLine("[yellow][[watch]] hot reload is unavailable: the build did not report its compiler command line.[/]");
