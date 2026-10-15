@@ -13,6 +13,11 @@
   DevTools, runs the journey's parity probes (clicks, typing) and reads again, then builds the source from scratch,
   launches it, does the same, and fails on any difference. -Parity Auto (the default) runs it for journeys that
   opt in ("parity": { "auto": true }); On runs it for every journey (after the last save at least); Off skips it.
+
+  Everything that launches an app runs under the desktop lock shared by sessions on this desktop
+  (C:\hr-shared\DesktopLock.ps1). An unpackaged run takes one of its shared slots; a packaged run, a journey marked
+  "desktop": "exclusive", one with a step that depends on keyboard focus ("focus"), or -ExclusiveDesktop takes the
+  whole desktop. -NoDesktopLock (implied on CI) runs without it.
 .EXAMPLE
   .\Run-WatchJourney.ps1 -Winapp ..\..\..\artifacts\cli\win-x64\winapp.exe -WinUIPackageSource <folder with a locally built Microsoft.WindowsAppSDK.WinUI .nupkg>
 #>
@@ -37,7 +42,12 @@ param(
     # The lock shared by every session that launches apps on this desktop (see Use-HrDesktop in it).
     [string]$DesktopLockScript = 'C:\hr-shared\DesktopLock.ps1',
     # Run without the desktop lock: for CI agents and machines no other run shares (CI, TF_BUILD and GITHUB_ACTIONS imply it).
-    [switch]$NoDesktopLock
+    [switch]$NoDesktopLock,
+    # Take the whole desktop even when the run could share it with other unpackaged runs.
+    [switch]$ExclusiveDesktop,
+    # MSBuild properties (Name=Value) every build of the app gets, the clean parity build included (for example
+    # EnableHotReloadStableConnectionIds=true for one approach on a scoreboard).
+    [string[]]$BuildProperty = @()
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'WatchJourney.psm1') -Force
@@ -55,6 +65,10 @@ function New-JourneyApp([string]$Directory) {
     if (Test-Path $assets) { Copy-Item $assets (Join-Path $Directory 'Assets') -Recurse }
     $properties = @()
     if ($Packaging -eq 'Unpackaged') { $properties += '<WindowsPackageType>None</WindowsPackageType>' }
+    foreach ($property in $BuildProperty) {
+        $name, $value = $property -split '=', 2
+        $properties += "<$name>$([System.Security.SecurityElement]::Escape($value))</$name>"
+    }
     # The local WinUI package carries the runtime; self-contained keeps a third-party package's transitive
     # Microsoft.WindowsAppSDK from pulling in a different framework. It has to be set before the package targets
     # are evaluated (so here, not in .targets), and only for the app: class libraries reject it.
@@ -147,14 +161,31 @@ function Test-UiCheck($Check, [int]$ProcessId) {
         'enabled-equals' { return Invoke-Ui (@('wait-for', $target, '-p', 'IsEnabled', '--value', $value) + $app + @('-t', '5000')) }
         'property-equals' {
             # value is "Property=Value", read from the XAML tree (properties UI Automation doesn't expose, like FontSize).
-            $property, $expected = $value -split '=', 2
+            # "Property>N" and "Property<N" compare numbers (a scroll offset that only has to be past a point).
+            if ($value -notmatch '^(?<p>[^=<>]+)(?<op>[=<>])(?<v>.*)$') { throw "property-equals value '$value' is not Property=Value, Property>N or Property<N." }
+            $property, $op, $expected = $Matches.p, $Matches.op, $Matches.v
             $deadline = (Get-Date).AddSeconds(5)
             do {
                 $output = & $Winapp devtools get-property $target $property @app 2>&1 | Out-String
-                if ($output -match "(?m)^\s*$([regex]::Escape($property)):\s*(\S+)" -and $Matches[1] -eq $expected) { return [pscustomobject]@{ Ok = $true; Output = $output.Trim() } }
+                if ($output -match "(?m)^\s*$([regex]::Escape($property)):\s*(\S+)") {
+                    $actual = $Matches[1]
+                    $ok = switch ($op) {
+                        '=' { $actual -eq $expected }
+                        '>' { $actual -as [double] -gt [double]$expected }
+                        '<' { $actual -as [double] -lt [double]$expected }
+                    }
+                    if ($ok) { return [pscustomobject]@{ Ok = $true; Output = $output.Trim() } }
+                }
                 Start-Sleep -Milliseconds 250
             } while ((Get-Date) -lt $deadline)
-            return [pscustomobject]@{ Ok = $false; Output = "$($output.Trim()), expected $property=$expected" }
+            return [pscustomobject]@{ Ok = $false; Output = "$($output.Trim()), expected $property$op$expected" }
+        }
+        'scroll-to-bottom' { return Invoke-Ui (@('scroll', $target, '--to', 'bottom') + $app) }
+        'set-property' {
+            # value is "Property=Value", set through DevTools (a list's SelectedIndex, as if the user picked an item).
+            $property, $newValue = $value -split '=', 2
+            $output = & $Winapp devtools set-property $target $property $newValue @app 2>&1 | Out-String
+            return [pscustomobject]@{ Ok = ($LASTEXITCODE -eq 0); Output = $output.Trim() }
         }
         'toggle-on' {
             $state = Invoke-Ui (@('get-property', $target, '-p', 'ToggleState') + $app)
@@ -201,7 +232,7 @@ function Test-UiCheck($Check, [int]$ProcessId) {
 # Only this run's app: other runs of the same app may be on the machine.
 function Get-AppPid { (Get-Process TodoBench -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($appDir, [StringComparison]::OrdinalIgnoreCase) } | Sort-Object StartTime -Descending | Select-Object -First 1).Id }
 
-$parityOn = $Parity -eq 'On' -or ($Parity -eq 'Auto' -and $journey.parity.auto)
+$parityOn = $journey.parity.enabled -ne $false -and ($Parity -eq 'On' -or ($Parity -eq 'Auto' -and $journey.parity.auto))
 $parityConfig = if ($journey.parity) { $journey.parity } else { [pscustomobject]@{} }
 $parityProbe = { param($Probe, [int]$ProcessId) Test-UiCheck $Probe $ProcessId }
 
@@ -263,18 +294,22 @@ $runVariants = {
             $seen = [System.Collections.Generic.List[string]]::new()
             $null = Read-NewLines
             if ($appPid) { Read-Baselines $step.Checkpoint.uiChecks ([int]$appPid) }
+            $saveClock = [System.Diagnostics.Stopwatch]::StartNew()
             Invoke-JourneyEdit -AppDir $appDir -Action $step.Action
             $line = Wait-Line '^\[watch\] (applied|waiting|error|restart|unchanged|ready)' $SaveTimeoutSeconds $seen
             $outcome = if ($line -match '^\[watch\] (\w+)') { $Matches[1] } else { 'timeout' }
             # After a failed rebuild or a crash, the save that fixes it rebuilds and relaunches: that's a restart.
             $relaunched = $outcome -eq 'ready'
             if ($relaunched) { $outcome = 'restart' }
+            # How long the developer waited: until the save's outcome, or until the restarted app is up.
+            $wallMs = [int]$saveClock.Elapsed.TotalMilliseconds
             Start-Sleep -Milliseconds 300
             foreach ($extra in Read-NewLines) { $seen.Add($extra) }
             $timed = @($seen | Where-Object { $_ -match '\((\d+) ms\)\s*$' } | Select-Object -First 1)
             $ms = if ($timed -and $timed[0] -match '\((\d+) ms\)\s*$') { [int]$Matches[1] } else { $null }
             if ($outcome -eq 'restart') {
                 if (-not $relaunched) { $null = Wait-Line '^\[watch\] ready' 600 $seen }
+                $wallMs = [int]$saveClock.Elapsed.TotalMilliseconds
                 $appPid = Get-AppPid
                 $inputsSoFar.Clear()
             }
@@ -284,7 +319,8 @@ $runVariants = {
                 Start-Sleep -Milliseconds 700
                 foreach ($check in $step.Checkpoint.uiChecks) {
                     $result = Test-UiCheck $check ([int]$appPid)
-                    $checks += [pscustomobject]@{ Check = "$($check.assert) $($check.target) $($check.value)".Trim(); Ok = $result.Ok; Output = $result.Output }
+                    # A check with "state": "<what>" asks whether something the user or the app built up survived the save.
+                    $checks += [pscustomobject]@{ Check = "$($check.assert) $($check.target) $($check.value)".Trim(); Ok = $result.Ok; Output = $result.Output; State = $check.state }
                     if ($check.assert -in 'set-value', 'toggle-on') {
                         $target = $check.target
                         $null = $inputsSoFar.RemoveAll([Predicate[object]] { param($i) $i.target -eq $target })
@@ -322,12 +358,13 @@ $runVariants = {
                     $parityResult = Invoke-ParityCheck -Winapp $Winapp -ProcessId ([int]$appPid) -AppDir $appDir -WorkDir (Join-Path $runRoot "$variantId\parity\$label") `
                         -InvokeProbe $parityProbe -Config $config -RootNamespace $journey.app.rootNamespace -Configuration $journey.app.configuration -Packaging $Packaging
                     $paritySeconds = $parityResult.Seconds
-                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $parityResult.Ok; Output = $parityResult.Output }
+                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $parityResult.Ok; Output = $parityResult.Output; Diffs = @($parityResult.Diffs).Count }
                     Write-Host $parityResult.Output
                 }
             }
             $row = [pscustomobject]@{
-                Index = $step.Index; Action = $step.Action.id; Outcome = $outcome; Ms = $ms; Pid = $appPid
+                Index = $step.Index; Action = $step.Action.id; Kind = (Get-JourneySaveKind $step.Action); Outcome = $outcome; Ms = $ms; WallMs = $wallMs; Pid = $appPid
+                Reason = $(if ($outcome -in 'restart', 'error', 'waiting', 'timeout') { Get-JourneyOutcomeReason $detail $outcome })
                 SameProcess = ($appPid -eq $launchPid); Checkpoint = $step.Checkpoint.id
                 Checks = $checks; Detail = $detail; ParitySeconds = $paritySeconds
             }
@@ -353,7 +390,24 @@ if ($NoDesktopLock -or $env:CI -or $env:TF_BUILD -or $env:GITHUB_ACTIONS) {
     & $runVariants
 } elseif (Test-Path $DesktopLockScript) {
     . $DesktopLockScript
-    Use-HrDesktop -Owner "Run-WatchJourney $JourneyName $($Variant -join '+') (pid $PID)" -Script $runVariants
+    # One of the desktop's shared slots, unless the run needs the whole desktop: a packaged app (two runs of one package
+    # identity close each other), a journey marked "desktop": "exclusive", or a step that depends on keyboard focus or
+    # injects real input.
+    $exclusiveAsserts = @('focus')
+    $steps = @($journey.segments.actions.checkpoint.uiChecks) + @($journey.parity.probes, $journey.parity.prepare, $journey.parity.navigate) +
+        @($journey.segments.actions.checkpoint.parity | Where-Object { $_ -is [pscustomobject] } | ForEach-Object { @($_.probes, $_.prepare, $_.navigate) })
+    $realInput = @($steps | ForEach-Object { $_ } | Where-Object { $_ -and $_.assert -in $exclusiveAsserts } | ForEach-Object assert | Sort-Object -Unique)
+    $whyExclusive = if ($ExclusiveDesktop) { '-ExclusiveDesktop' }
+        elseif ($Packaging -eq 'Packaged') { 'packaged' }
+        elseif ($journey.desktop -eq 'exclusive') { 'the journey says "desktop": "exclusive"' }
+        elseif ($realInput) { "it uses $($realInput -join ', ')" }
+    $owner = "Run-WatchJourney $JourneyName $($Variant -join '+') (pid $PID)"
+    if ($whyExclusive) {
+        Write-Host "[desktop-lock] the whole desktop: $whyExclusive"
+        Use-HrDesktop -Owner $owner -Script $runVariants
+    } else {
+        Use-HrDesktop -Owner "$owner shared" -Shared -Script $runVariants
+    }
 } else {
     throw "The desktop lock script $DesktopLockScript was not found. Pass -DesktopLockScript, or -NoDesktopLock on a machine no other run shares."
 }

@@ -163,6 +163,7 @@ internal static class HotReloadAgent
             // Always drained, so evaluations a later load defers aren't left waiting for an update that never runs them.
             await XamlReload.OnUiThreadAsync(() =>
             {
+                XamlReload.RestoreDetachedLists();
                 XamlReload.ApplyDeferredBindings(response.Messages, response.Errors, response.Notes);
                 return true;
             }).ConfigureAwait(false);

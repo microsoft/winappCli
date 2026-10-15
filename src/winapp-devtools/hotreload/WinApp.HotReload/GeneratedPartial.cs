@@ -79,7 +79,7 @@ internal static class GeneratedPartial
         (isReference ? $"if ((object){field} is not null) return; " : "") +
         $"global::System.Runtime.CompilerServices.Unsafe.AsRef(in {field}) = {initializer}; }}";
 
-    public static string Create(XamlComponent component, IReadOnlyList<ClassDeclarationSyntax> userParts, bool canReplay)
+    public static string Create(XamlComponent component, IReadOnlyList<ClassDeclarationSyntax> userParts, bool canReplay, bool markup = true)
     {
         var className = component.ClassName!;
         var dot = className.LastIndexOf('.');
@@ -116,7 +116,8 @@ internal static class GeneratedPartial
             builder.Append(" : global::").Append(rootType);
         }
         builder.AppendLine().AppendLine("{");
-        foreach (var named in component.Latest?.Names ?? [])
+        // Without markup (the XAML compiler generates the fields, InitializeComponent and x:Bind code), only the replay.
+        foreach (var named in markup ? component.Latest?.Names ?? [] : [])
         {
             if (!named.Name.StartsWith(XamlTransform.GeneratedNamePrefix, StringComparison.Ordinal) && !component.FrozenFields.Contains(named.Name))
             {
@@ -127,7 +128,7 @@ internal static class GeneratedPartial
         {
             builder.Append("    private global::").Append(type).Append(' ').Append(field).AppendLine(";");
         }
-        if (!component.HasCompiledPart)
+        if (markup && !component.HasCompiledPart)
         {
             builder.AppendLine("    private bool _contentLoaded;");
             builder.AppendLine("    public void InitializeComponent()");
@@ -138,7 +139,7 @@ internal static class GeneratedPartial
                 .AppendLine("\"), global::Microsoft.UI.Xaml.Controls.Primitives.ComponentResourceLocation.Application);");
             builder.AppendLine("    }");
         }
-        foreach (var function in component.Latest?.Functions ?? [])
+        foreach (var function in markup ? component.Latest?.Functions ?? [] : [])
         {
             component.EmittedFunctions[function.Method] = function;
         }

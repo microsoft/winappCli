@@ -244,7 +244,8 @@ internal static class Program
                     {
                         File.AppendAllText(log + ".helper", $"{DateTime.Now:HH:mm:ss.fff} {ex.InnerException}{Environment.NewLine}");
                     }
-                    result = new SaveResult(Outcome.Restart, $"the compiler couldn't express this change as an update ({ex.Message})");
+                    result = new SaveResult(Outcome.Restart, $"{string.Join(", ", changed.Select(Path.GetFileName))}: .NET hot reload's compiler failed on this change " +
+                        $"({ex.InnerException?.GetType().Name ?? ex.GetType().Name} in Roslyn's edit and continue); it takes effect when the app restarts");
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

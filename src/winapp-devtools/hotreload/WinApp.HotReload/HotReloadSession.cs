@@ -57,6 +57,8 @@ internal sealed partial class HotReloadSession
     private Solution _committed;
     private bool _newTypesOnly;
     private bool _xamlReload;
+    private readonly string? _launchTargets;
+    private readonly string[]? _launchProperties;
 
     private HotReloadSession(SessionOptions options, AgentClient agent, AdhocWorkspace workspace, ProjectId projectId, Solution solution,
         EncService enc, string baseDirectory, string[] cscArgs)
@@ -71,6 +73,8 @@ internal sealed partial class HotReloadSession
         _baseDirectory = baseDirectory;
         _cscArgs = cscArgs;
         _markupDirectory = MarkupDirectory(options.PipeName);
+        _launchTargets = File.Exists(options.TargetsFile) ? File.ReadAllText(options.TargetsFile) : null;
+        _launchProperties = File.Exists(options.CscArgsFile + ".props") ? File.ReadAllLines(options.CscArgsFile + ".props") : null;
         Directory.CreateDirectory(_markupDirectory);
         // Lets winapp tell this folder from one a killed session left behind.
         File.WriteAllText(Path.Combine(_markupDirectory, "owner.pid"), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -138,23 +142,8 @@ internal sealed partial class HotReloadSession
         if (xaml is not null)
         {
             session.UseXamlCompiler(xaml);
-            session._warmUp = Task.Run(async () =>
-            {
-                // Edit and continue's first update compiles everything once; done before the first save asks.
-                try
-                {
-                    await session.UpdatesAsync(cancellationToken).ConfigureAwait(false);
-                    session.Discard();
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                }
-            }, cancellationToken);
         }
-        else
-        {
-            session._warmUp = Task.Run(() => session.WarmUpAsync(cancellationToken), cancellationToken);
-        }
+        session._warmUp = Task.Run(() => session.WarmUpAsync(cancellationToken), cancellationToken);
         return session;
     }
 
@@ -717,6 +706,11 @@ internal sealed partial class HotReloadSession
         var savedXaml = paths.Where(p => p.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) && File.Exists(p)).ToList();
         if (UseCompiler && paths.FirstOrDefault(p => p.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) && !File.Exists(p) && _xamlInputs.Contains(p)) is { } removedXaml)
         {
+            // A build fails while code still uses what the markup generated; that is the error to fix first.
+            if (await DeletedMarkupUsageAsync(paths, cancellationToken).ConfigureAwait(false) is { } used)
+            {
+                return new SaveResult(Outcome.Error, used);
+            }
             return new SaveResult(Outcome.Restart, $"{Relative(removedXaml)} was deleted: removing a XAML file takes effect when the app is rebuilt");
         }
         foreach (var path in UseCompiler ? [] : savedXaml)
@@ -767,7 +761,9 @@ internal sealed partial class HotReloadSession
         }
         // Pending until an update that carries them is applied: a save that fails after this still leaves them to send.
         Phase("usage checks");
-        foreach (var initializer in await NewStaticInitializersAsync(cancellationToken).ConfigureAwait(false))
+        // These look at the user's code only: a XAML-only save on the compiler pipeline has nothing for them.
+        var userCodeChanged = !UseCompiler || deleted.Count > 0 || paths.Any(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && IsSource(p));
+        foreach (var initializer in userCodeChanged ? await NewStaticInitializersAsync(cancellationToken).ConfigureAwait(false) : [])
         {
             if (!_pendingInitializers.Contains(initializer))
             {
@@ -787,20 +783,22 @@ internal sealed partial class HotReloadSession
                 return stopped;
             }
         }
-        else
+        // On the compiler pipeline only the constructor replay a reload in place runs (what the constructor does after
+        // InitializeComponent: a frame it navigates, text it sets); the XAML compiler's output has the rest.
+        var problems = await UpdateGeneratedCodeAsync(cancellationToken).ConfigureAwait(false);
+        if (problems.Count > 0)
         {
-            var problems = await UpdateGeneratedCodeAsync(cancellationToken).ConfigureAwait(false);
-            if (problems.Count > 0)
-            {
-                return new SaveResult(Outcome.Error, string.Join(Environment.NewLine + "  ", problems));
-            }
+            return new SaveResult(Outcome.Error, string.Join(Environment.NewLine + "  ", problems));
         }
 
         // Removed fields and properties stay declared up front: the compiler can't remove them from a loaded type, and
         // fails outright (rather than reporting a rude edit) for a removed partial property.
         Phase("generated code");
-        await KeepRemovedFieldsAsync(cancellationToken).ConfigureAwait(false);
-        await EmitNewPartialPropertyInitializersAsync(cancellationToken).ConfigureAwait(false);
+        if (userCodeChanged)
+        {
+            await KeepRemovedFieldsAsync(cancellationToken).ConfigureAwait(false);
+            await EmitNewPartialPropertyInitializersAsync(cancellationToken).ConfigureAwait(false);
+        }
         Phase("kept members");
         var result = await UpdatesAsync(cancellationToken).ConfigureAwait(false);
         if (result.Errors.Count == 0 && (result.RudeEdits.Count > 0 || result.NeedsRestart) && deleted.Count > 0)
@@ -904,13 +902,6 @@ internal sealed partial class HotReloadSession
         {
             request.Markup.AddRange(compiled.Markup);
             request.RefreshTypes.AddRange(compiled.Classes.Where(c => !request.RefreshTypes.Contains(c)));
-            notes.AddRange(await ConstructorNotesAsync(cancellationToken).ConfigureAwait(false));
-            if (notes.FirstOrDefault(n => n.StartsWith(WindowConstructorPrefix, StringComparison.Ordinal)) is { } window)
-            {
-                // A window isn't created again while the app runs: its new constructor would never run.
-                Discard();
-                return new SaveResult(Outcome.Restart, window[WindowConstructorPrefix.Length..]);
-            }
         }
         request.SavedFiles = batch;
         applied.AddRange(paths.Concat(assets).Concat(libraryPaths.Where(p => _libraries.ContainsKey(NestedProjectDirectory(p)!))).Select(Relative).Distinct(StringComparer.OrdinalIgnoreCase));
@@ -1219,8 +1210,39 @@ internal sealed partial class HotReloadSession
     }
 
     /// <summary>The update for the current solution; a compiler crash becomes a <see cref="CompilerCrashException"/>.</summary>
+    /// <summary>Whether the only changes since the last update are comments, whitespace and directives (no code).</summary>
+    private async Task<bool> OnlyTriviaChangedAsync(CancellationToken cancellationToken)
+    {
+        foreach (var project in _solution.GetChanges(_committed).GetProjectChanges())
+        {
+            if (project.GetAddedDocuments().Any() || project.GetRemovedDocuments().Any() || project.GetAddedMetadataReferences().Any() ||
+                project.GetRemovedMetadataReferences().Any() || project.OldProject.ParseOptions != project.NewProject.ParseOptions ||
+                project.OldProject.CompilationOptions != project.NewProject.CompilationOptions)
+            {
+                return false;
+            }
+            foreach (var id in project.GetChangedDocuments())
+            {
+                var before = await project.OldProject.GetDocument(id)!.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+                var after = await project.NewProject.GetDocument(id)!.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+                if (before is null || after is null || !before.IsEquivalentTo(after, topLevel: false))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private async Task<EncResult> UpdatesAsync(CancellationToken cancellationToken)
     {
+        if (!_solution.GetChanges(_committed).GetProjectChanges().Any() || await OnlyTriviaChangedAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // Nothing to compile. Edit and continue would still take this solution as its last one, without a baseline
+            // from its compilation, and the next update of a method added during the session then fails
+            // (NullReferenceException in DefinitionMap.GetPreviousMethodHandle). It sees these edits with the next real one.
+            return new EncResult("None", [], [], [], false);
+        }
         try
         {
             return await _enc.GetUpdatesAsync(_solution, cancellationToken).ConfigureAwait(false);
@@ -1696,7 +1718,7 @@ internal sealed partial class HotReloadSession
             foreach (var component in _components.Values.Where(c => c.ClassName is not null))
             {
                 var parts = classes.GetValueOrDefault(component.ClassName!) ?? [];
-                var text = GeneratedPartial.Create(component, parts, !component.ReplayDisabled);
+                var text = GeneratedPartial.Create(component, parts, !component.ReplayDisabled, markup: !UseCompiler);
                 var source = SourceText.From(text, Encoding.UTF8, SourceHashAlgorithm.Sha256);
                 if ((pass == 0 && (parts.Any(p => changedFiles.Contains(p.SyntaxTree.FilePath)) || (codeChanged && component.Latest?.Functions.Count > 0))) ||
                     !_generated.TryGetValue(component.ClassName!, out var committedId) ||
@@ -2196,11 +2218,30 @@ internal sealed partial class HotReloadSession
         {
             if (!_components.TryGetValue(path, out var component) || component.ClassName is null || compilation.GetTypeByMetadataName(component.ClassName) is not { } type ||
                 // Moved (a folder renamed), not deleted: the class has its markup elsewhere.
-                _components.Values.Any(c => c != component && c.ClassName == component.ClassName && File.Exists(c.XamlPath)))
+                _components.Values.Any(c => c != component && c.ClassName == component.ClassName && File.Exists(c.XamlPath)) ||
+                paths.Any(p => p.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) && File.Exists(p) && DeclaresClass(p, component.ClassName)))
             {
                 continue;
             }
-            foreach (var tree in type.DeclaringSyntaxReferences.Select(r => r.SyntaxTree).Where(t => IsSource(t.FilePath) && !t.FilePath.StartsWith(obj, StringComparison.OrdinalIgnoreCase)).Distinct())
+            var userTrees = type.DeclaringSyntaxReferences.Select(r => r.SyntaxTree).Where(t => IsSource(t.FilePath) && !t.FilePath.StartsWith(obj, StringComparison.OrdinalIgnoreCase)).Distinct().ToList();
+            if (userTrees.Count == 0)
+            {
+                // Only the markup declared the class (its code-behind is gone too): code elsewhere that names it.
+                foreach (var tree in compilation.SyntaxTrees.Where(t => IsSource(t.FilePath) && !t.FilePath.StartsWith(obj, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var model = compilation.GetSemanticModel(tree);
+                    foreach (var identifier in (await tree.GetRootAsync(cancellationToken).ConfigureAwait(false)).DescendantNodes().OfType<IdentifierNameSyntax>().Where(i => i.Identifier.ValueText == type.Name))
+                    {
+                        if (SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(identifier, cancellationToken).Symbol, type))
+                        {
+                            var position = identifier.GetLocation().GetLineSpan().StartLinePosition;
+                            return $"{Relative(tree.FilePath)}({position.Line + 1},{position.Character + 1}): uses {type.Name}, whose markup {Relative(path)} was deleted; " +
+                                "the running app keeps it, but the next build fails (CS0246) until the use is removed or the file is restored";
+                        }
+                    }
+                }
+            }
+            foreach (var tree in userTrees)
             {
                 var model = compilation.GetSemanticModel(tree);
                 foreach (var identifier in (await tree.GetRootAsync(cancellationToken).ConfigureAwait(false)).DescendantNodes().OfType<IdentifierNameSyntax>())
@@ -2216,6 +2257,19 @@ internal sealed partial class HotReloadSession
             }
         }
         return null;
+    }
+
+    /// <summary>Whether the markup file's root declares <paramref name="className"/> (x:Class), read without parsing it.</summary>
+    private static bool DeclaresClass(string xamlPath, string className)
+    {
+        try
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(xamlPath), $@"\bx:Class\s*=\s*[""']{System.Text.RegularExpressions.Regex.Escape(className)}[""']");
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Names of the methods the app's markup calls as x:Bind functions (<c>{x:Bind local:Fmt.Shout(Name)}</c>).</summary>
@@ -2357,9 +2411,15 @@ internal sealed partial class HotReloadSession
     private async Task<string?> RefreshReferencesAsync(bool restore, IReadOnlyCollection<string> changedContent, CancellationToken cancellationToken)
     {
         var output = Path.Combine(_markupDirectory, "references.txt");
-        var built = File.Exists(_options.CscArgsFile + ".props")
-            ? File.ReadAllLines(_options.CscArgsFile + ".props").Where(line => line.Contains('=') && !line.EndsWith('=')).ToList()
-            : [];
+        // The files winapp gave this session can be gone from %TEMP% by now (a cleanup elsewhere): what they said at startup.
+        if (!File.Exists(_options.TargetsFile) && _launchTargets is not null)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_options.TargetsFile)!);
+            File.WriteAllText(_options.TargetsFile, _launchTargets);
+            File.SetLastWriteTimeUtc(_options.TargetsFile, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        }
+        var built = (File.Exists(_options.CscArgsFile + ".props") ? File.ReadAllLines(_options.CscArgsFile + ".props") : _launchProperties ?? [])
+            .Where(line => line.Contains('=') && !line.EndsWith('=')).ToList();
         if (restore)
         {
             // As the launch build restored: the configuration and runtime identifier only. The app's evaluated
