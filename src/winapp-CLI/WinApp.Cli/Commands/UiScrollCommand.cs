@@ -21,8 +21,8 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
     [
         "winapp ui scroll <selector> -a <app> --direction down",
         "winapp ui scroll \"Items\" --type List -a <app> --to bottom",
-                "winapp ui scroll <selector> -a <app> --wheel-horizontal 3",
-            ];
+        "winapp ui scroll <selector> -a <app> --wheel-horizontal 3",
+    ];
 
     /// <summary>One mouse-wheel detent in WHEEL_DELTA units, the granularity SendInput's wheel expects.</summary>
     private const int WheelDelta = 120;
