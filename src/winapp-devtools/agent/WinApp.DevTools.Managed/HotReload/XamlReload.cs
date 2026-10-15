@@ -569,7 +569,10 @@ internal static class XamlReload
             var kept = new List<(Frame Frame, Page Page)>();
             foreach (var window in LiveWindows())
             {
-                if (everything || Affected(window))
+                // NEW TYPES (real compiler): default styles or library markup changed. Pages reload their markup; a window
+                // is re-initialized only when its own markup or code changed. Re-running a window's InitializeComponent
+                // moves its frames into a new tree, and a moved Frame then fails GoBack (E_FAIL).
+                if ((everything && !RealCompilerSpike) || Affected(window))
                 {
                     var state = TakeState(window, window.Content);
                     var frames = NamedFrames(window.Content);
