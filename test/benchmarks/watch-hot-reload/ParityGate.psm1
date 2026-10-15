@@ -464,16 +464,30 @@ function Invoke-ParityCheck {
 #>
 function Get-ReportedDifferences([string[]]$Notes) {
     foreach ($note in @($Notes)) {
-        if ((Remove-Ansi $note) -match "^\s*(note:\s*)?(?<element>[A-Za-z_][\w]*)(\.(?<property>[A-Za-z_]\w*))?\s+shows\s+'(?<hot>.*?)'\s+here\s+but\s+'(?<clean>.*?)'\s+after\s+a\s+restart") {
-            [pscustomobject]@{ Element = $Matches.element; Property = $Matches.property; Hot = $Matches.hot; Clean = $Matches.clean }
+        $text = Remove-Ansi $note
+        if ($text -match "^\s*(note:\s*)?(?<element>[A-Za-z_][\w]*)(\.(?<property>[A-Za-z_]\w*))?\s+shows\s+'(?<hot>.*?)'\s+here\s+but\s+'(?<clean>.*?)'\s+after\s+a\s+restart") {
+            [pscustomobject]@{ Kind = 'value'; Element = $Matches.element; Property = $Matches.property; Hot = $Matches.hot; Clean = $Matches.clean }
+        }
+        elseif ($text -match "^\s*(note:\s*)?\d+\s+elements?\s+under\s+(?<parent>[A-Za-z_]\w*)\b.*?\s+(is|are)\s+missing\s+here\s+but\s+shown\s+after\s+a\s+restart") {
+            [pscustomobject]@{ Kind = 'missing-under'; Element = $Matches.parent }
+        }
+        elseif ($text -match "^\s*(note:\s*)?(?<element>[A-Za-z_]\w*)\s+is\s+missing\s+here\s+but\s+shown\s+after\s+a\s+restart") {
+            [pscustomobject]@{ Kind = 'missing'; Element = $Matches.element }
         }
     }
 }
 
+# How a note and the gate each write "no value": the note says null, the gate (not set) or (unset).
+function ConvertTo-ComparableValue([string]$Value) { if ($Value -in 'null', '(not set)', '(unset)') { return '<no value>' }; return $Value }
+
 <#
 .SYNOPSIS
-  Splits parity differences into those a note reported (same x:Name, the note's property if it names one, and both
-  values) and silent ones. Returns { Silent, Reported }.
+  Splits parity differences into those a note reported and silent ones. Returns { Silent, Reported }. A note covers:
+  - "<X>[.<Property>] shows '<hot>' here but '<clean>' after a restart": the difference on the element named X (or on
+    the page itself, written <PageType>.<Property>), that property if named, with both values;
+  - "<X>.Items shows 'n' here but 'm' after a restart": item elements missing under X (n < m) or extra there (n > m);
+  - "N elements under <Parent> (...) are missing here but shown after a restart": elements missing under Parent;
+  - "<X> is missing here but shown after a restart": the element named X, missing.
 #>
 function Split-ReportedDifferences($Diffs, [string[]]$Notes) {
     $said = @(Get-ReportedDifferences $Notes)
@@ -481,8 +495,29 @@ function Split-ReportedDifferences($Diffs, [string[]]$Notes) {
     $reported = [System.Collections.Generic.List[object]]::new()
     foreach ($d in @($Diffs)) {
         if ($null -eq $d) { continue }
-        $name = if ([string]$d.Element -match '#([^/#\[]+)(\[\d+\])?$') { $Matches[1] } else { $null }
-        $match = $name -and @($said | Where-Object { $_.Element -eq $name -and (-not $_.Property -or $_.Property -eq $d.Property) -and $_.Hot -ceq [string]$d.HotReload -and $_.Clean -ceq [string]$d.Clean }).Count
+        $path = [string]$d.Element
+        $name = if ($path -match '#([^/#\[]+)(\[\d+\])?$') { $Matches[1] } else { $null }
+        $isElement = $d.Property -eq '(element)'
+        $match = @($said | Where-Object {
+            $note = $_
+            switch ($note.Kind) {
+                'value' {
+                    if ($note.Property -eq 'Items') {
+                        # The list's item elements: missing here when it shows fewer, extra when it shows more.
+                        $fewer = [int]("0$($note.Hot)" -replace '\D', '') -lt [int]("0$($note.Clean)" -replace '\D', '')
+                        $isElement -and $path -match "#$([regex]::Escape($note.Element))(\[\d+\])?/" -and
+                            $d.HotReload -eq $(if ($fewer) { 'missing' } else { 'present' })
+                    } else {
+                        $onElement = ($name -and $note.Element -eq $name) -or ($path -eq '(root)' -and $note.Element -eq $d.Page)
+                        $onElement -and (-not $note.Property -or $note.Property -eq $d.Property) -and
+                            (ConvertTo-ComparableValue $note.Hot) -ceq (ConvertTo-ComparableValue ([string]$d.HotReload)) -and
+                            (ConvertTo-ComparableValue $note.Clean) -ceq (ConvertTo-ComparableValue ([string]$d.Clean))
+                    }
+                }
+                'missing-under' { $isElement -and $d.HotReload -eq 'missing' -and $path -match "#$([regex]::Escape($note.Element))(\[\d+\])?/" }
+                'missing' { $isElement -and $d.HotReload -eq 'missing' -and $name -eq $note.Element }
+            }
+        }).Count
         if ($match) { $reported.Add($d) } else { $silent.Add($d) }
     }
     return [pscustomobject]@{ Silent = $silent; Reported = $reported }
