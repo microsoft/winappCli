@@ -16,7 +16,7 @@ Use this skill when:
 ## Prerequisites
 
 - winapp CLI installed
-- `cert install` needs an elevated terminal. Check first: `([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)`. If `True` and the user asked to trust or install, run it; if not, give the user the exact command to run in an elevated terminal
+- **Administrator access** required for `cert install` (trusting certificates on the machine)
 
 ## Key concepts
 
@@ -55,14 +55,14 @@ Output: `devcert.pfx` (or custom path via `--output`).
 ### Install (trust) a certificate
 
 ```powershell
-# Trust the certificate on this machine (needs an elevated terminal; see Prerequisites)
+# Trust the certificate on this machine (requires admin/elevated terminal)
 winapp cert install ./devcert.pfx
 
 # Force reinstall even if already trusted
 winapp cert install ./devcert.pfx --force
 ```
 
-This adds the public certificate to the local machine's **Trusted People** store (`Cert:\LocalMachine\TrustedPeople`), which is what MSIX sideloading checks. Required before double-clicking MSIX packages or running `Add-AppxPackage`. Never add a development certificate to Trusted Root Certification Authorities.
+This adds the certificate to the local machine's **Trusted Root Certification Authorities** store. Required before double-clicking MSIX packages or running `Add-AppxPackage`.
 
 ### Sign a file
 
@@ -110,7 +110,7 @@ winapp az-sign ./app.msix --metadata-file ./metadata.json
 ## Recommended workflow
 
 1. **Generate cert** — `winapp cert generate` (auto-infers publisher from manifest)
-2. **Trust cert** (one-time) — `winapp cert install ./devcert.pfx` (elevated terminal; check first, see Prerequisites)
+2. **Trust cert** (one-time) — `winapp cert install ./devcert.pfx` (run as admin)
 3. **Package + sign** — `winapp package ./dist --cert ./devcert.pfx`
 4. **Distribute** — share the `.msix`; recipients must also trust the cert, or use a trusted CA cert
 
@@ -131,8 +131,8 @@ winapp az-sign ./app.msix --metadata-file ./metadata.json
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "Publisher mismatch" | Cert publisher ≠ manifest publisher | `winapp cert generate --manifest ./Package.appxmanifest` to re-generate with correct publisher |
-| "Access denied" / "elevation required" | `cert install` ran without elevation | Give the user the exact `winapp cert install` command to run in an elevated terminal |
-| "Certificate not trusted" | Cert not installed on machine | `winapp cert install ./devcert.pfx` (elevated) |
+| "Access denied" / "elevation required" | `cert install` needs admin | Run your terminal as Administrator |
+| "Certificate not trusted" | Cert not installed on machine | `winapp cert install ./devcert.pfx` (admin) |
 | "Certificate file already exists" | `devcert.pfx` already present | Use `--if-exists overwrite` or `--if-exists skip` |
 | Signature invalid after time passes | No timestamp used during signing | Re-sign with `--timestamp http://timestamp.digicert.com` |
 | `az-sign` fails with "No credentials found" | No Azure auth in environment | Run `az login`, or set `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET` for CI/CD |
