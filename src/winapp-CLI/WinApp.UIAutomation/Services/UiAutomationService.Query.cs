@@ -9,14 +9,14 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 internal sealed partial class UiAutomationService
 {
     private UiElement[] SearchConstrained(UiTarget target, UiSelector selector, int maxResults,
-        bool requireUnique = false, CancellationToken ct = default)
+        bool requireUnique = false, bool preferExactName = false, CancellationToken ct = default)
     {
         // A window-scoped target whose window has closed has no elements left, so a `--gone`
         // wait succeeds instead of failing on the dead provider. Other failures still surface.
         if (ExplicitWindowClosed(target)) { return []; }
         try
         {
-            return SearchConstrainedCore(target, selector, maxResults, requireUnique, ct);
+            return SearchConstrainedCore(target, selector, maxResults, requireUnique, preferExactName, ct);
         }
         catch (System.Runtime.InteropServices.COMException) when (ExplicitWindowClosed(target))
         {
@@ -29,9 +29,9 @@ internal sealed partial class UiAutomationService
         && SystemUiQuery.s_getProcessIdForWindow(target.WindowHandle) == 0;
 
     private UiElement[] SearchConstrainedCore(UiTarget target, UiSelector selector, int maxResults,
-        bool requireUnique, CancellationToken ct)
+        bool requireUnique, bool preferExactName, CancellationToken ct)
     {
-        var matches = QueryConstrained(target, selector, maxResults, requireUnique, ct);
+        var matches = QueryConstrained(target, selector, maxResults, requireUnique, ct, preferExactName: preferExactName);
         var nextId = 0;
         var results = new List<UiElement>();
         foreach (var (element, boundary, sourceHwnd) in matches)
@@ -57,7 +57,7 @@ internal sealed partial class UiAutomationService
 
     private List<(IUIAutomationElement Element, IUIAutomationElement Boundary, long Hwnd)> QueryConstrained(
         UiTarget target, UiSelector selector, int maxResults, bool requireUnique, CancellationToken ct,
-        IUIAutomationElement? windowRoot = null)
+        IUIAutomationElement? windowRoot = null, bool preferExactName = false)
     {
         if (selector.Root?.Root is not null)
         {
@@ -126,7 +126,10 @@ internal sealed partial class UiAutomationService
         }
 
         var includeWindow = selector.IsSlug && selector.Root is null;
-        var matches = QueryWindow(queryRoot, selector, maxResults, ct, out var hasExactId,
+        // An exact Name match can be anywhere among the substring matches, so collect them all.
+        var exactName = preferExactName && !selector.IsSlug ? selector.Query : null;
+        var limit = exactName is null ? maxResults : int.MaxValue;
+        var matches = QueryWindow(queryRoot, selector, limit, ct, out var hasExactId,
             includeRoot: includeWindow, requireUnique: requireUnique);
         var results = new List<(IUIAutomationElement Element, IUIAutomationElement Boundary, long Hwnd)>();
         AddMatches(matches, queryRoot, hwnd);
@@ -141,18 +144,24 @@ internal sealed partial class UiAutomationService
                 if (window.Hwnd == (nint)target.WindowHandle) { continue; }
                 var otherRoot = GetWindowRoot(window.Hwnd);
                 if (otherRoot is null) { continue; }
-                var windowMatches = QueryWindow(otherRoot, selector, requireUnique ? maxResults : maxResults - results.Count,
+                var windowMatches = QueryWindow(otherRoot, selector, requireUnique ? limit : limit - results.Count,
                     ct, out var hasExactWindowId, includeRoot: includeWindow, requireUnique: requireUnique);
                 if (requireUnique)
                 {
                     // Substring ambiguity is provisional until every HWND has been checked for an exact ID.
                     if (hasExactId && !hasExactWindowId) { continue; }
                     if (hasExactWindowId && !hasExactId) { results.Clear(); }
-                    hasExactId |= hasExactWindowId;
                 }
+                hasExactId |= hasExactWindowId;
                 AddMatches(windowMatches, otherRoot, (long)window.Hwnd);
-                if (!requireUnique && results.Count >= maxResults) { break; }
+                if (!requireUnique && results.Count >= limit) { break; }
             }
+        }
+        if (exactName is not null && !hasExactId && results.Count > 1)
+        {
+            var exactNameResults = results.Where(result => IsExactNameMatch(
+                GetBstr(() => s_getCurrentBstr(result.Element, UIA_PROPERTY_ID.UIA_NamePropertyId)), exactName)).Take(2).ToList();
+            if (exactNameResults.Count == 1) { results = exactNameResults; }
         }
         if (requireUnique && results.Count > 1)
         {
@@ -160,7 +169,7 @@ internal sealed partial class UiAutomationService
                 $"Selector matched {results.Count} elements. " +
                 "Use a unique slug from 'inspect' or narrow --root, --type, or --class-name.");
         }
-        return results;
+        return results.Count > maxResults ? results.GetRange(0, maxResults) : results;
 
         IUIAutomationElement? GetWindowRoot(nint hwnd) => requireUnique
             ? s_elementFromHandle(this, hwnd) ?? throw new InvalidOperationException(
