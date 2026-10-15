@@ -163,6 +163,11 @@ internal sealed class HotReloadResponse
     public bool XamlReload { get; set; }
     /// <summary>Why XAML can't be reloaded although this WinUI supports it (the app isn't a Debug build); null otherwise.</summary>
     public string? XamlReloadUnavailable { get; set; }
+    /// <summary>
+    /// The app's WinUI can forget what it read about types an update changed (XamlHotReload_InvalidateTypes), so markup can
+    /// set a property added to a type it already used; without it, that takes a restart.
+    /// </summary>
+    public bool InvalidatesTypes { get; set; }
     public List<string> Messages { get; set; } = [];
     /// <summary>Reloads that failed in the app (for example markup the runtime couldn't parse).</summary>
     public List<string> Errors { get; set; } = [];

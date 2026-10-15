@@ -139,7 +139,7 @@ internal static class HotReloadAgent
             {
                 "hello" => await XamlReload.InitializeAsync().ConfigureAwait(false) is { } error
                     ? new HotReloadResponse { Error = error }
-                    : new HotReloadResponse { Ok = true, Capabilities = Capabilities(), BaseDirectory = AppContext.BaseDirectory, XamlReload = XamlReload.Supported, XamlReloadUnavailable = XamlReload.Unavailable },
+                    : new HotReloadResponse { Ok = true, Capabilities = Capabilities(), BaseDirectory = AppContext.BaseDirectory, XamlReload = XamlReload.Supported, XamlReloadUnavailable = XamlReload.Unavailable, InvalidatesTypes = XamlReload.CanInvalidateTypes },
                 "apply" => await ApplyAsync(request).ConfigureAwait(false),
                 _ => new HotReloadResponse { Error = $"unknown operation '{request.Op}'" },
             };
@@ -206,6 +206,7 @@ internal static class HotReloadAgent
         {
             XamlReload.ResetTypeInfo();
             InvokeUpdateHandlers([.. updatedTypes]);
+            XamlReload.InvalidateTypes(updatedTypes);
         }
         foreach (var initializer in request.Initializers)
         {
@@ -213,7 +214,9 @@ internal static class HotReloadAgent
             var (typeName, method) = (initializer[..initializer.IndexOf('|')], initializer[(initializer.IndexOf('|') + 1)..]);
             try
             {
-                XamlReload.FindType(typeName)?.GetMethod(method, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)?.Invoke(null, null);
+                var initialize = XamlReload.FindType(typeName)?.GetMethod(method, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                Log(initialize is null ? $"initializer {initializer} not found" : $"initializer {initializer}");
+                initialize?.Invoke(null, null);
             }
             catch (TargetInvocationException ex)
             {

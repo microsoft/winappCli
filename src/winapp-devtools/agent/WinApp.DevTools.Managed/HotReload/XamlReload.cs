@@ -950,6 +950,44 @@ internal static class XamlReload
     /// so a type the update added isn't found, and an inserted type shifts the indexes the updated code uses. A new
     /// provider builds them again from the updated code.
     /// </summary>
+    /// <summary>XamlHotReload_InvalidateTypes(const wchar_t** typeNames, uint32_t count) in the app's WinUI, when it has it.</summary>
+    private static readonly unsafe delegate* unmanaged[Stdcall]<IntPtr*, uint, int> s_invalidateTypes = FindInvalidateTypes();
+
+    private static unsafe delegate* unmanaged[Stdcall]<IntPtr*, uint, int> FindInvalidateTypes() =>
+        NativeLibrary.TryLoad("Microsoft.UI.Xaml.dll", typeof(XamlReload).Assembly, null, out var module) &&
+        NativeLibrary.TryGetExport(module, "XamlHotReload_InvalidateTypes", out var export)
+            ? (delegate* unmanaged[Stdcall]<IntPtr*, uint, int>)export : null;
+
+    public static unsafe bool CanInvalidateTypes => s_invalidateTypes != null;
+
+    /// <summary>
+    /// After an update: the runtime forgets what it read about these types (their properties), so markup can set one the
+    /// update added to a type it already used.
+    /// </summary>
+    public static unsafe void InvalidateTypes(IReadOnlyCollection<Type> types)
+    {
+        if (s_invalidateTypes == null || types.Count == 0)
+        {
+            return;
+        }
+        var names = types.Select(t => Marshal.StringToHGlobalUni(t.FullName)).ToArray();
+        try
+        {
+            fixed (IntPtr* first = names)
+            {
+                var hr = s_invalidateTypes(first, (uint)names.Length);
+                HotReloadAgent.Log($"invalidated {names.Length} type(s): 0x{hr:X8}");
+            }
+        }
+        finally
+        {
+            foreach (var name in names)
+            {
+                Marshal.FreeHGlobal(name);
+            }
+        }
+    }
+
     public static void ResetTypeInfo()
     {
         // Also with the compiler's own cache-clearing handler: that clears its type tables, not the list of other

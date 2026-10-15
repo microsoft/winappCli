@@ -480,6 +480,11 @@ internal sealed partial class HotReloadSession
             {
                 return new SaveResult(Outcome.Restart, $"{Relative(XamlFor(path))}: {change}, and the running app can't change the type of a field; it takes effect when the app restarts");
             }
+            if (isTypeInfo && !_runtimeInvalidatesTypes && pages?.FirstOrDefault() is { } saved &&
+                await NewMemberOnUsedTypeAsync(before.ToString(), text.ToString(), cancellationToken).ConfigureAwait(false) is { } type)
+            {
+                return new SaveResult(Outcome.Restart, $"{Relative(saved)}: the running app can't add properties to {type} that markup already uses; it takes effect when the app restarts");
+            }
             if (IsPass1Part(path) && _components.TryGetValue(XamlFor(path), out var component))
             {
                 // An x:Name the markup no longer has: code that still uses it fails the build (CS0103), so it fails here too.
@@ -528,6 +533,31 @@ internal sealed partial class HotReloadSession
     /// <summary>The fields a generated file declares (x:Name fields, in the pass 1 part).</summary>
     internal static HashSet<string> FieldNames(string text) => CSharpSyntaxTree.ParseText(text).GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
         .SelectMany(f => f.Declaration.Variables.Select(v => v.Identifier.ValueText)).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>"Type.Member" to "Type", for each member XamlTypeInfo describes (its CreateXamlMember cases).</summary>
+    internal static Dictionary<string, string> XamlMembers(string typeInfo) =>
+        System.Text.RegularExpressions.Regex.Matches(typeInfo, @"case ""([^""]+)"":\s*userType = \([^)]*\)GetXamlTypeByName\(""([^""]+)""\)")
+            .GroupBy(m => m.Groups[1].Value).ToDictionary(g => g.Key, g => g.First().Groups[2].Value, StringComparer.Ordinal);
+
+    /// <summary>
+    /// The app's own type that markup now sets a member of which XamlTypeInfo didn't describe before, while it already
+    /// described the type: the runtime may have read the type without it (null when there is none).
+    /// </summary>
+    private async Task<string?> NewMemberOnUsedTypeAsync(string before, string after, CancellationToken cancellationToken)
+    {
+        var old = XamlMembers(before);
+        var oldTypes = old.Values.ToHashSet(StringComparer.Ordinal);
+        var compilation = (await Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
+        foreach (var (member, type) in XamlMembers(after))
+        {
+            if (!old.ContainsKey(member) && (oldTypes.Contains(type) || before.Contains($"\"{type}\"", StringComparison.Ordinal)) &&
+                compilation.GetTypeByMetadataName(type) is { } symbol && symbol.Locations.Any(l => l.IsInSource))
+            {
+                return type[(type.LastIndexOf('.') + 1)..];
+            }
+        }
+        return null;
+    }
 
     /// <summary>"x:Name 'Later' changes from TextBlock to TextBox", for the first named field whose type changes.</summary>
     internal static string? FieldTypeChange(string before, string after)

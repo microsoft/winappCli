@@ -82,4 +82,21 @@ public sealed class CompilerPipelineTests
         Assert.IsTrue(HotReloadSession.DiffersOnlyInChecksums(before, before.Replace("AAAA", "BBBB")));
         Assert.IsFalse(HotReloadSession.DiffersOnlyInChecksums(before, before.Replace("AAAA", "BBBB").Replace("class P", "class Q")));
     }
+
+    [TestMethod]
+    public void XamlTypeInfoMembersMapToTheirTypes()
+    {
+        const string typeInfo = """
+            switch (longMemberName)
+            {
+            case "App.Controls.Card.Hint":
+                userType = (global::App.App_XamlTypeInfo.XamlUserType)GetXamlTypeByName("App.Controls.Card");
+                xamlMember = new global::App.App_XamlTypeInfo.XamlMember(this, "Hint", "String");
+                break;
+            }
+            """;
+        var members = HotReloadSession.XamlMembers(typeInfo);
+        Assert.AreEqual(1, members.Count);
+        Assert.AreEqual("App.Controls.Card", members["App.Controls.Card.Hint"]);
+    }
 }

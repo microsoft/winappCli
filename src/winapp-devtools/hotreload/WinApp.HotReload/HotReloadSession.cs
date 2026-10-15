@@ -57,6 +57,8 @@ internal sealed partial class HotReloadSession
     private Solution _committed;
     private bool _newTypesOnly;
     private bool _xamlReload;
+    /// <summary>The app's WinUI forgets what it read about types an update changed (see HotReloadResponse.InvalidatesTypes).</summary>
+    private bool _runtimeInvalidatesTypes;
     private readonly string? _launchTargets;
     private readonly string[]? _launchProperties;
 
@@ -137,7 +139,7 @@ internal sealed partial class HotReloadSession
         var enc = new EncService(solution, info.Id, () => session?._newTypesOnly == true ? newTypeCapabilities : capabilities);
         await enc.StartAsync(solution, cancellationToken).ConfigureAwait(false);
 
-        session = new HotReloadSession(options, agent, workspace, info.Id, solution, enc, hello.BaseDirectory ?? "", cscArgs) { _xamlReload = hello.XamlReload, XamlReloadUnavailable = hello.XamlReloadUnavailable };
+        session = new HotReloadSession(options, agent, workspace, info.Id, solution, enc, hello.BaseDirectory ?? "", cscArgs) { _xamlReload = hello.XamlReload, XamlReloadUnavailable = hello.XamlReloadUnavailable, _runtimeInvalidatesTypes = hello.InvalidatesTypes };
         await session.LoadComponentsAsync(cancellationToken).ConfigureAwait(false);
         if (xaml is not null)
         {
@@ -771,6 +773,7 @@ internal sealed partial class HotReloadSession
         {
             if (!_pendingInitializers.Contains(initializer))
             {
+                Log($"new static initializer {initializer}");
                 _pendingInitializers.Add(initializer);
             }
         }
