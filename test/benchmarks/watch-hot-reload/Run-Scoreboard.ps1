@@ -172,7 +172,7 @@ foreach ($id in $ids) {
     foreach ($s in $stacks) { $md.Add("| $id | $s |") }
 }
 $md.Add('')
-$md.Add('Cell: live/restart/error saves · UI checks passed/total · parity differences · state kept/checked · notes winapp printed. `-` = not run.')
+$md.Add('Cell: live/restart/error saves · UI checks passed/total · parity checks (ok n/n, or FAIL k/n with differences and failed clean builds) · state kept/checked · notes winapp printed. `-` = not run.')
 $md.Add('')
 $md.Add('| Journey | ' + ($ids -join ' | ') + ' |')
 $md.Add('|---|' + (($ids | ForEach-Object { '---' }) -join '|') + '|')
