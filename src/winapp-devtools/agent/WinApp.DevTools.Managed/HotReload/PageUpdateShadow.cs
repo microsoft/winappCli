@@ -74,6 +74,17 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
         var (open, close) = Host(xamlRoot, host);
         Page? shadow = null;
         var loadedAt = 0L;
+        // What the copy shows as constructed (markup and constructor), before the code that runs as it's navigated to
+        // and loads: a live value equal to it while a restart shows another was reset by reloading in place.
+        Dictionary<string, (DependencyObject Element, Dictionary<string, string> Values)>? constructed = null;
+        void OnNavigated(object sender, Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+        {
+            if (e.Content is Page { } navigated && constructed is null)
+            {
+                constructed = AuthoredTree.Read(navigated);
+            }
+        }
+        host.Navigated += OnNavigated;
         try
         {
             open();
@@ -93,7 +104,8 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
             var (live, fresh) = await SettledAsync(page, shadow, dispatcher);
             var liveData = PageData.Take(page, getters: true);
             var freshData = PageData.Take(shadow, getters: true);
-            foreach (var note in Compare(page, live, fresh, liveData, freshData, early))
+            HotReloadAgent.Log($"shadow: as constructed: {string.Join("; ", (constructed ?? []).Select(e => e.Key + " " + string.Join(",", e.Value.Values.Where(v => v.Key is "Text" or "Items").Select(v => v.Key + "=" + v.Value))))}");
+            foreach (var note in Compare(page, live, fresh, liveData, freshData, early, constructed))
             {
                 update.Note(note);
             }
@@ -189,7 +201,8 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
         Dictionary<string, (DependencyObject Element, Dictionary<string, string> Values)> fresh,
         PageData liveData,
         PageData freshData,
-        PageData early)
+        PageData early,
+        Dictionary<string, (DependencyObject Element, Dictionary<string, string> Values)>? constructed = null)
     {
         var notes = new List<string>();
         var sameData = liveData.Values.Count == freshData.Values.Count && liveData.Values.All(v => freshData.Values.TryGetValue(v.Key, out var f) && f == v.Value);
@@ -217,6 +230,14 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
                 }
                 var subject = property is "Text" or "Content" ? where : $"{where}.{property}";
                 var cause = Cause(page, value, restart, liveData, freshData, early);
+                if (cause is null && constructed is not null && constructed.TryGetValue(key, out var initial) &&
+                    initial.Values.TryGetValue(property, out var markup) && markup == value)
+                {
+                    // The live page shows what the markup and constructor give it; a restart then runs the code that sets
+                    // it (OnNavigatedTo, Loaded), which reloading in place doesn't run again.
+                    notes.Add($"{subject} shows '{value}' here but '{restart}' after a restart: the page's code sets it after InitializeComponent (in OnNavigatedTo or Loaded), and reloading in place put back the markup's value");
+                    continue;
+                }
                 if (cause is null && (AuthoredTree.IsInput(element, property) || !sameData))
                 {
                     // What the user entered, or a value that follows state the reload kept: in-place reload is for that.
