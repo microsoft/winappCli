@@ -22,7 +22,16 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
     [
         "winapp ui hover \"Save\" -a <app>",
         "winapp ui hover \"Save\" --type Button -a <app>",
+        "winapp ui hover --at 1520,780 -a <app>",
     ];
+
+    public string? Usage => "winapp ui hover (<selector> | --at <x,y>) (-a <app> | -w <hwnd>) [options]";
+
+    public static Option<string?> AtOption { get; } = new("--at")
+    {
+        Description = "Hover at screen coordinates x,y (as reported by 'ui inspect') instead of an element. " +
+                      "Cannot be combined with a selector, --root, --type, or --class-name."
+    };
 
     public static Option<int> DwellTimeOption { get; } = new("--dwell-time")
     {
@@ -32,11 +41,13 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
 
     public UiHoverCommand()
         : base("hover", "Move the mouse to an element's center to trigger hover effects (tooltips, flyouts, visual states). " +
+               "Use --at x,y to hover a screen point instead of an element. " +
                "Uses SendInput for realistic mouse movement and waits for a configurable dwell time.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
         Options.Add(SharedUiOptions.WindowOption);
+        Options.Add(AtOption);
         Options.Add(DwellTimeOption);
         Options.Add(WinAppRootCommand.JsonOption);
         UiQueryOptions.AddTo(this);
@@ -62,7 +73,6 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
         protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var dwellTime = parseResult.GetValue(DwellTimeOption);
@@ -73,12 +83,6 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
                 return 1;
             }
 
-            if (string.IsNullOrWhiteSpace(selectorStr))
-            {
-                UiErrors.MissingSelector(logger, "hover", json);
-                return 1;
-            }
-
             if (dwellTime < 0 || dwellTime > 10_000)
             {
                 logger.LogError("{Symbol} --dwell-time must be between 0 and 10000 ms.", UiSymbols.Error);
@@ -86,14 +90,15 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
                 return 1;
             }
 
-            return UiQueryOptions.Validate(parseResult, logger, json);
+            return PointerCommandSupport.ValidateSelectorOrPoint(parseResult, AtOption, "hover", logger, json);
         }
 
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            // Preflight rejected a missing selector, so this is non-null by construction.
+            // Preflight required exactly one of a selector or a valid --at point.
             var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            var atStr = parseResult.GetValue(AtOption);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var dwellTime = parseResult.GetValue(DwellTimeOption);
@@ -101,6 +106,28 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
+
+                if (CoordinateParser.TryParsePoint(atStr, out PointerPoint at))
+                {
+                    PointerCommandSupport.InjectionPreparation prep;
+                    await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        prep = await PointerCommandSupport.PrepareExplicitPointAsync(
+                            uiAutomation, foregroundGuard, desktopForeground, systemQuery, uiTarget, at, "hover",
+                            logger, json, parseResult.InvocationConfiguration.Error, cancellationToken);
+                        if (!prep.Ok)
+                        {
+                            return 1;
+                        }
+
+                        mouseInput.Hover(at.X, at.Y);
+                        await Task.Delay(dwellTime, cancellationToken);
+                    }
+
+                    WriteResult(json, elementId: null, at.X, at.Y, dwellTime, uiTarget.WindowHandle, prep.OutOfWindowWarning);
+                    return 0;
+                }
+
                 var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
                 var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
@@ -163,26 +190,7 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
                 }
 
                 var elementId = element.Selector ?? element.Id ?? "";
-
-                if (json)
-                {
-                    var result = new UiHoverResult
-                    {
-                        ElementId = elementId,
-                        X = centerX,
-                        Y = centerY,
-                        DwellTimeMs = dwellTime,
-                        Hwnd = targetHwnd
-                    };
-                    ansiConsole.Profile.Out.Writer.WriteLine(
-                        JsonSerializer.Serialize(result, UiJsonContext.Default.UiHoverResult));
-                }
-                else
-                {
-                    logger.LogInformation("{Symbol} Hovered on {ElementId} at ({X}, {Y}) — dwelled {DwellTime}ms",
-                        UiSymbols.Check, elementId, centerX, centerY, dwellTime);
-                }
-
+                WriteResult(json, elementId, centerX, centerY, dwellTime, targetHwnd, warning: null);
                 return 0;
             }
             catch (UiAmbiguousSelectorException ex)
@@ -200,6 +208,41 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;
+            }
+        }
+
+        private void WriteResult(bool json, string? elementId, int x, int y, int dwellTime, long hwnd, string? warning)
+        {
+            if (json)
+            {
+                var result = new UiHoverResult
+                {
+                    ElementId = elementId ?? "",
+                    X = x,
+                    Y = y,
+                    DwellTimeMs = dwellTime,
+                    Hwnd = hwnd,
+                    Warnings = warning is null ? null : [warning]
+                };
+                ansiConsole.Profile.Out.Writer.WriteLine(
+                    JsonSerializer.Serialize(result, UiJsonContext.Default.UiHoverResult));
+                return;
+            }
+
+            if (elementId is null)
+            {
+                logger.LogInformation("{Symbol} Hovered at ({X}, {Y}) — dwelled {DwellTime}ms",
+                    UiSymbols.Check, x, y, dwellTime);
+            }
+            else
+            {
+                logger.LogInformation("{Symbol} Hovered on {ElementId} at ({X}, {Y}) — dwelled {DwellTime}ms",
+                    UiSymbols.Check, elementId, x, y, dwellTime);
+            }
+
+            if (warning is not null)
+            {
+                logger.LogWarning("{Symbol} {Warning}", UiSymbols.Warning, warning);
             }
         }
     }
