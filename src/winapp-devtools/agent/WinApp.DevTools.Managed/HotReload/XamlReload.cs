@@ -952,8 +952,9 @@ internal static class XamlReload
     /// </summary>
     public static void ResetTypeInfo()
     {
-        if (Compiler && Application.Current is { } app && !HasHotReloadCodegen(app.GetType().Assembly) &&
-            app.GetType().GetField("__appProvider", InstanceMembers) is { } field)
+        // Also with the compiler's own cache-clearing handler: that clears its type tables, not the list of other
+        // providers it built once, so a library added while the app runs (a NuGet control) would never be asked.
+        if (Compiler && Application.Current is { } app && app.GetType().GetField("__appProvider", InstanceMembers) is { } field)
         {
             field.SetValue(app, null);
         }
