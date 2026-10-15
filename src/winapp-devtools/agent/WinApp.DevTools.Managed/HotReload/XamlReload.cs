@@ -1761,7 +1761,16 @@ internal static class XamlReload
                 if (property is not null && list!.GetValue(property) is { } value)
                 {
                     detached.Add((list, property, value));
-                    list.ClearValue(property);
+                    try
+                    {
+                        list.ClearValue(property);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Recycling its containers ran code of an older version of the page (a template's bindings
+                        // created before this update): the list is replaced by the reload anyway.
+                        HotReloadAgent.Log($"detaching {field.Name} failed: {ex.GetBaseException().Message}");
+                    }
                 }
             }
         }
