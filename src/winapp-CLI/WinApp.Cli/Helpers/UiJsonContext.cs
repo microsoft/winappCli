@@ -319,6 +319,7 @@ internal sealed class UiScrollResult
     public string? Direction { get; set; }
     public string? To { get; set; }
     public int? Wheel { get; set; }
+    public int? WheelHorizontal { get; set; }
     public long Hwnd { get; set; }
 }
 

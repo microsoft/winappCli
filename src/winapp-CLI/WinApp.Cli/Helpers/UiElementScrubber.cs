@@ -12,9 +12,8 @@ namespace WinApp.Cli.Helpers;
 /// JSON consumers address elements via the public <c>selector</c> slug; the synthetic walk-order
 /// <c>id</c>, <c>parentSelector</c>, and <c>windowHandle</c> are implementation detail that leak
 /// if not scrubbed. This helper also flattens <c>InvokableAncestor</c> down to a non-recursive
-/// hint (<c>type</c>, <c>name</c>, <c>automationId</c>, <c>selector</c>, <c>isInvokable</c>) so
-/// it can never form a reference cycle with its parent's children — System.Text.Json (without
-/// ReferenceHandler) would otherwise throw.
+/// copy (no <c>children</c> or nested <c>invokableAncestor</c>) so it can never form a reference
+/// cycle with its parent's children — System.Text.Json (without ReferenceHandler) would otherwise throw.
 /// </remarks>
 internal static class UiElementScrubber
 {
@@ -48,16 +47,24 @@ internal static class UiElementScrubber
 
     private static void FlattenInvokableAncestor(UiElement el)
     {
-        if (el.InvokableAncestor is not { } anc) { return; }
-        // Project to a hint with no Children / nested InvokableAncestor — breaks any cycle and
-        // keeps the payload small. Consumers only need a slug+label to invoke the fallback.
-        el.InvokableAncestor = new UiElement
-        {
-            Type = anc.Type,
-            Name = anc.Name,
-            AutomationId = anc.AutomationId,
-            Selector = anc.Selector,
-            IsInvokable = anc.IsInvokable,
-        };
+        if (el.InvokableAncestor is { } anc) { el.InvokableAncestor = ToAncestorHint(anc); }
     }
+
+    /// <summary>Copy <paramref name="anc"/> without Children / nested InvokableAncestor (breaks any
+    /// cycle) or internal ids. Non-nullable state and bounds are copied so the hint doesn't
+    /// serialize as a disabled element at 0,0.</summary>
+    internal static UiElement ToAncestorHint(UiElement anc) => new()
+    {
+        Type = anc.Type,
+        Name = anc.Name,
+        AutomationId = anc.AutomationId,
+        Selector = anc.Selector,
+        IsInvokable = anc.IsInvokable,
+        IsEnabled = anc.IsEnabled,
+        IsOffscreen = anc.IsOffscreen,
+        X = anc.X,
+        Y = anc.Y,
+        Width = anc.Width,
+        Height = anc.Height,
+    };
 }

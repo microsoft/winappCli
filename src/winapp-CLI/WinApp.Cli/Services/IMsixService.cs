@@ -222,6 +222,11 @@ internal interface IMsixService
     /// <param name="taskContext">Status/debug sink.</param>
     /// <param name="noRestore">When true, runtime discovery passes <c>--no-restore</c> to <c>dotnet list package</c> so a no-restore run doesn't trigger an implicit restore.</param>
     /// <param name="projectAssetsFile">The <c>project.assets.json</c> the build consumed, when the caller knows it. Package discovery reads the graph from it instead of re-evaluating the project, so a configuration- or RID-conditional Windows App SDK reference is seen.</param>
+    /// <param name="windowsAppSdkPackageDirectory">
+    /// The Windows App SDK package folder the build imported (the evaluated <c>MicrosoftWindowsAppSDKPackageDir</c>
+    /// of a C++ project), or <c>null</c>. When set, the project uses the Windows App SDK even if no package list
+    /// names it, and the runtime MSIX in that folder is the exact version the app was built against.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public Task<bool> EnsureWindowsAppRuntimeInstalledAsync(
         FileInfo? projectFile,
@@ -230,5 +235,6 @@ internal interface IMsixService
         bool noRestore,
         TaskContext taskContext,
         PackageGraphSource? packageGraph = null,
+        DirectoryInfo? windowsAppSdkPackageDirectory = null,
         CancellationToken cancellationToken = default);
 }
