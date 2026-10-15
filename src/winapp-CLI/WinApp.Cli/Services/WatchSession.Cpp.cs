@@ -456,12 +456,11 @@ internal sealed partial class CppXamlSession : IDisposable
                     {
                         continue;
                     }
-                    if (other.Root == "Window")
+                    var again = await ReloadAsync(processId, other, null, cancellationToken);
+                    if (other.Root == "Window" && again.Instances == 0)
                     {
                         windows.Add(page);
-                        continue;
                     }
-                    var again = await ReloadAsync(processId, other, null, cancellationToken);
                     pages += again.Reloaded;
                     result = result with { Notes = [.. result.Notes, .. again.Notes], Errors = [.. result.Errors, .. again.Errors] };
                 }
@@ -469,7 +468,7 @@ internal sealed partial class CppXamlSession : IDisposable
                 {
                     Notes =
                     [
-                        $"then {pages} live page(s) loaded again to read the new resources",
+                        $"then {pages} live page(s) and window(s) loaded again to read the new resources",
                         .. windows.Select(w => $"{w} keeps the old resources until it is created again (WinUI doesn't expose a running Window to tools)"),
                         .. result.Notes,
                     ],
