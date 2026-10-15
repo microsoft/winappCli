@@ -311,8 +311,9 @@ internal sealed partial class CppXamlSession : IDisposable
         var session = new CppXamlSession(process, projectDirectory, workDirectory, baseline, lastXbf, pages, applications.FirstOrDefault());
         try
         {
-            // Warm the compiler with the whole project, and check that it reproduces the running build exactly: the
-            // comparison every save relies on is meaningless otherwise.
+            // Warm the compiler with the whole project. Its output isn't compared here: a whole-project pass 2 can emit
+            // code a page-by-page compile doesn't (static_asserts depend on which pages were compiled together), and
+            // every save compares the pages it compiles with the running build anyway.
             var watch = Stopwatch.StartNew();
             var pass1 = await session.CompileAsync(1, null, false, cancellationToken);
             var pass2 = await session.CompileAsync(2, null, true, cancellationToken);
@@ -322,14 +323,10 @@ internal sealed partial class CppXamlSession : IDisposable
                 session.Dispose();
                 return (null, $"{Path.GetFileName(compiler)} has no service mode (XamlCompiler.exe --serve); set {WatchSession.CompilerServiceVariable} to one that does");
             }
-            var failed = pass1.Errors.Concat(pass2.Errors).FirstOrDefault();
-            var different = session.ChangedGeneratedCode(pass1).Concat(session.ChangedGeneratedCode(pass2)).FirstOrDefault();
-            if (failed is not null || different is not null)
+            if (pass1.Errors.Concat(pass2.Errors).FirstOrDefault() is { } failed)
             {
                 session.Dispose();
-                return (null, failed is not null
-                    ? "the XAML compiler service could not compile the project as built: " + failed
-                    : $"the XAML compiler service doesn't reproduce this build's {different!.File} ({different.Detail})");
+                return (null, "the XAML compiler service could not compile the project as built: " + failed);
             }
             return (session, null);
         }
