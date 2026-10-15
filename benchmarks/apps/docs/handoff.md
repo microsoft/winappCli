@@ -28,20 +28,20 @@ Setup: 10 scenarios (all except `calc`, `counter-winui`, `imageresizer-wpf-to-wi
 
 | Model | Setup | n | Score | Δ vs `none` (paired, 95% CI) | Quality checks | Credits/trial |
 |---|---|---:|---:|---:|---:|---:|
-| Sonnet 5.5 | none | 28 | 82.1 | – | 69% | 72 |
-| | both-published | 30 | 87.9 | +6.1 ±4.8 | 89% | 96 |
-| | both (main) | 30 | 88.1 | +5.4 ±8.0 | 91% | 98 |
+| Sonnet 5.5 | none | 30 | 82.1 | – | 69% | 69 |
+|  | both-published | 30 | 87.9 | +5.8 ±4.5 | 89% | 96 |
+|  | both (main) | 30 | 88.1 | +6.0 ±7.5 | 91% | 98 |
 | Opus 5.5 | none | 30 | 89.6 | – | 75% | 375 |
-| | both-published | 30 | 92.9 | +3.4 ±3.1 | 92% | 420 |
-| | both (main) | 29 | 95.4 | +5.8 ±1.1 | 94% | 413 |
-| GPT-6.1 Sol | none | 29 | 82.6 | – | 58% | 102 |
-| | both-published | 28 | 90.7 | +8.3 ±1.9 | 79% | 145 |
-| | both (main) | 28 | 91.4 | +8.9 ±2.2 | 82% | 161 |
-| **All** | none | 87 | 84.8 | – | 67% | 186 |
-| | both-published | 88 | 90.5 | **+5.8 ±2.0** | 87% | 222 |
-| | both (main) | 87 | 91.6 | **+6.7 ±2.8** | 89% | 223 |
+|  | both-published | 30 | 92.9 | +3.4 ±3.1 | 92% | 420 |
+|  | both (main) | 30 | 95.4 | +5.8 ±1.1 | 94% | 408 |
+| GPT-6.1 Sol | none | 30 | 82.8 | – | 58% | 103 |
+|  | both-published | 30 | 91.0 | +8.1 ±1.8 | 80% | 149 |
+|  | both (main) | 30 | 91.4 | +8.6 ±2.1 | 82% | 160 |
+| **All** | none | 90 | 84.8 | – | 68% | 183 |
+|  | both-published | 90 | 90.6 | **+5.8 ±1.9** | 87% | 222 |
+|  | both (main) | 90 | 91.6 | **+6.8 ±2.6** | 89% | 222 |
 
-Excludes trials lost to machine or harness problems that were fixed afterwards: VM suspend, a stuck AppX service, a wrong `DOTNET_ROOT`, and a library project picked instead of the app. Those trials are being re-validated. `both` vs `both-published`: +1.1 ±2.6 (no measurable difference).
+All 270 trials are valid. 13 trials originally lost to machine or harness problems were re-validated after fixing those problems: a VM suspend, a stuck AppX service, a mismatched user `DOTNET_ROOT`, and a library project picked instead of the app. `both` vs `both-published`: +1.0 ±2.4 (no measurable difference). The three scores below 50 are real app failures: a crash at startup, a crash on navigation, and tagging that didn't work.
 
 **Findings**
 - **The plugins help every model.** The quality checks are where most of the gain comes from:
