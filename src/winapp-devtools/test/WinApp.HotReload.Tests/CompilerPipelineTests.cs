@@ -74,4 +74,12 @@ public sealed class CompilerPipelineTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    [TestMethod]
+    public void OnlyANewChecksumIsNoChange()
+    {
+        const string before = "#pragma checksum \"C:\\a\\Page.xaml\" \"{8829d00f}\" \"AAAA\"\r\nclass P\r\n{\r\n}\r\n";
+        Assert.IsTrue(HotReloadSession.DiffersOnlyInChecksums(before, before.Replace("AAAA", "BBBB")));
+        Assert.IsFalse(HotReloadSession.DiffersOnlyInChecksums(before, before.Replace("AAAA", "BBBB").Replace("class P", "class Q")));
+    }
 }

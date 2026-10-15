@@ -432,6 +432,7 @@ internal sealed partial class HotReloadSession
     private async Task<SaveResult?> UseGeneratedAsync(XamlCompileOutput output, IReadOnlyCollection<string>? pages, bool typeInfo, CancellationToken cancellationToken)
     {
         var stems = pages?.Select(p => Path.ChangeExtension(Path.GetRelativePath(_projectDirectory, p), null)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var changes = new List<(string Path, SourceText Text, bool ChecksumOnly)>();
         foreach (var (outputPath, generated) in output.GeneratedText.Where(p => IsGenerated(p.Key)))
         {
             var relative = Path.GetRelativePath(_xaml!.OutputDirectory, outputPath);
@@ -446,21 +447,55 @@ internal sealed partial class HotReloadSession
             var ids = _solution.GetDocumentIdsWithFilePath(path);
             if (ids.IsEmpty)
             {
-                _solution = _solution.AddDocument(DocumentId.CreateNewId(_projectId), Path.GetFileName(path), text, filePath: path);
+                changes.Add((path, text, false));
                 continue;
             }
             var before = await _solution.GetDocument(ids[0])!.GetTextAsync(cancellationToken).ConfigureAwait(false);
             if (before.ContentEquals(text))
             {
+                _checksumOnly.Remove(path);
                 continue;
             }
             if (IsPass1Part(path) && FieldTypeChange(before.ToString(), text.ToString()) is { } change)
             {
                 return new SaveResult(Outcome.Restart, $"{Relative(XamlFor(path))}: {change}, and the running app can't change the type of a field; it takes effect when the app restarts");
             }
-            _solution = ids.Aggregate(_solution, (s, id) => s.WithDocumentText(id, text));
+            changes.Add((path, text, DiffersOnlyInChecksums(before.ToString(), text.ToString())));
+        }
+        if (changes.All(c => c.ChecksumOnly))
+        {
+            // A save that changes no code (a style, a text): an update without changes makes edit and continue take this
+            // solution as its baseline without the compilation that emitted the earlier updates, and the next update of a
+            // method added during the session then fails (NullReferenceException in DefinitionMap.GetPreviousMethodHandle).
+            // The new checksums go in with the next real change, so a page's files never disagree on them (CS1697).
+            foreach (var (path, text, _) in changes)
+            {
+                _checksumOnly[path] = text;
+            }
+            return null;
+        }
+        foreach (var (path, text) in _checksumOnly.Where(p => !changes.Any(c => c.Path.Equals(p.Key, StringComparison.OrdinalIgnoreCase))).Select(p => (p.Key, p.Value)).ToList())
+        {
+            changes.Add((path, text, true));
+        }
+        _checksumOnly.Clear();
+        foreach (var (path, text, _) in changes)
+        {
+            var ids = _solution.GetDocumentIdsWithFilePath(path);
+            _solution = ids.IsEmpty
+                ? _solution.AddDocument(DocumentId.CreateNewId(_projectId), Path.GetFileName(path), text, filePath: path)
+                : ids.Aggregate(_solution, (s, id) => s.WithDocumentText(id, text));
         }
         return null;
+    }
+
+    /// <summary>Generated text not yet in the workspace because it differs from it only in its '#pragma checksum'.</summary>
+    private readonly Dictionary<string, SourceText> _checksumOnly = new(StringComparer.OrdinalIgnoreCase);
+
+    internal static bool DiffersOnlyInChecksums(string before, string after)
+    {
+        static IEnumerable<string> Code(string text) => text.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => !l.TrimStart().StartsWith("#pragma checksum", StringComparison.Ordinal));
+        return Code(before).SequenceEqual(Code(after), StringComparer.Ordinal);
     }
 
     /// <summary>"x:Name 'Later' changes from TextBlock to TextBox", for the first named field whose type changes.</summary>

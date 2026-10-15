@@ -1203,6 +1203,12 @@ internal sealed partial class HotReloadSession
     /// <summary>The update for the current solution; a compiler crash becomes a <see cref="CompilerCrashException"/>.</summary>
     private async Task<EncResult> UpdatesAsync(CancellationToken cancellationToken)
     {
+        if (!_solution.GetChanges(_committed).GetProjectChanges().Any())
+        {
+            // Nothing to compile. Edit and continue would still take this solution as its last one, without a baseline
+            // from its compilation (see _checksumOnly).
+            return new EncResult("None", [], [], [], false);
+        }
         try
         {
             return await _enc.GetUpdatesAsync(_solution, cancellationToken).ConfigureAwait(false);
