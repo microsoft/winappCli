@@ -307,6 +307,11 @@ try {
         $t = $run.Task
         $spec = Get-ConfigurationSpec $run.Configuration
         $runId = '{0:D3}-{1}-{2}-{3}-{4}' -f $index, $t.Id, $run.Configuration, ($run.Model -replace '[^\w.-]', '_'), $run.Iteration
+        # An interrupted attempt can leave a folder without a runs.jsonl record; never reuse it.
+        while (Test-Path (Join-Path $OutDir "runs\$runId")) {
+            $index++
+            $runId = '{0:D3}-{1}-{2}-{3}-{4}' -f $index, $t.Id, $run.Configuration, ($run.Model -replace '[^\w.-]', '_'), $run.Iteration
+        }
         $step++
         Write-Host "[$($runList.Count - $pending.Count + $step)/$($runList.Count)] $runId" -ForegroundColor Cyan
         $runOut = Join-Path $OutDir "runs\$runId"

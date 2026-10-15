@@ -219,6 +219,13 @@ function Get-FileSignature {
     }
 }
 
+function Test-SignatureIntact {
+    # A signature that exists and still matches the file. An untrusted chain (UnknownError) is fine:
+    # fixtures sign with self-signed certificates the machine doesn't trust.
+    param([Parameter(Mandatory)]$Signature)
+    return [bool]($Signature.Signed -and $Signature.Status -notin 'HashMismatch', 'NotSigned', 'NotSupportedFileFormat', 'Incompatible')
+}
+
 function Invoke-WindowsPowerShell {
     # The Appx module is reliable only in Windows PowerShell; run a script there and return its JSON output.
     param([Parameter(Mandatory)][string]$Script)

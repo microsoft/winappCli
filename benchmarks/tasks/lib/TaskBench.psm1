@@ -236,7 +236,7 @@ function Select-EffectiveRuns {
     # in runs.jsonl for diagnostics and credits.
     param([AllowEmptyCollection()][object[]]$Runs = @())
     $key = { param($r) "$($r.task)|$($r.configuration)|$($r.model)|$($r.iteration)|$($r.mode)" }
-    $number = { param($r) $n = 0; [void][int]::TryParse(([string]$r.runId -replace '^(\d+)-.*$', '$1'), [ref]$n); $n }
+    $number = { param($r) $n = 0; if ($r.PSObject.Properties['runId']) { [void][int]::TryParse(([string]$r.runId -replace '^(\d+)-.*$', '$1'), [ref]$n) }; $n }
     $chosen = foreach ($g in @($Runs | Group-Object { & $key $_ })) {
         $ordered = @($g.Group | Sort-Object { & $number $_ })
         $ok = @($ordered | Where-Object { $_.taskStatus -ne 'harness_error' })

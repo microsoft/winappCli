@@ -8,6 +8,6 @@
     "layout-packs (required): the checker's own `makeappx pack` of layout\\ succeeds",
     "version-kept (required): the manifest Version is 2.1.x.x (2.1.0.0 expected)",
     "visual-elements-kept (required): the Application still has VisualElements with Square44x44Logo and Square150x150Logo",
-    "msix-built: LitwareClock.msix (or another .msix) was produced"
+    "msix-built (required): LitwareClock.msix (or another .msix) was produced"
   ]
 }

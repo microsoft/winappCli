@@ -135,6 +135,17 @@ Describe 'Test-AppInstallerDocument' {
     It 'reports invalid XML instead of throwing' { (Invoke-Test '<AppInstaller')['appinstaller-xml'] | Should -BeFalse }
 }
 
+Describe 'Test-SignatureIntact' {
+    It 'accepts an intact signature from an untrusted self-signed certificate' {
+        Test-SignatureIntact ([pscustomobject]@{ Signed = $true; Status = 'UnknownError' }) | Should -BeTrue
+        Test-SignatureIntact ([pscustomobject]@{ Signed = $true; Status = 'Valid' }) | Should -BeTrue
+    }
+    It 'rejects a package modified after signing, and unsigned files' {
+        Test-SignatureIntact ([pscustomobject]@{ Signed = $true; Status = 'HashMismatch' }) | Should -BeFalse
+        Test-SignatureIntact ([pscustomobject]@{ Signed = $false; Status = 'NotSigned' }) | Should -BeFalse
+    }
+}
+
 Describe 'Compare-CertificateSnapshot' {
     It 'reports certificates added and removed per store' {
         $before = @([pscustomobject]@{ Store = 'LocalMachine\Root'; Thumbprint = 'A'; Subject = 'CN=A' })

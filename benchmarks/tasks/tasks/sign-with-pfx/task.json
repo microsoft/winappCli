@@ -6,7 +6,7 @@
   "lintAllow": ["code signing", "signing certificate"],
   "checks": [
     "msix-present (required): dist\\Fabrikam.Tasks_2.3.0.0_x64.msix still exists",
-    "signed-by-pfx (required): its Authenticode signer is the certificate in certs\\fabrikam-codesign.pfx",
+    "signed-by-pfx (required): its Authenticode signer is the certificate in certs\\fabrikam-codesign.pfx and the signature still matches the file",
     "identity-unchanged (required): package name, publisher, and version are unchanged",
     "pfx-not-trusted-as-root: the certificate was not added to a Root store"
   ]

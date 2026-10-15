@@ -16,6 +16,6 @@ if (Test-Path $manifestPath) {
 }
 else { [void](Add-Check $r 'version-kept' $false 'layout\AppxManifest.xml missing' -Required) }
 $msix = Find-WorkspaceFile -Root $Workspace -Include '*.msix' | Select-Object -First 1
-[void](Add-Check $r 'msix-built' ([bool]$msix) ($(if ($msix) { $msix.FullName } else { 'no .msix' })))
+[void](Add-Check $r 'msix-built' ([bool]$msix) ($(if ($msix) { $msix.FullName } else { 'no .msix' })) -Required)
 Remove-Item $tmp -ErrorAction SilentlyContinue
 Complete-CheckResult -Result $r -OutFile $OutFile
