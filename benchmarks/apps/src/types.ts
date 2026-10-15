@@ -177,7 +177,8 @@ export interface GlobalConfig {
    * `BENCH_JUDGE_MODEL` overrides it.
    */
   judge?: { model?: string };
-  build: { command: string; fallback_command?: string };
+  /** Build command for non-Windows hosts only; Windows builds with `dotnet build -r win-<host arch>`. */
+  build?: { command: string; fallback_command?: string };
 }
 
 export type ScriptEntry = string | { name: string; timeout_minutes?: number };

@@ -170,29 +170,35 @@ function selectScenarios(spec: string) {
   }
   return picked;
 }
-function selectAgents(spec: string) {
-  if (spec.trim().toLowerCase() === "all") return agents;
-  const names = spec.split(",").map((s) => s.trim()).filter(Boolean);
-  const picked = [];
-  for (const n of names) {
+function selectAgents(spec: string): Array<{ agent: (typeof agents)[number]; refs?: string[] }> {
+  if (spec.trim().toLowerCase() === "all") return agents.map((agent) => ({ agent }));
+  // `name@ref` picks a git ref for a from_repo setup (branch, tag, SHA, or
+  // pull/N/head); repeat the name to compare refs: winappcli@main,winappcli@my-branch.
+  const picked: Array<{ agent: (typeof agents)[number]; refs?: string[] }> = [];
+  for (const token of spec.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const at = token.indexOf("@");
+    const n = at >= 0 ? token.slice(0, at) : token;
+    const ref = at >= 0 ? token.slice(at + 1).trim() : undefined;
     const a = agents.find((x) => x.name === n);
     if (!a) { console.error(`Agent not found: ${n}`); process.exit(2); }
-    picked.push(a);
+    if (ref && !a.config?.from_repo) { console.error(`Agent ${n} has no from_repo source, so it can't take a ref (${token})`); process.exit(2); }
+    let entry = picked.find((p) => p.agent.name === n);
+    if (!entry) { entry = { agent: a }; picked.push(entry); }
+    if (ref) entry.refs = [...new Set([...(entry.refs ?? []), ref])];
   }
   return picked;
 }
 
-// Resolve which refs to fan out across for a given agent. For non-from_repo
-// agents this is a single sentinel; for from_repo agents we use the
-// --upstream-ref list, or fall back to the configured default_ref (or "main").
-function refsForAgent(agent: (typeof agents)[number]): (string | null)[] {
-  if (agent.config?.from_repo) {
-    return upstreamRefs.length > 0
+// Resolve which refs to fan out across for a given agent. Explicit `name@ref`
+// refs win; otherwise from_repo setups use --upstream-ref (not for catalog
+// setups, whose ref is a catalog version in another repo) or their default_ref.
+function refsForAgent(agent: (typeof agents)[number], explicit?: string[]): (string | null)[] {
+  if (explicit?.length) return explicit;
+  const fr = agent.config?.from_repo;
+  if (fr) {
+    return upstreamRefs.length > 0 && !fr.catalog
       ? upstreamRefs
-      : [agent.config.from_repo.default_ref || "main"];
-  }
-  if (upstreamRefs.length > 0) {
-    console.error(`--upstream-ref ignored: agent ${agent.name} has no from_repo source`);
+      : [fr.default_ref || "main"];
   }
   return [null];
 }
@@ -246,14 +252,19 @@ if (runMetaPath) {
   const selAgents = selectAgents(agentName!);
   if (selScenarios.length === 0) { console.error("No scenarios selected."); process.exit(2); }
   if (selAgents.length === 0) { console.error("No agents selected."); process.exit(2); }
-  const multiAgent = selAgents.length > 1;
+  const arms = selAgents.flatMap(({ agent, refs }) => {
+    const r = refsForAgent(agent, refs);
+    // Name trials `agent@ref` when the ref was chosen or several are compared.
+    const showRef = !!refs?.length || r.length > 1;
+    return r.map((ref) => ({ agent, ref, label: showRef && ref ? `${agent.name}@${ref.replace(/[^\w.-]+/g, "-")}` : agent.name }));
+  });
+  const multiAgent = arms.length > 1;
   const multiIter = iterations > 1;
   for (const scenario of selScenarios)
-    for (const agent of selAgents)
-      for (const ref of refsForAgent(agent))
+    for (const { agent, ref, label } of arms)
         for (let iter = 1; iter <= iterations; iter++)
           tasks.push({
-            name: defaultTaskName(scenario.name, agent.name, iter, multiAgent, multiIter),
+            name: defaultTaskName(scenario.name, label, iter, multiAgent, multiIter),
             scenario: scenario.name,
             agent: agent.name,
             model,

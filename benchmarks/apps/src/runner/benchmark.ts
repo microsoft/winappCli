@@ -2220,7 +2220,8 @@ async function defaultDotnetBuild(
       false
     );
   } else {
-    const buildCommand = (globalConfig.build.fallback_command || globalConfig.build.command)
+    // Non-Windows only; Windows always builds for the host architecture above.
+    const buildCommand = (globalConfig.build?.fallback_command || globalConfig.build?.command || "dotnet build {csproj} -c Debug")
       .replace(/\{csproj\}/g, `"${csproj}"`);
     log(`  Using configured build command: ${buildCommand}`);
     result = await runProcess(buildCommand, [], workDir, callbacks.onOutput);

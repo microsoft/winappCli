@@ -54,7 +54,7 @@ for (const name of readdirSync(runDir)) {
   const checks: Record<string, string> = {};
   for (const c of m.quality_checks ?? []) checks[c.id] = c.status;
   trials.push({
-    arm: String(r.condition ?? "?").replace(/\s*\[\d+\/\d+\]\s*$/, "").replace(/@.*/, ""),
+    arm: String(r.condition ?? "?").replace(/\s*\[\d+\/\d+\]\s*$/, ""),
     model: String(r.model ?? "?"),
     scenario: r.scenario,
     iteration: r.iteration ?? 1,
@@ -69,6 +69,20 @@ for (const name of readdirSync(runDir)) {
   });
 }
 if (!trials.length) { console.error(`No results.json in ${runDir}`); process.exit(1); }
+
+// Keep `setup@ref` only when a setup ran at more than one ref (e.g. winappcli@main
+// vs winappcli@my-branch); a single ref collapses to the setup name.
+{
+  const refsBySetup = new Map<string, Set<string>>();
+  for (const t of trials) {
+    const [setup, ref = ""] = t.arm.split("@");
+    refsBySetup.set(setup, (refsBySetup.get(setup) ?? new Set()).add(ref));
+  }
+  for (const t of trials) {
+    const setup = t.arm.split("@")[0];
+    if ((refsBySetup.get(setup)?.size ?? 0) <= 1) t.arm = setup;
+  }
+}
 
 const T95 = [0, 12.71, 4.30, 3.18, 2.78, 2.57, 2.45, 2.36, 2.31, 2.26, 2.23, 2.20, 2.18, 2.16, 2.14, 2.13, 2.12, 2.11, 2.10, 2.09, 2.09];
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;

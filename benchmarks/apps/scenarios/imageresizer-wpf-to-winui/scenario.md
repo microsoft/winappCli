@@ -5,8 +5,6 @@ type: convert
 app_name: ImageResizer
 original_app:
   source_dir: '{repo_root}\..\PowerToys\src\modules\imageresizer'
-  build_command: 'MSBuild.exe ui\ImageResizerUI.csproj /restore /p:Platform=x64 /p:Configuration=Debug /v:minimal'
-  run_command: 'x64\Debug\WinUI3Apps\PowerToys.ImageResizer.exe'
 test_assets:
   - name: 'test image'
     path: '{scenario_dir}\testimage.png'

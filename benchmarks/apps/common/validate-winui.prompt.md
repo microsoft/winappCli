@@ -255,9 +255,9 @@ Prefer UIA interaction because it also works on locked desktops. Use `send-keys 
 ## Building & Running WinUI 3 Apps (only if you need to relaunch)
 
 ```powershell
-$arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "Arm64" } else { "x64" }
-dotnet build <project.csproj> -c Debug -p:Platform=$arch
-winapp run bin\x64\Debug\<tfm>\win-x64\
+$arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
+dotnet build <project.csproj> -c Debug -r win-$arch -p:Platform=$arch
+winapp run <project.csproj> --no-build --arch $arch -p Platform=$arch
 ```
 
 **IMPORTANT: Do NOT read binary image files** (.ico, .png, .jpg, .jpeg, .gif, .bmp, .svg, .webp) with the view/read tool — it will corrupt the request. Use `Test-Path` or `Get-Item` instead.

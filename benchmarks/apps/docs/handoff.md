@@ -21,7 +21,7 @@ October 2026 without its history. Everything needed to run it is in this folder;
 ## Baseline: run906 (2026-10-14/15)
 
 Setup: 10 scenarios (all except `calc`, `counter-winui`, `imageresizer-wpf-to-winui`,
-`local-llm-chat`) × `none` / `both-published` / `both` (then named `bare`,
+`local-llm-chat`) × `none` / `published` / `winappcli@main` (then named `bare`,
 `winappcli-published`, `winappcli`) × Claude Sonnet 5.5, Claude Opus 5.5, GPT-6.1 Sol ×
 3 iterations. Judge: Claude Sonnet 5.5. WinApp CLI 0.7.2 prerelease; winappCli `main` at
 `76f2b9f`; published catalog winappcli 0.7.1 / winui 0.7.1.
@@ -29,19 +29,19 @@ Setup: 10 scenarios (all except `calc`, `counter-winui`, `imageresizer-wpf-to-wi
 | Model | Setup | n | Score | Δ vs `none` (paired, 95% CI) | Quality checks | Credits/trial |
 |---|---|---:|---:|---:|---:|---:|
 | Sonnet 5.5 | none | 30 | 82.1 | – | 69% | 69 |
-|  | both-published | 30 | 87.9 | +5.8 ±4.5 | 89% | 96 |
-|  | both (main) | 30 | 88.1 | +6.0 ±7.5 | 91% | 98 |
+|  | published | 30 | 87.9 | +5.8 ±4.5 | 89% | 96 |
+|  | winappcli@main | 30 | 88.1 | +6.0 ±7.5 | 91% | 98 |
 | Opus 5.5 | none | 30 | 89.6 | – | 75% | 375 |
-|  | both-published | 30 | 92.9 | +3.4 ±3.1 | 92% | 420 |
-|  | both (main) | 30 | 95.4 | +5.8 ±1.1 | 94% | 408 |
+|  | published | 30 | 92.9 | +3.4 ±3.1 | 92% | 420 |
+|  | winappcli@main | 30 | 95.4 | +5.8 ±1.1 | 94% | 408 |
 | GPT-6.1 Sol | none | 30 | 82.8 | – | 58% | 103 |
-|  | both-published | 30 | 91.0 | +8.1 ±1.8 | 80% | 149 |
-|  | both (main) | 30 | 91.4 | +8.6 ±2.1 | 82% | 160 |
+|  | published | 30 | 91.0 | +8.1 ±1.8 | 80% | 149 |
+|  | winappcli@main | 30 | 91.4 | +8.6 ±2.1 | 82% | 160 |
 | **All** | none | 90 | 84.8 | – | 68% | 183 |
-|  | both-published | 90 | 90.6 | **+5.8 ±1.9** | 87% | 222 |
-|  | both (main) | 90 | 91.6 | **+6.8 ±2.6** | 89% | 222 |
+|  | published | 90 | 90.6 | **+5.8 ±1.9** | 87% | 222 |
+|  | winappcli@main | 90 | 91.6 | **+6.8 ±2.6** | 89% | 222 |
 
-All 270 trials are valid. 13 trials originally lost to machine or harness problems were re-validated after fixing those problems: a VM suspend, a stuck AppX service, a mismatched user `DOTNET_ROOT`, and a library project picked instead of the app. `both` vs `both-published`: +1.0 ±2.4 (no measurable difference). The three scores below 50 are real app failures: a crash at startup, a crash on navigation, and tagging that didn't work.
+All 270 trials are valid. 13 trials originally lost to machine or harness problems were re-validated after fixing those problems: a VM suspend, a stuck AppX service, a mismatched user `DOTNET_ROOT`, and a library project picked instead of the app. `winappcli@main` vs `published`: +1.0 ±2.4 (no measurable difference). The three scores below 50 are real app failures: a crash at startup, a crash on navigation, and tagging that didn't work.
 
 **Findings**
 - **The plugins help every model.** The quality checks are where most of the gain comes from:
@@ -65,8 +65,8 @@ All 270 trials are valid. 13 trials originally lost to machine or harness proble
 ```powershell
 cd benchmarks\apps
 npm ci; npm run doctor
-# This branch vs main vs published, one model, 3 iterations over 3 quick scenarios (36 trials, ~2–3 h, ~1,800 credits on Sonnet)
-npm run bench -- --scenario calc,counter-winui,text-editor-winui --agent none,both,both-main,both-published --iterations 3 --concurrency 3
+# Your branch vs main vs published vs no plugins: one model, 3 iterations, 3 quick scenarios (36 trials, ~2–3 h, ~1,800 credits on Sonnet)
+npm run bench -- --scenario calc,counter-winui,text-editor-winui --agent "none,published,winappcli@main,winappcli@my-branch" --iterations 3 --concurrency 3
 npm run scorecard -- runN
 ```
 
@@ -113,7 +113,7 @@ cleaned per trial). Delete old runs you no longer need.
 ## Next steps
 
 1. **Align with `benchmarks/agents`:**
-   - shared setup names (done: `none`, `both`, `both-published`);
+   - shared setup names (`benchmarks/agents` uses `none`/`winapp`/`winui`/`both`; this uses `none`/`winappcli`/`published`);
    - a common `published` definition;
    - one comparison report format.
 2. **New scenarios** beyond greenfield WinUI:

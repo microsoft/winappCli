@@ -1,8 +1,0 @@
-{
-  "description": "Both plugins from microsoft/winappCli at a git ref (default main), pinned to one commit per run. Use with `both` to compare a branch against main in one run, or pick another ref with --upstream-ref.",
-  "from_repo": {
-    "repo": "microsoft/winappCli",
-    "default_ref": "main",
-    "plugins": ["plugins/winapp", "plugins/winui/agent-plugin"]
-  }
-}

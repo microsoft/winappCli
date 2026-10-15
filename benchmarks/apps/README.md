@@ -20,9 +20,14 @@ It complements [`benchmarks/agents`](../agents/README.md):
 | Setup | Plugins | Use |
 |---|---|---|
 | `none` | none, and `winapp` hidden from PATH | No-skills baseline |
-| `both` | `plugins/winapp` + `plugins/winui/agent-plugin` **from this checkout** | The branch you're on, including uncommitted plugin changes |
-| `both-main` | the same plugins from `microsoft/winappCli` at a ref (default `main`), pinned per run | Compare a branch against `main` in one run |
-| `both-published` | both plugins exactly as the published catalog (`microsoft/win-dev-skills`) pins them | What users get today |
+| `winappcli` | `plugins/winapp` + `plugins/winui/agent-plugin` from `microsoft/winappCli` at a **ref you pick**: `main` (default), a branch, tag, SHA, or `pull/N/head` | `winappcli@main` for the current state; `winappcli@my-branch` for your change. Each ref is its own setup in the results |
+| `published` | both plugins exactly as the published catalog (`microsoft/win-dev-skills`) pins them | What users get today |
+
+A typical comparison is `none`, `published`, `winappcli@main` and `winappcli@<your branch>`. Push
+the branch first; the harness clones it, and pins every ref to one commit for the whole run. In the
+dashboard, the setup step lists the repo's branches for `winappcli`; select as many as you want
+to compare. For a tag, SHA or pull request (`pull/N/head`, which also works for forks), use
+headless runs.
 
 All setups load plugins the way a marketplace install does (SDK `pluginDirectories`, default
 agent). Before the prompt is sent, each trial checks that every plugin skill is loaded from the
@@ -51,10 +56,13 @@ npm start             # terminal dashboard (setup wizard)
 
 ```powershell
 # One trial
-npm run bench -- --scenario calc --agent both
+npm run bench -- --scenario calc --agent winappcli
 
-# Matrix: every (scenario x setup x iteration)
-npm run bench -- --scenario calc,counter-winui,text-editor-winui --agent none,both,both-published --iterations 3 --concurrency 3
+# Compare your branch with main, the published plugins and no plugins (3 iterations)
+npm run bench -- --scenario calc,counter-winui,text-editor-winui --agent "none,published,winappcli@main,winappcli@my-branch" --iterations 3 --concurrency 3
+
+# A pull request (also works for forks)
+npm run bench -- --scenario calc --agent "winappcli@main,winappcli@pull/1234/head"
 
 # Preview without running
 npm run bench -- --scenario all --agent all --dry-run
@@ -66,12 +74,12 @@ npm run scorecard -- run3 --markdown scorecard.md
 | Flag | Default | Notes |
 |---|---|---|
 | `--scenario a,b` / `all` | | Scenario names (frontmatter `name`) |
-| `--agent a,b` / `all` | | Setup folders under `agents/` |
+| `--agent a,b` / `all` | | Setup folders under `agents/`. `name@ref` picks a ref for a `from_repo` setup; repeat the name to compare refs |
 | `--model m` | `claude-sonnet-5.5` | Build model (one per run; run separate sweeps per model, or use `--run-meta`) |
 | `--iterations n` | 1 | |
 | `--concurrency n` | 1 | 3–4 is fine on a 16-core machine |
 | `--max-build-minutes n` | 60 | Per build session |
-| `--upstream-ref r1,r2` | `default_ref` | Refs for `both-main` / `both-published` (each ref becomes its own setup) |
+| `--upstream-ref r1,r2` | `default_ref` | Same as `winappcli@r1,winappcli@r2` for every `from_repo` setup without an explicit ref (catalog setups keep their default) |
 | `--judge-model m` | `judge.model` in `common/config.json` | Fixed grader for every trial |
 | `--skip-validation` | off | Build + launch only, no judge |
 | `--run-meta file.json` | | Explicit task list (mix models, setups, refs) |
@@ -155,11 +163,12 @@ Some scenarios need extra setup:
 ```jsonc
 {
   "description": "Shown in the dashboard",
-  "from_local": { "plugins": ["plugins/winapp", "plugins/winui/agent-plugin"], "agent": "optional-agent-name" },
-  // or: plugins from a GitHub ref (pinned per run in results\runN\upstream-pins.json)
+  // Plugins from a GitHub ref (default_ref, or pick refs per run); pinned per run in results\runN\upstream-pins.json
   "from_repo": { "repo": "microsoft/winappCli", "default_ref": "main", "plugins": ["plugins/winapp"] },
   // or: plugins as a marketplace catalog pins them
   "from_repo": { "repo": "microsoft/win-dev-skills", "default_ref": "main", "catalog": ".github/plugin/marketplace.json", "plugins": ["winappcli", "winui"] },
+  // or: plugins straight from this checkout, including uncommitted edits (handy in agents/.local/ for quick local iteration)
+  "from_local": { "plugins": ["plugins/winapp", "plugins/winui/agent-plugin"], "agent": "optional-agent-name" },
   "env": {
     "hide_tools": ["winapp"],          // drop these from the trial PATH (other tools in the same folders stay reachable)
     "path_prepend": [],                // extra PATH entries
@@ -200,7 +209,7 @@ folder. `Q` quits.
 
 ```
 benchmarks/apps/
-  agents/        setup configs (none, both, both-main, both-published)
+  agents/        setup configs (none, winappcli, published)
   common/        judge prompt, UI test harness, judge model
   scenarios/     one folder per scenario
   scripts/       Test-Prerequisites.ps1 (npm run doctor)

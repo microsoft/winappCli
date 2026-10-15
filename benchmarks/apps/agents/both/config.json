@@ -1,6 +1,0 @@
-{
-  "description": "Both plugins (winapp + winui) from this checkout, loaded as real plugins with the default agent. Benchmarks the branch you have checked out, including uncommitted plugin changes.",
-  "from_local": {
-    "plugins": ["plugins/winapp", "plugins/winui/agent-plugin"]
-  }
-}
