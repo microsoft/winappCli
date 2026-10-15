@@ -42,7 +42,6 @@
     "sb-nuget-control",
     "sb-window",
     "parity-xbind",
-    "in-place-reload",
-    "todo-app"
+    "in-place-reload"
   ]
 }
