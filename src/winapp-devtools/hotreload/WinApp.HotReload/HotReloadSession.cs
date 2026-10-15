@@ -1210,12 +1210,37 @@ internal sealed partial class HotReloadSession
     }
 
     /// <summary>The update for the current solution; a compiler crash becomes a <see cref="CompilerCrashException"/>.</summary>
+    /// <summary>Whether the only changes since the last update are comments, whitespace and directives (no code).</summary>
+    private async Task<bool> OnlyTriviaChangedAsync(CancellationToken cancellationToken)
+    {
+        foreach (var project in _solution.GetChanges(_committed).GetProjectChanges())
+        {
+            if (project.GetAddedDocuments().Any() || project.GetRemovedDocuments().Any() || project.GetAddedMetadataReferences().Any() ||
+                project.GetRemovedMetadataReferences().Any() || project.OldProject.ParseOptions != project.NewProject.ParseOptions ||
+                project.OldProject.CompilationOptions != project.NewProject.CompilationOptions)
+            {
+                return false;
+            }
+            foreach (var id in project.GetChangedDocuments())
+            {
+                var before = await project.OldProject.GetDocument(id)!.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+                var after = await project.NewProject.GetDocument(id)!.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+                if (before is null || after is null || !before.IsEquivalentTo(after, topLevel: false))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private async Task<EncResult> UpdatesAsync(CancellationToken cancellationToken)
     {
-        if (!_solution.GetChanges(_committed).GetProjectChanges().Any())
+        if (!_solution.GetChanges(_committed).GetProjectChanges().Any() || await OnlyTriviaChangedAsync(cancellationToken).ConfigureAwait(false))
         {
             // Nothing to compile. Edit and continue would still take this solution as its last one, without a baseline
-            // from its compilation (see _checksumOnly).
+            // from its compilation, and the next update of a method added during the session then fails
+            // (NullReferenceException in DefinitionMap.GetPreviousMethodHandle). It sees these edits with the next real one.
             return new EncResult("None", [], [], [], false);
         }
         try
