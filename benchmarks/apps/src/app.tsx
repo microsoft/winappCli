@@ -1,8 +1,9 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import { exec } from "child_process";
 import { platform } from "os";
 import { StatusBar } from "./components/status-bar.js";
+import { formatClock } from "./components/clock.js";
 import { SetupView, type SetupResult } from "./views/setup.js";
 import { LiveView } from "./views/live.js";
 import { ProgressView } from "./views/progress.js";
@@ -58,7 +59,6 @@ export function App({ showResultsOnly, runName: initialRunName, maxBuildMinutes 
   const [configuredMaxBuildMinutes, setConfiguredMaxBuildMinutes] = useState(maxBuildMinutes);
   const [configuredConcurrency, setConfiguredConcurrency] = useState(concurrency);
   const [startTime, setStartTime] = useState<Date | null>(null);
-  const [elapsed, setElapsed] = useState("00:00:00");
   const queueRef = useRef<BenchmarkQueue | null>(null);
 
   // Per-run output storage
@@ -190,7 +190,17 @@ export function App({ showResultsOnly, runName: initialRunName, maxBuildMinutes 
     setOutputVersion(v => v + 1);
   }, [selectedRunIndex, runName]);
 
-  // Update elapsed timer and terminal title
+  // Once every trial has finished, freeze the run clock at the last finish
+  // time so it shows the real run duration.
+  const runEnd = useMemo(() => {
+    if (entries.length === 0) return null;
+    if (!entries.every(e => ["done", "failed", "interrupted", "timeout"].includes(e.status))) return null;
+    const last = entries.reduce((max, e) => Math.max(max, e.finishedAt?.getTime() ?? 0), 0);
+    return last > 0 ? last : null;
+  }, [entries]);
+
+  // Terminal title + Windows Terminal progress ring. The on-screen clocks tick
+  // inside StatusBar/ProgressView/LiveView (components/clock.ts).
   useEffect(() => {
     if (!startTime) return;
     const timer = setInterval(() => {
@@ -198,30 +208,7 @@ export function App({ showResultsOnly, runName: initialRunName, maxBuildMinutes 
       const active = entries.find(e => !["queued", "done", "failed", "interrupted", "timeout"].includes(e.status));
       const total = entries.length;
       const allDone = total > 0 && completed === total;
-
-      // Freeze the clock once every task is finished: measure up to the last
-      // task's finishedAt instead of "now", so elapsed reflects the actual run
-      // duration and stops ticking.
-      let endRef = Date.now();
-      if (allDone) {
-        const lastFinish = entries.reduce((max, e) => {
-          const t = e.finishedAt?.getTime();
-          return t != null && t > max ? t : max;
-        }, 0);
-        if (lastFinish > 0) endRef = lastFinish;
-      }
-      const diff = endRef - startTime.getTime();
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      const timeStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-      // Ink retains enough renderer state across periodic frames to grow over
-      // multi-day runs. Keep background/progress views event-driven; only Live
-      // needs a ticking elapsed display.
-      if (viewRef.current === "live") {
-        setElapsed(timeStr);
-      }
-
+      const timeStr = formatClock((runEnd ?? Date.now()) - startTime.getTime());
       // Update terminal title + Windows Terminal progress ring
       let title: string;
       if (allDone) {
@@ -246,7 +233,7 @@ export function App({ showResultsOnly, runName: initialRunName, maxBuildMinutes 
       // Clear progress ring on unmount
       process.stdout.write(`\x1b]9;4;0;0\x07`);
     };
-  }, [startTime, entries]);
+  }, [startTime, entries, runEnd]);
 
   // Track which run is currently active (for auto-follow)
   const activeRunIndex = entries.findIndex(e =>
@@ -688,7 +675,8 @@ export function App({ showResultsOnly, runName: initialRunName, maxBuildMinutes 
       <StatusBar
         currentRun={currentRun}
         progress={progress}
-        elapsed={elapsed}
+        runStart={startTime}
+        runEnd={runEnd}
         activeView={view}
         runName={runName}
         memory={memory}
@@ -703,7 +691,7 @@ export function App({ showResultsOnly, runName: initialRunName, maxBuildMinutes 
         />
       )}
       <Box flexDirection="column" overflow="hidden" flexGrow={1} marginTop={view !== "live" && view !== "progress" ? -scrollOffset : 0}>
-        {view === "progress" && <ProgressView entries={entries} runName={runName} elapsed={elapsed} isRunning={queueRef.current?.isRunning} onRerun={handleRerun} onRevalidate={handleRevalidate} />}
+        {view === "progress" && <ProgressView entries={entries} runName={runName} runStart={startTime} runEnd={runEnd} isRunning={queueRef.current?.isRunning} onRerun={handleRerun} onRevalidate={handleRevalidate} />}
         {view === "results" && <ResultsView entries={entries} runDir={runName ? join(resultsRoot, runName) : undefined} cursorIndex={resultsCursorIndex} onCursorClamp={(max) => { if (resultsCursorIndex > max) setResultsCursorIndex(max); }} />}
         {view === "charts" && <ChartsView entries={entries} />}
         {view === "summary" && <SummaryView entries={entries} runDir={runName ? join(resultsRoot, runName) : undefined} />}

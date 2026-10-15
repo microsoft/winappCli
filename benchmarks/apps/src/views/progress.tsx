@@ -2,20 +2,27 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 import type { RunEntry } from "../types.js";
 import { getGrade } from "../components/grades.js";
+import { useNow, useRunClock } from "../components/clock.js";
+
+const ACTIVE = ["setup", "building", "build_done", "dotnet_build", "launching", "validating", "retrospective"];
 
 interface Props {
   entries: RunEntry[];
   runName: string;
-  elapsed: string;
+  runStart: Date | null;
+  runEnd: number | null;
   isRunning?: boolean;
   onRerun?: (entryIds: string[]) => void;
   onRevalidate?: (entryIds: string[]) => void;
 }
 
-export function ProgressView({ entries, runName, elapsed, isRunning, onRerun, onRevalidate }: Props) {
+export function ProgressView({ entries, runName, runStart, runEnd, isRunning, onRerun, onRevalidate }: Props) {
+  const elapsed = useRunClock(runStart, runEnd);
   const completed = entries.filter(e => ["done", "failed", "interrupted", "timeout"].includes(e.status)).length;
   // Allow selection when nothing is actively running (all done, or loaded run with queued entries)
-  const noneActive = entries.length > 0 && !entries.some(e => ["setup", "building", "build_done", "dotnet_build", "launching", "validating", "retrospective"].includes(e.status));
+  const noneActive = entries.length > 0 && !entries.some(e => ACTIVE.includes(e.status));
+  // Redraw once a second while trials run so their timers move.
+  const now = useNow(1000, !noneActive);
   const allDone = noneActive && !isRunning;
   const [selectedForRerun, setSelectedForRerun] = useState<Set<string>>(new Set());
   const [cursorIndex, setCursorIndex] = useState(0);
@@ -150,7 +157,7 @@ export function ProgressView({ entries, runName, elapsed, isRunning, onRerun, on
         {scrollTop > 0 && <Text color="gray">  ↑ {scrollTop} more above</Text>}
         {visibleEntries.map(({ entry, index: i }) => {
           const shortModel = entry.model.replace("claude-", "");
-          const { text: statusText, color } = getStatusDisplay(entry);
+          const { text: statusText, color } = getStatusDisplay(entry, now);
           const isSelected = selectedForRerun.has(entry.id);
           const isCursor = allDone && i === cursorIndex;
           const prefix = isCursor ? (isSelected ? "✓▸" : " ▸") : (isSelected ? "✓ " : "  ");
@@ -172,22 +179,22 @@ function pad(s: string, len: number): string {
   return s.length >= len ? s.slice(0, len) : s + " ".repeat(len - s.length);
 }
 
-function getStatusDisplay(entry: RunEntry): { text: string; color: string } {
+function getStatusDisplay(entry: RunEntry, now: number): { text: string; color: string } {
   switch (entry.status) {
     case "queued": return { text: "⏳ Queued", color: "gray" };
-    case "setup": return { text: `🔧 Setup... ${runElapsed(entry)}`, color: "cyan" };
+    case "setup": return { text: `🔧 Setup... ${runElapsed(entry, now)}`, color: "cyan" };
     case "building": {
       const tokens = entry.tokenDisplay || (entry.outputTokens ? entry.outputTokens + " out" : "");
-      return { text: `🔄 Coding... ${runElapsed(entry)}${tokens ? " [" + tokens + "]" : ""}`, color: "cyan" };
+      return { text: `🔄 Coding... ${runElapsed(entry, now)}${tokens ? " [" + tokens + "]" : ""}`, color: "cyan" };
     }
-    case "build_done": return { text: `📦 Built ${runElapsed(entry)}`, color: "cyan" };
-    case "dotnet_build": return { text: `🔨 Compiling... ${runElapsed(entry)}`, color: "cyan" };
-    case "launching": return { text: `🚀 Launching... ${runElapsed(entry)}`, color: "cyan" };
+    case "build_done": return { text: `📦 Built ${runElapsed(entry, now)}`, color: "cyan" };
+    case "dotnet_build": return { text: `🔨 Compiling... ${runElapsed(entry, now)}`, color: "cyan" };
+    case "launching": return { text: `🚀 Launching... ${runElapsed(entry, now)}`, color: "cyan" };
     case "validating": {
       const tokens = entry.tokenDisplay || (entry.outputTokens ? entry.outputTokens + " out" : "");
-      return { text: `🔍 Validating... ${runElapsed(entry)}${tokens ? " [" + tokens + "]" : ""}`, color: "cyan" };
+      return { text: `🔍 Validating... ${runElapsed(entry, now)}${tokens ? " [" + tokens + "]" : ""}`, color: "cyan" };
     }
-    case "retrospective": return { text: `📝 Retrospective... ${runElapsed(entry)}`, color: "cyan" };
+    case "retrospective": return { text: `📝 Retrospective... ${runElapsed(entry, now)}`, color: "cyan" };
     case "done": {
       const breakdown = entry.qualityBreakdown ? ` (${entry.qualityBreakdown})` : "";
       const score = entry.score != null ? `${entry.score}/100${breakdown}` : "—";
@@ -201,19 +208,19 @@ function getStatusDisplay(entry: RunEntry): { text: string; color: string } {
       return { text: `${grade.letter} ${score} (${time}${tokens ? ", " + tokens + subTok : ""}${pr})`, color: grade.color };
     }
     case "failed": {
-      const time = entry.sessionTime || runElapsed(entry);
+      const time = entry.sessionTime || runElapsed(entry, now);
       return { text: `❌ ${entry.failReason || "Failed"} (${time})`, color: "red" };
     }
-    case "timeout": return { text: `⏰ Timeout (${runElapsed(entry)})`, color: "red" };
+    case "timeout": return { text: `⏰ Timeout (${runElapsed(entry, now)})`, color: "red" };
     case "interrupted": return { text: "⚠ Interrupted — select and rerun", color: "yellow" };
     default: return { text: entry.status, color: "white" };
   }
 }
 
-function runElapsed(entry: RunEntry): string {
+function runElapsed(entry: RunEntry, now: number): string {
   if (!entry.startedAt) return "";
-  const end = entry.finishedAt || new Date();
-  return formatElapsed(end.getTime() - entry.startedAt.getTime());
+  const end = entry.finishedAt?.getTime() ?? now;
+  return formatElapsed(end - entry.startedAt.getTime());
 }
 
 function formatElapsed(ms: number): string {

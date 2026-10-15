@@ -1,17 +1,21 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { RunEntry, ViewName } from "../types.js";
+import { useRunClock } from "./clock.js";
 
 interface Props {
   currentRun?: RunEntry;
   progress: { current: number; total: number };
-  elapsed: string;
+  runStart: Date | null;
+  /** Epoch ms of the last finished trial once the whole run is done; freezes the clock. */
+  runEnd: number | null;
   activeView: ViewName;
   runName?: string;
   memory?: { heapMb: number; rssMb: number; visibleKb: number };
 }
 
-export function StatusBar({ currentRun, progress, elapsed, activeView, runName, memory }: Props) {
+export function StatusBar({ currentRun, progress, runStart, runEnd, activeView, runName, memory }: Props) {
+  const elapsed = useRunClock(runStart, runEnd);
   return (
     <Box borderStyle="single" borderColor="magenta" paddingX={1}>
       <Box flexGrow={1}>

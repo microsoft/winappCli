@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import { LogPanel } from "../components/log-panel.js";
 import { getGrade } from "../components/grades.js";
+import { useNow } from "../components/clock.js";
 import type { RunEntry } from "../types.js";
 
 interface Props {
@@ -14,6 +15,9 @@ interface Props {
 }
 
 export function LiveView({ selectedRun, output, scrollOffset, runIndex, totalRuns }: Props) {
+  const ticking = !!selectedRun?.startedAt && !selectedRun.finishedAt &&
+    ["setup", "building", "dotnet_build", "launching", "validating", "retrospective"].includes(selectedRun.status);
+  const now = useNow(1000, ticking);
   if (!selectedRun) {
     return (
       <Box padding={1}>
@@ -42,7 +46,7 @@ export function LiveView({ selectedRun, output, scrollOffset, runIndex, totalRun
 
   // Calculate elapsed for this run
   const runElapsedMs = selectedRun.startedAt
-    ? (selectedRun.finishedAt || new Date()).getTime() - selectedRun.startedAt.getTime()
+    ? (selectedRun.finishedAt?.getTime() ?? now) - selectedRun.startedAt.getTime()
     : 0;
   const runElapsedStr = runElapsedMs > 0 ? formatRunElapsed(runElapsedMs) : "";
 
