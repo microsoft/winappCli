@@ -226,3 +226,8 @@ devcert.pfx
 # Local agent benchmark results
 /benchmarks/agents/results/
 /benchmarks/agents/experiments/
+
+# Local app benchmark (results live outside the repo by default)
+/benchmarks/apps/results/
+/benchmarks/apps/agents/.local/
+/benchmarks/apps/skills/.local/
