@@ -97,7 +97,8 @@ internal sealed partial class HotReloadSession
     private static XamlStart StartXamlCompiler(string[] cscArgs, string projectDirectory, string markupDirectory)
     {
         var start = new XamlStart();
-        var typeInfo = cscArgs.Select(a => a.Trim('"')).FirstOrDefault(a => a.EndsWith("XamlTypeInfo.g.cs", StringComparison.OrdinalIgnoreCase));
+        // A source file argument, not an option naming it (/embed:…\XamlTypeInfo.g.cs with SourceLink's EmbedUntrackedSources).
+        var typeInfo = cscArgs.Select(a => a.Trim('"')).FirstOrDefault(a => !a.StartsWith('/') && !a.StartsWith('-') && a.EndsWith("XamlTypeInfo.g.cs", StringComparison.OrdinalIgnoreCase));
         start.Intermediate = typeInfo is null ? "" : Path.GetDirectoryName(Path.GetFullPath(Path.Combine(projectDirectory, typeInfo)))!;
         var inputs = start.Intermediate.Length > 0 ? Path.Combine(start.Intermediate, "input.json") : "";
         if (!File.Exists(inputs))
