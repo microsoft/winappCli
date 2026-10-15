@@ -2,7 +2,7 @@ param([string]$Workspace, $Baseline, [string]$OutFile)
 $r = New-CheckResult -Task 'publisher-mismatch'
 $fixture = Get-Content -Raw 'C:\bench-state\fixture.json' | ConvertFrom-Json
 $candidates = @(Find-WorkspaceFile -Root $Workspace -Include '*.msix')
-$signed = @($candidates | Where-Object { (Get-FileSignature $_.FullName).Thumbprint -eq $fixture.thumbprint }) | Select-Object -First 1
+$signed = @($candidates | Where-Object { $s = Get-FileSignature $_.FullName; $s.Thumbprint -eq $fixture.thumbprint -and (Test-SignatureIntact $s) }) | Select-Object -First 1
 [void](Add-Check $r 'msix-built' ([bool]$candidates) ($(if ($candidates) { $candidates.Name -join ', ' } else { 'no .msix' })))
 [void](Add-Check $r 'signed-by-pfx' ([bool]$signed) ($(if ($signed) { $signed.FullName } else { 'no .msix signed by certs\northwind.pfx' })) -Required)
 if ($signed) {

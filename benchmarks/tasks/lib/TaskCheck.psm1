@@ -352,7 +352,7 @@ function Add-MsixFileChecks {
     $sig = Get-FileSignature $msix.FullName
     $Result.facts.msix = $msix.FullName
     $Result.facts.signer = $sig.Subject
-    [void](Add-Check $Result 'msix-signed' $sig.Signed "status $($sig.Status); signer $($sig.Subject)" -Required:$RequireSigned)
+    [void](Add-Check $Result 'msix-signed' (Test-SignatureIntact $sig) "status $($sig.Status); signer $($sig.Subject)" -Required:$RequireSigned)
     [void](Add-Check $Result 'msix-trusted' ($sig.Status -eq 'Valid') "status $($sig.Status): $($sig.Message)")
     return [pscustomobject]@{ File = $msix; Signature = $sig; Identity = (Get-ManifestIdentity (Read-MsixManifest $msix.FullName)) }
 }

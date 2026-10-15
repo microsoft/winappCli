@@ -16,7 +16,7 @@ Use this skill when:
 ## Prerequisites
 
 - winapp CLI installed
-- `cert install` needs an elevated terminal. Check first: `([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrator')`. If `True` and the user asked to trust or install, run it; if not, give the user the exact command to run in an elevated terminal
+- `cert install` needs an elevated terminal. Check first: `([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)`. If `True` and the user asked to trust or install, run it; if not, give the user the exact command to run in an elevated terminal
 
 ## Key concepts
 
