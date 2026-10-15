@@ -1221,10 +1221,13 @@ internal static class XamlReload
         return result;
     }
 
+    /// <summary>An item's Tag, or its Content when the Tag has no text of its own (an object whose ToString is its type name).</summary>
     private static string? ItemKey(object? item) => item switch
     {
         null => null,
-        NavigationViewItem navigationItem => navigationItem.Tag?.ToString() ?? navigationItem.Content?.ToString(),
+        NavigationViewItem navigationItem => navigationItem.Tag is { } tag && tag.ToString() is { } text && text != tag.GetType().ToString()
+            ? text
+            : navigationItem.Content?.ToString() ?? navigationItem.Tag?.ToString(),
         _ => item.ToString(),
     };
 
@@ -1333,9 +1336,15 @@ internal static class XamlReload
                 view.SelectedItem = view.SettingsItem;
                 continue;
             }
-            IEnumerable<object> All(IEnumerable<object> items) => items.SelectMany(i => i is NavigationViewItem n ? All(n.MenuItems).Prepend(i) : [i]);
-            if (All(view.MenuItems.Concat(view.FooterMenuItems)).FirstOrDefault(i => ItemKey(i) == wanted) is { } match && !ReferenceEquals(view.SelectedItem, match))
+            IEnumerable<(object Item, NavigationViewItem[] Parents)> All(IEnumerable<object> items, NavigationViewItem[] parents) =>
+                items.SelectMany(i => i is NavigationViewItem n ? All(n.MenuItems, [.. parents, n]).Prepend((i, parents)) : [(i, parents)]);
+            if (All(view.MenuItems.Concat(view.FooterMenuItems), []).FirstOrDefault(i => ItemKey(i.Item) == wanted) is { Item: { } match } found && !ReferenceEquals(view.SelectedItem, match))
             {
+                // Inside a collapsed group (built in code, where the user had expanded it): it only shows once expanded.
+                foreach (var parent in found.Parents.Where(p => !p.IsExpanded))
+                {
+                    parent.IsExpanded = true;
+                }
                 // A nested item shows once its parent's list is rebuilt: selected before that, it has no container,
                 // and the app's SelectionChanged handler gets none.
                 if (match is NavigationViewItem { IsLoaded: false } item)
