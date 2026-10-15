@@ -422,8 +422,15 @@ internal sealed partial class HotReloadSession
         }
         var message = first.GetMessage();
         var what = Regex.Replace(message, @"\s*requires restarting the application\.?$", "");
-        what = what.Length > 0 ? char.ToLowerInvariant(what[0]) + what[1..] : message;
-        var more = rude.Count > 1 ? $" (and {rude.Count - 1} more)" : "";
-        return $"{Relative(XamlFor(path!))}: the compiled code for this change does something the running app can't: {what} ({first.Id}){more}; it takes effect when the app restarts";
+        var subject = Regex.Match(what, @"^\w+\s+(.*)$") is { Success: true } m ? m.Groups[1].Value : what;
+        var plain = first.Id switch
+        {
+            "ENC0020" => $"renames code the XAML compiler generated for it ({subject}), and a running app can't rename code",
+            "ENC0033" => $"removes code the XAML compiler generated for it ({subject}), and a running app can't remove code",
+            "ENC0009" => "changes the type of a field the XAML compiler generated for it, and a running app can't change a field's type",
+            _ => what.Length > 0 ? char.ToLowerInvariant(what[0]) + what[1..] : message,
+        };
+        var more = rude.Count > 1 ? $"; {rude.Count - 1} more like it" : "";
+        return $"{Relative(XamlFor(path!))}: this change {plain} ({first.Id}{more}); it takes effect when the app restarts";
     }
 }

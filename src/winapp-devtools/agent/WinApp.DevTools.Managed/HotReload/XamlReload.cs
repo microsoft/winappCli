@@ -207,6 +207,7 @@ internal static class XamlReload
         s_settled = [];
         s_savedFiles = request.SavedFiles;
         s_pageUpdate = PageUpdateStrategies.Get(request.PageUpdate);
+        s_resourcesChanged = false;
         CodeAddedItems.LaunchItems(request.LaunchItems);
         try
         {
@@ -329,6 +330,9 @@ internal static class XamlReload
     }
 
     private static List<string>? s_restarts;
+
+    /// <summary>During an update on the compiler pipeline: App.xaml or a merged dictionary was loaded again.</summary>
+    private static bool s_resourcesChanged;
     private static IReadOnlyList<string> s_savedFiles = [];
     private static IPageUpdateStrategy? s_pageUpdate;
 
@@ -574,6 +578,7 @@ internal static class XamlReload
             case MarkupKind.Application:
                 try
                 {
+                    s_resourcesChanged = true;
                     // Swapping them re-templates controls (a TextBox inside one is briefly gone): what the user typed is read first.
                     TakeStatesBeforeResourceChange();
                     var app = Application.Current;
@@ -601,6 +606,7 @@ internal static class XamlReload
             case MarkupKind.Dictionary:
                 try
                 {
+                    s_resourcesChanged = true;
                     TakeStatesBeforeResourceChange();
                     ReplaceDictionaries(Application.Current.Resources, new Uri(markup.Uri));
                 }
@@ -688,7 +694,9 @@ internal static class XamlReload
             var kept = new List<(Frame Frame, Page Page)>();
             foreach (var window in LiveWindows())
             {
-                if (everything || Affected(window))
+                // On the compiler pipeline a window reloads for its own save or changed resources (its StaticResources
+                // resolve when it loads), not for default styles or library markup, which pages pick up as they reload.
+                if ((everything && (!Compiler || s_resourcesChanged)) || Affected(window))
                 {
                     var state = TakeState(window, window.Content);
                     var frames = NamedFrames(window.Content);
@@ -1248,8 +1256,9 @@ internal static class XamlReload
     /// <summary>Puts <paramref name="oldFrame"/> where the rebuilt markup put <paramref name="newFrame"/>; false when it can't.</summary>
     private static bool KeepFrame(object component, DependencyObject? oldRoot, DependencyObject? newRoot, Frame newFrame, Frame oldFrame)
     {
-        // The new tree isn't loaded, so parents are found through the content properties markup sets.
-        var place = Owner(newRoot, newFrame);
+        // The new tree isn't loaded, so parents are found through the content properties markup sets. A frame that is the
+        // whole content (<Window><Frame x:Name="Root" /></Window>) is held by the component itself.
+        var place = ReferenceEquals(newRoot, newFrame) ? ContentSetter(component) : Owner(newRoot, newFrame);
         if (place is null)
         {
             HotReloadAgent.Log($"keeping frame {oldFrame.Name}: no known parent");
@@ -1289,6 +1298,15 @@ internal static class XamlReload
             return false;
         }
     }
+
+    /// <summary>Sets a component's whole content (a window's, a user control's), or null when it has none to set.</summary>
+    private static Action<UIElement?>? ContentSetter(object component) => component switch
+    {
+        Window window => element => window.Content = element,
+        UserControl control => element => control.Content = element,
+        ContentControl control => element => control.Content = element,
+        _ => null,
+    };
 
     /// <summary>Sets what holds <paramref name="target"/> under <paramref name="node"/> (null removes it), or null when not found.</summary>
     private static Action<UIElement?>? Owner(DependencyObject? node, UIElement target)
