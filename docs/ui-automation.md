@@ -128,8 +128,8 @@ When filters are present, every command except `search` fails with
 `ambiguous_selector` if more than one element remains; narrow the filters or use
 a unique slug. Commands that act on the element count matches in every window
 they search, so a matching control in an owned dialog also makes the selector
-ambiguous. Exact AutomationId matches retain precedence over substring
-matches, within the filtered scope. Omitting all three options preserves the
+ambiguous. Exact AutomationId matches, then a single exact Name match, retain precedence
+over substring matches, within the filtered scope. Omitting all three options preserves the
 existing query behavior.
 
 ## Coordinating concurrent UI workflows
@@ -389,7 +389,13 @@ winapp ui search "Save" -a notepad          # find elements containing "Save"
 winapp ui search "error" -a myapp           # case-insensitive match
 ```
 
-When a text search matches multiple elements (e.g., SettingsExpander where Group, Button, and Text all share the same name), the CLI automatically picks the only invokable element. If multiple are invokable, it lists all matches with slugs.
+When a text search matches multiple elements, commands that act on one element choose in this order:
+
+1. An element whose AutomationId is exactly the text.
+2. The only element whose Name is exactly the text, ignoring case. `winapp ui click "Mail" -a myapp` clicks the element named `Mail`, not one named `Welcome to Mail`.
+3. The only invokable element (for example, in a SettingsExpander where Group, Button, and Text share the same name).
+
+If several elements are still left, the command lists them with slugs; re-run with one. `search` always lists every match.
 
 For non-invokable search results (e.g., a TextBlock inside a Button), the search
 automatically surfaces the nearest **invokable ancestor** — the parent element you can use with `invoke`.
@@ -652,9 +658,10 @@ Use `--action` when a test must perform a specific operation on exactly the sele
 element. It never tries another pattern or an invokable ancestor, even if the
 requested action fails. A control supporting both invocation and selection will
 be selected, not invoked, with `--action select`. With `--action`, a slug targets
-exactly one element; a plain-text or AutomationId selector that matches more than
-one element fails closed with a nonzero exit code rather than acting on the first
-match, so pass a slug from `inspect`/`search` when a name is ambiguous.
+exactly one element; a plain-text or AutomationId selector that still matches more
+than one element after the [exact-match preferences](#plain-text-search) fails closed
+with a nonzero exit code rather than acting on the first match, so pass a slug from
+`inspect`/`search` when a name is ambiguous.
 
 `--root`, `--type`, and `--class-name` narrow the match as described in
 [Scoped and typed queries](#scoped-and-typed-queries), with or without `--action`.
@@ -1017,8 +1024,9 @@ UiInvokeActionResult result = await ui.InvokeAsync(target, selected, UiInvokeAct
 ```
 
 `requireUnique: true` rejects ambiguous text instead of choosing an invokable
-match. Exact AutomationId matches take precedence over name or AutomationId
-substrings; a unique name can still select a control whose AutomationId is shared.
+match. Exact AutomationId matches take precedence, then a single exact (case-insensitive)
+Name match, then name or AutomationId substrings; a unique name can still select
+a control whose AutomationId is shared.
 For an app-scoped target, that check covers all of its app/owned windows. Use
 `-w <HWND>` (or an explicit-window library target) to restrict the selection scope.
 
