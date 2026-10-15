@@ -47,7 +47,10 @@ param(
     [switch]$ExclusiveDesktop,
     # MSBuild properties (Name=Value) every build of the app gets, the clean parity build included (for example
     # EnableHotReloadStableConnectionIds=true for one approach on a scoreboard).
-    [string[]]$BuildProperty = @()
+    [string[]]$BuildProperty = @(),
+    # A parity difference that one of the save's notes reported doesn't fail the check (still printed and counted as
+    # reported). Journeys and checkpoints can ask for the same with "parity": { "reportedNotesCount": true }.
+    [switch]$ParityAcceptReported
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'WatchJourney.psm1') -Force
@@ -287,6 +290,8 @@ $runVariants = {
         $rows = [System.Collections.Generic.List[object]]::new()
         # Text typed and boxes toggled by the journey's checks in the running app, latest per element (for the parity gate).
         $inputsSoFar = [System.Collections.Generic.List[object]]::new()
+        # The notes winapp printed with saves since the app was (re)launched: a difference they report is still there.
+        $notesSoFar = [System.Collections.Generic.List[string]]::new()
         $plan = Get-JourneyPlan $journey $variantId
         $lastIndex = if ($MaxActions -gt 0) { [Math]::Min($MaxActions, $plan.Count) } else { $plan.Count }
         foreach ($step in $plan) {
@@ -318,6 +323,7 @@ $runVariants = {
                 $wallMs = [int]$saveClock.Elapsed.TotalMilliseconds
                 $appPid = Get-AppPid
                 $inputsSoFar.Clear()
+                $notesSoFar.Clear()
             }
             $checks = @($launchChecks)
             $launchChecks = @()
@@ -335,6 +341,7 @@ $runVariants = {
                 }
             }
             $detail = (($seen | Where-Object { $_ -match '^\[watch\]|^  ' }) -join "`n")
+            foreach ($noteLine in @($seen | Where-Object { $_ -match '^\s+note:' })) { $notesSoFar.Add(($noteLine -replace '\s*\(\d+ ms\)\s*$', '')) }
             # What the status line itself must say (an error the compiler would report, a note), checked like the UI.
             if ($step.Action.expect.outcome) {
                 $checks += [pscustomobject]@{ Check = "outcome $($step.Action.expect.outcome)"; Ok = ($outcome -eq $step.Action.expect.outcome); Output = $detail }
@@ -362,9 +369,10 @@ $runVariants = {
                         $config | Add-Member -NotePropertyName replay -NotePropertyValue $replay -Force
                     }
                     $parityResult = Invoke-ParityCheck -Winapp $Winapp -ProcessId ([int]$appPid) -AppDir $appDir -WorkDir (Join-Path $runRoot "$variantId\parity\$label") `
-                        -InvokeProbe $parityProbe -Config $config -RootNamespace $journey.app.rootNamespace -Configuration $journey.app.configuration -Packaging $Packaging
+                        -InvokeProbe $parityProbe -Config $config -RootNamespace $journey.app.rootNamespace -Configuration $journey.app.configuration -Packaging $Packaging `
+                        -ReportedNotes $notesSoFar.ToArray() -AcceptReported:$ParityAcceptReported
                     $paritySeconds = $parityResult.Seconds
-                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $parityResult.Ok; Output = $parityResult.Output; Diffs = @($parityResult.Diffs).Count; CleanBuildFailed = [bool]$parityResult.CleanBuildFailed }
+                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $parityResult.Ok; Output = $parityResult.Output; Diffs = @($parityResult.Diffs).Count; Reported = @($parityResult.Reported).Count; CleanBuildFailed = [bool]$parityResult.CleanBuildFailed }
                     Write-Host $parityResult.Output
                 }
             }

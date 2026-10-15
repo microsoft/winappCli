@@ -19,6 +19,9 @@
 #     "prepare": [ ...probes ],     run on both apps before the first reading (a Reset button that undoes what the
 #                                   journey's clicks built up, which the clean build never saw)
 #     "enabled": false,             never run the gate for this journey (its point is state a clean launch can't have)
+#     "reportedNotesCount": true,   a difference one of the save's notes reports ("note: <Element>[.<Property>] shows
+#                                   '<hot>' here but '<clean>' after a restart: ...") doesn't fail the check; it is still
+#                                   printed and counted as reported (the runner's -ParityAcceptReported does the same)
 #     "properties": [ "Text", ... ],what to read on each element (default below)
 #     "ignore": [ "*#CountText.Text" ], element paths or path.Property wildcards that may differ (event counters)
 #     "replayInputs": false         don't give the clean build the text the journey typed (default: replay what is still shown)
@@ -363,7 +366,11 @@ function Invoke-ParityCheck {
         [string]$Configuration,
         [ValidateSet('Unpackaged', 'Packaged')][string]$Packaging = 'Unpackaged',
         [int]$TimeoutSeconds = 20,
-        [int]$BuildTimeoutSeconds = 900
+        [int]$BuildTimeoutSeconds = 900,
+        # What winapp said with the save ("note: <Element>[.<Property>] shows '<hot>' here but '<clean>' after a restart: ...").
+        [string[]]$ReportedNotes = @(),
+        # A difference a note reported doesn't fail the check (it is still printed, and counted as reported).
+        [switch]$AcceptReported
     )
     $clock = [System.Diagnostics.Stopwatch]::StartNew()
     $root = if ($Config.root) { [string]$Config.root } else { $null }
@@ -429,15 +436,56 @@ function Invoke-ParityCheck {
         })
     $elements = @($hot.Phases['initial'].Keys).Count
     $timing = "hot reload read {0:n1} s, clean build+launch {1:n0} s, total {2:n0} s" -f $hotSeconds, $buildSeconds, $clock.Elapsed.TotalSeconds
-    $header = if ($diffs.Count -eq 0) {
+    # Differences hot reload told the developer about, matched by element (x:Name), property and both values.
+    $reported = [System.Collections.Generic.List[object]]::new()
+    if ($AcceptReported -or $Config.reportedNotesCount) {
+        $split = Split-ReportedDifferences $diffs $ReportedNotes
+        $diffs = $split.Silent
+        $reported = $split.Reported
+    }
+    $header = if ($diffs.Count -eq 0 -and $reported.Count -eq 0) {
         "parity: hot reload matches a clean build ($elements elements, $($hot.Phases.Count) readings; $timing)"
+    } elseif ($diffs.Count -eq 0) {
+        "parity: $($reported.Count) difference(s) from a clean build, all reported by hot reload ($elements elements, $($hot.Phases.Count) readings; $timing)"
     } else {
-        "parity: $($diffs.Count) difference(s) between hot reload and a clean build ($elements elements, $($hot.Phases.Count) readings; $timing)"
+        "parity: $($diffs.Count) difference(s) between hot reload and a clean build$(if ($reported.Count) { ", and $($reported.Count) reported by hot reload" }) ($elements elements, $($hot.Phases.Count) readings; $timing)"
     }
     $text = @($header) + @($notes | ForEach-Object { "  note: $_" })
     if ($diffs.Count) { $text += Format-ParityDiff $diffs }
-    [pscustomobject]@{ HotReload = $hot.Phases; Clean = $clean.Phases; Diffs = $diffs; Notes = $notes } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $WorkDir 'parity.json')
-    return [pscustomobject]@{ Ok = ($diffs.Count -eq 0); Output = ($text -join "`n"); Diffs = $diffs; Seconds = [int]$clock.Elapsed.TotalSeconds }
+    if ($reported.Count) { $text += '  reported by hot reload:'; $text += Format-ParityDiff $reported }
+    [pscustomobject]@{ HotReload = $hot.Phases; Clean = $clean.Phases; Diffs = $diffs; Reported = $reported; Notes = $notes } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $WorkDir 'parity.json')
+    return [pscustomobject]@{ Ok = ($diffs.Count -eq 0); Output = ($text -join "`n"); Diffs = $diffs; Reported = $reported; Seconds = [int]$clock.Elapsed.TotalSeconds }
 }
 
-Export-ModuleMember -Function Get-CleanBuildError, Get-ParitySnapshot, Wait-ParitySnapshot, Compare-ParitySnapshot, Format-ParityDiff, Invoke-ParityCheck, Remove-Ansi
+<#
+.SYNOPSIS
+  The differences winapp's notes say a save leaves ("note: <Element>[.<Property>] shows '<hot>' here but '<clean>' after a
+  restart: <cause>"), as { Element, Property, Hot, Clean }.
+#>
+function Get-ReportedDifferences([string[]]$Notes) {
+    foreach ($note in @($Notes)) {
+        if ((Remove-Ansi $note) -match "^\s*(note:\s*)?(?<element>[A-Za-z_][\w]*)(\.(?<property>[A-Za-z_]\w*))?\s+shows\s+'(?<hot>.*?)'\s+here\s+but\s+'(?<clean>.*?)'\s+after\s+a\s+restart") {
+            [pscustomobject]@{ Element = $Matches.element; Property = $Matches.property; Hot = $Matches.hot; Clean = $Matches.clean }
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+  Splits parity differences into those a note reported (same x:Name, the note's property if it names one, and both
+  values) and silent ones. Returns { Silent, Reported }.
+#>
+function Split-ReportedDifferences($Diffs, [string[]]$Notes) {
+    $said = @(Get-ReportedDifferences $Notes)
+    $silent = [System.Collections.Generic.List[object]]::new()
+    $reported = [System.Collections.Generic.List[object]]::new()
+    foreach ($d in @($Diffs)) {
+        if ($null -eq $d) { continue }
+        $name = if ([string]$d.Element -match '#([^/#\[]+)(\[\d+\])?$') { $Matches[1] } else { $null }
+        $match = $name -and @($said | Where-Object { $_.Element -eq $name -and (-not $_.Property -or $_.Property -eq $d.Property) -and $_.Hot -ceq [string]$d.HotReload -and $_.Clean -ceq [string]$d.Clean }).Count
+        if ($match) { $reported.Add($d) } else { $silent.Add($d) }
+    }
+    return [pscustomobject]@{ Silent = $silent; Reported = $reported }
+}
+
+Export-ModuleMember -Function Get-CleanBuildError, Get-ReportedDifferences, Split-ReportedDifferences, Get-ParitySnapshot, Wait-ParitySnapshot, Compare-ParitySnapshot, Format-ParityDiff, Invoke-ParityCheck, Remove-Ansi
