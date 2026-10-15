@@ -603,6 +603,10 @@ internal sealed partial class HotReloadSession
             {
                 _pendingNotes.Add($"{error}; project file changes take effect once it succeeds");
             }
+            else if (UseCompiler && projectChanged)
+            {
+                RestartXamlCompilerWithCurrentReferences();
+            }
             NoteNestedLibraries();
             foreach (var library in FindLibraries())
             {
@@ -901,6 +905,12 @@ internal sealed partial class HotReloadSession
             request.Markup.AddRange(compiled.Markup);
             request.RefreshTypes.AddRange(compiled.Classes.Where(c => !request.RefreshTypes.Contains(c)));
             notes.AddRange(await ConstructorNotesAsync(cancellationToken).ConfigureAwait(false));
+            if (notes.FirstOrDefault(n => n.StartsWith(WindowConstructorPrefix, StringComparison.Ordinal)) is { } window)
+            {
+                // A window isn't created again while the app runs: its new constructor would never run.
+                Discard();
+                return new SaveResult(Outcome.Restart, window[WindowConstructorPrefix.Length..]);
+            }
         }
         request.SavedFiles = batch;
         applied.AddRange(paths.Concat(assets).Concat(libraryPaths.Where(p => _libraries.ContainsKey(NestedProjectDirectory(p)!))).Select(Relative).Distinct(StringComparer.OrdinalIgnoreCase));
@@ -1119,6 +1129,9 @@ internal sealed partial class HotReloadSession
         return notes;
     }
 
+    /// <summary>Marks the note about a changed window constructor, which turns the save into a restart.</summary>
+    private const string WindowConstructorPrefix = "\u0001window:";
+
     /// <summary>
     /// A reload runs InitializeComponent again, not the constructor: a changed constructor of a XAML class shows on
     /// instances created from now on (a page re-created by the "recreate" strategy is one).
@@ -1165,7 +1178,9 @@ internal sealed partial class HotReloadSession
                         c.ParameterList.IsEquivalentTo(constructor.ParameterList));
                     if (before is null || !before.IsEquivalentTo(constructor))
                     {
-                        notes.Add($"{type.Identifier.ValueText}'s constructor ran when it was created and a reload doesn't run it again: this change shows on {kind} created from now on");
+                        notes.Add(kind == "windows"
+                            ? $"{WindowConstructorPrefix}{Relative(path)}: {type.Identifier.ValueText}'s constructor changed, and a window isn't created again while the app runs; it takes effect when the app restarts"
+                            : $"{type.Identifier.ValueText}'s constructor ran when it was created and a reload doesn't run it again: this change shows on {kind} created from now on");
                         break;
                     }
                 }

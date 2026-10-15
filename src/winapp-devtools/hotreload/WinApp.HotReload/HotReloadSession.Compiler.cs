@@ -52,6 +52,9 @@ internal sealed partial class HotReloadSession
     private byte[]? _xamlImage;
     private bool _xamlImageStale;
 
+    /// <summary>The compiler started again (new references) and hasn't compiled every page yet.</summary>
+    private bool _xamlFullCompilePending;
+
     private static bool IsGenerated(string path) =>
         path.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".g.i.cs", StringComparison.OrdinalIgnoreCase);
 
@@ -146,6 +149,53 @@ internal sealed partial class HotReloadSession
             return (pass1, pass2);
         });
         return start;
+    }
+
+    /// <summary>
+    /// After a project file change brought new references (a package, a project): the compiler loads its references once,
+    /// so it starts again with the build's inputs and the workspace's references, and warms up again.
+    /// </summary>
+    private void RestartXamlCompilerWithCurrentReferences()
+    {
+        if (_xaml is null || _xamlIntermediate.Length == 0)
+        {
+            return;
+        }
+        var inputs = Path.Combine(_xamlIntermediate, "input.json");
+        try
+        {
+            var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(inputs))!.AsObject();
+            var built = json["ReferenceAssemblies"]?.AsArray() ?? [];
+            var byPath = built.OfType<System.Text.Json.Nodes.JsonObject>()
+                .Where(item => item["FullPath"]?.GetValue<string>() is { Length: > 0 })
+                .GroupBy(item => item["FullPath"]!.GetValue<string>(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            var template = byPath.Values.FirstOrDefault();
+            var references = new System.Text.Json.Nodes.JsonArray();
+            foreach (var path in Project.MetadataReferences.OfType<PortableExecutableReference>().Select(r => r.FilePath).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var item = byPath.TryGetValue(path, out var known) ? known.DeepClone().AsObject() : template?.DeepClone().AsObject() ?? [];
+                item["ItemSpec"] = path;
+                item["FullPath"] = path;
+                references.Add(item);
+            }
+            json["ReferenceAssemblies"] = references;
+            var current = Path.Combine(_markupDirectory, $"input-{DateTime.UtcNow.Ticks}.json");
+            File.WriteAllText(current, json.ToJsonString());
+            var exe = XamlCompilerHost.Locate() ?? throw new InvalidOperationException("the XAML compiler service wasn't found");
+            _xaml.Dispose();
+            _xaml = XamlCompilerHost.Start(exe, current, Path.Combine(_markupDirectory, "xaml"), _projectDirectory);
+            // Its full compile waits for the next XAML save: by then that save's code is in, and the image it reads is current
+            // (the build's assembly on disk lacks types added while the app runs).
+            _xamlImageStale = true;
+            _xamlFullCompilePending = true;
+            _xamlReady = Task.CompletedTask;
+            Log($"XAML compiler restarted with {references.Count} references");
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            _xamlUnavailable = "the XAML compiler service couldn't start again with the project's new references: " + ex.Message;
+        }
     }
 
     private void UseXamlCompiler(XamlStart start)
@@ -282,6 +332,22 @@ internal sealed partial class HotReloadSession
             }
             _xamlImage = image.ToArray();
             _xamlImageStale = false;
+        }
+        if (_xamlFullCompilePending)
+        {
+            // A restarted compiler: every page once (pass 1, then pass 2 with XamlTypeInfo) against the current code.
+            var all1 = await _xaml.Pass1Async(null, cancellationToken).ConfigureAwait(false);
+            var all2 = await _xaml.Pass2Async(null, _xamlImage, typeInfo: true, cancellationToken).ConfigureAwait(false);
+            if ((Failed(all1) ?? Failed(all2)) is { } restartedError)
+            {
+                return (null, restartedError);
+            }
+            if (await UseGeneratedAsync(all1, cancellationToken).ConfigureAwait(false) is { } restartedChange)
+            {
+                return (null, restartedChange);
+            }
+            await UseGeneratedAsync(all2, cancellationToken).ConfigureAwait(false);
+            _xamlFullCompilePending = false;
         }
         var pass2 = await _xaml.Pass2Async(xaml, _xamlImage, typeInfo: false, cancellationToken).ConfigureAwait(false);
         if (Failed(pass2) is { } pass2Error)
