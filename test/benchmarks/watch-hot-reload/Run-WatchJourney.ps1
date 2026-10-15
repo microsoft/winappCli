@@ -292,7 +292,13 @@ $runVariants = {
         foreach ($step in $plan) {
             if ($MaxActions -gt 0 -and $step.Index -gt $MaxActions) { break }
             $seen = [System.Collections.Generic.List[string]]::new()
-            $null = Read-NewLines
+            # What winapp printed after the previous save's outcome (an app that crashed after "applied") belongs to that save.
+            $between = @(Read-NewLines | Where-Object { $_ -match '^\[watch\]|^  ' })
+            if ($between -and $rows.Count) {
+                $previous = $rows[$rows.Count - 1]
+                $previous.Detail = (@($previous.Detail) + $between) -join "`n"
+                if ($between -match '^\[watch\] (the app exited|lost the connection)') { $previous | Add-Member -NotePropertyName CrashedAfter -NotePropertyValue $true -Force }
+            }
             if ($appPid) { Read-Baselines $step.Checkpoint.uiChecks ([int]$appPid) }
             $saveClock = [System.Diagnostics.Stopwatch]::StartNew()
             Invoke-JourneyEdit -AppDir $appDir -Action $step.Action
@@ -358,7 +364,7 @@ $runVariants = {
                     $parityResult = Invoke-ParityCheck -Winapp $Winapp -ProcessId ([int]$appPid) -AppDir $appDir -WorkDir (Join-Path $runRoot "$variantId\parity\$label") `
                         -InvokeProbe $parityProbe -Config $config -RootNamespace $journey.app.rootNamespace -Configuration $journey.app.configuration -Packaging $Packaging
                     $paritySeconds = $parityResult.Seconds
-                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $parityResult.Ok; Output = $parityResult.Output; Diffs = @($parityResult.Diffs).Count }
+                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $parityResult.Ok; Output = $parityResult.Output; Diffs = @($parityResult.Diffs).Count; CleanBuildFailed = [bool]$parityResult.CleanBuildFailed }
                     Write-Host $parityResult.Output
                 }
             }
@@ -373,6 +379,12 @@ $runVariants = {
             Write-Host ("[{0}] {1,2} {2,-30} {3,-9} {4,6} ms pid {5}{6}" -f $variantId, $step.Index, $step.Action.id, $outcome, $ms, $appPid, $checkText)
         }
         if (-not $KeepRunning -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+        $between = @(Read-NewLines | Where-Object { $_ -match '^\[watch\]|^  ' })
+        if ($between -and $rows.Count) {
+            $previous = $rows[$rows.Count - 1]
+            $previous.Detail = (@($previous.Detail) + $between) -join "`n"
+            if ($between -match '^\[watch\] (the app exited|lost the connection)') { $previous | Add-Member -NotePropertyName CrashedAfter -NotePropertyValue $true -Force }
+        }
         if (-not $KeepRunning -and $appPid) { Stop-Process -Id ([int]$appPid) -Force -ErrorAction SilentlyContinue }
         $rows | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $runRoot "$variantId\results.json")
         $summary.Add([pscustomobject]@{

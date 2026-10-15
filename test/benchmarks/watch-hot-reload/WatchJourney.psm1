@@ -74,6 +74,14 @@ function Get-JourneyOutcomeReason([string]$Detail, [string]$Outcome) {
     $lines = @($Detail -split "`n")
     $start = [Array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match "^\[watch\] $Outcome\b" })
     if ($start -lt 0) { $start = [Array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^\[watch\] (restart|error|waiting)\b' }) }
+    # A crash between saves: the app exited (with the exception it died of), and the next save relaunched it.
+    $exited = [Array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^\[watch\] (the app exited|lost the connection)' })
+    if ($exited -ge 0 -and ($start -lt 0 -or $lines[$start] -match 'lost the connection')) {
+        $code = if ($lines[$exited] -match 'exited with code (-?\d+)') { " $($Matches[1])" } else { '' }
+        $exception = @($lines | Select-Object -Skip ($exited + 1) | Where-Object { $_ -match '^\s+[\w.]+(Exception|Error)\b' } | Select-Object -First 1)
+        $what = if ($exception) { ': ' + (($exception[0].Trim() -replace '\s+', ' ') -replace '^(.{0,110}).*$', '$1') } else { '' }
+        return "the app crashed (exit$code)$what"
+    }
     if ($start -lt 0) { return '' }
     $block = [System.Collections.Generic.List[string]]::new()
     $block.Add($lines[$start])
