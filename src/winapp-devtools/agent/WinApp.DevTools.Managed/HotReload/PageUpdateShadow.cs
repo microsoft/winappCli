@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Reflection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -94,6 +95,18 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
                 return;
             }
             shadow = created;
+            if (constructed is null)
+            {
+                // Restoring a serialized history doesn't raise Navigated: an instance that is only constructed shows the same.
+                try
+                {
+                    constructed = AuthoredTree.Read((Page)Activator.CreateInstance(page.GetType())!);
+                }
+                catch (Exception ex) when (ex is TargetInvocationException or MissingMethodException or InvalidCastException)
+                {
+                    HotReloadAgent.Log($"shadow: constructing {name} to read its markup failed: {ex.GetBaseException().Message}");
+                }
+            }
             var early = PageData.Take(shadow, getters: true);
             if (!await UiTicks.Loaded(shadow, LoadTimeout))
             {
