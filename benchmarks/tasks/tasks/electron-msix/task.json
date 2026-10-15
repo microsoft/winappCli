@@ -5,6 +5,7 @@
   "timeoutMinutes": 30,
   "lintAllow": ["msix installer"],
   "checks": [
+    "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",
     "msix-built (required): an .msix exists under the project folder (node_modules excluded)",
     "msix-signed (required): it carries an Authenticode signature that still matches the file",
     "msix-trusted: the signature chain is trusted on this machine",

@@ -4,6 +4,7 @@
   "workspace": "C:\\src\\SyncTray",
   "timeoutMinutes": 25,
   "checks": [
+    "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",
     "installed (required): a new package whose application is SyncTray.exe is installed",
     "startup-task-declared (required): the installed manifest has a windows.startupTask extension for SyncTray.exe with Enabled=\"true\"",
     "launches: activating the installed app starts SyncTray.exe from the package"

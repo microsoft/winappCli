@@ -146,6 +146,29 @@ Describe 'Test-SignatureIntact' {
     }
 }
 
+Describe 'MSIX install vs loose registration' {
+    It 'tells an installed archive from a development registration' {
+        Test-IsMsixInstall ([pscustomobject]@{ PackageFullName = 'A'; IsDevelopmentMode = $false }) | Should -BeTrue
+        Test-IsMsixInstall ([pscustomobject]@{ PackageFullName = 'A'; IsDevelopmentMode = $true }) | Should -BeFalse
+    }
+    It 'scores a signed archive plus a loose registration as partial, not pass' {
+        $r = New-CheckResult -Task 'install'
+        [void](Add-Check $r 'msix-built' $true 'TaskBoard.msix' -Required)
+        [void](Add-Check $r 'msix-signed' $true 'signed' -Required)
+        [void](Add-Check $r 'installed' $true 'Contoso.TaskBoard' -Required)
+        Add-MsixInstallCheck -Result $r -Package ([pscustomobject]@{ PackageFullName = 'Contoso.TaskBoard_1.0.0.0_x64__x'; IsDevelopmentMode = $true })
+        [void](Add-Check $r 'launches' $true 'running' -Required)
+        Get-OverallStatus -Checks @($r.checks) | Should -Be 'partial'
+        ($r.checks | Where-Object id -eq 'installed-from-msix').passed | Should -BeFalse
+    }
+    It 'passes when the archive itself is installed' {
+        $r = New-CheckResult -Task 'install'
+        [void](Add-Check $r 'installed' $true 'x' -Required)
+        Add-MsixInstallCheck -Result $r -Package ([pscustomobject]@{ PackageFullName = 'x'; IsDevelopmentMode = $false })
+        Get-OverallStatus -Checks @($r.checks) | Should -Be 'pass'
+    }
+}
+
 Describe 'Compare-CertificateSnapshot' {
     It 'reports certificates added and removed per store' {
         $before = @([pscustomobject]@{ Store = 'LocalMachine\Root'; Thumbprint = 'A'; Subject = 'CN=A' })

@@ -357,20 +357,43 @@ function Add-MsixFileChecks {
     return [pscustomobject]@{ File = $msix; Signature = $sig; Identity = (Get-ManifestIdentity (Read-MsixManifest $msix.FullName)) }
 }
 
+function Test-IsMsixInstall {
+    # True for a package installed from an .msix/.appx archive; false for a loose-layout development
+    # registration (Add-AppxPackage -Register, winapp run, create-debug-identity).
+    param([Parameter(Mandatory)]$Package)
+    $dev = $Package.PSObject.Properties['IsDevelopmentMode']
+    return -not ($dev -and [bool]$dev.Value)
+}
+
+function Add-MsixInstallCheck {
+    # Required on tasks that ask to build and install an MSIX. A loose registration whose feature
+    # works still earns partial, through the task's other checks.
+    param([Parameter(Mandatory)]$Result, $Package)
+    $ok = $Package -and (Test-IsMsixInstall $Package)
+    $detail = if (-not $Package) { 'nothing installed' } elseif ($ok) { "$($Package.PackageFullName) installed from a package archive" } else { "$($Package.PackageFullName) is a loose development registration (IsDevelopmentMode), not an installed MSIX" }
+    [void](Add-Check $Result 'installed-from-msix' ([bool]$ok) $detail -Required)
+}
+
 function Add-InstalledAppChecks {
-    # installed (+ matches the built package) and launches, for a packaged app with a given exe.
+    # installed (+ installed from an MSIX, + matches the built package) and launches, for a packaged
+    # app with a given exe. Every caller is a task that asks to install the MSIX.
     param([Parameter(Mandatory)]$Result, [Parameter(Mandatory)]$Baseline, [Parameter(Mandatory)][string]$ExeName, $Msix, [switch]$SkipLaunch)
     $hits = @(Find-NewPackageForExe -BaselineFullNames @($Baseline.packages) -ExeName $ExeName)
     [void](Add-Check $Result 'installed' ([bool]$hits) ($(if ($hits) { ($hits.Package.PackageFullName -join ', ') } else { "no new installed package runs $ExeName" })) -Required)
-    if (-not $hits) { return $null }
+    if (-not $hits) { Add-MsixInstallCheck -Result $Result -Package $null; return $null }
+    # Prefer a real install over a loose registration of the same app.
+    $installed = @($hits | Where-Object { Test-IsMsixInstall $_.Package })
+    if ($installed) { $hits = $installed }
     $hit = $hits[0]
     if ($Msix -and $Msix.Identity) {
         $match = @($hits | Where-Object { $_.Package.Name -eq $Msix.Identity.Name -and $_.Package.Version -eq $Msix.Identity.Version })
         if ($match) { $hit = $match[0] }
         [void](Add-Check $Result 'installed-matches-msix' ([bool]$match) "built $($Msix.Identity.Name) $($Msix.Identity.Version)")
     }
+    Add-MsixInstallCheck -Result $Result -Package $hit.Package
     $Result.facts.package = $hit.Package.PackageFullName
     $Result.facts.signatureKind = $hit.Package.SignatureKind
+    $Result.facts.isDevelopmentMode = -not (Test-IsMsixInstall $hit.Package)
     if ($SkipLaunch) { return $hit }
     $aumid = Start-PackagedApp -Package $hit.Package -AppId $hit.App.Id
     $proc = Wait-AppProcess -Name ([System.IO.Path]::GetFileNameWithoutExtension($ExeName)) -UnderPath $hit.Package.InstallLocation

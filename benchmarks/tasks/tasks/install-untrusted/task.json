@@ -6,6 +6,7 @@
   "pilot": true,
   "lintAllow": ["publisher certificate", "root certificate", "intermediate certificates"],
   "checks": [
+    "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",
     "installed (required): Contoso.Notes is installed for the user and its app runs SimpleApp.exe",
     "launches (required): activating the installed app starts it from the package",
     "package-unchanged: the .msix the user had is unchanged (fixed by trusting its signer, not by re-signing)"

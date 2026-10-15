@@ -4,6 +4,7 @@
   "workspace": "C:\\src\\northwind-viewer",
   "timeoutMinutes": 20,
   "checks": [
+    "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",
     "msix-built (required): an .msix exists under the project folder",
     "signed-by-pfx (required): its signer is the certificate in certs\\northwind.pfx and the signature still matches the file",
     "publisher-matches (required): the package's Publisher equals the certificate subject",

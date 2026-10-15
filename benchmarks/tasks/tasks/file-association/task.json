@@ -4,6 +4,7 @@
   "workspace": "C:\\src\\NoteViewer",
   "timeoutMinutes": 25,
   "checks": [
+    "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",
     "installed (required): a new package whose application is NoteViewer.exe is installed",
     "file-type-declared (required): the installed manifest declares a file type association for .ctnote",
     "file-type-registered (required): Windows registered the package as a handler (HKCU\\Software\\Classes\\.ctnote\\OpenWithProgids has an AppX ProgID)",

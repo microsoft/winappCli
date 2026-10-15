@@ -4,6 +4,7 @@
   "workspace": "C:\\src\\ContosoNotes",
   "timeoutMinutes": 25,
   "checks": [
+    "installed-from-msix (required): it was installed from the package archive, not registered from a loose folder (IsDevelopmentMode is false)",
     "installed (required): a new package whose application is ContosoNotes.exe is installed",
     "alias-declared (required): the installed manifest declares the execution alias contoso-notes.exe",
     "alias-runs (required): `contoso-notes --version` in a new process prints 'ContosoNotes 1.2.0'"
