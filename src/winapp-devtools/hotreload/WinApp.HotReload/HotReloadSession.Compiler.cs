@@ -355,7 +355,10 @@ internal sealed partial class HotReloadSession
             {
                 return (null, restartedChange);
             }
-            await UseGeneratedAsync(all2, xaml, typeInfo: true, cancellationToken).ConfigureAwait(false);
+            if (await UseGeneratedAsync(all2, xaml, typeInfo: true, cancellationToken).ConfigureAwait(false) is { } restartedTypeInfo)
+            {
+                return (null, restartedTypeInfo);
+            }
             _xamlFullCompilePending = false;
             compiledEverything = true;
         }
@@ -387,9 +390,15 @@ internal sealed partial class HotReloadSession
             {
                 return (null, fullError);
             }
-            await UseGeneratedAsync(full, xaml, typeInfo: true, cancellationToken).ConfigureAwait(false);
+            if (await UseGeneratedAsync(full, xaml, typeInfo: true, cancellationToken).ConfigureAwait(false) is { } typeInfoChange)
+            {
+                return (null, typeInfoChange);
+            }
         }
-        await UseGeneratedAsync(pass2, xaml, typeInfo: false, cancellationToken).ConfigureAwait(false);
+        if (await UseGeneratedAsync(pass2, xaml, typeInfo: false, cancellationToken).ConfigureAwait(false) is { } pass2Change)
+        {
+            return (null, pass2Change);
+        }
         if (await AwaitingCodeBehindAsync(xaml, cancellationToken).ConfigureAwait(false) is { } waitingForCode)
         {
             return (null, waitingForCode);
@@ -551,12 +560,31 @@ internal sealed partial class HotReloadSession
         foreach (var (member, type) in XamlMembers(after))
         {
             if (!old.ContainsKey(member) && (oldTypes.Contains(type) || before.Contains($"\"{type}\"", StringComparison.Ordinal)) &&
-                compilation.GetTypeByMetadataName(type) is { } symbol && symbol.Locations.Any(l => l.IsInSource))
+                compilation.GetSymbolsWithName(type[(type.LastIndexOf('.') + 1)..], SymbolFilter.Type, cancellationToken)
+                    .Any(s => s.ToDisplayString() == type && s.Locations.Any(l => l.IsInSource)) &&
+                await UsedAsElementAsync(type[(type.LastIndexOf('.') + 1)..], cancellationToken).ConfigureAwait(false))
             {
                 return type[(type.LastIndexOf('.') + 1)..];
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Whether markup creates the type as an element (&lt;controls:StatCard .../&gt;): the runtime then reads its properties
+    /// to set them. A page's own properties are only read by compiled bindings.
+    /// </summary>
+    private async Task<bool> UsedAsElementAsync(string name, CancellationToken cancellationToken)
+    {
+        var element = new System.Text.RegularExpressions.Regex($@"<\w+:{System.Text.RegularExpressions.Regex.Escape(name)}[\s/>]");
+        foreach (var path in _xamlInputs.Where(File.Exists))
+        {
+            if (element.IsMatch(await ReadSharedAsync(path, cancellationToken).ConfigureAwait(false)))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>"x:Name 'Later' changes from TextBlock to TextBox", for the first named field whose type changes.</summary>
