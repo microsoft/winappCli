@@ -138,23 +138,8 @@ internal sealed partial class HotReloadSession
         if (xaml is not null)
         {
             session.UseXamlCompiler(xaml);
-            session._warmUp = Task.Run(async () =>
-            {
-                // Edit and continue's first update compiles everything once; done before the first save asks.
-                try
-                {
-                    await session.UpdatesAsync(cancellationToken).ConfigureAwait(false);
-                    session.Discard();
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                }
-            }, cancellationToken);
         }
-        else
-        {
-            session._warmUp = Task.Run(() => session.WarmUpAsync(cancellationToken), cancellationToken);
-        }
+        session._warmUp = Task.Run(() => session.WarmUpAsync(cancellationToken), cancellationToken);
         return session;
     }
 
@@ -789,13 +774,12 @@ internal sealed partial class HotReloadSession
                 return stopped;
             }
         }
-        else
+        // On the compiler pipeline only the constructor replay a reload in place runs (what the constructor does after
+        // InitializeComponent: a frame it navigates, text it sets); the XAML compiler's output has the rest.
+        var problems = await UpdateGeneratedCodeAsync(cancellationToken).ConfigureAwait(false);
+        if (problems.Count > 0)
         {
-            var problems = await UpdateGeneratedCodeAsync(cancellationToken).ConfigureAwait(false);
-            if (problems.Count > 0)
-            {
-                return new SaveResult(Outcome.Error, string.Join(Environment.NewLine + "  ", problems));
-            }
+            return new SaveResult(Outcome.Error, string.Join(Environment.NewLine + "  ", problems));
         }
 
         // Removed fields and properties stay declared up front: the compiler can't remove them from a loaded type, and
@@ -909,13 +893,6 @@ internal sealed partial class HotReloadSession
         {
             request.Markup.AddRange(compiled.Markup);
             request.RefreshTypes.AddRange(compiled.Classes.Where(c => !request.RefreshTypes.Contains(c)));
-            notes.AddRange(await ConstructorNotesAsync(cancellationToken).ConfigureAwait(false));
-            if (notes.FirstOrDefault(n => n.StartsWith(WindowConstructorPrefix, StringComparison.Ordinal)) is { } window)
-            {
-                // A window isn't created again while the app runs: its new constructor would never run.
-                Discard();
-                return new SaveResult(Outcome.Restart, window[WindowConstructorPrefix.Length..]);
-            }
         }
         request.SavedFiles = batch;
         applied.AddRange(paths.Concat(assets).Concat(libraryPaths.Where(p => _libraries.ContainsKey(NestedProjectDirectory(p)!))).Select(Relative).Distinct(StringComparer.OrdinalIgnoreCase));
@@ -1701,7 +1678,7 @@ internal sealed partial class HotReloadSession
             foreach (var component in _components.Values.Where(c => c.ClassName is not null))
             {
                 var parts = classes.GetValueOrDefault(component.ClassName!) ?? [];
-                var text = GeneratedPartial.Create(component, parts, !component.ReplayDisabled);
+                var text = GeneratedPartial.Create(component, parts, !component.ReplayDisabled, markup: !UseCompiler);
                 var source = SourceText.From(text, Encoding.UTF8, SourceHashAlgorithm.Sha256);
                 if ((pass == 0 && (parts.Any(p => changedFiles.Contains(p.SyntaxTree.FilePath)) || (codeChanged && component.Latest?.Functions.Count > 0))) ||
                     !_generated.TryGetValue(component.ClassName!, out var committedId) ||
