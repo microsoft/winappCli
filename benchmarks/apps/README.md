@@ -25,9 +25,9 @@ It complements [`benchmarks/agents`](../agents/README.md):
 
 A typical comparison is `none`, `published`, `winappcli@main` and `winappcli@<your branch>`. Push
 the branch first; the harness clones it, and pins every ref to one commit for the whole run. In the
-dashboard, the setup step lists the repo's branches for `winappcli`; select as many as you want
-to compare. For a tag, SHA or pull request (`pull/N/head`, which also works for forks), use
-headless runs.
+dashboard, the setup list is `none`, `published`, `winappcli main`, and the repo's open pull
+requests; select any to compare. For another branch, a tag or a SHA, use headless runs
+(`--agent winappcli@my-branch`).
 
 All setups load plugins the way a marketplace install does (SDK `pluginDirectories`, default
 agent). Before the prompt is sent, each trial checks that every plugin skill is loaded from the

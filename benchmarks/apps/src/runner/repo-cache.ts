@@ -43,7 +43,9 @@ export interface RefInfo {
   isDefault?: boolean;     // default branch
   title?: string;          // for PRs: PR title
   number?: number;         // for PRs
-  committedAt?: string;    // ISO-8601 of HEAD commit (branches only, when gh available)
+  author?: string;         // for PRs: author login
+  draft?: boolean;         // for PRs
+  committedAt?: string;    // ISO-8601 of HEAD commit (branches, when gh available) or PR last update
 }
 
 const SHA_RE = /^[0-9a-f]{40}$/i;
@@ -314,13 +316,13 @@ export async function listRefs(
       }
     }
     if (kinds.includes("prs")) {
-      const pr = await run("gh", ["api", "--paginate", `repos/${owner}/${name}/pulls?state=open&per_page=100`, "--jq", ".[] | {number, title, headRef:.head.ref, headSha:.head.sha}"], undefined, 60_000);
+      const pr = await run("gh", ["api", "--paginate", `repos/${owner}/${name}/pulls?state=open&per_page=100`, "--jq", ".[] | {number, title, headRef:.head.ref, headSha:.head.sha, author:.user.login, draft, updatedAt:.updated_at}"], undefined, 60_000);
       if (pr.code === 0) {
         for (const line of pr.stdout.split("\n").filter(Boolean)) {
           try {
             const j = JSON.parse(line);
             // Use the pull/N/head ref so PRs from forks can be fetched.
-            out.push({ name: `pull/${j.number}/head`, kind: "pr", sha: j.headSha, number: j.number, title: j.title });
+            out.push({ name: `pull/${j.number}/head`, kind: "pr", sha: j.headSha, number: j.number, title: j.title, author: j.author, draft: !!j.draft, committedAt: j.updatedAt });
           } catch {}
         }
       }

@@ -395,17 +395,18 @@ export function SetupView({ onComplete }: Props) {
     return null;
   };
 
-  // Helper: which discovered agents are from_repo (need ref picking)?
-  const fromRepoAgents = () => agents.filter(a => !!a.config?.from_repo);
+  // Setups whose ref the user picks: from_repo without a catalog. (A catalog
+  // setup's ref is a catalog version in another repo; it always uses its default.)
+  const fromRepoAgents = () => agents.filter(a => !!a.config?.from_repo && !a.config.from_repo.catalog);
 
-  // Kick off ref-list fetches for every from_repo agent on mount, so by the
-  // time the user reaches the "agents" step the branches are already there.
+  // Kick off ref-list fetches (open PRs + branches) on mount, so by the time
+  // the user reaches the "agents" step the list is already there.
   useEffect(() => {
     for (const a of fromRepoAgents()) {
       const repo = a.config!.from_repo!.repo;
       if (refCache.has(repo) || refLoading.has(repo)) continue;
       setRefLoading(prev => { const n = new Set(prev); n.add(repo); return n; });
-      listRefs(repo, ["branches"])
+      listRefs(repo, ["branches", "prs"])
         .then((refs) => {
           setRefCache(prev => { const n = new Map(prev); n.set(repo, refs); return n; });
           setRefLoading(prev => { const n = new Set(prev); n.delete(repo); return n; });
@@ -419,116 +420,49 @@ export function SetupView({ onComplete }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Branch prefixes filtered out by default (bot- / automation-created). Users
-  // can opt back in with the "+ show all branches" toggle inside the agents step.
-  const BOT_BRANCH_PREFIXES = ["copilot/", "dependabot/", "renovate/", "users/", "bot/"];
-  const isBotBranch = (name: string) =>
-    BOT_BRANCH_PREFIXES.some(p => name.startsWith(p));
-
-  // Per-agent: whether the user has expanded the bot-branch list for this agent.
-  const [showAllBranches, setShowAllBranches] = useState<Set<string>>(new Set());
-
   /**
-   * Build the flat list of selectable items for the agents step. Non-from_repo
-   * agents contribute a single item; from_repo agents contribute one item per
-   * available ref (or a single default-ref item while loading / on error).
+   * Build the flat list of selectable items for the agents step, kept short:
    *
-   * For from_repo agents:
-   *  - Default ref is always first.
-   *  - Other branches are sorted by most-recent commit date.
-   *  - Bot-prefixed branches (copilot/, dependabot/, users/, …) are hidden
-   *    unless the user toggles "+ show all".
+   *   none
+   *   production
+   *   winappcli main
+   *   PRs:
+   *     #1234 Title (author)
+   *
+   * Plain and catalog setups are one row each. A ref-picking setup gets its
+   * default ref plus its repo's open pull requests (newest first). Branches,
+   * tags and SHAs are available through headless runs (`--agent name@ref`).
    */
   const buildAgentItems = (): Array<{ label: string; value: string; selectable: boolean }> => {
     const items: Array<{ label: string; value: string; selectable: boolean }> = [];
-    const fmtRelative = (iso?: string): string => {
-      if (!iso) return "";
-      const ms = Date.now() - new Date(iso).getTime();
-      if (isNaN(ms)) return "";
-      const d = Math.floor(ms / 86400000);
-      if (d <= 0) return "today";
-      if (d === 1) return "1d ago";
-      if (d < 30) return `${d}d ago`;
-      const mo = Math.floor(d / 30);
-      if (mo < 12) return `${mo}mo ago`;
-      return `${Math.floor(d / 365)}y ago`;
-    };
+    const gray = (s: string) => `${"\x1b[90m"}${s}${"\x1b[39m"}`;
+    const byNewest = (x: RefInfo, y: RefInfo) =>
+      (y.committedAt ? Date.parse(y.committedAt) : 0) - (x.committedAt ? Date.parse(x.committedAt) : 0);
+    const pickers = agents.filter(a => !!a.config?.from_repo && !a.config.from_repo.catalog);
     for (const a of agents) {
-      const desc = a.config?.description ? `  ${"\x1b[90m"}${a.config.description}${"\x1b[39m"}` : "";
-      if (!a.config?.from_repo) {
-        let label = a.name;
-        if (a.config?.preset_scripts && a.config.preset_scripts.length > 0) {
-          label += ` [${a.config.preset_scripts.length} script${a.config.preset_scripts.length > 1 ? "s" : ""}]`;
-        }
-        items.push({ label: label + desc, value: a.name, selectable: true });
-        continue;
-      }
-      const repo = a.config.from_repo.repo;
-      const defaultRef = a.config.from_repo.default_ref || "main";
-      const refs = refCache.get(repo);
-      const loading = refLoading.has(repo);
-      const err = refLoadError.get(repo);
-      const showAll = showAllBranches.has(a.name);
-      const botCount = refs ? refs.filter(r => isBotBranch(r.name) && r.name !== defaultRef).length : 0;
-      const visibleCount = refs
-        ? refs.filter(r => showAll || !isBotBranch(r.name) || r.name === defaultRef).length
-        : 0;
-      // Header row — informational; values starting with "__" are unselectable.
-      const headerSuffix = loading
-        ? `  ${"\x1b[33m"}(loading branches from ${repo}…)${"\x1b[39m"}`
-        : err
-          ? `  ${"\x1b[31m"}(failed to list branches: ${err})${"\x1b[39m"}`
-          : `  ${"\x1b[90m"}(${visibleCount} of ${refs?.length ?? 0} branches from ${repo}${botCount > 0 && !showAll ? `; ${botCount} bot branch${botCount === 1 ? "" : "es"} hidden` : ""})${"\x1b[39m"}`;
-      items.push({
-        label: `${a.name}${desc}${headerSuffix}`,
-        value: `__hdr__${a.name}`,
-        selectable: false,
-      });
-      // Always include the default ref as an option so the user has something
-      // to pick even before refs load.
-      const seen = new Set<string>();
-      const pushRef = (name: string, sha?: string, committedAt?: string, isDefault?: boolean) => {
-        if (seen.has(name)) return;
-        seen.add(name);
-        const shaTag = sha ? `  ${"\x1b[90m"}${sha.slice(0, 7)}${"\x1b[39m"}` : "";
-        const defTag = isDefault ? `  ${"\x1b[36m"}(default)${"\x1b[39m"}` : "";
-        const dateTag = committedAt ? `  ${"\x1b[90m"}${fmtRelative(committedAt)}${"\x1b[39m"}` : "";
+      if (pickers.includes(a)) continue;
+      items.push({ label: a.name, value: a.name, selectable: true });
+    }
+    for (const a of pickers) {
+      const fr = a.config!.from_repo!;
+      const defaultRef = fr.default_ref || "main";
+      items.push({ label: `${a.name} ${defaultRef}`, value: `${a.name}@${defaultRef}`, selectable: true });
+      const refs = refCache.get(fr.repo);
+      const err = refLoadError.get(fr.repo);
+      const prs = (refs ?? []).filter(r => r.kind === "pr").sort(byNewest);
+      const status = refLoading.has(fr.repo) ? gray("  (loading…)") : err ? `  ${"\x1b[31m"}(couldn't list PRs: ${err})${"\x1b[39m"}` : prs.length ? "" : gray("  (none open)");
+      items.push({ label: `PRs${pickers.length > 1 ? ` (${a.name})` : ""}:${status}`, value: `__hdr__${a.name}`, selectable: false });
+      for (const pr of prs) {
+        const title = (pr.title ?? "").length > 70 ? `${pr.title!.slice(0, 69)}…` : (pr.title ?? "");
         items.push({
-          label: `  ↳ @ ${name}${defTag}${shaTag}${dateTag}`,
-          value: `${a.name}@${name}`,
+          label: `  #${pr.number} ${title}${pr.author ? `  ${gray(`(${pr.author}${pr.draft ? ", draft" : ""})`)}` : ""}`,
+          value: `${a.name}@${pr.name}`,
           selectable: true,
         });
-      };
-      // Default first (even if refs not loaded yet).
-      const defaultRow = refs?.find(r => r.name === defaultRef);
-      pushRef(defaultRef, defaultRow?.sha, defaultRow?.committedAt, true);
-      if (refs) {
-        // Sort the rest by most-recent commit date; null/missing dates last.
-        const others = refs.filter(r => r.name !== defaultRef);
-        others.sort((x, y) => {
-          const xt = x.committedAt ? Date.parse(x.committedAt) : 0;
-          const yt = y.committedAt ? Date.parse(y.committedAt) : 0;
-          return yt - xt;
-        });
-        for (const r of others) {
-          if (!showAll && isBotBranch(r.name)) continue;
-          pushRef(r.name, r.sha, r.committedAt, r.isDefault && r.name !== defaultRef);
-        }
-        // Toggle row to expose bot branches when filtered.
-        if (botCount > 0) {
-          items.push({
-            label: showAll
-              ? `  ${"\x1b[36m"}↳ − hide bot/automation branches${"\x1b[39m"}`
-              : `  ${"\x1b[36m"}↳ + show ${botCount} bot/automation branch${botCount === 1 ? "" : "es"} (copilot/, dependabot/, users/, …)${"\x1b[39m"}`,
-            value: `__toggle__${a.name}`,
-            selectable: false,
-          });
-        }
       }
     }
     return items;
   };
-
   // Toggle-all + advance keyboard shortcuts.
   useInput((input, _key) => {
     if (input === "a") {
@@ -605,13 +539,6 @@ export function SetupView({ onComplete }: Props) {
               onDone();
             } else if (item.value.startsWith("__hdr__")) {
               // Header rows: no-op.
-            } else if (item.value.startsWith("__toggle__")) {
-              const agentName = item.value.slice("__toggle__".length);
-              setShowAllBranches(prev => {
-                const next = new Set(prev);
-                next.has(agentName) ? next.delete(agentName) : next.add(agentName);
-                return next;
-              });
             } else {
               onToggle(item.value);
             }
@@ -861,7 +788,7 @@ export function SetupView({ onComplete }: Props) {
     return (
       <Box flexDirection="column" padding={1}>
         <Text bold color="cyan">Select Agents to Benchmark:</Text>
-        <Text color="gray">  For upstream plugins, expand inline to pick one or more branches.</Text>
+        <Text color="gray">  Pick the baselines and any pull requests to compare.</Text>
         {renderAgentMultiSelect(
           buildAgentItems(),
           selectedAgents,
