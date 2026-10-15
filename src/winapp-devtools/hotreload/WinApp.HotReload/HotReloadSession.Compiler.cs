@@ -86,6 +86,8 @@ internal sealed partial class HotReloadSession
         public string? Unavailable;
         public HashSet<string> Inputs = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, HashSet<string>> ApplicationKeys = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, List<string>> RootEvents = new(StringComparer.OrdinalIgnoreCase);
+        public Version? LocalAssemblyVersion;
         public Task<(XamlCompileOutput Pass1, XamlCompileOutput Pass2)?> Warm = Task.FromResult<(XamlCompileOutput, XamlCompileOutput)?>(null);
     }
 
@@ -115,6 +117,12 @@ internal sealed partial class HotReloadSession
         try
         {
             using var json = JsonDocument.Parse(File.ReadAllText(inputs));
+            if (json.RootElement.TryGetProperty("LocalAssembly", out var local) &&
+                (local.ValueKind == JsonValueKind.Array ? local.EnumerateArray().FirstOrDefault() : local) is { ValueKind: JsonValueKind.Object } localItem &&
+                localItem.TryGetProperty("FullPath", out var localPath) && localPath.GetString() is { } localFile && File.Exists(localFile))
+            {
+                start.LocalAssemblyVersion = System.Reflection.AssemblyName.GetAssemblyName(localFile).Version;
+            }
             foreach (var list in new[] { "XamlApplications", "XamlPages" })
             {
                 if (json.RootElement.TryGetProperty(list, out var items) && items.ValueKind == JsonValueKind.Array)
@@ -125,6 +133,10 @@ internal sealed partial class HotReloadSession
                         {
                             var full = Path.GetFullPath(Path.Combine(projectDirectory, file));
                             start.Inputs.Add(full);
+                            if (File.Exists(full) && ReadRoot(full) is { Class: { } rootClass } root)
+                            {
+                                start.RootEvents[rootClass] = root.Events;
+                            }
                             if (list == "XamlApplications" && File.Exists(full))
                             {
                                 start.ApplicationKeys[full] = Keys(XDocument.Load(full).Root!);
@@ -221,7 +233,67 @@ internal sealed partial class HotReloadSession
         {
             _applicationKeys[path] = keys;
         }
+        _rootEvents = start.RootEvents;
+        _localAssemblyVersion = start.LocalAssemblyVersion;
         _xamlReady = CheckWarmUpAsync(start.Warm);
+    }
+
+    /// <summary>
+    /// The version of the app assembly the build's pass 2 read (its XamlPreCompile output, which is compiled without the
+    /// generated AssemblyInfo, so often 0.0.0.0). In hot reload builds the compiler names XamlTypeInfo's collection and
+    /// dictionary helpers by a hash of the type's assembly-qualified name; an image with another version renames them all.
+    /// </summary>
+    private Version? _localAssemblyVersion;
+
+    /// <summary>The compilation with the assembly version <paramref name="version"/> (its AssemblyVersion attributes replaced).</summary>
+    internal static Compilation WithAssemblyVersion(Compilation compilation, Version version)
+    {
+        static bool IsVersion(AttributeSyntax a) => a.Name.ToString().Split('.')[^1] is "AssemblyVersion" or "AssemblyVersionAttribute";
+        foreach (var tree in compilation.SyntaxTrees.ToList())
+        {
+            var root = tree.GetRoot();
+            var lists = root.DescendantNodes().OfType<AttributeListSyntax>()
+                .Where(l => l.Target?.Identifier.IsKind(SyntaxKind.AssemblyKeyword) == true && l.Attributes.Any(IsVersion)).ToList();
+            if (lists.Count == 0)
+            {
+                continue;
+            }
+            root = root.ReplaceNodes(lists, (list, _) => list.WithAttributes(SyntaxFactory.SeparatedList(list.Attributes.Where(a => !IsVersion(a)))));
+            root = root.RemoveNodes(root.DescendantNodes().OfType<AttributeListSyntax>().Where(l => l.Attributes.Count == 0), SyntaxRemoveOptions.KeepNoTrivia)!;
+            compilation = compilation.ReplaceSyntaxTree(tree, tree.WithRootAndOptions(root, tree.Options));
+        }
+        return version == new Version(0, 0, 0, 0) ? compilation : compilation.AddSyntaxTrees(CSharpSyntaxTree.ParseText(
+            $"[assembly: System.Reflection.AssemblyVersion(\"{version}\")]", (CSharpParseOptions)compilation.SyntaxTrees.First().Options));
+    }
+
+    /// <summary>Per XAML class, its root element's "Name=Method" attributes as built; sent with the first update.</summary>
+    private Dictionary<string, List<string>>? _rootEvents;
+
+    /// <summary>
+    /// The root element's x:Class, and "Name=Value" for each of its attributes whose value is a plain identifier: its event
+    /// handlers (SizeChanged="OnSize") among them. The agent keeps only the names that are events of the component.
+    /// </summary>
+    internal static (string? Class, List<string> Events) ReadRoot(string path)
+    {
+        try
+        {
+            using var reader = System.Xml.XmlReader.Create(path, new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Ignore });
+            reader.MoveToContent();
+            var className = reader.GetAttribute("Class", "http://schemas.microsoft.com/winfx/2006/xaml");
+            var events = new List<string>();
+            while (reader.MoveToNextAttribute())
+            {
+                if (reader.NamespaceURI.Length == 0 && System.Text.RegularExpressions.Regex.IsMatch(reader.Value, @"^[A-Za-z_]\w*$"))
+                {
+                    events.Add($"{reader.LocalName}={reader.Value}");
+                }
+            }
+            return (className, events);
+        }
+        catch (Exception ex) when (ex is IOException or System.Xml.XmlException or UnauthorizedAccessException)
+        {
+            return (null, []);
+        }
     }
 
     private async Task CheckWarmUpAsync(Task<(XamlCompileOutput Pass1, XamlCompileOutput Pass2)?> warm)
@@ -333,6 +405,11 @@ internal sealed partial class HotReloadSession
         if (_xamlImageStale)
         {
             var compilation = (await Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
+            if (_localAssemblyVersion is { } version && compilation.Assembly.Identity.Version != version)
+            {
+                // As the build's pass 2 saw the app (see _localAssemblyVersion).
+                compilation = WithAssemblyVersion(compilation, version);
+            }
             using var image = new MemoryStream();
             var emit = compilation.Emit(image, options: new EmitOptions(metadataOnly: true, includePrivateMembers: true), cancellationToken: cancellationToken);
             if (!emit.Success)
@@ -341,6 +418,7 @@ internal sealed partial class HotReloadSession
             }
             _xamlImage = image.ToArray();
             _xamlImageStale = false;
+            Log($"app image for pass 2: {compilation.Assembly.Identity}");
         }
         var compiledEverything = false;
         if (_xamlFullCompilePending)
@@ -419,6 +497,10 @@ internal sealed partial class HotReloadSession
                 : Relative(path).Replace('/', '\\').EndsWith(@"Themes\Generic.xaml", StringComparison.OrdinalIgnoreCase) ? MarkupKind.Generic
                 : MarkupKind.Dictionary;
             var payload = new MarkupPayload { Kind = kind, Uri = UriFor(path), Xbf = bytes, Manifest = new ComponentManifest { ClassName = className ?? "" } };
+            if (kind == MarkupKind.Component)
+            {
+                payload.RootEvents = ReadRoot(path).Events;
+            }
             if (kind == MarkupKind.Application)
             {
                 var keys = Keys(root);

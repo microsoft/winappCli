@@ -210,6 +210,10 @@ internal static class XamlReload
         s_resourcesChanged = false;
         CodeAddedItems.LaunchItems(request.LaunchItems);
         var appliedXbf = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (className, events) in request.RootEvents)
+        {
+            s_rootEvents.TryAdd(className, events);
+        }
         try
         {
             var everything = false;
@@ -230,6 +234,7 @@ internal static class XamlReload
                     if (markup.Kind == MarkupKind.Component)
                     {
                         appliedXbf[markup.Uri] = xbf;
+                        s_nextRootEvents[markup.Manifest.ClassName] = markup.RootEvents;
                     }
                     continue;
                 }
@@ -327,6 +332,11 @@ internal static class XamlReload
         }
         finally
         {
+            foreach (var (className, events) in s_nextRootEvents)
+            {
+                s_rootEvents[className] = events;
+            }
+            s_nextRootEvents.Clear();
             s_messages = null;
             s_errors = null;
             s_notes = null;
@@ -1503,8 +1513,18 @@ internal static class XamlReload
         catch (COMException)
         {
         }
+        // A page hosting pages in its own frames (a gallery's samples): the new instance shows the same ones.
+        var nested = NamedFrames(page.Content);
+        var selections = nested.Count > 0 ? NavigationSelections(page.Content) : [];
+        var oldRoot = page.Content;
         Renavigate(frame, page);
-        return frame.Content as Page ?? page;
+        var fresh = frame.Content as Page ?? page;
+        if (!ReferenceEquals(fresh, page) && nested.Count > 0)
+        {
+            var kept = KeepPages(fresh, oldRoot, fresh.Content as FrameworkElement, nested);
+            KeepLocation(fresh.Content as FrameworkElement, kept.Select(k => k.Frame).ToList(), selections);
+        }
+        return fresh;
     }
 
     /// <summary>Set while <see cref="MarkupError"/> loads markup into a stand-in: that load isn't a component's.</summary>
@@ -1545,8 +1565,56 @@ internal static class XamlReload
         }
     }
 
+    /// <summary>Replaced trees kept alive until <see cref="s_retireTimer"/> fires (see <see cref="Retire"/>).</summary>
+    private static readonly List<object> s_retired = [];
+    private static DispatcherQueueTimer? s_retireTimer;
+
+    /// <summary>
+    /// Keeps a window's or page's replaced tree alive for 2 s after the last update. A control released while one of its
+    /// timers is still pending can be called on freed memory: WinUI's AutoSuggestBox doesn't stop its text-changed timer
+    /// when it goes, and re-templating it (new App resources) starts that timer just before the update drops it.
+    /// </summary>
+    private static void Retire(object? tree)
+    {
+        if (tree is null || s_dispatcher is null)
+        {
+            return;
+        }
+        // Every element, not only the root: the root keeps its children in the tree, but not each control's own object.
+        var elements = new List<object> { tree };
+        void Walk(DependencyObject node)
+        {
+            var count = VisualTreeHelper.GetChildrenCount(node);
+            for (var i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(node, i);
+                elements.Add(child);
+                Walk(child);
+            }
+        }
+        if (tree is DependencyObject root)
+        {
+            Walk(root);
+        }
+        s_retired.Add(elements);
+        if (s_retired.Count > 32)
+        {
+            s_retired.RemoveAt(0);
+        }
+        if (s_retireTimer is null)
+        {
+            s_retireTimer = s_dispatcher.CreateTimer();
+            s_retireTimer.IsRepeating = false;
+            s_retireTimer.Interval = TimeSpan.FromSeconds(2);
+            s_retireTimer.Tick += (_, _) => s_retired.Clear();
+        }
+        s_retireTimer.Stop();
+        s_retireTimer.Start();
+    }
+
     private static void Renavigate(Frame frame, Page page)
     {
+        Retire(page);
         HotReloadAgent.Log($"renavigate {page.GetType().FullName}");
         if (MarkupError(page) is { } error)
         {
@@ -1623,8 +1691,54 @@ internal static class XamlReload
     }
 
     /// <summary>Lets InitializeComponent run again on the same instance: markup re-adds its own resources.</summary>
+    /// <summary>Per XAML class, the root element's "Event=Method" attributes of the markup its instances run (compiler pipeline).</summary>
+    private static readonly Dictionary<string, List<string>> s_rootEvents = new(StringComparer.Ordinal);
+
+    /// <summary>The same for the markup this update brings; it replaces <see cref="s_rootEvents"/> once the update is done.</summary>
+    private static readonly Dictionary<string, List<string>> s_nextRootEvents = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Before InitializeComponent runs again on the same instance: the generated code connects the root element's events
+    /// to the instance's handlers once more, so the handlers the running markup added are removed first. Otherwise each
+    /// reload adds another (SizeChanged="OnSize" would run OnSize twice after one save, three times after two).
+    /// </summary>
+    private static void DisconnectRoot(object component)
+    {
+        var type = component.GetType();
+        if (!Compiler || !s_rootEvents.TryGetValue(type.FullName!, out var events))
+        {
+            return;
+        }
+        foreach (var entry in events)
+        {
+            var (name, handler) = (entry[..entry.IndexOf('=')], entry[(entry.IndexOf('=') + 1)..]);
+            if (type.GetEvent(name, BindingFlags.Instance | BindingFlags.Public) is not { EventHandlerType: { } delegateType } ev)
+            {
+                continue;
+            }
+            foreach (var method in type.GetMethods(InstanceMembers).Where(m => m.Name == handler))
+            {
+                if (Delegate.CreateDelegate(delegateType, component, method, throwOnBindFailure: false) is { } subscribed)
+                {
+                    try
+                    {
+                        ev.RemoveEventHandler(component, subscribed);
+                    }
+                    catch (Exception ex) when (ex is TargetInvocationException or InvalidOperationException or ArgumentException)
+                    {
+                        HotReloadAgent.Log($"{type.Name}.{name}: removing {handler} failed: {ex.GetBaseException().Message}");
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     private static void PrepareForLoad(object component)
     {
+        // The tree the load replaces outlives the update briefly (see Retire).
+        Retire(component switch { Window w => w.Content, UserControl u => u.Content, ContentControl c => c.Content, _ => null });
+        DisconnectRoot(component);
         for (var t = component.GetType(); t is not null; t = t.BaseType)
         {
             t.GetField("_contentLoaded", InstanceMembers | BindingFlags.DeclaredOnly)?.SetValue(component, false);

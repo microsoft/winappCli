@@ -84,6 +84,27 @@ public sealed class CompilerPipelineTests
     }
 
     [TestMethod]
+    public void TheImageTakesTheVersionPass2SawAtBuild()
+    {
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText("[assembly: System.Reflection.AssemblyVersionAttribute(\"3.0.0.0\")]\n[assembly: System.Reflection.AssemblyTitle(\"A\")]\nclass C { }");
+        var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create("App", [tree], [Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(typeof(object).Assembly.Location)]);
+        Assert.AreEqual(new Version(3, 0, 0, 0), compilation.Assembly.Identity.Version);
+        Assert.AreEqual(new Version(0, 0, 0, 0), HotReloadSession.WithAssemblyVersion(compilation, new Version(0, 0, 0, 0)).Assembly.Identity.Version);
+        Assert.AreEqual(new Version(1, 2, 0, 0), HotReloadSession.WithAssemblyVersion(compilation, new Version(1, 2, 0, 0)).Assembly.Identity.Version);
+    }
+
+    [TestMethod]
+    public void AChangedMethodOnNavigatedToCallsIsNoted()
+    {
+        static Microsoft.CodeAnalysis.CSharp.Syntax.ClassDeclarationSyntax Class(string text) =>
+            Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(text).GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.ClassDeclarationSyntax>().First();
+        const string before = "class P { protected override void OnNavigatedTo(object e) { SetUp(); } void SetUp() { Add(\"Overview\"); } void Other() { } }";
+        Assert.AreEqual("P.SetUp already ran when P was opened: navigate to P again to see this change",
+            HotReloadSession.NavigationNote(Class(before.Replace("\"Overview\"", "\"Overview HR\"")), Class(before)));
+        Assert.IsNull(HotReloadSession.NavigationNote(Class(before.Replace("void Other() { }", "void Other() { Add(1); }")), Class(before)));
+    }
+
+    [TestMethod]
     public void AGeneratedFileWithoutCodeIsNoChange()
     {
         Assert.IsTrue(HotReloadSession.HasNoCode("\uFEFF \r\n"));

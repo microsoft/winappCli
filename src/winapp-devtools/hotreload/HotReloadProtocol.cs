@@ -12,6 +12,11 @@ internal sealed class HotReloadRequest
 {
     public string Op { get; set; } = "";
     public string? Token { get; set; }
+    /// <summary>
+    /// The compiler pipeline's first update: for every XAML class, "Event=Method" for the attributes on its root element as
+    /// the app was built. Reloading in place connects the root again, so the agent first removes what the markup added.
+    /// </summary>
+    public Dictionary<string, List<string>> RootEvents { get; set; } = [];
     public List<DeltaPayload> Deltas { get; set; } = [];
     public List<MarkupPayload> Markup { get; set; } = [];
     /// <summary>XAML classes whose live instances are re-initialized in place (constructor body replayed).</summary>
@@ -86,6 +91,11 @@ internal sealed class MarkupPayload
     /// resources lack were added by the app's code, and are kept.
     /// </summary>
     public List<string> DroppedKeys { get; set; } = [];
+    /// <summary>
+    /// A component on the compiler pipeline: "Event=Method" for each attribute on its root element in the saved markup.
+    /// Reloading in place connects the root again, so the agent first removes the handlers the previous markup added.
+    /// </summary>
+    public List<string> RootEvents { get; set; } = [];
 }
 
 /// <summary>What the runtime text parser cannot express, applied by the agent after every load of the URI.</summary>

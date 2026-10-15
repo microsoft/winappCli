@@ -885,6 +885,10 @@ internal sealed partial class HotReloadSession
         }
 
         var request = new HotReloadRequest { Op = "apply", Initializers = [.. _pendingInitializers], Assemblies = [.. _newAssemblies], Assets = [.. _changedAssets], LaunchItems = _launchItems };
+        if (_rootEvents is { Count: > 0 } rootEvents)
+        {
+            request.RootEvents = rootEvents;
+        }
         request.RefreshTypes.AddRange(libraryTypes);
         request.Deltas.AddRange(result.Deltas.Select(d => new DeltaPayload { ModuleId = d.ModuleId, Metadata = d.Metadata, IL = d.IL, Pdb = d.Pdb, UpdatedTypes = d.UpdatedTypes }));
         var applied = new List<string>();
@@ -946,6 +950,7 @@ internal sealed partial class HotReloadSession
             return new SaveResult(Outcome.Restart, response.Error ?? "the app could not apply the update");
         }
         Commit();
+        _rootEvents = null;
         _newAssemblies.Clear();
         _changedAssets.Clear();
         _pendingInitializers.Clear();
@@ -1020,6 +1025,46 @@ internal sealed partial class HotReloadSession
     /// <summary>Statements in replayed constructors already noted as starting something that keeps running.</summary>
     private readonly HashSet<string> _notedStarts = new(StringComparer.Ordinal);
 
+    private static bool IsPage(INamedTypeSymbol type)
+    {
+        for (var t = type.BaseType; t is not null; t = t.BaseType)
+        {
+            if (t.ToDisplayString() == "Microsoft.UI.Xaml.Controls.Page")
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// A changed OnNavigatedTo, or a method it calls directly (a menu it builds): the page on screen already ran it, and
+    /// a code change doesn't run it again.
+    /// </summary>
+    internal static string? NavigationNote(ClassDeclarationSyntax type, ClassDeclarationSyntax? oldType)
+    {
+        if (oldType is null || type.Members.OfType<MethodDeclarationSyntax>().FirstOrDefault(m => m.Identifier.ValueText == "OnNavigatedTo") is not { } navigatedTo)
+        {
+            return null;
+        }
+        var runs = navigatedTo.DescendantNodes().OfType<InvocationExpressionSyntax>()
+            .Select(i => i.Expression switch
+            {
+                IdentifierNameSyntax name => name.Identifier.ValueText,
+                MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax } access => access.Name.Identifier.ValueText,
+                _ => null,
+            })
+            .OfType<string>().Append("OnNavigatedTo").ToHashSet(StringComparer.Ordinal);
+        var changed = type.Members.OfType<MethodDeclarationSyntax>()
+            .Where(m => runs.Contains(m.Identifier.ValueText) &&
+                oldType.Members.OfType<MethodDeclarationSyntax>().FirstOrDefault(o => o.Identifier.ValueText == m.Identifier.ValueText && o.ParameterList.IsEquivalentTo(m.ParameterList)) is { } before &&
+                !before.IsEquivalentTo(m))
+            .Select(m => m.Identifier.ValueText).ToList();
+        var page = type.Identifier.ValueText;
+        return changed.Count == 0 ? null
+            : $"{page}.{changed[0]} already ran when {page} was opened: navigate to {page} again to see this change";
+    }
+
     /// <summary>
     /// What an "applied" doesn't tell: changes to code that only runs at startup (App.OnLaunched, the App
     /// constructor), and constructors replayed on reload that start timers or threads, which then run once more.
@@ -1067,6 +1112,10 @@ internal sealed partial class HotReloadSession
                                     $"`{statement.ToString().Split('\n')[0].Trim()}` uses {type.Identifier.ValueText}'s constructor arguments, which a reload doesn't have: this change takes effect when the app restarts");
                             }
                         }
+                    }
+                    if (symbol is not null && !reloaded.Contains(symbol.ToDisplayString()) && IsPage(symbol) && NavigationNote(type, oldType) is { } navigation)
+                    {
+                        notes.Add(navigation);
                     }
                     continue;
                 }

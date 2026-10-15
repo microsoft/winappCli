@@ -39,7 +39,13 @@ internal sealed class PageUpdateRecreate : IPageUpdateStrategy
         }
         // Compared right after construction and OnNavigatedTo: a field set later (in Loaded) starts over too.
         var lost = before.Changed(PageData.Take(fresh, getters: false));
-        update.Note(lost.Count == 0 ? $"{name} re-created" : $"{name} re-created; its fields start over ({string.Join(", ", lost)})");
+        var note = lost.Count == 0 ? $"{name} re-created" : $"{name} re-created; its fields start over ({string.Join(", ", lost)})";
+        if (PageNavigation.Overrides(fresh, "OnNavigatedTo"))
+        {
+            // What it does when opened (a dialog, a download) happens again on each save.
+            note += $"; its OnNavigatedTo ran again";
+        }
+        update.Note(note);
         UiState.RestoreWhenLoaded(fresh.Content as FrameworkElement, state, fresh.DispatcherQueue);
     }
 }

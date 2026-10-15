@@ -594,7 +594,7 @@ internal static class PageNavigation
         }
     }
 
-    private static bool Overrides(Page page, string method) =>
+    internal static bool Overrides(Page page, string method) =>
         page.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, [typeof(NavigationEventArgs)])?.DeclaringType != typeof(Page);
 }
 
