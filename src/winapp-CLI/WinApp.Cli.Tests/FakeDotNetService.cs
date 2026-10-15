@@ -171,6 +171,9 @@ internal class FakeDotNetService : IDotNetService
     /// <summary>Records the argument strings passed to <see cref="RunDotnetStreamingAsync"/> (build passes).</summary>
     public List<string> StreamingCalls { get; } = [];
 
+    /// <summary>Records the environment overrides passed alongside each <see cref="RunDotnetStreamingAsync"/> call.</summary>
+    public List<IReadOnlyDictionary<string, string>?> StreamingEnvironments { get; } = [];
+
     /// <summary>
     /// Contents of each temporary solution filter (<c>.slnf</c>) a streamed call received, read during the
     /// call because the caller deletes the file afterwards.
@@ -180,6 +183,7 @@ internal class FakeDotNetService : IDotNetService
     public Task<int> RunDotnetStreamingAsync(DirectoryInfo workingDirectory, string arguments, Action<string>? onOutputLine, Action<string>? onErrorLine, IReadOnlyDictionary<string, string>? environmentOverrides = null, CancellationToken cancellationToken = default)
     {
         StreamingCalls.Add(arguments);
+        StreamingEnvironments.Add(environmentOverrides);
         foreach (var token in WinApp.Cli.Helpers.WindowsCommandLine.SplitArguments(arguments)
             .Where(token => token.EndsWith(".slnf", StringComparison.OrdinalIgnoreCase) && File.Exists(token)))
         {
@@ -218,9 +222,13 @@ internal class FakeDotNetService : IDotNetService
     /// <summary>Records the argument strings passed to <see cref="RunDotnetInheritedAsync"/> (native-terminal build passes).</summary>
     public List<string> InheritedCalls { get; } = [];
 
+    /// <summary>Records the environment overrides passed alongside each <see cref="RunDotnetInheritedAsync"/> call.</summary>
+    public List<IReadOnlyDictionary<string, string>?> InheritedEnvironments { get; } = [];
+
     public Task<int> RunDotnetInheritedAsync(DirectoryInfo workingDirectory, string arguments, IReadOnlyDictionary<string, string>? environmentOverrides = null, CancellationToken cancellationToken = default)
     {
         InheritedCalls.Add(arguments);
+        InheritedEnvironments.Add(environmentOverrides);
         if (RunDotnetInheritedHandler is not null)
         {
             return Task.FromResult(RunDotnetInheritedHandler(arguments));
