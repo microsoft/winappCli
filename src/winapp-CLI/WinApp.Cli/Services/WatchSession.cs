@@ -238,6 +238,9 @@ internal sealed class WatchSession
     /// <summary>Set once the app of the current run has been launched (false when its build failed).</summary>
     public bool Launched { get; set; }
 
+    /// <summary>Set when the app of the current run was built and started but exited before hot reload could attach.</summary>
+    public bool ExitedAtLaunch { get; set; }
+
     /// <summary>Waits until a watched source file of the project changes after <paramref name="since"/>, e.g. to retry a failed rebuild.</summary>
     public async Task WaitForSourceChangeAsync(DateTime since, CancellationToken cancellationToken)
     {

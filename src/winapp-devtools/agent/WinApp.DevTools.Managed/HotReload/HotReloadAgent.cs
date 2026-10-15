@@ -178,6 +178,7 @@ internal static class HotReloadAgent
     private static HotReloadResponse Apply(HotReloadRequest request)
     {
         var response = new HotReloadResponse { Ok = true };
+        Log($"apply: {request.Deltas.Count} delta(s), {request.Markup.Count} markup, refresh {string.Join(",", request.RefreshTypes)}");
         var updatedTypes = new List<Type>();
         XamlReload.StopTracking([.. request.RefreshTypes, .. request.RecreateTypes]);
         foreach (var delta in request.Deltas)

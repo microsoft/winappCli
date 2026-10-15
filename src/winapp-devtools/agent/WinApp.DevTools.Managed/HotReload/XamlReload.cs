@@ -209,6 +209,7 @@ internal static class XamlReload
         s_pageUpdate = PageUpdateStrategies.Get(request.PageUpdate);
         s_resourcesChanged = false;
         CodeAddedItems.LaunchItems(request.LaunchItems);
+        var appliedXbf = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         try
         {
             var everything = false;
@@ -226,6 +227,10 @@ internal static class XamlReload
                 if (markup.Xbf is { } xbf)
                 {
                     everything |= ApplyCompiledMarkup(markup, xbf);
+                    if (markup.Kind == MarkupKind.Component)
+                    {
+                        appliedXbf[markup.Uri] = xbf;
+                    }
                     continue;
                 }
                 if (markup.Kind == MarkupKind.Component && markup.Manifest.ClassName.Length > 0)
@@ -305,6 +310,7 @@ internal static class XamlReload
                 // The code is in; the UI didn't rebuild. The markup is sent again with the next save.
                 ReportError("the UI could not be rebuilt: " + ex.Message);
             }
+            KeepLastGoodMarkup(appliedXbf, errors);
             NotifyChangedProperties(request.ChangedProperties, request.RefreshBindings);
             if (request.Deltas.Count > 0)
             {
@@ -549,6 +555,28 @@ internal static class XamlReload
         }
         var path = Uri.UnescapeDataString(uri.AbsolutePath).TrimStart('/');
         return uri.Scheme == "ms-resource" && path.StartsWith("Files/", StringComparison.OrdinalIgnoreCase) ? path["Files/".Length..] : path;
+    }
+
+    /// <summary>Per markup URI, the compiled markup of the last save that loaded (the compiler pipeline).</summary>
+    private static readonly Dictionary<string, byte[]> s_goodXbf = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Markup that failed to load (a value the runtime can't parse) doesn't stay in effect: the component is served its
+    /// last good markup again (the build's when there was none), so the next instance (a navigation by the app) still
+    /// loads instead of throwing in the app's code. The save is reported as an error and the next one tries again.
+    /// </summary>
+    private static void KeepLastGoodMarkup(Dictionary<string, byte[]> applied, List<string> errors)
+    {
+        foreach (var (uri, xbf) in applied)
+        {
+            if (!errors.Any(e => e.StartsWith(uri + ":", StringComparison.OrdinalIgnoreCase) || e.StartsWith(uri + "(", StringComparison.OrdinalIgnoreCase)))
+            {
+                s_goodXbf[uri] = xbf;
+                continue;
+            }
+            var hr = s_goodXbf.TryGetValue(uri, out var good) ? s_service!.SetComponentMarkup(uri, binary: true, good) : s_service!.RemoveComponentMarkup(uri);
+            HotReloadAgent.Log($"{uri} didn't load: {(good is null ? "back to the build's markup" : "back to the last good markup")} (0x{hr:x8})");
+        }
     }
 
     /// <summary>Re-loads app-level dictionaries merged from <paramref name="uri"/>; window and page dictionaries reload with them.</summary>
@@ -945,49 +973,28 @@ internal static class XamlReload
         }
     }
 
-    /// <summary>
-    /// After a code update on the compiler pipeline: the app's generated XamlTypeInfo provider builds its type tables once,
-    /// so a type the update added isn't found, and an inserted type shifts the indexes the updated code uses. A new
-    /// provider builds them again from the updated code.
-    /// </summary>
-    /// <summary>XamlHotReload_InvalidateTypes(const wchar_t** typeNames, uint32_t count) in the app's WinUI, when it has it.</summary>
-    private static readonly unsafe delegate* unmanaged[Stdcall]<IntPtr*, uint, int> s_invalidateTypes = FindInvalidateTypes();
-
-    private static unsafe delegate* unmanaged[Stdcall]<IntPtr*, uint, int> FindInvalidateTypes() =>
-        NativeLibrary.TryLoad("Microsoft.UI.Xaml.dll", typeof(XamlReload).Assembly, null, out var module) &&
-        NativeLibrary.TryGetExport(module, "XamlHotReload_InvalidateTypes", out var export)
-            ? (delegate* unmanaged[Stdcall]<IntPtr*, uint, int>)export : null;
-
-    public static unsafe bool CanInvalidateTypes => s_invalidateTypes != null;
+    /// <summary>Whether the app's WinUI can forget what it read about a type (IXamlHotReloadService3).</summary>
+    public static bool CanInvalidateTypes => s_service?.CanInvalidateTypes == true;
 
     /// <summary>
     /// After an update: the runtime forgets what it read about these types (their properties), so markup can set one the
     /// update added to a type it already used.
     /// </summary>
-    public static unsafe void InvalidateTypes(IReadOnlyCollection<Type> types)
+    public static void InvalidateTypes(IReadOnlyCollection<Type> types)
     {
-        if (s_invalidateTypes == null || types.Count == 0)
+        if (s_service is not { CanInvalidateTypes: true } service || types.Count == 0)
         {
             return;
         }
-        var names = types.Select(t => Marshal.StringToHGlobalUni(t.FullName)).ToArray();
-        try
-        {
-            fixed (IntPtr* first = names)
-            {
-                var hr = s_invalidateTypes(first, (uint)names.Length);
-                HotReloadAgent.Log($"invalidated {names.Length} type(s): 0x{hr:X8}");
-            }
-        }
-        finally
-        {
-            foreach (var name in names)
-            {
-                Marshal.FreeHGlobal(name);
-            }
-        }
+        var hr = service.InvalidateTypes(types.Select(t => t.FullName!).ToList(), out var marked);
+        HotReloadAgent.Log($"invalidated {marked} of {types.Count} type(s): 0x{hr:X8}");
     }
 
+    /// <summary>
+    /// After a code update on the compiler pipeline: the app's generated XamlTypeInfo provider builds its type tables once,
+    /// so a type the update added isn't found, and an inserted type shifts the indexes the updated code uses. A new
+    /// provider builds them again from the updated code.
+    /// </summary>
     public static void ResetTypeInfo()
     {
         // Also with the compiler's own cache-clearing handler: that clears its type tables, not the list of other
@@ -1499,9 +1506,57 @@ internal static class XamlReload
         return frame.Content as Page ?? page;
     }
 
+    /// <summary>Set while <see cref="MarkupError"/> loads markup into a stand-in: that load isn't a component's.</summary>
+    private static bool s_probing;
+
+    /// <summary>
+    /// Why the page's current markup doesn't load (a value the runtime can't parse), found by loading it into a plain
+    /// stand-in Page: no constructor of the app's runs and nothing is wired. Null when it loads, or can't be checked.
+    /// </summary>
+    private static Exception? MarkupError(Page page)
+    {
+        // The compiler pipeline's markup (an .xbf): the rewrite pipeline's text is only complete with its hooks.
+        if (!Compiler || !ClassUris.TryGetValue(page.GetType().FullName!, out var uri))
+        {
+            return null;
+        }
+        s_probing = true;
+        try
+        {
+            ClearErrorInfo();
+            Application.LoadComponent(new Page(), new Uri(uri), Microsoft.UI.Xaml.Controls.Primitives.ComponentResourceLocation.Application);
+            return null;
+        }
+        catch (XamlParseException ex)
+        {
+            return ex;
+        }
+        catch (Exception ex) when (ex is COMException or InvalidCastException or ArgumentException)
+        {
+            // The stand-in can't take this markup (a root of another type, say): the frame finds out.
+            HotReloadAgent.Log($"{uri}: markup not checked before re-creating: {ex.Message}");
+            return null;
+        }
+        finally
+        {
+            s_probing = false;
+            ClearErrorInfo();
+        }
+    }
+
     private static void Renavigate(Frame frame, Page page)
     {
         HotReloadAgent.Log($"renavigate {page.GetType().FullName}");
+        if (MarkupError(page) is { } error)
+        {
+            // Not handed to the frame: a page that fails to build during navigation ends the app (the runtime raises the
+            // failure again after it was caught). The page the user sees stays as it is.
+            ReportError(Describe(error, ClassUris.GetValueOrDefault(page.GetType().FullName!), page.GetType().Name));
+            return;
+        }
+        // The failure is reported here (the save's error), not to the app's own NavigationFailed handler.
+        NavigationFailedEventHandler handled = (_, e) => e.Handled = true;
+        frame.NavigationFailed += handled;
         try
         {
             ClearErrorInfo();
@@ -1534,6 +1589,10 @@ internal static class XamlReload
                 frame.Content = page;
             }
             ReportError(Describe(ex, ClassUris.GetValueOrDefault(page.GetType().FullName!), page.GetType().Name));
+        }
+        finally
+        {
+            frame.NavigationFailed -= handled;
         }
     }
 
@@ -1878,6 +1937,10 @@ internal static class XamlReload
     /// <summary>After every component load (WinUI's load callback), on the loading thread.</summary>
     private static void OnLoaded(IntPtr componentAbi, string uri)
     {
+        if (s_probing)
+        {
+            return;
+        }
         try
         {
             var component = WinRT.MarshalInspectable<object>.FromAbi(componentAbi);

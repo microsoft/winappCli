@@ -63,12 +63,25 @@ internal partial class RunCommand
                     var restarting = activeWatch.RestartRequested;
                     activeWatch.RestartRequested = false;
                     activeWatch.Launched = false;
+                    activeWatch.ExitedAtLaunch = false;
                     var buildStarted = DateTime.UtcNow;
                     var exitCode = await RunProjectModeOnceAsync(parseResult, csproj, solution, selectionReason, appArgs, isJson, executionTarget, cancellationToken);
                     if (restarting && !activeWatch.Launched && !cancellationToken.IsCancellationRequested)
                     {
-                        // The rebuild for a restart failed (the build already printed why): keep watching and retry on the next save.
-                        ansiConsole.MarkupLine("[red][[watch]] error the rebuild failed (see above); fix it and save to try again[/]");
+                        if (activeWatch.ExitedAtLaunch)
+                        {
+                            // Built, but it ends as it starts (markup it can't load, say): relaunching before a fix would only repeat that.
+                            ansiConsole.MarkupLine($"[red][[watch]] error the app exited at startup with code {exitCode}; fix it and save to try again[/]");
+                            if (activeWatch.CrashReport(exitCode) is { } crash)
+                            {
+                                ansiConsole.WriteLine("  " + crash.Replace("\n", "\n  ", StringComparison.Ordinal));
+                            }
+                        }
+                        else
+                        {
+                            // The rebuild for a restart failed (the build already printed why): keep watching and retry on the next save.
+                            ansiConsole.MarkupLine("[red][[watch]] error the rebuild failed (see above); fix it and save to try again[/]");
+                        }
                         try
                         {
                             await activeWatch.WaitForSourceChangeAsync(buildStarted, cancellationToken);

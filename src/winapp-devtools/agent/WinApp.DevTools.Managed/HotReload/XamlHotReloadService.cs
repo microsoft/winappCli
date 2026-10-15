@@ -97,6 +97,59 @@ internal sealed class XamlHotReloadService
 
     public unsafe int InvalidateTypeCaches() => ((delegate* unmanaged[Stdcall]<IntPtr, int>)Vtbl[8])(_service);
 
+    private static readonly Guid Service3Iid = new("85B7546C-46F3-49C0-8AAD-D866BC9E86FC");
+    private IntPtr _service3 = IntPtr.MinValue;
+
+    /// <summary>IXamlHotReloadService3, from a WinUI that can forget what it read about a type (zero when it can't).</summary>
+    private IntPtr Service3
+    {
+        get
+        {
+            if (_service3 == IntPtr.MinValue)
+            {
+                var iid = Service3Iid;
+                _service3 = Marshal.QueryInterface(_service, ref iid, out var v3) >= 0 ? v3 : IntPtr.Zero;
+            }
+            return _service3;
+        }
+    }
+
+    /// <summary>Whether <see cref="InvalidateTypes"/> is available.</summary>
+    public bool CanInvalidateTypes => Service3 != IntPtr.Zero;
+
+    /// <summary>
+    /// Has the runtime read these types again (by full name) the next time markup uses them: members an update added
+    /// (a new dependency property) are then found. Returns how many it knew.
+    /// </summary>
+    public unsafe int InvalidateTypes(IReadOnlyList<string> fullNames, out uint marked)
+    {
+        marked = 0;
+        if (Service3 == IntPtr.Zero || fullNames.Count == 0)
+        {
+            return NoInterface;
+        }
+        var handles = fullNames.Select(n => GCHandle.Alloc(n, GCHandleType.Pinned)).ToArray();
+        try
+        {
+            var names = stackalloc IntPtr[handles.Length];
+            for (var i = 0; i < handles.Length; i++)
+            {
+                names[i] = handles[i].AddrOfPinnedObject();
+            }
+            uint count;
+            var hr = ((delegate* unmanaged[Stdcall]<IntPtr, uint, IntPtr*, uint*, int>)(*(void***)Service3)[11])(Service3, (uint)handles.Length, names, &count);
+            marked = count;
+            return hr;
+        }
+        finally
+        {
+            foreach (var handle in handles)
+            {
+                handle.Free();
+            }
+        }
+    }
+
     private static Action<IntPtr, string>? s_loaded;
 
     /// <summary>Calls <paramref name="loaded"/> after every component load (component ABI pointer, markup URI), on the loading thread.</summary>

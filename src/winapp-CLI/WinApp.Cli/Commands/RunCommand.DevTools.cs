@@ -376,6 +376,10 @@ internal partial class RunCommand
                 }
                 if (launched.HasExited && connection is null)
                 {
+                    if (activeWatch is not null)
+                    {
+                        activeWatch.ExitedAtLaunch = true;
+                    }
                     if (isJson) { PrintJson(aumid, pid, null, coordinates?.Exclusions, coordinates?.Error); }
                     return launched.ExitCode;
                 }
