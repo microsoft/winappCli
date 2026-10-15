@@ -68,7 +68,7 @@ internal partial class RunCommand
                     if (restarting && !activeWatch.Launched && !cancellationToken.IsCancellationRequested)
                     {
                         // The rebuild for a restart failed (the build already printed why): keep watching and retry on the next save.
-                        ansiConsole.MarkupLine("[red][[watch]] build failed; fix the error and save to try again[/]");
+                        ansiConsole.MarkupLine("[red][[watch]] error the rebuild failed (see above); fix it and save to try again[/]");
                         try
                         {
                             await activeWatch.WaitForSourceChangeAsync(buildStarted, cancellationToken);
