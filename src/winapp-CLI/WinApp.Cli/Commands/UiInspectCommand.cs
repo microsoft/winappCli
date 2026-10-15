@@ -555,14 +555,7 @@ internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamp
                 // descendant points back to one of its own ancestors that's also in the tree.
                 if (el.InvokableAncestor is { } anc)
                 {
-                    el.InvokableAncestor = new UiElement
-                    {
-                        Type = anc.Type,
-                        Name = anc.Name,
-                        AutomationId = anc.AutomationId,
-                        Selector = anc.Selector,
-                        IsInvokable = anc.IsInvokable,
-                    };
+                    el.InvokableAncestor = UiElementScrubber.ToAncestorHint(anc);
                 }
                 // In non-interactive mode the tree is complete, so ancestorPath is redundant.
                 // In interactive mode it's populated only with the collapsed non-interactive chain.
