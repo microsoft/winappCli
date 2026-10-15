@@ -787,7 +787,9 @@ internal sealed partial class HotReloadSession
             if (stopped is not null)
             {
                 Discard();
-                return stopped;
+                // Nothing of this save reached the app: a page waiting for its code-behind holds back the rest of the save
+                // too (markup an earlier failed save left to send), so all of it is sent again with the next save.
+                return stopped.Outcome == Outcome.Waiting ? stopped with { StillFailing = [.. paths] } : stopped;
             }
         }
         // On the compiler pipeline only the constructor replay a reload in place runs (what the constructor does after
