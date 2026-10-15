@@ -55,8 +55,16 @@ internal sealed partial class HotReloadSession
     /// <summary>The compiler started again (new references) and hasn't compiled every page yet.</summary>
     private bool _xamlFullCompilePending;
 
+    /// <summary>The XAML compiler's C#: Page.g.cs (pass 2) and the pass 1 part, Page.i.g.cs (hot reload builds) or Page.g.i.cs.</summary>
     private static bool IsGenerated(string path) =>
         path.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".g.i.cs", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPass1Part(string path) =>
+        path.EndsWith(".i.g.cs", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".g.i.cs", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>"Pages\Foo" for Pages\Foo.g.cs, Pages\Foo.i.g.cs and Pages\Foo.g.i.cs.</summary>
+    private static string GeneratedStem(string relative) =>
+        IsPass1Part(relative) ? relative[..^".i.g.cs".Length] : relative[..^".g.cs".Length];
 
     /// <summary>The documents' text as the running binary was built from, pinned: a build may overwrite the files in obj.</summary>
     private static DocumentInfo Pinned(DocumentInfo document)
@@ -123,18 +131,8 @@ internal sealed partial class HotReloadSession
                     }
                 }
             }
-            // Stable connection IDs: the service continues the build's ledger, so it numbers elements as the build did.
-            var outputDirectory = Path.Combine(markupDirectory, "xaml");
-            var ledger = Path.Combine(start.Intermediate, "XamlHotReload");
-            if (Directory.Exists(ledger))
-            {
-                Directory.CreateDirectory(Path.Combine(outputDirectory, "XamlHotReload"));
-                foreach (var file in Directory.EnumerateFiles(ledger))
-                {
-                    File.Copy(file, Path.Combine(outputDirectory, "XamlHotReload", Path.GetFileName(file)), overwrite: true);
-                }
-            }
-            start.Host = XamlCompilerHost.Start(exe, inputs, outputDirectory, projectDirectory);
+            // Where the build writes: the compiler's hot reload state (connection ID ledger) lives there.
+            start.Host = XamlCompilerHost.Start(exe, inputs, null, start.Intermediate, projectDirectory);
         }
         catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or System.ComponentModel.Win32Exception or System.Xml.XmlException)
         {
@@ -184,7 +182,7 @@ internal sealed partial class HotReloadSession
             File.WriteAllText(current, json.ToJsonString());
             var exe = XamlCompilerHost.Locate() ?? throw new InvalidOperationException("the XAML compiler service wasn't found");
             _xaml.Dispose();
-            _xaml = XamlCompilerHost.Start(exe, current, Path.Combine(_markupDirectory, "xaml"), _projectDirectory);
+            _xaml = XamlCompilerHost.Start(exe, current, null, _xamlIntermediate, _projectDirectory);
             // Its full compile waits for the next XAML save: by then that save's code is in, and the image it reads is current
             // (the build's assembly on disk lacks types added while the app runs).
             _xamlImageStale = true;
@@ -315,7 +313,7 @@ internal sealed partial class HotReloadSession
         {
             return (null, pass1Error);
         }
-        if (await UseGeneratedAsync(pass1, cancellationToken).ConfigureAwait(false) is { } fieldChange)
+        if (await UseGeneratedAsync(pass1, xaml, typeInfo: false, cancellationToken).ConfigureAwait(false) is { } fieldChange)
         {
             return (null, fieldChange);
         }
@@ -342,11 +340,11 @@ internal sealed partial class HotReloadSession
             {
                 return (null, restartedError);
             }
-            if (await UseGeneratedAsync(all1, cancellationToken).ConfigureAwait(false) is { } restartedChange)
+            if (await UseGeneratedAsync(all1, xaml, typeInfo: false, cancellationToken).ConfigureAwait(false) is { } restartedChange)
             {
                 return (null, restartedChange);
             }
-            await UseGeneratedAsync(all2, cancellationToken).ConfigureAwait(false);
+            await UseGeneratedAsync(all2, xaml, typeInfo: true, cancellationToken).ConfigureAwait(false);
             _xamlFullCompilePending = false;
         }
         var pass2 = await _xaml.Pass2Async(xaml, _xamlImage, typeInfo: false, cancellationToken).ConfigureAwait(false);
@@ -356,15 +354,16 @@ internal sealed partial class HotReloadSession
         }
         if (pass2.XamlTypeInfoMayBeStale)
         {
-            // The pages use a type or member XamlTypeInfo doesn't have yet: regenerated as a build does, from every page.
-            var full = await _xaml.Pass2Async(null, _xamlImage, typeInfo: true, cancellationToken).ConfigureAwait(false);
+            // The pages use a type or member XamlTypeInfo doesn't have yet: regenerated as a build does (the service
+            // replays the other pages' type information from its cache).
+            var full = await _xaml.Pass2Async(xaml, _xamlImage, typeInfo: true, cancellationToken).ConfigureAwait(false);
             if (Failed(full) is { } fullError)
             {
                 return (null, fullError);
             }
-            await UseGeneratedAsync(full, cancellationToken).ConfigureAwait(false);
+            await UseGeneratedAsync(full, xaml, typeInfo: true, cancellationToken).ConfigureAwait(false);
         }
-        await UseGeneratedAsync(pass2, cancellationToken).ConfigureAwait(false);
+        await UseGeneratedAsync(pass2, xaml, typeInfo: false, cancellationToken).ConfigureAwait(false);
 
         foreach (var path in xaml)
         {
@@ -407,14 +406,24 @@ internal sealed partial class HotReloadSession
                 : "the XAML compiler failed without saying why");
 
     /// <summary>
-    /// The compiler's generated C# as the workspace's documents (the build's, in obj). A named element whose type changed
-    /// is refused: edit and continue never compares the .g.i.cs files that declare those fields (it treats them as
-    /// design-time only), so it wouldn't report that the running app can't change a field's type.
+    /// The compiler's generated C# as the workspace's documents (the build's, in obj). Only the files generated from
+    /// <paramref name="pages"/> (and XamlTypeInfo, when <paramref name="typeInfo"/>) are taken: the service may return every
+    /// page's, and the others are the same as the app has. A named element whose type changed is refused: edit and
+    /// continue never compares the .g.i.cs files that declare those fields (it treats them as design-time only), so it
+    /// wouldn't report that the running app can't change a field's type.
     /// </summary>
-    private async Task<SaveResult?> UseGeneratedAsync(XamlCompileOutput output, CancellationToken cancellationToken)
+    private async Task<SaveResult?> UseGeneratedAsync(XamlCompileOutput output, IReadOnlyCollection<string>? pages, bool typeInfo, CancellationToken cancellationToken)
     {
+        var stems = pages?.Select(p => Path.ChangeExtension(Path.GetRelativePath(_projectDirectory, p), null)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var (outputPath, generated) in output.GeneratedText.Where(p => IsGenerated(p.Key)))
         {
+            var relative = Path.GetRelativePath(_xaml!.OutputDirectory, outputPath);
+            var isTypeInfo = Path.GetFileName(relative).Equals("XamlTypeInfo.g.cs", StringComparison.OrdinalIgnoreCase);
+            var stem = GeneratedStem(relative);
+            if (isTypeInfo ? !typeInfo : stems is not null && !stems.Contains(stem))
+            {
+                continue;
+            }
             var path = InIntermediate(outputPath);
             var text = SourceText.From(WithoutRedundantStaticInitializers(generated.TrimStart('\uFEFF')), Encoding.UTF8, SourceHashAlgorithm.Sha256);
             var ids = _solution.GetDocumentIdsWithFilePath(path);
@@ -428,7 +437,7 @@ internal sealed partial class HotReloadSession
             {
                 continue;
             }
-            if (path.EndsWith(".g.i.cs", StringComparison.OrdinalIgnoreCase) && FieldTypeChange(before.ToString(), text.ToString()) is { } change)
+            if (IsPass1Part(path) && FieldTypeChange(before.ToString(), text.ToString()) is { } change)
             {
                 return new SaveResult(Outcome.Restart, $"{Relative(XamlFor(path))}: {change}, and the running app can't change the type of a field; it takes effect when the app restarts");
             }
@@ -464,12 +473,8 @@ internal sealed partial class HotReloadSession
         Regex.Replace(text, @"(private static bool isobj\w+Disabled) = false;", "$1;");
 
     /// <summary>The XAML file a generated file in obj was generated from (Pages\Foo.g.cs: Pages\Foo.xaml).</summary>
-    private string XamlFor(string generatedPath)
-    {
-        var relative = Path.GetRelativePath(_xamlIntermediate, generatedPath);
-        var stem = relative.EndsWith(".g.i.cs", StringComparison.OrdinalIgnoreCase) ? relative[..^".g.i.cs".Length] : relative[..^".g.cs".Length];
-        return Path.Combine(_projectDirectory, stem + ".xaml");
-    }
+    private string XamlFor(string generatedPath) =>
+        Path.Combine(_projectDirectory, GeneratedStem(Path.GetRelativePath(_xamlIntermediate, generatedPath)) + ".xaml");
 
     private bool IsXamlGenerated(string? path) =>
         path is not null && _xamlIntermediate.Length > 0 && IsGenerated(path) && path.StartsWith(_xamlIntermediate, StringComparison.OrdinalIgnoreCase);

@@ -81,9 +81,16 @@ internal sealed class XamlCompilerHost : IDisposable
         return null;
     }
 
-    public static XamlCompilerHost Start(string exe, string inputJson, string outputDirectory, string projectDirectory)
+    /// <summary>
+    /// <paramref name="outputDirectory"/> null: the service writes where the build does (the build's obj folder), which is
+    /// also where the compiler keeps its hot reload state (the connection ID ledger).
+    /// </summary>
+    public static XamlCompilerHost Start(string exe, string inputJson, string? outputDirectory, string intermediateDirectory, string projectDirectory)
     {
-        Directory.CreateDirectory(outputDirectory);
+        if (outputDirectory is not null)
+        {
+            Directory.CreateDirectory(outputDirectory);
+        }
         var start = new ProcessStartInfo(exe)
         {
             WorkingDirectory = projectDirectory,
@@ -97,9 +104,12 @@ internal sealed class XamlCompilerHost : IDisposable
         };
         start.ArgumentList.Add("--serve");
         start.ArgumentList.Add(inputJson);
-        start.ArgumentList.Add(outputDirectory);
+        if (outputDirectory is not null)
+        {
+            start.ArgumentList.Add(outputDirectory);
+        }
         var process = Process.Start(start) ?? throw new InvalidOperationException($"Could not start {exe}.");
-        return new XamlCompilerHost(process) { OutputDirectory = outputDirectory };
+        return new XamlCompilerHost(process) { OutputDirectory = outputDirectory ?? intermediateDirectory };
     }
 
     /// <summary>Pass 1: the .g.i.cs (the named fields and InitializeComponent the app's own code compiles against).</summary>

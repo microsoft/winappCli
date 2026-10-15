@@ -291,8 +291,9 @@ internal sealed class WatchSession
         "WinAppHotReloadCapture=true",
         $"WinAppHotReloadOut={_compilerArgs}",
         // The compiler pipeline applies the XAML compiler's code as .NET hot reload deltas: stable connection IDs keep an
-        // element's generated members when elements are inserted or removed before it.
-        .. string.Equals(Environment.GetEnvironmentVariable("WINAPP_HOT_RELOAD_PIPELINE"), "compiler", StringComparison.OrdinalIgnoreCase)
+        // element's generated members when elements are inserted or removed before it. WINAPP_HOT_RELOAD_STABLE_IDS=0 turns them off.
+        .. string.Equals(Environment.GetEnvironmentVariable("WINAPP_HOT_RELOAD_PIPELINE"), "compiler", StringComparison.OrdinalIgnoreCase) &&
+            Environment.GetEnvironmentVariable("WINAPP_HOT_RELOAD_STABLE_IDS") != "0"
             ? new[] { "EnableHotReloadStableConnectionIds=true" } : [],
     ];
 

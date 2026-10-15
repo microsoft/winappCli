@@ -951,11 +951,22 @@ internal static class XamlReload
     /// </summary>
     public static void ResetTypeInfo()
     {
-        if (Compiler && Application.Current is { } app && app.GetType().GetField("__appProvider", InstanceMembers) is { } field)
+        if (Compiler && Application.Current is { } app && !HasHotReloadCodegen(app.GetType().Assembly) &&
+            app.GetType().GetField("__appProvider", InstanceMembers) is { } field)
         {
             field.SetValue(app, null);
         }
     }
+
+    private static readonly ConditionalWeakTable<Assembly, StrongBox<bool>> HotReloadCodegen = new();
+
+    /// <summary>
+    /// Built by a XAML compiler that generates hot reload support (EnableXamlHotReload): its XamlTypeInfo clears its own
+    /// tables (a MetadataUpdateHandler), and InitializeComponent run again on a live element restarts its x:Bind.
+    /// </summary>
+    private static bool HasHotReloadCodegen(Assembly assembly) =>
+        HotReloadCodegen.GetValue(assembly, a => new StrongBox<bool>(a.GetCustomAttributes<System.Reflection.Metadata.MetadataUpdateHandlerAttribute>()
+            .Any(h => h.HandlerType.Name == "XamlTypeInfoProvider"))).Value;
 
     /// <summary>
     /// Before a code update on the compiler pipeline: stops the compiled x:Bind of the live components of these classes
@@ -1795,7 +1806,7 @@ internal static class XamlReload
             {
                 Wire(component, manifest);
             }
-            else if (Compiler && (component is Window || component is FrameworkElement { IsLoaded: true }))
+            else if (Compiler && !HasHotReloadCodegen(component.GetType().Assembly) && (component is Window || component is FrameworkElement { IsLoaded: true }))
             {
                 // Re-initialized in place: the compiled x:Bind starts on the page's Loading or the window's Activated,
                 // which already happened, so start it here once the constructor has finished (within the update when
