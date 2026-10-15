@@ -8,9 +8,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 /// <summary>
-/// The search vocabulary shared with the Windows samples site (embedded
-/// <c>search-vocabulary.json</c>, schema version 1). <see cref="Synonyms"/> builds its phrase
-/// and expansion tables from it.
+/// The find-ui vocabulary derived from the Windows samples site (embedded
+/// <c>search-vocabulary.json</c>, schema version 1). Only phrases and one-way expansions
+/// are consumed; site-specific synonym groups are not used by find-ui.
 /// </summary>
 internal sealed class SearchVocabulary
 {
@@ -22,10 +22,6 @@ internal sealed class SearchVocabulary
     /// <summary>Multi-word phrases rewritten to a single token before matching.</summary>
     [JsonPropertyName("phrases")]
     public VocabularyPhrase[] Phrases { get; set; } = [];
-
-    /// <summary>Two-way synonym groups: any term matches every other term in its group.</summary>
-    [JsonPropertyName("groups")]
-    public string[][] Groups { get; set; } = [];
 
     /// <summary>One-way expansions: a query for the term also matches its targets.</summary>
     [JsonPropertyName("expansions")]

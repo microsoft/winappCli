@@ -504,7 +504,6 @@ public class FindUiSearchTests
 
         Assert.AreEqual(SearchVocabulary.SupportedSchemaVersion, vocabulary.SchemaVersion);
         Assert.IsTrue(vocabulary.Phrases.Length > 0, "phrases must not be empty");
-        Assert.IsTrue(vocabulary.Groups.Length > 0, "groups must not be empty");
         Assert.IsTrue(vocabulary.Expansions.Length > 0, "expansions must not be empty");
         Assert.IsTrue(Synonyms.Phrases.Count > 0 && Synonyms.ReplacePhrases.Length > 0 && Synonyms.Map.Count > 0,
             "Synonyms must be built from the embedded vocabulary");
@@ -531,10 +530,11 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
-    public void Expand_Group_IsTwoWay()
+    public void Expand_SiteGroups_DoNotAddUnrelatedControlNames()
     {
-        CollectionAssert.Contains(Synonyms.Expand(["webcam"]).ToList(), "camera");
-        CollectionAssert.Contains(Synonyms.Expand(["camera"]).ToList(), "webcam");
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["audio"]).ToList(), "sound");
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["picture"]).ToList(), "photo");
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["camera"]).ToList(), "webcam");
     }
 
     [TestMethod]
@@ -556,7 +556,7 @@ public class FindUiSearchTests
     [DataRow("reorder items", "listview")]
     [DataRow("chat messages", "listview")]
     [DataRow("signup form", "textbox")]
-    [DataRow("email field", "textbox")]
+    [DataRow("text field", "textbox")]
     [DataRow("option selector", "combobox")]
     [DataRow("slide out panel", "splitview")]
     [DataRow("slide-out panel", "splitview")]
@@ -569,6 +569,61 @@ public class FindUiSearchTests
     {
         var expanded = Synonyms.Expand(BM25.Tokenize(Synonyms.Preprocess(query))).ToList();
         CollectionAssert.Contains(expanded, control, $"'{query}' must reach {control}");
+    }
+
+    private static SearchEngine BuildEmbeddedEngine()
+    {
+        var scenarios = new List<Scenario>();
+        var tags = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var keywords = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var provider in ProviderRegistry.Descriptors.Where(p => !ProviderRegistry.IsReactorSource(p.Id)))
+        {
+            var data = EmbeddedSnapshot.TryLoad(provider.Id);
+            Assert.IsNotNull(data, $"the {provider.Id} snapshot must be available");
+            scenarios.AddRange(data.Scenarios);
+            foreach (var pair in data.Tags)
+            {
+                tags[$"{provider.Id}:{pair.Key}"] = pair.Value;
+            }
+            foreach (var pair in data.Keywords)
+            {
+                keywords[$"{provider.Id}:{pair.Key}"] = pair.Value;
+            }
+        }
+
+        return new SearchEngine(scenarios.ToArray(), DataLoader.LoadCorePatterns(), tags, keywords);
+    }
+
+    [TestMethod]
+    [DataRow("play audio", "MediaPlayerElement")]
+    [DataRow("play audio file", "MediaPlayerElement")]
+    [DataRow("range slider", "RangeSelector")]
+    [DataRow("coach mark", "TeachingTip")]
+    [DataRow("side sheet", "SplitView")]
+    [DataRow("slide-out", "SplitView")]
+    [DataRow("toolbar", "CommandBar")]
+    public void SearchGrouped_EmbeddedVocabulary_RanksIntendedControlFirst(string query, string expected)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual(expected, groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    [TestMethod]
+    [DataRow("picture grid", "GridView")]
+    [DataRow("camera", "CameraHelper")]
+    [DataRow("date field", "DatePicker")]
+    [DataRow("numeric field", "NumberBox")]
+    [DataRow("rows and columns", "Grid")]
+    [DataRow("toolbar with icons", "CommandBar")]
+    public void SearchGrouped_EmbeddedVocabulary_KeepsRelevantControls(string query, string expected)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsTrue(groups.Any(g => g.ControlName == expected),
+            $"'{query}' must include {expected}; returned {string.Join(", ", groups.Select(g => g.ControlName))}");
     }
 
     /// <summary>

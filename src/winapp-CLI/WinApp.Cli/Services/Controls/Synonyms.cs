@@ -171,32 +171,13 @@ internal static class Synonyms
     /// <summary>
     /// Maps query terms to the extra terms they should also match: common cross-platform and
     /// descriptive UI vocabulary to WinUI 3 control names, so agents familiar with
-    /// HTML/React/WPF/iOS terminology still find the right controls. Built from the shared
-    /// vocabulary's one-way expansions plus its two-way groups (each group member maps to
-    /// every other member). Keys and values are lowercase; lookup is case-insensitive.
+    /// HTML/React/WPF/iOS terminology still find the right controls. Only one-way
+    /// expansions are used: the site's two-way groups can turn an unrelated control
+    /// name into an exact-name match (for example, audio into Sound).
+    /// Keys and values are lowercase; lookup is case-insensitive.
     /// </summary>
-    public static readonly Dictionary<string, string[]> Map = BuildMap(Vocabulary);
-
-    private static Dictionary<string, string[]> BuildMap(SearchVocabulary vocabulary)
-    {
-        var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        void Add(string term, IEnumerable<string> targets)
-        {
-            if (!map.TryGetValue(term, out var list)) map[term] = list = [];
-            foreach (var t in targets.Where(t => !string.Equals(t, term, StringComparison.OrdinalIgnoreCase)
-                && !list.Contains(t, StringComparer.OrdinalIgnoreCase)))
-            {
-                list.Add(t);
-            }
-        }
-
-        foreach (var e in vocabulary.Expansions) Add(e.Term, e.To);
-        foreach (var group in vocabulary.Groups)
-        {
-            foreach (var term in group) Add(term, group);
-        }
-        return map.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray(), StringComparer.OrdinalIgnoreCase);
-    }
+    public static readonly Dictionary<string, string[]> Map = Vocabulary.Expansions
+        .ToDictionary(e => e.Term, e => e.To, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Expand a tokenized query by appending synonyms for each known term.

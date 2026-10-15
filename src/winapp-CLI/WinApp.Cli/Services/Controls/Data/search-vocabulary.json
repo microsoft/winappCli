@@ -1,5 +1,4 @@
 {
-  "$schema": "./schema/search-vocabulary/v1/search-vocabulary.schema.json",
   "schemaVersion": 1,
   "phrases": [
     { "phrase": "global positioning system", "token": "gps", "replace": true },
@@ -100,21 +99,6 @@
     { "phrase": "range slider", "token": "rangeselector" },
     { "phrase": "coach mark", "token": "coachmark" }
   ],
-  "groups": [
-    ["audio", "sound"],
-    ["authenticate", "authentication", "auth", "biometric", "credential", "identity", "login", "signin"],
-    ["bluetooth", "ble"],
-    ["camera", "webcam"],
-    ["compress", "compression", "zip"],
-    ["database", "sql", "sqlite"],
-    ["geolocation", "gps", "location"],
-    ["haptic", "vibration"],
-    ["movie", "video"],
-    ["network", "networking", "connectivity"],
-    ["photo", "photograph", "picture"],
-    ["persist", "persistence", "save", "storage", "store"],
-    ["speech", "voice", "dictation"]
-  ],
   "expansions": [
     { "term": "datagrid", "to": ["listview", "table", "rows", "columns"] },
     { "term": "table", "to": ["listview", "datagrid", "rows", "columns"] },
@@ -206,7 +190,6 @@
     { "term": "automationproperties", "to": ["accessibilityscreenreader", "screenreader", "accessibility", "automation", "name"] },
     { "term": "automationid", "to": ["accessibilityscreenreader", "screenreader", "accessibility", "automation"] },
     { "term": "liveregion", "to": ["accessibilityscreenreader", "screenreader", "accessibility"] },
-    { "term": "rows", "to": ["listview"] },
     { "term": "reorder", "to": ["listview"] },
     { "term": "chat", "to": ["listview", "itemsrepeater"] },
     { "term": "coachmark", "to": ["teachingtip"] },
@@ -216,11 +199,9 @@
     { "term": "slideout", "to": ["splitview"] },
     { "term": "tabs", "to": ["tabview"] },
     { "term": "selector", "to": ["combobox", "radiobuttons", "segmented"] },
-    { "term": "field", "to": ["textbox"] },
-    { "term": "fields", "to": ["textbox"] },
     { "term": "fit", "to": ["viewbox"] },
     { "term": "meter", "to": ["progressbar", "radialgauge"] },
     { "term": "gauge", "to": ["radialgauge"] },
-    { "term": "toolbar", "to": ["commandbar", "appbarbutton"] }
+    { "term": "toolbar", "to": ["commandbar"] }
   ]
 }
