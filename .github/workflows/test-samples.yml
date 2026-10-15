@@ -19,6 +19,7 @@ on:
           - cpp-app
           - cpp-winui-app
           - dotnet-app
+          - dotnet-file-app
           - electron
           - flutter-app
           - maui-app
@@ -50,7 +51,7 @@ jobs:
     - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: '10.0.x'
-    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: '22'
     - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -63,19 +64,19 @@ jobs:
     - name: Package Python wheels from the same CLI publishes
       shell: pwsh
       run: .\scripts\package-python.ps1
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: npm-package
         path: artifacts/*.tgz
         if-no-files-found: error
         overwrite: true
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: python-package
         path: artifacts/python/winapp_cli-*.whl
         if-no-files-found: error
         overwrite: true
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: nuget-packages
         path: artifacts/nuget/*.nupkg
@@ -88,7 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sample: [cpp-app, cpp-winui-app, dotnet-app, electron, flutter-app, maui-app, node-winui, packaging-cli, python-winui, python-identity, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app]
+        sample: [cpp-app, cpp-winui-app, dotnet-app, dotnet-file-app, electron, flutter-app, maui-app, node-winui, packaging-cli, python-winui, python-identity, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app]
     runs-on: windows-latest
     name: ${{ matrix.sample }}
 
@@ -114,14 +115,14 @@ jobs:
     # Both entry points use artifacts from this run, never a privileged workflow_run.
     - name: Download npm package
       if: steps.check.outputs.skip != 'true' && !startsWith(matrix.sample, 'python-')
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: npm-package
         path: artifacts/npm
 
     - name: Download Python platform wheels
       if: steps.check.outputs.skip != 'true' && startsWith(matrix.sample, 'python-')
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: python-package
         path: artifacts/python
@@ -130,8 +131,8 @@ jobs:
     - name: Download NuGet package
       if: >-
         steps.check.outputs.skip != 'true' &&
-        contains(fromJson('["dotnet-app", "wpf-app"]'), matrix.sample)
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        contains(fromJson('["dotnet-app", "dotnet-file-app", "wpf-app"]'), matrix.sample)
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: nuget-packages
         path: artifacts/nuget
@@ -139,7 +140,7 @@ jobs:
     - name: Add local NuGet source
       if: >-
         steps.check.outputs.skip != 'true' &&
-        contains(fromJson('["dotnet-app", "wpf-app"]'), matrix.sample)
+        contains(fromJson('["dotnet-app", "dotnet-file-app", "wpf-app"]'), matrix.sample)
       shell: pwsh
       run: |
         $nugetPath = "artifacts/nuget"
@@ -167,7 +168,7 @@ jobs:
     - name: Setup .NET
       if: >-
         steps.check.outputs.skip != 'true' &&
-        contains(fromJson('["dotnet-app", "wpf-app", "sparse-app", "packaging-cli", "electron", "maui-app", "winui-app", "winui-solution", "winui-unpackaged-app"]'), matrix.sample)
+        contains(fromJson('["dotnet-app", "dotnet-file-app", "wpf-app", "sparse-app", "packaging-cli", "electron", "maui-app", "winui-app", "winui-solution", "winui-unpackaged-app"]'), matrix.sample)
       uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: '10.0.x'
@@ -182,8 +183,8 @@ jobs:
     - name: Setup Node.js
       if: >-
         steps.check.outputs.skip != 'true' &&
-        contains(fromJson('["electron", "node-winui", "tauri-app", "cpp-app", "cpp-winui-app", "dotnet-app", "wpf-app", "sparse-app", "rust-app", "flutter-app", "packaging-cli", "maui-app", "winui-app", "winui-solution", "winui-unpackaged-app"]'), matrix.sample)
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        contains(fromJson('["electron", "node-winui", "tauri-app", "cpp-app", "cpp-winui-app", "dotnet-app", "dotnet-file-app", "wpf-app", "sparse-app", "rust-app", "flutter-app", "packaging-cli", "maui-app", "winui-app", "winui-solution", "winui-unpackaged-app"]'), matrix.sample)
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: '22'
 
@@ -284,7 +285,7 @@ jobs:
 
     - name: Upload test results
       if: always() && steps.check.outputs.skip != 'true'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: test-results-${{ matrix.sample }}
         path: test-results-${{ matrix.sample }}.xml

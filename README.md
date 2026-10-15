@@ -133,6 +133,7 @@ Checkout our getting started guides for step by step instructions of how to setu
 
 Additional guides:
 - [Packaging an EXE/CLI](/docs/guides/packaging-cli.md): step by step guide of packaging an existing exe/cli as MSIX
+- [.NET file-based apps](./docs/guides/dotnet-file-based.md): run a single `.cs` file with package identity, no project file or manifest required
 - [MAUI (Windows)](./docs/guides/maui.md): package and sign .NET MAUI Windows outputs with the generated resizetizer manifest
 - [Python](./docs/guides/python.md): Windows API bindings, script identity and packaging; [unpackaged WinUI sample](./samples/python-winui)
 - **Electron JS/TypeScript bindings** *(npm only)*: opt into auto-generated WinRT bindings via `winapp init --add-js-bindings`. See task-focused guides:
@@ -231,6 +232,8 @@ npx winapp --help
 
 **App Identity & Debugging:**
 
+- [`perf`](./docs/guides/winui-performance.md) - Record and query WinUI operation trees, layout/scrolling timings, and managed GC suspension context
+
 - [`pack`](./docs/usage.md#pack) - Create MSIX packages from directories
 - [`run`](./docs/usage.md#run) - Run app as a packaged application for debugging (loose layout registration)
 - [`create-debug-identity`](./docs/usage.md#create-debug-identity) - Add sparse package identity to an existing exe
@@ -278,6 +281,7 @@ This repository includes samples demonstrating how to use the CLI with various f
 | [C++ App](/samples/cpp-app/README.md) | Native C++ Win32 application with CMake |
 | [C++ WinUI App](/samples/cpp-winui-app/README.md) | Packaged C++/WinRT WinUI 3 app (Visual Studio `.vcxproj`, XAML) launched via `winapp run <vcxproj>` |
 | [.NET Console](/samples/dotnet-app/README.md) | .NET console application |
+| [.NET File-Based App](/samples/dotnet-file-app/README.md) | Single `.cs` file app with package identity, run via `winapp run app.cs` — no project or manifest |
 | [WPF App](/samples/wpf-app/README.md) | WPF desktop application |
 | [WinUI App](/samples/winui-app/README.md) | Packaged WinUI 3 app registered and launched via `winapp run <csproj>` |
 | [WinUI Unpackaged App](/samples/winui-unpackaged-app/README.md) | Unpackaged WinUI 3 app launched via `winapp run <csproj>` |

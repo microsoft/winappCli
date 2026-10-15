@@ -105,6 +105,7 @@
     <PackageReference Include="NuGet.Configuration" />
     <PackageReference Include="NuGet.Versioning" />
     <PackageReference Include="NuGet.Credentials" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <!-- Native debugging engine bits (dbgeng/dbghelp/dbgcore/dbgmodel/msdia140 + symsrv) used by the
          WinUI triage pass. Restore-only: nothing is bundled into the AOT/single-file output (the
          packages ship native DLLs under content/<arch>/ which PackageReference does not auto-consume,

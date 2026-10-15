@@ -13,8 +13,9 @@ namespace WinApp.Cli.Services;
 internal interface ITemplateCacheReader
 {
     /// <summary>
-    /// Returns the raw JSON of every <c>templatecache.json</c> the template engine has written for the
-    /// current user (one per SDK version), most recently written first so a cache rebuilt by the active
+    /// Returns the raw JSON of every <c>templatecache.json</c> in the template engine hive that
+    /// <c>dotnet new</c> uses (under <c>DOTNET_CLI_HOME</c> when set, otherwise the user profile), one
+    /// per SDK version, most recently written first so a cache rebuilt by the active
     /// SDK precedes stale ones left by older SDK bands. Returns an empty sequence when the template
     /// engine cache directory does not exist or can't be read, so callers can fall back gracefully.
     /// </summary>

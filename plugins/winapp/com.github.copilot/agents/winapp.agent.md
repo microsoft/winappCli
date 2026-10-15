@@ -21,6 +21,7 @@ Each skill has the exact commands, flags, and failure handling. Load it before a
 | Find or verify a Windows/WinRT/Windows App SDK API, enum, or member | `winapp-find-api` |
 | Find a WinUI control and a working sample | `winapp-find-ui` |
 | Inspect or drive a running app's UI, screenshots | `winapp-ui-automation` |
+| Investigate slow WinUI 3 layout, scrolling, rendering, or managed GC pauses | `winapp-performance` |
 | Run or test in Windows Sandbox | `winapp-sandbox` |
 | An error from packaging, signing, installing, identity, or SDK setup | `winapp-troubleshoot` |
 
@@ -30,7 +31,7 @@ If the WinUI plugin is installed, use its skills for WinUI 3 app work: `winui-de
 
 1. `winapp init` adds Windows files to an existing project; it never creates one. Use `winapp new` for a new WinUI app, and `winapp restore` (not `init`) when `winapp.yaml` already exists.
 2. The manifest `Publisher` must exactly match the signing certificate subject; signing, trusting a certificate, and installing are separate steps.
-3. Ask before admin-only actions (`winapp cert install`), removing packages, rebooting, or setting up Windows Sandbox.
+3. Ask before admin-only actions (`winapp cert install`, `winapp run --profile-mode elevated`), removing packages, rebooting, or setting up Windows Sandbox.
 4. Use `--on sandbox` only when asked, and never drop it to get past an error.
 5. Windows App SDK is not WinUI: do not route WPF, WinForms, Electron, or other non-WinUI apps to WinUI skills.
 6. For exact options, run `winapp <command> --help` or `winapp --cli-schema`.

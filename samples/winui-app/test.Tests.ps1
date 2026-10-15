@@ -148,8 +148,8 @@ Describe 'winui-app sample' {
 
         It 'Selects the effective profile, builds, and registers the packaged app' -Skip:$script:skip {
             # --no-launch builds the loose layout and registers a debug identity
-            # without launching the app (no GUI, deterministic in CI).
-            $output = Invoke-WinappCommand -Arguments 'run . --no-launch'
+            # without launching the app (no GUI, deterministic in CI). --verbose prints the build command.
+            $output = Invoke-WinappCommand -Arguments 'run . --no-launch --verbose'
             "$output" | Should -Match ([regex]::Escape("-p:PublishProfile=$($script:profileName)"))
             # Scoped to the profile argument rather than the whole console output: winapp prints its
             # version banner, which carries the branch name, so a bare 'release-' match fails on any
