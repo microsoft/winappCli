@@ -1,0 +1,47 @@
+{
+  "description": [
+    "Approaches and journeys for Run-Scoreboard.ps1. Each approach is a set of environment variables (inherited by winapp,",
+    "its hot reload helper and the app) and MSBuild properties (every build of the journey's app gets them). An env value",
+    "of null removes the variable. Every variable any approach names is cleared before the next approach runs, so one",
+    "approach's switches never leak into another's. 'winapp' (optional) is a CLI built from that approach's branch."
+  ],
+  "approaches": [
+    {
+      "id": "A",
+      "title": "rewrite path (today)",
+      "env": { "WINAPP_HOT_RELOAD_PIPELINE": "rewrite" },
+      "buildProperties": []
+    },
+    {
+      "id": "B",
+      "title": "real compiler, page re-initialized in place",
+      "env": { "WINAPP_HOT_RELOAD_PIPELINE": "compiler", "WINAPP_HOT_RELOAD_PAGE_UPDATE": "inplace" },
+      "buildProperties": [ "EnableHotReloadStableConnectionIds=true" ]
+    },
+    {
+      "id": "C",
+      "title": "real compiler, page re-created",
+      "env": { "WINAPP_HOT_RELOAD_PIPELINE": "compiler", "WINAPP_HOT_RELOAD_PAGE_UPDATE": "recreate" },
+      "buildProperties": [ "EnableHotReloadStableConnectionIds=true" ]
+    },
+    {
+      "id": "D",
+      "title": "real compiler, in place plus a shadow copy compared",
+      "env": { "WINAPP_HOT_RELOAD_PIPELINE": "compiler", "WINAPP_HOT_RELOAD_PAGE_UPDATE": "shadow" },
+      "buildProperties": [ "EnableHotReloadStableConnectionIds=true" ]
+    }
+  ],
+  "journeys": [
+    "sb-state",
+    "sb-d1-template-datacontext",
+    "sb-d2-template-field",
+    "sb-d3-bound-xload",
+    "sb-d4-onetime-late",
+    "sb-hour-of-edits",
+    "sb-new-controls",
+    "sb-nuget-control",
+    "sb-window",
+    "parity-xbind",
+    "in-place-reload"
+  ]
+}

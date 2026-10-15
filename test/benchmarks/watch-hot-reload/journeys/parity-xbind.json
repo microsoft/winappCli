@@ -1,6 +1,7 @@
 {
   "schemaVersion": "1.0",
   "id": "parity-xbind",
+  "desktop": "exclusive",
   "title": "Parity gate: x:Bind shapes hot reload applies exactly as a clean build does",
   "description": [
     "Adds a page's x:Bind shapes in one save, then edits it again. After each, the parity gate compares the hot-reloaded",
