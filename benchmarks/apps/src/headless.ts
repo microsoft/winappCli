@@ -12,6 +12,7 @@ import {
 import {
   agentNameCandidatesFromCondition,
   makeFlatTrialName,
+  sanitizeRefForId,
 } from "./runner/format.js";
 import { BenchmarkQueue } from "./runner/queue.js";
 import { revalidateBenchmark, runPreflight } from "./runner/benchmark.js";
@@ -256,7 +257,7 @@ if (runMetaPath) {
     const r = refsForAgent(agent, refs);
     // Name trials `agent@ref` when the ref was chosen or several are compared.
     const showRef = !!refs?.length || r.length > 1;
-    return r.map((ref) => ({ agent, ref, label: showRef && ref ? `${agent.name}@${ref.replace(/[^\w.-]+/g, "-")}` : agent.name }));
+    return r.map((ref) => ({ agent, ref, label: showRef && ref ? `${agent.name}@${sanitizeRefForId(ref)}` : agent.name }));
   });
   const multiAgent = arms.length > 1;
   const multiIter = iterations > 1;

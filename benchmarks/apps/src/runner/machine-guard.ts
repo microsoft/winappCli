@@ -171,6 +171,19 @@ export function pathLengths(): { user: number; machine: number } {
   return { user: user ?? 0, machine: machine ?? 0 };
 }
 
+/**
+ * Whether Windows long-path support is on. Trial builds and Copilot session
+ * folders routinely go past 260 characters. Read-only: enabling it is a
+ * machine-wide change the user must make.
+ */
+export function longPathsEnabled(): boolean {
+  if (!isWindows) return true;
+  const r = ps(
+    "(Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem' -Name LongPathsEnabled -ErrorAction SilentlyContinue).LongPathsEnabled",
+  );
+  return r.stdout.trim() === "1";
+}
+
 export interface DevPackage { name: string; fullName: string; location: string }
 
 export function devPackages(): DevPackage[] {

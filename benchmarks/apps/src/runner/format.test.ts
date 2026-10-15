@@ -11,6 +11,11 @@ test("sanitizeRefForId preserves short safe identifiers", () => {
   assert.equal(sanitizeRefForId("release@26"), "release_26");
 });
 
+test("sanitizeRefForId names pull request refs prN", () => {
+  assert.equal(sanitizeRefForId("pull/1108/head"), "pr1108");
+  assert.equal(sanitizeRefForId("refs/pull/7/merge"), "pr7");
+});
+
 test("sanitizeRefForId bounds and differentiates long identifiers", () => {
   const first = sanitizeRefForId("feature/very-long-branch-name");
   const second = sanitizeRefForId("feature/another-long-branch-name");

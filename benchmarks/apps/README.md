@@ -35,7 +35,7 @@ expected folder; if not, it fails without spending credits.
 
 ## Before you run it
 
-- **Machine:** Windows 10 1903+ with Developer Mode, Node.js 20+, .NET SDK 10+, the WinApp CLI,
+- **Machine:** Windows 10 1903+ with Developer Mode and long paths enabled (`LongPathsEnabled=1`), Node.js 20+, .NET SDK 10+, the WinApp CLI,
   and GitHub Copilot CLI signed in (`copilot login`). Use a **dedicated machine or VM**: trials
   launch apps, take focus for UI automation, and run for hours.
 - **Cost:** a trial is one build session plus one judge session. Rough averages from a

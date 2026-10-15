@@ -58,6 +58,7 @@ import {
   diffEnvValues,
   manifestIdentities,
   pathLengths,
+  longPathsEnabled,
   removePackages,
   removeUserPathEntries,
   snapshotUserEnv,
@@ -762,6 +763,17 @@ export function runPreflight(agents: PreflightAgent[]): {
       });
     } else {
       log.push(`  ✅ harness: user PATH ${user} characters (machine ${machine})`);
+    }
+    if (longPathsEnabled()) {
+      log.push("  ✅ harness: Windows long paths enabled");
+    } else {
+      const label = "Windows long paths are disabled (paths over 260 characters fail)";
+      log.push(`  ❌ harness: ${label}`);
+      failures.push({
+        agent: "harness",
+        label,
+        guidance: "Trial builds and session folders go past 260 characters. From an elevated PowerShell: New-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force",
+      });
     }
   }
   if (isWindows) {

@@ -13,10 +13,13 @@ export function shortenModelName(model: string): string {
 /**
  * Sanitize an upstream ref (branch/tag) so it is safe to embed in a trial
  * folder name: `/` becomes `--` and any other non `[A-Za-z0-9_.-]` char `_`.
- * Long refs are truncated to avoid MAX_PATH issues: if the sanitized result
- * exceeds 12 chars, keep the first 4 chars plus an 8-character hash.
+ * PR refs (`pull/N/head`) become `prN`. Other refs are truncated to avoid
+ * MAX_PATH issues: if the sanitized result exceeds 12 chars, keep the first
+ * 4 chars plus an 8-character hash.
  */
 export function sanitizeRefForId(ref: string): string {
+  const pr = /^(?:refs\/)?pull\/(\d+)\/(?:head|merge)$/.exec(ref);
+  if (pr) return `pr${pr[1]}`;
   const sanitized = ref.replace(/\//g, "--").replace(/[^A-Za-z0-9_.-]/g, "_");
   if (sanitized.length <= 12) return sanitized;
 

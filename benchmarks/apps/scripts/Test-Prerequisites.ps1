@@ -133,6 +133,11 @@ Write-Check ($userPath.Length -le 4000 -and ($userPath.Length + $machinePath.Len
     "user $($userPath.Length), machine $($machinePath.Length) characters" `
     "User PATH is $($userPath.Length) and machine PATH $($machinePath.Length) characters (limits 4000 user / 16000 combined). Remove stale entries before benchmarking; Windows breaks above 32,767."
 
+# Trial builds and Copilot session folders go past 260 characters.
+$longPaths = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -ErrorAction SilentlyContinue).LongPathsEnabled
+Write-Check ($longPaths -eq 1) "Windows long paths enabled" "LongPathsEnabled=1" `
+    "Paths over 260 characters fail. From an elevated PowerShell: New-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force"
+
 Write-Host ""
 if ($failures -gt 0) {
     Write-Host "$failures prerequisite check(s) failed. Fix them before starting a benchmark." `
