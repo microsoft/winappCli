@@ -81,9 +81,10 @@ internal sealed partial class ProjectRunService
         }
 
         // The TFM isn't statically resolvable (imported / conditional / expression). Authoritatively
-        // evaluate it with MSBuild (same globals) and pin the FIRST of a multi-target list.
+        // evaluate it with MSBuild (same globals) and pin the FIRST of a multi-target list. A non-empty
+        // TargetFramework wins over TargetFrameworks (the SDK builds it, not the list), so never pin then.
         var (evaluatedSingle, evaluatedFirst) = await ResolveEvaluatedFrameworksAsync(csproj, options, workingDir, cancellationToken);
-        if (string.IsNullOrWhiteSpace(evaluatedFirst))
+        if (!string.IsNullOrWhiteSpace(evaluatedSingle) || string.IsNullOrWhiteSpace(evaluatedFirst))
         {
             return (options, evaluatedSingle);
         }

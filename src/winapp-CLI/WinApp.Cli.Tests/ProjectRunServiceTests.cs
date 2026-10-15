@@ -2770,6 +2770,66 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public async Task BuildAndResolveAsync_EvaluatedTargetFrameworkWinsOverImportedList_NotPinned()
+    {
+        // An imported <TargetFrameworks> plus a conditional <TargetFramework>: the SDK builds TargetFramework,
+        // so winapp must not pin the list's first entry with -f.
+        var csproj = WriteFile("App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><OutputType>WinExe</OutputType></PropertyGroup>
+              <PropertyGroup Condition="'$(Configuration)' == 'Debug'"><TargetFramework>net10.0-windows10.0.26100.0</TargetFramework></PropertyGroup>
+              <PropertyGroup Condition="'$(Configuration)' != 'Debug'"><TargetFramework>net10.0-windows10.0.26100.0</TargetFramework></PropertyGroup>
+            </Project>
+            """);
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args => args.Contains("--getProperty:TargetFrameworks", StringComparison.Ordinal)
+                ? (0, """{ "Properties": { "TargetFramework": "net10.0-windows10.0.26100.0", "TargetFrameworks": "net10.0-windows10.0.19041.0;net10.0-windows10.0.26100.0" } }""", string.Empty)
+                : (0, PackagedPropertiesJson(), string.Empty),
+        };
+        var shim = new FakeCsWinRTMetadataShimService();
+        var service = NewServiceWith(dotnet, shim, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual("net10.0-windows10.0.26100.0", shim.SdkAbsentMonikers[0]);
+        var buildCall = dotnet.StreamingCalls.Single(a => a.StartsWith("build ", StringComparison.Ordinal));
+        Assert.IsFalse(buildCall.Contains(" -f ", StringComparison.Ordinal),
+            "an evaluated TargetFramework must not be replaced by the first of TargetFrameworks");
+    }
+
+    [TestMethod]
+    public async Task RunFlow_ReadsProjectCsWinRTMetadataOnce()
+    {
+        // `winapp run` checks packaging and then builds; both prepare the project, but the
+        // CsWinRTWindowsMetadata probe (a full MSBuild evaluate) must run only once per command.
+        var csproj = WriteFile("App.csproj", ExecutableCsproj);
+        var probes = 0;
+        var dotnet = new FakeDotNetService
+        {
+            RunDotnetCommandHandler = args =>
+            {
+                if (args.Contains("--getProperty:CsWinRTWindowsMetadata", StringComparison.Ordinal))
+                {
+                    probes++;
+                    return (0, """{ "Properties": { "CsWinRTWindowsMetadata": "", "TargetFramework": "net10.0-windows10.0.26100.0" } }""", string.Empty);
+                }
+
+                return (0, PackagedPropertiesJson(), string.Empty);
+            },
+        };
+        var shim = new FakeCsWinRTMetadataShimService { WindowsSdkAbsent = true };
+        var service = NewServiceWith(dotnet, shim, out _);
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: false, NoRestore: false, Properties: []);
+
+        await service.IsDefinitivelyUnpackagedAsync(csproj, options, CancellationToken.None);
+        await service.BuildAndResolveAsync(csproj, options, CancellationToken.None);
+
+        Assert.AreEqual(1, probes);
+    }
+
+    [TestMethod]
     public async Task BuildAndResolveAsync_UserWindowsSdkVersion_ReadsMetadataAndFallsBackToIt()
     {
         // -p WindowsSDKVersion can request a missing SDK even when the TFM's is installed. Before restore the

@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
@@ -211,20 +212,10 @@ internal sealed partial class ProjectRunService(
         }
 
         var args = BuildCsWinRTMetadataProbeArguments(csproj, options);
-        logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(args));
-        string? projectMetadata = null;
-        try
+        string? projectMetadata;
+        if (!_csWinRTMetadataProbeCache.TryGetValue(args, out projectMetadata))
         {
-            var (exitCode, stdout, _) = await dotNetService.RunDotnetCommandAsync(workingDir, args, cancellationToken);
-            if (exitCode == 0)
-            {
-                projectMetadata = GetProp(MsBuildPropertyReader.Parse(stdout, CsWinRTMetadataProbeProperties), "CsWinRTWindowsMetadata");
-            }
-        }
-        catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or InvalidOperationException)
-        {
-            // Indeterminate: fall back to CsWinRT's default, which is what the build uses when the project sets nothing.
-            logger.LogDebug(ex, "Could not read CsWinRTWindowsMetadata for {Project}.", csproj.Name);
+            projectMetadata = await ProbeCsWinRTMetadataAsync(csproj, args, workingDir, cancellationToken);
         }
 
         // Before restore the CsWinRT targets that default the property from WindowsSDKVersion aren't imported yet,
@@ -235,6 +226,34 @@ internal sealed partial class ProjectRunService(
         }
 
         return (options, new CsWinRTShimInput(framework, string.IsNullOrWhiteSpace(projectMetadata) ? null : projectMetadata));
+    }
+
+    /// <summary>
+    /// Completed <c>CsWinRTWindowsMetadata</c> probes keyed by their exact arguments. A <c>winapp run</c>
+    /// prepares the same project more than once (packaging check, then build), and each probe is a full
+    /// MSBuild evaluate, so identical probes are answered once per command.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, string?> _csWinRTMetadataProbeCache = new(StringComparer.Ordinal);
+
+    private async Task<string?> ProbeCsWinRTMetadataAsync(
+        FileInfo csproj, string args, DirectoryInfo workingDir, CancellationToken cancellationToken)
+    {
+        logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(args));
+        try
+        {
+            var (exitCode, stdout, _) = await dotNetService.RunDotnetCommandAsync(workingDir, args, cancellationToken);
+            var value = exitCode == 0
+                ? GetProp(MsBuildPropertyReader.Parse(stdout, CsWinRTMetadataProbeProperties), "CsWinRTWindowsMetadata")
+                : null;
+            _csWinRTMetadataProbeCache[args] = value;
+            return value;
+        }
+        catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or InvalidOperationException)
+        {
+            // Indeterminate: fall back to CsWinRT's default, which is what the build uses when the project sets nothing.
+            logger.LogDebug(ex, "Could not read CsWinRTWindowsMetadata for {Project}.", csproj.Name);
+            return null;
+        }
     }
 
     /// <summary>
