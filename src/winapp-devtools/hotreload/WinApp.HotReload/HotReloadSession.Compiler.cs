@@ -484,6 +484,13 @@ internal sealed partial class HotReloadSession
             {
                 return new SaveResult(Outcome.Restart, $"{Relative(XamlFor(path))}: {change}, and the running app can't change the type of a field; it takes effect when the app restarts");
             }
+            if (IsPass1Part(path) && _components.TryGetValue(XamlFor(path), out var component))
+            {
+                // An x:Name the markup no longer has: code that still uses it fails the build (CS0103), so it fails here too.
+                var now = FieldNames(text.ToString());
+                component.RemovedByCompiler.UnionWith(FieldNames(before.ToString()).Except(now));
+                component.RemovedByCompiler.ExceptWith(now);
+            }
             changes.Add((path, text, DiffersOnlyInChecksums(before.ToString(), text.ToString())));
         }
         if (changes.All(c => c.ChecksumOnly))
@@ -521,6 +528,10 @@ internal sealed partial class HotReloadSession
         static IEnumerable<string> Code(string text) => text.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => !l.TrimStart().StartsWith("#pragma checksum", StringComparison.Ordinal));
         return Code(before).SequenceEqual(Code(after), StringComparer.Ordinal);
     }
+
+    /// <summary>The fields a generated file declares (x:Name fields, in the pass 1 part).</summary>
+    internal static HashSet<string> FieldNames(string text) => CSharpSyntaxTree.ParseText(text).GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
+        .SelectMany(f => f.Declaration.Variables.Select(v => v.Identifier.ValueText)).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>"x:Name 'Later' changes from TextBlock to TextBox", for the first named field whose type changes.</summary>
     internal static string? FieldTypeChange(string before, string after)

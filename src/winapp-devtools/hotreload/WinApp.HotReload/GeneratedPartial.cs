@@ -58,7 +58,10 @@ internal sealed class XamlComponent(string xamlPath, string uri)
 
     public IEnumerable<string> CurrentNames => Latest?.Names.Select(n => n.Name).Where(n => !n.StartsWith(XamlTransform.GeneratedNamePrefix, StringComparison.Ordinal)) ?? [];
 
-    public IEnumerable<string> StaleNames => FrozenFields.Concat(EmittedFields.Keys).Distinct().Except(CurrentNames);
+    public IEnumerable<string> StaleNames => FrozenFields.Concat(EmittedFields.Keys).Distinct().Except(CurrentNames).Concat(RemovedByCompiler).Distinct();
+
+    /// <summary>On the compiler pipeline: x:Name fields the XAML compiler no longer generates for this component.</summary>
+    public HashSet<string> RemovedByCompiler { get; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>
