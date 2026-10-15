@@ -250,6 +250,25 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_Unpackaged_PassesImportedWindowsAppSdkFolderToRuntimeInstall()
+    {
+        var project = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        var packageDir = Path.Join(_tempDirectory.FullName, "packages", "Microsoft.WindowsAppSDK.Runtime.2.5.1");
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(project, targetDir.FullName, Path.Join(targetDir.FullName, "App.exe"), ProjectPackaging.Unpackaged, false, "x64",
+                WindowsAppSdkPackageDir: packageDir), 0);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [project.FullName, "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(packageDir, _fakeMsixService.EnsureRuntimeInstalledPackageDirCalls.Single(),
+            "the runtime must come from the Windows App SDK the C++ build imported");
+        StringAssert.Contains(TestAnsiConsole.Output, "Windows App Runtime ready");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_UnpackagedSelfContained_SkipsRuntimeInstall()
     {
         var csproj = CreateCsproj();
