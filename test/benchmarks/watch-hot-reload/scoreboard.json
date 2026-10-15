@@ -42,6 +42,7 @@
     "sb-nuget-control",
     "sb-window",
     "parity-xbind",
-    "in-place-reload"
+    "in-place-reload",
+    "sb-root-attributes"
   ]
 }

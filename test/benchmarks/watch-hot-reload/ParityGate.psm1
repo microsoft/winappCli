@@ -39,6 +39,18 @@ $script:DefaultProperties = @(
 
 function Remove-Ansi([string]$Text) { if ($null -eq $Text) { return $null }; return $script:Ansi.Replace($Text, '') }
 
+# Properties whose value the tree query returns only as an object (a brush): read through Property.get, which shows it.
+$script:ReadByPropertyGet = @('Background', 'Foreground', 'BorderBrush', 'Fill', 'Stroke')
+
+function Get-PropertyText([string]$Winapp, [int]$ProcessId, [string]$Handle, [string]$Name) {
+    $raw = & $Winapp devtools call Property.get "handle=$Handle" -a "$ProcessId" --json 2>&1 | Out-String
+    try { $prop = @((Remove-Ansi $raw | ConvertFrom-Json).result.props | Where-Object name -eq $Name | Select-Object -First 1) } catch { return $null }
+    if (-not $prop) { return $null }
+    if ([string]$prop[0].value) { return [string]$prop[0].value }
+    if ($prop[0].valueState -in 'unset', 'null' -or -not $prop[0].valueType) { return '(unset)' }
+    return "<$($prop[0].valueType)>"
+}
+
 function ConvertTo-ShortType([string]$Type) {
     return $Type -replace '^Microsoft\.UI\.Xaml\.Controls\.Primitives\.', 'Primitives.' -replace '^Microsoft\.UI\.Xaml\.(Controls|Shapes|Documents)\.', ''
 }
@@ -133,13 +145,18 @@ function Get-ParitySnapshot {
                 { $_ -in 'value', 'binding' } { $values[$field.name] = [string]$field.value; break }
                 'unset' { $values[$field.name] = '(unset)'; break }
                 default {
-                    if ($field.valueSource -eq 'Binding') {
+                    if ($field.name -in $script:ReadByPropertyGet) {
+                        # A brush: the query has no value for it; Property.get does (null when the element has no such property).
+                        $text = Get-PropertyText $Winapp $ProcessId $Node.handle $field.name
+                        if ($null -ne $text) { $values[$field.name] = $text }
+                    }
+                    elseif ($field.valueSource -eq 'Binding') {
                         # Bound, but the runtime holds no value it can show (a Binding that couldn't convert, say).
                         if ($field.name -eq 'Visibility') { $values['Visibility'] = Get-LaidOutVisibility $Winapp $ProcessId $Node.handle }
                         else { $unreadable.Add($field.name) }
                     }
                     # An object reference (a Frame's page, a Content element) is compared by its type.
-                    elseif ($field.valueState -eq 'unresolved' -and $field.valueType) { $values[$field.name] = "<$($field.valueType)>" }
+                    elseif ($field.valueState -in 'unresolved', 'object' -and $field.valueType) { $values[$field.name] = "<$($field.valueType)>" }
                 }
             }
         }

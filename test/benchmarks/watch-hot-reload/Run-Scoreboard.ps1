@@ -92,7 +92,16 @@ if (-not $ReportOnly) {
             [pscustomobject]@{
                 Approach = $a.id; Title = $a.title; Journey = $j; Winapp = $cli; WinappVersion = $version
                 Env = $a.env; BuildProperties = @($a.buildProperties); Seconds = [int]$clock.Elapsed.TotalSeconds; Finished = (Get-Date -Format s)
-                XamlCompilerService = $(if ($a.env.WINAPP_HOT_RELOAD_PIPELINE -eq 'rewrite') { 'none (rewrite path)' } elseif ($env:WINAPP_XAML_COMPILER_SERVICE) { $env:WINAPP_XAML_COMPILER_SERVICE } elseif (Test-Path 'C:\hr-shared\xcsvc\LATEST.txt') { "LATEST.txt: $((Get-Content 'C:\hr-shared\xcsvc\LATEST.txt' -Raw).Trim())" })
+                XamlCompilerService = $(if ($a.env.WINAPP_HOT_RELOAD_PIPELINE -eq 'rewrite') { 'none (rewrite path)' }
+                    elseif ($env:WINAPP_XAML_COMPILER_SERVICE) { $env:WINAPP_XAML_COMPILER_SERVICE }
+                    else {
+                        # winapp picks the compiler itself: the one it named in the run's output, else the app package's own.
+                        $named = Get-ChildItem $dir -Recurse -Include watch.log, *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending |
+                            Select-String -Pattern '[A-Za-z]:\\[^\s"''<>|]*XamlCompiler\.exe' -List -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if ($named) { "$($named.Matches[0].Value) (named in $($named.Filename))" }
+                        elseif ($env:NUGET_PACKAGES) { "$(Join-Path $env:NUGET_PACKAGES 'microsoft.windowsappsdk.winui\3.0.0-dev\tools\net472\XamlCompiler.exe') (the package's own; winapp didn't print the path)" }
+                        else { "the app package's own (winapp didn't print the path)" }
+                    })
                 WinUIPackage = $(if ($WinUIPackageSource) { $readme = Join-Path $WinUIPackageSource 'README.txt'; "$WinUIPackageSource$(if (Test-Path $readme) { ' (' + ((Get-Content $readme -TotalCount 1) -replace '\s+', ' ').Trim() + ')' })" })
             } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $dir 'meta.json')
         }
