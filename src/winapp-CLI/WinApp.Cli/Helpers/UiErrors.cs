@@ -22,7 +22,7 @@ internal static class UiErrors
 
     public static void MissingSelector(ILogger logger, string commandName, bool json = false)
     {
-        var msg = $"A selector is required. Usage: {UiCommandAdvice.Command($"{commandName} <selector> -a <app>")}. Use '{UiCommandAdvice.Command("search <text> -a <app>")}' to find elements.";
+        var msg = $"A selector, --type, or --class-name is required. Usage: {UiCommandAdvice.Command($"{commandName} <selector> -a <app>")}. Use '{UiCommandAdvice.Command("search <text> -a <app>")}' to find elements.";
         logger.LogError("{Symbol} {Message}", UiSymbols.Error, msg);
         UiJsonError.Emit(json, UiJsonError.CodeMissingSelector, msg);
     }

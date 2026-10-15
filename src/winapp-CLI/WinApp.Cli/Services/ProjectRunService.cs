@@ -907,6 +907,7 @@ internal sealed partial class ProjectRunService(
 
         var banner = $"Building {csproj.Name} ({options.Configuration} | {options.Architecture})...";
         var stopwatch = Stopwatch.StartNew();
+        var buildEnvironment = WithPackagingReferenceTargets(null);
 
         // --json/--quiet: stdout stays pure JSON, so route the invocation AND build output to stderr
         // (Console.Error is synchronized, so concurrent stdout/stderr callbacks are safe).
@@ -922,6 +923,7 @@ internal sealed partial class ProjectRunService(
                 workingDir, redirectedArgs,
                 onOutputLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
                 onErrorLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
+                environmentOverrides: buildEnvironment,
                 cancellationToken: cancellationToken);
         }
 
@@ -951,7 +953,7 @@ internal sealed partial class ProjectRunService(
             // Real interactive terminal: hand the console to dotnet (inherited stdio, no -tl:off) so its
             // native terminal logger renders the live build directly — single warnings, live progress.
             // winapp never sees the lines; the header above and ✓ Built below frame it.
-            streamedExit = await dotNetService.RunDotnetInheritedAsync(workingDir, buildArgs, cancellationToken: cancellationToken);
+            streamedExit = await dotNetService.RunDotnetInheritedAsync(workingDir, buildArgs, buildEnvironment, cancellationToken);
         }
         else
         {
@@ -960,7 +962,7 @@ internal sealed partial class ProjectRunService(
             var writeLive = CreateSynchronizedRedactedLineWriter();
 
             streamedExit = await dotNetService.RunDotnetStreamingAsync(
-                workingDir, buildArgs, writeLive, writeLive, cancellationToken: cancellationToken);
+                workingDir, buildArgs, writeLive, writeLive, buildEnvironment, cancellationToken);
         }
 
         if (streamedExit == 0)
