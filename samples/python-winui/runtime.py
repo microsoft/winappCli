@@ -40,20 +40,17 @@ def windows_appsdk_version(project: Path) -> tuple[int, int]:
 
 
 @contextmanager
-def windows_runtime(project: Path) -> Iterator[bool]:
-    from dynwinrt import RoApartment, has_package_identity, init_winappsdk, projected_lifetime_scope
+def windows_runtime(project: Path) -> Iterator[None]:
+    from dynwinrt import RoApartment, init_winappsdk, projected_lifetime_scope
 
-    identified = has_package_identity()
-    bootstrap = None
-    if not identified:
-        dll = bootstrap_dll_path(project, sysconfig.get_platform())
-        major, minor = windows_appsdk_version(project)
-        os.environ["WINAPPSDK_BOOTSTRAP_DLL_PATH"] = str(dll)
-        bootstrap = init_winappsdk(major, minor)
-        print(f"Bootstrap: {dll}", flush=True)
+    dll = bootstrap_dll_path(project, sysconfig.get_platform())
+    major, minor = windows_appsdk_version(project)
+    os.environ["WINAPPSDK_BOOTSTRAP_DLL_PATH"] = str(dll)
+    bootstrap = init_winappsdk(major, minor)
+    print(f"Bootstrap: {dll}", flush=True)
     try:
         # WinUI's main thread is an STA; release projections before leaving it.
         with RoApartment(0), projected_lifetime_scope():
-            yield identified
+            yield
     finally:
         del bootstrap

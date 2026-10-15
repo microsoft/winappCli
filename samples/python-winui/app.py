@@ -14,11 +14,10 @@ ROOT = Path(__file__).resolve().parent
 def run() -> int:
     from window import run_window
 
-    with windows_runtime(ROOT) as identified:
-        counter = Counter.from_package_data() if identified else Counter()
-        print(f"Mode: {'identity' if identified else 'memory'}", flush=True)
+    with windows_runtime(ROOT):
+        counter = Counter()
+        print("Mode: Bootstrap - memory only", flush=True)
         print(f"Python: {sys.version.split()[0]} | {sys.executable}", flush=True)
-        print(f"Save: {counter.save_path if identified else '(disabled)'}", flush=True)
         return run_window(counter)
 
 

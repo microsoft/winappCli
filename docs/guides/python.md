@@ -1,15 +1,22 @@
 <!-- mslearn: true -->
-<!-- description: Use winapp with Python to generate Windows App SDK and WinUI bindings, open an image picker, and run the app with package identity. -->
+<!-- description: Use winapp with Python to generate Windows API bindings, run a script with package identity, clean up development identity, and prepare an MSIX. -->
 
 # Using winapp CLI with Python
 
-This guide creates a code-only WinUI 3 app that opens a Windows App SDK file picker and displays the selected image path. No C# host or XAML is needed.
+```powershell
+winapp-py run .\app.py
+winapp-py run --identity .\app.py
+```
+
+This guide builds a small console app that prints **Not packaged** during ordinary execution and its package family name when run with Windows package identity. Identity enables Windows APIs that require a registered app. No WinUI window or C# host is needed.
+
+For the complete source and packaging walkthrough, use the [Python identity sample](../../samples/python-identity). For code-only WinUI windows and a file picker without identity, use the separate [WinUI sample](../../samples/python-winui).
 
 ## Prerequisites
 
 - **Windows 11**.
 - **Windows CPython 3.11-3.14**, x64 or ARM64.
-- **winapp-py**: Install the `winapp-cli` package from PyPI:
+- **winapp-py**, installed from PyPI:
 
 ```powershell
 python -m pip install --upgrade winapp-cli
@@ -18,240 +25,150 @@ winapp-py --help
 
 The package includes the native CLI; no separate winapp or Node.js installation is needed.
 
-## 1. Prepare the Python Project
-
-Create a project directory, or use an existing Python project:
+## 1. Prepare the Python project
 
 ```powershell
-New-Item -ItemType Directory -Path python-file-picker
-Set-Location .\python-file-picker
+mkdir python-identity
+cd .\python-identity
 ```
 
-Create `pyproject.toml`:
+Create `pyproject.toml` with your application's metadata:
 
 ```toml
 [project]
-name = "python-file-picker"
+name = "python-identity"
 version = "0.0.0"
 requires-python = ">=3.11,<3.15"
 dependencies = []
-
-[tool.winapp.python-bindings]
-package = "winapp_bindings"
-scope = "default"
-types = [
-    "Microsoft.UI.Xaml.Application",
-    "Microsoft.UI.Xaml.Window",
-    "Microsoft.UI.Windowing.OverlappedPresenter",
-    "Microsoft.UI.Xaml.Controls.Button",
-    "Microsoft.UI.Xaml.Controls.Grid",
-    "Microsoft.UI.Xaml.Controls.ScrollViewer",
-    "Microsoft.UI.Xaml.Controls.TextBlock",
-    "Microsoft.UI.Xaml.Automation.AutomationProperties",
-    "Microsoft.UI.Xaml.Media.SolidColorBrush",
-    "Windows.UI.ColorHelper",
-]
-additional-winmds = []
-additional-refs = []
 ```
 
-The file picker is included in the default Windows App SDK bindings. The `types` list adds only the WinUI controls needed for this app. In an existing project, update its bindings table rather than adding a duplicate table.
-
-## 2. Initialize the Project
-
-Run:
+## 2. Initialize the project
 
 ```powershell
-winapp-py init --use-defaults --add-python-bindings
+winapp-py init . --use-defaults --add-python-bindings
 ```
 
-This prepares SDKs, Windows App Runtime, the manifest and icons, generates bindings, and installs declared dependencies into `.venv`. Continue when it reports **Python bindings ready**.
+This creates or reuses `.venv`, prepares SDKs and projections, creates the manifest and icons, and adds a bindings table to `pyproject.toml`. Continue when it reports **Python bindings ready**.
 
-To initialize a project from its parent directory, specify its path:
+The guide uses the Windows SDK's `Package` API. In the table that initialization created, change only these two settings; keep its recorded `codegen-version` and other settings:
+
+```toml
+scope = "types"
+types = ["Windows.ApplicationModel.Package"]
+```
+
+Generate and install those bindings:
 
 ```powershell
-winapp-py init .\python-app --use-defaults --add-python-bindings
+winapp-py generate
 ```
 
-Without a directory, `--use-defaults` targets the current directory. Interactive `winapp-py init` can instead let you select a project. After native setup, the Python wrapper lists directories with usable SDK configuration and asks you to confirm the bindings target before changing Python files. These are candidates, including previously prepared projects, not proof of which directory was selected earlier. Enter `0` to skip when several candidates are listed, or decline the confirmation for a single candidate.
+No manual `pip install` of DynWinRT or activation of `.venv` is needed.
 
-If no usable target is found, rerun with its explicit directory. For `--config-only`, the target needs a valid local `winapp.yaml`; bindings generation is deferred until `restore`. Normal generation also needs a matching `.winapp\winmds.lock.json`. `--sparse`, `--setup-sdks none` and `--ignore-config` do not enable Python bindings.
+### Selecting an initialization directory
 
-For native project hints and subdirectory searching, see the [`init` reference](../usage.md#init).
+An explicit path targets that directory. Without a path, `--use-defaults` targets the current directory:
 
-## 3. Add the File Picker
+```powershell
+winapp-py init .\python-identity --use-defaults --add-python-bindings
+```
+
+Interactive init without a directory asks you to confirm the bindings target from directories with usable SDK configuration after native setup. These include previously prepared projects. Select and confirm the intended target, or decline to leave Python files unchanged. If no usable target is found, rerun with its explicit directory.
+
+`--config-only` prepares configuration and defers generation until `restore`. Normal generation requires matching project-local `winapp.yaml` and `.winapp\winmds.lock.json`. `--sparse`, `--setup-sdks none` and `--ignore-config` do not enable Python bindings. See the [`init` reference](../usage.md#init) for native project hints and subdirectory searching.
+
+## 3. Add the identity check
 
 Create `app.py`:
 
 ```python
-from threading import Thread
-import sys
-
-from dynwinrt import RoApartment, projected_lifetime_scope, to_winrt_object
-from winapp_bindings.microsoft.ui.windowing import OverlappedPresenter
-from winapp_bindings.microsoft.ui.xaml import (
-    Application, ApplicationTheme, GridLength, GridUnitType,
-    HorizontalAlignment, Style, TextWrapping, Thickness, Window,
-)
-from winapp_bindings.microsoft.ui.xaml.automation import AutomationProperties
-from winapp_bindings.microsoft.ui.xaml.controls import (
-    Button, Grid, RowDefinition, ScrollBarVisibility, ScrollViewer, TextBlock,
-)
-from winapp_bindings.microsoft.ui.xaml.media import SolidColorBrush
-from winapp_bindings.microsoft.windows.storage.pickers import FileOpenPicker
-from winapp_bindings.windows.graphics import SizeInt32
-from winapp_bindings.windows.ui import ColorHelper
+from dynwinrt import RoApartment, has_package_identity, projected_lifetime_scope
+from winapp_bindings.windows.application_model import Package
 
 
-subscriptions = []
-application = None
-window = None
+def main() -> int:
+    with RoApartment(1), projected_lifetime_scope():
+        if not has_package_identity():
+            print("Not packaged")
+            return 0
+        package = Package.get_current()
+        print(f"Package Family Name: {package.id.family_name}")
+    return 0
 
 
-def launched():
-    global window
-    window = Window()
-    window.title = "Python WinUI file picker"
-    panel = Grid()
-    panel.row_spacing = 16
-    panel.margin = Thickness(24, 24, 24, 24)
-    button_row = RowDefinition()
-    button_row.height = GridLength(1, GridUnitType.Auto)
-    result_row = RowDefinition()
-    result_row.height = GridLength(1, GridUnitType.Star)
-    panel.row_definitions.extend([button_row, result_row])
-    button = Button()
-    button.horizontal_alignment = HorizontalAlignment.Left
-    accent_style = application.resources.lookup(to_winrt_object("AccentButtonStyle"))
-    if accent_style is None:
-        raise RuntimeError("WinUI AccentButtonStyle was not loaded.")
-    button.style = Style(accent_style)
-    button.content = to_winrt_object("Pick an image")
-    status = TextBlock()
-    status.text = "Choose a PNG or JPEG image."
-    status.text_wrapping = TextWrapping.Wrap
-    status.is_text_selection_enabled = True
-    scroll = ScrollViewer()
-    scroll.horizontal_scroll_bar_visibility = ScrollBarVisibility.Disabled
-    scroll.vertical_scroll_bar_visibility = ScrollBarVisibility.Auto
-    scroll.content = status
-    Grid.set_row(scroll, 1)
-    AutomationProperties.set_automation_id(button, "Pick")
-    AutomationProperties.set_automation_id(status, "Result")
-    AutomationProperties.set_automation_id(scroll, "ResultScroll")
-    panel.children.extend([button, scroll])
-    shade = 32 if application.requested_theme == ApplicationTheme.Dark else 243
-    root = Grid()
-    root.background = SolidColorBrush(ColorHelper.from_argb(255, shade, shade, shade))
-    root.children.append(panel)
-    window.content = root
-    app_window = window.app_window
-    presenter = OverlappedPresenter.create()
-    presenter.is_resizable = False
-    presenter.is_maximizable = False
-    app_window.set_presenter(presenter)
-    app_window.resize(SizeInt32(620, 420))
-    dispatcher = window.dispatcher_queue
-
-    def choose(_sender, _args):
-        button.is_enabled = False
-        window_id = window.app_window.id
-
-        def wait_for_result():
-            with RoApartment(1), projected_lifetime_scope():
-                try:
-                    picker = FileOpenPicker.create_instance(window_id)
-                    picker.file_type_filter.extend([".png", ".jpg", ".jpeg"])
-                    result = picker.pick_single_file_async().wait()
-                    text = result.path if result else "Cancelled"
-                except (OSError, RuntimeError) as error:
-                    text = f"Picker failed: {error}"
-                    print(text, file=sys.stderr, flush=True)
-
-                def update():
-                    status.text = text
-                    button.is_enabled = True
-                    print(text, flush=True)
-
-                if not dispatcher.try_enqueue(update):
-                    print("Picker window closed before the result could be displayed.",
-                          file=sys.stderr, flush=True)
-
-        Thread(target=wait_for_result).start()
-
-    subscriptions.append(button.subscribe_click(choose))
-    subscriptions.append(window.subscribe_closed(lambda _s, _a: Application.get_current().exit()))
-    window.activate()
-
-
-def initialize(_params):
-    global application
-    application = Application.create(launched)
-
-
-with RoApartment(0), projected_lifetime_scope():
-    Application.start(initialize)
-    for unsubscribe in reversed(subscriptions):
-        unsubscribe()
-    window = None
-    application = None
+if __name__ == "__main__":
+    raise SystemExit(main())
 ```
 
-The picker uses the WinUI window's `AppWindow.Id`. Waiting runs on a worker thread so the UI stays responsive; the dispatcher updates the result on the UI thread.
+The script checks identity before calling the projected `Package` API. Unexpected API failures remain errors rather than being reported as **Not packaged**.
 
-## 4. Run with Identity
+## 4. Run without identity
 
-Enable **Windows Developer Mode** in Windows Settings if needed, then run:
+```powershell
+winapp-py run .\app.py
+```
+
+Expected application stdout:
+
+```text
+Not packaged
+```
+
+The command uses the project root's existing `.venv`, without installing dependencies or assigning identity. A missing interpreter produces manual-run guidance instead of falling back to global Python.
+
+## 5. Run with identity
+
+Enable **Windows Developer Mode** in Windows Settings, then run:
 
 ```powershell
 winapp-py run --identity .\app.py
 ```
 
-Click **Pick an image**. Select a PNG or JPEG: its path appears in the window and terminal. Long paths wrap and can be scrolled or selected for copying; the window stays a fixed size. Cancel the dialog: the window displays **Cancelled**. The button becomes available again for another selection.
+Expected output has this shape:
 
-### Clean up development identity
+```text
+Package Family Name: your-project.debug_publisherhash
+```
 
-Close the window, then run:
+The name depends on the manifest and publisher. The runner prepares a private Python runtime matching the project's interpreter, installs declared application dependencies, and registers a development package. The first preparation can download a runtime and take longer than later runs; the ordinary `.venv` is unchanged.
+
+This is a development workflow, not a distributable Python application.
+
+## 6. Clean up development identity
 
 ```powershell
 winapp-py identity clear
 ```
 
-This removes the development registration and private Python environment, while preserving `.venv`, bindings, project files and application data.
+This unregisters the development package and removes its private environment, while preserving `.venv`, bindings, project files and application data.
 
-## 5. Restore When Needed
+## 7. Package as MSIX
 
-After cloning the project or removing generated files, run:
+Use PyInstaller or another Python packaging tool to build an application directory, then pass that directory to `winapp-py package`. Follow the [identity sample's MSIX walkthrough](../../samples/python-identity/README.md#4-package-as-msix) for a complete console build, signing, installation and execution-alias example.
+
+The private development runtime is not the distribution payload. Users of the packaged application do not need a separate Python installation.
+
+## Restore and update
+
+After cloning an initialized project or removing generated files:
 
 ```powershell
 winapp-py restore
 ```
 
-To change API selections, edit `types` and run `winapp-py generate`. To update SDK and DynWinRT versions, run `winapp-py update`.
-
-## 6. Package as MSIX
-
-Build an application directory with Python and a packaging tool such as PyInstaller, then pass it to `winapp-py package`. Follow the [WinUI counter sample's packaging steps](../../samples/python-app/README.md#4-package-as-msix); use this app's entry file and chosen executable name.
+To change API selections, edit the existing `types` list and run `winapp-py generate`. To update SDK and generator versions, run `winapp-py update`.
 
 ## Tips
 
 ### Configure bindings
 
-Keep `scope = "default"` to retain Windows App SDK bindings and add WinUI or Windows SDK types through `types`. Use `scope = "types"` only for an explicitly selected API surface.
-
-### Run without identity
-
-`winapp-py run .\app.py` uses the project root's existing `.venv` and prints its interpreter path. uv's default `.venv` works the same way, without `uv sync`. A missing interpreter produces manual-run guidance; non-Python inputs continue to use native `run`.
-
-### Runtime initialization
-
-The run command above uses package identity to make Windows App Runtime available. Ordinary WinUI execution needs Bootstrap initialization first; see the [counter sample](../../samples/python-app/README.md) for that workflow. The picker itself does not inherently require identity.
+Use `scope = "types"` for explicitly selected Windows SDK or WinUI APIs. Use `scope = "default"` to retain the default Windows App SDK bindings and add other APIs through `types`. Keep one bindings table in `pyproject.toml`, created by `init`; edit it rather than adding a duplicate.
 
 ### Dependency declarations
 
-Run `winapp-py update` to use a new DynWinRT release without upgrading winapp. Initial bindings setup records the resolved `codegen-version` in `[tool.winapp.python-bindings]` in your project's `pyproject.toml`; commit that file with the project. `restore` and `generate` reuse or install that exact generator version and automatically install the matching `dynwinrt` runtime through the generated package. Neither package needs a direct application dependency declaration. Running the app uses its generated bindings without checking for updates.
+Initial setup records the resolved `codegen-version` in `[tool.winapp.python-bindings]` in your project's `pyproject.toml`; commit it with the project. `restore` and `generate` reuse or install that exact generator and install the matching `dynwinrt` runtime through the generated package. Neither package needs a direct application dependency declaration. `update` advances the recorded versions.
 
-Declare your application's own dependencies in project metadata or requirements files; the private identity environment does not copy manually installed packages from `.venv`.
+Declare application dependencies in project metadata or requirements files. The private identity environment does not copy manually installed packages from `.venv`.
 
 ### Output options
 
@@ -260,34 +177,28 @@ winapp-py --quiet restore
 winapp-py run .\app.py -- --json
 ```
 
-Use `--quiet` (`-q`) to hide wrapper status or `--verbose` (`-v`) to show tool diagnostics. Put these options before or after the command; for `run`, put wrapper options before the script. Do not combine quiet and verbose. Quiet mode preserves application stdout, stderr and errors.
+Use `--quiet` (`-q`) to hide wrapper status or `--verbose` (`-v`) to show tool diagnostics. Put wrapper options before the Python script. Arguments after the script, with or without `--`, pass unchanged to the application. Quiet mode does not suppress application output or errors.
 
-Python workflows do not support `--json` and reject it before making changes. Native commands retain their supported JSON output. Arguments after a Python script, with or without `--`, go unchanged to the application, as in the second command above.
+Python workflows do not support `--json`; native commands retain their supported JSON output. Interpreter selection and identity-preparation status go to stderr, leaving application stdout available for piping.
 
 ### Editor workflow
 
-Select `.venv\Scripts\python.exe` as the editor interpreter. Do not edit generated files under `.winapp`.
-
-### Help
-
-Use `winapp-py <command> --help` for options. For shared commands, use the Python syntax appended after native help.
-
-Run `winapp-py --version` to see both the installed Python package version and the native CLI version. Python prerelease numbers use PEP 440 formatting, so the same build can display `0.7.2.dev37` for Python and `0.7.2-prerelease.37` for native.
+Select `.venv\Scripts\python.exe` as the editor interpreter. Do not edit generated files under `.winapp`. Use `winapp-py <command> --help` for options and `winapp-py --version` for package and native CLI versions.
 
 ## Troubleshooting
 
 | Problem | Action |
-| --- | --- |
-| Imports or SDK metadata are missing | Run `winapp-py restore`. |
-| `FileOpenPicker` is missing after customizing bindings | Keep `scope = "default"` or explicitly select the picker, then regenerate. |
-| WinUI cannot activate | Run with `--identity` as above; check that the configured Windows App Runtime is installed. |
-| The picker fails | Read the error printed in the terminal, fix the reported cause and retry. |
-| Ordinary `run` cannot find `.venv` | Use your chosen interpreter or `uv run <script>`; the wrapper does not create an environment or fall back to global Python. |
-| DynWinRT dependency versions conflict | Remove direct `dynwinrt` and `dynwinrt-codegen` declarations from project dependencies, then run `winapp-py generate`. |
-| The project has no recorded codegen version | Run `winapp-py init . --use-defaults --add-python-bindings` to record a version without resetting existing API selections, or run `winapp-py update` to select a new version. |
+|---|---|
+| `Package` cannot be imported | Select `Windows.ApplicationModel.Package` in the existing bindings table, then run `winapp-py generate`. |
+| SDK metadata is missing or out of date | Run `winapp-py restore`. |
+| The script still prints `Not packaged` | Use `run --identity` and check the terminal's preparation errors. |
+| Identity preparation fails | Read the reported cause, verify Developer Mode and the project interpreter, then retry. |
+| Ordinary `run` cannot find `.venv` | Use your chosen interpreter or `uv run`; the wrapper does not create an environment during ordinary execution. |
+| DynWinRT dependency versions conflict | Remove direct generator/runtime declarations from application dependencies, then run `winapp-py generate`. |
+| No codegen version is recorded | Run `winapp-py init . --use-defaults --add-python-bindings` to record a version without resetting API selections, or `winapp-py update` to choose a new version. |
 
-## Next Steps
+## Next steps
 
-- [WinUI counter sample](../../samples/python-app/README.md): ordinary execution, saved state and MSIX packaging.
-- [Windows App SDK pickers](https://learn.microsoft.com/windows/apps/develop/files/using-file-folder-pickers): picker options and supported behavior.
-- [CLI command reference](../usage.md): manifests, signing and packaging.
+- [Python identity sample](../../samples/python-identity): complete console source and manual MSIX packaging.
+- [Python WinUI sample](../../samples/python-winui): Bootstrap-based counter and file picker, without development identity.
+- [CLI reference](../usage.md): manifests, certificates, signing and packaging.

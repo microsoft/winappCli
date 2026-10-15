@@ -137,7 +137,8 @@ Windows integration guidance:
 - Prepare an application directory before creating an MSIX with `winapp-py package`.
 
 Python guide:
-- [Setup, bindings, runtime initialization and packaging](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md)
+- [Setup, Windows API bindings, identity and packaging](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md)
+- [Unpackaged WinUI counter and picker](https://github.com/microsoft/WinAppCli/blob/main/samples/python-winui/README.md): Bootstrap plus ordinary `run`; do not add `--identity` for this sample.
 
 ## Debugging by framework
 

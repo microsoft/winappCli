@@ -13,7 +13,7 @@ This package gives you access to:
 
 ## Get started
 
-Follow the [Python guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md) to create a code-only WinUI 3 app and open a Windows App SDK image picker.
+Follow the [Python guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md) to call a Windows API from a console script, compare ordinary and identity-backed execution, and prepare an MSIX.
 
 ## Usage
 
@@ -43,17 +43,17 @@ Pass a project directory to target it explicitly. Interactive init without a dir
 | Command | What it does |
 | --- | --- |
 | [`init`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#2-initialize-the-project) | Initialize SDKs and Windows project files; enable Python bindings with `--add-python-bindings`. |
-| [`restore`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#5-restore-when-needed) | Run native SDK and projection restoration, then generate configured bindings and install declared dependencies. |
-| [`update`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#5-restore-when-needed) | Update SDK and generator pins, restore SDKs and projections, then regenerate configured bindings and install dependencies. |
+| [`restore`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#restore-and-update) | Run native SDK and projection restoration, then generate configured bindings and install declared dependencies. |
+| [`update`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#restore-and-update) | Update SDK and generator pins, restore SDKs and projections, then regenerate configured bindings and install dependencies. |
 | [`generate`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#configure-bindings) | Regenerate bindings from existing SDK metadata after changing type selections. |
 
 **Run Python:**
 
 | Command | What it does |
 | --- | --- |
-| [`run`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#run-without-identity) | Run a project-local `.py` script with the existing project `.venv`; other inputs are forwarded to native `run`. |
-| [`run --identity`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#4-run-with-identity) | Run a script in a private Python environment with the project's package identity. |
-| [`identity clear`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#clean-up-development-identity) | Remove the development registration and private environment while preserving application data. |
+| [`run`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#4-run-without-identity) | Run a project-local `.py` script with the existing project `.venv`; other inputs are forwarded to native `run`. |
+| [`run --identity`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#5-run-with-identity) | Run a script in a private Python environment with the project's package identity. |
+| [`identity clear`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#6-clean-up-development-identity) | Remove the development registration and private environment while preserving application data. |
 
 For Python scripts, interpreter selection and identity-preparation status go to stderr. The script's stdout, stderr and exit code pass through unchanged, so `winapp-py run .\app.py > output.json` keeps wrapper status out of the output file.
 
@@ -88,7 +88,9 @@ See the [CLI reference](https://github.com/microsoft/WinAppCli/blob/main/docs/us
 
 ## Samples
 
-The [Python WinUI counter](https://github.com/microsoft/WinAppCli/blob/main/samples/python-app/README.md) creates its UI with WinUI controls and demonstrates memory-only execution alongside identity-backed storage. Its [manual MSIX workflow](https://github.com/microsoft/WinAppCli/blob/main/samples/python-app/README.md#4-package-as-msix) uses PyInstaller and the existing `package` command.
+The [Python identity sample](https://github.com/microsoft/WinAppCli/blob/main/samples/python-identity/README.md) demonstrates ordinary and identity-backed console execution, cleanup and manual PyInstaller/MSIX packaging.
+
+The [Python WinUI sample](https://github.com/microsoft/WinAppCli/blob/main/samples/python-winui/README.md) provides an in-memory counter and a file picker. Both run unpackaged using Bootstrap, without development identity.
 
 ## Development
 

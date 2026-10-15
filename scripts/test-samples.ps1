@@ -14,7 +14,7 @@ One or more sample names to test. Defaults to all samples that have a test.Tests
 
 .PARAMETER WinappPath
 Path to the winapp package passed to each test: an npm .tgz for existing
-samples, or a Python platform wheel for python-app. A build artifacts directory
+samples, or a Python platform wheel for python-winui and python-identity. A build artifacts directory
 containing both package types can be used when running all samples.
 
 .PARAMETER SkipCleanup

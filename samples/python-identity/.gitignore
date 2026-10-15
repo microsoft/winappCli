@@ -5,4 +5,5 @@ Package.appxmanifest
 __pycache__/
 build/
 dist/
-PythonCounter.spec
+PythonIdentity.spec
+devcert.pfx

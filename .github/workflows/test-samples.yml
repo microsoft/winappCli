@@ -24,7 +24,8 @@ on:
           - maui-app
           - node-winui
           - packaging-cli
-          - python-app
+          - python-winui
+          - python-identity
           - rust-app
           - sparse-app
           - tauri-app
@@ -87,7 +88,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sample: [cpp-app, cpp-winui-app, dotnet-app, electron, flutter-app, maui-app, node-winui, packaging-cli, python-app, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app]
+        sample: [cpp-app, cpp-winui-app, dotnet-app, electron, flutter-app, maui-app, node-winui, packaging-cli, python-winui, python-identity, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app]
     runs-on: windows-latest
     name: ${{ matrix.sample }}
 
@@ -112,14 +113,14 @@ jobs:
 
     # Both entry points use artifacts from this run, never a privileged workflow_run.
     - name: Download npm package
-      if: steps.check.outputs.skip != 'true' && matrix.sample != 'python-app'
+      if: steps.check.outputs.skip != 'true' && !startsWith(matrix.sample, 'python-')
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: npm-package
         path: artifacts/npm
 
     - name: Download Python platform wheels
-      if: steps.check.outputs.skip != 'true' && matrix.sample == 'python-app'
+      if: steps.check.outputs.skip != 'true' && startsWith(matrix.sample, 'python-')
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: python-package
@@ -150,14 +151,14 @@ jobs:
     # --- Toolchain setup (conditional per sample) ---
 
     - name: Setup Python
-      if: steps.check.outputs.skip != 'true' && matrix.sample == 'python-app'
+      if: steps.check.outputs.skip != 'true' && startsWith(matrix.sample, 'python-')
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
       with:
         python-version: '3.12'
         architecture: x64
 
     - name: Enable Developer Mode for Python identity testing
-      if: steps.check.outputs.skip != 'true' && matrix.sample == 'python-app'
+      if: steps.check.outputs.skip != 'true' && matrix.sample == 'python-identity'
       shell: pwsh
       run: |
         reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v "AllowDevelopmentWithoutDevLicense" /d 1 /f
@@ -268,7 +269,7 @@ jobs:
       timeout-minutes: 40
       shell: pwsh
       run: |
-        $packagePath = if ('${{ matrix.sample }}' -eq 'python-app') { 'artifacts/python' } else { 'artifacts/npm' }
+        $packagePath = if ('${{ matrix.sample }}'.StartsWith('python-')) { 'artifacts/python' } else { 'artifacts/npm' }
         $container = New-PesterContainer -Path "samples/${{ matrix.sample }}/test.Tests.ps1" -Data @{
           WinappPath = $packagePath
         }

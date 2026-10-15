@@ -99,5 +99,5 @@ $wheel = Get-ChildItem .\artifacts\python\winapp_cli-*-py3-none-win_amd64.whl |
 To validate the user-facing WinUI workflow with Pester 5:
 
 ```powershell
-.\scripts\test-samples.ps1 -Samples python-app -WinappPath .\artifacts\python
+.\scripts\test-samples.ps1 -Samples python-winui,python-identity -WinappPath .\artifacts\python
 ```

@@ -239,24 +239,25 @@ Describe 'Artifact-first workflow dependencies' {
         (Get-JobText $sampleWorkflow 'test-sample') | Should -Not -Match 'continue-on-error: true'
     }
 
-    It 'tests the Python sample with a same-run wheel rather than a separate native or npm installation' {
+    It 'tests both Python samples with a same-run wheel rather than separate native or npm installations' {
         $producer = Get-JobText $sampleWorkflow 'build'
         $producer | Should -Match 'package-python\.ps1'
         $producer | Should -Match 'name: python-package'
         $consumer = Get-JobText $sampleWorkflow 'test-sample'
-        $consumer | Should -Match 'matrix.sample == ''python-app'''
-        $consumer | Should -Match 'matrix.sample != ''python-app'''
+        $consumer | Should -Match ([regex]::Escape("startsWith(matrix.sample, 'python-')"))
+        $consumer | Should -Match ([regex]::Escape("!startsWith(matrix.sample, 'python-')"))
+        $consumer | Should -Match 'matrix.sample == ''python-identity'''
         $consumer | Should -Match 'name: python-package'
         $consumer | Should -Match 'path: artifacts/python'
         $consumer | Should -Match 'Enable Developer Mode for Python identity testing'
         $consumer | Should -Not -Match 'package-python\.ps1|pip install.*winapp-cli'
         $run = Get-RunScript $consumer 'Run ${{ matrix.sample }} test'
-        $run | Should -Match ([regex]::Escape("if ('`${{ matrix.sample }}' -eq 'python-app')"))
+        $run | Should -Match ([regex]::Escape("if ('`${{ matrix.sample }}'.StartsWith('python-'))"))
         $run | Should -Match ([regex]::Escape('WinappPath = $packagePath'))
     }
 
     It 'retains all samples and preserves the main doc drift warning behavior' {
-        $expected = 'cpp-app, cpp-winui-app, dotnet-app, electron, flutter-app, maui-app, node-winui, packaging-cli, python-app, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app'
+        $expected = 'cpp-app, cpp-winui-app, dotnet-app, electron, flutter-app, maui-app, node-winui, packaging-cli, python-winui, python-identity, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app'
         $sampleWorkflow | Should -Match ([regex]::Escape("sample: [$expected]"))
         (Get-JobText $buildWorkflow 'validate-docs') |
             Should -Match ([regex]::Escape("-FailOnDrift:(`$env:IS_PR -eq 'true')"))
@@ -323,7 +324,7 @@ Describe 'Partial reruns replace only owned artifacts' {
                 [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
             }
         )
-        $names.Count | Should -Be 30
+        $names.Count | Should -Be 31
         @($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count | Should -Be 0
         @($names | Group-Object | Where-Object Count -GT 1).Count | Should -Be 0
         (Get-JobText $sampleWorkflow 'build') | Should -Match 'if: \$\{\{ !inputs.use-existing-artifacts \}\}'

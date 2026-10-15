@@ -75,9 +75,7 @@ class CounterWindow:
         self.count_text.padding = Thickness(0, 8, 0, 8)
         self.count_text.vertical_alignment = VerticalAlignment.Center
         self.status_text = text_block(
-            "Changes are saved in Windows LocalState."
-            if counter.save_path is not None
-            else "Closing the window resets the counter.",
+            "Closing the window resets the counter.",
             automation_id="Status",
         )
         self.increment_button = step_button("+", "Add one", "Increment")
@@ -96,9 +94,7 @@ class CounterWindow:
     def _build_content(self) -> Grid:
         title = text_block("Python + WinUI 3", 26, weight=600)
         mode = text_block(
-            "Package identity - saved counter"
-            if self.counter.save_path is not None
-            else "No identity - memory only",
+            "Bootstrap - memory only",
             automation_id="Mode",
         )
 
@@ -153,19 +149,10 @@ class CounterWindow:
         self._change_count(self.counter.decrement)
 
     def _change_count(self, change: Callable[[], None]) -> None:
-        try:
-            change()
-        except OSError as error:
-            self.status_text.text = "Save failed; count unchanged. Check the terminal and try again."
-            print(f"{self.status_text.text}\n{error}", file=sys.stderr, flush=True)
-            return
+        change()
         self.count_text.text = str(self.counter.value)
         self.decrement_button.is_enabled = self.counter.value > 0
-        self.status_text.text = (
-            "Saved in Windows LocalState."
-            if self.counter.save_path is not None
-            else "Memory only - not saved."
-        )
+        self.status_text.text = "Memory only - not saved."
 
     def _on_closed(self, _sender: object, _args: object) -> None:
         current = Application.get_current()
