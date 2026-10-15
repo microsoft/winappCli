@@ -335,6 +335,17 @@ function Select-ShownInputs($Inputs, $Snapshot) {
     }
 }
 
+# The first build error as "WMC9999: message" (the compiler's code and text, without the path in front), else winapp's
+# own error, else that no app process was reported.
+function Get-CleanBuildError([string[]]$Lines) {
+    foreach ($line in $Lines) {
+        if ($line -match '\berror\s+([A-Z]+\d+)\s*:\s*(.+?)(\s+\[[^\]]+\])?\s*$') { $text = "$($Matches[1]): $($Matches[2])"; return $(if ($text.Length -gt 220) { $text.Substring(0, 217) + '...' } else { $text }) }
+    }
+    $winapp = @($Lines | Where-Object { $_ -match '"Error":\s*"([^"]+)"' } | Select-Object -First 1)
+    if ($winapp -and $winapp[0] -match '"Error":\s*"([^"]+)"') { return $Matches[1] }
+    return 'winapp run reported no app process'
+}
+
 <#
 .SYNOPSIS
   The parity check for one checkpoint: reads the hot-reloaded app, builds and launches the same source from scratch,
@@ -365,6 +376,8 @@ function Invoke-ParityCheck {
     $replay = @(Select-ShownInputs -Inputs $Config.replay -Snapshot $hot.Phases['initial'])
 
     $source = Copy-ParitySource -AppDir $AppDir -Destination $WorkDir
+    # Test hook: break the clean build on purpose, to see the gate fail when there is no clean build to compare with.
+    if ($env:WINAPP_PARITY_TEST_BREAK_CLEAN_BUILD -eq '1') { Add-Content (Join-Path $source 'ParityGateBrokenOnPurpose.cs') 'this is not C# (WINAPP_PARITY_TEST_BREAK_CLEAN_BUILD)' }
     $runArguments = @('run', $source, '--devtools', 'headless', '--detach', '--json')
     if ($Configuration) { $runArguments += @('-c', $Configuration) }
     # Its own identity, so registering the clean build doesn't replace the hot-reloaded app's package.
@@ -374,14 +387,17 @@ function Invoke-ParityCheck {
         -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
     if (-not $runner.WaitForExit($BuildTimeoutSeconds * 1000)) {
         Stop-Process -Id $runner.Id -Force -ErrorAction SilentlyContinue
-        return [pscustomobject]@{ Ok = $false; Output = "parity: the clean build did not launch within $BuildTimeoutSeconds s (log: $log)"; Diffs = @(); Seconds = [int]$clock.Elapsed.TotalSeconds }
+        return [pscustomobject]@{ Ok = $false; CleanBuildFailed = $true; Output = "parity: clean build failed: it did not launch within $BuildTimeoutSeconds s (log: $log)"; Diffs = @(); Seconds = [int]$clock.Elapsed.TotalSeconds }
     }
     $buildSeconds = $clock.Elapsed.TotalSeconds - $hotSeconds
     $runText = Remove-Ansi ((Get-Content $log -Raw -ErrorAction SilentlyContinue) + (Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue))
     $cleanPid = if ($runText -match '"ProcessId":\s*(\d+)') { [int]$Matches[1] } else { $null }
     if (-not $cleanPid) {
-        $tail = (@($runText -split "`r?`n" | Where-Object { $_.Trim() }) | Select-Object -Last 15) -join "`n"
-        return [pscustomobject]@{ Ok = $false; Output = "parity: the clean build failed to build or launch (log: $log)`n$tail"; Diffs = @(); Seconds = [int]$clock.Elapsed.TotalSeconds }
+        # Without a clean build there is nothing to compare with: the check fails, never passes for lack of differences.
+        $lines = @($runText -split "`r?`n" | Where-Object { $_.Trim() })
+        $reason = Get-CleanBuildError $lines
+        $tail = ($lines | Select-Object -Last 15) -join "`n"
+        return [pscustomobject]@{ Ok = $false; CleanBuildFailed = $true; Output = "parity: clean build failed: $reason`n  (log: $log)`n$tail"; Diffs = @(); Seconds = [int]$clock.Elapsed.TotalSeconds }
     }
     try {
         foreach ($step in @($Config.navigate) + $replay) {
@@ -424,4 +440,4 @@ function Invoke-ParityCheck {
     return [pscustomobject]@{ Ok = ($diffs.Count -eq 0); Output = ($text -join "`n"); Diffs = $diffs; Seconds = [int]$clock.Elapsed.TotalSeconds }
 }
 
-Export-ModuleMember -Function Get-ParitySnapshot, Wait-ParitySnapshot, Compare-ParitySnapshot, Format-ParityDiff, Invoke-ParityCheck, Remove-Ansi
+Export-ModuleMember -Function Get-CleanBuildError, Get-ParitySnapshot, Wait-ParitySnapshot, Compare-ParitySnapshot, Format-ParityDiff, Invoke-ParityCheck, Remove-Ansi

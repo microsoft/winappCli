@@ -364,7 +364,7 @@ $runVariants = {
                     $parityResult = Invoke-ParityCheck -Winapp $Winapp -ProcessId ([int]$appPid) -AppDir $appDir -WorkDir (Join-Path $runRoot "$variantId\parity\$label") `
                         -InvokeProbe $parityProbe -Config $config -RootNamespace $journey.app.rootNamespace -Configuration $journey.app.configuration -Packaging $Packaging
                     $paritySeconds = $parityResult.Seconds
-                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $parityResult.Ok; Output = $parityResult.Output; Diffs = @($parityResult.Diffs).Count }
+                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $parityResult.Ok; Output = $parityResult.Output; Diffs = @($parityResult.Diffs).Count; CleanBuildFailed = [bool]$parityResult.CleanBuildFailed }
                     Write-Host $parityResult.Output
                 }
             }

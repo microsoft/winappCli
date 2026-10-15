@@ -41,6 +41,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'WatchJourney.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ParityGate.psm1') -Force
 $board = Get-Content $Config -Raw | ConvertFrom-Json
 $approaches = @($board.approaches | Where-Object { -not $Approach -or $_.id -in $Approach })
 if (-not $approaches) { throw "No approach matches '$($Approach -join ', ')'. Known: $(@($board.approaches.id) -join ', ')." }
@@ -139,6 +140,9 @@ foreach ($a in $reportApproaches) {
             StateOk = @($state | Where-Object Ok).Count; State = $state.Count
             StateLost = @($state | Where-Object { -not $_.Ok } | ForEach-Object { [string]$_.State } | Sort-Object -Unique)
             ParityOk = @($parityChecks | Where-Object Ok).Count; ParityChecks = $parityChecks.Count
+            # No clean build means no comparison: a failed check, whatever its difference count (older runs say it in words).
+            CleanBuildFailed = @($parityChecks | Where-Object { -not $_.Ok -and ($_.CleanBuildFailed -or [string]$_.Output -match '^parity: (clean build failed|the clean build (failed|did not launch))') } | ForEach-Object {
+                $out = [string]$_.Output; if ($out -match '^parity: clean build failed: (.+)') { $Matches[1] } else { Get-CleanBuildError @($out -split "`n") } })
             ParityDiffs = [int](@($parityChecks | ForEach-Object { if ($null -ne $_.Diffs) { [int]$_.Diffs } elseif (-not $_.Ok) { 1 } else { 0 } }) | Measure-Object -Sum).Sum
             SameProcess = -not @($rows | Where-Object { -not $_.SameProcess })
             # Reasons are recomputed from what winapp printed, so a better reader applies to old runs too. A save that said
@@ -180,7 +184,10 @@ foreach ($j in $journeys) {
             elseif ($c.Status -eq 'failed') { ' runner failed |' }
             elseif ($c.Status -eq 'running') { ' running |' }
             else {
-                $parityText = if ($c.ParityChecks) { "parity $($c.ParityDiffs)" } else { 'parity off' }
+                $failedParity = $c.ParityChecks - $c.ParityOk
+                $parityText = if (-not $c.ParityChecks) { 'parity off' }
+                    elseif (-not $failedParity) { "parity ok $($c.ParityOk)/$($c.ParityChecks)" }
+                    else { "**parity FAIL $failedParity/$($c.ParityChecks)**: $($c.ParityDiffs) diffs$(if (@($c.CleanBuildFailed).Count) { ", $(@($c.CleanBuildFailed).Count) clean build failed" })" }
                 $stateText = if ($c.State) { " · state $($c.StateOk)/$($c.State)" } else { '' }
                 $proc = if ($c.SameProcess) { '' } else { ' · new process' }
                 $notesText = if (@($c.Notes).Count) { " · notes $(@($c.Notes).Count)" } else { '' }
@@ -192,13 +199,13 @@ foreach ($j in $journeys) {
 $md.Add('')
 $md.Add('## Totals')
 $md.Add('')
-$md.Add('| Approach | Journeys | Saves | Live | Restart | Error | Timeout | UI checks | Parity diffs (checks ok) | State kept | Notes | Same process |')
+$md.Add('| Approach | Journeys | Saves | Live | Restart | Error | Timeout | UI checks | Parity checks ok (diffs; clean builds failed) | State kept | Notes | Same process |')
 $md.Add('|---|---|---|---|---|---|---|---|---|---|---|---|')
 foreach ($id in $ids) {
     $ran = @($cells | Where-Object { $_.Approach -eq $id -and $_.Status -eq 'ran' })
     if (-not $ran) { $md.Add("| $id | 0 | | | | | | | | | | |"); continue }
     $sum = { param($p) [int](($ran | ForEach-Object { $_.$p }) | Measure-Object -Sum).Sum }
-    $md.Add("| $id | $($ran.Count) | $(& $sum Saves) | $(& $sum Live) | $(& $sum Restart) | $(& $sum Error) | $(& $sum Timeout) | $(& $sum ChecksOk)/$(& $sum Checks) | $(& $sum ParityDiffs) ($(& $sum ParityOk)/$(& $sum ParityChecks)) | $(& $sum StateOk)/$(& $sum State) | $(@($ran | ForEach-Object { @($_.Notes) }).Count) | $(@($ran | Where-Object SameProcess).Count)/$($ran.Count) journeys |")
+    $md.Add("| $id | $($ran.Count) | $(& $sum Saves) | $(& $sum Live) | $(& $sum Restart) | $(& $sum Error) | $(& $sum Timeout) | $(& $sum ChecksOk)/$(& $sum Checks) | $(& $sum ParityOk)/$(& $sum ParityChecks) ($(& $sum ParityDiffs); $(@($ran | ForEach-Object { @($_.CleanBuildFailed) }).Count)) | $(& $sum StateOk)/$(& $sum State) | $(@($ran | ForEach-Object { @($_.Notes) }).Count) | $(@($ran | Where-Object SameProcess).Count)/$($ran.Count) journeys |")
 }
 $md.Add('')
 $md.Add('## Latency per save kind (seconds from save until the app shows it; a restart counts until the app is back)')
@@ -227,6 +234,7 @@ foreach ($id in $ids) {
         foreach ($n in @($c.Notes)) { $md.Add("- $($c.Journey) / $($n.Action): note: $($n.Note)"); $any = $true }
         if ($c.StateLost) { $md.Add("- $($c.Journey): state lost: $(@($c.StateLost) -join ', ')"); $any = $true }
         if ($c.ParityDiffs) { $md.Add("- $($c.Journey): $($c.ParityDiffs) parity difference(s), see $($c.Run)\*\parity\*\parity.json"); $any = $true }
+        foreach ($why in @($c.CleanBuildFailed)) { $md.Add("- $($c.Journey): **parity check failed: clean build failed**: $why"); $any = $true }
     }
     foreach ($c in @($cells | Where-Object { $_.Approach -eq $id -and $_.Status -eq 'failed' })) { $md.Add("- $($c.Journey): the runner failed, see $($c.Log)"); $any = $true }
     if (-not $any) { $md.Add('- none') }
