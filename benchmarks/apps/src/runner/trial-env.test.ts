@@ -17,10 +17,28 @@ test("hideToolsFromPath removes dirs containing the tool and shims their other e
     const shimDir = join(root, "shims");
 
     const r = hideToolsFromPath([apps, other].join(";"), ["winapp"], shimDir);
+    const slot = join(shimDir, "0");
     assert.deepEqual(r.removedDirs, [apps]);
-    assert.equal(r.path, [shimDir, other].join(";"));
-    assert.deepEqual(readdirSync(shimDir).sort(), ["python.cmd", "winget.cmd"]);
-    assert.match(readFileSync(join(shimDir, "winget.cmd"), "utf8"), /WindowsApps[\\/]winget\.exe" %\*/);
+    assert.equal(r.path, [slot, other].join(";"));
+    assert.deepEqual(readdirSync(slot).sort(), ["python.cmd", "winget.cmd"]);
+    assert.match(readFileSync(join(slot, "winget.cmd"), "utf8"), /WindowsApps[\\/]winget\.exe" %\*/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("hideToolsFromPath keeps PATH precedence for the other tools", () => {
+  const root = mkdtempSync(join(tmpdir(), "trial-env-"));
+  try {
+    const python = join(root, "Python");
+    const apps = join(root, "WindowsApps");
+    mkdirSync(python);
+    mkdirSync(apps);
+    writeFileSync(join(python, "python.exe"), "");
+    for (const f of ["winapp.exe", "python.exe"]) writeFileSync(join(apps, f), "");
+    const shimDir = join(root, "shims");
+
+    const r = hideToolsFromPath([python, apps].join(";"), ["winapp"], shimDir);
+    // The real Python still comes before the Store alias shim.
+    assert.equal(r.path, [python, join(shimDir, "0")].join(";"));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

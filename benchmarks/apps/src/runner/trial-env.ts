@@ -22,39 +22,41 @@ export interface HiddenPath {
 }
 
 /**
- * Drop every PATH entry that contains one of `tools`, and put `shimDir` first
- * with `.cmd` shims for every other executable those entries provided.
+ * Drop every PATH entry that contains one of `tools`. Each dropped entry is
+ * replaced, at the same position, by a folder under `shimDir` holding `.cmd`
+ * shims for its other executables, so PATH precedence for everything else is
+ * unchanged.
  */
 export function hideToolsFromPath(pathValue: string, tools: string[], shimDir: string, sep = ";"): HiddenPath {
   const hidden = new Set(tools.map((t) => t.toLowerCase()));
-  const keep: string[] = [];
+  const out: string[] = [];
   const removedDirs: string[] = [];
+  const shims: string[] = [];
   for (const dir of pathValue.split(sep).filter(Boolean)) {
     // Compare directory listings instead of existsSync: App Execution Aliases
     // (WindowsApps\winapp.exe) are reparse points that stat() can't follow.
-    let names: Set<string>;
-    try { names = new Set(readdirSync(dir).map((n) => n.toLowerCase())); } catch { keep.push(dir); continue; }
-    const hasTool = tools.some((t) => TOOL_EXTS.some((ext) => names.has((t + ext).toLowerCase())));
-    (hasTool ? removedDirs : keep).push(dir);
-  }
-  const shims: string[] = [];
-  if (removedDirs.length) {
-    mkdirSync(shimDir, { recursive: true });
-    for (const dir of removedDirs) {
-      let names: string[] = [];
-      try { names = readdirSync(dir); } catch { continue; }
-      for (const name of names) {
-        const ext = extname(name).toLowerCase();
-        const stem = basename(name, extname(name));
-        if (!SHIM_EXTS.has(ext) || hidden.has(stem.toLowerCase())) continue;
-        const shim = join(shimDir, `${stem}.cmd`);
-        if (shims.includes(shim)) continue; // first PATH entry wins, like the shell
-        writeFileSync(shim, `@"${join(dir, name)}" %*\r\n`);
-        shims.push(shim);
-      }
+    let names: string[];
+    try { names = readdirSync(dir); } catch { out.push(dir); continue; }
+    const lower = new Set(names.map((n) => n.toLowerCase()));
+    const hasTool = tools.some((t) => TOOL_EXTS.some((ext) => lower.has((t + ext).toLowerCase())));
+    if (!hasTool) { out.push(dir); continue; }
+
+    const slot = join(shimDir, String(removedDirs.length));
+    removedDirs.push(dir);
+    const written = new Set<string>();
+    for (const name of names) {
+      const ext = extname(name).toLowerCase();
+      const stem = basename(name, extname(name));
+      if (!SHIM_EXTS.has(ext) || hidden.has(stem.toLowerCase()) || written.has(stem.toLowerCase())) continue;
+      if (written.size === 0) mkdirSync(slot, { recursive: true });
+      const shim = join(slot, `${stem}.cmd`);
+      writeFileSync(shim, `@"${join(dir, name)}" %*\r\n`);
+      written.add(stem.toLowerCase());
+      shims.push(shim);
     }
+    if (written.size > 0) out.push(slot);
   }
-  return { path: [shimDir, ...keep].join(sep), removedDirs, shims };
+  return { path: out.join(sep), removedDirs, shims };
 }
 
 const PROJECT_FILE = /\.(csproj|vbproj|fsproj|vcxproj|sln|slnx)$/i;

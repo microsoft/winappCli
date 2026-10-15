@@ -2,6 +2,25 @@ import type { RunEntry } from "../types.js";
 import { parseTokenString } from "./format.js";
 import { estimatePrice, type PriceEstimate } from "./pricing.js";
 
+/** Seconds in a session-time string such as "1h 2m 3s", "4m 5s" or "6s". */
+export function parseDurationText(text: string | undefined): number | undefined {
+  if (!text) return undefined;
+  const parts = [...text.matchAll(/(\d+(?:\.\d+)?)\s*([hms])/g)];
+  if (parts.length === 0) return undefined;
+  const unit = { h: 3600, m: 60, s: 1 } as const;
+  return parts.reduce((sum, [, n, u]) => sum + Number(n) * unit[u as keyof typeof unit], 0);
+}
+
+/** Inverse of parseDurationText, in the harness's session-time format. */
+export function formatDurationText(seconds: number): string {
+  const total = Math.round(seconds);
+  if (total < 60) return `${total}s`;
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m < 60) return `${m}m ${s}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m ${s}s`;
+}
+
 export interface AggregatedEntry {
   scenario: string;
   condition: string;
@@ -89,11 +108,13 @@ export function aggregateEntries(entries: RunEntry[]): AggregatedEntry[] {
     const cacheTokens = withScores.map((e) => parseTokenString(e.cachedTokens || "0")).filter((t) => t > 0);
     const avgCache = cacheTokens.length > 0 ? formatTokenCount(cacheTokens.reduce((a, b) => a + b, 0) / cacheTokens.length) : undefined;
 
-    // Average session time
-    const sessionTimes = withScores
-      .filter((e) => e.sessionTime)
-      .map((e) => e.sessionTime!);
-    const avgSession = sessionTimes.length > 0 ? sessionTimes[Math.floor(sessionTimes.length / 2)] : undefined;
+    // Average session time ("1h 2m 3s" / "4m 5s" / "6s")
+    const sessionSecs = withScores
+      .map((e) => parseDurationText(e.sessionTime))
+      .filter((s): s is number => s != null);
+    const avgSession = sessionSecs.length > 0
+      ? formatDurationText(sessionSecs.reduce((a, b) => a + b, 0) / sessionSecs.length)
+      : undefined;
 
     // Average premium requests
     const premiums = withScores.map((e) => e.premiumRequests ?? 0).filter((p) => p > 0);

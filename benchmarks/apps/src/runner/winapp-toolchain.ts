@@ -1,4 +1,6 @@
 import { spawnSync } from "child_process";
+import { existsSync } from "fs";
+import { basename, dirname, extname, join } from "path";
 
 const MIN_VERSION = [0, 6, 0] as const;
 const REQUIRED_RUN_OPTIONS = [
@@ -33,12 +35,32 @@ export interface WinAppToolchain {
 
 let cached: WinAppToolchain | null = null;
 
+/**
+ * Pick a natively spawnable executable from `where` output, in PATH order.
+ * An npm global install puts `winapp`/`winapp.cmd` wrappers first; those can't
+ * be spawned with `shell: false`, so map them to the package's bundled exe.
+ */
+export function pickNativeExecutable(candidates: string[], arch: string = process.arch): string | undefined {
+  if (process.platform !== "win32") return candidates[0];
+  const rid = arch === "arm64" ? "win-arm64" : "win-x64";
+  for (const candidate of candidates) {
+    const ext = extname(candidate).toLowerCase();
+    if (ext === ".exe") return candidate;
+    if (ext === "" || ext === ".cmd" || ext === ".ps1") {
+      const bundled = join(dirname(candidate), "node_modules", "@microsoft", "winappcli", "bin", rid, `${basename(candidate, extname(candidate))}.exe`);
+      if (existsSync(bundled)) return bundled;
+    }
+  }
+  return undefined;
+}
+
 function resolveExecutable(name: string): string {
   const command = process.platform === "win32" ? "where" : "which";
   const result = spawnSync(command, [name], { encoding: "utf8", shell: false });
-  const executable = result.stdout?.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-  if (result.status !== 0 || !executable) {
-    throw new Error(`${name} was not found on PATH. Run /winui-setup, then retry.`);
+  const candidates = (result.stdout ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const executable = result.status === 0 ? pickNativeExecutable(candidates) : undefined;
+  if (!executable) {
+    throw new Error(`${name} was not found on PATH${candidates.length ? ` as a native executable (found ${candidates.join(", ")})` : ""}. Run /winui-setup, then retry.`);
   }
   return executable;
 }
