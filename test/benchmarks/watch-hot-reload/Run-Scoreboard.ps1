@@ -91,6 +91,7 @@ if (-not $ReportOnly) {
                 Approach = $a.id; Title = $a.title; Journey = $j; Winapp = $cli; WinappVersion = $version
                 Env = $a.env; BuildProperties = @($a.buildProperties); Seconds = [int]$clock.Elapsed.TotalSeconds; Finished = (Get-Date -Format s)
                 XamlCompilerService = $(if ($env:WINAPP_XAML_COMPILER_SERVICE) { $env:WINAPP_XAML_COMPILER_SERVICE } elseif (Test-Path 'C:\hr-shared\xcsvc\LATEST.txt') { "LATEST.txt: $((Get-Content 'C:\hr-shared\xcsvc\LATEST.txt' -Raw).Trim())" })
+                WinUIPackage = $(if ($WinUIPackageSource) { $readme = Join-Path $WinUIPackageSource 'README.txt'; "$WinUIPackageSource$(if (Test-Path $readme) { ' (' + ((Get-Content $readme -TotalCount 1) -replace '\s+', ' ').Trim() + ')' })" })
             } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $dir 'meta.json')
         }
     }
@@ -126,6 +127,7 @@ foreach ($a in $reportApproaches) {
         $state = @($ui | Where-Object { $_.State })
         $cells.Add([pscustomobject]@{
             Approach = $a.id; Journey = $j; Status = 'ran'; Run = $run.FullName; WinappVersion = $meta.WinappVersion; Seconds = $meta.Seconds
+            WinUIPackage = $(if ($meta.WinUIPackage) { $meta.WinUIPackage } else { '(not recorded)' }); XamlCompilerService = $(if ($meta.XamlCompilerService) { $meta.XamlCompilerService } else { '(not recorded)' })
             Saves = $rows.Count
             Live = @($rows | Where-Object { $_.Outcome -in 'applied', 'unchanged' }).Count
             Waiting = @($rows | Where-Object Outcome -eq 'waiting').Count
@@ -150,11 +152,16 @@ $ids = @($reportApproaches.id)
 $md = [System.Collections.Generic.List[string]]::new()
 $md.Add("# Hot reload scoreboard ($(Get-Date -Format 'yyyy-MM-dd HH:mm'))")
 $md.Add('')
-$md.Add('Approaches: ' + ((@($reportApproaches | ForEach-Object {
-    $id = $_.id
-    $v = (@($cells | Where-Object { $_.Approach -eq $id -and $_.WinappVersion } | ForEach-Object WinappVersion | Sort-Object -Unique) -join ', ')
-    "**$id** $($_.title)$(if ($v) { " (winapp $v)" })"
-})) -join '; ') + '.')
+$md.Add('Approaches: ' + ((@($reportApproaches | ForEach-Object { "**$($_.id)** $($_.title)" })) -join '; ') + '.')
+$md.Add('')
+$md.Add('Stack each approach ran on (every distinct combination its runs used):')
+$md.Add('')
+$md.Add('| Approach | winapp (build @ commit) | WinUI package | XAML compiler per save |')
+$md.Add('|---|---|---|---|')
+foreach ($id in $ids) {
+    $stacks = @($cells | Where-Object { $_.Approach -eq $id -and $_.Status -eq 'ran' } | ForEach-Object { "$($_.WinappVersion) | $($_.WinUIPackage) | $($_.XamlCompilerService)" } | Sort-Object -Unique)
+    foreach ($s in $stacks) { $md.Add("| $id | $s |") }
+}
 $md.Add('')
 $md.Add('Cell: live/restart/error saves · UI checks passed/total · parity differences · state kept/checked · notes winapp printed. `-` = not run.')
 $md.Add('')
