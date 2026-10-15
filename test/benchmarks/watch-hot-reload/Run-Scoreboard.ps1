@@ -40,6 +40,7 @@ param(
     [switch]$NoDesktopLock
 )
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'WatchJourney.psm1') -Force
 $board = Get-Content $Config -Raw | ConvertFrom-Json
 $approaches = @($board.approaches | Where-Object { -not $Approach -or $_.id -in $Approach })
 if (-not $approaches) { throw "No approach matches '$($Approach -join ', ')'. Known: $(@($board.approaches.id) -join ', ')." }
@@ -90,7 +91,7 @@ if (-not $ReportOnly) {
             [pscustomobject]@{
                 Approach = $a.id; Title = $a.title; Journey = $j; Winapp = $cli; WinappVersion = $version
                 Env = $a.env; BuildProperties = @($a.buildProperties); Seconds = [int]$clock.Elapsed.TotalSeconds; Finished = (Get-Date -Format s)
-                XamlCompilerService = $(if ($env:WINAPP_XAML_COMPILER_SERVICE) { $env:WINAPP_XAML_COMPILER_SERVICE } elseif (Test-Path 'C:\hr-shared\xcsvc\LATEST.txt') { "LATEST.txt: $((Get-Content 'C:\hr-shared\xcsvc\LATEST.txt' -Raw).Trim())" })
+                XamlCompilerService = $(if ($a.env.WINAPP_HOT_RELOAD_PIPELINE -eq 'rewrite') { 'none (rewrite path)' } elseif ($env:WINAPP_XAML_COMPILER_SERVICE) { $env:WINAPP_XAML_COMPILER_SERVICE } elseif (Test-Path 'C:\hr-shared\xcsvc\LATEST.txt') { "LATEST.txt: $((Get-Content 'C:\hr-shared\xcsvc\LATEST.txt' -Raw).Trim())" })
                 WinUIPackage = $(if ($WinUIPackageSource) { $readme = Join-Path $WinUIPackageSource 'README.txt'; "$WinUIPackageSource$(if (Test-Path $readme) { ' (' + ((Get-Content $readme -TotalCount 1) -replace '\s+', ' ').Trim() + ')' })" })
             } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $dir 'meta.json')
         }
@@ -140,7 +141,11 @@ foreach ($a in $reportApproaches) {
             ParityOk = @($parityChecks | Where-Object Ok).Count; ParityChecks = $parityChecks.Count
             ParityDiffs = [int](@($parityChecks | ForEach-Object { if ($null -ne $_.Diffs) { [int]$_.Diffs } elseif (-not $_.Ok) { 1 } else { 0 } }) | Measure-Object -Sum).Sum
             SameProcess = -not @($rows | Where-Object { -not $_.SameProcess })
-            Reasons = @($rows | Where-Object { $_.Outcome -in 'restart', 'error', 'waiting', 'timeout' } | ForEach-Object { [pscustomobject]@{ Action = $_.Action; Outcome = $_.Outcome; Reason = $_.Reason } })
+            # Reasons are recomputed from what winapp printed, so a better reader applies to old runs too. A save that said
+            # "applied" and then lost the app is listed as well.
+            Reasons = @($rows | Where-Object { $_.Outcome -in 'restart', 'error', 'waiting', 'timeout' -or $_.CrashedAfter } | ForEach-Object {
+                $outcome = if ($_.Outcome -notin 'restart', 'error', 'waiting', 'timeout') { "$($_.Outcome), then the app crashed" } else { $_.Outcome }
+                [pscustomobject]@{ Action = $_.Action; Outcome = $outcome; Reason = (Get-JourneyOutcomeReason ([string]$_.Detail) $(if ($_.CrashedAfter -and $_.Outcome -notin 'restart', 'error') { 'restart' } else { $_.Outcome })) } })
             # What winapp told the developer alongside a save (D's "shows X here but Y after a restart", say).
             Notes = @($rows | ForEach-Object { $action = $_.Action; @([string]$_.Detail -split "`n" | Where-Object { $_ -match '^\s+note:' }) | ForEach-Object { [pscustomobject]@{ Action = $action; Note = (($_ -replace '^\s+note:\s*', '') -replace '\s*\(\d+ ms\)\s*$', '') } } })
             Saves_ = @($rows | ForEach-Object { [pscustomobject]@{ Kind = $(if ($_.Kind) { $_.Kind } else { 'other' }); WallMs = $_.WallMs; Ms = $_.Ms; Outcome = $_.Outcome } })
