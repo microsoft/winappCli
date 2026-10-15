@@ -569,7 +569,8 @@ internal static class XamlReload
     {
         foreach (var (uri, xbf) in applied)
         {
-            if (!errors.Any(e => e.StartsWith(uri + ":", StringComparison.OrdinalIgnoreCase) || e.StartsWith(uri + "(", StringComparison.OrdinalIgnoreCase)))
+            // Only a parse error (it names a position) is the markup's fault; a constructor that throws is the code's.
+            if (!errors.Any(e => e.StartsWith(uri + "(", StringComparison.OrdinalIgnoreCase)))
             {
                 s_goodXbf[uri] = xbf;
                 continue;
@@ -1560,7 +1561,9 @@ internal static class XamlReload
         try
         {
             ClearErrorInfo();
-            if (frame.CurrentSourcePageType != page.GetType())
+            // An earlier re-creation failed after stepping to the placeholder: the page's entry is still on the back stack.
+            var onPlaceholder = OnPlaceholder(frame, page.GetType());
+            if (!onPlaceholder && frame.CurrentSourcePageType != page.GetType())
             {
                 // Shown without navigating (kept from a rebuilt window): there is no entry to go back to, so the new
                 // instance takes its place directly.
@@ -1570,7 +1573,7 @@ internal static class XamlReload
                 return;
             }
             var forward = frame.ForwardStack.ToList();
-            if (!frame.Navigate(typeof(Page), null, new SuppressNavigationTransitionInfo()))
+            if (!onPlaceholder && !frame.Navigate(typeof(Page), null, new SuppressNavigationTransitionInfo()))
             {
                 return;
             }
@@ -1588,11 +1591,34 @@ internal static class XamlReload
             {
                 frame.Content = page;
             }
+            if (OnPlaceholder(frame, page.GetType()))
+            {
+                // The frame's current entry is still the placeholder: when the app navigates on from here, the page's own
+                // entry goes back to the top of the back stack, so going back shows the page rather than an empty one.
+                frame.Navigated -= LeavePlaceholder;
+                frame.Navigated += LeavePlaceholder;
+            }
             ReportError(Describe(ex, ClassUris.GetValueOrDefault(page.GetType().FullName!), page.GetType().Name));
         }
         finally
         {
             frame.NavigationFailed -= handled;
+        }
+    }
+
+    /// <summary>Whether the frame's current entry is the re-creation placeholder, with <paramref name="type"/>'s entry below it.</summary>
+    private static bool OnPlaceholder(Frame frame, Type type) =>
+        frame.CurrentSourcePageType == typeof(Page) && frame.Content?.GetType() == type &&
+        frame.BackStack.Count > 0 && frame.BackStack[^1].SourcePageType == type;
+
+    private static void LeavePlaceholder(object sender, NavigationEventArgs e)
+    {
+        var frame = (Frame)sender;
+        frame.Navigated -= LeavePlaceholder;
+        // A new navigation put the placeholder's entry on the back stack, above the page's.
+        if (e.NavigationMode == NavigationMode.New && frame.BackStack.Count > 1 && frame.BackStack[^1].SourcePageType == typeof(Page))
+        {
+            frame.BackStack.RemoveAt(frame.BackStack.Count - 1);
         }
     }
 
