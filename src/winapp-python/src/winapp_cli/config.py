@@ -14,8 +14,10 @@ from packaging.version import InvalidVersion, Version
 from .dependencies import edit_pyproject, read_pyproject
 from .errors import WinappError
 from .paths import local_path, unique_paths, winmd_path
+from .python_runtime import validate_catalog_version
 
 CONFIG_TABLE = "tool.winapp.python-bindings"
+IDENTITY_CONFIG_TABLE = "tool.winapp.python-identity"
 DEFAULT_PACKAGE = "winapp_bindings"
 BindingScope = Literal["default", "types"]
 
@@ -167,6 +169,38 @@ def load_config(project: Path) -> BindingsConfig:
     if config is None:
         raise WinappError(f"Missing [{CONFIG_TABLE}] in {local_path(project) / 'pyproject.toml'}.")
     return config
+
+
+def load_identity_catalog_version(project: Path) -> str | None:
+    document = read_pyproject(project)
+    tool = document.get("tool", {})
+    if not isinstance(tool, dict):
+        raise WinappError("[tool] in pyproject.toml must be a TOML table.")
+    winapp = tool.get("winapp", {})
+    if not isinstance(winapp, dict):
+        raise WinappError("[tool.winapp] in pyproject.toml must be a TOML table.")
+    settings = winapp.get("python-identity", {})
+    if not isinstance(settings, dict):
+        raise WinappError(f"[{IDENTITY_CONFIG_TABLE}] must be a TOML table.")
+    unknown = settings.keys() - {"uv-catalog-version"}
+    if unknown:
+        raise WinappError(f"Unknown [{IDENTITY_CONFIG_TABLE}] setting(s): {', '.join(sorted(unknown))}.")
+    if "uv-catalog-version" not in settings:
+        return None
+    return validate_catalog_version(settings["uv-catalog-version"])
+
+
+def record_identity_catalog_version(project: Path, version: str) -> None:
+    version = validate_catalog_version(version)
+
+    def update(document) -> None:
+        if load_identity_catalog_version(project) is not None:
+            raise WinappError("The Python identity catalog configuration changed during selection; retry.")
+        settings = document.setdefault("tool", tomlkit.table()).setdefault("winapp", tomlkit.table())
+        table = settings.setdefault("python-identity", tomlkit.table())
+        table["uv-catalog-version"] = version
+
+    edit_pyproject(project, update)
 
 
 def set_codegen_version(project: Path, version: Version) -> BindingsConfig:

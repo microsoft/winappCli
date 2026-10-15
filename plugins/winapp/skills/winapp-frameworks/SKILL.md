@@ -138,6 +138,7 @@ Windows integration guidance:
 
 Python guide:
 - [Setup, Windows API bindings, identity and packaging](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md)
+- [Identity runtime catalog selection and updates](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#runtime-catalog-pinning)
 - [Unpackaged WinUI counter and picker](https://github.com/microsoft/WinAppCli/blob/main/samples/python-winui/README.md): Bootstrap plus ordinary `run`; do not add `--identity` for this sample.
 
 ## Debugging by framework

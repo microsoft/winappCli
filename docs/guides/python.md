@@ -134,13 +134,28 @@ The name depends on the manifest and publisher. The runner prepares a private Py
 
 This is a development workflow, not a distributable Python application.
 
+### Runtime catalog pinning
+
+The first `run --identity` preparation records a concrete uv release in your project's `pyproject.toml`. It uses that release's Python Build Standalone (PBS) download catalog to find a runtime matching the project interpreter's exact Python version, architecture and build variant (regular, free-threaded or debug). uv does not need to be installed.
+
+```toml
+[tool.winapp.python-identity]
+uv-catalog-version = "0.13.1"
+```
+
+The version above is an example, not a required default. Without a recorded version, the runner checks the latest official uv release and records it only after verifying that the release is immutable and its catalog contains a matching runtime. Commit the resulting configuration so other developers and CI use the same catalog.
+
+With a configured version, the runner uses only that release. Invalid settings, inaccessible releases and missing exact Python matches fail rather than selecting a different release or interpreter. To select another catalog, set this field to an exact [uv release](https://github.com/astral-sh/uv/releases) marked **Immutable**. Remove only the field to select and record the latest release on the next identity run; do not set it to `"latest"`.
+
+An unchanged prepared identity reuses its runtime without querying releases or downloading the catalog. Changing the catalog version rechecks the selected PBS package: an identical build and SHA-256 reuse the environment; a different package rebuilds only the owned private environment. Ordinary `run`, `init`, `restore` and `update` do not select or advance this catalog pin.
+
 ## 6. Clean up development identity
 
 ```powershell
 winapp-py identity clear
 ```
 
-This unregisters the development package and removes its private environment, while preserving `.venv`, bindings, project files and application data.
+This unregisters the development package and removes its private environment, while preserving `.venv`, bindings, the catalog pin in `pyproject.toml`, other project files and application data.
 
 ## 7. Package as MSIX
 
@@ -196,6 +211,7 @@ Select `.venv\Scripts\python.exe` as the editor interpreter. Do not edit generat
 | Ordinary `run` cannot find `.venv` | Use your chosen interpreter or `uv run`; the wrapper does not create an environment during ordinary execution. |
 | DynWinRT dependency versions conflict | Remove direct generator/runtime declarations from application dependencies, then run `winapp-py generate`. |
 | No codegen version is recorded | Run `winapp-py init . --use-defaults --add-python-bindings` to record a version without resetting API selections, or `winapp-py update` to choose a new version. |
+| No unique PBS distribution matches the project Python | Choose a newer immutable uv release in `uv-catalog-version`, or use a project interpreter covered by the pinned catalog. See [runtime catalog pinning](#runtime-catalog-pinning). |
 
 ## Next steps
 

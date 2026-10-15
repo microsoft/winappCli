@@ -5,8 +5,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import tomlkit
+
 from .config import try_load_config
-from .dependencies import detect_dependencies, requirements_files, synchronize_project, validate_project_python
+from .dependencies import detect_dependencies, read_pyproject, requirements_files, synchronize_project, validate_project_python
 from .errors import WinappError
 from .generate import require_current_package
 from .paths import local_path
@@ -57,7 +59,18 @@ def dependency_inputs(
     digest.update(json.dumps({"requirements": str(source), "bindings": str(bindings)}, sort_keys=True).encode())
     for file in files:
         digest.update(str(file).encode())
-        digest.update(file.read_bytes())
+        if file == pyproject:
+            document = read_pyproject(project)
+            tool = document.get("tool", {})
+            winapp = tool.get("winapp", {})
+            winapp.pop("python-identity", None)
+            if not winapp:
+                tool.pop("winapp", None)
+            if not tool:
+                document.pop("tool", None)
+            digest.update(tomlkit.dumps(document).encode("utf-8"))
+        else:
+            digest.update(file.read_bytes())
     return source, bindings, digest.hexdigest()
 
 

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from packaging.version import Version
 
-from winapp_cli.config import set_codegen_version
+from winapp_cli.config import record_identity_catalog_version, set_codegen_version
 from winapp_cli import identity_environment as environment
 from winapp_cli.errors import WinappError
 from winapp_cli.generate import generate
@@ -51,6 +51,24 @@ class IdentityEnvironmentTests(ProjectTest):
         )
         before = environment.dependency_inputs(self.project, None, self.info)[2]
         configuration.write_text(configuration.read_text().replace("1.8.260416003", "2.5.1"), encoding="utf-8")
+        self.assertNotEqual(before, environment.dependency_inputs(self.project, None, self.info)[2])
+
+    def test_catalog_pin_changes_do_not_masquerade_as_dependency_changes(self):
+        record_identity_catalog_version(self.project, "0.13.1")
+        source = self.project / "pyproject.toml"
+        before = environment.dependency_inputs(self.project, None, self.info)[2]
+        source.write_text(source.read_text().replace("0.13.1", "0.13.2"), encoding="utf-8")
+        self.assertEqual(before, environment.dependency_inputs(self.project, None, self.info)[2])
+        source.write_text(
+            source.read_text() + '\n[tool.other]\nsetting = "changed"\n', encoding="utf-8",
+        )
+        self.assertNotEqual(before, environment.dependency_inputs(self.project, None, self.info)[2])
+
+    def test_project_metadata_dates_remain_valid_fingerprint_inputs(self):
+        source = self.project / "pyproject.toml"
+        source.write_text('[tool.other]\ncreated = 2026-10-15T12:00:00Z\n', encoding="utf-8")
+        before = environment.dependency_inputs(self.project, None, self.info)[2]
+        source.write_text(source.read_text().replace("12:00", "13:00"), encoding="utf-8")
         self.assertNotEqual(before, environment.dependency_inputs(self.project, None, self.info)[2])
 
     def test_remote_or_outside_requirements_include_is_rejected(self):

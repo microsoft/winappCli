@@ -169,7 +169,89 @@ class RuntimeTests(ProjectTest):
     def test_catalog_network_error_is_not_a_version_fallback(self):
         with patch.object(runtime, "urlopen", side_effect=OSError("network offline")):
             with self.assertRaisesRegex(WinappError, "network offline"):
+                runtime.resolve_distribution(self.info, catalog_version="0.13.1")
+
+    def release(self, **overrides):
+        return {"tag_name": "0.13.1", "immutable": True, "draft": False,
+                "prerelease": False, **overrides}
+
+    def test_latest_release_is_resolved_to_an_immutable_concrete_version(self):
+        payload = json.dumps(self.release()).encode()
+        with patch.object(runtime, "urlopen", return_value=io.BytesIO(payload)) as fetch:
+            self.assertEqual(runtime.resolve_catalog_version(), "0.13.1")
+        self.assertEqual(fetch.call_args.args[0].full_url, runtime.UV_RELEASES_URL + "/latest")
+
+    def test_explicit_release_does_not_query_latest(self):
+        payload = json.dumps(self.release(tag_name="0.13.0")).encode()
+        with patch.object(runtime, "urlopen", return_value=io.BytesIO(payload)) as fetch:
+            self.assertEqual(runtime.resolve_catalog_version("0.13.0"), "0.13.0")
+        self.assertEqual(fetch.call_args.args[0].full_url, runtime.UV_RELEASES_URL + "/tags/0.13.0")
+        fetch.assert_called_once()
+
+    def test_mutable_draft_prerelease_and_mismatched_releases_are_rejected(self):
+        for overrides in (
+            {"immutable": False}, {"immutable": 1}, {"immutable": None},
+            {"draft": True}, {"prerelease": True}, {"tag_name": "0.13.2"},
+        ):
+            with self.subTest(overrides=overrides):
+                payload = json.dumps(self.release(**overrides)).encode()
+                with patch.object(runtime, "urlopen", return_value=io.BytesIO(payload)) as fetch:
+                    with self.assertRaisesRegex(WinappError, "immutable"):
+                        runtime.resolve_catalog_version("0.13.1")
+                fetch.assert_called_once()
+
+    def test_catalog_versions_must_be_exact_stable_tags_not_urls_or_constraints(self):
+        for version in ("latest", "main", "v0.13.1", "0.13", "0.13.1rc1", "0.13.1/../main",
+                        " 0.13.1", "0.13.1 ", "00.13.1", ">=0.13.1", None, 13, True):
+            with self.subTest(version=version):
+                with self.assertRaisesRegex(WinappError, "exact uv release"):
+                    runtime.validate_catalog_version(version)
+
+    def test_invalid_explicit_version_is_rejected_before_network_access(self):
+        with patch.object(runtime, "urlopen") as fetch:
+            with self.assertRaises(WinappError):
+                runtime.resolve_catalog_version("main")
+        fetch.assert_not_called()
+
+    def test_catalog_is_read_from_the_selected_tag_not_main(self):
+        payload = json.dumps({"exact": self.entry()}).encode()
+        with patch.object(runtime, "urlopen", return_value=io.BytesIO(payload)) as fetch:
+            selected = runtime.resolve_distribution(self.info, catalog_version="0.13.1")
+        self.assertEqual(selected.interpreter, self.info)
+        self.assertEqual(fetch.call_args.args[0].full_url, runtime.CATALOG_URL.format(version="0.13.1"))
+
+    def test_resolution_requires_a_selected_catalog_without_an_implicit_main_fallback(self):
+        with patch.object(runtime, "urlopen") as fetch:
+            with self.assertRaisesRegex(WinappError, "immutable uv catalog"):
                 runtime.resolve_distribution(self.info)
+        fetch.assert_not_called()
+
+    def test_invalid_or_oversized_release_metadata_fails_explicitly(self):
+        for payload in (b"[]", b"invalid json", b"\xff", b"{}"):
+            with self.subTest(payload=payload):
+                with patch.object(runtime, "urlopen", return_value=io.BytesIO(payload)):
+                    with self.assertRaises(WinappError):
+                        runtime.resolve_catalog_version()
+        with (
+            patch.object(runtime, "MAX_RELEASE_BYTES", 4),
+            patch.object(runtime, "urlopen", return_value=io.BytesIO(b'{"larger":true}')),
+            self.assertRaisesRegex(WinappError, "supported size"),
+        ):
+            runtime.resolve_catalog_version()
+
+    def test_catalog_size_limit_remains_enforced_for_pinned_releases(self):
+        with (
+            patch.object(runtime, "MAX_CATALOG_BYTES", 4),
+            patch.object(runtime, "urlopen", return_value=io.BytesIO(b'{"larger":true}')),
+            self.assertRaisesRegex(WinappError, "supported size"),
+        ):
+            runtime.resolve_distribution(self.info, catalog_version="0.13.1")
+
+    def test_release_network_error_is_not_a_fallback_to_another_version(self):
+        with patch.object(runtime, "urlopen", side_effect=OSError("rate limited")) as fetch:
+            with self.assertRaisesRegex(WinappError, "rate limited"):
+                runtime.resolve_catalog_version("0.13.1")
+        fetch.assert_called_once()
 
     def test_extracts_entire_runtime_and_preserves_license(self):
         archive = self.archive([

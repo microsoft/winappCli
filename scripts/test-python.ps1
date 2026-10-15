@@ -413,6 +413,17 @@ types = ["Windows.Foundation.Uri"]
         if ($record.interpreter.version -ne $expectedVersion -or $record.state -ne 'ready') {
             throw "PBS ownership record does not contain the selected interpreter and ready state."
         }
+        $catalogPinProbe = @'
+from pathlib import Path
+import sys, tomllib
+document = tomllib.loads((Path(sys.argv[1]) / "pyproject.toml").read_text(encoding="utf-8-sig"))
+print(document["tool"]["winapp"]["python-identity"]["uv-catalog-version"])
+'@
+        $catalogVersion = (& $identityPython -c $catalogPinProbe $identityProject).Trim()
+        if ($LASTEXITCODE -ne 0 -or $catalogVersion -notmatch '^\d+\.\d+\.\d+$' -or
+            $record.catalog_version -ne $catalogVersion) {
+            throw "Identity preparation did not persist its concrete uv catalog version in project configuration."
+        }
         $again = & $identityPython -m winapp_cli run --identity --project $identityProject `
             identity_probe.py -- from-ci 2> $identityStderr
         $reuseDiagnostics = @(Get-Content -LiteralPath $identityStderr)
@@ -429,7 +440,8 @@ types = ["Windows.Foundation.Uri"]
             $reused[0].process_image -ne $identified[0].process_image -or
             $reused[0].python_version -ne $expectedVersion -or $reused[0].host -ne 'example.com' -or
             @($reused[0].arguments).Count -ne 1 -or $reused[0].arguments[0] -ne 'from-ci' -or
-            $reusedRecord.owner -ne $record.owner -or $reusedRecord.state -ne 'ready') {
+            $reusedRecord.owner -ne $record.owner -or $reusedRecord.state -ne 'ready' -or
+            $reusedRecord.catalog_version -ne $catalogVersion) {
             throw "Reused PBS identity changed ownership or did not preserve script output: $again"
         }
         $quietIdentity = & $identityPython -m winapp_cli -q run --identity --project $identityProject `
@@ -472,6 +484,10 @@ types = ["Windows.Foundation.Uri"]
         if (-not (Test-Path -LiteralPath $identityPython) -or
             (Test-Path -LiteralPath (Join-Path $identityProject '.winapp\python-identity'))) {
             throw "PBS cleanup removed the ordinary venv or left the private runtime."
+        }
+        $remainingCatalogVersion = (& $identityPython -c $catalogPinProbe $identityProject).Trim()
+        if ($LASTEXITCODE -ne 0 -or $remainingCatalogVersion -ne $catalogVersion) {
+            throw "Identity cleanup changed or removed the project's uv catalog pin."
         }
         $identityName = $null
 

@@ -57,6 +57,8 @@ Pass a project directory to target it explicitly. Interactive init without a dir
 
 For Python scripts, interpreter selection and identity-preparation status go to stderr. The script's stdout, stderr and exit code pass through unchanged, so `winapp-py run .\app.py > output.json` keeps wrapper status out of the output file.
 
+See [runtime catalog pinning](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#runtime-catalog-pinning) for the project setting that controls identity runtime selection and updates.
+
 **Shared Windows tools:**
 
 | Command | What it does |
