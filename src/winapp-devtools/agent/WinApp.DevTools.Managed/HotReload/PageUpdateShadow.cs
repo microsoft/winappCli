@@ -56,11 +56,12 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
             Height = page.ActualHeight > 0 ? page.ActualHeight : xamlRoot.Size.Height,
             IsTabStop = false,
         };
-        var popup = new Popup { XamlRoot = xamlRoot, Child = host, Opacity = 0, IsHitTestVisible = false, ShouldConstrainToRootBounds = true };
+        var (open, close) = Host(xamlRoot, host);
         Page? shadow = null;
+        var loadedAt = 0L;
         try
         {
-            popup.IsOpen = true;
+            open();
             if (!host.Navigate(page.GetType(), parameter, new SuppressNavigationTransitionInfo()) || host.Content is not Page created)
             {
                 update.Note($"{name}: not compared with a fresh copy: navigating a new instance failed");
@@ -73,6 +74,7 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
                 update.Note($"{name}: not compared with a fresh copy: it didn't load within {LoadTimeout.TotalSeconds:0} s");
                 return;
             }
+            loadedAt = clock.ElapsedMilliseconds;
             var (live, fresh) = await SettledAsync(page, shadow, dispatcher);
             var liveData = PageData.Take(page, getters: true);
             var freshData = PageData.Take(shadow, getters: true);
@@ -100,17 +102,50 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
                 }
             }
             host.Content = null;
-            popup.IsOpen = false;
-            popup.Child = null;
+            close();
             // A copy that took focus as it loaded gives it back.
-            if (focused is not null && !ReferenceEquals(FocusManager.GetFocusedElement(xamlRoot), focused))
+            var focusMoved = focused is not null && !ReferenceEquals(FocusManager.GetFocusedElement(xamlRoot), focused);
+            if (focusMoved)
             {
-                focused.Focus(FocusState.Programmatic);
+                focused!.Focus(FocusState.Programmatic);
             }
-            HotReloadAgent.Log($"shadow: compared {name} with a fresh copy in {clock.ElapsedMilliseconds} ms");
+            HotReloadAgent.Log($"shadow: compared {name} with a fresh copy in {clock.ElapsedMilliseconds} ms (host {HostKind}, loaded after {loadedAt} ms, focus moved: {focusMoved})");
         }
     }
 
+    /// <summary>
+    /// Where the fresh copy loads. "popup" (default): an invisible, hit-test-invisible popup on the live page's XamlRoot,
+    /// so it sees the same window size, theme and scale and the app's tree is untouched. "window" (experiment,
+    /// WINAPP_HOT_RELOAD_SHADOW_HOST=window): a window of its own the size of the live one, shown off-screen without
+    /// being activated and left out of the task switcher.
+    /// </summary>
+    private static readonly string HostKind = Environment.GetEnvironmentVariable("WINAPP_HOT_RELOAD_SHADOW_HOST") is { Length: > 0 } kind ? kind : "popup";
+
+    private static (Action Open, Action Close) Host(XamlRoot xamlRoot, FrameworkElement host)
+    {
+        if (HostKind == "window")
+        {
+            var window = new Window { Content = host };
+            var scale = xamlRoot.RasterizationScale;
+            return (() =>
+            {
+                var app = window.AppWindow;
+                app.IsShownInSwitchers = false;
+                app.MoveAndResize(new Windows.Graphics.RectInt32(-32000, -32000, (int)(xamlRoot.Size.Width * scale), (int)(xamlRoot.Size.Height * scale)));
+                app.Show(activateWindow: false);
+            }, () =>
+            {
+                window.Content = null;
+                window.Close();
+            });
+        }
+        var popup = new Popup { XamlRoot = xamlRoot, Child = host, Opacity = 0, IsHitTestVisible = false, ShouldConstrainToRootBounds = true };
+        return (() => popup.IsOpen = true, () =>
+        {
+            popup.IsOpen = false;
+            popup.Child = null;
+        });
+    }
     /// <summary>Reads both trees until two readings in a row agree (bindings, layout and Loaded handlers are done).</summary>
     private static async Task<(Dictionary<string, (DependencyObject Element, Dictionary<string, string> Values)> Live, Dictionary<string, (DependencyObject Element, Dictionary<string, string> Values)> Fresh)> SettledAsync(Page page, Page shadow, Microsoft.UI.Dispatching.DispatcherQueue dispatcher)
     {
