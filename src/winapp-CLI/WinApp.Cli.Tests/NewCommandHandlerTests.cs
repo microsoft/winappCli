@@ -1116,7 +1116,7 @@ public class NewCommandHandlerTests : BaseCommandTests
             $"App templates should suggest 'winapp run' as the next step (it builds and launches the project). Output:\n{TestAnsiConsole.Output}");
         Assert.IsFalse(TestAnsiConsole.Output.Contains("dotnet run", StringComparison.Ordinal),
             $"App templates must not suggest 'dotnet run' now that 'winapp run' is the documented next step. Output:\n{TestAnsiConsole.Output}");
-        Assert.IsFalse(TestAnsiConsole.Output.Contains("winapp run MyApp.cs", StringComparison.Ordinal),
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("MyApp.cs", StringComparison.Ordinal),
             $"Project-based apps run from their folder; the single-file hint must not appear. Output:\n{TestAnsiConsole.Output}");
     }
 
@@ -1223,8 +1223,8 @@ public class NewCommandHandlerTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--template", "reactor-singlefile", "--name", "MyApp"]);
 
         Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
-        Assert.IsTrue(TestAnsiConsole.Output.Contains("winapp run MyApp.cs", StringComparison.Ordinal),
-            $"A single-file app only runs with its .cs path, so the next step must be 'winapp run MyApp.cs'. Output:\n{TestAnsiConsole.Output}");
+        Assert.IsTrue(TestAnsiConsole.Output.Contains("winapp run \"MyApp.cs\"", StringComparison.Ordinal),
+            $"A single-file app only runs with its .cs path, so the next step must be 'winapp run \"MyApp.cs\"'. Output:\n{TestAnsiConsole.Output}");
     }
 
     [TestMethod]
@@ -1238,7 +1238,7 @@ public class NewCommandHandlerTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--template", "reactor-singlefile", "--name", "MyApp"]);
 
         Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
-        Assert.IsTrue(TestAnsiConsole.Output.Contains("winapp run MyApp.cs", StringComparison.Ordinal),
+        Assert.IsTrue(TestAnsiConsole.Output.Contains("winapp run \"MyApp.cs\"", StringComparison.Ordinal),
             $"A scaffolded MyApp.cs with no project file is a single-file app even when the tag is cut off. Output:\n{TestAnsiConsole.Output}");
     }
 

@@ -1279,7 +1279,7 @@ internal class NewCommand : Command, IShortDescription
             }
             else if (IsSingleFileApp(entry, name, outputDir))
             {
-                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: [blue]cd \"{relative}\"[/] then [blue]winapp run {name}.cs[/].");
+                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: [blue]cd \"{relative}\"[/] then [blue]winapp run \"{name}.cs\"[/].");
             }
             else
             {
