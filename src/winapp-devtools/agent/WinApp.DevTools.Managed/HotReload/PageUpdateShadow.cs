@@ -211,15 +211,6 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
             var where = AuthoredTree.Describe(key);
             if (!fresh.TryGetValue(key, out var other))
             {
-                // Only the topmost element one side lacks: its children are missing because it is.
-                if (!fresh.ContainsKey(Parent(key)) && Parent(key).Length > 0)
-                {
-                    continue;
-                }
-                if (sameData)
-                {
-                    notes.Add($"{where} is shown here but missing after a restart");
-                }
                 continue;
             }
             foreach (var (property, value) in values)
@@ -229,7 +220,8 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
                     continue;
                 }
                 var subject = property is "Text" or "Content" ? where : $"{where}.{property}";
-                var cause = Cause(page, value, restart, liveData, freshData, early);
+                // Only text is matched with what the page holds: a count or a flag matches unrelated members.
+                var cause = property is "Text" or "Content" ? Cause(page, value, restart, liveData, freshData, early) : null;
                 if (cause is null && constructed is not null && constructed.TryGetValue(key, out var initial) &&
                     initial.Values.TryGetValue(property, out var markup) && markup == value)
                 {
@@ -251,15 +243,34 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
                 notes.Add($"{subject} shows '{value}' here but '{restart}' after a restart{(cause is null ? "" : ": " + cause)}");
             }
         }
-        foreach (var key in fresh.Keys.Where(k => !live.ContainsKey(k) && (Parent(k).Length == 0 || live.ContainsKey(Parent(k)))))
+        // Elements only one side has, the topmost of each, one note per parent. A list's items are its Items note.
+        foreach (var group in fresh.Keys.Where(k => !live.ContainsKey(k) && (Parent(k).Length == 0 || live.ContainsKey(Parent(k)))).GroupBy(Parent))
         {
-            if (sameData)
+            if (fresh.TryGetValue(group.Key, out var parent) && parent.Element is ItemsControl or ItemsRepeater)
             {
-                notes.Add($"{AuthoredTree.Describe(key)} is missing here but shown after a restart");
+                continue;
+            }
+            // Added by the constructor after InitializeComponent: in the copy as soon as it's constructed.
+            var byConstructor = constructed is not null && group.All(constructed.ContainsKey);
+            if (byConstructor || sameData)
+            {
+                notes.Add(Elements(group.ToList(), group.Key, "missing here but shown after a restart") +
+                    (byConstructor ? ": the page's constructor adds them after InitializeComponent, and reloading in place doesn't run it again" : ""));
+            }
+        }
+        foreach (var group in live.Keys.Where(k => !fresh.ContainsKey(k) && (Parent(k).Length == 0 || fresh.ContainsKey(Parent(k)))).GroupBy(Parent))
+        {
+            if (sameData && !(live.TryGetValue(group.Key, out var parent) && parent.Element is ItemsControl or ItemsRepeater))
+            {
+                notes.Add(Elements(group.ToList(), group.Key, "shown here but missing after a restart"));
             }
         }
         return notes;
     }
+
+    private static string Elements(List<string> keys, string parent, string what) => keys.Count == 1
+        ? $"{AuthoredTree.Describe(keys[0])} is {what}"
+        : $"{keys.Count} elements under {AuthoredTree.Describe(parent)} ({AuthoredTree.Describe(keys[0])} to {AuthoredTree.Describe(keys[^1])}) are {what}";
 
     private static string Parent(string key) => key.Contains('/') ? key[..key.LastIndexOf('/')] : "";
 

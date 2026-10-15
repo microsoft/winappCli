@@ -185,7 +185,7 @@ internal static class AuthoredTree
     /// <summary>"CaseLate" for a named element, "TextBlock[1] under Root" otherwise.</summary>
     public static string Describe(string key)
     {
-        if (key.StartsWith('#'))
+        if (key.StartsWith('#') && !key.Contains('/'))
         {
             return key[1..];
         }
