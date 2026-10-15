@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Runtime.InteropServices.Marshalling;
+using Microsoft.Extensions.Logging;
 using Windows.Win32.UI.Accessibility;
 
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
@@ -252,7 +253,7 @@ internal sealed partial class UiAutomationService
     /// The message for a selector that had to match one element but matched several: the count, the first
     /// five matches with a selector for each, and <paramref name="advice"/>.
     /// </summary>
-    private static string FormatAmbiguousMatches(List<IUIAutomationElement> matches, string advice)
+    private string FormatAmbiguousMatches(List<IUIAutomationElement> matches, string advice)
     {
         const int Shown = 5;
         var listing = new System.Text.StringBuilder();
@@ -270,7 +271,11 @@ internal sealed partial class UiAutomationService
                 {
                     unsafe { slug = SlugGenerator.GenerateSlugFromSafeArray(type, automationId, name, candidate.GetRuntimeId()); }
                 }
-                catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException) { }
+                catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException)
+                {
+                    // Without a runtime ID the line still names the element; the fallback text says how to get a selector.
+                    _logger.LogDebug(ex, "Could not build a slug for an ambiguous match");
+                }
                 listing.AppendLine($"  {type} \"{name}\"  -> {slug ?? "(run inspect for an exact selector)"}");
             }
             catch (System.Runtime.InteropServices.COMException)
