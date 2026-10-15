@@ -61,16 +61,28 @@ winapp ui get-property Subject -a myapp --root MailRow --type Edit --property Va
 winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value "Ready" --timeout 10000
 winapp ui invoke Open -w <dialog-HWND> --type Button
 winapp ui set-value "Text editor" "hello" -a notepad --type Document
+
+# No text selector: --type and --class-name can be the whole query
+winapp ui search --class-name CalendarSurface -a myapp
+winapp ui click --class-name CalendarSurface -a myapp
 ```
 
 These commands accept optional filters on their element selector:
-`inspect` (with a selector), `search`, `get-property`, `get-value`, `wait-for`,
+`inspect`, `search`, `get-property`, `get-value`, `wait-for`,
 `invoke`, `set-value`, `click`, `focus`, `hover`, `scroll`, `scroll-into-view`,
 `screenshot`, `record`, `touch`, and `pen`. `drag` (two selectors) and `send-keys --target` do not.
-The selector and every supplied filter must match the **same element**. Filters narrow a
-selector, so `inspect`, `screenshot`, and `record`, whose selector is optional, fail with
-`invalid_arguments` when given filters without one. For `touch` and `pen`, filters need a
-selector; they can't be combined with `--at` or `--path` (`invalid_arguments`):
+The selector and every supplied filter must match the **same element**.
+
+`--type` and `--class-name` also work without a selector. `search` lists every element
+they match. Every other command needs exactly one match and fails with
+`ambiguous_selector` otherwise. The error lists the first five matches with a slug for each;
+pass one of those slugs, or add `--root` or the other filter to narrow it. Without a
+selector, `inspect`, `screenshot`, `record`, and `focus` then act on that element instead
+of the whole window. `--root` alone is not a query: give it a selector, `--type`, or
+`--class-name`, or run `inspect <root>` to see everything inside it. `set-value` takes the
+value as its second argument, so pass `""` as the selector:
+`winapp ui set-value "" "hello" -a notepad --type Document`. For `click`, `hover`, `touch`,
+and `pen`, filters can't be combined with `--at` or `--path` (`invalid_arguments`):
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
   never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.
@@ -116,8 +128,8 @@ When filters are present, every command except `search` fails with
 `ambiguous_selector` if more than one element remains; narrow the filters or use
 a unique slug. Commands that act on the element count matches in every window
 they search, so a matching control in an owned dialog also makes the selector
-ambiguous. Exact AutomationId matches retain precedence over substring
-matches, within the filtered scope. Omitting all three options preserves the
+ambiguous. Exact AutomationId matches, then a single exact Name match, retain precedence
+over substring matches, within the filtered scope. Omitting all three options preserves the
 existing query behavior.
 
 ## Coordinating concurrent UI workflows
@@ -377,7 +389,13 @@ winapp ui search "Save" -a notepad          # find elements containing "Save"
 winapp ui search "error" -a myapp           # case-insensitive match
 ```
 
-When a text search matches multiple elements (e.g., SettingsExpander where Group, Button, and Text all share the same name), the CLI automatically picks the only invokable element. If multiple are invokable, it lists all matches with slugs.
+When a text search matches multiple elements, commands that act on one element choose in this order:
+
+1. An element whose AutomationId is exactly the text.
+2. The only element whose Name is exactly the text, ignoring case. `winapp ui click "Mail" -a myapp` clicks the element named `Mail`, not one named `Welcome to Mail`.
+3. The only invokable element (for example, in a SettingsExpander where Group, Button, and Text share the same name).
+
+If several elements are still left, the command lists them with slugs; re-run with one. `search` always lists every match.
 
 For non-invokable search results (e.g., a TextBlock inside a Button), the search
 automatically surfaces the nearest **invokable ancestor** — the parent element you can use with `invoke`.
@@ -640,9 +658,10 @@ Use `--action` when a test must perform a specific operation on exactly the sele
 element. It never tries another pattern or an invokable ancestor, even if the
 requested action fails. A control supporting both invocation and selection will
 be selected, not invoked, with `--action select`. With `--action`, a slug targets
-exactly one element; a plain-text or AutomationId selector that matches more than
-one element fails closed with a nonzero exit code rather than acting on the first
-match, so pass a slug from `inspect`/`search` when a name is ambiguous.
+exactly one element; a plain-text or AutomationId selector that still matches more
+than one element after the [exact-match preferences](#plain-text-search) fails closed
+with a nonzero exit code rather than acting on the first match, so pass a slug from
+`inspect`/`search` when a name is ambiguous.
 
 `--root`, `--type`, and `--class-name` narrow the match as described in
 [Scoped and typed queries](#scoped-and-typed-queries), with or without `--action`.
@@ -686,9 +705,14 @@ winapp ui click btn-column1-a3f2 -a myapp              # single click by slug
 winapp ui click "Column1" -a myapp                      # single click by text search
 winapp ui click btn-column1-a3f2 -a myapp --double      # double-click
 winapp ui click btn-column1-a3f2 -a myapp --right       # right-click
+winapp ui click --at 1520,780 -a myapp                  # click a screen point instead of an element
 ```
 
-> Like the other input-injecting verbs, `click` brings the target to the foreground and **fails fast** (`no_interactive_desktop` on a locked/secure desktop, `foreground_not_target` if focus couldn't be transferred) rather than clicking the wrong window. It also **re-resolves the element just before the button-down**: after positioning the cursor it does one final position check, so a continuously moving/animating target fails with **`target_moved`** instead of reporting success after the click landed on empty space — a reported success means the target was still in place when the button went down.
+**Options:**
+- `--at <x,y>` — Click this screen point (same space `winapp ui inspect` reports) instead of an element's center. Use it inside a WebView2 page, or to press one part of a control, such as the header line of an expanded tree row. It can't be combined with a selector or with `--root`/`--type`/`--class-name`. A point outside the target window still gets clicked, with a warning (`warnings[]` in `--json`).
+- `--double` / `--right` — Double-click or right-click. Both work with `--at`.
+
+> Like the other input-injecting verbs, `click` brings the target to the foreground and **fails fast** (`no_interactive_desktop` on a locked/secure desktop, `foreground_not_target` if focus couldn't be transferred) rather than clicking the wrong window. It also **re-resolves the element just before the button-down**: after positioning the cursor it does one final position check, so a continuously moving/animating target fails with **`target_moved`** instead of reporting success after the click landed on empty space — a reported success means the target was still in place when the button went down. With `--at` there is no element to re-check, so the point is used as-is.
 
 ### drag
 Press the mouse button at one point, move to another, then release with `drag <from> <to>`, where each endpoint is either an **element selector** (drags from/to the element's center) or **screen coordinates `x,y`** exactly as reported by `winapp ui inspect`. Mix and match freely (selector→selector, selector→coords, coords→coords).
@@ -770,10 +794,12 @@ winapp ui hover btn-info-a1b2 -a myapp                          # hover with def
 winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200        # longer dwell for slow tooltips
 winapp ui list-windows -a myapp                              # use the main window's HWND below
 winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -w <hwnd> --capture-screen  # hover then capture tooltip in place
+winapp ui hover --at 1520,780 -a myapp                       # hover a screen point instead of an element
 ```
 
 **Options:**
 - `--dwell-time <ms>` — Time in milliseconds to wait after hovering for effects to appear (default: 800, range: 0–10000)
+- `--at <x,y>` — Hover this screen point instead of an element's center. Same rules as [`click --at`](#click).
 
 ### send-keys
 Send synthetic keyboard input — the keyboard counterpart to `click`. UIA has no keyboard-injection pattern, so this drops to the Win32 layer. Use it for keyboard navigation (arrows, Tab, Enter, Esc), shortcuts (`ctrl+c`, `alt+f4`), and typing into controls that need per-keystroke events rather than `set-value`'s atomic write.
@@ -998,8 +1024,9 @@ UiInvokeActionResult result = await ui.InvokeAsync(target, selected, UiInvokeAct
 ```
 
 `requireUnique: true` rejects ambiguous text instead of choosing an invokable
-match. Exact AutomationId matches take precedence over name or AutomationId
-substrings; a unique name can still select a control whose AutomationId is shared.
+match. Exact AutomationId matches take precedence, then a single exact (case-insensitive)
+Name match, then name or AutomationId substrings; a unique name can still select
+a control whose AutomationId is shared.
 For an app-scoped target, that check covers all of its app/owned windows. Use
 `-w <HWND>` (or an explicit-window library target) to restrict the selection scope.
 

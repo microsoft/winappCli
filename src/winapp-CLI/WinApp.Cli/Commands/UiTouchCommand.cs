@@ -266,10 +266,10 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
                 to = toPoint;
             }
 
-            if (at is null && string.IsNullOrWhiteSpace(selectorStr))
+            if (at is null && !UiQueryOptions.HasQuery(parseResult, selectorStr))
             {
-                logger.LogError("{Symbol} Provide a target: a selector, or --at x,y.", UiSymbols.Error);
-                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, "Provide a target: a selector, or --at x,y.");
+                logger.LogError("{Symbol} Provide a target: a selector, --type, --class-name, or --at x,y.", UiSymbols.Error);
+                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, "Provide a target: a selector, --type, --class-name, or --at x,y.");
                 return 1;
             }
 
@@ -289,7 +289,7 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
 
             if (at is not null && UiQueryOptions.HasFilters(parseResult))
             {
-                return RejectInvalidArguments(parseResult, json, "--type, --root, and --class-name narrow a selector and cannot be combined with --at.");
+                return RejectInvalidArguments(parseResult, json, "--type, --root, and --class-name pick an element and cannot be combined with --at.");
             }
 
             // Missing-app check runs after all argument validation so invalid arg values return
