@@ -13,6 +13,11 @@
   DevTools, runs the journey's parity probes (clicks, typing) and reads again, then builds the source from scratch,
   launches it, does the same, and fails on any difference. -Parity Auto (the default) runs it for journeys that
   opt in ("parity": { "auto": true }); On runs it for every journey (after the last save at least); Off skips it.
+
+  Everything that launches an app runs under the desktop lock shared by sessions on this desktop
+  (C:\hr-shared\DesktopLock.ps1). An unpackaged run takes one of its shared slots; a packaged run, a journey marked
+  "desktop": "exclusive", one with a step that depends on keyboard focus ("focus"), or -ExclusiveDesktop takes the
+  whole desktop. -NoDesktopLock (implied on CI) runs without it.
 .EXAMPLE
   .\Run-WatchJourney.ps1 -Winapp ..\..\..\artifacts\cli\win-x64\winapp.exe -WinUIPackageSource <folder with a locally built Microsoft.WindowsAppSDK.WinUI .nupkg>
 #>
@@ -38,6 +43,8 @@ param(
     [string]$DesktopLockScript = 'C:\hr-shared\DesktopLock.ps1',
     # Run without the desktop lock: for CI agents and machines no other run shares (CI, TF_BUILD and GITHUB_ACTIONS imply it).
     [switch]$NoDesktopLock,
+    # Take the whole desktop even when the run could share it with other unpackaged runs.
+    [switch]$ExclusiveDesktop,
     # MSBuild properties (Name=Value) every build of the app gets, the clean parity build included (for example
     # EnableHotReloadStableConnectionIds=true for one approach on a scoreboard).
     [string[]]$BuildProperty = @()
@@ -383,7 +390,24 @@ if ($NoDesktopLock -or $env:CI -or $env:TF_BUILD -or $env:GITHUB_ACTIONS) {
     & $runVariants
 } elseif (Test-Path $DesktopLockScript) {
     . $DesktopLockScript
-    Use-HrDesktop -Owner "Run-WatchJourney $JourneyName $($Variant -join '+') (pid $PID)" -Script $runVariants
+    # One of the desktop's shared slots, unless the run needs the whole desktop: a packaged app (two runs of one package
+    # identity close each other), a journey marked "desktop": "exclusive", or a step that depends on keyboard focus or
+    # injects real input.
+    $exclusiveAsserts = @('focus')
+    $steps = @($journey.segments.actions.checkpoint.uiChecks) + @($journey.parity.probes, $journey.parity.prepare, $journey.parity.navigate) +
+        @($journey.segments.actions.checkpoint.parity | Where-Object { $_ -is [pscustomobject] } | ForEach-Object { @($_.probes, $_.prepare, $_.navigate) })
+    $realInput = @($steps | ForEach-Object { $_ } | Where-Object { $_ -and $_.assert -in $exclusiveAsserts } | ForEach-Object assert | Sort-Object -Unique)
+    $whyExclusive = if ($ExclusiveDesktop) { '-ExclusiveDesktop' }
+        elseif ($Packaging -eq 'Packaged') { 'packaged' }
+        elseif ($journey.desktop -eq 'exclusive') { 'the journey says "desktop": "exclusive"' }
+        elseif ($realInput) { "it uses $($realInput -join ', ')" }
+    $owner = "Run-WatchJourney $JourneyName $($Variant -join '+') (pid $PID)"
+    if ($whyExclusive) {
+        Write-Host "[desktop-lock] the whole desktop: $whyExclusive"
+        Use-HrDesktop -Owner $owner -Script $runVariants
+    } else {
+        Use-HrDesktop -Owner "$owner shared" -Shared -Script $runVariants
+    }
 } else {
     throw "The desktop lock script $DesktopLockScript was not found. Pass -DesktopLockScript, or -NoDesktopLock on a machine no other run shares."
 }
