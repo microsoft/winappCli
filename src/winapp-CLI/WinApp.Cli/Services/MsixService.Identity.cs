@@ -1615,31 +1615,51 @@ internal partial class MsixService
     /// list (or falls back to a cwd glob) and installs the Windows App Runtime framework packages for
     /// the given architecture. Callers gate on <c>WindowsAppSDKSelfContained</c> before calling.
     /// </summary>
-    public async Task<bool> EnsureWindowsAppRuntimeInstalledAsync(FileInfo? projectFile, string? architecture, string? framework, bool noRestore, TaskContext taskContext, PackageGraphSource? packageGraph = null, CancellationToken cancellationToken = default)
+    public async Task<bool> EnsureWindowsAppRuntimeInstalledAsync(FileInfo? projectFile, string? architecture, string? framework, bool noRestore, TaskContext taskContext, PackageGraphSource? packageGraph = null, DirectoryInfo? windowsAppSdkPackageDirectory = null, CancellationToken cancellationToken = default)
     {
-        var packageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
+        IReadOnlyList<(string Name, string Version)> expectedRuntimePackages;
+        bool referencesWindowsAppSdk;
 
-        // A framework-dependent app needs the Windows App Runtime only if it actually uses the Windows
-        // App SDK. A plain console/desktop Exe doesn't — preparing the runtime for it is wasted work and
-        // prints a noisy "could not determine runtime" warning. Skip only on a positive no-reference
-        // result; an unresolved list falls through to prep so a real WinUI app keeps its runtime.
-        //
-        // Callers that know the build's assets file pass it, which makes the graph exact. A caller that
-        // does not falls back to re-evaluating the project in the default Configuration/RID, where a
-        // Windows App SDK reference conditioned on a non-default one would be missed and prep wrongly
-        // skipped — bounded by the skip firing only on a positive no-reference result.
-        var referencesWindowsAppSdk = packageList is not null && ReferencesWindowsAppSdk(packageList);
-        if (packageList is not null && !referencesWindowsAppSdk)
+        // A C++ project that imports the Windows App SDK props (directly or from a shared .props, as
+        // packages.config projects do) names the exact package folder it built against. Its runtime MSIX is
+        // the one the app needs, so use it rather than inferring the version from a package list that may
+        // not mention the Windows App SDK at all.
+        var importedMsixDir = windowsAppSdkPackageDirectory is null
+            ? null
+            : new DirectoryInfo(Path.Join(windowsAppSdkPackageDirectory.FullName, "tools", "MSIX"));
+        if (importedMsixDir is { Exists: true })
         {
-            taskContext.AddDebugMessage(
-                $"{UiSymbols.Note} No Windows App SDK reference found; skipping Windows App Runtime preparation.");
-            return false;
+            taskContext.AddDebugMessage($"{UiSymbols.Package} Using the Windows App Runtime from the Windows App SDK the project imports: {windowsAppSdkPackageDirectory!.FullName}");
+            referencesWindowsAppSdk = true;
+            expectedRuntimePackages = await InstallWindowsAppRuntimeFromAsync(importedMsixDir, architecture, taskContext, cancellationToken);
         }
+        else
+        {
+            var packageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
 
-        // requireExactVersion:true — this unpackaged path must resolve the runtime the app was actually
-        // built against, never an unrelated cached WinAppSDK version, or the presence gate below could
-        // pass against the wrong runtime family.
-        var expectedRuntimePackages = await EnsureWindowsAppRuntimeInstalledAsync(packageList, architecture, taskContext, cancellationToken, requireExactVersion: true);
+            // A framework-dependent app needs the Windows App Runtime only if it actually uses the Windows
+            // App SDK. A plain console/desktop Exe doesn't — preparing the runtime for it is wasted work and
+            // prints a noisy "could not determine runtime" warning. Skip only on a positive no-reference
+            // result; an unresolved list falls through to prep so a real WinUI app keeps its runtime.
+            //
+            // Callers that know the build's assets file pass it, which makes the graph exact. A caller that
+            // does not falls back to re-evaluating the project in the default Configuration/RID, where a
+            // Windows App SDK reference conditioned on a non-default one would be missed and prep wrongly
+            // skipped — bounded by the skip firing only on a positive no-reference result.
+            referencesWindowsAppSdk = windowsAppSdkPackageDirectory is not null
+                || (packageList is not null && ReferencesWindowsAppSdk(packageList));
+            if (packageList is not null && !referencesWindowsAppSdk)
+            {
+                taskContext.AddDebugMessage(
+                    $"{UiSymbols.Note} No Windows App SDK reference found; skipping Windows App Runtime preparation.");
+                return false;
+            }
+
+            // requireExactVersion:true — this unpackaged path must resolve the runtime the app was actually
+            // built against, never an unrelated cached WinAppSDK version, or the presence gate below could
+            // pass against the wrong runtime family.
+            expectedRuntimePackages = await EnsureWindowsAppRuntimeInstalledAsync(packageList, architecture, taskContext, cancellationToken, requireExactVersion: true);
+        }
 
         // Callers gate on WindowsAppSDKSelfContained, so a framework-dependent app here always needs a
         // Framework + DDLM. An empty list means the exact runtime packages couldn't be located, so the
@@ -1779,6 +1799,15 @@ internal partial class MsixService
             return Array.Empty<(string, string)>();
         }
 
+        return await InstallWindowsAppRuntimeFromAsync(msixDir, architecture, taskContext, cancellationToken);
+    }
+
+    /// <summary>
+    /// Installs any missing or outdated Windows App Runtime packages from a Windows App SDK
+    /// <c>tools\MSIX</c> folder and returns the runtime package identities it describes.
+    /// </summary>
+    private async Task<IReadOnlyList<(string Name, string Version)>> InstallWindowsAppRuntimeFromAsync(DirectoryInfo msixDir, string? architecture, TaskContext taskContext, CancellationToken cancellationToken)
+    {
         var (installedCount, errorCount, runtimePackages) = await windowsAppRuntimeService.InstallWindowsAppRuntimeAsync(msixDir, taskContext, cancellationToken, architecture);
 
         if (errorCount > 0)
