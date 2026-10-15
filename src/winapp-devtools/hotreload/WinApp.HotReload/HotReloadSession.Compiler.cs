@@ -476,7 +476,9 @@ internal sealed partial class HotReloadSession
             var ids = _solution.GetDocumentIdsWithFilePath(path);
             if (ids.IsEmpty)
             {
-                changes.Add((path, text, false));
+                // A new file with no code (a dictionary's empty .g.cs) is held back like a checksum: alone, adding it is an
+                // update without changes, which breaks the next update of a method added during the session.
+                changes.Add((path, text, HasNoCode(text.ToString())));
                 continue;
             }
             var before = await _solution.GetDocument(ids[0])!.GetTextAsync(cancellationToken).ConfigureAwait(false);
@@ -532,6 +534,11 @@ internal sealed partial class HotReloadSession
 
     /// <summary>Generated text not yet in the workspace because it differs from it only in its '#pragma checksum'.</summary>
     private readonly Dictionary<string, SourceText> _checksumOnly = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether a generated file declares nothing (whitespace, comments, pragmas only).</summary>
+    internal static bool HasNoCode(string text) =>
+        CSharpSyntaxTree.ParseText(text).GetRoot() is CompilationUnitSyntax unit &&
+        unit.Members.Count == 0 && unit.Usings.Count == 0 && unit.Externs.Count == 0 && unit.AttributeLists.Count == 0;
 
     internal static bool DiffersOnlyInChecksums(string before, string after)
     {
