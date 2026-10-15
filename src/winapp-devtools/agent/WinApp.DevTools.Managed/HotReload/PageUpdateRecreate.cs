@@ -26,7 +26,8 @@ internal sealed class PageUpdateRecreate : IPageUpdateStrategy
             update.Note($"{name} isn't shown in a Frame, so it can't be re-created: it was reloaded in place and keeps its state");
             return;
         }
-        var state = UiState.Take(page.Content);
+        // Taken before the update detached the page's lists (a list without items reads no selection).
+        var state = update.StateBefore ?? UiState.Take(page.Content);
         var before = PageData.Take(page, getters: false);
         var fresh = update.Recreate();
         if (ReferenceEquals(fresh, page))
