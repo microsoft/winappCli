@@ -44,7 +44,7 @@ internal sealed partial class ProjectRunService
         // Installer directory, even though `run --aot` succeeds. Returns null when already resolvable, so
         // this is a no-op for non-AOT native packaging. Pass the argument tokens discretely (ArgumentList).
         var (exitCode, stdout, stderr) = await dotNetService.RunDotnetCommandAsync(
-            workingDir, arguments, BuildAotPublishEnvironment(), onOutputLine: null, onErrorLine: null, cancellationToken);
+            workingDir, arguments, WithPackagingReferenceTargets(BuildAotPublishEnvironment()), onOutputLine: null, onErrorLine: null, cancellationToken);
 
         if (exitCode != 0)
         {

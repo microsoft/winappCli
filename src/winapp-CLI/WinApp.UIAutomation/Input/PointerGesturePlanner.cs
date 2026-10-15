@@ -91,6 +91,22 @@ public static class PointerGesturePlanner
         int distance,
         int fingers,
         string? direction = null)
+        => PlanTouch(gesture, start, end, distance, fingers, direction, angleDegrees: 0);
+
+    /// <summary>
+    /// Same as <see cref="PlanTouch(TouchGesture, PointerPoint, PointerPoint?, int, int, string?)"/>,
+    /// with <paramref name="angleDegrees"/> setting the pinch/stretch finger axis: 0 is horizontal,
+    /// 90 is vertical, measured counter-clockwise on screen (45 runs from lower-left to upper-right).
+    /// Ignored for other gestures.
+    /// </summary>
+    public static (List<IReadOnlyList<PointerPoint>> ContactPaths, List<PointerPoint> Points, int Fingers) PlanTouch(
+        TouchGesture gesture,
+        PointerPoint start,
+        PointerPoint? end,
+        int distance,
+        int fingers,
+        string? direction,
+        double angleDegrees)
     {
         var contactPaths = new List<IReadOnlyList<PointerPoint>>();
 
@@ -112,14 +128,23 @@ public static class PointerGesturePlanner
             case TouchGesture.Stretch:
             {
                 fingers = Math.Max(2, fingers);
-                int half = Math.Max(PinchCenterGapPx + 1, distance / 2);
+                // At least 2 px beyond the center gap, so rounding at any angle can't collapse a
+                // finger's travel to zero.
+                int half = Math.Max(PinchCenterGapPx + 2, distance / 2);
 
-                // Two opposing fingers along the x-axis. Pinch converges toward the center; stretch
-                // diverges away from it.
-                var leftApart = new PointerPoint(start.X - half, start.Y);
-                var rightApart = new PointerPoint(start.X + half, start.Y);
-                var leftNear = new PointerPoint(start.X - PinchCenterGapPx, start.Y);
-                var rightNear = new PointerPoint(start.X + PinchCenterGapPx, start.Y);
+                // Two opposing fingers along the angled axis. Pinch converges toward the center;
+                // stretch diverges away from it. Screen Y grows downward, so a counter-clockwise
+                // angle subtracts from Y.
+                double radians = angleDegrees * Math.PI / 180.0;
+                double cos = Math.Cos(radians);
+                double sin = Math.Sin(radians);
+                var apart = Offset(half, cos, sin);
+                var near = Offset(PinchCenterGapPx, cos, sin);
+
+                var leftApart = new PointerPoint(start.X - apart.X, start.Y - apart.Y);
+                var rightApart = new PointerPoint(start.X + apart.X, start.Y + apart.Y);
+                var leftNear = new PointerPoint(start.X - near.X, start.Y - near.Y);
+                var rightNear = new PointerPoint(start.X + near.X, start.Y + near.Y);
 
                 if (gesture == TouchGesture.Pinch)
                 {
@@ -156,6 +181,11 @@ public static class PointerGesturePlanner
 
         return (contactPaths, points, contactPaths.Count);
     }
+
+    private static PointerPoint Offset(int length, double cos, double sin)
+        => new(
+            (int)Math.Round(length * cos, MidpointRounding.AwayFromZero),
+            (int)Math.Round(-length * sin, MidpointRounding.AwayFromZero));
 
     /// <summary>
     /// Computes a swipe end point from <paramref name="start"/> by moving <paramref name="distance"/>
