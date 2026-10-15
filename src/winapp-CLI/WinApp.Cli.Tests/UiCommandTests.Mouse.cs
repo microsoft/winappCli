@@ -585,7 +585,26 @@ public partial class UiCommandTests
 
         Assert.AreEqual(1, exitCode);
         AssertJsonErrorCode("missing_selector");
-        StringAssert.Contains(ConsoleStdErr.ToString(), "--at");
+        foreach (var target in new[] { "--at", "--type", "--class-name" })
+        {
+            StringAssert.Contains(ConsoleStdErr.ToString(), target);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("click", "--type", "Button")]
+    [DataRow("hover", "--type", "Button")]
+    [DataRow("click", "--class-name", "CalendarSurface")]
+    public async Task MouseFilterOnly_TargetsTheOneMatchingElement(string verb, string option, string value)
+    {
+        _fakeUia.FindSingleResult = StableButton();
+
+        var exitCode = await InvokeMouseAtAsync(verb, [option, value, "-a", "TestApp"]);
+
+        Assert.AreEqual(0, exitCode, TestAnsiConsole.Output + ConsoleStdErr);
+        Assert.IsTrue(_fakeUia.FindSingleRequireUniqueCalls.All(unique => unique));
+        Assert.IsTrue(_fakeUia.Queries.All(q => q.Query is null && q.Slug is null));
+        Assert.AreEqual(1, _fakeMouse.ClickCalls.Count + _fakeMouse.HoverCalls.Count);
     }
 
     /// <summary>Runs click or hover with <paramref name="args"/> plus --json; hover also gets --dwell-time 0.</summary>

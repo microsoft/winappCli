@@ -108,7 +108,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
             var to = parseResult.GetValue(ToOption);
             var wheel = parseResult.GetValue(WheelOption);
 
-            if (string.IsNullOrWhiteSpace(selectorStr))
+            if (!UiQueryOptions.HasQuery(parseResult, selectorStr))
             {
                 UiErrors.MissingSelector(logger, "scroll", json);
                 return 1;
@@ -137,8 +137,8 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            // Preflight rejected a missing selector, so this is non-null by construction.
-            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            var selectorArg = parseResult.GetValue(SharedUiOptions.SelectorArgument);
+            var selectorStr = UiQueryOptions.Describe(parseResult, selectorArg);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var direction = parseResult.GetValue(DirectionOption);
@@ -148,7 +148,7 @@ internal class UiScrollCommand : Command, IShortDescription, IHelpExamples
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorArg);
                 var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
                 if (element is null)

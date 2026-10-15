@@ -25,7 +25,7 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
         "winapp ui hover --at 1520,780 -a <app>",
     ];
 
-    public string? Usage => "winapp ui hover (<selector> | --at <x,y>) (-a <app> | -w <hwnd>) [options]";
+    public string? Usage => "winapp ui hover (<selector> | --type <type> | --class-name <name> | --at <x,y>) (-a <app> | -w <hwnd>) [options]";
 
     public static Option<string?> AtOption { get; } = new("--at")
     {
@@ -96,8 +96,9 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            // Preflight required exactly one of a selector or a valid --at point.
-            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            // Preflight required either an element query or a valid --at point, not both.
+            var selectorArg = parseResult.GetValue(SharedUiOptions.SelectorArgument);
+            var selectorStr = UiQueryOptions.Describe(parseResult, selectorArg);
             var atStr = parseResult.GetValue(AtOption);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
@@ -128,7 +129,7 @@ internal class UiHoverCommand : Command, IShortDescription, IHelpExamples
                     return 0;
                 }
 
-                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorArg);
                 var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
 
                 if (element is null)

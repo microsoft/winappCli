@@ -109,13 +109,13 @@ internal partial class UiInspectCommand : Command, IShortDescription, IHelpExamp
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                if (selector is not null)
+                if (selector is not null || UiQueryOptions.HasElementFilters(parseResult))
                 {
                     var exact = await UiQueryOptions.ResolveExactSelectorAsync(
                         parseResult, selectorParser, uiAutomation, uiTarget, selector, searchOtherWindows: false, cancellationToken);
                     if (exact is null)
                     {
-                        UiErrors.ElementNotFound(logger, selector, json, target: uiTarget);
+                        UiErrors.ElementNotFound(logger, UiQueryOptions.Describe(parseResult, selector), json, target: uiTarget);
                         return 1;
                     }
                     selector = exact.Selector!;
