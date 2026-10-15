@@ -11,6 +11,9 @@ namespace WinApp.HotReload;
 /// <summary>A diagnostic from the XAML compiler.</summary>
 internal sealed record XamlCompilerDiagnostic(bool IsError, string? Code, string? File, int Line, int Column, string? Message);
 
+/// <summary>What a reload of the compiler's inputs did (API v3): references loaded and unloaded, or everything released.</summary>
+internal sealed record XamlReloadOutput(bool Success, double ElapsedMs, IReadOnlyList<string> Added, IReadOnlyList<string> Removed, bool FullReset, IReadOnlyList<XamlCompilerDiagnostic> Diagnostics);
+
 /// <summary>What one compile produced: generated sources and .xbf, by full path in the service's output folder.</summary>
 internal sealed record XamlCompileOutput(bool Success, double ElapsedMs, bool XamlTypeInfoMayBeStale, IReadOnlyDictionary<string, string> GeneratedText,
     IReadOnlyDictionary<string, byte[]> GeneratedXbf, IReadOnlyList<XamlCompilerDiagnostic> Diagnostics);
@@ -123,7 +126,28 @@ internal sealed class XamlCompilerHost : IDisposable
     public Task<XamlCompileOutput> Pass2Async(IReadOnlyCollection<string>? files, byte[]? image, bool typeInfo, CancellationToken cancellationToken) =>
         SendAsync(new ServeRequest { Pass = 2, Files = files?.ToList(), RegenerateTypeInfo = typeInfo, LocalAssemblyImage = image is null ? null : Convert.ToBase64String(image) }, cancellationToken);
 
+    /// <summary>
+    /// API v3: the service takes a new input.json from a build of the same project (new references, new pages); unchanged
+    /// references stay loaded. Null when this compiler doesn't know the request (before v3): start it again instead.
+    /// </summary>
+    public async Task<XamlReloadOutput?> ReloadAsync(string inputJson, CancellationToken cancellationToken)
+    {
+        var response = await ExchangeAsync(new ServeRequest { Op = "reload", InputJson = inputJson }, cancellationToken).ConfigureAwait(false);
+        return response.Added is null && response.FullReset is null ? null
+            : new XamlReloadOutput(response.Success, response.ElapsedMs, response.Added ?? [], response.Removed ?? [], response.FullReset ?? false,
+                response.Diagnostics?.Select(d => new XamlCompilerDiagnostic(d.IsError, d.Code, d.File, d.Line, d.Column, d.Message)).ToList() ?? []);
+    }
+
     private async Task<XamlCompileOutput> SendAsync(ServeRequest request, CancellationToken cancellationToken)
+    {
+        var response = await ExchangeAsync(request, cancellationToken).ConfigureAwait(false);
+        return new XamlCompileOutput(response.Success, response.ElapsedMs, response.XamlTypeInfoMayBeStale,
+            response.GeneratedText ?? [],
+            (response.GeneratedXbf ?? []).ToDictionary(p => p.Key, p => Convert.FromBase64String(p.Value), StringComparer.OrdinalIgnoreCase),
+            response.Diagnostics?.Select(d => new XamlCompilerDiagnostic(d.IsError, d.Code, d.File, d.Line, d.Column, d.Message)).ToList() ?? []);
+    }
+
+    private async Task<ServeResponse> ExchangeAsync(ServeRequest request, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -149,10 +173,7 @@ internal sealed class XamlCompilerHost : IDisposable
                 {
                     continue;
                 }
-                return new XamlCompileOutput(response.Success, response.ElapsedMs, response.XamlTypeInfoMayBeStale,
-                    response.GeneratedText ?? [],
-                    (response.GeneratedXbf ?? []).ToDictionary(p => p.Key, p => Convert.FromBase64String(p.Value), StringComparer.OrdinalIgnoreCase),
-                    response.Diagnostics?.Select(d => new XamlCompilerDiagnostic(d.IsError, d.Code, d.File, d.Line, d.Column, d.Message)).ToList() ?? []);
+                return response;
             }
         }
         finally
@@ -191,6 +212,10 @@ internal sealed class XamlCompilerHost : IDisposable
     private sealed class ServeRequest
     {
         public int Id { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Op { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? InputJson { get; set; }
         public int Pass { get; set; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<string>? Files { get; set; }
@@ -218,5 +243,9 @@ internal sealed class XamlCompilerHost : IDisposable
         public Dictionary<string, string>? GeneratedText { get; set; }
         public Dictionary<string, string>? GeneratedXbf { get; set; }
         public List<ServeDiagnostic>? Diagnostics { get; set; }
+        /// <summary>Reload (API v3) only: references loaded, unloaded, and whether everything was released.</summary>
+        public List<string>? Added { get; set; }
+        public List<string>? Removed { get; set; }
+        public bool? FullReset { get; set; }
     }
 }

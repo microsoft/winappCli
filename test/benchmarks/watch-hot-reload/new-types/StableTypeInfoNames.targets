@@ -1,0 +1,47 @@
+<!--
+  SIMULATED XAML COMPILER CHANGE (hot reload, new types). XamlTypeInfo.g.cs names its activators and member accessors by
+  table index (Activate_7_MainPage, get_0_Badge_Label). A type added while the app runs shifts the indexes, so an update
+  renames those methods: the old ones become deleted methods that throw, and WinUI keeps the IXamlType it resolved
+  before (its Activator delegate points at the old method). This renames them by the type (and member) they serve, as
+  the compiler could, right after pass 2 writes the file. Import it from the app's project.
+-->
+<Project>
+  <UsingTask TaskName="WinAppStableTypeInfoNames" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <TypeInfoFile ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.Collections.Generic" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Text.RegularExpressions" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+if (!System.IO.File.Exists(TypeInfoFile)) { return true; }
+var text = System.IO.File.ReadAllText(TypeInfoFile);
+Func<string, string> clean = s => Regex.Replace(s, @"[^A-Za-z0-9]", "_");
+var types = new Dictionary<string, string>();
+foreach (Match m in Regex.Matches(text, @"_typeNameTable\[(\d+)\] = ""([^""]+)"";")) { types[m.Groups[1].Value] = clean(m.Groups[2].Value); }
+var members = new Dictionary<string, string>();
+string current = null;
+foreach (var line in text.Split('\n'))
+{
+    var c = Regex.Match(line, @"^\s*case ""([^""]+)"":");
+    if (c.Success) { current = c.Groups[1].Value; continue; }
+    var a = Regex.Match(line, @"\b(?:get|set)_(\d+)_\w+;");
+    if (a.Success && current != null) { members[a.Groups[1].Value] = clean(current); }
+}
+var renamed = Regex.Replace(text, @"\b(Activate|StaticInitializer|VectorAdd|MapAdd)_(\d+)_\w+\b",
+    m => types.ContainsKey(m.Groups[2].Value) ? m.Groups[1].Value + "_" + types[m.Groups[2].Value] : m.Value);
+renamed = Regex.Replace(renamed, @"\b(get|set)_(\d+)_\w+\b",
+    m => members.ContainsKey(m.Groups[2].Value) ? m.Groups[1].Value + "_" + members[m.Groups[2].Value] : m.Value);
+if (renamed != text)
+{
+    System.IO.File.WriteAllText(TypeInfoFile, renamed, new System.Text.UTF8Encoding(true));
+    Log.LogMessage(MessageImportance.High, "simulated compiler change: stable XamlTypeInfo method names in " + TypeInfoFile);
+}
+]]></Code>
+    </Task>
+  </UsingTask>
+  <Target Name="WinAppStableTypeInfoNames" AfterTargets="MarkupCompilePass2" Condition="'$(WINAPP_HR_STABLE_TYPEINFO_NAMES)' != '0'">
+    <WinAppStableTypeInfoNames TypeInfoFile="$(MSBuildProjectDirectory)\$(IntermediateOutputPath)XamlTypeInfo.g.cs" />
+  </Target>
+</Project>

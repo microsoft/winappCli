@@ -1,0 +1,589 @@
+{
+  "schemaVersion": "1.0",
+  "id": "real-compiler-new-types-12",
+  "title": "New types while the app runs, on the real XAML compiler path: a UserControl, a Page, a templated control, a NuGet package, a project reference",
+  "description": [
+    "Run with WINAPP_HOT_RELOAD_REAL_COMPILER=1 (the spike path). Each scenario adds a type the running app has never seen, then uses it."
+  ],
+  "app": {
+    "template": "app-template",
+    "assetsFrom": "samples/winui-app/Assets",
+    "projectFile": "TodoBench.csproj",
+    "rootNamespace": "TodoBench"
+  },
+  "setup": [
+    {
+      "id": "setup-window",
+      "title": "A window hosting a Frame",
+      "file": "MainWindow.xaml",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+          "<Window x:Class=\"TodoBench.MainWindow\" xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+          "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+          "    xmlns:local=\"using:TodoBench\" Title=\"TodoBench\">",
+          "    <Frame x:Name=\"Root\" />",
+          "</Window>"
+        ]
+      }
+    },
+    {
+      "id": "setup-window-code",
+      "title": "It navigates to MainPage",
+      "file": "MainWindow.xaml.cs",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "using Microsoft.UI.Xaml;",
+          "",
+          "namespace TodoBench;",
+          "",
+          "public sealed partial class MainWindow : Window",
+          "{",
+          "    public MainWindow()",
+          "    {",
+          "        InitializeComponent();",
+          "        Root.Navigate(typeof(MainPage));",
+          "    }",
+          "}"
+        ]
+      }
+    },
+    {
+      "id": "setup-page",
+      "title": "A page",
+      "file": "MainPage.xaml",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+          "<Page x:Class=\"TodoBench.MainPage\" xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+          "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+          "    xmlns:local=\"using:TodoBench\">",
+          "    <StackPanel x:Name=\"Panel\" Spacing=\"6\" Margin=\"16\">",
+          "        <TextBlock x:Name=\"Status\" AutomationProperties.AutomationId=\"Status\" Text=\"ready\" />",
+          "        <Button x:Name=\"NavBtn\" AutomationProperties.AutomationId=\"NavBtn\" Content=\"Navigate\" Click=\"Nav_Click\" />",
+          "        <TextBlock AutomationProperties.AutomationId=\"Plain\" Text=\"plain v1\" />",
+          "    </StackPanel>",
+          "</Page>"
+        ]
+      }
+    },
+    {
+      "id": "setup-page-code",
+      "title": "Its code-behind",
+      "file": "MainPage.xaml.cs",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "using Microsoft.UI.Xaml;",
+          "using Microsoft.UI.Xaml.Controls;",
+          "",
+          "namespace TodoBench;",
+          "",
+          "public sealed partial class MainPage : Page",
+          "{",
+          "    public MainPage()",
+          "    {",
+          "        InitializeComponent();",
+          "    }",
+          "",
+          "    private void Nav_Click(object sender, RoutedEventArgs e) => Status.Text = \"nav: none\";",
+          "}"
+        ]
+      }
+    },
+    {
+      "id": "setup-stable-ids",
+      "title": "Prototype A: stable, append-only connection IDs",
+      "file": "TodoBench.csproj",
+      "edit": {
+        "op": "replace",
+        "find": [
+          "    <UseWinUI>true</UseWinUI>"
+        ],
+        "text": [
+          "    <UseWinUI>true</UseWinUI>",
+          "    <EnableHotReloadStableConnectionIds>true</EnableHotReloadStableConnectionIds>"
+        ]
+      }
+    },
+    {
+      "id": "setup-stable-typeinfo-targets",
+      "title": "Simulated compiler change: stable XamlTypeInfo method names",
+      "file": "StableTypeInfoNames.targets",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<!--",
+          "  SIMULATED XAML COMPILER CHANGE (hot reload, new types). XamlTypeInfo.g.cs names its activators and member accessors by",
+          "  table index (Activate_7_MainPage, get_0_Badge_Label). A type added while the app runs shifts the indexes, so an update",
+          "  renames those methods: the old ones become deleted methods that throw, and WinUI keeps the IXamlType it resolved",
+          "  before (its Activator delegate points at the old method). This renames them by the type (and member) they serve, as",
+          "  the compiler could, right after pass 2 writes the file. Import it from the app's project.",
+          "-->",
+          "<Project>",
+          "  <UsingTask TaskName=\"WinAppStableTypeInfoNames\" TaskFactory=\"RoslynCodeTaskFactory\" AssemblyFile=\"$(MSBuildToolsPath)\\Microsoft.Build.Tasks.Core.dll\">",
+          "    <ParameterGroup>",
+          "      <TypeInfoFile ParameterType=\"System.String\" Required=\"true\" />",
+          "    </ParameterGroup>",
+          "    <Task>",
+          "      <Using Namespace=\"System.Collections.Generic\" />",
+          "      <Using Namespace=\"System.IO\" />",
+          "      <Using Namespace=\"System.Text.RegularExpressions\" />",
+          "      <Code Type=\"Fragment\" Language=\"cs\"><![CDATA[",
+          "if (!System.IO.File.Exists(TypeInfoFile)) { return true; }",
+          "var text = System.IO.File.ReadAllText(TypeInfoFile);",
+          "Func<string, string> clean = s => Regex.Replace(s, @\"[^A-Za-z0-9]\", \"_\");",
+          "var types = new Dictionary<string, string>();",
+          "foreach (Match m in Regex.Matches(text, @\"_typeNameTable\\[(\\d+)\\] = \"\"([^\"\"]+)\"\";\")) { types[m.Groups[1].Value] = clean(m.Groups[2].Value); }",
+          "var members = new Dictionary<string, string>();",
+          "string current = null;",
+          "foreach (var line in text.Split('\\n'))",
+          "{",
+          "    var c = Regex.Match(line, @\"^\\s*case \"\"([^\"\"]+)\"\":\");",
+          "    if (c.Success) { current = c.Groups[1].Value; continue; }",
+          "    var a = Regex.Match(line, @\"\\b(?:get|set)_(\\d+)_\\w+;\");",
+          "    if (a.Success && current != null) { members[a.Groups[1].Value] = clean(current); }",
+          "}",
+          "var renamed = Regex.Replace(text, @\"\\b(Activate|StaticInitializer|VectorAdd|MapAdd)_(\\d+)_\\w+\\b\",",
+          "    m => types.ContainsKey(m.Groups[2].Value) ? m.Groups[1].Value + \"_\" + types[m.Groups[2].Value] : m.Value);",
+          "renamed = Regex.Replace(renamed, @\"\\b(get|set)_(\\d+)_\\w+\\b\",",
+          "    m => members.ContainsKey(m.Groups[2].Value) ? m.Groups[1].Value + \"_\" + members[m.Groups[2].Value] : m.Value);",
+          "if (renamed != text)",
+          "{",
+          "    System.IO.File.WriteAllText(TypeInfoFile, renamed, new System.Text.UTF8Encoding(true));",
+          "    Log.LogMessage(MessageImportance.High, \"simulated compiler change: stable XamlTypeInfo method names in \" + TypeInfoFile);",
+          "}",
+          "]]></Code>",
+          "    </Task>",
+          "  </UsingTask>",
+          "  <Target Name=\"WinAppStableTypeInfoNames\" AfterTargets=\"MarkupCompilePass2\" Condition=\"'$(WINAPP_HR_STABLE_TYPEINFO_NAMES)' != '0'\">",
+          "    <WinAppStableTypeInfoNames TypeInfoFile=\"$(MSBuildProjectDirectory)\\$(IntermediateOutputPath)XamlTypeInfo.g.cs\" />",
+          "  </Target>",
+          "</Project>"
+        ]
+      }
+    },
+    {
+      "id": "setup-stable-typeinfo-import",
+      "title": "Imported by the app",
+      "file": "TodoBench.csproj",
+      "edit": {
+        "op": "replace",
+        "find": [
+          "</Project>"
+        ],
+        "text": [
+          "  <Import Project=\"StableTypeInfoNames.targets\" />",
+          "</Project>"
+        ]
+      }
+    },
+    {
+      "id": "setup-sidekit-project",
+      "title": "A class library with XAML controls",
+      "file": "..\\SideKit\\SideKit.csproj",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<Project Sdk=\"Microsoft.NET.Sdk\">",
+          "  <PropertyGroup>",
+          "    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>",
+          "    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>",
+          "    <Platforms>x86;x64;ARM64</Platforms>",
+          "    <RuntimeIdentifier Condition=\"'$(RuntimeIdentifier)' == ''\">win-$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>",
+          "    <UseWinUI>true</UseWinUI>",
+          "    <WinUISDKReferences>false</WinUISDKReferences>",
+          "    <EnableMsixTooling>true</EnableMsixTooling>",
+          "    <ImplicitUsings>enable</ImplicitUsings>",
+          "    <Nullable>enable</Nullable>",
+          "  </PropertyGroup>",
+          "  <ItemGroup>",
+          "    <PackageReference Include=\"Microsoft.Windows.SDK.BuildTools\" Version=\"10.0.28000.2526\" />",
+          "    <PackageReference Include=\"Microsoft.WindowsAppSDK\" Version=\"2.3.1\" />",
+          "  </ItemGroup>",
+          "</Project>"
+        ]
+      }
+    },
+    {
+      "id": "setup-sidekit-banner",
+      "title": "Its UserControl",
+      "file": "..\\SideKit\\SideBanner.xaml",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+          "<UserControl x:Class=\"SideKit.SideBanner\"",
+          "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+          "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">",
+          "    <TextBlock x:Name=\"SideBannerLabel\" AutomationProperties.AutomationId=\"SideBannerText\" Text=\"{x:Bind Message, Mode=OneWay}\" />",
+          "</UserControl>"
+        ]
+      }
+    },
+    {
+      "id": "setup-sidekit-banner-code",
+      "title": "Its code",
+      "file": "..\\SideKit\\SideBanner.xaml.cs",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "using Microsoft.UI.Xaml;",
+          "using Microsoft.UI.Xaml.Controls;",
+          "",
+          "namespace SideKit;",
+          "",
+          "public sealed partial class SideBanner : UserControl",
+          "{",
+          "    public static readonly DependencyProperty MessageProperty =",
+          "        DependencyProperty.Register(nameof(Message), typeof(string), typeof(SideBanner), new PropertyMetadata(\"\"));",
+          "",
+          "    public SideBanner()",
+          "    {",
+          "        InitializeComponent();",
+          "    }",
+          "",
+          "    public string Message",
+          "    {",
+          "        get => (string)GetValue(MessageProperty);",
+          "        set => SetValue(MessageProperty, value);",
+          "    }",
+          "}"
+        ]
+      }
+    },
+    {
+      "id": "setup-sidekit-pill",
+      "title": "Its templated control",
+      "file": "..\\SideKit\\SidePill.cs",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "using Microsoft.UI.Xaml;",
+          "using Microsoft.UI.Xaml.Controls;",
+          "",
+          "namespace SideKit;",
+          "",
+          "public sealed class SidePill : Control",
+          "{",
+          "    public static readonly DependencyProperty LabelProperty =",
+          "        DependencyProperty.Register(nameof(Label), typeof(string), typeof(SidePill), new PropertyMetadata(\"\"));",
+          "",
+          "    public SidePill()",
+          "    {",
+          "        DefaultStyleKey = typeof(SidePill);",
+          "    }",
+          "",
+          "    public string Label",
+          "    {",
+          "        get => (string)GetValue(LabelProperty);",
+          "        set => SetValue(LabelProperty, value);",
+          "    }",
+          "}"
+        ]
+      }
+    },
+    {
+      "id": "setup-sidekit-generic",
+      "title": "Its default style",
+      "file": "..\\SideKit\\Themes\\Generic.xaml",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+          "<ResourceDictionary",
+          "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+          "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+          "    xmlns:side=\"using:SideKit\">",
+          "    <Style TargetType=\"side:SidePill\">",
+          "        <Setter Property=\"Template\">",
+          "            <Setter.Value>",
+          "                <ControlTemplate TargetType=\"side:SidePill\">",
+          "                    <Border Padding=\"6\" CornerRadius=\"12\" BorderThickness=\"1\" BorderBrush=\"Gray\">",
+          "                        <TextBlock AutomationProperties.AutomationId=\"SidePillLabel\" Text=\"{TemplateBinding Label}\" />",
+          "                    </Border>",
+          "                </ControlTemplate>",
+          "            </Setter.Value>",
+          "        </Setter>",
+          "    </Style>",
+          "</ResourceDictionary>"
+        ]
+      }
+    }
+  ],
+  "dimensions": [],
+  "variants": [
+    {
+      "id": "default",
+      "primary": true,
+      "summary": "default",
+      "choices": {}
+    }
+  ],
+  "segments": [
+    {
+      "kind": "common",
+      "phase": "new-types",
+      "title": "new types",
+      "actions": [
+        {
+          "id": "n1a-usercontrol-markup",
+          "title": "New UserControl: markup first (x:Bind to a property its code adds next: the compiler rejects it, as a build would)",
+          "file": "Badge.xaml",
+          "edit": {
+            "op": "create-file",
+            "text": [
+              "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+              "<UserControl x:Class=\"TodoBench.Badge\" xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+              "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+              "    xmlns:local=\"using:TodoBench\">",
+              "    <StackPanel>",
+              "        <TextBlock x:Name=\"BadgeLabel\" AutomationProperties.AutomationId=\"BadgeText\" Text=\"{x:Bind Label, Mode=OneWay}\" />",
+              "    </StackPanel>",
+              "</UserControl>"
+            ]
+          },
+          "expect": {
+            "outcome": "error",
+            "detail": "Label"
+          }
+        },
+        {
+          "id": "n1b-usercontrol-code",
+          "title": "New UserControl: its code",
+          "file": "Badge.xaml.cs",
+          "edit": {
+            "op": "create-file",
+            "text": [
+              "using Microsoft.UI.Xaml;",
+              "using Microsoft.UI.Xaml.Controls;",
+              "",
+              "namespace TodoBench;",
+              "",
+              "public sealed partial class Badge : UserControl",
+              "{",
+              "    public static readonly DependencyProperty LabelProperty =",
+              "        DependencyProperty.Register(nameof(Label), typeof(string), typeof(Badge), new PropertyMetadata(\"\"));",
+              "",
+              "    public Badge()",
+              "    {",
+              "        InitializeComponent();",
+              "    }",
+              "",
+              "    public string Label",
+              "    {",
+              "        get => (string)GetValue(LabelProperty);",
+              "        set => SetValue(LabelProperty, value);",
+              "    }",
+              "}"
+            ]
+          },
+          "expect": {
+            "outcome": "applied"
+          }
+        },
+        {
+          "id": "n1c-usercontrol-used",
+          "title": "The new UserControl used on the page",
+          "file": "MainPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": [
+              "        <TextBlock AutomationProperties.AutomationId=\"Plain\""
+            ],
+            "text": [
+              "        <local:Badge x:Name=\"Badge1\" Label=\"badge v1\" />",
+              "        <TextBlock AutomationProperties.AutomationId=\"Plain\""
+            ]
+          },
+          "checkpoint": {
+            "id": "c-n1c-usercontrol-used",
+            "kind": "live",
+            "uiChecks": [
+              {
+                "target": "BadgeText",
+                "assert": "text-equals",
+                "value": "badge v1"
+              }
+            ]
+          },
+          "expect": {
+            "outcome": "applied"
+          }
+        },
+        {
+          "id": "n1d-usercontrol-edit",
+          "title": "The new UserControl's markup edited (its live instance re-initializes)",
+          "file": "Badge.xaml",
+          "edit": {
+            "op": "replace",
+            "find": [
+              "    <StackPanel>"
+            ],
+            "text": [
+              "    <StackPanel>",
+              "        <TextBlock AutomationProperties.AutomationId=\"BadgeStamp\" Text=\"badge markup v2\" />"
+            ]
+          },
+          "checkpoint": {
+            "id": "c-n1d-usercontrol-edit",
+            "kind": "live",
+            "uiChecks": [
+              {
+                "target": "BadgeStamp",
+                "assert": "text-equals",
+                "value": "badge markup v2"
+              },
+              {
+                "target": "BadgeText",
+                "assert": "text-equals",
+                "value": "badge v1"
+              }
+            ]
+          },
+          "expect": {
+            "outcome": "applied"
+          }
+        },
+        {
+          "id": "n2a-page-markup",
+          "title": "New Page: markup first (Click to a method its code adds next: the compiler rejects it)",
+          "file": "SecondPage.xaml",
+          "edit": {
+            "op": "create-file",
+            "text": [
+              "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+              "<Page x:Class=\"TodoBench.SecondPage\" xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+              "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+              "    xmlns:local=\"using:TodoBench\">",
+              "    <StackPanel Spacing=\"6\" Margin=\"16\">",
+              "        <TextBlock AutomationProperties.AutomationId=\"SecondTitle\" Text=\"second v1\" />",
+              "        <Button x:Name=\"BackBtn\" AutomationProperties.AutomationId=\"BackBtn\" Content=\"Back\" Click=\"Back_Click\" />",
+              "    </StackPanel>",
+              "</Page>"
+            ]
+          },
+          "expect": {
+            "outcome": "error",
+            "detail": "Back_Click"
+          }
+        },
+        {
+          "id": "n2b-page-code",
+          "title": "New Page: its code",
+          "file": "SecondPage.xaml.cs",
+          "edit": {
+            "op": "create-file",
+            "text": [
+              "using Microsoft.UI.Xaml;",
+              "using Microsoft.UI.Xaml.Controls;",
+              "",
+              "namespace TodoBench;",
+              "",
+              "public sealed partial class SecondPage : Page",
+              "{",
+              "    public SecondPage()",
+              "    {",
+              "        InitializeComponent();",
+              "    }",
+              "",
+              "    private void Back_Click(object sender, RoutedEventArgs e) => Frame.GoBack();",
+              "}"
+            ]
+          },
+          "expect": {
+            "outcome": "applied"
+          }
+        },
+        {
+          "id": "n2c-navigate",
+          "title": "MainPage navigates to it; back re-creates MainPage",
+          "file": "MainPage.xaml.cs",
+          "edit": {
+            "op": "replace",
+            "find": [
+              "Status.Text = \"nav: none\";"
+            ],
+            "text": [
+              "Frame.Navigate(typeof(SecondPage));"
+            ]
+          },
+          "checkpoint": {
+            "id": "c-n2c-navigate",
+            "kind": "live",
+            "uiChecks": [
+              {
+                "target": "NavBtn",
+                "assert": "invoke"
+              },
+              {
+                "target": "SecondTitle",
+                "assert": "text-equals",
+                "value": "second v1"
+              },
+              {
+                "target": "BackBtn",
+                "assert": "invoke"
+              },
+              {
+                "target": "NavBtn",
+                "assert": "exists"
+              },
+              {
+                "target": "BadgeText",
+                "assert": "text-equals",
+                "value": "badge v1"
+              }
+            ]
+          },
+          "expect": {
+            "outcome": "applied"
+          }
+        },
+        {
+          "id": "n2d-page-edit",
+          "title": "The new page edited while not shown; the next navigation shows it",
+          "file": "SecondPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": [
+              "Text=\"second v1\""
+            ],
+            "text": [
+              "Text=\"second v2\""
+            ]
+          },
+          "checkpoint": {
+            "id": "c-n2d-page-edit",
+            "kind": "live",
+            "uiChecks": [
+              {
+                "target": "NavBtn",
+                "assert": "invoke"
+              },
+              {
+                "target": "SecondTitle",
+                "assert": "text-equals",
+                "value": "second v2"
+              },
+              {
+                "target": "BackBtn",
+                "assert": "invoke"
+              },
+              {
+                "target": "NavBtn",
+                "assert": "exists"
+              }
+            ]
+          },
+          "expect": {
+            "outcome": "applied"
+          }
+        }
+      ]
+    }
+  ]
+}

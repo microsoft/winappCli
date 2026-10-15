@@ -594,15 +594,19 @@ internal sealed partial class HotReloadSession
             }
             else if (UseCompiler && projectChanged)
             {
-                RestartXamlCompilerWithCurrentReferences();
+                await RestartXamlCompilerWithCurrentReferencesAsync(cancellationToken).ConfigureAwait(false);
             }
             NoteNestedLibraries();
             foreach (var library in FindLibraries())
             {
                 // Newly referenced, so just built from what is saved now: its code is current and all of its markup
-                // is served as text, wherever the app's package layout stands.
+                // is served as text, wherever the app's package layout stands. On the compiler pipeline its compiled
+                // markup is served from the .pri deployed with it (request.Assemblies), as a build would merge it.
                 libraryPaths.RemoveAll(p => string.Equals(NestedProjectDirectory(p), library, StringComparison.OrdinalIgnoreCase));
-                libraryPaths.AddRange(Directory.EnumerateFiles(library, "*.xaml", SearchOption.AllDirectories).Where(IsWatched));
+                if (!UseCompiler)
+                {
+                    libraryPaths.AddRange(Directory.EnumerateFiles(library, "*.xaml", SearchOption.AllDirectories).Where(IsWatched));
+                }
             }
         }
         if (libraryPaths.FirstOrDefault(p => !p.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) && _librariesBuilt.TryGetValue(NestedProjectDirectory(p)!, out var built) &&

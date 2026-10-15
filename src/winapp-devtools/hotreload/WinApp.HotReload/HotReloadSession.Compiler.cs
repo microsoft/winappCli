@@ -152,10 +152,11 @@ internal sealed partial class HotReloadSession
     }
 
     /// <summary>
-    /// After a project file change brought new references (a package, a project): the compiler loads its references once,
-    /// so it starts again with the build's inputs and the workspace's references, and warms up again.
+    /// After a project file change brought new references (a package, a project): the compiler gets the build's inputs with
+    /// the workspace's references. The service reloads them in place (API v3: unchanged references stay loaded); an older
+    /// one starts again on them.
     /// </summary>
-    private void RestartXamlCompilerWithCurrentReferences()
+    private async Task RestartXamlCompilerWithCurrentReferencesAsync(CancellationToken cancellationToken)
     {
         if (_xaml is null || _xamlIntermediate.Length == 0)
         {
@@ -182,13 +183,25 @@ internal sealed partial class HotReloadSession
             json["ReferenceAssemblies"] = references;
             var current = Path.Combine(_markupDirectory, $"input-{DateTime.UtcNow.Ticks}.json");
             File.WriteAllText(current, json.ToJsonString());
-            var exe = XamlCompilerHost.Locate() ?? throw new InvalidOperationException("the XAML compiler service wasn't found");
-            _xaml.Dispose();
-            _xaml = XamlCompilerHost.Start(exe, current, null, _xamlIntermediate, _projectDirectory);
             // Its full compile waits for the next XAML save: by then that save's code is in, and the image it reads is current
             // (the build's assembly on disk lacks types added while the app runs).
             _xamlImageStale = true;
             _xamlFullCompilePending = true;
+            await _xamlReady.ConfigureAwait(false);
+            if (await _xaml.ReloadAsync(current, cancellationToken).ConfigureAwait(false) is { } reload)
+            {
+                if (!reload.Success)
+                {
+                    _xamlUnavailable = "the XAML compiler couldn't take the project's new references: " +
+                        string.Join("; ", reload.Diagnostics.Where(d => d.IsError).Take(3).Select(FormatXaml));
+                    return;
+                }
+                Log($"XAML compiler reloaded its references in {reload.ElapsedMs:0} ms: added {reload.Added.Count}, removed {reload.Removed.Count}{(reload.FullReset ? ", full reset" : "")}");
+                return;
+            }
+            var exe = XamlCompilerHost.Locate() ?? throw new InvalidOperationException("the XAML compiler service wasn't found");
+            _xaml.Dispose();
+            _xaml = XamlCompilerHost.Start(exe, current, null, _xamlIntermediate, _projectDirectory);
             _xamlReady = Task.CompletedTask;
             Log($"XAML compiler restarted with {references.Count} references");
         }
@@ -289,16 +302,9 @@ internal sealed partial class HotReloadSession
             return xaml.Count == 0 ? (compiled, null)
                 : (null, new SaveResult(Outcome.Restart, $"{Relative(xaml[0])}: {_xamlUnavailable ?? "the XAML compiler service isn't running"}; XAML changes take effect when the app restarts"));
         }
-        if (xaml.FirstOrDefault(p => !_xamlInputs.Contains(p)) is { } added)
+        if (await AddNewXamlAsync(xaml, cancellationToken).ConfigureAwait(false) is { } notYet)
         {
-            // A new page saved before its code-behind: a rebuild would fail the same way until the class exists.
-            var newClass = XDocument.Parse(await ReadSharedAsync(added, cancellationToken).ConfigureAwait(false)).Root?
-                .Attribute(XName.Get("Class", "http://schemas.microsoft.com/winfx/2006/xaml"))?.Value;
-            if (newClass is not null && (await Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!.GetTypeByMetadataName(newClass) is null)
-            {
-                return (null, new SaveResult(Outcome.Waiting, $"{Relative(added)}: waiting for its class {newClass} to be written", [added]));
-            }
-            return (null, new SaveResult(Outcome.Restart, $"{Relative(added)} is new since the app was built: a new XAML file takes effect when the app is rebuilt"));
+            return (null, notYet);
         }
         foreach (var path in xaml)
         {
@@ -387,6 +393,10 @@ internal sealed partial class HotReloadSession
             await UseGeneratedAsync(full, xaml, typeInfo: true, cancellationToken).ConfigureAwait(false);
         }
         await UseGeneratedAsync(pass2, xaml, typeInfo: false, cancellationToken).ConfigureAwait(false);
+        if (await AwaitingCodeBehindAsync(xaml, cancellationToken).ConfigureAwait(false) is { } waitingForCode)
+        {
+            return (null, waitingForCode);
+        }
 
         foreach (var path in xaml)
         {
