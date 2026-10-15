@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using WinApp.Cli.Commands;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Helpers;
 
@@ -91,14 +92,16 @@ internal static class PointerCommandSupport
         string action,
         string inputNoun,
         ILogger logger,
-        bool json)
+        bool json,
+        TextWriter? errorOut = null)
     {
         if (targetHwnd == 0)
         {
             logger.LogError("{Symbol} No target window could be resolved — refusing to inject {InputNoun} (it could hit the wrong window).",
                 UiSymbols.Error, inputNoun);
             UiJsonError.Emit(json, UiJsonError.CodeNoTarget,
-                $"No target window could be resolved — refusing to inject {inputNoun}. Target an app window (via --app/--window) whose element resolves to a window handle.");
+                $"No target window could be resolved — refusing to inject {inputNoun}. Target an app window (via --app/--window) whose element resolves to a window handle.",
+                errorOut: errorOut);
             return new InjectionPreparation(false, null);
         }
 
@@ -107,7 +110,8 @@ internal static class PointerCommandSupport
             logger.LogError("{Symbol} Could not read the target window rectangle — refusing to inject {InputNoun}.",
                 UiSymbols.Error, inputNoun);
             UiJsonError.Emit(json, UiJsonError.CodeNoTarget,
-                $"Could not read the target window rectangle — refusing to inject {inputNoun}.");
+                $"Could not read the target window rectangle — refusing to inject {inputNoun}.",
+                errorOut: errorOut);
             return new InjectionPreparation(false, null);
         }
 
@@ -124,9 +128,82 @@ internal static class PointerCommandSupport
                 $"({windowRect.Left},{windowRect.Top})-({windowRect.Right},{windowRect.Bottom}) — injecting anyway.";
         }
 
-        return foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, action)
+        return foregroundGuard.TryEnsureForeground(targetHwnd, logger, json, action, errorOut)
             ? new InjectionPreparation(true, outOfWindowWarning)
             : new InjectionPreparation(false, null);
+    }
+
+    /// <summary>
+    /// Preflight for verbs that act on either a selector or an explicit <c>--at x,y</c> point (click,
+    /// hover). Exactly one target must be given, and the selector filters only narrow a selector.
+    /// Returns <see langword="null"/> when valid; otherwise emits the error and returns 1.
+    /// </summary>
+    public static int? ValidateSelectorOrPoint(
+        ParseResult parseResult, Option<string?> atOption, string commandName, ILogger logger, bool json)
+    {
+        var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument);
+        var errorOut = parseResult.InvocationConfiguration.Error;
+
+        if (parseResult.GetResult(atOption) is null)
+        {
+            if (string.IsNullOrWhiteSpace(selectorStr))
+            {
+                var msg = $"A selector or --at x,y is required. Usage: {UiCommandAdvice.Command($"{commandName} <selector> -a <app>")} " +
+                          $"or {UiCommandAdvice.Command($"{commandName} --at <x,y> -a <app>")}. " +
+                          $"Use '{UiCommandAdvice.Command("search <text> -a <app>")}' to find elements.";
+                logger.LogError("{Symbol} {Message}", UiSymbols.Error, msg);
+                UiJsonError.Emit(json, UiJsonError.CodeMissingSelector, msg, errorOut: errorOut);
+                return 1;
+            }
+
+            return UiQueryOptions.Validate(parseResult, logger, json);
+        }
+
+        var atStr = parseResult.GetValue(atOption);
+        string? error = !CoordinateParser.TryParsePoint(atStr, out PointerPoint _)
+            ? $"--at must be a valid x,y pair (e.g. 100,200). Got '{atStr}'."
+            : !string.IsNullOrWhiteSpace(selectorStr)
+                ? $"Use either a selector or --at x,y, not both. Got selector '{selectorStr}' and --at {atStr}."
+                : UiQueryOptions.HasFilters(parseResult)
+                    ? "--type, --root, and --class-name narrow a selector and cannot be combined with --at."
+                    : null;
+        if (error is null)
+        {
+            return null;
+        }
+
+        logger.LogError("{Symbol} {Message}", UiSymbols.Error, error);
+        UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, error, errorOut: errorOut);
+        return 1;
+    }
+
+    /// <summary>
+    /// Readies an explicit-point mouse action inside the desktop turn: confirms the target window still
+    /// belongs to the resolved app, brings it to the foreground, then applies the same gates as touch and
+    /// pen (<see cref="TryPrepareInjection"/>). The caller injects only when the result is <c>Ok</c>.
+    /// </summary>
+    public static async Task<InjectionPreparation> PrepareExplicitPointAsync(
+        IUiAutomation uiAutomation,
+        IForegroundGuard foregroundGuard,
+        IDesktopForegroundService desktopForeground,
+        ISystemUiQuery systemQuery,
+        UiTarget uiTarget,
+        PointerPoint point,
+        string action,
+        ILogger logger,
+        bool json,
+        TextWriter? errorOut,
+        CancellationToken cancellationToken)
+    {
+        var targetHwnd = uiTarget.WindowHandle;
+        if (!DesktopTargetValidation.TryConfirmTargetWindow(
+                systemQuery, targetHwnd, uiTarget.ProcessId, logger, json, action, errorOut))
+        {
+            return new InjectionPreparation(false, null);
+        }
+
+        await SetForegroundAsync(desktopForeground, targetHwnd, cancellationToken);
+        return TryPrepareInjection(uiAutomation, foregroundGuard, targetHwnd, [point], action, "mouse input", logger, json, errorOut);
     }
 
     public static bool TryInject(Action inject, ILogger logger, bool json, TextWriter? errorOut)
