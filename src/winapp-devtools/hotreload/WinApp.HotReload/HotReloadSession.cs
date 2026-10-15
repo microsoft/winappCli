@@ -57,6 +57,8 @@ internal sealed partial class HotReloadSession
     private Solution _committed;
     private bool _newTypesOnly;
     private bool _xamlReload;
+    private readonly string? _launchTargets;
+    private readonly string[]? _launchProperties;
 
     private HotReloadSession(SessionOptions options, AgentClient agent, AdhocWorkspace workspace, ProjectId projectId, Solution solution,
         EncService enc, string baseDirectory, string[] cscArgs)
@@ -71,6 +73,8 @@ internal sealed partial class HotReloadSession
         _baseDirectory = baseDirectory;
         _cscArgs = cscArgs;
         _markupDirectory = MarkupDirectory(options.PipeName);
+        _launchTargets = File.Exists(options.TargetsFile) ? File.ReadAllText(options.TargetsFile) : null;
+        _launchProperties = File.Exists(options.CscArgsFile + ".props") ? File.ReadAllLines(options.CscArgsFile + ".props") : null;
         Directory.CreateDirectory(_markupDirectory);
         // Lets winapp tell this folder from one a killed session left behind.
         File.WriteAllText(Path.Combine(_markupDirectory, "owner.pid"), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -2189,7 +2193,8 @@ internal sealed partial class HotReloadSession
         {
             if (!_components.TryGetValue(path, out var component) || component.ClassName is null || compilation.GetTypeByMetadataName(component.ClassName) is not { } type ||
                 // Moved (a folder renamed), not deleted: the class has its markup elsewhere.
-                _components.Values.Any(c => c != component && c.ClassName == component.ClassName && File.Exists(c.XamlPath)))
+                _components.Values.Any(c => c != component && c.ClassName == component.ClassName && File.Exists(c.XamlPath)) ||
+                paths.Any(p => p.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) && File.Exists(p) && DeclaresClass(p, component.ClassName)))
             {
                 continue;
             }
@@ -2227,6 +2232,19 @@ internal sealed partial class HotReloadSession
             }
         }
         return null;
+    }
+
+    /// <summary>Whether the markup file's root declares <paramref name="className"/> (x:Class), read without parsing it.</summary>
+    private static bool DeclaresClass(string xamlPath, string className)
+    {
+        try
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(xamlPath), $@"\bx:Class\s*=\s*[""']{System.Text.RegularExpressions.Regex.Escape(className)}[""']");
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Names of the methods the app's markup calls as x:Bind functions (<c>{x:Bind local:Fmt.Shout(Name)}</c>).</summary>
@@ -2368,9 +2386,15 @@ internal sealed partial class HotReloadSession
     private async Task<string?> RefreshReferencesAsync(bool restore, IReadOnlyCollection<string> changedContent, CancellationToken cancellationToken)
     {
         var output = Path.Combine(_markupDirectory, "references.txt");
-        var built = File.Exists(_options.CscArgsFile + ".props")
-            ? File.ReadAllLines(_options.CscArgsFile + ".props").Where(line => line.Contains('=') && !line.EndsWith('=')).ToList()
-            : [];
+        // The files winapp gave this session can be gone from %TEMP% by now (a cleanup elsewhere): what they said at startup.
+        if (!File.Exists(_options.TargetsFile) && _launchTargets is not null)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_options.TargetsFile)!);
+            File.WriteAllText(_options.TargetsFile, _launchTargets);
+            File.SetLastWriteTimeUtc(_options.TargetsFile, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        }
+        var built = (File.Exists(_options.CscArgsFile + ".props") ? File.ReadAllLines(_options.CscArgsFile + ".props") : _launchProperties ?? [])
+            .Where(line => line.Contains('=') && !line.EndsWith('=')).ToList();
         if (restore)
         {
             // As the launch build restored: the configuration and runtime identifier only. The app's evaluated

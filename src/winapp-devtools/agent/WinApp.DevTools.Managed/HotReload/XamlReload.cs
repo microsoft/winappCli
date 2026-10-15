@@ -974,6 +974,32 @@ internal static class XamlReload
     /// while their code still matches their fields. After the update, an old Bindings object would run the new code
     /// against fields it never set, and stay subscribed to the view model next to the new one.
     /// </summary>
+    /// <summary>Lists detached before an update (see StopTracking), by component, with what puts them back.</summary>
+    private static readonly Dictionary<object, Action> s_detachedLists = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// After an update: lists detached for a component that wasn't rebuilt get their items back, if it's still shown (a
+    /// page the update re-created is gone, and its lists stay detached).
+    /// </summary>
+    public static void RestoreDetachedLists()
+    {
+        foreach (var (component, restore) in s_detachedLists)
+        {
+            if (component is not FrameworkElement { IsLoaded: false })
+            {
+                try
+                {
+                    restore();
+                }
+                catch (Exception ex)
+                {
+                    HotReloadAgent.Log($"{component.GetType().Name}: re-attaching its lists failed: {ex.GetBaseException().Message}");
+                }
+            }
+        }
+        s_detachedLists.Clear();
+    }
+
     public static void StopTracking(IReadOnlyCollection<string> types)
     {
         if (!Compiler || types.Count == 0)
@@ -983,8 +1009,25 @@ internal static class XamlReload
         var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
         void Stop(object component)
         {
-            if (seen.Add(component) && types.Contains(component.GetType().FullName!) &&
-                component.GetType().GetField("Bindings", InstanceMembers)?.GetValue(component) is { } bindings)
+            if (!seen.Add(component) || !types.Contains(component.GetType().FullName!))
+            {
+                return;
+            }
+            if (!s_detachedLists.ContainsKey(component))
+            {
+                // Its lists let go of their items now, while the code of their item templates still matches them: after
+                // the update a template whose bindings class was replaced recycles them into a tombstone, which throws,
+                // and the list stays subscribed to the collection it showed.
+                try
+                {
+                    s_detachedLists[component] = DetachItemsSources(component);
+                }
+                catch (Exception ex)
+                {
+                    HotReloadAgent.Log($"{component.GetType().Name}: detaching its lists failed: {ex.GetBaseException().Message}");
+                }
+            }
+            if (component.GetType().GetField("Bindings", InstanceMembers)?.GetValue(component) is { } bindings)
             {
                 try
                 {
@@ -1462,6 +1505,12 @@ internal static class XamlReload
         {
             element.Resources = new ResourceDictionary();
         }
+        if (component is UserControl { Content: not null } control)
+        {
+            // The old tree leaves before the markup builds the new one. Replaced by the load itself, it was never
+            // reported as removed, so DevTools kept listing it beside the new one.
+            control.Content = null;
+        }
     }
 
     /// <summary>
@@ -1643,7 +1692,7 @@ internal static class XamlReload
         var hosted = ReleaseHostedContent(component);
         // The lists the old tree shows let go of the collections they show: otherwise they keep listening after they're
         // gone, and a collection the replay changes (or one the app changes later) calls into them and fails.
-        var detached = DetachItemsSources(component);
+        var detached = s_detachedLists.Remove(component, out var before) ? before : DetachItemsSources(component);
         var again = false;
         try
         {
