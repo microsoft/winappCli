@@ -55,8 +55,8 @@ Drop it if:
 - The compiler, the analyzers, or `EnforceCodeStyleInBuild` already catch it.
   Style, naming, and formatting are never findings.
 
-**Never drop** a security issue, data loss, a crash, wrong output, or a broken
-install. This bar removes polish and speculation, not defects.
+**Never drop** an in-scope security issue (see the threat model in
+`security.md`), data loss, a crash, wrong output, or a broken install. This bar removes polish and speculation, not defects.
 
 **There is no quota, and zero findings is a good result.** Two precise findings
 beat eight thorough ones. Never invent one to avoid an empty report.
@@ -91,14 +91,14 @@ recommend speculative generality.
 | | |
 |---|---|
 | critical | Breaks users, corrupts data, leaks secrets, or blocks release |
-| high | Real bug, real security or UX issue, real coverage gap |
+| high | Real bug, in-scope security issue, real UX defect, or a new public command with no tests |
 | medium | Worth fixing, not a blocker |
 | low | Only if the improvement is concrete and actionable |
 
 Confidence is **high** when cause and effect are both visible in the diff,
 **medium** when one half is inferred from repo context you read, **low** when the
-pattern matches a known issue but key elements are unverifiable. Security
-findings are never suppressed for low confidence.
+pattern matches a known issue but key elements are unverifiable. In-scope
+security findings are never suppressed for low confidence.
 
 ## Re-reviews
 

@@ -568,6 +568,7 @@ $TocLabels = [ordered]@{
     "security.md"                                = "Security guidance"
     "guides/index.md"                            = "Framework guides"
     "guides/dotnet.md"                           = ".NET / WPF / WinForms"
+    "guides/dotnet-file-based.md"                = ".NET file-based apps"
     "guides/maui.md"                             = ".NET MAUI"
     "guides/cpp.md"                              = "C++ (CMake)"
     "guides/rust.md"                             = "Rust"
@@ -657,6 +658,7 @@ $tocTree = @(
     (New-TocNode "security.md")
     (New-TocNode "guides/index.md" @(
         (New-TocNode "guides/dotnet.md")
+        (New-TocNode "guides/dotnet-file-based.md")
         (New-TocNode "guides/maui.md")
         (New-TocNode "guides/cpp.md")
         (New-TocNode "guides/electron-index.md" @(

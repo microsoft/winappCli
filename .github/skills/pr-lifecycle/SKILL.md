@@ -57,8 +57,11 @@ The outcome is a clear PR and an honest readiness state, not a merge.
    safely and resolve conflicts before assessing readiness.
 4. **Review and repair.** Get independent review of the actual final diff.
    Review concrete user paths, supported released compatibility contracts and
-   meaningful performance risks, not speculative edge cases. Fix actionable
-   defects with regression tests where applicable. Explain false positives with
+   meaningful performance risks, not speculative edge cases. Fix only findings
+   that meet "What blocks a PR" in `AGENTS.md`, with regression tests where
+   applicable, and handle everything else as "Addressing review feedback"
+   describes (one-line decline, scope guard, at most two review-and-fix rounds).
+   Explain false positives with
    evidence; do not silently mark them addressed. A prior review remains useful
    only if its SHA is recorded and every subsequent delta is reviewed, or
    range-equivalence is demonstrated. A rebase alone is not proof of equivalence.
@@ -87,8 +90,10 @@ the **final feature**, not each round of agent activity:
   compatibility, dependency or performance tradeoffs. For compatibility, use
   the published-contract test in `AGENTS.md`.
 - For visual changes, capture actual before/after screenshots. For interactions,
-  use a short recording showing the relevant behavior. For nonvisual changes,
-  use textual CLI/API examples; documentation-only work needs no screenshots.
+  use a short recording showing the relevant behavior. For CLI changes, capture
+  the terminal with `scripts\capture-terminal.ps1` (a screenshot, or `-Video`
+  for multi-step flows); paste text only when capture isn't possible.
+  Documentation-only work needs no screenshots.
   Performance claims need benchmark conditions (build, hardware, workload,
   cache state and baseline) and measured results.
 - Never fabricate/decorate evidence or include secrets, personal data or other

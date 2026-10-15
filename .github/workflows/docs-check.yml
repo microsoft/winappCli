@@ -74,5 +74,6 @@ jobs:
               `This PR changes CLI commands or options but no documentation was updated.\n\n` +
               `Changed CLI files:\n${cliChanges.map(f => `  - ${f}`).join('\n')}\n\n` +
               `Please update the relevant docs under \`docs/\`, or add the \`${SKIP_LABEL}\` label ` +
-              `if no documentation changes are needed (e.g., internal refactor, bug fix with no user-facing impact).`
+              `if no documentation changes are needed (e.g., internal refactor, bug fix with no user-facing impact). ` +
+              `Do not add docs only to make this check pass.`
             );

@@ -27,11 +27,39 @@ internal static class UiErrors
         UiJsonError.Emit(json, UiJsonError.CodeMissingSelector, msg);
     }
 
-    public static void ElementNotFound(ILogger logger, string selector, bool json = false, TextWriter? errorOut = null)
+    public static void ElementNotFound(ILogger logger, string selector, bool json = false, TextWriter? errorOut = null, UiTarget? target = null)
     {
-        var msg = $"No element found matching '{selector}'. The UI may have changed — re-run '{UiCommandAdvice.Command("inspect")}' or '{UiCommandAdvice.Command("search")}' to find current elements. Prefer targeting by AutomationId (set via AutomationProperties.AutomationId in XAML) — these survive layout changes.";
+        var minimized = MinimizedWindowHint(target);
+        var msg = minimized is not null
+            ? $"No element found matching '{selector}'. {minimized}"
+            : $"No element found matching '{selector}'. The UI may have changed — re-run '{UiCommandAdvice.Command("inspect")}' or '{UiCommandAdvice.Command("search")}' to find current elements. Prefer targeting by AutomationId (set via AutomationProperties.AutomationId in XAML) — these survive layout changes.";
         logger.LogError("{Symbol} {Message}", UiSymbols.Error, msg);
-        UiJsonError.Emit(json, UiJsonError.CodeElementNotFound, $"No element found matching '{selector}'", selector, errorOut: errorOut);
+        UiJsonError.Emit(json, UiJsonError.CodeElementNotFound, $"No element found matching '{selector}'", selector,
+            errorOut: errorOut, recoveryHint: minimized);
+    }
+
+    /// <remarks>
+    /// Process-global seam: the default reads the live window state. Tests replace it to model a
+    /// minimized target without a real window, so they must not run in parallel.
+    /// </remarks>
+    internal static Func<long, bool> s_isWindowMinimized = hwnd =>
+        hwnd != 0 && Windows.Win32.PInvoke.IsIconic(new Windows.Win32.Foundation.HWND((nint)hwnd));
+
+    /// <summary>
+    /// Advice for a lookup that came back empty because the target window is minimized, or
+    /// <see langword="null"/> when it is not. Packaged apps such as Calculator expose no content
+    /// while minimized, so the fix is to restore the window rather than change the selector.
+    /// </summary>
+    public static string? MinimizedWindowHint(UiTarget? target)
+    {
+        if (target is null || target.WindowHandle == 0 || !s_isWindowMinimized(target.WindowHandle))
+        {
+            return null;
+        }
+
+        var title = string.IsNullOrEmpty(target.WindowTitle) ? "" : $" \"{target.WindowTitle}\"";
+        return $"The target window{title} (HWND {target.WindowHandle}) is minimized, and some apps hide their UI until it is restored. " +
+            $"Run '{UiCommandAdvice.Command($"focus -w {target.WindowHandle}")}' to restore it, then retry.";
     }
 
     public static void StaleElement(ILogger logger, bool json = false, TextWriter? errorOut = null)

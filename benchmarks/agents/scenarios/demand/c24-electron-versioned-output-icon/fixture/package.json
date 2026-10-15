@@ -6,7 +6,7 @@
     "dist:win": "electron-builder --win portable"
   },
   "devDependencies": {
-    "electron": "25.3.2",
+    "electron": "41.10.6",
     "electron-builder": "24.6.3"
   }
 }

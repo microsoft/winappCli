@@ -708,6 +708,11 @@ winapp manifest update-assets mylogo.png --verbose
 
 ### run
 
+To record native WinUI performance while launching, add `--profile <empty-directory>`.
+Add `--profile-mode elevated` to record startup (one UAC prompt for the recorder).
+See the [performance guide](guides/winui-performance.md) for duration/size options,
+startup coverage, detached capture, and offline analysis.
+
 Create a loose layout package from a build output folder, register it with Windows using the `Windows.Management.Deployment.PackageManager` API, and launch the application — simulating a full MSIX install for debugging. Returns the process ID for debugger attachment.
 
 `winapp run` operates in one of three modes, chosen automatically from the input:
@@ -901,12 +906,12 @@ For apps that use package identity without a generated MSIX layout, include `Pac
 - `--aot` - Run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`. Rejected in folder and single-file modes.
 - `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value. *(Also honored in single-file mode, where it is the only way to set `TargetFramework`.)*
 
-**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. Restore and build output stream live, with credentials from authenticated feed URLs redacted. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
+**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. In an interactive terminal, restore reports one line and the build looks like `dotnet build`; agents, CI, and redirected output stream plain text. Credentials from authenticated feed URLs are redacted, and a failed restore or build shows its full output and the exact `dotnet` command. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
 | *(default)* | `minimal` | — |
-| `--verbose` | `minimal` | winapp's build decision traces |
+| `--verbose` | `minimal` | the exact `dotnet` commands and winapp's build decision traces |
 | `--quiet` | `quiet` | — |
 
 Native AOT publish output streams as it arrives. Under `--json`, restore/build invocations and child output go to stderr so stdout stays pure JSON. Under `--quiet`, invocations are suppressed and dotnet's quiet restore/build output is routed to stderr so stdout stays clean. Native AOT publish output also goes to stderr under either option.
@@ -986,6 +991,7 @@ winapp run counter.cs
 ```
 
 Or run it with plain `dotnet run` — see [Running with `dotnet run`](#running-with-dotnet-run) below.
+For a complete example, see the [.NET file-based app sample](../samples/dotnet-file-app/README.md).
 
 You do not author a manifest. Describe the package with `#:property` directives instead:
 
@@ -1815,7 +1821,8 @@ for directory layout, link handling, and running a copied script.
 
 #### target snapshot
 
-Report readiness, deployments, and guest windows without starting a Sandbox.
+Report host prerequisites, readiness, deployments, and guest windows without starting a
+Sandbox. Failed host checks include the fix to apply.
 
 ```powershell
 winapp target snapshot <target> [--json]
@@ -1864,6 +1871,16 @@ and capture-readiness failures.
 
 Search **WinUI** controls and samples for a working code example. WinUI-only: the corpus is the [WinUI 3 Gallery](https://github.com/microsoft/WinUI-Gallery) and the [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows) (plus a few curated core patterns) — it does **not** cover WPF, WinForms, or other UI frameworks. A third source, the [microsoft-ui-reactor ReactorGallery](https://github.com/microsoft/microsoft-ui-reactor), is **opt-in**: it is excluded from a normal search and only searched when you pass `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app, so reach for it only when building a Reactor/MVU project).
 
+Not everything the Toolkit contributes is a control. Searching `--source toolkit` also reaches its helpers, converters, behaviors, and extensions. Converters, behaviors, and triggers are grouped under an umbrella entry — `Converters`, `Behaviors`, `Header Behaviors`, `Triggers` — whose individual samples are named for the specific type. Helpers and extensions are not grouped: each is a top-level entry under its own name, such as `NetworkHelper` or `TextBoxExtensions`. Either way, search by the type name, the group name, or a plain description:
+
+```bash
+winapp find-ui "FileSizeToFriendlyStringConverter" --source toolkit   # the specific type
+winapp find-ui "converters" --source toolkit                          # the whole group
+winapp find-ui "convert bool to visibility" --source toolkit          # described in words
+```
+
+These samples are indexed by the words in their type names, so a plain description finds one when it shares those words — `convert bool to visibility` reaches `VisibilityToBoolConverter` — but not when it shares none, so `check internet connection` misses `NetworkHelper`. If a description comes back empty, retry with the type name or the group name, or use `--list` to browse the group.
+
 ```bash
 winapp find-ui "<query>" [options]
 ```
@@ -1891,6 +1908,9 @@ winapp find-ui "tabbed layout"
 
 # Restrict to the Windows Community Toolkit
 winapp find-ui "settings card" --source toolkit
+
+# The Toolkit also carries helpers, converters, and behaviors, not just controls
+winapp find-ui "converters" --source toolkit
 
 # Restrict to Reactor (opt-in; C#-only declarative WinUI — Reactor projects only)
 winapp find-ui "flex layout" --source reactor
@@ -2264,6 +2284,23 @@ per command must inject the same explicit value into each one. The value is opaq
 as a credential, and is only ever persisted as a SHA-256 hash. See
 [UI Automation → Coordinating concurrent UI workflows](ui-automation.md#coordinating-concurrent-ui-workflows).
 
+### perf
+
+```powershell
+$capture = winapp perf start --app 1234 --output .\traces\scenario --json | ConvertFrom-Json
+winapp perf stop $capture.id
+winapp perf analyze .\traces\scenario --json
+```
+
+Record and query WinUI 3 layout, frame, input and scrolling evidence. Stop the
+capture before analysis. The default analysis reports mutually exclusive observed
+activity on the primary UI thread, the hottest parsed XAML resources, and a
+detailed operation ranking. Process resources are summarized alongside timings;
+use `--view resources` for their timeline. Use `--view calls --family composition`
+for app-side commit and surface-update timings. Use marker or millisecond bounds for before/after
+comparisons. See the [performance guide](guides/winui-performance.md) for the
+complete start/mark/stop/query workflow and interpretation limits.
+
 ### ui
 
 Inspect and interact with running Windows app UIs using UI Automation (UIA). Run `winapp ui --help`
@@ -2289,7 +2326,7 @@ winapp ui [command] [options]
 - `pen` - Inject synthetic pen/stylus input — taps and ink strokes with configurable pressure, tilt, and eraser mode
 - `send-keys` - Send synthetic keyboard input (named keys, combos, raw vk=0xNN, or literal text) to a window
 - `set-value` - Set value on editable element (text, number); falls back to LegacyIAccessible `put_accValue` for TextPattern-only rich-edit controls
-- `focus` - Move keyboard focus
+- `focus` - Move keyboard focus to an element, or restore and activate the window when no selector is given
 - `scroll-into-view` - Scroll element visible
 - `wait-for` - Wait for element state
 - `list-windows` - List all windows for an app

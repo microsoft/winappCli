@@ -1273,6 +1273,34 @@ public class NewCommandHandlerTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Handler_Scaffold_PrefersCacheForInstalledPackOverStaleSdkBandCache()
+    {
+        // Each SDK band keeps its own templatecache.json. An unused older band still describes the pack
+        // installed back then (here 0.0.5-alpha, whose option was --dotnetVersion). Even when that stale
+        // cache is read first, the cache describing the installed pack (0.0.6-alpha) must decide.
+        const string staleCache =
+            "{\"TemplateInfo\":[{" +
+            "\"MountPointUri\":\"C:\\\\pkgs\\\\Microsoft.WindowsAppSDK.WinUI.CSharp.Templates.0.0.5-alpha.nupkg\"," +
+            "\"ShortNameList\":[\"winui\"]," +
+            "\"Parameters\":[{\"Name\":\"dotnetVersion\",\"DataType\":\"choice\",\"Choices\":{\"net8.0\":{},\"net9.0\":{},\"net10.0\":{}}}]," +
+            "\"HostData\":\"{\\\"symbolInfo\\\":{}}\"}]}";
+        _templateCache.Documents.Add(staleCache);
+        _templateCache.Documents.Add(WinuiCacheJson);
+        ScriptHappyPath(sdkVersion: "9.0.100");
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        var tokens = ScaffoldInvocation()!.ToArray();
+        CollectionAssert.DoesNotContain(tokens, "--dotnetVersion",
+            "A stale cache for a previously installed pack must not choose the option name.");
+        var idx = Array.IndexOf(tokens, "--dotnet-version");
+        Assert.IsTrue(idx >= 0, "The installed pack's own metadata (--dotnet-version) must be used.");
+        Assert.AreEqual("net9.0", tokens[idx + 1]);
+    }
+
+    [TestMethod]
     public async Task Handler_OlderPackInstalled_InstallsRequestedVersionBeforeScaffold()
     {
         _dotnet.RunDotnetArgumentListHandler = args =>
