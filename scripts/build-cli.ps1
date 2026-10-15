@@ -562,7 +562,8 @@ try
             $SchemaJson = $SchemaLines -join "`n"
             $null = $SchemaJson | ConvertFrom-Json -Depth 100 -ErrorAction Stop
             [System.IO.File]::WriteAllText($NodeSchemaPath, $SchemaJson, [System.Text.UTF8Encoding]::new($false))
-            npm run generate-commands -- --schema $NodeSchemaPath
+            # PowerShell strips a bare --; npm needs the literal separator to forward --schema.
+            npm run generate-commands '--' --schema $NodeSchemaPath
             if ($LASTEXITCODE -ne 0) {
                 Write-Error "Node CLI command generation failed"
                 exit 1
