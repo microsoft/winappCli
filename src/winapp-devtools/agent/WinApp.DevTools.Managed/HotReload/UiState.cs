@@ -114,6 +114,10 @@ internal static class UiState
         Selector selector => new(null, 0, 0, null, selector.SelectedIndex, null, null, null),
         RangeBase range when range is not ScrollBar => new(null, 0, 0, null, null, range.Value, null, null),
         ScrollViewer viewer => new(null, 0, 0, null, null, null, viewer.HorizontalOffset, viewer.VerticalOffset),
+        // Expanded and open panes: Checked holds whether it is expanded or open.
+        Expander expander => new(null, 0, 0, expander.IsExpanded, null, null, null, null),
+        SplitView split => new(null, 0, 0, split.IsPaneOpen, null, null, null, null),
+        NavigationView navigation => new(null, 0, 0, navigation.IsPaneOpen, null, null, null, null),
         _ => null,
     };
 
@@ -149,11 +153,20 @@ internal static class UiState
                 // Offsets need the new content measured; scroll after layout.
                 dispatcher?.TryEnqueue(DispatcherQueuePriority.Low, () => viewer.ChangeView(current.HorizontalOffset, current.VerticalOffset, null, disableAnimation: true));
                 break;
+            case Expander expander when Carry(s => s.Checked):
+                expander.IsExpanded = current.Checked == true;
+                break;
+            case SplitView split when Carry(s => s.Checked):
+                split.IsPaneOpen = current.Checked == true;
+                break;
+            case NavigationView navigation when Carry(s => s.Checked):
+                navigation.IsPaneOpen = current.Checked == true;
+                break;
         }
     }
 
     /// <summary>Elements under <paramref name="root"/> with stable keys; list items are skipped (they come from data).</summary>
-    private static IEnumerable<(DependencyObject Element, string Key)> Walk(DependencyObject root)
+    internal static IEnumerable<(DependencyObject Element, string Key)> Walk(DependencyObject root)
     {
         var scope = root as FrameworkElement;
         var stack = new Stack<(DependencyObject, string)>();

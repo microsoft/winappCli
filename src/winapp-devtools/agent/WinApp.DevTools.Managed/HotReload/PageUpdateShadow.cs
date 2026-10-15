@@ -1,0 +1,222 @@
+// Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
+// Licensed under the MIT License.
+
+using System.Diagnostics;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media.Animation;
+
+namespace WinApp.DevTools.Managed.HotReload;
+
+/// <summary>
+/// WINAPP_HOT_RELOAD_PAGE_UPDATE=shadow: the page is reloaded in place (its state is kept), then a fresh copy is
+/// built the way a restart would build it (same type and navigation parameter, in a Frame of its own inside an
+/// invisible popup on the same XamlRoot, so it loads and its bindings run) and compared with the live page. A value
+/// the live page shows that the fresh copy doesn't, while the page holds the same data, is reported as a note with the
+/// likely cause:
+///   note: CaseLate shows 'loaded' here but 'ctor' after a restart: Late changes after Loaded without a change notification (BindPage.xaml.cs:16)
+/// Differences that come from state the reload kept (the page holds other data, the user typed or selected something)
+/// are what in-place reload is for and aren't reported.
+/// </summary>
+[PageUpdateStrategy("shadow")]
+internal sealed class PageUpdateShadow : IPageUpdateStrategy
+{
+    private static readonly TimeSpan LoadTimeout = TimeSpan.FromSeconds(5);
+
+    public void Update(PageUpdate update)
+    {
+        var page = update.Page;
+        PageNavigation.Watch(page.XamlRoot?.Content);
+        update.ReloadInPlace();
+        if (!PageNavigation.TryGetParameter(page, out var parameter))
+        {
+            update.Note($"{page.GetType().Name}: not compared with a fresh copy: it was shown before hot reload watched its Frame, so its navigation parameter is unknown");
+            return;
+        }
+        update.WhenSettled(() => CompareAsync(update, page, parameter));
+    }
+
+    private static async Task CompareAsync(PageUpdate update, Page page, object? parameter)
+    {
+        var clock = Stopwatch.StartNew();
+        var name = page.GetType().Name;
+        if (page.XamlRoot is not { } xamlRoot || page.DispatcherQueue is not { } dispatcher)
+        {
+            update.Note($"{name}: not compared with a fresh copy: the page isn't shown");
+            return;
+        }
+        // The live page's own x:Bind pass after its reload runs at Low priority: let it finish first.
+        await UiTicks.Idle(dispatcher);
+        var focused = FocusManager.GetFocusedElement(xamlRoot) as UIElement;
+        var host = new Frame
+        {
+            Width = page.ActualWidth > 0 ? page.ActualWidth : xamlRoot.Size.Width,
+            Height = page.ActualHeight > 0 ? page.ActualHeight : xamlRoot.Size.Height,
+            IsTabStop = false,
+        };
+        var popup = new Popup { XamlRoot = xamlRoot, Child = host, Opacity = 0, IsHitTestVisible = false, ShouldConstrainToRootBounds = true };
+        Page? shadow = null;
+        try
+        {
+            popup.IsOpen = true;
+            if (!host.Navigate(page.GetType(), parameter, new SuppressNavigationTransitionInfo()) || host.Content is not Page created)
+            {
+                update.Note($"{name}: not compared with a fresh copy: navigating a new instance failed");
+                return;
+            }
+            shadow = created;
+            var early = PageData.Take(shadow, getters: true);
+            if (!await UiTicks.Loaded(shadow, LoadTimeout))
+            {
+                update.Note($"{name}: not compared with a fresh copy: it didn't load within {LoadTimeout.TotalSeconds:0} s");
+                return;
+            }
+            var (live, fresh) = await SettledAsync(page, shadow, dispatcher);
+            var liveData = PageData.Take(page, getters: true);
+            var freshData = PageData.Take(shadow, getters: true);
+            foreach (var note in Compare(page, live, fresh, liveData, freshData, early))
+            {
+                update.Note(note);
+            }
+        }
+        catch (Exception ex)
+        {
+            update.Note($"{name}: comparing with a fresh copy failed: {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            if (shadow is not null)
+            {
+                // Navigated away first, so the copy's OnNavigatedFrom runs and the page can let go of what it subscribed to.
+                try
+                {
+                    host.Navigate(typeof(Page), null, new SuppressNavigationTransitionInfo());
+                }
+                catch (Exception ex)
+                {
+                    HotReloadAgent.Log($"shadow: leaving the copy of {name} failed: {ex.Message}");
+                }
+            }
+            host.Content = null;
+            popup.IsOpen = false;
+            popup.Child = null;
+            // A copy that took focus as it loaded gives it back.
+            if (focused is not null && !ReferenceEquals(FocusManager.GetFocusedElement(xamlRoot), focused))
+            {
+                focused.Focus(FocusState.Programmatic);
+            }
+            HotReloadAgent.Log($"shadow: compared {name} with a fresh copy in {clock.ElapsedMilliseconds} ms");
+        }
+    }
+
+    /// <summary>Reads both trees until two readings in a row agree (bindings, layout and Loaded handlers are done).</summary>
+    private static async Task<(Dictionary<string, (DependencyObject Element, Dictionary<string, string> Values)> Live, Dictionary<string, (DependencyObject Element, Dictionary<string, string> Values)> Fresh)> SettledAsync(Page page, Page shadow, Microsoft.UI.Dispatching.DispatcherQueue dispatcher)
+    {
+        string Text(Dictionary<string, (DependencyObject Element, Dictionary<string, string> Values)> tree) =>
+            string.Join("\n", tree.Select(e => e.Key + " " + string.Join(";", e.Value.Values.Select(v => v.Key + "=" + v.Value))));
+        var previous = "";
+        for (var i = 0; i < 20; i++)
+        {
+            await UiTicks.Idle(dispatcher);
+            var live = AuthoredTree.Read(page);
+            var fresh = AuthoredTree.Read(shadow);
+            var text = Text(live) + "\n--\n" + Text(fresh);
+            if (text == previous)
+            {
+                return (live, fresh);
+            }
+            previous = text;
+            await Task.Delay(50);
+        }
+        return (AuthoredTree.Read(page), AuthoredTree.Read(shadow));
+    }
+
+    internal static List<string> Compare(
+        Page page,
+        Dictionary<string, (DependencyObject Element, Dictionary<string, string> Values)> live,
+        Dictionary<string, (DependencyObject Element, Dictionary<string, string> Values)> fresh,
+        PageData liveData,
+        PageData freshData,
+        PageData early)
+    {
+        var notes = new List<string>();
+        var sameData = liveData.Values.Count == freshData.Values.Count && liveData.Values.All(v => freshData.Values.TryGetValue(v.Key, out var f) && f == v.Value);
+        foreach (var (key, (element, values)) in live)
+        {
+            var where = AuthoredTree.Describe(key);
+            if (!fresh.TryGetValue(key, out var other))
+            {
+                // Only the topmost element one side lacks: its children are missing because it is.
+                if (!fresh.ContainsKey(Parent(key)) && Parent(key).Length > 0)
+                {
+                    continue;
+                }
+                if (sameData)
+                {
+                    notes.Add($"{where} is shown here but missing after a restart");
+                }
+                continue;
+            }
+            foreach (var (property, value) in values)
+            {
+                if (!other.Values.TryGetValue(property, out var restart) || restart == value)
+                {
+                    continue;
+                }
+                var subject = property is "Text" or "Content" ? where : $"{where}.{property}";
+                var cause = Cause(page, value, restart, liveData, freshData, early);
+                if (cause is null && (AuthoredTree.IsInput(element, property) || !sameData))
+                {
+                    // What the user entered, or a value that follows state the reload kept: in-place reload is for that.
+                    HotReloadAgent.Log($"shadow: {subject} '{value}' vs '{restart}': follows kept state");
+                    continue;
+                }
+                if (cause == "")
+                {
+                    continue;
+                }
+                notes.Add($"{subject} shows '{value}' here but '{restart}' after a restart{(cause is null ? "" : ": " + cause)}");
+            }
+        }
+        foreach (var key in fresh.Keys.Where(k => !live.ContainsKey(k) && (Parent(k).Length == 0 || live.ContainsKey(Parent(k)))))
+        {
+            if (sameData)
+            {
+                notes.Add($"{AuthoredTree.Describe(key)} is missing here but shown after a restart");
+            }
+        }
+        return notes;
+    }
+
+    private static string Parent(string key) => key.Contains('/') ? key[..key.LastIndexOf('/')] : "";
+
+    /// <summary>
+    /// Why a value differs: a member that holds the live value in both pages (so the data agree) while the fresh copy
+    /// shows what it held before it loaded was changed after its bindings read it. "" when the data explain the
+    /// difference (the member holds each page's own value), null when no member holds the value.
+    /// </summary>
+    private static string? Cause(Page page, string value, string restart, PageData liveData, PageData freshData, PageData early)
+    {
+        if (value.Length == 0 || value == "null")
+        {
+            return null;
+        }
+        var holders = liveData.Values.Where(v => v.Value == value).Select(v => v.Key).ToList();
+        foreach (var member in holders)
+        {
+            if (freshData.Values.TryGetValue(member, out var settled) && settled == value)
+            {
+                var (owner, name) = liveData.Members[member];
+                var changedLate = early.Values.TryGetValue(member, out var before) && before == restart;
+                var site = SourceSites.WhereSet(owner, name, page.GetType()) is { } line ? $" ({line})" : "";
+                return changedLate
+                    ? $"{member} changes after Loaded{(PageData.RaisesChanges(owner) ? " (a one-time binding doesn't see it)" : " without a change notification")}{site}"
+                    : $"{member} is '{value}' in both, but the binding doesn't show it{site}";
+            }
+        }
+        // The member holds each page's own value: the difference is the state the reload kept.
+        return holders.Any(m => freshData.Values.TryGetValue(m, out var settled) && settled == restart) ? "" : null;
+    }
+}
