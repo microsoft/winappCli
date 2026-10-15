@@ -16,16 +16,17 @@ namespace WinApp.Cli.Commands;
 
 internal class UiSearchCommand : Command, IShortDescription, IHelpExamples
 {
-    public string ShortDescription => "Find elements by text; narrow with --type and --root";
+    public string ShortDescription => "Find elements by text, --type, or --class-name; narrow with --root";
 
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp ui search \"Save\" -a <app>",
         "winapp ui search \"Save\" --type Button --root <selector> -a <app>",
+        "winapp ui search --class-name <class> -a <app>",
     ];
 
     public UiSearchCommand()
-        : base("search", "Find elements by text; narrow with --type and --root. Returns all matches with semantic slugs.")
+        : base("search", "Find elements by text, --type, or --class-name; narrow with --root. Returns all matches with semantic slugs.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -62,7 +63,7 @@ internal class UiSearchCommand : Command, IShortDescription, IHelpExamples
                 return 1;
             }
 
-            if (string.IsNullOrWhiteSpace(selectorStr))
+            if (!UiQueryOptions.HasQuery(parseResult, selectorStr))
             {
                 UiErrors.MissingSelector(logger, "search", json);
                 return 1;
@@ -74,8 +75,8 @@ internal class UiSearchCommand : Command, IShortDescription, IHelpExamples
         protected override async Task<int> ExecuteAsync(ParseResult parseResult, IUiTurn turn, CancellationToken cancellationToken)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            // Preflight rejected a missing selector, so this is non-null by construction.
-            var selectorStr = parseResult.GetValue(SharedUiOptions.SelectorArgument)!;
+            var selectorArg = parseResult.GetValue(SharedUiOptions.SelectorArgument);
+            var selectorStr = UiQueryOptions.Describe(parseResult, selectorArg);
             var app = parseResult.GetValue(SharedUiOptions.AppOption);
             var window = parseResult.GetValue(SharedUiOptions.WindowOption);
             var maxResults = parseResult.GetRequiredValue(SharedUiOptions.MaxResultsOption);
@@ -83,7 +84,7 @@ internal class UiSearchCommand : Command, IShortDescription, IHelpExamples
             try
             {
                 var uiTarget = await targetResolver.ResolveAsync(app, window, cancellationToken);
-                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+                var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorArg);
                 var matches = await uiAutomation.SearchAsync(uiTarget, selector, maxResults + 1, cancellationToken);
 
                 var hasMore = matches.Length > maxResults;

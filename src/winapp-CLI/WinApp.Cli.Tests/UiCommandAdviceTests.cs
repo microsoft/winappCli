@@ -133,7 +133,7 @@ public class UiCommandAdviceTests
             var missing = ReadError(errors.ToString());
             Assert.AreEqual("missing_selector", missing.GetProperty("code").GetString());
             Assert.AreEqual(
-                $"A selector is required. Usage: winapp ui click <selector> -a <app>{suffix}. Use 'winapp ui search <text> -a <app>{suffix}' to find elements.",
+                $"A selector, --type, or --class-name is required. Usage: winapp ui click <selector> -a <app>{suffix}. Use 'winapp ui search <text> -a <app>{suffix}' to find elements.",
                 missing.GetProperty("message").GetString());
             errors.GetStringBuilder().Clear();
 
