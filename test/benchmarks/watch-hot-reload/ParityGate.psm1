@@ -75,22 +75,33 @@ function Get-ParitySnapshot {
     try { $result = (Remove-Ansi $raw | ConvertFrom-Json).result } catch { return $null }
     if (-not $result -or -not $result.ok) { return $null }
     $rows = @($result.matches)
-    # The inside of the app's own controls (a UserControl, a templated control) counts whether or not DevTools could
-    # attribute it to a source file: hot reload may load that markup from text, a clean build from compiled .xbf.
+    # The inside of the app's own controls (a UserControl, a templated control) and of a library's controls (a NuGet
+    # package's templated control) counts whether or not DevTools could attribute it to a source file: hot reload may
+    # load that markup from text or serve a library's Generic.xbf through the markup override, where a clean build
+    # loads compiled .xbf or the merged .pri. WinUI's own controls are left out: their templates are chrome.
     if ($RootNamespace) {
         $known = [System.Collections.Generic.HashSet[string]]::new([string[]]@($rows | ForEach-Object handle))
         $parentOf = @{}; $typeOf = @{}
         foreach ($row in $rows) { $typeOf[$row.handle] = $row.type; if ($row.PSObject.Properties['parentHandle']) { $parentOf[$row.handle] = $row.parentHandle } }
         $nested = @($rows | Where-Object {
-            if (-not $_.type.StartsWith("$RootNamespace.")) { return $false }
-            # Inside another of the app's types: a control on a page. A page itself, under its Frame, is read as authored.
+            if ($_.type -match '^(Microsoft\.UI\.Xaml|Windows)\.') { return $false }
+            # A library's control, wherever it is.
+            if (-not $_.type.StartsWith("$RootNamespace.")) { return [bool]$_.PSObject.Properties['parentHandle'] }
+            # The app's own: inside another of the app's types (a control on a page). A page itself, under its Frame, is
+            # read as authored.
             for ($h = $parentOf[$_.handle]; $h; $h = $parentOf[$h]) { if ([string]$typeOf[$h] -like "$RootNamespace.*") { return $true } }
             return $false
         })
         foreach ($control in $nested) {
             $raw = & $Winapp devtools call VisualTree.query 'authored:=false' "rootHandle=$($control.handle)" "fields:=$fields" -a "$ProcessId" --json 2>&1 | Out-String
             try { $inner = (Remove-Ansi $raw | ConvertFrom-Json).result } catch { continue }
-            foreach ($row in @($inner.matches)) { if ($row.PSObject.Properties['parentHandle'] -and $known.Add($row.handle)) { $rows += $row } }
+            # Inside the control, the full reading wins over the authored one: an authored row's parent is its nearest
+            # authored ancestor, which skips elements DevTools didn't attribute (a Viewbox's inner Border, say), so the same
+            # element would sit at a different path depending on which of its ancestors were attributed.
+            $innerRows = @($inner.matches | Where-Object { $_.PSObject.Properties['parentHandle'] -and $_.handle -ne $control.handle })
+            $replaced = [System.Collections.Generic.HashSet[string]]::new([string[]]@($innerRows | ForEach-Object handle))
+            $rows = @($rows | Where-Object { -not $replaced.Contains($_.handle) }) + $innerRows
+            foreach ($row in $innerRows) { $null = $known.Add($row.handle) }
         }
     }
     $byHandle = @{}
@@ -385,6 +396,13 @@ function Invoke-ParityCheck {
     $source = Copy-ParitySource -AppDir $AppDir -Destination $WorkDir
     # Test hook: break the clean build on purpose, to see the gate fail when there is no clean build to compare with.
     if ($env:WINAPP_PARITY_TEST_BREAK_CLEAN_BUILD -eq '1') { Add-Content (Join-Path $source 'ParityGateBrokenOnPurpose.cs') 'this is not C# (WINAPP_PARITY_TEST_BREAK_CLEAN_BUILD)' }
+    # Test hook: change the clean build's copy ("<file>|<find>|<replace>"), to see the gate fail on a difference only the
+    # clean build has.
+    if ($env:WINAPP_PARITY_TEST_CLEAN_REPLACE -and $env:WINAPP_PARITY_TEST_CLEAN_REPLACE -match '^(?<file>[^|]+)\|(?<find>[^|]+)\|(?<text>.*)$') {
+        $target = Join-Path $source $Matches.file
+        $find = $Matches.find; $text = $Matches.text
+        [IO.File]::WriteAllText($target, [IO.File]::ReadAllText($target).Replace($find, $text))
+    }
     $runArguments = @('run', $source, '--devtools', 'headless', '--detach', '--json')
     if ($Configuration) { $runArguments += @('-c', $Configuration) }
     # Its own identity, so registering the clean build doesn't replace the hot-reloaded app's package.
