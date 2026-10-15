@@ -57,6 +57,9 @@ if (-not $ReportOnly) {
     foreach ($a in $approaches) {
         $cli = Get-ApproachWinapp $a
         $version = ($ansi.Replace((& $cli --version 2>&1 | Out-String), '')).Trim()
+        # The commit the CLI was built from, when it sits in a checkout's artifacts folder.
+        $commit = & git -C (Split-Path $cli) rev-parse --short HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $commit) { $version += " @ $commit" }
         foreach ($j in $journeys) {
             $dir = Join-Path $OutputRoot "$($a.id)\$j"
             $null = New-Item -ItemType Directory -Force $dir
@@ -110,7 +113,8 @@ foreach ($a in $reportApproaches) {
             Sort-Object Name -Descending | Select-Object -First 1
         $meta = if (Test-Path (Join-Path $dir 'meta.json')) { Get-Content (Join-Path $dir 'meta.json') -Raw | ConvertFrom-Json } else { $null }
         if (-not $run) {
-            $status = if (Test-Path (Join-Path $dir 'runner.log')) { 'failed' } else { 'not run' }
+            # meta.json is written when the run ends: without it the run is still queued or running.
+            $status = if (Test-Path (Join-Path $dir 'meta.json')) { 'failed' } elseif (Test-Path (Join-Path $dir 'runner.log')) { 'running' } else { 'not run' }
             $cells.Add([pscustomobject]@{ Approach = $a.id; Journey = $j; Status = $status; Log = (Join-Path $dir 'runner.log') })
             continue
         }
@@ -146,7 +150,7 @@ $md.Add("# Hot reload scoreboard ($(Get-Date -Format 'yyyy-MM-dd HH:mm'))")
 $md.Add('')
 $md.Add('Approaches: ' + ((@($reportApproaches | ForEach-Object {
     $id = $_.id
-    $v = @($cells | Where-Object { $_.Approach -eq $id -and $_.WinappVersion } | Select-Object -First 1).WinappVersion
+    $v = (@($cells | Where-Object { $_.Approach -eq $id -and $_.WinappVersion } | ForEach-Object WinappVersion | Sort-Object -Unique) -join ', ')
     "**$id** $($_.title)$(if ($v) { " (winapp $v)" })"
 })) -join '; ') + '.')
 $md.Add('')
@@ -160,6 +164,7 @@ foreach ($j in $journeys) {
         $c = $cells | Where-Object { $_.Approach -eq $id -and $_.Journey -eq $j }
         $line += if (-not $c -or $c.Status -eq 'not run') { ' - |' }
             elseif ($c.Status -eq 'failed') { ' runner failed |' }
+            elseif ($c.Status -eq 'running') { ' running |' }
             else {
                 $parityText = if ($c.ParityChecks) { "parity $($c.ParityDiffs)" } else { 'parity off' }
                 $stateText = if ($c.State) { " · state $($c.StateOk)/$($c.State)" } else { '' }
