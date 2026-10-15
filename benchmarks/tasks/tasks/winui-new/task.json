@@ -4,7 +4,7 @@
   "workspace": "C:\\src\\NoteTaker",
   "timeoutMinutes": 25,
   "checks": [
-    "winui-project (required): a .csproj under the folder uses WinUI (UseWinUI true and a Microsoft.WindowsAppSDK reference)",
+    "winui-project (required): a .csproj under the folder evaluates to UseWinUI=true with a Microsoft.WindowsAppSDK PackageReference",
     "named-notetaker: the project is named NoteTaker",
     "builds (required): `dotnet build` of that project succeeds when the checker runs it"
   ]
