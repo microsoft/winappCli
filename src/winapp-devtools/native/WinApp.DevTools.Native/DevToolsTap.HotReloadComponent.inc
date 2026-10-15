@@ -44,11 +44,18 @@ static std::vector<winrt::Windows::Foundation::IInspectable> HotReloadLiveCompon
 {
     std::vector<winrt::Windows::Foundation::IInspectable> found;
     std::set<void*> seen;
-    auto consider = [&](winrt::Windows::Foundation::IInspectable const& object) {
+    auto consider = [&](winrt::Windows::Foundation::IInspectable object) {
         if (!object) return;
+        // The diagnostics backing object of a Window or the Application can be the framework's inner object, which
+        // names its framework class. Its interfaces delegate to the app's outer object, which names the app's class.
+        if (auto window = object.try_as<DevToolsX::Window>()) object = window.as<winrt::Windows::Foundation::IInspectable>();
+        else if (auto element = object.try_as<DevToolsX::DependencyObject>()) object = element.as<winrt::Windows::Foundation::IInspectable>();
+        else if (auto application = object.try_as<DevToolsX::Application>()) object = application.as<winrt::Windows::Foundation::IInspectable>();
         void* identity = winrt::get_abi(object.as<winrt::Windows::Foundation::IUnknown>());
         if (!seen.insert(identity).second) return;
-        if (winrt::get_class_name(object) == className) found.push_back(object);
+        const std::wstring name(winrt::get_class_name(object));
+        Log(L"hot reload: candidate %s", name.c_str());
+        if (name == className) found.push_back(object);
     };
     std::vector<InstanceHandle> handles;
     AcquireSRWLockShared(&g_censusLock);

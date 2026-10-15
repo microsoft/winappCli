@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace WinApp.Cli.Services;
@@ -42,7 +43,15 @@ internal sealed class MSBuildService(IProcessRunner processRunner) : IMSBuildSer
             var msbuild = Path.Join(path, "MSBuild", "Current", "Bin", "MSBuild.exe");
             if (File.Exists(msbuild) && (!requiresWindowsStoreAppType || SupportsWindowsStoreAppType(path)))
             {
-                return msbuild;
+                // The MSBuild Visual Studio itself builds with: 64-bit on a 64-bit OS. Tools that load native helpers
+                // by the build's bitness (the XAML compiler's genxbf.dll) need the matching one.
+                var native = RuntimeInformation.OSArchitecture switch
+                {
+                    Architecture.X64 => Path.Join(path, "MSBuild", "Current", "Bin", "amd64", "MSBuild.exe"),
+                    Architecture.Arm64 => Path.Join(path, "MSBuild", "Current", "Bin", "arm64", "MSBuild.exe"),
+                    _ => null,
+                };
+                return native is not null && File.Exists(native) ? native : msbuild;
             }
         }
 

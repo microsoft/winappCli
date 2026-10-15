@@ -78,6 +78,17 @@ internal sealed partial class WatchSession
 
     private async Task<int> RunCppAsync(ILaunchedProcess app, IAnsiConsole console, CancellationToken cancellationToken)
     {
+        if (_job is not null)
+        {
+            try
+            {
+                using var appProcess = Process.GetProcessById((int)app.ProcessId);
+                _job.Add(appProcess.SafeHandle);
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+            }
+        }
         CppXamlSession? xaml = null;
         string? unavailable;
         try
@@ -447,6 +458,10 @@ internal sealed partial class CppXamlSession : IDisposable
             {
                 return CppSaveOutcome.Restart($"{file}: the app could not take the new markup: {result.Error}");
             }
+            if (result.Instances == 0 && component.AlwaysLive)
+            {
+                return CppSaveOutcome.Restart($"{file}: the running {component.ClassName} wasn't found, so it can't be reloaded in place");
+            }
             if (result.Errors.Count > 0)
             {
                 lines.AddRange(result.Errors.Select(e => $"[watch] error {file}: {e}"));
@@ -461,15 +476,19 @@ internal sealed partial class CppXamlSession : IDisposable
         return new CppSaveOutcome(false, lines);
     }
 
-    private sealed record ComponentInfo(string ClassName, string Uri, string Location);
+    /// <summary>A live object of the class always exists for the Application and an open Window: not finding one means the reload missed it.</summary>
+    private sealed record ComponentInfo(string ClassName, string Uri, string Location, bool AlwaysLive);
 
     /// <summary>The page's class and the URI and location its generated InitializeComponent loads.</summary>
     private ComponentInfo? Component(string relativeXaml)
     {
         string? className;
+        bool alwaysLive;
         try
         {
-            className = XDocument.Load(Path.Combine(_projectDirectory, relativeXaml)).Root?.Attribute(XName.Get("Class", "http://schemas.microsoft.com/winfx/2006/xaml"))?.Value;
+            var root = XDocument.Load(Path.Combine(_projectDirectory, relativeXaml)).Root;
+            className = root?.Attribute(XName.Get("Class", "http://schemas.microsoft.com/winfx/2006/xaml"))?.Value;
+            alwaysLive = root?.Name.LocalName is "Application" or "Window";
         }
         catch (System.Xml.XmlException)
         {
@@ -485,7 +504,7 @@ internal sealed partial class CppXamlSession : IDisposable
             if (_baseline.TryGetValue(generated, out var text) && ResourceLocator().Match(text) is { Success: true } match)
             {
                 var location = ResourceLocation().Match(text, match.Index) is { Success: true } l ? l.Groups[1].Value : "Application";
-                return new(className, match.Groups[1].Value, location);
+                return new(className, match.Groups[1].Value, location, alwaysLive);
             }
         }
         return null;

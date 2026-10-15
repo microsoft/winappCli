@@ -740,6 +740,22 @@ public sealed class ProjectRunServiceCppTests : IDisposable
     }
 
     [TestMethod]
+    public async Task LocateCppMSBuild_PrefersTheOsNativeMSBuild()
+    {
+        // The XAML compiler loads genxbf.dll by the build's bitness: build with the MSBuild Visual Studio uses.
+        var vswhere = WriteFile(@"Installer\vswhere.exe", string.Empty);
+        var install = FakeInstall("VS", windowsStore: false);
+        var folder = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "amd64";
+        WriteFile($@"VS\MSBuild\Current\Bin\{folder}\MSBuild.exe", string.Empty);
+        var runner = new ScriptedProcessRunner(_ => new ProcessRunResult(0, VsWhereJson((install, "Visual Studio Enterprise 2026")), string.Empty));
+        var service = new MSBuildService(runner) { VsWherePath = vswhere.FullName };
+
+        var located = await service.LocateCppMSBuildAsync("x64", false, CancellationToken.None);
+
+        Assert.AreEqual(Path.Join(install, $@"MSBuild\Current\Bin\{folder}\MSBuild.exe"), located);
+    }
+
+    [TestMethod]
     public async Task LocateCppMSBuild_WinUiProject_SkipsNewerInstallWithoutWindowsStoreAppType()
     {
         // Review repro: Build Tools 2026 with only the C++ tools (newest) next to Visual Studio 2022 with WinUI C++.
