@@ -541,8 +541,36 @@ internal static class PageNavigation
             return true;
         }
         parameter = null;
-        return page.GetType().GetMethod("OnNavigatedTo", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, [typeof(NavigationEventArgs)])?.DeclaringType == typeof(Page);
+        return !Overrides(page, "OnNavigatedTo");
     }
+
+    /// <summary>
+    /// The frame's navigation history as Frame.GetNavigationState serializes it (basic parameter types only), when
+    /// taking it has no effect the app sees: it calls the current page's OnNavigatedFrom, so only for a page that
+    /// doesn't override it.
+    /// </summary>
+    public static bool TryGetState(Frame frame, Page page, out string? state)
+    {
+        state = null;
+        if (!ReferenceEquals(frame.Content, page) || Overrides(page, "OnNavigatedFrom"))
+        {
+            return false;
+        }
+        try
+        {
+            state = frame.GetNavigationState();
+            return true;
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or ArgumentException or InvalidOperationException)
+        {
+            // A parameter the format can't hold (an object).
+            HotReloadAgent.Log($"page update: {page.GetType().Name}'s navigation state can't be serialized: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool Overrides(Page page, string method) =>
+        page.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, [typeof(NavigationEventArgs)])?.DeclaringType != typeof(Page);
 }
 
 internal static class UiTicks

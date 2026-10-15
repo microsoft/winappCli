@@ -30,15 +30,30 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
         var page = update.Page;
         PageNavigation.Watch(page.XamlRoot?.Content);
         update.ReloadInPlace();
-        if (!PageNavigation.TryGetParameter(page, out var parameter))
+        // The copy is navigated as the live page was: with its parameter when it's known (or the page can't read it),
+        // else by restoring the frame's serialized history (the same parameter and back stack).
+        Func<Frame, bool> navigate;
+        if (PageNavigation.TryGetParameter(page, out var parameter))
         {
-            update.Note($"{page.GetType().Name}: not compared with a fresh copy: it was shown before hot reload watched its Frame, so its navigation parameter is unknown");
+            navigate = host => host.Navigate(page.GetType(), parameter, new SuppressNavigationTransitionInfo());
+        }
+        else if (update.Frame is { } frame && PageNavigation.TryGetState(frame, page, out var state))
+        {
+            navigate = host =>
+            {
+                host.SetNavigationState(state);
+                return true;
+            };
+        }
+        else
+        {
+            update.Note($"{page.GetType().Name}: not compared with a fresh copy: it was shown before hot reload watched its Frame, and its navigation parameter can't be read back");
             return;
         }
-        update.WhenSettled(() => CompareAsync(update, page, parameter));
+        update.WhenSettled(() => CompareAsync(update, page, navigate));
     }
 
-    private static async Task CompareAsync(PageUpdate update, Page page, object? parameter)
+    private static async Task CompareAsync(PageUpdate update, Page page, Func<Frame, bool> navigate)
     {
         var clock = Stopwatch.StartNew();
         var name = page.GetType().Name;
@@ -62,7 +77,7 @@ internal sealed class PageUpdateShadow : IPageUpdateStrategy
         try
         {
             open();
-            if (!host.Navigate(page.GetType(), parameter, new SuppressNavigationTransitionInfo()) || host.Content is not Page created)
+            if (!navigate(host) || host.Content is not Page created || created.GetType() != page.GetType())
             {
                 update.Note($"{name}: not compared with a fresh copy: navigating a new instance failed");
                 return;
