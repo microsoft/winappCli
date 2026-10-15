@@ -162,6 +162,13 @@ public partial class UiCommandTests
         Assert.AreEqual(UiTurnMode.DesktopExclusive, _fakeDesktopLock.Runs[0].Mode);
         Assert.AreEqual(1, _fakeDesktopLock.DesktopSectionEnters,
             "wheel input must run inside a desktop section");
+
+        // --wheel-horizontal is the same injection, so it classifies the same way.
+        _fakeDesktopLock.Runs.Clear();
+        await ParseAndInvokeWithCaptureAsync(command, ["list", "-a", "TestApp", "--wheel-horizontal", "3", "--json"]);
+        Assert.AreEqual(UiTurnMode.DesktopExclusive, _fakeDesktopLock.Runs[0].Mode);
+        Assert.AreEqual(2, _fakeDesktopLock.DesktopSectionEnters,
+            "horizontal wheel input must run inside a desktop section");
     }
 
     [TestMethod]

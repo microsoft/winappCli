@@ -2890,6 +2890,62 @@ public class MsixServiceIdentityTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task EnsureWindowsAppRuntimeInstalledAsync_ImportedWindowsAppSdk_InstallsItsRuntimeWithoutAPackageListReference()
+    {
+        // A C++ project that imports the Windows App SDK props from a shared .props file: its own
+        // packages.config doesn't name the Windows App SDK, but the build used it, so the runtime in the
+        // imported package folder must be installed.
+        _fakeDotNet.PackageListResult = new DotNetPackageListJson(
+            [new DotNetProject([new DotNetFramework("native", [new DotNetPackage("Microsoft.Windows.CppWinRT", "2.0.240405.15", "2.0.240405.15")], [])])]);
+        var packageDir = _tempDirectory.CreateSubdirectory(@"packages\Microsoft.WindowsAppSDK.Runtime.2.5.1");
+        var msixDir = packageDir.CreateSubdirectory(@"tools\MSIX");
+        _fakeWindowsAppRuntime.MsixDirectory = null; // the NuGet global cache has no copy
+        _fakeWindowsAppRuntime.InstallRuntimePackages =
+            [("Microsoft.WindowsAppRuntime.2", "2.5.1.0"), ("Microsoft.WinAppRuntime.DDLM", "2.5.1.0")];
+        _fakeWindowsAppRuntime.IsRuntimeRegisteredResult = true;
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+
+        var prepared = await _msixService.EnsureWindowsAppRuntimeInstalledAsync(
+            vcxproj, "x64", framework: null, noRestore: false, TestTaskContext,
+            windowsAppSdkPackageDirectory: packageDir, cancellationToken: TestContext.CancellationToken);
+
+        Assert.IsTrue(prepared);
+        Assert.AreEqual(msixDir.FullName, _fakeWindowsAppRuntime.InstallRuntimeCalls.Single().FullName);
+    }
+
+    [TestMethod]
+    public async Task EnsureWindowsAppRuntimeInstalledAsync_ImportedWindowsAppSdkWithoutRuntime_FailsClosed()
+    {
+        // The project imports the Windows App SDK, so skipping the runtime would launch an app that can't
+        // start. When neither the imported folder nor the package list locates the runtime, say so.
+        _fakeDotNet.PackageListResult = new DotNetPackageListJson([new DotNetProject([new DotNetFramework("native", [], [])])]);
+        var packageDir = _tempDirectory.CreateSubdirectory(@"packages\Microsoft.WindowsAppSDK.2.5.1");
+        _fakeWindowsAppRuntime.MsixDirectory = null;
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+
+        var ex = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            _msixService.EnsureWindowsAppRuntimeInstalledAsync(
+                vcxproj, "x64", framework: null, noRestore: false, TestTaskContext,
+                windowsAppSdkPackageDirectory: packageDir, cancellationToken: TestContext.CancellationToken));
+
+        StringAssert.Contains(ex.Message, "could not be located");
+        Assert.IsEmpty(_fakeWindowsAppRuntime.InstallRuntimeCalls);
+    }
+
+    [TestMethod]
+    public async Task EnsureWindowsAppRuntimeInstalledAsync_NoWindowsAppSdk_IsSkipped()
+    {
+        _fakeDotNet.PackageListResult = new DotNetPackageListJson([new DotNetProject([new DotNetFramework("native", [], [])])]);
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+
+        var prepared = await _msixService.EnsureWindowsAppRuntimeInstalledAsync(
+            vcxproj, "x64", framework: null, noRestore: false, TestTaskContext, cancellationToken: TestContext.CancellationToken);
+
+        Assert.IsFalse(prepared);
+        Assert.IsEmpty(_fakeWindowsAppRuntime.InstallRuntimeCalls);
+    }
+
+    [TestMethod]
     public async Task EnsureWindowsAppRuntimeInstalledAsync_UnresolvedList_FailsOpenWithWarning()
     {
         // M4 (tolerant branch, Identity.cs:468-473): when the package list can't be resolved we cannot
