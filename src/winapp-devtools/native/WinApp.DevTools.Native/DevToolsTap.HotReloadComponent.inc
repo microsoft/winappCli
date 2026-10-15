@@ -176,7 +176,7 @@ static HRESULT HotReloadReloadOne_ui(winrt::Windows::Foundation::IInspectable co
 }
 
 static std::wstring HotReloadReloadComponent_ui(const std::wstring& id, const std::wstring& uri, const std::wstring& className,
-    const std::wstring& locationName, const std::wstring& xbfPath)
+    const std::wstring& locationName, const std::wstring& xbfPath, bool application)
 {
     const auto location = locationName == L"Nested" ? DevToolsXCP::ComponentResourceLocation::Nested
                                                     : DevToolsXCP::ComponentResourceLocation::Application;
@@ -208,7 +208,10 @@ static std::wstring HotReloadReloadComponent_ui(const std::wstring& id, const st
     }
     std::vector<std::wstring> notes, errors;
     size_t reloaded = 0;
-    const auto components = HotReloadLiveComponents_ui(className);
+    // The Application is found directly: a C++/WinRT App often has no runtime class of its own to match by name.
+    const auto components = application
+        ? std::vector<winrt::Windows::Foundation::IInspectable>{ DevToolsX::Application::Current().as<winrt::Windows::Foundation::IInspectable>() }
+        : HotReloadLiveComponents_ui(className);
     for (auto const& component : components) {
         std::wstring error;
         if (SUCCEEDED(HotReloadReloadOne_ui(component, uri, location, &notes, &error))) ++reloaded;
@@ -230,13 +233,15 @@ static std::wstring HandleHotReloadReloadComponent(DevToolsConn* conn, const std
     const std::wstring className = p.GetString(L"className");
     const std::wstring location = p.GetString(L"location", L"Application");
     const std::wstring xbf = p.GetString(L"xbf");
+    const DevToolsJson* applicationParam = p.Find(L"application");
+    const bool application = applicationParam && applicationParam->type == DevToolsJsonType::Bool && applicationParam->b;
     if (uri.rfind(L"ms-appx:///", 0) != 0 || className.empty() || (location != L"Application" && location != L"Nested")) {
         return DevToolsRpcError(id, DevToolsErr::InvalidParams,
             L"uri must be an ms-appx:/// URI, className is required, and location is Application or Nested", L"bad-args");
     }
-    HRESULT posted = PostRpcToUi(conn, id, [id, uri, className, location, xbf]() {
+    HRESULT posted = PostRpcToUi(conn, id, [id, uri, className, location, xbf, application]() {
         try {
-            return HotReloadReloadComponent_ui(id, uri, className, location, xbf);
+            return HotReloadReloadComponent_ui(id, uri, className, location, xbf, application);
         } catch (const winrt::hresult_error& e) {
             return DevToolsRpcError(id, DevToolsErr::InternalError, std::wstring(e.message()), L"internal",
                 L"\"hresult\":\"" + HrStr(e.code()) + L"\"");

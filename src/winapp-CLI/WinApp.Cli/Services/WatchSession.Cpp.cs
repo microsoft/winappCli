@@ -405,7 +405,9 @@ internal sealed partial class CppXamlSession : IDisposable
             return new CppSaveOutcome(false, [.. errors.Select(e => "[watch] error " + e)]);
         }
 
+        LineCommentsOnly.Clear();
         var changed = ChangedGeneratedCode(pass1).Concat(ChangedGeneratedCode(pass2!)).ToList();
+        var unchanged = LineCommentsOnly.Count == 0 ? "generated C++ unchanged" : $"generated C++ unchanged apart from x:Bind source line comments in {string.Join(", ", LineCommentsOnly)}";
         if (changed.Count > 0)
         {
             var first = changed[0];
@@ -445,14 +447,32 @@ internal sealed partial class CppXamlSession : IDisposable
             // App.xaml's resources are read when pages load: every page loads again.
             if (file.Equals(_application, StringComparison.OrdinalIgnoreCase) && result.Error is null)
             {
+                var pages = 0;
+                var windows = new List<string>();
                 foreach (var page in _pages)
                 {
-                    if (Component(page) is { } other)
+                    if (Component(page) is not { } other)
                     {
-                        var again = await ReloadAsync(processId, other, null, cancellationToken);
-                        result = result with { Reloaded = result.Reloaded + again.Reloaded, Notes = [.. result.Notes, .. again.Notes], Errors = [.. result.Errors, .. again.Errors] };
+                        continue;
                     }
+                    if (other.Root == "Window")
+                    {
+                        windows.Add(page);
+                        continue;
+                    }
+                    var again = await ReloadAsync(processId, other, null, cancellationToken);
+                    pages += again.Reloaded;
+                    result = result with { Notes = [.. result.Notes, .. again.Notes], Errors = [.. result.Errors, .. again.Errors] };
                 }
+                result = result with
+                {
+                    Notes =
+                    [
+                        $"then {pages} live page(s) loaded again to read the new resources",
+                        .. windows.Select(w => $"{w} keeps the old resources until it is created again (WinUI doesn't expose a running Window to tools)"),
+                        .. result.Notes,
+                    ],
+                };
             }
             if (result.Error is not null)
             {
@@ -460,7 +480,9 @@ internal sealed partial class CppXamlSession : IDisposable
             }
             if (result.Instances == 0 && component.AlwaysLive)
             {
-                return CppSaveOutcome.Restart($"{file}: the running {component.ClassName} wasn't found, so it can't be reloaded in place");
+                return CppSaveOutcome.Restart(component.Root == "Window"
+                    ? $"{file}: WinUI doesn't expose the running {component.ClassName} (a Window) to tools, so its markup can't be reloaded in place"
+                    : $"{file}: the running {component.ClassName} wasn't found, so it can't be reloaded in place");
             }
             if (result.Errors.Count > 0)
             {
@@ -469,26 +491,29 @@ internal sealed partial class CppXamlSession : IDisposable
             }
             _lastXbf[xbfName] = xbf;
             lines.Add(result.Instances == 0
-                ? $"[watch] applied {file} (no live {component.ClassName}; the next one created uses the new markup; generated C++ unchanged; compile {compileMs} ms)"
-                : $"[watch] applied {file} ({result.Reloaded} live {component.ClassName} reloaded; generated C++ unchanged; compile {compileMs} ms, apply {apply.ElapsedMilliseconds} ms)");
+                ? $"[watch] applied {file} (no live {component.ClassName}; the next one created uses the new markup; {unchanged}; compile {compileMs} ms)"
+                : $"[watch] applied {file} ({result.Reloaded} live {component.ClassName} reloaded; {unchanged}; compile {compileMs} ms, apply {apply.ElapsedMilliseconds} ms)");
             lines.AddRange(result.Notes.Select(n => "  " + n));
         }
         return new CppSaveOutcome(false, lines);
     }
 
-    /// <summary>A live object of the class always exists for the Application and an open Window: not finding one means the reload missed it.</summary>
-    private sealed record ComponentInfo(string ClassName, string Uri, string Location, bool AlwaysLive);
+    /// <summary>The markup's root is an Application or a Window: one of those is always live, so not finding it means the reload missed it.</summary>
+    private sealed record ComponentInfo(string ClassName, string Uri, string Location, string Root)
+    {
+        public bool AlwaysLive => Root is "Application" or "Window";
+    }
 
     /// <summary>The page's class and the URI and location its generated InitializeComponent loads.</summary>
     private ComponentInfo? Component(string relativeXaml)
     {
         string? className;
-        bool alwaysLive;
+        string root;
         try
         {
-            var root = XDocument.Load(Path.Combine(_projectDirectory, relativeXaml)).Root;
-            className = root?.Attribute(XName.Get("Class", "http://schemas.microsoft.com/winfx/2006/xaml"))?.Value;
-            alwaysLive = root?.Name.LocalName is "Application" or "Window";
+            var element = XDocument.Load(Path.Combine(_projectDirectory, relativeXaml)).Root;
+            className = element?.Attribute(XName.Get("Class", "http://schemas.microsoft.com/winfx/2006/xaml"))?.Value;
+            root = element?.Name.LocalName ?? "";
         }
         catch (System.Xml.XmlException)
         {
@@ -504,7 +529,7 @@ internal sealed partial class CppXamlSession : IDisposable
             if (_baseline.TryGetValue(generated, out var text) && ResourceLocator().Match(text) is { Success: true } match)
             {
                 var location = ResourceLocation().Match(text, match.Index) is { Success: true } l ? l.Groups[1].Value : "Application";
-                return new(className, match.Groups[1].Value, location, alwaysLive);
+                return new(className, match.Groups[1].Value, location, root);
             }
         }
         return null;
@@ -529,6 +554,10 @@ internal sealed partial class CppXamlSession : IDisposable
                 if (xbfPath is not null)
                 {
                     w.WriteString("xbf", xbfPath);
+                }
+                if (component.Root == "Application")
+                {
+                    w.WriteBoolean("application", true);
                 }
             }, cancellationToken: cancellationToken);
             using var result = response.TryParseResult();
@@ -567,6 +596,13 @@ internal sealed partial class CppXamlSession : IDisposable
             {
                 continue;
             }
+            // x:Bind code carries "// Page.xaml line N" comments: a line inserted above a binding changes only those.
+            // Comments can't change what the compiled code does; anything else in the line still counts.
+            if (before.Select(StripLineComment).SequenceEqual(after.Select(StripLineComment)))
+            {
+                LineCommentsOnly.Add(name);
+                continue;
+            }
             var line = 0;
             while (line < before.Length && line < after.Length && before[line] == after[line])
             {
@@ -582,6 +618,14 @@ internal sealed partial class CppXamlSession : IDisposable
 
         static string Clip(string s) => s.Length > 100 ? s[..100] + "…" : s;
     }
+
+    /// <summary>Generated files of the last comparison that differed only in x:Bind source line comments.</summary>
+    private HashSet<string> LineCommentsOnly { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    private static string StripLineComment(string line) => XamlLineComment().Replace(line, "");
+
+    [GeneratedRegex(@"\s*// [^\s/]+\.xaml line \d+\s*$")]
+    private static partial Regex XamlLineComment();
 
     /// <summary>What a change to one of the compiler's generated files stands for, by the file's role.</summary>
     private static string Why(string file, int added, int removed)
