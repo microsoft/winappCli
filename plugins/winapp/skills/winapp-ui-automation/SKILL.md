@@ -93,7 +93,7 @@ winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value Ready --t
 Use `--root`, `--type`, and `--class-name` together or separately on `search`,
 `get-property`, `get-value`, `wait-for`, and the commands that act on one
 selected element (`invoke`, `set-value`, `click`, `focus`, and so on; not `send-keys --target`).
-For `touch` and `pen`, filters need a selector; they can't be combined with `--at` or `--path`. The root must be unique; only its
+For `click`, `hover`, `touch`, and `pen`, filters need a selector; they can't be combined with `--at` or `--path`. The root must be unique; only its
 descendants match. `wait-for` re-resolves it every poll, including when it is
 initially absent. Type names and literal whole ClassName values ignore case.
 The only type aliases are `TextBox` → `Edit` and `TextBlock` → `Text`.
@@ -245,6 +245,13 @@ winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -w <hwnd> --capture
 
 # Longer dwell for apps with slow tooltip timers
 winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200; winapp ui screenshot -w <hwnd> --capture-screen
+```
+
+### Click or hover a screen point
+When the press needs a point rather than an element's center (inside a WebView2 page, or one part of a large control), pass `--at x,y` with screen coordinates from `ui inspect` instead of a selector. `--at` can't be combined with a selector.
+```powershell
+winapp ui click --at 1520,780 -a myapp            # add --right or --double as needed
+winapp ui hover --at 1520,780 -a myapp
 ```
 
 ### Send keyboard input

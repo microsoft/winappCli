@@ -713,6 +713,10 @@ public sealed class ProjectRunServiceAotTests
         Assert.IsTrue(dotnet.ArgumentListInvocations[0].Contains("--getProperty:AppxPackageOutput"),
             "the argument-list overload must carry the native packaging publish");
         Assert.AreEqual(1, dotnet.ArgumentListEnvironmentInvocations.Count, "the AOT publish environment must be threaded (value is machine-dependent, presence is not)");
+        StringAssert.Contains(
+            dotnet.ArgumentListEnvironmentInvocations[0]![ProjectRunService.CustomAfterDirectoryBuildTargetsVariable],
+            "winapp-packaging-references-",
+            "winapp pack imports the packaging-reference targets too");
     }
 
     [TestMethod]

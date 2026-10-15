@@ -69,7 +69,7 @@ These commands accept optional filters on their element selector:
 `screenshot`, `record`, `touch`, and `pen`. `drag` (two selectors) and `send-keys --target` do not.
 The selector and every supplied filter must match the **same element**. Filters narrow a
 selector, so `inspect`, `screenshot`, and `record`, whose selector is optional, fail with
-`invalid_arguments` when given filters without one. For `touch` and `pen`, filters need a
+`invalid_arguments` when given filters without one. For `click`, `hover`, `touch`, and `pen`, filters need a
 selector; they can't be combined with `--at` or `--path` (`invalid_arguments`):
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
@@ -686,9 +686,14 @@ winapp ui click btn-column1-a3f2 -a myapp              # single click by slug
 winapp ui click "Column1" -a myapp                      # single click by text search
 winapp ui click btn-column1-a3f2 -a myapp --double      # double-click
 winapp ui click btn-column1-a3f2 -a myapp --right       # right-click
+winapp ui click --at 1520,780 -a myapp                  # click a screen point instead of an element
 ```
 
-> Like the other input-injecting verbs, `click` brings the target to the foreground and **fails fast** (`no_interactive_desktop` on a locked/secure desktop, `foreground_not_target` if focus couldn't be transferred) rather than clicking the wrong window. It also **re-resolves the element just before the button-down**: after positioning the cursor it does one final position check, so a continuously moving/animating target fails with **`target_moved`** instead of reporting success after the click landed on empty space — a reported success means the target was still in place when the button went down.
+**Options:**
+- `--at <x,y>` — Click this screen point (same space `winapp ui inspect` reports) instead of an element's center. Use it inside a WebView2 page, or to press one part of a control, such as the header line of an expanded tree row. It can't be combined with a selector or with `--root`/`--type`/`--class-name`. A point outside the target window still gets clicked, with a warning (`warnings[]` in `--json`).
+- `--double` / `--right` — Double-click or right-click. Both work with `--at`.
+
+> Like the other input-injecting verbs, `click` brings the target to the foreground and **fails fast** (`no_interactive_desktop` on a locked/secure desktop, `foreground_not_target` if focus couldn't be transferred) rather than clicking the wrong window. It also **re-resolves the element just before the button-down**: after positioning the cursor it does one final position check, so a continuously moving/animating target fails with **`target_moved`** instead of reporting success after the click landed on empty space — a reported success means the target was still in place when the button went down. With `--at` there is no element to re-check, so the point is used as-is.
 
 ### drag
 Press the mouse button at one point, move to another, then release with `drag <from> <to>`, where each endpoint is either an **element selector** (drags from/to the element's center) or **screen coordinates `x,y`** exactly as reported by `winapp ui inspect`. Mix and match freely (selector→selector, selector→coords, coords→coords).
@@ -770,10 +775,12 @@ winapp ui hover btn-info-a1b2 -a myapp                          # hover with def
 winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200        # longer dwell for slow tooltips
 winapp ui list-windows -a myapp                              # use the main window's HWND below
 winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -w <hwnd> --capture-screen  # hover then capture tooltip in place
+winapp ui hover --at 1520,780 -a myapp                       # hover a screen point instead of an element
 ```
 
 **Options:**
 - `--dwell-time <ms>` — Time in milliseconds to wait after hovering for effects to appear (default: 800, range: 0–10000)
+- `--at <x,y>` — Hover this screen point instead of an element's center. Same rules as [`click --at`](#click).
 
 ### send-keys
 Send synthetic keyboard input — the keyboard counterpart to `click`. UIA has no keyboard-injection pattern, so this drops to the Win32 layer. Use it for keyboard navigation (arrows, Tab, Enter, Esc), shortcuts (`ctrl+c`, `alt+f4`), and typing into controls that need per-keystroke events rather than `set-value`'s atomic write.
