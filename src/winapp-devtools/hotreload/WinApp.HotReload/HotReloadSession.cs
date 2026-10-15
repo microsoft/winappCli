@@ -702,6 +702,11 @@ internal sealed partial class HotReloadSession
         var savedXaml = paths.Where(p => p.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) && File.Exists(p)).ToList();
         if (UseCompiler && paths.FirstOrDefault(p => p.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) && !File.Exists(p) && _xamlInputs.Contains(p)) is { } removedXaml)
         {
+            // A build fails while code still uses what the markup generated; that is the error to fix first.
+            if (await DeletedMarkupUsageAsync(paths, cancellationToken).ConfigureAwait(false) is { } used)
+            {
+                return new SaveResult(Outcome.Error, used);
+            }
             return new SaveResult(Outcome.Restart, $"{Relative(removedXaml)} was deleted: removing a XAML file takes effect when the app is rebuilt");
         }
         foreach (var path in UseCompiler ? [] : savedXaml)
@@ -2188,7 +2193,25 @@ internal sealed partial class HotReloadSession
             {
                 continue;
             }
-            foreach (var tree in type.DeclaringSyntaxReferences.Select(r => r.SyntaxTree).Where(t => IsSource(t.FilePath) && !t.FilePath.StartsWith(obj, StringComparison.OrdinalIgnoreCase)).Distinct())
+            var userTrees = type.DeclaringSyntaxReferences.Select(r => r.SyntaxTree).Where(t => IsSource(t.FilePath) && !t.FilePath.StartsWith(obj, StringComparison.OrdinalIgnoreCase)).Distinct().ToList();
+            if (userTrees.Count == 0)
+            {
+                // Only the markup declared the class (its code-behind is gone too): code elsewhere that names it.
+                foreach (var tree in compilation.SyntaxTrees.Where(t => IsSource(t.FilePath) && !t.FilePath.StartsWith(obj, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var model = compilation.GetSemanticModel(tree);
+                    foreach (var identifier in (await tree.GetRootAsync(cancellationToken).ConfigureAwait(false)).DescendantNodes().OfType<IdentifierNameSyntax>().Where(i => i.Identifier.ValueText == type.Name))
+                    {
+                        if (SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(identifier, cancellationToken).Symbol, type))
+                        {
+                            var position = identifier.GetLocation().GetLineSpan().StartLinePosition;
+                            return $"{Relative(tree.FilePath)}({position.Line + 1},{position.Character + 1}): uses {type.Name}, whose markup {Relative(path)} was deleted; " +
+                                "the running app keeps it, but the next build fails (CS0246) until the use is removed or the file is restored";
+                        }
+                    }
+                }
+            }
+            foreach (var tree in userTrees)
             {
                 var model = compilation.GetSemanticModel(tree);
                 foreach (var identifier in (await tree.GetRootAsync(cancellationToken).ConfigureAwait(false)).DescendantNodes().OfType<IdentifierNameSyntax>())
