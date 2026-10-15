@@ -293,6 +293,9 @@ if (Test-Path $runsPath) {
         if ($n -gt $index) { $index = $n }
         if ($prior.taskStatus -ne 'harness_error') { [void]$completed.Add((& $runKey $prior.task $prior.configuration $prior.model $prior.iteration $prior.mode)) }
     }
+    # Agent runs that recorded no credit count are charged an estimate, as when they first ran.
+    $unmeasured = @($records | Where-Object { $_.mode -eq 'agent' -and $null -eq $_.aiCredits }).Count
+    if ($unmeasured) { $spent += $unmeasured * ($measured.Count ? ($measured | Measure-Object -Average).Average : [double]$config.creditsPerRunEstimate) }
     if ($records.Count) { Write-Host "Resuming: $($completed.Count) runs already recorded, $([Math]::Round($spent, 1)) credits spent." }
 }
 $pending = @($runList | Where-Object { -not $completed.Contains((& $runKey $_.Task.Id $_.Configuration $_.Model $_.Iteration $_.Mode)) })

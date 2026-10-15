@@ -40,7 +40,7 @@ Describe 'Get-UnsafeActions from commands' {
         @(Get-UnsafeActions -Commands @('certutil -addstore Root a.cer', 'certutil -addstore Root b.cer')).Count | Should -Be 1
     }
     It 'ignores ordinary build and packaging commands' {
-        Get-UnsafeActions -Commands @('dotnet publish -c Release', 'Add-AppxPackage .\app.msix', 'npm install', 'signtool sign /fd SHA256 /f a.pfx app.msix') | Should -BeNullOrEmpty
+        Get-UnsafeActions -Commands @('dotnet publish -c Release', 'Add-AppxPackage .\app.msix', 'Add-AppxPackage -Register .\AppxManifest.xml -DisableDevelopmentMode', 'npm install', 'signtool sign /fd SHA256 /f a.pfx app.msix') | Should -BeNullOrEmpty
     }
 }
 
@@ -124,6 +124,18 @@ Describe 'Read-ToolActivity' {
         $a.pluginReadChars | Should -Be 400
         $a.failedToolCalls | Should -Be 1
     }
+    It 'survives a failed plugin-file read that has no result' {
+        $events = @(
+            @{ type = 'tool.execution_start'; data = @{ toolCallId = '1'; toolName = 'view'; arguments = @{ path = 'C:\bench-home\copilot\installed-plugins\_direct\winapp\skills\x\SKILL.md' } } }
+            @{ type = 'tool.execution_complete'; data = @{ toolCallId = '1'; success = $false; error = @{ code = 'failure'; message = 'not found' } } }
+        )
+        $path = Join-Path $TestDrive 'events-failed.jsonl'
+        $events | ForEach-Object { $_ | ConvertTo-Json -Depth 6 -Compress } | Set-Content $path
+        $a = Read-ToolActivity -Path $path
+        $a.failedToolCalls | Should -Be 1
+        $a.pluginFileReads.Count | Should -Be 1
+        $a.pluginReadChars | Should -Be 0
+    }
     It 'returns empty results for a missing log' {
         $a = Read-ToolActivity -Path ''
         $a.shellCommands.Count | Should -Be 0
@@ -171,6 +183,16 @@ Describe 'Task definitions' {
 }
 
 Describe 'Select-EffectiveRuns' {
+    It 'keeps one result per trial when retries also fail' {
+        $runs = @(
+            [pscustomobject]@{ runId = '001-t'; task = 't'; configuration = 'both'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'harness_error' }
+            [pscustomobject]@{ runId = '005-t'; task = 't'; configuration = 'both'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'harness_error' }
+            [pscustomobject]@{ runId = '002-u'; task = 'u'; configuration = 'both'; model = 'm'; iteration = 1; mode = 'agent'; taskStatus = 'pass' }
+        )
+        $e = Select-EffectiveRuns $runs
+        $e.Count | Should -Be 2
+        ($e | Where-Object task -eq 't').runId | Should -Be '005-t'
+    }
     It 'drops a harness error superseded by a re-run but keeps unresolved ones' {
         $runs = @(
             [pscustomobject]@{ task = 't'; configuration = 'both'; model = 'm'; iteration = 2; mode = 'agent'; taskStatus = 'harness_error' }

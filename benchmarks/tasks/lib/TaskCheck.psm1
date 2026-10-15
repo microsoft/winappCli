@@ -144,7 +144,10 @@ function Test-AppInstallerDocument {
     & $add 'appinstaller-version' ($root.GetAttribute('Version') -match '^\d+\.\d+\.\d+\.\d+$') "Version='$($root.GetAttribute('Version'))'"
 
     $main = @($root.ChildNodes | Where-Object { $_.LocalName -in 'MainPackage', 'MainBundle' }) | Select-Object -First 1
+    # A standalone .msix/.appx needs MainPackage; a .msixbundle/.appxbundle needs MainBundle.
+    $wantEntry = if ($MsixFileName -match '\.(msix|appx)bundle$') { 'MainBundle' } else { 'MainPackage' }
     if (-not $main) { & $add 'appinstaller-main-package' $false 'no MainPackage/MainBundle' }
+    elseif ($main.LocalName -ne $wantEntry) { & $add 'appinstaller-main-package' $false "<$($main.LocalName)> for '$MsixFileName'; expected <$wantEntry>" }
     else {
         $mismatch = @()
         if ($main.GetAttribute('Name') -ne $Identity.Name) { $mismatch += "Name '$($main.GetAttribute('Name'))' != '$($Identity.Name)'" }
