@@ -1,0 +1,743 @@
+{
+  "schemaVersion": "1.0",
+  "id": "sb-state",
+  "title": "Scoreboard: what the user and the page built up, and what survives a save",
+  "description": [
+    "The page is three deep in a Frame (Home, Detail, State, with a navigation parameter). The user types, checks a box,",
+    "selects an item, scrolls, and clicks counters held in a page field and in a page-owned view model; the page loads",
+    "its list in OnNavigatedTo. Then come an unrelated XAML save, an unrelated C# save, a structural XAML save and a",
+    "XAML+C# save. After each, every check marked \"state\" asks whether that piece survived. Counters are checked",
+    "relative to before the save. The parity gate is off: this state is what a clean launch cannot have."
+  ],
+  "app": {
+    "template": "app-template",
+    "assetsFrom": "samples/winui-app/Assets",
+    "projectFile": "TodoBench.csproj",
+    "rootNamespace": "TodoBench"
+  },
+  "parity": {
+    "enabled": false
+  },
+  "dimensions": [],
+  "variants": [
+    {
+      "id": "default",
+      "primary": true,
+      "summary": "The only ordering.",
+      "choices": {}
+    }
+  ],
+  "setup": [
+    {
+      "id": "setup-MainWindow-xaml",
+      "file": "MainWindow.xaml",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+          "<Window",
+          "    x:Class=\"TodoBench.MainWindow\"",
+          "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+          "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+          "    xmlns:local=\"using:TodoBench\"",
+          "    Title=\"TodoBench\">",
+          "    <Frame x:Name=\"Nav\" />",
+          "</Window>"
+        ]
+      }
+    },
+    {
+      "id": "setup-MainWindow-xaml-cs",
+      "file": "MainWindow.xaml.cs",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "using Microsoft.UI.Xaml;",
+          "",
+          "namespace TodoBench;",
+          "",
+          "public sealed partial class MainWindow : Window",
+          "{",
+          "    public MainWindow()",
+          "    {",
+          "        InitializeComponent();",
+          "        Nav.Navigate(typeof(HomePage));",
+          "        Nav.Navigate(typeof(DetailPage));",
+          "        Nav.Navigate(typeof(StatePage), \"from-main\");",
+          "    }",
+          "}"
+        ]
+      }
+    },
+    {
+      "id": "setup-HomePage-xaml",
+      "file": "HomePage.xaml",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+          "<Page",
+          "    x:Class=\"TodoBench.HomePage\"",
+          "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+          "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+          "    xmlns:local=\"using:TodoBench\">",
+          "    <TextBlock x:Name=\"HomeMarker\" Text=\"home page\" />",
+          "</Page>"
+        ]
+      }
+    },
+    {
+      "id": "setup-HomePage-xaml-cs",
+      "file": "HomePage.xaml.cs",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "using Microsoft.UI.Xaml.Controls;",
+          "",
+          "namespace TodoBench;",
+          "",
+          "public sealed partial class HomePage : Page",
+          "{",
+          "    public HomePage()",
+          "    {",
+          "        InitializeComponent();",
+          "    }",
+          "}"
+        ]
+      }
+    },
+    {
+      "id": "setup-DetailPage-xaml",
+      "file": "DetailPage.xaml",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+          "<Page",
+          "    x:Class=\"TodoBench.DetailPage\"",
+          "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+          "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+          "    xmlns:local=\"using:TodoBench\">",
+          "    <TextBlock x:Name=\"DetailMarker\" Text=\"detail page\" />",
+          "</Page>"
+        ]
+      }
+    },
+    {
+      "id": "setup-DetailPage-xaml-cs",
+      "file": "DetailPage.xaml.cs",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "using Microsoft.UI.Xaml.Controls;",
+          "",
+          "namespace TodoBench;",
+          "",
+          "public sealed partial class DetailPage : Page",
+          "{",
+          "    public DetailPage()",
+          "    {",
+          "        InitializeComponent();",
+          "    }",
+          "}"
+        ]
+      }
+    },
+    {
+      "id": "setup-StatePage-xaml",
+      "file": "StatePage.xaml",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+          "<Page",
+          "    x:Class=\"TodoBench.StatePage\"",
+          "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+          "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+          "    xmlns:local=\"using:TodoBench\">",
+          "    <StackPanel x:Name=\"Root\" Padding=\"12\" Spacing=\"6\">",
+          "        <TextBlock x:Name=\"Heading\" Text=\"State v1\" />",
+          "        <TextBlock x:Name=\"ParamText\" Text=\"(no parameter)\" />",
+          "        <TextBox x:Name=\"TypedBox\" />",
+          "        <CheckBox x:Name=\"KeptBox\" Content=\"Remember me\" />",
+          "        <StackPanel Orientation=\"Horizontal\" Spacing=\"6\">",
+          "            <Button x:Name=\"ClickButton\" Content=\"Count\" Click=\"OnCount\" />",
+          "            <TextBlock x:Name=\"ClickText\" Text=\"clicks: 0\" />",
+          "        </StackPanel>",
+          "        <StackPanel Orientation=\"Horizontal\" Spacing=\"6\">",
+          "            <Button x:Name=\"BumpButton\" Content=\"Bump\" Click=\"OnBump\" />",
+          "            <TextBlock x:Name=\"VmText\" Text=\"{x:Bind Vm.Label, Mode=OneWay}\" />",
+          "        </StackPanel>",
+          "        <ListView x:Name=\"Picker\" Height=\"120\" SelectionMode=\"Single\" />",
+          "        <ScrollViewer x:Name=\"Scroller\" Height=\"80\">",
+          "            <StackPanel x:Name=\"ScrollContent\" />",
+          "        </ScrollViewer>",
+          "        <Button x:Name=\"BackButton\" Content=\"Back\" Click=\"OnBack\" />",
+          "    </StackPanel>",
+          "</Page>"
+        ]
+      }
+    },
+    {
+      "id": "setup-StatePage-xaml-cs",
+      "file": "StatePage.xaml.cs",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "using System.Collections.Generic;",
+          "using System.ComponentModel;",
+          "using Microsoft.UI.Xaml;",
+          "using Microsoft.UI.Xaml.Controls;",
+          "using Microsoft.UI.Xaml.Navigation;",
+          "",
+          "namespace TodoBench;",
+          "",
+          "public sealed partial class StateVm : INotifyPropertyChanged",
+          "{",
+          "    private int _bumps;",
+          "    public event PropertyChangedEventHandler? PropertyChanged;",
+          "    public string Label => $\"vm bumps: {_bumps}\";",
+          "    public void Bump()",
+          "    {",
+          "        _bumps++;",
+          "        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Label)));",
+          "    }",
+          "}",
+          "",
+          "public sealed partial class StatePage : Page",
+          "{",
+          "    private int _clicks;",
+          "",
+          "    public StateVm Vm { get; } = new();",
+          "",
+          "    public StatePage()",
+          "    {",
+          "        InitializeComponent();",
+          "        for (var i = 0; i < 30; i++)",
+          "        {",
+          "            ScrollContent.Children.Add(new TextBlock { Text = $\"line {i}\" });",
+          "        }",
+          "    }",
+          "",
+          "    protected override void OnNavigatedTo(NavigationEventArgs e)",
+          "    {",
+          "        base.OnNavigatedTo(e);",
+          "        ParamText.Text = $\"param: {e.Parameter}\";",
+          "        Picker.ItemsSource = new List<string> { \"Apple\", \"Banana\", \"Cherry\", \"Date\", \"Elder\" };",
+          "    }",
+          "",
+          "    private void OnCount(object sender, RoutedEventArgs e)",
+          "    {",
+          "        _clicks++;",
+          "        ClickText.Text = $\"clicks: {_clicks}\";",
+          "    }",
+          "",
+          "    private void OnBump(object sender, RoutedEventArgs e) => Vm.Bump();",
+          "",
+          "    private void OnBack(object sender, RoutedEventArgs e)",
+          "    {",
+          "        if (Frame.CanGoBack)",
+          "        {",
+          "            Frame.GoBack();",
+          "        }",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "segments": [
+    {
+      "kind": "common",
+      "phase": "scoreboard",
+      "title": "Scoreboard: what the user and the page built up, and what survives a save",
+      "actions": [
+        {
+          "id": "s1-warmup",
+          "title": "Retitle the page, then the user builds state up",
+          "file": "StatePage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": "        <TextBlock x:Name=\"Heading\" Text=\"State v1\" />",
+            "text": "        <TextBlock x:Name=\"Heading\" Text=\"State v2\" />"
+          },
+          "checkpoint": {
+            "id": "k-s1-warmup",
+            "kind": "live",
+            "uiChecks": [
+              {
+                "target": "Heading",
+                "assert": "text-equals",
+                "value": "State v2"
+              },
+              {
+                "target": "ParamText",
+                "assert": "text-equals",
+                "value": "param: from-main"
+              },
+              {
+                "target": "TypedBox",
+                "assert": "set-value",
+                "value": "typed by user"
+              },
+              {
+                "target": "KeptBox",
+                "assert": "toggle-on"
+              },
+              {
+                "target": "Picker",
+                "assert": "set-property",
+                "value": "SelectedIndex=2"
+              },
+              {
+                "target": "Scroller",
+                "assert": "scroll-to-bottom"
+              },
+              {
+                "target": "ClickButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "BumpButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "ClickText",
+                "assert": "text-equals",
+                "value": "clicks: 1"
+              },
+              {
+                "target": "VmText",
+                "assert": "text-equals",
+                "value": "vm bumps: 1"
+              }
+            ]
+          }
+        },
+        {
+          "id": "s2-unrelated-xaml",
+          "title": "An unrelated text change in the page's XAML",
+          "file": "StatePage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": "        <TextBlock x:Name=\"Heading\" Text=\"State v2\" />",
+            "text": "        <TextBlock x:Name=\"Heading\" Text=\"State v3\" />"
+          },
+          "checkpoint": {
+            "id": "k-s2-unrelated-xaml",
+            "kind": "live",
+            "uiChecks": [
+              {
+                "target": "Heading",
+                "assert": "text-equals",
+                "value": "State v3"
+              },
+              {
+                "target": "TypedBox",
+                "assert": "text-equals",
+                "value": "typed by user",
+                "state": "typed text"
+              },
+              {
+                "target": "KeptBox",
+                "assert": "toggle-state-equals",
+                "value": "On",
+                "state": "checked box"
+              },
+              {
+                "target": "Picker",
+                "assert": "property-equals",
+                "value": "SelectedIndex=2",
+                "state": "list selection"
+              },
+              {
+                "target": "Scroller",
+                "assert": "property-equals",
+                "value": "VerticalOffset>50",
+                "state": "scroll position"
+              },
+              {
+                "target": "ParamText",
+                "assert": "text-equals",
+                "value": "param: from-main",
+                "state": "navigation parameter (OnNavigatedTo)"
+              },
+              {
+                "target": "Elder",
+                "assert": "exists",
+                "state": "data loaded in OnNavigatedTo"
+              },
+              {
+                "target": "Nav",
+                "assert": "property-equals",
+                "value": "BackStackDepth=2",
+                "state": "back stack"
+              },
+              {
+                "target": "ClickButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "ClickText",
+                "assert": "number-increased",
+                "state": "page field"
+              },
+              {
+                "target": "BumpButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "VmText",
+                "assert": "number-increased",
+                "state": "page-owned view model"
+              },
+              {
+                "target": "TypedBox",
+                "assert": "set-value",
+                "value": "typed by user"
+              },
+              {
+                "target": "KeptBox",
+                "assert": "toggle-on"
+              },
+              {
+                "target": "Picker",
+                "assert": "set-property",
+                "value": "SelectedIndex=2"
+              },
+              {
+                "target": "Scroller",
+                "assert": "scroll-to-bottom"
+              },
+              {
+                "target": "ClickButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "BumpButton",
+                "assert": "invoke"
+              }
+            ]
+          }
+        },
+        {
+          "id": "s3-unrelated-cs",
+          "title": "An unrelated method added to the page's code",
+          "file": "StatePage.xaml.cs",
+          "edit": {
+            "op": "insert-before",
+            "anchor": "    private void OnBump(object sender, RoutedEventArgs e) => Vm.Bump();",
+            "text": [
+              "    private static int Unrelated() => 42;",
+              ""
+            ]
+          },
+          "checkpoint": {
+            "id": "k-s3-unrelated-cs",
+            "kind": "live",
+            "uiChecks": [
+              {
+                "target": "TypedBox",
+                "assert": "text-equals",
+                "value": "typed by user",
+                "state": "typed text"
+              },
+              {
+                "target": "KeptBox",
+                "assert": "toggle-state-equals",
+                "value": "On",
+                "state": "checked box"
+              },
+              {
+                "target": "Picker",
+                "assert": "property-equals",
+                "value": "SelectedIndex=2",
+                "state": "list selection"
+              },
+              {
+                "target": "Scroller",
+                "assert": "property-equals",
+                "value": "VerticalOffset>50",
+                "state": "scroll position"
+              },
+              {
+                "target": "ParamText",
+                "assert": "text-equals",
+                "value": "param: from-main",
+                "state": "navigation parameter (OnNavigatedTo)"
+              },
+              {
+                "target": "Elder",
+                "assert": "exists",
+                "state": "data loaded in OnNavigatedTo"
+              },
+              {
+                "target": "Nav",
+                "assert": "property-equals",
+                "value": "BackStackDepth=2",
+                "state": "back stack"
+              },
+              {
+                "target": "ClickButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "ClickText",
+                "assert": "number-increased",
+                "state": "page field"
+              },
+              {
+                "target": "BumpButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "VmText",
+                "assert": "number-increased",
+                "state": "page-owned view model"
+              },
+              {
+                "target": "TypedBox",
+                "assert": "set-value",
+                "value": "typed by user"
+              },
+              {
+                "target": "KeptBox",
+                "assert": "toggle-on"
+              },
+              {
+                "target": "Picker",
+                "assert": "set-property",
+                "value": "SelectedIndex=2"
+              },
+              {
+                "target": "Scroller",
+                "assert": "scroll-to-bottom"
+              },
+              {
+                "target": "ClickButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "BumpButton",
+                "assert": "invoke"
+              }
+            ]
+          }
+        },
+        {
+          "id": "s4-structural-xaml",
+          "title": "A new element with an x:Bind",
+          "file": "StatePage.xaml",
+          "edit": {
+            "op": "insert-after",
+            "anchor": "        <TextBlock x:Name=\"Heading\" Text=\"State v3\" />",
+            "text": "        <TextBlock x:Name=\"Extra\" Text=\"{x:Bind Vm.Label, Mode=OneWay}\" />"
+          },
+          "checkpoint": {
+            "id": "k-s4-structural-xaml",
+            "kind": "live",
+            "uiChecks": [
+              {
+                "target": "Extra",
+                "assert": "exists"
+              },
+              {
+                "target": "TypedBox",
+                "assert": "text-equals",
+                "value": "typed by user",
+                "state": "typed text"
+              },
+              {
+                "target": "KeptBox",
+                "assert": "toggle-state-equals",
+                "value": "On",
+                "state": "checked box"
+              },
+              {
+                "target": "Picker",
+                "assert": "property-equals",
+                "value": "SelectedIndex=2",
+                "state": "list selection"
+              },
+              {
+                "target": "Scroller",
+                "assert": "property-equals",
+                "value": "VerticalOffset>50",
+                "state": "scroll position"
+              },
+              {
+                "target": "ParamText",
+                "assert": "text-equals",
+                "value": "param: from-main",
+                "state": "navigation parameter (OnNavigatedTo)"
+              },
+              {
+                "target": "Elder",
+                "assert": "exists",
+                "state": "data loaded in OnNavigatedTo"
+              },
+              {
+                "target": "Nav",
+                "assert": "property-equals",
+                "value": "BackStackDepth=2",
+                "state": "back stack"
+              },
+              {
+                "target": "ClickButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "ClickText",
+                "assert": "number-increased",
+                "state": "page field"
+              },
+              {
+                "target": "BumpButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "VmText",
+                "assert": "number-increased",
+                "state": "page-owned view model"
+              },
+              {
+                "target": "TypedBox",
+                "assert": "set-value",
+                "value": "typed by user"
+              },
+              {
+                "target": "KeptBox",
+                "assert": "toggle-on"
+              },
+              {
+                "target": "Picker",
+                "assert": "set-property",
+                "value": "SelectedIndex=2"
+              },
+              {
+                "target": "Scroller",
+                "assert": "scroll-to-bottom"
+              },
+              {
+                "target": "ClickButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "BumpButton",
+                "assert": "invoke"
+              }
+            ]
+          }
+        },
+        {
+          "id": "s5-handler",
+          "title": "A new button with a Click handler (XAML and C# in one save)",
+          "edits": [
+            {
+              "file": "StatePage.xaml",
+              "edit": {
+                "op": "insert-before",
+                "anchor": "        <Button x:Name=\"BackButton\" Content=\"Back\" Click=\"OnBack\" />",
+                "text": "        <Button x:Name=\"HelloButton\" Content=\"Hello\" Click=\"OnHello\" />"
+              }
+            },
+            {
+              "file": "StatePage.xaml.cs",
+              "edit": {
+                "op": "insert-before",
+                "anchor": "    private void OnBump(object sender, RoutedEventArgs e) => Vm.Bump();",
+                "text": [
+                  "    private void OnHello(object sender, RoutedEventArgs e) => Heading.Text = \"hello clicked\";",
+                  ""
+                ]
+              }
+            }
+          ],
+          "checkpoint": {
+            "id": "k-s5-handler",
+            "kind": "live",
+            "uiChecks": [
+              {
+                "target": "HelloButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "Heading",
+                "assert": "text-equals",
+                "value": "hello clicked"
+              },
+              {
+                "target": "TypedBox",
+                "assert": "text-equals",
+                "value": "typed by user",
+                "state": "typed text"
+              },
+              {
+                "target": "KeptBox",
+                "assert": "toggle-state-equals",
+                "value": "On",
+                "state": "checked box"
+              },
+              {
+                "target": "Picker",
+                "assert": "property-equals",
+                "value": "SelectedIndex=2",
+                "state": "list selection"
+              },
+              {
+                "target": "Scroller",
+                "assert": "property-equals",
+                "value": "VerticalOffset>50",
+                "state": "scroll position"
+              },
+              {
+                "target": "ParamText",
+                "assert": "text-equals",
+                "value": "param: from-main",
+                "state": "navigation parameter (OnNavigatedTo)"
+              },
+              {
+                "target": "Elder",
+                "assert": "exists",
+                "state": "data loaded in OnNavigatedTo"
+              },
+              {
+                "target": "Nav",
+                "assert": "property-equals",
+                "value": "BackStackDepth=2",
+                "state": "back stack"
+              },
+              {
+                "target": "ClickButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "ClickText",
+                "assert": "number-increased",
+                "state": "page field"
+              },
+              {
+                "target": "BumpButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "VmText",
+                "assert": "number-increased",
+                "state": "page-owned view model"
+              },
+              {
+                "target": "BackButton",
+                "assert": "invoke"
+              },
+              {
+                "target": "DetailMarker",
+                "assert": "exists",
+                "state": "back navigation works"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

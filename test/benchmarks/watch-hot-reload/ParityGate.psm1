@@ -16,6 +16,9 @@
 #     "probes": [ { "id", "target", "assert": "invoke" | "set-value" | "toggle-on" | "focus", "value" } ],
 #                                   run on both apps, in order, with a reading after each
 #     "navigate": [ ...probes ],    run on the clean build only, before reading (to reach the page the journey is on)
+#     "prepare": [ ...probes ],     run on both apps before the first reading (a Reset button that undoes what the
+#                                   journey's clicks built up, which the clean build never saw)
+#     "enabled": false,             never run the gate for this journey (its point is state a clean launch can't have)
 #     "properties": [ "Text", ... ],what to read on each element (default below)
 #     "ignore": [ "*#CountText.Text" ], element paths or path.Property wildcards that may differ (event counters)
 #     "replayInputs": false         don't give the clean build the text the journey typed (default: replay what is still shown)
@@ -69,6 +72,24 @@ function Get-ParitySnapshot {
     try { $result = (Remove-Ansi $raw | ConvertFrom-Json).result } catch { return $null }
     if (-not $result -or -not $result.ok) { return $null }
     $rows = @($result.matches)
+    # The inside of the app's own controls (a UserControl, a templated control) counts whether or not DevTools could
+    # attribute it to a source file: hot reload may load that markup from text, a clean build from compiled .xbf.
+    if ($RootNamespace) {
+        $known = [System.Collections.Generic.HashSet[string]]::new([string[]]@($rows | ForEach-Object handle))
+        $parentOf = @{}; $typeOf = @{}
+        foreach ($row in $rows) { $typeOf[$row.handle] = $row.type; if ($row.PSObject.Properties['parentHandle']) { $parentOf[$row.handle] = $row.parentHandle } }
+        $nested = @($rows | Where-Object {
+            if (-not $_.type.StartsWith("$RootNamespace.")) { return $false }
+            # Inside another of the app's types: a control on a page. A page itself, under its Frame, is read as authored.
+            for ($h = $parentOf[$_.handle]; $h; $h = $parentOf[$h]) { if ([string]$typeOf[$h] -like "$RootNamespace.*") { return $true } }
+            return $false
+        })
+        foreach ($control in $nested) {
+            $raw = & $Winapp devtools call VisualTree.query 'authored:=false' "rootHandle=$($control.handle)" "fields:=$fields" -a "$ProcessId" --json 2>&1 | Out-String
+            try { $inner = (Remove-Ansi $raw | ConvertFrom-Json).result } catch { continue }
+            foreach ($row in @($inner.matches)) { if ($row.PSObject.Properties['parentHandle'] -and $known.Add($row.handle)) { $rows += $row } }
+        }
+    }
     $byHandle = @{}
     $children = @{}
     foreach ($row in $rows) {
@@ -111,14 +132,24 @@ function Get-ParitySnapshot {
         $element = if ($PagePath -and $path -ne $PagePath) { $path.Substring($PagePath.Length + 1) } elseif ($PagePath) { '(root)' } else { $path }
         $snapshot[$path] = [pscustomobject]@{ Path = $path; Page = $Page; Element = $element; Type = $Node.type; Values = $values; Unreadable = $unreadable }
         $counts = @{}
-        foreach ($child in @($children[$Node.handle])) {
-            if ($null -eq $child) { continue }
+        $kids = @($children[$Node.handle] | Where-Object { $null -ne $_ })
+        if ($Node.type -match '\.(ListView|GridView|ListBox|ItemsControl|ItemsRepeater|FlipView|ComboBox|TreeView)$') {
+            # Item containers are realized and recycled by the list: a collapsed one holds no item, and their order in the
+            # tree isn't the order on screen. Compare the items that are shown, ordered by what they show.
+            $kids = @($kids | Where-Object { -not (Test-Collapsed $_) } | Sort-Object { Get-SubtreeText $_ })
+        }
+        foreach ($child in $kids) {
             $name = if ($child.name -and -not $child.name.StartsWith('__hr_')) { "#$($child.name)" } else { '' }
             $key = (ConvertTo-ShortType $child.type) + $name
             $index = [int]$counts[$key]
             $counts[$key] = $index + 1
             Add-Node $child $path $Page $PagePath ($key + $(if ($index -gt 0) { "[$index]" } else { '' }))
         }
+    }
+    function Test-Collapsed($Row) { return @($Row.fields | Where-Object { $_.name -eq 'Visibility' -and [string]$_.value -eq 'Collapsed' }).Count -gt 0 }
+    function Get-SubtreeText($Row) {
+        $own = @($Row.fields | Where-Object { $_.name -in 'Text', 'Content' -and $_.valueState -in 'value', 'binding' } | ForEach-Object { [string]$_.value })
+        return (@($own) + @($children[$Row.handle] | Where-Object { $null -ne $_ } | ForEach-Object { Get-SubtreeText $_ })) -join '|'
     }
     foreach ($start in $starts) {
         $name = if ($start.name -and -not $start.name.StartsWith('__hr_')) { "#$($start.name)" } else { '' }
@@ -230,6 +261,7 @@ function Read-ParityPhases {
         [Parameter(Mandatory)][int]$ProcessId,
         [Parameter(Mandatory)][scriptblock]$InvokeProbe,
         $Probes,
+        $Prepare,
         [string]$Root,
         [string]$RootNamespace,
         [string[]]$Properties,
@@ -237,6 +269,11 @@ function Read-ParityPhases {
     )
     $phases = [ordered]@{}
     $notes = [System.Collections.Generic.List[string]]::new()
+    foreach ($step in @($Prepare)) {
+        if ($null -eq $step) { continue }
+        $outcome = & $InvokeProbe $step $ProcessId
+        if (-not $outcome.Ok) { $notes.Add("prepare $($step.assert) $($step.target): the step failed: $(Remove-Ansi $outcome.Output)") }
+    }
     $read = Wait-ParitySnapshot -Winapp $Winapp -ProcessId $ProcessId -Root $Root -RootNamespace $RootNamespace -Properties $Properties -TimeoutSeconds $TimeoutSeconds
     if (-not $read.Stable) { $notes.Add('initial: the UI did not settle') }
     $phases['initial'] = $read.Snapshot
@@ -321,7 +358,7 @@ function Invoke-ParityCheck {
     $root = if ($Config.root) { [string]$Config.root } else { $null }
     $properties = if ($Config.properties) { @($Config.properties) } else { $script:DefaultProperties }
     $ignore = @($Config.ignore | Where-Object { $_ })
-    $common = @{ Winapp = $Winapp; InvokeProbe = $InvokeProbe; Probes = $Config.probes; Root = $root; RootNamespace = $RootNamespace; Properties = $properties; TimeoutSeconds = $TimeoutSeconds }
+    $common = @{ Winapp = $Winapp; InvokeProbe = $InvokeProbe; Probes = $Config.probes; Prepare = $Config.prepare; Root = $root; RootNamespace = $RootNamespace; Properties = $properties; TimeoutSeconds = $TimeoutSeconds }
 
     $hot = Read-ParityPhases @common -ProcessId $ProcessId
     $hotSeconds = $clock.Elapsed.TotalSeconds

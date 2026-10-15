@@ -44,8 +44,58 @@ function Assert-OneMatch([string]$Content, [string]$Needle, $Action) {
     if ($count -ne 1) { throw "Action '$($Action.id)': expected one match, found $count." }
 }
 
+<#
+.SYNOPSIS
+  What kind of save an action is, for latency per kind: "xaml", "cs", "both" (XAML and C# in one save), "new type" (a
+  file created), "package" (a PackageReference added or changed), "project" or "other". An action's "kind" wins.
+#>
+function Get-JourneySaveKind($Action) {
+    if ($Action.kind) { return [string]$Action.kind }
+    $edits = if ($Action.edits) { @($Action.edits) } else { @($Action) }
+    $files = @($edits | ForEach-Object { [string]$_.file })
+    if (@($edits | Where-Object { $_.file -like '*.*proj' -and ((ConvertTo-JourneyText $_.edit.text) -match 'PackageReference') }).Count) { return 'package' }
+    if (@($edits | Where-Object { $_.edit.op -eq 'create-file' -and $_.file -match '\.(cs|xaml)$' }).Count) { return 'new type' }
+    $xaml = @($files | Where-Object { $_ -like '*.xaml' }).Count
+    $cs = @($files | Where-Object { $_ -like '*.cs' }).Count
+    if ($xaml -and $cs) { return 'both' }
+    if ($xaml) { return 'xaml' }
+    if ($cs) { return 'cs' }
+    if (@($files | Where-Object { $_ -like '*.*proj' }).Count) { return 'project' }
+    return 'other'
+}
+
+<#
+.SYNOPSIS
+  Why a save restarted, failed or waited, in one line: the diagnostic codes and their counts ("ENC0020 x5, ENC0033"),
+  or the first line winapp printed for it.
+#>
+function Get-JourneyOutcomeReason([string]$Detail, [string]$Outcome) {
+    if ($Outcome -eq 'timeout') { return 'no outcome before the timeout' }
+    $lines = @($Detail -split "`n")
+    $start = [Array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match "^\[watch\] $Outcome\b" })
+    if ($start -lt 0) { $start = [Array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^\[watch\] (restart|error|waiting)\b' }) }
+    if ($start -lt 0) { return '' }
+    $block = [System.Collections.Generic.List[string]]::new()
+    $block.Add($lines[$start])
+    for ($i = $start + 1; $i -lt $lines.Count -and $lines[$i] -match '^  '; $i++) { $block.Add($lines[$i]) }
+    $codes = [regex]::Matches(($block -join "`n"), '\b(ENC\d{4}|CS\d{4}|WMC\d{4}|XLS\d{4})\b') | ForEach-Object { $_.Value }
+    if ($codes) {
+        return (@($codes | Group-Object | Sort-Object Count -Descending | ForEach-Object { if ($_.Count -gt 1) { "$($_.Name) x$($_.Count)" } else { $_.Name } }) -join ', ')
+    }
+    $text = ($block[0] -replace "^\[watch\] $Outcome\s*", '' -replace '\s*\(\d+ ms\)\s*$', '' -replace '\s+', ' ').Trim(' ', ':')
+    if ($text.Length -gt 140) { $text = $text.Substring(0, 137) + '...' }
+    return $text
+}
+
 function Invoke-JourneyEdit {
     param([Parameter(Mandatory)][string]$AppDir, [Parameter(Mandatory)]$Action)
+    # One save that touches several files ("edits": [ { "file", "edit" } ]), written back to back.
+    if ($Action.edits) {
+        foreach ($part in @($Action.edits)) {
+            Invoke-JourneyEdit -AppDir $AppDir -Action ([pscustomobject]@{ id = $Action.id; file = $part.file; edit = $part.edit })
+        }
+        return
+    }
     $edit = $Action.edit
     $path = Join-Path $AppDir $Action.file
     $content = if (Test-Path -LiteralPath $path -PathType Leaf) { [System.IO.File]::ReadAllText($path) -replace "`r`n", "`n" } else { $null }
@@ -71,4 +121,4 @@ function Invoke-JourneyEdit {
     }
 }
 
-Export-ModuleMember -Function Get-JourneyPlan, Invoke-JourneyEdit
+Export-ModuleMember -Function Get-JourneyPlan, Invoke-JourneyEdit, Get-JourneySaveKind, Get-JourneyOutcomeReason
