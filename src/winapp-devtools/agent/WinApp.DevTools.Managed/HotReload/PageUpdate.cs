@@ -59,6 +59,12 @@ public sealed class PageUpdate
     /// <summary>The files of this save, relative to the project.</summary>
     public IReadOnlyList<string> SavedFiles { get; }
 
+    /// <summary>
+    /// The page's UI state (selection, text, toggles) as it was before the update: taken before the update detached its
+    /// lists, so a recreated page can be given it back.
+    /// </summary>
+    internal UiState.Snapshot? StateBefore { get; init; }
+
     /// <summary>InitializeComponent runs again on the same instance, its compiled x:Bind starts again, and the UI state is kept.</summary>
     public void ReloadInPlace() => _reloadInPlace();
 
