@@ -45,7 +45,7 @@ internal static class HotReloadAgent
         };
         if (LogPath is not null)
         {
-            AppDomain.CurrentDomain.FirstChanceException += (_, e) => Log($"first-chance {e.Exception.GetType().Name}: {e.Exception.Message}{Environment.NewLine}{e.Exception.StackTrace}");
+            AppDomain.CurrentDomain.FirstChanceException += (_, e) => Log($"first-chance {e.Exception.GetType().Name} 0x{e.Exception.HResult:X8}: {e.Exception.Message}{Environment.NewLine}{e.Exception.StackTrace}");
         }
         // winapp shows why the app went down: the exit code alone says little.
         // Next to the helper's folder rather than in it: the helper removes its folder as soon as the app is gone.

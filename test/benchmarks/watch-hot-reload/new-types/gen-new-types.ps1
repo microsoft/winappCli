@@ -1,7 +1,11 @@
+# Elements with x:Bind or events are named: Prototype A gives an unnamed one a transient connection ID that changes on
+# every compile (a rename, so a restart, on every later save). Reported to the compiler session.
 # Generates journeys\real-compiler-new-types.json: new types while the app runs, on the real-compiler path.
 #   1 a new UserControl, used on a page    2 a new Page, navigated to (and back)
 #   3 a templated control + Themes\Generic.xaml    4 a NuGet package with controls (SettingsCard)
 #   5 a project reference to a class library with a UserControl and a templated control
+# -Scenarios 3 writes real-compiler-new-types-3.json with only scenario 3's saves (and the final check's, filtered).
+param([int[]]$Scenarios)
 $ns = 'xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:TodoBench"'
@@ -67,7 +71,7 @@ $badge = @"
 <?xml version="1.0" encoding="utf-8" ?>
 <UserControl x:Class="TodoBench.Badge" $ns>
     <StackPanel>
-        <TextBlock AutomationProperties.AutomationId="BadgeText" Text="{x:Bind Label, Mode=OneWay}" />
+        <TextBlock x:Name="BadgeLabel" AutomationProperties.AutomationId="BadgeText" Text="{x:Bind Label, Mode=OneWay}" />
     </StackPanel>
 </UserControl>
 "@
@@ -99,7 +103,7 @@ $second = @"
 <Page x:Class="TodoBench.SecondPage" $ns>
     <StackPanel Spacing="6" Margin="16">
         <TextBlock AutomationProperties.AutomationId="SecondTitle" Text="second v1" />
-        <Button AutomationProperties.AutomationId="BackBtn" Content="Back" Click="Back_Click" />
+        <Button x:Name="BackBtn" AutomationProperties.AutomationId="BackBtn" Content="Back" Click="Back_Click" />
     </StackPanel>
 </Page>
 "@
@@ -184,7 +188,7 @@ $sideBanner = @'
 <UserControl x:Class="SideKit.SideBanner"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <TextBlock AutomationProperties.AutomationId="SideBannerText" Text="{x:Bind Message, Mode=OneWay}" />
+    <TextBlock x:Name="SideBannerLabel" AutomationProperties.AutomationId="SideBannerText" Text="{x:Bind Message, Mode=OneWay}" />
 </UserControl>
 '@
 $sideBannerCs = @'
@@ -256,6 +260,8 @@ $sideGeneric = @'
 $P = 'MainPage.xaml'
 $anchor = '        <TextBlock AutomationProperties.AutomationId="Plain"'
 function Insert($id, $title, $element, $checks) { Replace $id $title $P $anchor "$element`n$anchor" $checks (Expect 'applied') }
+# Navigate away and back: MainPage is re-created through WinUI's type information (resolved before the update).
+$roundTrip = @((C 'invoke' 'NavBtn'), (C 'exists' 'SecondTitle'), (C 'invoke' 'BackBtn'), (C 'exists' 'NavBtn'))
 $csprojAnchor = '    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />'
 
 $setup = @(
@@ -264,6 +270,9 @@ $setup = @(
     (Create 'setup-page' 'A page' $P $page),
     (Create 'setup-page-code' 'Its code-behind' 'MainPage.xaml.cs' $pageCs),
     (Replace 'setup-stable-ids' 'Prototype A: stable, append-only connection IDs' 'TodoBench.csproj' '    <UseWinUI>true</UseWinUI>' "    <UseWinUI>true</UseWinUI>`n    <EnableHotReloadStableConnectionIds>true</EnableHotReloadStableConnectionIds>"),
+    # A simulated XAML compiler change: XamlTypeInfo methods named by type, not by table index (WINAPP_HR_STABLE_TYPEINFO_NAMES=0 turns it off).
+    (Create 'setup-stable-typeinfo-targets' 'Simulated compiler change: stable XamlTypeInfo method names' 'StableTypeInfoNames.targets' ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'StableTypeInfoNames.targets')))),
+    (Replace 'setup-stable-typeinfo-import' 'Imported by the app' 'TodoBench.csproj' '</Project>' "  <Import Project=`"StableTypeInfoNames.targets`" />`n</Project>"),
     # A library beside the app, not referenced yet (scenario 5 adds the reference).
     (Create 'setup-sidekit-project' 'A class library with XAML controls' '..\SideKit\SideKit.csproj' $sideProj),
     (Create 'setup-sidekit-banner' 'Its UserControl' '..\SideKit\SideBanner.xaml' $sideBanner),
@@ -286,21 +295,26 @@ $actions = @(
     (Create 'n3a-templated-class' 'New templated control: its class' 'Pill.cs' $pill $null (Expect 'applied')),
     (Create 'n3b-generic-xaml' 'Its default style: a new Themes\Generic.xaml' 'Themes\Generic.xaml' $generic $null (Expect 'applied')),
     (Insert 'n3c-templated-used' 'The templated control used on the page' '        <local:Pill Label="pill v1" />' @((C 'text-equals' 'PillLabel' 'pill v1'))),
-    (Replace 'n3d-generic-edit' 'Its default template edited' 'Themes\Generic.xaml' '                            <TextBlock AutomationProperties.AutomationId="PillLabel" Text="{TemplateBinding Label}" />' "                            <TextBlock AutomationProperties.AutomationId=`"PillLabel`" Text=`"{TemplateBinding Label}`" />`n                            <TextBlock AutomationProperties.AutomationId=`"PillStamp`" Text=`"pill template v2`" />" @((C 'text-equals' 'PillStamp' 'pill template v2'), (C 'text-equals' 'PillLabel' 'pill v1')) (Expect 'applied')),
+    (Replace 'n3d-generic-edit' 'Its default template edited' 'Themes\Generic.xaml' '                            <TextBlock AutomationProperties.AutomationId="PillLabel" Text="{TemplateBinding Label}" />' "                            <TextBlock AutomationProperties.AutomationId=`"PillLabel`" Text=`"{TemplateBinding Label}`" />`n                            <TextBlock AutomationProperties.AutomationId=`"PillStamp`" Text=`"pill template v2`" />" (@((C 'text-equals' 'PillStamp' 'pill template v2'), (C 'text-equals' 'PillLabel' 'pill v1')) + $roundTrip + @((C 'text-equals' 'PillStamp' 'pill template v2'))) (Expect 'applied')),
     # 4. A NuGet package with controls.
     (Replace 'n4a-nuget-reference' 'A NuGet package with controls: CommunityToolkit.WinUI.Controls.SettingsControls' 'TodoBench.csproj' $csprojAnchor "$csprojAnchor`n    <PackageReference Include=`"CommunityToolkit.WinUI.Controls.SettingsControls`" Version=`"8.2.251219`" />" $null (Expect 'applied')),
     (Replace 'n4b-nuget-xmlns' 'The package''s namespace on the page' $P "    xmlns:local=`"using:TodoBench`">" "    xmlns:local=`"using:TodoBench`"`n    xmlns:toolkit=`"using:CommunityToolkit.WinUI.Controls`">" $null $null),
     (Insert 'n4c-nuget-card' 'A SettingsCard used on the page (its default style is in the package)' '        <toolkit:SettingsCard x:Name="Card" AutomationProperties.AutomationId="Card" Header="card v1" Description="from nuget" />' @((C 'exists' 'Card'), (C 'exists' 'card v1'))),
-    (Replace 'n4d-nuget-edit' 'Its header edited' $P 'Header="card v1"' 'Header="card v2"' @((C 'exists' 'card v2')) (Expect 'applied')),
+    (Replace 'n4d-nuget-edit' 'Its header edited' $P 'Header="card v1"' 'Header="card v2"' (@((C 'exists' 'card v2')) + $roundTrip + @((C 'exists' 'card v2'))) (Expect 'applied')),
     # 5. A project reference to a library with XAML controls.
     (Replace 'n5a-project-reference' 'A ProjectReference to SideKit (a UserControl and a templated control)' 'TodoBench.csproj' $csprojAnchor "$csprojAnchor`n  </ItemGroup>`n  <ItemGroup>`n    <ProjectReference Include=`"..\SideKit\SideKit.csproj`" />" $null (Expect 'applied')),
     (Replace 'n5b-library-xmlns' 'The library''s namespace on the page' $P "    xmlns:local=`"using:TodoBench`"" "    xmlns:local=`"using:TodoBench`"`n    xmlns:side=`"using:SideKit`"" $null $null),
-    (Insert 'n5c-library-used' 'Its controls used on the page' "        <side:SideBanner Message=`"side v1`" />`n        <side:SidePill Label=`"sidepill v1`" />" @((C 'text-equals' 'SideBannerText' 'side v1'), (C 'text-equals' 'SidePillLabel' 'sidepill v1'))),
+    (Insert 'n5c-library-used' 'Its controls used on the page' "        <side:SideBanner Message=`"side v1`" />`n        <side:SidePill Label=`"sidepill v1`" />" (@((C 'text-equals' 'SideBannerText' 'side v1'), (C 'text-equals' 'SidePillLabel' 'sidepill v1')) + $roundTrip + @((C 'text-equals' 'SideBannerText' 'side v1')))),
     # Everything again, after a navigation round trip (MainPage re-created from WinUI's type information).
     (Replace 'n6-final' 'A final edit; navigate away and back; everything still works' $P 'Text="plain v1"' 'Text="plain v2"' @((C 'text-equals' 'Plain' 'plain v2'), (C 'invoke' 'NavBtn'), (C 'text-equals' 'SecondTitle' 'second v2'), (C 'invoke' 'BackBtn'), (C 'text-equals' 'BadgeText' 'badge v1'), (C 'text-equals' 'BadgeStamp' 'badge markup v2'), (C 'text-equals' 'PillStamp' 'pill template v2'), (C 'exists' 'card v2'), (C 'text-equals' 'SideBannerText' 'side v1'), (C 'text-equals' 'SidePillLabel' 'sidepill v1')) (Expect 'applied'))
 )
+$id = 'real-compiler-new-types'
+if ($Scenarios) {
+    $actions = @($actions | Where-Object { $_.id -match '^n(\d)' -and [int]$Matches[1] -in $Scenarios })
+    $id += '-' + ($Scenarios -join '')
+}
 $journey = [ordered]@{
-    schemaVersion = '1.0'; id = 'real-compiler-new-types'
+    schemaVersion = '1.0'; id = $id
     title = 'New types while the app runs, on the real XAML compiler path: a UserControl, a Page, a templated control, a NuGet package, a project reference'
     description = @('Run with WINAPP_HOT_RELOAD_REAL_COMPILER=1. Each scenario adds a type the running app has never seen, then uses it.')
     app = [ordered]@{ template = 'app-template'; assetsFrom = 'samples/winui-app/Assets'; projectFile = 'TodoBench.csproj'; rootNamespace = 'TodoBench' }
@@ -308,4 +322,4 @@ $journey = [ordered]@{
     dimensions = @(); variants = @([ordered]@{ id = 'default'; primary = $true; summary = 'default'; choices = [ordered]@{} })
     segments = @([ordered]@{ kind = 'common'; phase = 'new-types'; title = 'new types'; actions = $actions })
 }
-$journey | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $PSScriptRoot '..\journeys\real-compiler-new-types.json')
+$journey | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $PSScriptRoot "..\journeys\$id.json")
