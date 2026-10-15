@@ -150,8 +150,9 @@ internal static class UiState
                 range.Value = current.Value ?? range.Value;
                 break;
             case ScrollViewer viewer when Carry(s => s.HorizontalOffset) || Carry(s => s.VerticalOffset):
-                // Offsets need the new content measured; scroll after layout.
-                dispatcher?.TryEnqueue(DispatcherQueuePriority.Low, () => viewer.ChangeView(current.HorizontalOffset, current.VerticalOffset, null, disableAnimation: true));
+                // Offsets need the new content measured; scroll after layout. Content built later (a menu the page fills in
+                // OnNavigatedTo, then expands) isn't that tall yet: tried again as it grows, for a few seconds.
+                dispatcher?.TryEnqueue(DispatcherQueuePriority.Low, () => ScrollWhenTallEnough(viewer, current.HorizontalOffset ?? 0, current.VerticalOffset ?? 0));
                 break;
             case Expander expander when Carry(s => s.Checked):
                 expander.IsExpanded = current.Checked == true;
@@ -163,6 +164,31 @@ internal static class UiState
                 navigation.IsPaneOpen = current.Checked == true;
                 break;
         }
+    }
+
+    private static void ScrollWhenTallEnough(ScrollViewer viewer, double horizontal, double vertical)
+    {
+        bool Fits() => viewer.ScrollableHeight + 0.5 >= vertical && viewer.ScrollableWidth + 0.5 >= horizontal;
+        viewer.ChangeView(horizontal, vertical, null, disableAnimation: true);
+        if (Fits())
+        {
+            return;
+        }
+        var until = DateTime.UtcNow.AddSeconds(3);
+        void OnLayout(object? sender, object e)
+        {
+            if (DateTime.UtcNow > until)
+            {
+                viewer.LayoutUpdated -= OnLayout;
+                return;
+            }
+            if (Fits())
+            {
+                viewer.LayoutUpdated -= OnLayout;
+                viewer.ChangeView(horizontal, vertical, null, disableAnimation: true);
+            }
+        }
+        viewer.LayoutUpdated += OnLayout;
     }
 
     /// <summary>Elements under <paramref name="root"/> with stable keys; list items are skipped (they come from data).</summary>
