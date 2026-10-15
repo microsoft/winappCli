@@ -125,6 +125,103 @@ public class CustomHelpTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow("python", "winapp-py")]
+    [DataRow("PYTHON", "winapp-py")]
+    [DataRow("npm", "winapp")]
+    [DataRow("nuget-package", "winapp")]
+    [DataRow("other", "winapp")]
+    public async Task RootHelp_UsesTheCallingEntrypoint(string caller, string name)
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        var originalName = root.Name;
+
+        Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(root, ["--caller", caller, "--help"]));
+
+        StringAssert.Contains(TestAnsiConsole.Output, $"Usage: {name} <command>");
+        StringAssert.Contains(TestAnsiConsole.Output, $"Start with '{name} ui --help'.");
+        Assert.AreEqual(originalName, root.Name);
+    }
+
+    [TestMethod]
+    [DataRow(new[] { "init" })]
+    [DataRow(new[] { "manifest", "generate" })]
+    [DataRow(new[] { "cert", "info" })]
+    public async Task PythonSubcommandHelp_ChangesDisplayOnly(string[] command)
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        var originalName = root.Name;
+        var parsed = root.Parse([.. command, "--caller", "python", "--help"]);
+        using var output = new StringWriter();
+        parsed.InvocationConfiguration.Output = output;
+        var description = parsed.CommandResult.Command.Description;
+
+        Assert.AreEqual(0, await parsed.InvokeAsync());
+
+        StringAssert.Contains(output.ToString(), $"winapp-py {string.Join(" ", command)}");
+        Assert.AreSame(output, parsed.InvocationConfiguration.Output);
+        Assert.AreEqual(originalName, root.Name);
+        Assert.AreEqual(description, parsed.CommandResult.Command.Description);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task PythonEnvironment_SelectsHelpName_AndExplicitCallerOverridesIt()
+    {
+        var previous = Environment.GetEnvironmentVariable("WINAPP_CLI_CALLER");
+        try
+        {
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CALLER", "python");
+            var root = GetRequiredService<WinAppRootCommand>();
+            await ParseAndInvokeWithCaptureAsync(root, ["--help"]);
+            StringAssert.Contains(TestAnsiConsole.Output, "Usage: winapp-py <command>");
+
+            using var output = new StringWriter();
+            var parsed = root.Parse(["init", "--caller", "npm", "--help"]);
+            parsed.InvocationConfiguration.Output = output;
+            Assert.AreEqual(0, await parsed.InvokeAsync());
+            Assert.DoesNotContain("winapp-py", output.ToString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("WINAPP_CLI_CALLER", previous);
+        }
+    }
+
+    [TestMethod]
+    public async Task PythonCaller_DoesNotChangeTheCliSchema()
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        using var native = new StringWriter();
+        using var python = new StringWriter();
+        var nativeParse = root.Parse(["--caller", "npm", "--cli-schema"]);
+        nativeParse.InvocationConfiguration.Output = native;
+        var pythonParse = root.Parse(["--caller", "python", "--cli-schema"]);
+        pythonParse.InvocationConfiguration.Output = python;
+
+        Assert.AreEqual(0, await nativeParse.InvokeAsync());
+        Assert.AreEqual(0, await pythonParse.InvokeAsync());
+        Assert.AreEqual(native.ToString(), python.ToString());
+    }
+
+    [TestMethod]
+    public void HelpReferences_ChangeCommandsButPreserveProductNamesAndPaths()
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        var text = @"winapp ui --help; winapp init .; winapp pack .\publish; winapp --version;
+winapp CLI; winapp.yaml; .winapp\python; winapp.exe; C:\tools\winapp.exe; winapp-cli";
+
+        var formatted = HelpCommandName.FormatReferences(text, root, "winapp-py");
+
+        StringAssert.Contains(formatted, "winapp-py ui --help");
+        StringAssert.Contains(formatted, "winapp-py init .");
+        StringAssert.Contains(formatted, @"winapp-py pack .\publish");
+        StringAssert.Contains(formatted, "winapp-py --version");
+        StringAssert.Contains(formatted,
+            @"winapp CLI; winapp.yaml; .winapp\python; winapp.exe; C:\tools\winapp.exe; winapp-cli");
+        Assert.AreEqual(text, HelpCommandName.FormatReferences(text, root, "winapp"));
+    }
+
+    [TestMethod]
     [DataRow("--version")]
     [DataRow("-V")]
     public void VersionAliases_ShouldInvokeVersionAction(string flag)

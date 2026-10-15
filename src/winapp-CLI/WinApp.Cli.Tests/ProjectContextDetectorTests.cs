@@ -17,6 +17,7 @@ public sealed class ProjectContextDetectorTests
         _root = Directory.CreateDirectory(Path.Join(
             Path.GetTempPath(),
             $"{nameof(ProjectContextDetectorTests)}_{Guid.NewGuid():N}"));
+        File.WriteAllText(Path.Join(_root.FullName, ".git"), "gitdir: fixture");
         _detector = new ProjectContextDetector();
     }
 
@@ -120,6 +121,29 @@ public sealed class ProjectContextDetectorTests
         Assert.AreEqual(ProjectAppFramework.Electron, _detector.DetectDirectory(electron).Framework);
         Assert.AreEqual(ProjectAppFramework.ReactNativeWindows, _detector.DetectDirectory(reactNative).Framework);
         Assert.AreEqual(ProjectAppFramework.WinUI, _detector.DetectDirectory(nodeWinUi).Framework);
+    }
+
+    [TestMethod]
+    public void DetectDirectory_PythonMarkers_DoNotClaimAValidatedTelemetryFamily()
+    {
+        var python = CreateDirectory("python");
+        File.WriteAllText(Path.Join(python.FullName, "pyproject.toml"), "[project]\nname=\"python-app\"\n");
+        var context = _detector.DetectDirectory(python);
+        Assert.AreEqual(ProjectFamily.Unknown, context.Family);
+        Assert.AreEqual(ProjectAppFramework.Unknown, context.Framework);
+        Assert.AreEqual(ProjectContextConfidence.None, context.Confidence);
+        var formatter = CreateDirectory("formatter");
+        File.WriteAllText(Path.Join(formatter.FullName, "pyproject.toml"), "[tool.ruff]\nline-length=100\n");
+        Assert.IsFalse(_detector.DetectDirectory(formatter).IsKnown);
+        var scripts = CreateDirectory("scripts");
+        File.WriteAllText(Path.Join(scripts.FullName, "requirements.txt"), "");
+        File.WriteAllText(Path.Join(scripts.FullName, "app.py"), "");
+        Assert.IsFalse(_detector.DetectDirectory(scripts).IsKnown,
+            "Telemetry classification must not scan Python source files.");
+        var legacyScript = CreateDirectory("legacy-script");
+        File.WriteAllText(Path.Join(legacyScript.FullName, "setup.py"), "raise Exception()\n");
+        Assert.IsFalse(_detector.DetectDirectory(legacyScript).IsKnown,
+            "Telemetry classification must not read executable setup scripts.");
     }
 
     [TestMethod]

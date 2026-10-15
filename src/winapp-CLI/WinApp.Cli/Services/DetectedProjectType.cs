@@ -38,5 +38,10 @@ internal enum DetectedProjectType
     /// <summary>
     /// C++ project (CMakeLists.txt at project root)
     /// </summary>
-    CPP
+    CPP,
+
+    /// <summary>
+    /// Possible Python project indicated by marker files, without parsing their contents
+    /// </summary>
+    Python
 }

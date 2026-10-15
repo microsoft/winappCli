@@ -135,6 +135,36 @@ steps:
       filePath: $(System.DefaultWorkingDirectory)\scripts\package-nuget.ps1
       arguments: "-Stable:$${{ parameters.stable }} -SkipBuild"
 - task: PowerShell@2
+  displayName: Package Python wheels
+  inputs:
+    pwsh: true
+    filePath: $(System.DefaultWorkingDirectory)\scripts\package-python.ps1
+    arguments: "-Stable:$${{ parameters.stable }}"
+- task: PowerShell@2
+  displayName: Validate Python wheel metadata
+  inputs:
+    pwsh: true
+    targetType: inline
+    script: |
+      $ErrorActionPreference = 'Stop'
+      python -m pip install --disable-pip-version-check --no-input twine
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      $wheels = @(Get-ChildItem -LiteralPath '$(System.DefaultWorkingDirectory)\artifacts\python' -Filter 'winapp_cli-*.whl' -File)
+      if ($wheels.Count -ne 2) { throw "Expected two Python platform wheels, found $($wheels.Count)." }
+      python -m twine check --strict @($wheels.FullName)
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+- task: PowerShell@2
+  displayName: Test installed Python wheel
+  inputs:
+    pwsh: true
+    targetType: inline
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $wheels = @(Get-ChildItem -LiteralPath '$(System.DefaultWorkingDirectory)\artifacts\python' -Filter 'winapp_cli-*-py3-none-win_amd64.whl' -File)
+      if ($wheels.Count -ne 1) { throw "Expected one x64 Python platform wheel." }
+      & '$(System.DefaultWorkingDirectory)\scripts\test-python.ps1' -WheelPath $wheels[0].FullName -OutputDirectory '$(System.DefaultWorkingDirectory)\artifacts\python-validation'
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+- task: PowerShell@2
   displayName: Package NPM
   env:
     NPM_CONFIG_USERCONFIG: $(System.DefaultWorkingDirectory)\.npmrc
@@ -233,7 +263,7 @@ steps:
       pwsh: true
       errorActionPreference: stop
       filePath: $(System.DefaultWorkingDirectory)\scripts\verify-signatures.ps1
-      arguments: '-Path "$(System.DefaultWorkingDirectory)/artifacts/cli","$(System.DefaultWorkingDirectory)/artifacts/msix-packages","$(System.DefaultWorkingDirectory)/artifacts/nuget","$(System.DefaultWorkingDirectory)/artifacts/*.tgz"'
+      arguments: '-Path "$(System.DefaultWorkingDirectory)/artifacts/cli","$(System.DefaultWorkingDirectory)/artifacts/msix-packages","$(System.DefaultWorkingDirectory)/artifacts/nuget","$(System.DefaultWorkingDirectory)/artifacts/*.tgz","$(System.DefaultWorkingDirectory)/artifacts/python"'
 - task: CopyFiles@2
   displayName: Copy Artifacts - Test Results
   inputs:
@@ -267,6 +297,17 @@ steps:
   inputs:
     path: '$(Build.ArtifactStagingDirectory)/npmpackage'
     artifactName: npm-package
+- task: CopyFiles@2
+  displayName: Copy Artifacts - Python Wheels
+  inputs:
+    sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/python/'
+    contents: 'winapp_cli-*.whl'
+    targetFolder: '$(Build.ArtifactStagingDirectory)/python-package'
+- task: 1ES.PublishPipelineArtifact@1
+  displayName: Upload Artifact - Python Wheels
+  inputs:
+    path: '$(Build.ArtifactStagingDirectory)/python-package'
+    artifactName: python-package
 - task: CopyFiles@2
   displayName: Copy Artifacts - MSIX packages
   inputs:

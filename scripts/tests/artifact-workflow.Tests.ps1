@@ -32,14 +32,15 @@ BeforeAll {
     }
 
     function Test-MetricsCondition {
-        param([string]$Condition, [string]$Event, [string]$Artifacts, [string]$Validation, [bool]$Cancelled = $false)
+        param([string]$Condition, [string]$Event, [string]$Artifacts, [string]$Validation, [bool]$Cancelled = $false, [string]$Python = 'success')
         $expression = $Condition.Replace('${{', '').Replace('}}', '').Trim().
             Replace('github.event_name', '$Event').
             Replace('needs.build-artifacts.result', '$Artifacts').
             Replace('needs.validate-tests.result', '$Validation').
+            Replace('needs.validate-python.result', '$Python').
             Replace('!cancelled()', '(-not $Cancelled)').
             Replace('==', '-eq').Replace('&&', '-and').Replace('||', '-or')
-        & ([scriptblock]::Create("param(`$Event, `$Artifacts, `$Validation, `$Cancelled) ($expression)")) $Event $Artifacts $Validation $Cancelled
+        & ([scriptblock]::Create("param(`$Event, `$Artifacts, `$Validation, `$Cancelled, `$Python) ($expression)")) $Event $Artifacts $Validation $Cancelled $Python
     }
 
     $script:buildGate = [scriptblock]::Create((Get-RunScript (Get-JobText $buildWorkflow 'build-and-package') 'Require all build and validation jobs'))
@@ -58,6 +59,105 @@ AfterAll {
     }
 }
 
+Describe 'ADO Python build and ESRP release' {
+    BeforeAll {
+        $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+        $script:adoBuild = Get-Content (Join-Path $repoRoot '.pipelines\templates\build.yaml') -Raw
+        $script:adoEnvironment = Get-Content (Join-Path $repoRoot '.pipelines\templates\build-env.yaml') -Raw
+        $release = Get-Content (Join-Path $repoRoot '.pipelines\release.yml') -Raw
+        $pattern = '(?ms)^    - \$\{\{ if (?<gate>[^\r\n]+) \}\}:\r?\n      - stage: (?<name>Release_Npm|Release_PyPI)\r?\n(?<body>.*?)(?=^    - |\z)'
+        $script:adoStages = @{}
+        foreach ($match in [regex]::Matches($release, $pattern)) {
+            $adoStages[$match.Groups['name'].Value] = @{
+                Gate = $match.Groups['gate'].Value
+                Body = $match.Groups['body'].Value
+            }
+        }
+        if (-not $adoStages.ContainsKey('Release_PyPI') -or -not $adoStages.ContainsKey('Release_Npm')) {
+            throw 'Expected branch-gated npm and PyPI release stages.'
+        }
+        $preflight = [regex]::Match($adoStages.Release_PyPI.Body,
+            '(?m)^                script: \|\r?\n(?<body>(?:^                  .*(?:\r?\n|\z))+)' )
+        if (-not $preflight.Success) { throw 'Missing Python release wheel preflight.' }
+        $script:pythonReleasePreflight = $preflight.Groups['body'].Value -replace '(?m)^                  ', ''
+    }
+
+    It 'sets up Python and its reachable package source only in the shared environment' {
+        $adoEnvironment | Should -Match 'task: UsePythonVersion@0'
+        $adoEnvironment | Should -Match "versionSpec: '3\.12'"
+        $adoEnvironment | Should -Match 'architecture: x64'
+        $adoEnvironment | Should -Match 'task\.setvariable variable=PIP_INDEX_URL.*packagefeedproxy\.microsoft\.io/pypi/simple/'
+        $adoBuild | Should -Not -Match 'task: UsePythonVersion|packagefeedproxy\.microsoft\.io/pypi'
+    }
+
+    It 'packages signed same-run native files without publishing them again' {
+        $signing = $adoBuild.IndexOf('displayName: Code Sign ESRP - CLI')
+        $packaging = $adoBuild.IndexOf('displayName: Package Python wheels')
+        $packaging | Should -BeGreaterThan $signing
+        $packaging | Should -BeLessThan $adoBuild.IndexOf('displayName: Verify shipped binaries are signed')
+        $adoBuild | Should -Match 'filePath: .*scripts\\package-python\.ps1'
+        $adoBuild | Should -Not -Match 'package-python\.ps1.*-BuildCli'
+        $adoBuild | Should -Match 'arguments: "-Stable:\$\$\{\{ parameters\.stable \}\}"'
+    }
+
+    It 'checks metadata and the installed wheel before publishing its artifact' {
+        $adoBuild | Should -Match 'twine check --strict'
+        $adoBuild | Should -Match '\$wheels\.Count -ne 2'
+        $adoBuild | Should -Match 'test-python\.ps1.*-WheelPath'
+        $adoBuild | Should -Match "-OutputDirectory '.*artifacts\\python-validation'"
+        $artifact = $adoBuild.IndexOf('displayName: Upload Artifact - Python Wheels')
+        $adoBuild.IndexOf('displayName: Test installed Python wheel') | Should -BeLessThan $artifact
+        $adoBuild.IndexOf('displayName: Verify shipped binaries are signed') | Should -BeLessThan $artifact
+        $adoBuild | Should -Match 'arguments: .*artifacts/python'
+        $adoBuild | Should -Match "(?m)^    contents: 'winapp_cli-\*\.whl'\r?$"
+        $adoBuild | Should -Match '(?m)^    artifactName: python-package\r?$'
+    }
+
+    It 'gates PyPI publication exactly like npm on DoEsrp and the release branch' {
+        $adoStages.Release_PyPI.Gate | Should -BeExactly $adoStages.Release_Npm.Gate
+        $adoStages.Release_PyPI.Gate | Should -BeExactly "and(eq(parameters.DoEsrp, 'true'), startsWith(variables['Build.SourceBranch'], 'refs/heads/rel/v'))"
+        $adoStages.Release_PyPI.Body | Should -Match 'dependsOn: \[Build, Release_GitHub\]'
+        $adoStages.Release_PyPI.Body | Should -Match "stageDependencies\.Build\.Build\.outputs\['SetMeta\.version'\]"
+    }
+
+    It 'uses npm signing identity and DynWinRT PyPI ESRP settings without a checkout' {
+        $python = $adoStages.Release_PyPI.Body
+        $npm = $adoStages.Release_Npm.Body
+        foreach ($key in @('ConnectedServiceName', 'keyvaultname', 'authcertname', 'signcertname',
+            'clientid', 'owners', 'approvers', 'serviceendpointurl', 'mainpublisher', 'domaintenantid')) {
+            $pattern = "(?m)^\s+$key`: (?<value>.+?)\r?$"
+            [regex]::Match($python, $pattern).Groups['value'].Value |
+                Should -BeExactly ([regex]::Match($npm, $pattern).Groups['value'].Value)
+        }
+        $python | Should -Match 'type: releaseJob'
+        $python | Should -Match 'artifactName: python-package'
+        $python | Should -Match 'task: EsrpRelease@10'
+        $python | Should -Match "contenttype: 'PyPI'"
+        $python | Should -Match 'waitforreleasecompletion: true'
+        $python | Should -Not -Match 'checkout:|filePath:|condition: always|twine upload|PYPI.*TOKEN'
+    }
+
+    It 'accepts only both platform wheels at the selected release version' {
+        $directory = Join-Path $TestDrive 'release-wheel-set'
+        New-Item -ItemType Directory -Path (Join-Path $directory 'python-package') -Force | Out-Null
+        $script = $pythonReleasePreflight.Replace('$(Pipeline.Workspace)', $directory).
+            Replace('$(version)', '0.7.2')
+        $gate = [scriptblock]::Create($script)
+        $x64 = Join-Path $directory 'python-package\winapp_cli-0.7.2-py3-none-win_amd64.whl'
+        $arm64 = Join-Path $directory 'python-package\winapp_cli-0.7.2-py3-none-win_arm64.whl'
+        { & $gate } | Should -Throw '*Expected two Python platform wheels*'
+        Set-Content -LiteralPath $x64 -Value 'verified x64 fixture'
+        { & $gate } | Should -Throw '*Expected two Python platform wheels*'
+        Set-Content -LiteralPath $arm64 -Value 'verified arm64 fixture'
+        { & $gate } | Should -Not -Throw
+        Rename-Item -LiteralPath $arm64 -NewName 'winapp_cli-0.7.1-py3-none-win_arm64.whl'
+        { & $gate } | Should -Throw '*Expected exactly one*win_arm64.whl*'
+        Rename-Item -LiteralPath (Join-Path $directory 'python-package\winapp_cli-0.7.1-py3-none-win_arm64.whl') -NewName (Split-Path $arm64 -Leaf)
+        Set-Content -LiteralPath (Join-Path $directory 'python-package\unrelated-1.0-py3-none-any.whl') -Value 'not a release package'
+        { & $gate } | Should -Throw '*Expected two Python platform wheels*'
+    }
+}
+
 Describe 'Artifact-first workflow dependencies' {
     It 'publishes packages without tests and keeps the original check as a strict aggregate' {
         $producer = Get-JobText $buildWorkflow 'build-artifacts'
@@ -65,13 +165,13 @@ Describe 'Artifact-first workflow dependencies' {
         $producer | Should -Not -Match '(?m)^\s+needs:'
         $producer | Should -Not -Match 'collect-metrics|test-results'
         $producer | Should -Match 'Downloads - awaiting validation'
-        foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages')) {
+        foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'python-package')) {
             $producer | Should -Match "(?m)^\s+name: $artifact\r?$"
         }
 
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
-        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-docs, e2e-test-ui, samples, metrics\]'
+        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-python, validate-docs, e2e-test-ui, samples, metrics\]'
     }
 
     It 'builds both architectures in one producer without intermediate publish artifacts' {
@@ -94,7 +194,7 @@ Describe 'Artifact-first workflow dependencies' {
     }
 
     It 'starts validation, docs, UI E2E and samples from early artifacts, not the final gate' {
-        foreach ($job in @('validate-tests', 'validate-docs', 'e2e-test-ui', 'samples')) {
+        foreach ($job in @('validate-tests', 'validate-python', 'validate-docs', 'e2e-test-ui', 'samples')) {
             $text = Get-JobText $buildWorkflow $job
             $text | Should -Match '(?m)^\s+needs: build-artifacts\r?$'
             $text | Should -Not -Match 'dotnet publish|needs: build-and-package'
@@ -103,6 +203,13 @@ Describe 'Artifact-first workflow dependencies' {
             Should -Match ([regex]::Escape('$testArgs.CliShard = [int]$env:CLI_SHARD'))
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-e2e-winui-ui\.ps1'
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-ui-coordination\.ps1'
+        (Get-JobText $buildWorkflow 'validate-python') | Should -Match 'test-python\.ps1'
+        (Get-JobText $buildWorkflow 'validate-python') | Should -Match 'name: python-package'
+        (Get-JobText $buildWorkflow 'validate-python') | Should -Match '-WheelPath'
+        (Get-JobText $buildWorkflow 'validate-python') | Should -Match '-IncludeUv'
+        (Get-JobText $buildWorkflow 'validate-python') | Should -Match 'uv==0\.12\.1'
+        (Get-JobText $buildWorkflow 'validate-python') | Should -Not -Match 'package-python\.ps1|-WinappPath'
+        (Get-JobText $buildWorkflow 'build-artifacts') | Should -Match 'package-python\.ps1'
     }
 
     It 'runs both CLI shards, auxiliary suites once, and UI Automation on isolated runners' {
@@ -132,8 +239,25 @@ Describe 'Artifact-first workflow dependencies' {
         (Get-JobText $sampleWorkflow 'test-sample') | Should -Not -Match 'continue-on-error: true'
     }
 
+    It 'tests both Python samples with a same-run wheel rather than separate native or npm installations' {
+        $producer = Get-JobText $sampleWorkflow 'build'
+        $producer | Should -Match 'package-python\.ps1'
+        $producer | Should -Match 'name: python-package'
+        $consumer = Get-JobText $sampleWorkflow 'test-sample'
+        $consumer | Should -Match ([regex]::Escape("startsWith(matrix.sample, 'python-')"))
+        $consumer | Should -Match ([regex]::Escape("!startsWith(matrix.sample, 'python-')"))
+        $consumer | Should -Match 'matrix.sample == ''python-identity'''
+        $consumer | Should -Match 'name: python-package'
+        $consumer | Should -Match 'path: artifacts/python'
+        $consumer | Should -Match 'Enable Developer Mode for Python identity testing'
+        $consumer | Should -Not -Match 'package-python\.ps1|pip install.*winapp-cli'
+        $run = Get-RunScript $consumer 'Run ${{ matrix.sample }} test'
+        $run | Should -Match ([regex]::Escape("if ('`${{ matrix.sample }}'.StartsWith('python-'))"))
+        $run | Should -Match ([regex]::Escape('WinappPath = $packagePath'))
+    }
+
     It 'retains all samples and preserves the main doc drift warning behavior' {
-        $expected = 'cpp-app, cpp-winui-app, dotnet-app, dotnet-file-app, electron, flutter-app, maui-app, node-winui, packaging-cli, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app'
+        $expected = 'cpp-app, cpp-winui-app, dotnet-app, dotnet-file-app, electron, flutter-app, maui-app, node-winui, packaging-cli, python-winui, python-identity, rust-app, sparse-app, tauri-app, wpf-app, winui-app, winui-solution, winui-unpackaged-app'
         $sampleWorkflow | Should -Match ([regex]::Escape("sample: [$expected]"))
         (Get-JobText $buildWorkflow 'validate-docs') |
             Should -Match ([regex]::Escape("-FailOnDrift:(`$env:IS_PR -eq 'true')"))
@@ -153,7 +277,7 @@ Describe 'Artifact-first workflow dependencies' {
 
     It 'joins package and test artifacts before collecting and reporting metrics' {
         $metrics = Get-JobText $buildWorkflow 'metrics'
-        $metrics | Should -Match 'needs: \[build-artifacts, validate-tests\]'
+        $metrics | Should -Match 'needs: \[build-artifacts, validate-tests, validate-python\]'
         $metrics | Should -Match ([regex]::Escape("needs.validate-tests.result == 'success' || needs.validate-tests.result == 'failure'"))
         foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'validation-results-Cli-1', 'validation-results-Cli-2', 'validation-results-Auxiliary', 'validation-results-UIAutomation', 'test-results')) {
             $metrics | Should -Match "(?m)^\s+name: $artifact\r?$"
@@ -170,7 +294,7 @@ Describe 'Partial reruns replace only owned artifacts' {
             Get-UploadSteps $sampleWorkflow
             Get-UploadSteps $reportAction
         )
-        $uploads.Count | Should -Be 12
+        $uploads.Count | Should -Be 15
         foreach ($upload in $uploads) {
             $upload | Should -Match '(?m)^        overwrite: true\r?$' -Because $upload
         }
@@ -178,7 +302,7 @@ Describe 'Partial reruns replace only owned artifacts' {
 
     It 'gives each concurrent PR producer a distinct name so a retry cannot replace siblings' {
         $names = @(
-            foreach ($job in @('build-artifacts', 'metrics', 'e2e-test-ui')) {
+            foreach ($job in @('build-artifacts', 'metrics', 'e2e-test-ui', 'validate-python')) {
                 foreach ($step in (Get-UploadSteps (Get-JobText $buildWorkflow $job))) {
                     [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
                 }
@@ -200,7 +324,7 @@ Describe 'Partial reruns replace only owned artifacts' {
                 [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
             }
         )
-        $names.Count | Should -Be 28
+        $names.Count | Should -Be 32
         @($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count | Should -Be 0
         @($names | Group-Object | Where-Object Count -GT 1).Count | Should -Be 0
         (Get-JobText $sampleWorkflow 'build') | Should -Match 'if: \$\{\{ !inputs.use-existing-artifacts \}\}'
@@ -236,6 +360,10 @@ Describe 'Failed validation reports without promoting the main baseline' {
                 $actual = Test-MetricsCondition $reportCondition $event 'success' $validation
                 $actual | Should -Be ($event -eq 'pull_request' -or $validation -eq 'success')
             }
+            foreach ($python in @('failure', 'cancelled', 'skipped')) {
+                $actual = Test-MetricsCondition $reportCondition $event 'success' 'success' -Python $python
+                $actual | Should -Be ($event -eq 'pull_request')
+            }
         }
         $metricsJob | Should -Match 'uses: \./\.github/actions/report-metrics'
         foreach ($step in @('Save metrics baseline', 'Delete old metrics baseline cache', 'Cache metrics baseline')) {
@@ -247,7 +375,7 @@ Describe 'Failed validation reports without promoting the main baseline' {
 Describe 'Required build check outcomes' {
     BeforeEach {
         $script:results = @{}
-        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-docs', 'e2e-test-ui', 'samples', 'metrics')) {
+        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-python', 'validate-docs', 'e2e-test-ui', 'samples', 'metrics')) {
             $results[$job] = @{ result = 'success' }
         }
         $env:IS_PR = 'true'

@@ -595,6 +595,64 @@ extends:
                 domaintenantid: ${{ parameters.signingIdentity.tenantId }}
 
     - ${{ if and(eq(parameters.DoEsrp, 'true'), startsWith(variables['Build.SourceBranch'], 'refs/heads/rel/v')) }}:
+      - stage: Release_PyPI
+        displayName: Publish Python package to PyPI
+        dependsOn: [Build, Release_GitHub]
+        variables:
+          version: $[ stageDependencies.Build.Build.outputs['SetMeta.version'] ]
+        jobs:
+        - job: create_python_release
+          pool:
+            name: Azure-Pipelines-1ESPT-ExDShared
+            image: windows-latest
+            os: windows
+            hostArchitecture: amd64
+          displayName: Python Release
+          templateContext:
+            type: releaseJob
+            isProduction: true
+            inputs:
+            - input: pipelineArtifact
+              artifactName: python-package
+              targetPath: $(Pipeline.Workspace)/python-package
+          steps:
+            - task: PowerShell@2
+              displayName: Verify Python release wheel set
+              inputs:
+                targetType: inline
+                script: |
+                  $ErrorActionPreference = 'Stop'
+                  $directory = '$(Pipeline.Workspace)/python-package'
+                  $wheels = @(Get-ChildItem -LiteralPath $directory -Filter '*.whl' -File -Recurse)
+                  if ($wheels.Count -ne 2) { throw "Expected two Python platform wheels, found $($wheels.Count)." }
+                  foreach ($platform in @('win_amd64', 'win_arm64')) {
+                    $expected = "winapp_cli-$(version)-py3-none-$platform.whl"
+                    if (@($wheels | Where-Object Name -EQ $expected).Count -ne 1) {
+                      throw "Expected exactly one $expected in the release artifact."
+                    }
+                  }
+            - task: EsrpRelease@10
+              displayName: Publish winapp-cli to PyPI via ESRP
+              inputs:
+                ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
+                usemanagedidentity: false
+                keyvaultname: ${{ parameters.signingIdentity.akvName }}
+                authcertname: ${{ parameters.signingIdentity.authCertName }}
+                signcertname: ${{ parameters.signingIdentity.signCertName }}
+                clientid: ${{ parameters.signingIdentity.appId }}
+                intent: 'PackageDistribution'
+                contenttype: 'PyPI'
+                contentsource: 'Folder'
+                folderlocation: $(Pipeline.Workspace)/python-package/
+                waitforreleasecompletion: true
+                owners: '$(EsrpOwnersEmail)'
+                approvers: '$(EsrpApproversEmail)'
+                serviceendpointurl: 'https://api.esrp.microsoft.com'
+                mainpublisher: 'ESRPRELPACMAN'
+                domaintenantid: ${{ parameters.signingIdentity.tenantId }}
+                releasetitle: 'winapp-cli $(version)'
+
+    - ${{ if and(eq(parameters.DoEsrp, 'true'), startsWith(variables['Build.SourceBranch'], 'refs/heads/rel/v')) }}:
       - stage: Release_NuGet
         displayName: Publish the NuGet Release
         dependsOn: Release_GitHub

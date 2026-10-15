@@ -1,0 +1,26 @@
+[project]
+name = "winapp-python-counter"
+version = "0.0.0"
+requires-python = ">=3.11,<3.15"
+dependencies = []
+
+[tool.winapp.python-bindings]
+package = "winapp_bindings"
+codegen-version = "0.1.0rc23"
+scope = "types"
+types = [
+    "Microsoft.UI.Xaml.Application",
+    "Microsoft.UI.Xaml.Window",
+    "Microsoft.UI.Xaml.Controls.Grid",
+    "Microsoft.UI.Xaml.Controls.StackPanel",
+    "Microsoft.UI.Xaml.Controls.ScrollViewer",
+    "Microsoft.UI.Xaml.Controls.Button",
+    "Microsoft.UI.Xaml.Controls.TextBlock",
+    "Microsoft.UI.Xaml.Automation.AutomationProperties",
+    "Microsoft.UI.Xaml.Media.SolidColorBrush",
+    "Microsoft.UI.Windowing.OverlappedPresenter",
+    "Microsoft.Windows.Storage.Pickers.FileOpenPicker",
+    "Windows.UI.ColorHelper",
+]
+additional-winmds = []
+additional-refs = []

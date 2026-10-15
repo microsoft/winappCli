@@ -135,6 +135,7 @@ Additional guides:
 - [Packaging an EXE/CLI](/docs/guides/packaging-cli.md): step by step guide of packaging an existing exe/cli as MSIX
 - [.NET file-based apps](./docs/guides/dotnet-file-based.md): run a single `.cs` file with package identity, no project file or manifest required
 - [MAUI (Windows)](./docs/guides/maui.md): package and sign .NET MAUI Windows outputs with the generated resizetizer manifest
+- [Python](./docs/guides/python.md): Windows API bindings, script identity and packaging; [unpackaged WinUI sample](./samples/python-winui)
 - **Electron JS/TypeScript bindings** *(npm only)*: opt into auto-generated WinRT bindings via `winapp init --add-js-bindings`. See task-focused guides:
   - [File picker](/docs/guides/electron/js-file-picker.md) — open native Windows file/folder pickers from the renderer
   - [Toast notifications](/docs/guides/electron/js-notification.md) — show Windows toasts with actions

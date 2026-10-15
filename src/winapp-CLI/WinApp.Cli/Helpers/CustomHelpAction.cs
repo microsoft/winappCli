@@ -46,10 +46,11 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
     public override int Invoke(ParseResult parseResult)
     {
         var command = parseResult.CommandResult.Command;
+        var commandName = HelpCommandName.ForInvocation(parseResult);
 
         if (UiHelpRenderer.AppliesTo(command))
         {
-            parseResult.InvocationConfiguration.Output.Write(UiHelpRenderer.Render(command));
+            parseResult.InvocationConfiguration.Output.Write(UiHelpRenderer.Render(command, commandName));
             return 0;
         }
 
@@ -57,17 +58,34 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
         if (command != _targetCommand)
         {
             var defaultHelp = new HelpAction();
-            return defaultHelp.Invoke(parseResult);
+            if (commandName == "winapp")
+            {
+                return defaultHelp.Invoke(parseResult);
+            }
+
+            var output = parseResult.InvocationConfiguration.Output;
+            using var help = new StringWriter();
+            parseResult.InvocationConfiguration.Output = help;
+            try
+            {
+                var result = defaultHelp.Invoke(parseResult);
+                output.Write(HelpCommandName.FormatReferences(help.ToString(), command, commandName));
+                return result;
+            }
+            finally
+            {
+                parseResult.InvocationConfiguration.Output = output;
+            }
         }
 
         var useColor = BannerHelper.UseEmoji;
-        var commandPath = GetCommandPath(command);
+        var commandPath = HelpCommandName.GetPath(command, commandName);
 
         // Description
         if (!string.IsNullOrEmpty(command.Description))
         {
             _ansiConsole.WriteLine();
-            WriteIndented(new Markup($"[dim]{Markup.Escape(command.Description)}[/]"));
+            WriteIndented(new Markup($"[dim]{Markup.Escape(HelpCommandName.FormatReferences(command.Description, command, commandName))}[/]"));
         }
 
         // Usage
@@ -78,7 +96,7 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
         _ansiConsole.MarkupLine($" Use '[white]{commandPath} <command> --help[/]' to get detailed help for any command.");
         if (command is RootCommand)
         {
-            _ansiConsole.MarkupLine(" Driving an app's UI from an agent or script? Start with '[white]winapp ui --help[/]'.");
+            _ansiConsole.MarkupLine($" Driving an app's UI from an agent or script? Start with '[white]{commandName} ui --help[/]'.");
         }
 
         // Build a lookup from command type -> Command object
@@ -104,7 +122,7 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
                     var desc = sub is IShortDescription sd ? sd.ShortDescription : sub.Description ?? "";
                     grid.AddRow(
                         $"[white]{Markup.Escape(sub.Name)}[/]",
-                        Markup.Escape(desc)
+                        Markup.Escape(HelpCommandName.FormatReferences(desc, command, commandName))
                     );
                 }
             }
@@ -147,7 +165,7 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
 
             optGrid.AddRow(
                 $"[white]{Markup.Escape(aliasText)}[/]",
-                Markup.Escape(desc)
+                Markup.Escape(HelpCommandName.FormatReferences(desc, command, commandName))
             );
         }
 
@@ -170,27 +188,5 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
     private void WriteIndented(IRenderable renderable)
     {
         _ansiConsole.Write(new Padder(renderable, new Padding(1, 0, 0, 0)));
-    }
-
-    private static string GetCommandPath(Command command)
-    {
-        // For root command, use "winapp"; for subcommands, build the path
-        var parts = new List<string>();
-        var current = command;
-        while (current != null)
-        {
-            if (current is RootCommand)
-            {
-                parts.Add("winapp");
-            }
-            else
-            {
-                parts.Add(current.Name);
-            }
-            current = current.Parents.OfType<Command>().FirstOrDefault();
-        }
-
-        parts.Reverse();
-        return string.Join(" ", parts);
     }
 }

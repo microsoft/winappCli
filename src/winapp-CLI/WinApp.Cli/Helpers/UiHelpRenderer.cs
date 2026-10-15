@@ -24,15 +24,17 @@ internal static class UiHelpRenderer
     public static bool AppliesTo(Command command) =>
         command is UiCommand || command.Parents.OfType<Command>().Any(AppliesTo);
 
-    public static string Render(Command command) =>
-        command is UiCommand group ? RenderGroup(group) : RenderCommand(command);
+    public static string Render(Command command, string commandName = "winapp") =>
+        command is UiCommand group ? RenderGroup(group, commandName) : RenderCommand(command, commandName);
 
-    internal static string RenderGroup(UiCommand group)
+    internal static string RenderGroup(UiCommand group, string commandName = "winapp")
     {
         var sb = new StringBuilder();
-        AppendDescription(sb, "winapp ui - ", (group.Description ?? "") + "\n" + UiCommand.GoldenPath);
+        var path = HelpCommandName.GetPath(group, commandName);
+        AppendDescription(sb, $"{path} - ",
+            HelpCommandName.FormatReferences((group.Description ?? "") + "\n" + UiCommand.GoldenPath, group, commandName));
         sb.AppendLine();
-        sb.AppendLine("Usage: winapp ui <command> [options]    Details: winapp ui <command> --help");
+        sb.AppendLine($"Usage: {path} <command> [options]    Details: {path} <command> --help");
 
         var byType = group.Subcommands.ToDictionary(c => c.GetType());
         foreach (var (category, types) in UiCommand.HelpCategories)
@@ -43,7 +45,8 @@ internal static class UiHelpRenderer
                 .Where(byType.ContainsKey)
                 .Select(type => byType[type])
                 .Where(sub => !sub.Hidden)
-                .Select(sub => (sub.Name, sub is IShortDescription sd ? sd.ShortDescription : sub.Description ?? ""))
+                .Select(sub => (sub.Name, HelpCommandName.FormatReferences(
+                    sub is IShortDescription sd ? sd.ShortDescription : sub.Description ?? "", sub, commandName)))
                 .ToList());
         }
 
@@ -57,12 +60,12 @@ internal static class UiHelpRenderer
         return sb.ToString();
     }
 
-    internal static string RenderCommand(Command command)
+    internal static string RenderCommand(Command command, string commandName = "winapp")
     {
-        var path = GetCommandPath(command);
+        var path = HelpCommandName.GetPath(command, commandName);
         var sb = new StringBuilder();
         var summary = command is IShortDescription sd ? sd.ShortDescription.TrimEnd('.') + "." : "";
-        AppendDescription(sb, $"{path} - ", summary);
+        AppendDescription(sb, $"{path} - ", HelpCommandName.FormatReferences(summary, command, commandName));
         // Descriptions open with the summary so they stand alone in --cli-schema; don't repeat it here.
         var details = command.Description ?? "";
         if (summary.Length > 0 && details.StartsWith(summary, StringComparison.Ordinal))
@@ -71,11 +74,12 @@ internal static class UiHelpRenderer
         }
         if (!string.IsNullOrWhiteSpace(details))
         {
-            AppendDescription(sb, "", details);
+            AppendDescription(sb, "", HelpCommandName.FormatReferences(details, command, commandName));
         }
 
         sb.AppendLine();
-        sb.AppendLine("Usage: " + ((command as IHelpExamples)?.Usage ?? BuildUsage(command, path)));
+        sb.AppendLine("Usage: " + HelpCommandName.FormatReferences(
+            (command as IHelpExamples)?.Usage ?? BuildUsage(command, path), command, commandName));
 
         if (command is IHelpExamples { Examples.Count: > 0 } examples)
         {
@@ -83,7 +87,7 @@ internal static class UiHelpRenderer
             sb.AppendLine("Examples:");
             foreach (var example in examples.Examples)
             {
-                sb.Append("  ").AppendLine(example);
+                sb.Append("  ").AppendLine(HelpCommandName.FormatReferences(example, command, commandName));
             }
         }
 
@@ -92,7 +96,8 @@ internal static class UiHelpRenderer
         {
             sb.AppendLine();
             sb.AppendLine("Arguments:");
-            AppendRows(sb, arguments.Select(a => ($"<{a.Name}>", a.Description ?? "")).ToList());
+            AppendRows(sb, arguments.Select(a => ($"<{a.Name}>",
+                HelpCommandName.FormatReferences(a.Description ?? "", command, commandName))).ToList());
         }
 
         var options = command.Options.Where(IsCommandOption)
@@ -102,11 +107,12 @@ internal static class UiHelpRenderer
         {
             sb.AppendLine();
             sb.AppendLine("Options:");
-            AppendRows(sb, options.Select(o => (FormatOption(o), o.Description ?? "")).ToList());
+            AppendRows(sb, options.Select(o => (FormatOption(o),
+                HelpCommandName.FormatReferences(o.Description ?? "", command, commandName))).ToList());
         }
 
         sb.AppendLine();
-        sb.AppendLine(GlobalOptionsLine);
+        sb.AppendLine(HelpCommandName.FormatReferences(GlobalOptionsLine, command, commandName));
         return sb.ToString();
     }
 
@@ -228,17 +234,5 @@ internal static class UiHelpRenderer
             lines.Add(current.ToString());
         }
         return lines;
-    }
-
-    private static string GetCommandPath(Command command)
-    {
-        var parts = new List<string>();
-        for (var current = command; current is not null; current = current.Parents.OfType<Command>().FirstOrDefault())
-        {
-            parts.Add(current is RootCommand ? "winapp" : current.Name);
-        }
-
-        parts.Reverse();
-        return string.Join(" ", parts);
     }
 }

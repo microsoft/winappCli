@@ -236,6 +236,10 @@ Describe 'port-mslearn-docs: generated toc.yml + guides index' {
         foreach ($p in $ported) { $hrefs | Should -Contain $p }
     }
 
+    It 'includes Python with its curated label under Framework guides' {
+        $script:Toc | Should -Match '(?m)^  - name: Python\r?\n    href: guides/python\.md\r?$'
+    }
+
     It 'produces valid, unquoted toc names (no accidental YAML quoting)' {
         # Curated labels are all plain scalars; guard against a regression that
         # would force quoting (which would signal an unexpected special char).
