@@ -764,6 +764,7 @@ internal static class XamlReload
                         }
                         catch (Exception ex)
                         {
+                            HotReloadAgent.Log($"{page.GetType().Name}: updating the page failed: {ex}");
                             ReportError($"{page.GetType().Name}: updating the page failed: {ex.GetBaseException().Message}");
                         }
                     }
@@ -988,6 +989,9 @@ internal static class XamlReload
                 try
                 {
                     bindings.GetType().GetMethod("StopTracking")?.Invoke(bindings, null);
+                    // Stopped while its code matched its fields. After the update, InitializeComponent would stop it again
+                    // with the new code, which reads fields the update added (unset on this object).
+                    component.GetType().GetField("Bindings", InstanceMembers)?.SetValue(component, null);
                 }
                 catch (Exception ex)
                 {

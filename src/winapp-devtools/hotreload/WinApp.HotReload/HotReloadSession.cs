@@ -767,7 +767,9 @@ internal sealed partial class HotReloadSession
         }
         // Pending until an update that carries them is applied: a save that fails after this still leaves them to send.
         Phase("usage checks");
-        foreach (var initializer in await NewStaticInitializersAsync(cancellationToken).ConfigureAwait(false))
+        // These look at the user's code only: a XAML-only save on the compiler pipeline has nothing for them.
+        var userCodeChanged = !UseCompiler || deleted.Count > 0 || paths.Any(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && IsSource(p));
+        foreach (var initializer in userCodeChanged ? await NewStaticInitializersAsync(cancellationToken).ConfigureAwait(false) : [])
         {
             if (!_pendingInitializers.Contains(initializer))
             {
@@ -799,8 +801,11 @@ internal sealed partial class HotReloadSession
         // Removed fields and properties stay declared up front: the compiler can't remove them from a loaded type, and
         // fails outright (rather than reporting a rude edit) for a removed partial property.
         Phase("generated code");
-        await KeepRemovedFieldsAsync(cancellationToken).ConfigureAwait(false);
-        await EmitNewPartialPropertyInitializersAsync(cancellationToken).ConfigureAwait(false);
+        if (userCodeChanged)
+        {
+            await KeepRemovedFieldsAsync(cancellationToken).ConfigureAwait(false);
+            await EmitNewPartialPropertyInitializersAsync(cancellationToken).ConfigureAwait(false);
+        }
         Phase("kept members");
         var result = await UpdatesAsync(cancellationToken).ConfigureAwait(false);
         if (result.Errors.Count == 0 && (result.RudeEdits.Count > 0 || result.NeedsRestart) && deleted.Count > 0)

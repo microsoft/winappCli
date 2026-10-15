@@ -275,14 +275,17 @@ internal sealed partial class HotReloadSession
     {
         _xamlImageStale |= codeChanged;
         var compiled = new XamlCompiled([], []);
-        if (xaml.Count == 0)
+        // A member the markup may bind to was removed or renamed: a build would compile every page against it again.
+        var removedMembers = codeChanged && _xaml is not null && _xamlUnavailable is null ? await RemovedMemberNamesAsync(cancellationToken).ConfigureAwait(false) : [];
+        if (xaml.Count == 0 && removedMembers.Count == 0)
         {
             return (compiled, null);
         }
         await _xamlReady.ConfigureAwait(false);
         if (_xamlUnavailable is not null || _xaml is null)
         {
-            return (null, new SaveResult(Outcome.Restart, $"{Relative(xaml[0])}: {_xamlUnavailable ?? "the XAML compiler service isn't running"}; XAML changes take effect when the app restarts"));
+            return xaml.Count == 0 ? (compiled, null)
+                : (null, new SaveResult(Outcome.Restart, $"{Relative(xaml[0])}: {_xamlUnavailable ?? "the XAML compiler service isn't running"}; XAML changes take effect when the app restarts"));
         }
         if (xaml.FirstOrDefault(p => !_xamlInputs.Contains(p)) is { } added)
         {
@@ -308,12 +311,12 @@ internal sealed partial class HotReloadSession
             }
         }
 
-        var pass1 = await _xaml.Pass1Async(xaml, cancellationToken).ConfigureAwait(false);
-        if (Failed(pass1) is { } pass1Error)
+        var pass1 = xaml.Count > 0 ? await _xaml.Pass1Async(xaml, cancellationToken).ConfigureAwait(false) : null;
+        if (pass1 is not null && Failed(pass1) is { } pass1Error)
         {
             return (null, pass1Error);
         }
-        if (await UseGeneratedAsync(pass1, xaml, typeInfo: false, cancellationToken).ConfigureAwait(false) is { } fieldChange)
+        if (pass1 is not null && await UseGeneratedAsync(pass1, xaml, typeInfo: false, cancellationToken).ConfigureAwait(false) is { } fieldChange)
         {
             return (null, fieldChange);
         }
@@ -346,6 +349,20 @@ internal sealed partial class HotReloadSession
             }
             await UseGeneratedAsync(all2, xaml, typeInfo: true, cancellationToken).ConfigureAwait(false);
             _xamlFullCompilePending = false;
+        }
+        if (removedMembers.Count > 0)
+        {
+            // Checked only: x:Bind to a member this save removed fails the build (WMC1110), so it fails here too,
+            // rather than binding to the member the running app still has.
+            var check = await _xaml.Pass2Async(null, _xamlImage, typeInfo: false, cancellationToken).ConfigureAwait(false);
+            if (Failed(check) is { } bindingError)
+            {
+                return (null, bindingError);
+            }
+        }
+        if (xaml.Count == 0)
+        {
+            return (compiled, null);
         }
         var pass2 = await _xaml.Pass2Async(xaml, _xamlImage, typeInfo: false, cancellationToken).ConfigureAwait(false);
         if (Failed(pass2) is { } pass2Error)
