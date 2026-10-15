@@ -232,7 +232,14 @@ $md.Add('')
 foreach ($c in @($cells | Where-Object Status -eq 'ran')) { $md.Add("- $($c.Approach) $($c.Journey): $($c.Run) ($($c.Seconds) s)") }
 
 $text = $md -join "`n"
-Set-Content (Join-Path $OutputRoot 'scoreboard.md') $text
-$cells | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $OutputRoot 'scoreboard.json')
+# Several scoreboard processes can finish at once (one per lane): retry, and never fail a run over the report file.
+function Write-Report([string]$Path, [string]$Content) {
+    for ($i = 0; $i -lt 20; $i++) {
+        try { [IO.File]::WriteAllText($Path, $Content); return } catch [IO.IOException] { Start-Sleep -Milliseconds 500 }
+    }
+    Write-Warning "Could not write $Path (in use); run with -ReportOnly to rebuild it."
+}
+Write-Report (Join-Path $OutputRoot 'scoreboard.md') $text
+Write-Report (Join-Path $OutputRoot 'scoreboard.json') ($cells | ConvertTo-Json -Depth 8)
 Write-Host $text
 Write-Host "`nScoreboard: $(Join-Path $OutputRoot 'scoreboard.md')"
