@@ -405,9 +405,7 @@ internal sealed partial class CppXamlSession : IDisposable
             return new CppSaveOutcome(false, [.. errors.Select(e => "[watch] error " + e)]);
         }
 
-        LineCommentsOnly.Clear();
         var changed = ChangedGeneratedCode(pass1).Concat(ChangedGeneratedCode(pass2!)).ToList();
-        var unchanged = LineCommentsOnly.Count == 0 ? "generated C++ unchanged" : $"generated C++ unchanged apart from x:Bind source line comments in {string.Join(", ", LineCommentsOnly)}";
         if (changed.Count > 0)
         {
             var first = changed[0];
@@ -439,6 +437,12 @@ internal sealed partial class CppXamlSession : IDisposable
             if (component is null)
             {
                 return CppSaveOutcome.Restart($"{file}: no x:Class, or its generated InitializeComponent wasn't found");
+            }
+            if (_baseline.TryGetValue(name + ".g.h", out var classCode) && CompiledBindings().IsMatch(classCode))
+            {
+                // Loading the markup again gives the page a new compiled Bindings object, which starts on the page's
+                // Loading event; a page that is already loaded never raises it again, so x:Bind targets would stay empty.
+                return CppSaveOutcome.Restart($"{file}: the page uses x:Bind, and a running C++ page can't start its compiled bindings again (they start when the page first loads)");
             }
             var xbfPath = Path.Combine(_workDirectory, $"{Path.GetFileNameWithoutExtension(name)}.{++_xbfCount}.xbf");
             await File.WriteAllBytesAsync(xbfPath, xbf, cancellationToken);
@@ -491,8 +495,8 @@ internal sealed partial class CppXamlSession : IDisposable
             }
             _lastXbf[xbfName] = xbf;
             lines.Add(result.Instances == 0
-                ? $"[watch] applied {file} (no live {component.ClassName}; the next one created uses the new markup; {unchanged}; compile {compileMs} ms)"
-                : $"[watch] applied {file} ({result.Reloaded} live {component.ClassName} reloaded; {unchanged}; compile {compileMs} ms, apply {apply.ElapsedMilliseconds} ms)");
+                ? $"[watch] applied {file} (no live {component.ClassName}; the next one created uses the new markup; generated C++ unchanged; compile {compileMs} ms)"
+                : $"[watch] applied {file} ({result.Reloaded} live {component.ClassName} reloaded; generated C++ unchanged; compile {compileMs} ms, apply {apply.ElapsedMilliseconds} ms)");
             lines.AddRange(result.Notes.Select(n => "  " + n));
         }
         return new CppSaveOutcome(false, lines);
@@ -540,6 +544,10 @@ internal sealed partial class CppXamlSession : IDisposable
 
     [GeneratedRegex(@"ComponentResourceLocation::(\w+)")]
     private static partial Regex ResourceLocation();
+
+    /// <summary>The page class's compiled x:Bind object (C++/WinRT: a Bindings member of the generated base).</summary>
+    [GeneratedRegex(@"XamlBindings>\s+Bindings\s*;")]
+    private static partial Regex CompiledBindings();
 
     private sealed record ReloadResult(string? Error, int Instances, int Reloaded, IReadOnlyList<string> Notes, IReadOnlyList<string> Errors);
 
@@ -596,13 +604,6 @@ internal sealed partial class CppXamlSession : IDisposable
             {
                 continue;
             }
-            // x:Bind code carries "// Page.xaml line N" comments: a line inserted above a binding changes only those.
-            // Comments can't change what the compiled code does; anything else in the line still counts.
-            if (before.Select(StripLineComment).SequenceEqual(after.Select(StripLineComment)))
-            {
-                LineCommentsOnly.Add(name);
-                continue;
-            }
             var line = 0;
             while (line < before.Length && line < after.Length && before[line] == after[line])
             {
@@ -619,13 +620,6 @@ internal sealed partial class CppXamlSession : IDisposable
         static string Clip(string s) => s.Length > 100 ? s[..100] + "…" : s;
     }
 
-    /// <summary>Generated files of the last comparison that differed only in x:Bind source line comments.</summary>
-    private HashSet<string> LineCommentsOnly { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-    private static string StripLineComment(string line) => XamlLineComment().Replace(line, "");
-
-    [GeneratedRegex(@"\s*// [^\s/]+\.xaml line \d+\s*$")]
-    private static partial Regex XamlLineComment();
 
     /// <summary>What a change to one of the compiler's generated files stands for, by the file's role.</summary>
     private static string Why(string file, int added, int removed)
