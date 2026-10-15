@@ -90,7 +90,7 @@ Additional guides:
 | **Manifests** | [manifest generate](usage.md#manifest-generate), [manifest update-assets](usage.md#manifest-update-assets), [manifest add-alias](usage.md#manifest-add-alias) |
 | **Certificates & Signing** | [cert generate](usage.md#cert-generate), [cert install](usage.md#cert-install), [sign](usage.md#sign), [create-external-catalog](usage.md#create-external-catalog) |
 | **Utilities** | [tool](usage.md#tool), [store](usage.md#store), [get-winapp-path](usage.md#get-winapp-path), [config](usage.md#config), [complete](usage.md#shell-completion) |
-| **UI Automation** | [ui](usage.md#ui) |
+| **UI Automation** | [ui](usage.md#ui), [devtools](usage.md#devtools) |
 | **Node.js/Electron** | [node create-addon](usage.md#node-create-addon), [node add-electron-debug-identity](usage.md#node-add-electron-debug-identity), [node clear-electron-debug-identity](usage.md#node-clear-electron-debug-identity) |
 
 For the full CLI reference, see [CLI reference](usage.md).

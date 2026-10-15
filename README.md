@@ -257,6 +257,7 @@ See also: [Security guidance](./docs/security.md) — what development certifica
 - [`store`](./docs/usage.md#store) - Run Microsoft Store Developer CLI commands
 - [`get-winapp-path`](./docs/usage.md#get-winapp-path) - Get paths to installed SDK components
 - [`config`](./docs/usage.md#config) - Show or change your per-user winapp settings
+- [`devtools`](./docs/usage.md#devtools) - Inspect, comment on and live-edit a running WinUI app ([guide](./docs/guides/devtools.md))
 
 **Discovery** (agent-first — built for AI coding agents to ground generated code in real metadata and real samples, and usable by hand):
 
