@@ -794,6 +794,12 @@ internal sealed partial class HotReloadSession
         {
             return new SaveResult(Outcome.Error, string.Join(Environment.NewLine + "  ", problems));
         }
+        if (compiled is { Classes.Count: > 0 } && await CodeBehindErrorsAsync(compiled.Classes, cancellationToken).ConfigureAwait(false) is { Count: > 0 } broken)
+        {
+            // Edit and continue reports errors only in the files a save changed: markup that removes what its unchanged
+            // code-behind uses (a renamed x:Name) fails the build there (CS0103), so it fails here too.
+            return new SaveResult(Outcome.Error, string.Join(Environment.NewLine + "  ", broken.Take(3).Select(Format)));
+        }
 
         // Removed fields and properties stay declared up front: the compiler can't remove them from a loaded type, and
         // fails outright (rather than reporting a rude edit) for a removed partial property.
@@ -1155,6 +1161,17 @@ internal sealed partial class HotReloadSession
     }
 
     /// <summary>The update for the current solution; a compiler crash becomes a <see cref="CompilerCrashException"/>.</summary>
+    /// <summary>Compiler errors in the user's own files of these classes (their code-behind), not the generated ones.</summary>
+    private async Task<List<Diagnostic>> CodeBehindErrorsAsync(IEnumerable<string> classes, CancellationToken cancellationToken)
+    {
+        var compilation = (await Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
+        var obj = Path.Combine(_projectDirectory, "obj") + Path.DirectorySeparatorChar;
+        var trees = classes.Select(compilation.GetTypeByMetadataName).OfType<INamedTypeSymbol>()
+            .SelectMany(t => t.DeclaringSyntaxReferences.Select(r => r.SyntaxTree))
+            .Where(t => IsSource(t.FilePath) && !t.FilePath.StartsWith(obj, StringComparison.OrdinalIgnoreCase)).Distinct();
+        return [.. trees.SelectMany(t => compilation.GetSemanticModel(t).GetDiagnostics(cancellationToken: cancellationToken)).Where(d => d.Severity == DiagnosticSeverity.Error)];
+    }
+
     /// <summary>Whether the only changes since the last update are comments, whitespace and directives (no code).</summary>
     private async Task<bool> OnlyTriviaChangedAsync(CancellationToken cancellationToken)
     {
