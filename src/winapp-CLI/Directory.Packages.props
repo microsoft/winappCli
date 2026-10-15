@@ -7,7 +7,7 @@
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.5" />
     <PackageVersion Include="Spectre.Console" Version="0.54.0" />
     <PackageVersion Include="Spectre.Console.Testing" Version="0.54.0" />
-    <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.335" />
+    <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.355" />
     <PackageVersion Include="System.CommandLine" Version="2.0.5" />
     <PackageVersion Include="System.Diagnostics.EventLog" Version="10.0.5" />
     <PackageVersion Include="Microsoft.Telemetry.Inbox.Managed" Version="10.0.25148.1001-220626-1600.rs-fun-deploy-dev5" />
@@ -31,6 +31,9 @@
     <PackageVersion Include="NuGet.Configuration" Version="7.9.0" />
     <PackageVersion Include="NuGet.Versioning" Version="7.9.0" />
     <PackageVersion Include="NuGet.Credentials" Version="7.9.0" />
+    <!-- NuGet.Packaging 7.9.0 brings in 8.0.1, which has CVE-2026-70162 and CVE-2026-84008. Drop this
+         pin once NuGet.Packaging depends on a fixed version. -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <!-- Native debugging engine bits for WinUI stowed-exception triage (the run debug-output flag).
          Restore-only (ExcludeAssets="all"): pins versions and populates the NuGet global cache for
          dev/CI; the published single-file CLI resolves these at runtime from the cache or downloads
