@@ -52,6 +52,9 @@ npm run doctor        # prerequisites, PATH health, stray project files
 npm start             # terminal dashboard (setup wizard)
 ```
 
+In the dashboard's scenario, setup and model lists: Space/Enter toggles, `A` selects all,
+`D`/Tab/→ (or the **Continue →** row at the top) moves on, and ← goes back.
+
 ## Headless runs
 
 ```powershell

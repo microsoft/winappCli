@@ -3,8 +3,8 @@ import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import TextInput from "ink-text-input";
 import figures from "figures";
-import { join, relative, sep } from "path";
-import { discoverScenarios, discoverAgentSetups, discoverRuns, loadRunMatrix, scenariosDir, getJudgeModel } from "../runner/config.js";
+import { join } from "path";
+import { discoverScenarios, discoverAgentSetups, discoverRuns, loadRunMatrix, getJudgeModel } from "../runner/config.js";
 import { discoverAvailableModels, type AvailableModel } from "../runner/models.js";
 import { listRefs, type RefInfo } from "../runner/repo-cache.js";
 
@@ -36,52 +36,6 @@ const ansi = {
   yellow: (s: string) => `\x1b[33m${s}\x1b[39m`,
 };
 
-// Friendly label for group folder names — preserves brand casing where it
-// matters (macOS/iOS), falls back to title-case for everything else.
-const PLATFORM_LABELS: Record<string, string> = {
-  macos: "macOS",
-  ios: "iOS",
-};
-const prettifyGroup = (name: string): string =>
-  name
-    .split("-")
-    .map((p) => PLATFORM_LABELS[p.toLowerCase()] ?? p.charAt(0).toUpperCase() + p.slice(1))
-    .join(" ");
-
-// Platform inference for a scenario. Scenarios under `scenarios/macos/` or
-// whose name carries the `swiftui` / `macos-` token run on macOS; everything
-// else targets Windows.
-const inferScenarioPlatform = (name: string, group: string | null): "win" | "mac" => {
-  if (group === "macos") return "mac";
-  if (name.endsWith("-swiftui") || name.startsWith("macos-")) return "mac";
-  return "win";
-};
-const platformTag = (name: string, group: string | null): string =>
-  inferScenarioPlatform(name, group) === "mac" ? ansi.magenta("[MAC]") : ansi.cyan("[WIN]");
-
-// Word-aware text wrapping. Splits `text` into lines no wider than `maxWidth`
-// visible chars (excluding ANSI codes — caller is responsible for not passing
-// pre-colored input here), prepending `indent` to every line so continuation
-// lines stay aligned under the parent row.
-const wrapText = (text: string, maxWidth: number, indent: string): string[] => {
-  if (!text) return [];
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let current = "";
-  for (const word of words) {
-    if (!current) {
-      current = word;
-    } else if (current.length + 1 + word.length <= maxWidth) {
-      current += " " + word;
-    } else {
-      lines.push(current);
-      current = word;
-    }
-  }
-  if (current) lines.push(current);
-  return lines.map((l) => indent + l);
-};
-
 // A SelectInput variant that does NOT wrap at list boundaries. Up at the
 // first item stays at the first item; Down at the last item stays at the
 // last item. ink-select-input's built-in `arrayToRotated` makes the list
@@ -96,16 +50,19 @@ function NonWrappingSelectInput({
   items,
   limit,
   isFocused = true,
+  initialIndex = 0,
   onSelect,
   onHighlight,
 }: {
   items: NonWrapItem[];
   limit?: number;
   isFocused?: boolean;
+  /** Row the cursor starts on (e.g. skip a "Continue" row at the top). */
+  initialIndex?: number;
   onSelect?: (item: NonWrapItem) => void;
   onHighlight?: (item: NonWrapItem) => void;
 }) {
-  const [absIdx, setAbsIdx] = useState(0);
+  const [absIdx, setAbsIdx] = useState(Math.min(initialIndex, Math.max(0, items.length - 1)));
   const maxIdx = Math.max(0, items.length - 1);
   const windowSize = limit && limit < items.length ? limit : items.length;
 
@@ -139,7 +96,7 @@ function NonWrappingSelectInput({
           if (absIdx > 0) setAbsIdx(absIdx - 1);
         } else if (key.downArrow || input === "j") {
           if (absIdx < maxIdx) setAbsIdx(absIdx + 1);
-        } else if (key.return) {
+        } else if (key.return || input === " ") {
           const it = items[absIdx];
           if (it) onSelect?.(it);
         } else if (/^[1-9]$/.test(input)) {
@@ -195,10 +152,7 @@ export function SetupView({ onComplete }: Props) {
   const [refCache, setRefCache] = useState<Map<string, RefInfo[]>>(new Map());
   const [refLoading, setRefLoading] = useState<Set<string>>(new Set());
   const [refLoadError, setRefLoadError] = useState<Map<string, string>>(new Map());
-  // Tracks which scenarios-step row the SelectInput cursor is currently on,
-  // so we can render the row's description (or a per-sentinel hint) in a
-  // dedicated info area below the list. Updated via SelectInput.onHighlight.
-  const [scenarioCursor, setScenarioCursor] = useState<string | null>(null);
+  const [needSelection, setNeedSelection] = useState(false);
 
   const scenarios = discoverScenarios();
   const agents = discoverAgentSetups();
@@ -225,138 +179,26 @@ export function SetupView({ onComplete }: Props) {
     void loadModels();
   }, [loadModels]);
 
-  // Derive a scenario's group folder from its path. `scenarios/<group>/<name>`
-  // returns `<group>`; a scenario directly under `scenarios/` is ungrouped (null).
-  const scenarioGroupOf = (scenarioPath: string): string | null => {
-    const rel = relative(scenariosDir, scenarioPath);
-    const parts = rel.split(sep).filter(Boolean);
-    return parts.length > 1 ? parts[0] : null;
-  };
-
-  // Build the flat list of selectable rows for the scenarios step. Layout:
-  //   1) named groups (alphabetical) — each preceded by a bold header row
-  //      with [✓/~/ ] state marker; Enter on the header toggles the whole
-  //      group via the `__group__<name>` sentinel value
-  //   2) ungrouped scenarios — preceded by a dim "Other" header
-  //
-  // Design A: high-contrast layout. Group headers are a colored ▌ ribbon
-  // (green = all selected, yellow = partial, dim = none) with bold name +
-  // dim ═══ separator + count at the right. Items are styled at-build-time:
-  // selected = bright green ● + bold name; unselected = dim ○ + dim name.
-  // Descriptions are dropped from the row to reduce visual noise; platform
-  // tag is a plain colored WIN/MAC at the end.
+  // Flat, one line per scenario: "● name  short description", with the
+  // description cut to fit the terminal width.
   const buildScenarioItems = (): Array<{ label: string; value: string; selectable: boolean }> => {
-    const ungrouped = scenarios.filter(s => scenarioGroupOf(s.path) === null);
-    const groups = new Map<string, typeof scenarios>();
-    for (const s of scenarios) {
-      const g = scenarioGroupOf(s.path);
-      if (g === null) continue;
-      if (!groups.has(g)) groups.set(g, []);
-      groups.get(g)!.push(s);
-    }
-
-    const rowFor = (s: (typeof scenarios)[number]) => {
-      const isSel = selectedScenarios.has(s.name);
-      const plat = inferScenarioPlatform(s.name, scenarioGroupOf(s.path));
-      const platTag = plat === "mac" ? ansi.magenta("MAC") : ansi.cyan("WIN");
-      const prefix = isSel ? ansi.green("●") : ansi.dim("○");
-      const name = isSel ? ansi.bold(s.name) : ansi.dim(s.name);
-      const firstLine = `  ${prefix} ${name}  ${platTag}`;
-      // Inline description on subsequent indented lines — word-wrapped to
-      // fit the terminal, with 6-space indent so continuation lines stay
-      // aligned under the scenario name.
-      // Available width math:
-      //   total terminal cols
-      // - 2 (outer Box padding=1, both sides)
-      // - 2 (cursor indicator + marginRight)
-      // - 6 (our description indent)
-      // - 4 (safety margin — wrap-ansi rounding when there are ANSI codes)
-      // = max usable content width
-      // Going over this triggers ink's secondary wrap, which loses our
-      // 6-space indent on continuation lines and looks broken.
-      const raw = s.config?.description?.trim();
-      const termCols = process.stdout.columns ?? 80;
-      const wrapWidth = Math.max(30, termCols - 14);
-      const wrapped = raw ? wrapText(raw, wrapWidth, "      ") : [];
-      const descBlock = wrapped.length
-        ? "\n" + wrapped.map((l) => ansi.dim(l)).join("\n")
-        : "";
-      return {
-        label: `${firstLine}${descBlock}`,
-        value: s.name,
-        selectable: true,
-      };
-    };
-
-    // Group/Other header — fixed visual width target ~54 so the count
-    // sits roughly in the same column across groups regardless of name length.
-    const headerLabel = (displayName: string, selCount: number, total: number): string => {
-      const color =
-        selCount === 0 ? ansi.dim :
-        selCount === total ? ansi.green :
-        ansi.yellow;
-      const bar = color("▌");
-      const name = ansi.bold(displayName);
-      const countStr = `${selCount}/${total}`;
-      const count = color(countStr);
-      const TARGET = 54;
-      // Visible chars: "▌"(1) + " "(1) + name + " "(1) + sep + " "(1) + count
-      const sepLen = Math.max(3, TARGET - 4 - displayName.length - countStr.length);
-      const sep = ansi.dim("═".repeat(sepLen));
-      return `${bar} ${name} ${sep} ${count}`;
-    };
-
-    const items: Array<{ label: string; value: string; selectable: boolean }> = [];
-
-    // Named groups first — they're the "interesting structure" and were
-    // previously buried below 11 ungrouped rows.
-    for (const [group, list] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-      const selCount = list.filter(s => selectedScenarios.has(s.name)).length;
-      items.push({
-        label: headerLabel(prettifyGroup(group), selCount, list.length),
-        value: `__group__${group}`,
-        selectable: false,
+    const termCols = process.stdout.columns ?? 100;
+    const nameWidth = Math.max(...scenarios.map(s => s.name.length), 10);
+    return [...scenarios]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((s) => {
+        const name = s.name.padEnd(nameWidth);
+        // padding(2) + cursor(2) + marker(2) + name + gap(2) + safety(2)
+        const room = Math.max(0, termCols - 10 - nameWidth);
+        const raw = (s.config?.description ?? "").replace(/\s+/g, " ").trim();
+        const desc = raw.length > room ? `${raw.slice(0, Math.max(0, room - 1))}…` : raw;
+        return {
+          label: `${name}  ${ansi.dim(desc)}`,
+          value: s.name,
+          selectable: true,
+        };
       });
-      for (const s of [...list].sort((a, b) => a.name.localeCompare(b.name))) {
-        items.push(rowFor(s));
-      }
-    }
-
-    // Ungrouped bucket — single toggleable "Other" header keeps the visual
-    // rhythm consistent with the grouped sections above.
-    if (ungrouped.length > 0) {
-      const selCount = ungrouped.filter(s => selectedScenarios.has(s.name)).length;
-      items.push({
-        label: headerLabel("Other", selCount, ungrouped.length),
-        value: "__other__",
-        selectable: false,
-      });
-      for (const s of [...ungrouped].sort((a, b) => a.name.localeCompare(b.name))) {
-        items.push(rowFor(s));
-      }
-    }
-    return items;
   };
-
-  // Select-all / deselect-all for one group folder.
-  const toggleScenarioGroup = (group: string) => {
-    const names = scenarios.filter(s => scenarioGroupOf(s.path) === group).map(s => s.name);
-    const allSelected = names.every(n => selectedScenarios.has(n));
-    const next = new Set(selectedScenarios);
-    for (const n of names) allSelected ? next.delete(n) : next.add(n);
-    setSelectedScenarios(next);
-  };
-
-  // Select-all / deselect-all for all ungrouped ("Other") scenarios — the
-  // counterpart to toggleScenarioGroup for the __other__ sentinel row.
-  const toggleUngroupedAll = () => {
-    const names = scenarios.filter(s => scenarioGroupOf(s.path) === null).map(s => s.name);
-    const allSelected = names.every(n => selectedScenarios.has(n));
-    const next = new Set(selectedScenarios);
-    for (const n of names) allSelected ? next.delete(n) : next.add(n);
-    setSelectedScenarios(next);
-  };
-
 
   /** Apply a loaded matrix to pre-populate selections. Returns error message or null. */
   const applyMatrix = (filePath: string): string | null => {
@@ -455,7 +297,7 @@ export function SetupView({ onComplete }: Props) {
       for (const pr of prs) {
         const title = (pr.title ?? "").length > 70 ? `${pr.title!.slice(0, 69)}…` : (pr.title ?? "");
         items.push({
-          label: `  #${pr.number} ${title}${pr.author ? `  ${gray(`(${pr.author}${pr.draft ? ", draft" : ""})`)}` : ""}`,
+          label: `#${pr.number} ${title}${pr.author ? `  ${gray(`(${pr.author}${pr.draft ? ", draft" : ""})`)}` : ""}`,
           value: `${a.name}@${pr.name}`,
           selectable: true,
         });
@@ -463,9 +305,27 @@ export function SetupView({ onComplete }: Props) {
     }
     return items;
   };
-  // Toggle-all + advance keyboard shortcuts.
-  useInput((input, _key) => {
+  // Advance from a multi-select step; needs at least one selection.
+  const nextStep: Partial<Record<SetupStep, SetupStep>> = { scenarios: "agents", agents: "models", models: "concurrency" };
+  const prevStep: Partial<Record<SetupStep, SetupStep>> = { scenarios: "mode", agents: "scenarios", models: "agents" };
+  const selectionCount = (): number =>
+    step === "scenarios" ? selectedScenarios.size : step === "agents" ? selectedAgents.size : selectedModels.size;
+  const advance = () => {
+    const next = nextStep[step];
+    if (!next) return;
+    if (selectionCount() === 0) {
+      setNeedSelection(true);
+      return;
+    }
+    setNeedSelection(false);
+    setStep(next);
+  };
+
+  // Select-all, continue (D / Tab / →) and back (←) shortcuts.
+  useInput((input, key) => {
+    if (!nextStep[step]) return;
     if (input === "a") {
+      setNeedSelection(false);
       if (step === "scenarios") {
         const allSelected = selectedScenarios.size === scenarios.length;
         setSelectedScenarios(allSelected ? new Set() : new Set(scenarios.map(s => s.name)));
@@ -477,77 +337,66 @@ export function SetupView({ onComplete }: Props) {
         const allSelected = selectedModels.size === availableModels.length;
         setSelectedModels(allSelected ? new Set() : new Set(availableModels.map(model => model.id)));
       }
-    } else if (input === "d") {
-      if (step === "scenarios") setStep("agents");
-      else if (step === "agents") setStep("models");
-      else if (step === "models") setStep("concurrency");
+    } else if (input === "d" || key.tab || key.rightArrow) {
+      advance();
+    } else if (key.leftArrow) {
+      setNeedSelection(false);
+      setStep(prevStep[step]!);
     }
   });
 
-  const renderMultiSelect = (
-    items: Array<{ label: string; value: string }>,
-    selected: Set<string>,
-    onToggle: (value: string) => void,
-    onDone: () => void
-  ) => {
-    return (
-      <Box flexDirection="column">
-        <Text color="gray">  Space/Enter to toggle, A to select all, D when done</Text>
-        <SelectInput
-          items={[...items.map(i => ({
-            label: `${selected.has(i.value) ? "✓" : "○"} ${i.label}`,
-            value: i.value
-          })), { label: "── Done ──", value: "__done__" }]}
-          onSelect={(item) => {
-            if (item.value === "__done__") {
-              onDone();
-            } else {
-              onToggle(item.value);
-            }
-          }}
-        />
-      </Box>
-    );
-  };
-
   /**
-   * Variant of renderMultiSelect that supports unselectable header rows.
-   * Headers render without the ✓/○ marker and are ignored on Enter.
+   * Checklist used by the scenarios, agents and models steps. Row 0 is
+   * "Continue", so the user never has to scroll to the end to move on; the
+   * cursor starts on the first real item. Rows whose value starts with
+   * `__hdr__` are headings and can't be toggled.
    */
-  const renderAgentMultiSelect = (
-    items: Array<{ label: string; value: string; selectable: boolean }>,
+  const CONTINUE = "__continue__";
+  const renderChecklist = (
+    items: Array<{ label: string; value: string; selectable?: boolean }>,
     selected: Set<string>,
     onToggle: (value: string) => void,
-    onDone: () => void
+    noun: string,
   ) => {
+    const termRows = process.stdout.rows ?? 30;
+    const continueLabel = selected.size > 0
+      ? `${ansi.bold(ansi.green("Continue →"))} ${ansi.dim(`(${selected.size} selected)`)}`
+      : ansi.dim("Continue →  (select at least one)");
+    const rows = [
+      { label: continueLabel, value: CONTINUE },
+      ...items.map(i => ({
+        label: i.selectable === false
+          ? `  ${i.label}`
+          : `${selected.has(i.value) ? ansi.green("●") : ansi.dim("○")} ${i.label}`,
+        value: i.value,
+      })),
+    ];
     return (
       <Box flexDirection="column">
-        <Text color="gray">  Space/Enter to toggle, A to select all, D when done</Text>
-        <SelectInput
-          limit={20}
-          items={[
-            ...items.map(i => ({
-              label: i.selectable
-                ? `${selected.has(i.value) ? "✓" : "○"} ${i.label}`
-                : `  ${i.label}`,
-              value: i.value,
-            })),
-            { label: "── Done ──", value: "__done__" },
-          ]}
+        <Text color="gray">  ↑↓ move · Space/Enter toggle · A all · D/Tab/→ continue · ← back</Text>
+        <NonWrappingSelectInput
+          key={step}
+          limit={Math.max(5, termRows - 9)}
+          initialIndex={1}
+          items={rows}
           onSelect={(item) => {
-            if (item.value === "__done__") {
-              onDone();
-            } else if (item.value.startsWith("__hdr__")) {
-              // Header rows: no-op.
-            } else {
+            if (item.value === CONTINUE) advance();
+            else if (!item.value.startsWith("__hdr__")) {
+              setNeedSelection(false);
               onToggle(item.value);
             }
           }}
         />
+        {needSelection && <Text color="yellow">  Select at least one {noun.replace(/s$/, "")} to continue.</Text>}
       </Box>
     );
   };
 
+  const toggleIn = (set: Set<string>, setter: (s: Set<string>) => void) => (v: string) => {
+    const next = new Set(set);
+    next.has(v) ? next.delete(v) : next.add(v);
+    setter(next);
+  };
   if (step === "mode") {
     const runs = discoverRuns();
     return (
@@ -680,98 +529,13 @@ export function SetupView({ onComplete }: Props) {
   }
 
   if (step === "scenarios") {
-    const scenarioItems = buildScenarioItems();
-    // Platform breakdown for the top summary bar.
-    let selWin = 0, selMac = 0, totWin = 0, totMac = 0;
-    for (const s of scenarios) {
-      const p = inferScenarioPlatform(s.name, scenarioGroupOf(s.path));
-      if (p === "win") totWin++; else totMac++;
-      if (selectedScenarios.has(s.name)) {
-        if (p === "win") selWin++; else selMac++;
-      }
-    }
-
-    // Compute the hint block for the currently focused row. Descriptions
-    // are now shown inline under each scenario row, so the hint area only
-    // fires for the toggleable group / Other headers and the Done sentinel
-    // (scenarios get a brief Space/Enter reminder so the area stays useful
-    // and consistent height).
-    const hintFor = (cursorValue: string | null): { lines: string[]; color: "gray" | "cyan" | "green" } => {
-      if (!cursorValue) return { lines: [" "], color: "gray" };
-      if (cursorValue === "__done__") {
-        return {
-          lines: [`→ Press Enter to continue to agents (${selectedScenarios.size} scenarios chosen)`],
-          color: "green",
-        };
-      }
-      if (cursorValue === "__other__") {
-        const n = scenarios.filter(s => scenarioGroupOf(s.path) === null).length;
-        return { lines: [`↹ Press Enter to toggle all ${n} ungrouped scenarios`], color: "cyan" };
-      }
-      if (cursorValue.startsWith("__group__")) {
-        const group = cursorValue.slice("__group__".length);
-        const n = scenarios.filter(s => scenarioGroupOf(s.path) === group).length;
-        return {
-          lines: [`↹ Press Enter to toggle all ${n} scenarios in ${prettifyGroup(group)}`],
-          color: "cyan",
-        };
-      }
-      // Scenario row — description is already shown inline above.
-      return { lines: ["Space/Enter toggles this scenario"], color: "gray" };
-    };
-    const hint = hintFor(scenarioCursor);
-
-    // Dynamic limit so the list (plus its inline descriptions) fits the
-    // terminal. Reserves ~8 rows of overhead for top summary/help, padding,
-    // and the bottom hint; assumes ~3 rows per multi-line item on average
-    // (1 name line + 1-2 wrapped description lines).
-    const termRows = process.stdout.rows ?? 30;
-    const limit = Math.max(4, Math.floor((termRows - 8) / 3));
-
     return (
       <Box flexDirection="column" padding={1}>
-        <Box>
-          <Text bold color="cyan">Select Scenarios</Text>
-          <Text color="gray">  ·  </Text>
-          <Text bold>{selectedScenarios.size}</Text>
-          <Text color="gray">/{scenarios.length} selected  </Text>
-          <Text color="cyan">{selWin}/{totWin} WIN</Text>
-          <Text color="gray">  ·  </Text>
-          <Text color="magenta">{selMac}/{totMac} MAC</Text>
-        </Box>
-        <Text color="gray">
-          {"  [Space/Enter] toggle  ·  [A] select all  ·  [D] done  ·  Enter on a group header toggles the whole group"}
-        </Text>
-        <NonWrappingSelectInput
-          limit={limit}
-          items={[
-            ...scenarioItems.map(i => ({ label: i.label, value: i.value })),
-            { label: ansi.dim("──") + " " + ansi.bold(ansi.green("Done")) + " " + ansi.dim("──"), value: "__done__" },
-          ]}
-          onHighlight={(item) => setScenarioCursor(item.value)}
-          onSelect={(item) => {
-            if (item.value === "__done__") {
-              setStep("agents");
-            } else if (item.value === "__other__") {
-              toggleUngroupedAll();
-            } else if (item.value.startsWith("__group__")) {
-              toggleScenarioGroup(item.value.slice("__group__".length));
-            } else {
-              const next = new Set(selectedScenarios);
-              next.has(item.value) ? next.delete(item.value) : next.add(item.value);
-              setSelectedScenarios(next);
-            }
-          }}
-        />
-        <Box marginTop={1} flexDirection="column">
-          {hint.lines.map((line, i) => (
-            <Text key={i} color={hint.color}>{`  ${line}`}</Text>
-          ))}
-        </Box>
+        <Text bold color="cyan">Select Scenarios</Text>
+        {renderChecklist(buildScenarioItems(), selectedScenarios, toggleIn(selectedScenarios, setSelectedScenarios), "scenarios")}
       </Box>
     );
   }
-
   if (step === "agents") {
     if (agents.length === 0) {
       return (
@@ -787,18 +551,9 @@ export function SetupView({ onComplete }: Props) {
     }
     return (
       <Box flexDirection="column" padding={1}>
-        <Text bold color="cyan">Select Agents to Benchmark:</Text>
+        <Text bold color="cyan">Select Agents to Benchmark</Text>
         <Text color="gray">  Pick the baselines and any pull requests to compare.</Text>
-        {renderAgentMultiSelect(
-          buildAgentItems(),
-          selectedAgents,
-          (v) => {
-            const next = new Set(selectedAgents);
-            next.has(v) ? next.delete(v) : next.add(v);
-            setSelectedAgents(next);
-          },
-          () => setStep("models")
-        )}
+        {renderChecklist(buildAgentItems(), selectedAgents, toggleIn(selectedAgents, setSelectedAgents), "setups")}
       </Box>
     );
   }
@@ -837,19 +592,15 @@ export function SetupView({ onComplete }: Props) {
 
     return (
       <Box flexDirection="column" padding={1}>
-        <Text bold color="cyan">Select Models:</Text>
-        {renderMultiSelect(
+        <Text bold color="cyan">Select Models</Text>
+        {renderChecklist(
           availableModels.map(model => ({
             label: model.name === model.id ? model.id : `${model.name} (${model.id})`,
             value: model.id,
           })),
           selectedModels,
-          (v) => {
-            const next = new Set(selectedModels);
-            next.has(v) ? next.delete(v) : next.add(v);
-            setSelectedModels(next);
-          },
-          () => setStep("concurrency")
+          toggleIn(selectedModels, setSelectedModels),
+          "models"
         )}
       </Box>
     );
