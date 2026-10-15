@@ -33,11 +33,12 @@ internal static class PointerCommandSupport
             return new ResolvedPoint(true, explicitPoint.Value, uiTarget.WindowHandle, explicitLabel);
         }
 
-        var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr!);
+        var selector = UiQueryOptions.Parse(parseResult, selectorParser, selectorStr);
+        var label = UiQueryOptions.Describe(parseResult, selectorStr);
         var element = await UiQueryOptions.FindTargetAsync(parseResult, uiAutomation, uiTarget, selector, cancellationToken);
         if (element is null)
         {
-            UiErrors.ElementNotFound(logger, selectorStr!, json, target: uiTarget);
+            UiErrors.ElementNotFound(logger, label, json, target: uiTarget);
             return default;
         }
 
@@ -46,7 +47,7 @@ internal static class PointerCommandSupport
             logger.LogError("{Symbol} Element has zero size — cannot use its center as a {PointKind}.",
                 UiSymbols.Error, pointKind);
             UiJsonError.Emit(json, UiJsonError.CodeZeroSize,
-                $"Element has zero size — cannot use its center as a {pointKind}.", selectorStr);
+                $"Element has zero size — cannot use its center as a {pointKind}.", label);
             return default;
         }
 
@@ -56,12 +57,12 @@ internal static class PointerCommandSupport
             uiAutomation, uiTarget, selector, element,
             GestureTargeting.DefaultMaxReads, GestureTargeting.DefaultReadDelayMs, null, cancellationToken,
             requireUnique: UiQueryOptions.HasFilters(parseResult));
-        if (!UiInjectionReporting.TryReport(stable, logger, json, selectorStr!, action))
+        if (!UiInjectionReporting.TryReport(stable, logger, json, label, action))
         {
             return default;
         }
 
-        return new ResolvedPoint(true, new PointerPoint(stable.CenterX, stable.CenterY), targetHwnd, selectorStr);
+        return new ResolvedPoint(true, new PointerPoint(stable.CenterX, stable.CenterY), targetHwnd, label);
     }
 
     public static async Task SetForegroundAsync(
@@ -135,7 +136,8 @@ internal static class PointerCommandSupport
 
     /// <summary>
     /// Preflight for verbs that act on either a selector or an explicit <c>--at x,y</c> point (click,
-    /// hover). Exactly one target must be given, and the selector filters only narrow a selector.
+    /// hover). The target is an element (a selector, or <c>--type</c>/<c>--class-name</c> on their own) or a
+    /// point, never both: <c>--at</c> excludes a selector and every element filter.
     /// Returns <see langword="null"/> when valid; otherwise emits the error and returns 1.
     /// </summary>
     public static int? ValidateSelectorOrPoint(
@@ -146,9 +148,10 @@ internal static class PointerCommandSupport
 
         if (parseResult.GetResult(atOption) is null)
         {
-            if (string.IsNullOrWhiteSpace(selectorStr))
+            if (!UiQueryOptions.HasQuery(parseResult, selectorStr))
             {
-                var msg = $"A selector or --at x,y is required. Usage: {UiCommandAdvice.Command($"{commandName} <selector> -a <app>")} " +
+                var msg = $"A selector, --type, --class-name, or --at x,y is required. Usage: {UiCommandAdvice.Command($"{commandName} <selector> -a <app>")}, " +
+                          $"{UiCommandAdvice.Command($"{commandName} --type <type> -a <app>")}, " +
                           $"or {UiCommandAdvice.Command($"{commandName} --at <x,y> -a <app>")}. " +
                           $"Use '{UiCommandAdvice.Command("search <text> -a <app>")}' to find elements.";
                 logger.LogError("{Symbol} {Message}", UiSymbols.Error, msg);
@@ -165,7 +168,7 @@ internal static class PointerCommandSupport
             : !string.IsNullOrWhiteSpace(selectorStr)
                 ? $"Use either a selector or --at x,y, not both. Got selector '{selectorStr}' and --at {atStr}."
                 : UiQueryOptions.HasFilters(parseResult)
-                    ? "--type, --root, and --class-name narrow a selector and cannot be combined with --at."
+                    ? "--type, --root, and --class-name pick an element and cannot be combined with --at."
                     : null;
         if (error is null)
         {
