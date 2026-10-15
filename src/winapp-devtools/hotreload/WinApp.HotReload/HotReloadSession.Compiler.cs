@@ -107,6 +107,7 @@ internal sealed partial class HotReloadSession
             start.Unavailable = "the XAML compiler's inputs from the app's build (input.json next to XamlTypeInfo.g.cs) weren't found";
             return start;
         }
+        XamlCompilerHost.AppPackageCompiler = XamlCompilerHost.FindAppPackageCompiler(cscArgs);
         if (XamlCompilerHost.Locate() is not { } exe)
         {
             start.Unavailable = $"the XAML compiler service wasn't found (set {XamlCompilerHost.LocationVariable} to a folder with XamlCompiler.exe that supports --serve)";

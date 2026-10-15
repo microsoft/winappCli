@@ -54,10 +54,54 @@ internal sealed class XamlCompilerHost : IDisposable
 
     public string OutputDirectory { get; private init; } = "";
 
-    /// <summary>XamlCompiler.exe with --serve: WINAPP_XAML_COMPILER_SERVICE, else the newest staged build; null when there is none.</summary>
+    /// <summary>The XamlCompiler.exe of the WinUI package the app references, when it supports --serve (see <see cref="FindAppPackageCompiler"/>).</summary>
+    public static string? AppPackageCompiler { get; set; }
+
+    /// <summary>
+    /// From the app's compiler references: the package that has Microsoft.WinUI.dll ships its XAML compiler in
+    /// tools\net472. Only one that can run as a service counts (it answers --serve without arguments with its usage).
+    /// </summary>
+    public static string? FindAppPackageCompiler(IEnumerable<string> cscArgs)
+    {
+        foreach (var reference in cscArgs.Where(a => a.StartsWith("/reference:", StringComparison.OrdinalIgnoreCase) &&
+            a.EndsWith("Microsoft.WinUI.dll", StringComparison.OrdinalIgnoreCase)))
+        {
+            for (var directory = Path.GetDirectoryName(reference["/reference:".Length..].Trim('"')); directory is not null; directory = Path.GetDirectoryName(directory))
+            {
+                var exe = Path.Combine(directory, "tools", "net472", "XamlCompiler.exe");
+                if (File.Exists(exe))
+                {
+                    return Serves(exe) ? exe : null;
+                }
+            }
+        }
+        return null;
+
+        static bool Serves(string exe)
+        {
+            try
+            {
+                using var process = Process.Start(new ProcessStartInfo(exe, "--serve") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true })!;
+                var output = process.StandardOutput.ReadToEndAsync();
+                var error = process.StandardError.ReadToEnd();
+                process.WaitForExit(10_000);
+                return (output.Result + error).Contains("--serve", StringComparison.Ordinal);
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// XamlCompiler.exe with --serve: WINAPP_XAML_COMPILER_SERVICE, else the app's own WinUI package's (the compiler that
+    /// built it, so its generated names and connection IDs match the running app), else the newest staged build; null
+    /// when there is none.
+    /// </summary>
     public static string? Locate()
     {
-        var candidates = new List<string?> { Environment.GetEnvironmentVariable(LocationVariable) };
+        var candidates = new List<string?> { Environment.GetEnvironmentVariable(LocationVariable), AppPackageCompiler };
         var latest = Path.Combine(StagedBuilds, "LATEST.txt");
         if (File.Exists(latest))
         {
