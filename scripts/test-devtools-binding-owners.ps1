@@ -97,6 +97,16 @@ public static class BindingOwnersGuard {
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
     [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+    [StructLayout(LayoutKind.Sequential)] public struct Rect { public int left, top, right, bottom; }
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out Rect rect);
+    [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr window, IntPtr hdc, uint flags);
+    // Physical pixels, like the UIA bounds and the PrintWindow image, whatever this process's DPI awareness is.
+    public static Rect PhysicalWindowRect(IntPtr window) {
+        var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
+        try { Rect rect; if (!GetWindowRect(window, out rect)) throw new Win32Exception(); return rect; }
+        finally { SetThreadDpiAwarenessContext(previous); }
+    }
     public static uint InputTick() {
         var input = new Input { size = 8 };
         if (!GetLastInputInfo(ref input)) throw new Win32Exception();
@@ -446,9 +456,20 @@ try {
             @((Invoke-Cli @('ui', 'inspect', '-a', $app, '-i')).windows | ForEach-Object { Nodes $_.elements } |
                 Where-Object name -eq 'Comment on this element').Count -eq 0) 'comment markers stay out of the UI Automation tree'
         $windowBox = @($pins.windows | Where-Object { [string]$_.hwnd -eq $window })[0].elements[0]
+        # winapp ui screenshot leaves DevTools chrome out of the image, so capture the window itself to see the markers.
+        Add-Type -AssemblyName System.Drawing
+        $windowRect = [BindingOwnersGuard]::PhysicalWindowRect([IntPtr][long]$window)
         function Capture-Window([string]$Name) {
             $path = Join-Path $evidence $Name
-            $null = Invoke-Cli @('ui', 'screenshot', '-w', $window, '-o', $path)
+            $bitmap = [Drawing.Bitmap]::new($windowRect.right - $windowRect.left, $windowRect.bottom - $windowRect.top)
+            try {
+                $graphics = [Drawing.Graphics]::FromImage($bitmap)
+                $hdc = $graphics.GetHdc()
+                try { $null = [BindingOwnersGuard]::PrintWindow([IntPtr][long]$window, $hdc, 2) }
+                finally { $graphics.ReleaseHdc($hdc); $graphics.Dispose() }
+                $bitmap.Save($path, [Drawing.Imaging.ImageFormat]::Png)
+            }
+            finally { $bitmap.Dispose() }
             return $path
         }
         function Toggle-Markers {
@@ -467,13 +488,11 @@ try {
         $shown = Capture-Window 'narrow-pin.png'
         Toggle-Markers
         try { $hiddenShot = Capture-Window 'narrow-pin-hidden.png' } finally { Toggle-Markers }
-        Add-Type -AssemblyName System.Drawing
         $a = [Drawing.Bitmap]::new($shown); $b = [Drawing.Bitmap]::new($hiddenShot)
         try {
             $sameSize = $a.Width -eq $b.Width -and $a.Height -eq $b.Height
             $markerPixels = 0; $labelPixels = 0
-            # The capture excludes the window's invisible resize borders: equal left and right, none at the top.
-            $left = [int]($narrowBox[0].x - $windowBox.x - [Math]::Floor(($windowBox.width - $a.Width) / 2)); $top = [int]($narrowBox[0].y - $windowBox.y)
+            $left = [int]($narrowBox[0].x - $windowRect.left); $top = [int]($narrowBox[0].y - $windowRect.top)
             for ($y = 0; $sameSize -and $y -lt $a.Height; $y += 2) {
                 for ($x = 0; $x -lt $a.Width; $x += 2) {
                     if ($a.GetPixel($x, $y) -ne $b.GetPixel($x, $y)) {
