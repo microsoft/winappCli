@@ -16,22 +16,9 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "DevToolsTestCheck.h"
 
 using namespace DevToolsTreeLayout;
-
-static int g_failures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_failures; std::printf("  FAIL  %s\n", what); }
-    else       {              std::printf("  ok    %s\n", what); }
-}
-
-static void CheckEq(int got, int want, const char* what)
-{
-    if (got != want) { ++g_failures; std::printf("  FAIL  %s (want %d, got %d)\n", what, want, got); }
-    else             {              std::printf("  ok    %s (%d)\n", what, got); }
-}
 
 static void Test_VerticalRevealPreservesVisibleContext()
 {
@@ -892,7 +879,7 @@ int main()
     std::printf("\n");
     const int eventsFailures = RunEventsTests();
 
-    const int total = g_failures + protocolFailures + trustFailures + crashFailures + sourcePathFailures + sinkFailures +
+    const int total = g_testFailures + protocolFailures + trustFailures + crashFailures + sourcePathFailures + sinkFailures +
                       cornerFailures + toolbarFailures + authoredFailures +
                       selectionPlacementFailures + inspectorAcceptanceFailures + selectionTrackingFailures + relayFailures +
                       bindingRowFailures + pathWalkFailures + pathProbeFailures + pathSyntaxFailures + readFailures + pickRouteFailures + perfFailures + uiDispatchFailures +

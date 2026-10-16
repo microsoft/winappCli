@@ -17,8 +17,7 @@
 #include <string>
 #include <fstream>
 #include <iterator>
-
-static int g_authoredFailures = 0;
+#include "DevToolsTestCheck.h"
 
 static std::string FixtureHash(std::string bytes)
 {
@@ -29,12 +28,6 @@ static std::string FixtureHash(std::string bytes)
     constexpr char hex[] = "0123456789ABCDEF";
     for (auto byte : hash) { result += hex[byte >> 4]; result += hex[byte & 15]; }
     return result;
-}
-
-static void ACheck(bool condition, const char* what)
-{
-    if (!condition) { ++g_authoredFailures; std::printf("  FAIL  %s\n", what); }
-    else            {                       std::printf("  ok    %s\n", what); }
 }
 
 static std::wstring MakeFixture()
@@ -61,11 +54,11 @@ static std::wstring MakeFixture()
         "</Page>\r\n";
     const std::wstring path = root + L"\\MainWindow.xaml";
     HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    ACheck(file != INVALID_HANDLE_VALUE, "the source fixture is created");
+    Check(file != INVALID_HANDLE_VALUE, "the source fixture is created");
     if (file != INVALID_HANDLE_VALUE) {
         DWORD written = 0;
         const BOOL ok = WriteFile(file, text, static_cast<DWORD>(sizeof(text) - 1), &written, nullptr);
-        ACheck(ok && written == sizeof(text) - 1, "the complete source fixture is written");
+        Check(ok && written == sizeof(text) - 1, "the complete source fixture is written");
         CloseHandle(file);
     }
     return root;
@@ -81,8 +74,8 @@ static void Test_ElementSpanIsReusableAndPreservesAuthoredText()
 
     std::wstring xaml;
     const DevToolsAuthoredState state = DevToolsAuthored_ReadElement(L"ms-appx:///MainWindow.xaml", 2, &xaml);
-    ACheck(state == DevToolsAuthoredState::Available, "the element declaration is available");
-    ACheck(xaml == whole, "the whole authored declaration is preserved for display");
+    Check(state == DevToolsAuthoredState::Available, "the element declaration is available");
+    Check(xaml == whole, "the whole authored declaration is preserved for display");
 
     // Every continuation line must recover the same complete authored declaration.
     for (unsigned int line = 2; line <= 5; ++line) {
@@ -90,62 +83,62 @@ static void Test_ElementSpanIsReusableAndPreservesAuthoredText()
         DevToolsAuthored_ReadElement(L"ms-appx:///MainWindow.xaml", line, &fromInside);
         char what[96];
         std::snprintf(what, sizeof(what), "source line %u resolves to the whole opening tag", line);
-        ACheck(fromInside == whole, what);
+        Check(fromInside == whole, what);
     }
 
     // The element that opens AND closes on one line is still its own declaration, not the one above it.
     std::wstring page;
     DevToolsAuthored_ReadElement(L"ms-appx:///MainWindow.xaml", 1, &page);
-    ACheck(page == L"<Page>", "a single-line element resolves to itself");
+    Check(page == L"<Page>", "a single-line element resolves to itself");
 
     // The source alone cannot distinguish the parent from its child on a compact line.
     std::wstring compact;
     DevToolsAuthored_ReadElement(L"ms-appx:///MainWindow.xaml", 6, &compact);
-    ACheck(compact.empty(), "M4: compact markup without column/identity must not claim the parent");
-    ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 9, &compact, 36,
+    Check(compact.empty(), "M4: compact markup without column/identity must not claim the parent");
+    Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 9, &compact, 36,
         L"Microsoft.UI.Xaml.Controls.TextBlock", L"RepeatedLabel") == DevToolsAuthoredState::Available &&
         compact == L"<TextBlock x:Name=\"RepeatedLabel\" Text=\"Repeated template label\"/>",
         "M4: native evidence column 36 selects the child, not StackPanel");
     std::wstring authoredText;
-    ACheck(DevToolsAuthored_FindAttribute(compact, L"Text", &authoredText) && authoredText == L"Repeated template label",
+    Check(DevToolsAuthored_FindAttribute(compact, L"Text", &authoredText) && authoredText == L"Repeated template label",
         "M4: compact child source supplies its actually authored Text value");
-    ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 9, &compact, 14,
+    Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 9, &compact, 14,
         L"Microsoft.UI.Xaml.Controls.TextBlock", L"RepeatedLabel") == DevToolsAuthoredState::Unavailable && compact.empty(),
         "M4: a parent column cannot pass a child identity check");
-    ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 9, &compact, 36,
+    Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 9, &compact, 36,
         L"Microsoft.UI.Xaml.Controls.TextBlock", L"WrongName") == DevToolsAuthoredState::Unavailable && compact.empty(),
         "M4: a mismatching name is unavailable rather than silently attributed");
-    ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 2, &compact, 5,
+    Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 2, &compact, 5,
         L"Microsoft.UI.Xaml.Controls.TextBlock", L"Title") == DevToolsAuthoredState::Available && compact == whole,
         "M4: multiline named declarations preserve identity and complete markup");
     const std::wstring heading =
         L"<TextBlock Text=\"{x:Bind ViewModel.ListHeading, Mode=OneWay}\" FontFamily=\"Georgia\" FontSize=\"24\" />";
     for (unsigned column : {0u, 13u, 14u, 12u + static_cast<unsigned>(heading.size())}) {
-        ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 10, &compact, column,
+        Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 10, &compact, column,
             L"Microsoft.UI.Xaml.Controls.TextBlock", L"") == DevToolsAuthoredState::Available && compact == heading,
             "unnamed one-line x:Bind heading resolves at valid source coordinates");
     }
     for (unsigned column : {1u, 12u, 13u + static_cast<unsigned>(heading.size())}) {
-        ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 10, &compact, column,
+        Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 10, &compact, column,
             L"Microsoft.UI.Xaml.Controls.TextBlock", L"") == DevToolsAuthoredState::Unavailable && compact.empty(),
             "out-of-tag coordinates remain unavailable rather than attributing a neighboring declaration");
     }
-    ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 10, &compact, 14,
+    Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 10, &compact, 14,
         L"Microsoft.UI.Xaml.Controls.TextBlock", L"TaskCountText") == DevToolsAuthoredState::Unavailable,
         "the following summary cannot donate its identity to the unnamed heading");
 
     // A comment is not an element declaration, and neither is a closing tag.
     std::wstring commented;
     DevToolsAuthored_ReadElement(L"ms-appx:///MainWindow.xaml", 7, &commented);
-    ACheck(commented == L"<Border>", "a trailing comment is not mistaken for the element");
+    Check(commented == L"<Border>", "a trailing comment is not mistaken for the element");
     std::wstring closing;
     DevToolsAuthored_ReadElement(L"ms-appx:///MainWindow.xaml", 8, &closing);
-    ACheck(closing.empty(), "a closing tag is not an authored element declaration");
+    Check(closing.empty(), "a closing tag is not an authored element declaration");
 
     std::wstring text;
-    ACheck(DevToolsAuthored_FindAttribute(xaml, L"Text", &text), "the same declaration supplies property authorship");
-    ACheck(text == L"{x:Bind Vm.Title, Mode=OneWay}", "property extraction still returns the authored value");
-    ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 12, &xaml, 3, L"TextBlock")
+    Check(DevToolsAuthored_FindAttribute(xaml, L"Text", &text), "the same declaration supplies property authorship");
+    Check(text == L"{x:Bind Vm.Title, Mode=OneWay}", "property extraction still returns the authored value");
+    Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 12, &xaml, 3, L"TextBlock")
         == DevToolsAuthoredState::Available &&
         xaml == L"<TextBlock Text=\"{x:Bind Vm.Title,\n      Mode=OneWay}\" />",
         "multiline attribute whitespace is preserved rather than display-reindented");
@@ -167,30 +160,30 @@ static void Test_RecordedCoordinatesOutsideCurrentDeclaration()
     file.close();
     DevToolsAuthored_Init(root, 0);
     std::wstring span;
-    ACheck(border.size() == 101 && heading.size() == 123, "recorded source fixture retains exact ASCII columns");
-    ACheck(DevToolsAuthored_ReadElement(L"ms-appx:///MainPage.xaml", 223, &span, 79,
+    Check(border.size() == 101 && heading.size() == 123, "recorded source fixture retains exact ASCII columns");
+    Check(DevToolsAuthored_ReadElement(L"ms-appx:///MainPage.xaml", 223, &span, 79,
         L"Microsoft.UI.Xaml.Controls.Border", L"") == DevToolsAuthoredState::Available,
         "recorded unnamed Border coordinate identifies its own declaration");
-    ACheck(DevToolsAuthored_ReadElement(L"ms-appx:///MainPage.xaml", 246, &span, 128,
+    Check(DevToolsAuthored_ReadElement(L"ms-appx:///MainPage.xaml", 246, &span, 128,
         L"Microsoft.UI.Xaml.Controls.TextBlock", L"") == DevToolsAuthoredState::Unavailable && span.empty(),
         "recorded heading column beyond current source reproduces strict unavailability");
-    ACheck(DevToolsAuthored_ReadElement(L"ms-appx:///MainPage.xaml", 246, &span, 123,
+    Check(DevToolsAuthored_ReadElement(L"ms-appx:///MainPage.xaml", 246, &span, 123,
         L"Microsoft.UI.Xaml.Controls.TextBlock", L"") == DevToolsAuthoredState::Available,
         "same unnamed x:Bind declaration is readable at an in-tag control coordinate");
     const std::string generated = std::string(24, ' ') +
         "<TextBlock x:ConnectionId='36'                                                    FontFamily=\"Georgia\" FontSize=\"24\" />";
-    ACheck(generated.size() == 143 && generated.find("FontSize") + 1 == 128 &&
+    Check(generated.size() == 143 && generated.find("FontSize") + 1 == 128 &&
         heading.find("FontSize") + 1 == 108,
         "exact compiler rewrite shifts FontSize while preserving the source line");
     std::ofstream rewritten(path, std::ios::binary | std::ios::trunc);
     rewritten << std::string(245, '\n') << generated << '\n';
     rewritten.close();
     DevToolsAuthored_Init(root, 0);
-    ACheck(DevToolsAuthored_ReadElement(L"ms-appx:///MainPage.xaml", 246, &span, 128,
+    Check(DevToolsAuthored_ReadElement(L"ms-appx:///MainPage.xaml", 246, &span, 128,
         L"Microsoft.UI.Xaml.Controls.TextBlock", L"") == DevToolsAuthoredState::Available,
         "production reader accepts captured column in generated coordinate space");
     std::wstring binding;
-    ACheck(!DevToolsAuthored_FindAttribute(span, L"Text", &binding),
+    Check(!DevToolsAuthored_FindAttribute(span, L"Text", &binding),
         "using generated XAML as authored source would lose the compiled binding");
     DeleteFileW(path.c_str());
     DeleteFileW((root + L"\\MainWindow.xaml").c_str());
@@ -221,26 +214,26 @@ static void Test_HashCoveredCoordinates()
     initialize(root, std::wstring(hash.begin(), hash.end()));
     std::wstring span, value;
     DevToolsAuthoredLocation location;
-    ACheck(DevToolsAuthored_ReadElement(L"ms-appx:///MainPage.xaml", 246, &span, 128, L"TextBlock", L"", &location)
+    Check(DevToolsAuthored_ReadElement(L"ms-appx:///MainPage.xaml", 246, &span, 128, L"TextBlock", L"", &location)
         == DevToolsAuthoredState::Available, "hash-covered map resolves exact recorded emitted column");
-    ACheck(location.line == 246 && location.column == 25 && location.mapped,
+    Check(location.line == 246 && location.column == 25 && location.mapped,
         "raw source coordinates are not replaced; authored coordinates are separately identified");
-    ACheck(location.endLine == 246, "the declaration's last start-tag line comes from the build map");
+    Check(location.endLine == 246, "the declaration's last start-tag line comes from the build map");
     {
         DevToolsAuthoredLocation located;
-        ACheck(DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"Microsoft.UI.Xaml.Controls.TextBlock", L"", &located) &&
+        Check(DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"Microsoft.UI.Xaml.Controls.TextBlock", L"", &located) &&
             located.line == 246 && located.endLine == 246 && located.column == 25 && located.sourceFile == L"MainPage.xaml",
             "a confirmed declaration is located without reading its text");
-        ACheck(!DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"Button", L"", &located),
+        Check(!DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"Button", L"", &located),
             "a different element type is not located");
         write(sourcePath, original + " ");
-        ACheck(!DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"TextBlock", L"", &located),
+        Check(!DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"TextBlock", L"", &located),
             "a source file changed since the build is not located");
         write(sourcePath, original);
-        ACheck(DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"TextBlock", L"", &located),
+        Check(DevToolsAuthored_Locate(L"ms-appx:///MainPage.xaml", 246, 128, L"TextBlock", L"", &located),
             "restoring the built source locates it again");
     }
-    ACheck(DevToolsAuthored_FindAttribute(span, L"Text", &value) &&
+    Check(DevToolsAuthored_FindAttribute(span, L"Text", &value) &&
         value == L"{x:Bind ViewModel.ListHeading, Mode=OneWay}", "mapped reader retains original binding expression");
     {
         // A UserControl that names its own root (x:Name on its x:Class element) reports that name at an unnamed usage.
@@ -258,10 +251,10 @@ static void Test_HashCoveredCoordinates()
         const auto selfNamedHash = FixtureHash(selfNamed);
         initialize(root, std::wstring(selfNamedHash.begin(), selfNamedHash.end()));
         std::wstring found;
-        ACheck(DevToolsAuthored_ReadElement(L"ms-appx:///Page2.xaml", 1, &found, 40, L"App.ControlExample", L"RootPanel")
+        Check(DevToolsAuthored_ReadElement(L"ms-appx:///Page2.xaml", 1, &found, 40, L"App.ControlExample", L"RootPanel")
             == DevToolsAuthoredState::Available && found == std::wstring(usage.begin(), usage.end()),
             "an unnamed usage of a self-named UserControl maps");
-        ACheck(DevToolsAuthored_ReadElement(L"ms-appx:///Page2.xaml", 1, &found, 40, L"App.ControlExample", L"Other")
+        Check(DevToolsAuthored_ReadElement(L"ms-appx:///Page2.xaml", 1, &found, 40, L"App.ControlExample", L"Other")
             == DevToolsAuthoredState::Unavailable, "a runtime name the type does not give itself is still refused");
         DeleteFileW((root + L"\\Page2.xaml").c_str());
         DeleteFileW((root + L"\\Page2.xbf").c_str());
@@ -272,10 +265,10 @@ static void Test_HashCoveredCoordinates()
         HANDLE held = CreateFileW(inventoryPath.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
             OPEN_EXISTING, FILE_FLAG_DELETE_ON_CLOSE, nullptr);
         initialize(root, std::wstring(hash.begin(), hash.end()));
-        ACheck(held != INVALID_HANDLE_VALUE && DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock")
+        Check(held != INVALID_HANDLE_VALUE && DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock")
             == DevToolsAuthoredState::Available, "inventory the CLI holds delete-on-close is still readable");
         if (held != INVALID_HANDLE_VALUE) CloseHandle(held);
-        ACheck(GetFileAttributesW(inventoryPath.c_str()) == INVALID_FILE_ATTRIBUTES,
+        Check(GetFileAttributesW(inventoryPath.c_str()) == INVALID_FILE_ATTRIBUTES,
             "closing the CLI's handle removes the inventory");
         write(inventoryPath, inventory);
     }
@@ -286,40 +279,40 @@ static void Test_HashCoveredCoordinates()
     const auto partialHash = FixtureHash(partial);
     initialize(root, std::wstring(partialHash.begin(), partialHash.end()));
     for (const auto spelling : { L"MainWindow.xaml", L"/MainWindow.xaml", L"\\MainWindow.xaml", L"ms-appx:///MainWindow.xaml" }) {
-        ACheck(DevToolsAuthored_ReadElement(spelling, 2, &span, 3, L"TextBlock", L"Title")
+        Check(DevToolsAuthored_ReadElement(spelling, 2, &span, 3, L"TextBlock", L"Title")
             == DevToolsAuthoredState::UnverifiedBuild, "excluded source cannot fall through to plausible original coordinates");
     }
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock")
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock")
         == DevToolsAuthoredState::Available, "excluded dictionary does not invalidate another proven source");
     write(inventoryPath, inventory);
     initialize(root, std::wstring(hash.begin(), hash.end()));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"Button") == DevToolsAuthoredState::Unavailable,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"Button") == DevToolsAuthoredState::Unavailable,
         "mapping does not waive selected runtime type");
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock", L"Wrong") == DevToolsAuthoredState::Unavailable,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock", L"Wrong") == DevToolsAuthoredState::Unavailable,
         "mapping does not waive selected runtime name");
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 0, L"TextBlock") == DevToolsAuthoredState::Unavailable,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 0, L"TextBlock") == DevToolsAuthoredState::Unavailable,
         "mapping never guesses a missing column");
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 144, L"TextBlock") == DevToolsAuthoredState::Available,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 144, L"TextBlock") == DevToolsAuthoredState::Available,
         "unique declaration survives uncertain generated ConnectionId width without claiming loaded bytes");
     write(sourcePath, original + " ");
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::Stale,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::Stale,
         "source edited after a successful read is rehashed rather than served from the old cache");
     write(sourcePath, original);
     initialize(L"", std::wstring(hash.begin(), hash.end()));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
         "an unproved deployed payload cannot use the compiler map");
     initialize(root, std::wstring(64, L'A'));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 25, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 25, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
         "invalid inventory hash cannot fall back to plausible original coordinates");
     initialize(L"", std::wstring(hash.begin(), hash.end()));
     write(xbfPath, "different-deployment");
     initialize(root, std::wstring(hash.begin(), hash.end()));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
         "different deployed XBF rejects the selected compiler table");
     write(xbfPath, xbf);
     write(sourcePath, original + " ");
     initialize(root, std::wstring(hash.begin(), hash.end()));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::Stale,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::Stale,
         "changed source bytes fail even when line and column remain plausible");
     DevToolsAuthored_Init(root, 0);
     write(sourcePath, original);
@@ -331,10 +324,10 @@ static void Test_HashCoveredCoordinates()
     write(inventoryPath, indexed);
     auto indexedHash = FixtureHash(indexed);
     initialize(root, std::wstring(indexedHash.begin(), indexedHash.end()));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::Available,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::Available,
         "verified whole-PRI identity admits the host-proven embedded resource");
     HANDLE replacement = CreateFileW(priPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    ACheck(replacement == INVALID_HANDLE_VALUE, "native source reader retains the PRI after launcher handoff");
+    Check(replacement == INVALID_HANDLE_VALUE, "native source reader retains the PRI after launcher handoff");
     if (replacement != INVALID_HANDLE_VALUE) CloseHandle(replacement);
     DevToolsAuthored_Init(root, 0);
     std::string pathIndexed = indexed;
@@ -342,15 +335,15 @@ static void Test_HashCoveredCoordinates()
     write(inventoryPath, pathIndexed);
     auto pathHash = FixtureHash(pathIndexed);
     initialize(root, std::wstring(pathHash.begin(), pathHash.end()));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::Available,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::Available,
         "PRI Path admission verifies the referenced XBF as well as the index");
     replacement = CreateFileW(xbfPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    ACheck(replacement == INVALID_HANDLE_VALUE, "native source reader retains referenced PRI Path bytes");
+    Check(replacement == INVALID_HANDLE_VALUE, "native source reader retains referenced PRI Path bytes");
     if (replacement != INVALID_HANDLE_VALUE) CloseHandle(replacement);
     DevToolsAuthored_Init(root, 0);
     write(xbfPath, "changed-reference");
     initialize(root, std::wstring(pathHash.begin(), pathHash.end()));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
         "unchanged PRI cannot conceal a changed referenced XBF");
     DevToolsAuthored_Init(root, 0);
     write(xbfPath, xbf);
@@ -358,7 +351,7 @@ static void Test_HashCoveredCoordinates()
     DevToolsAuthored_Init(root, 0);
     write(priPath, "changed-PRI");
     initialize(root, std::wstring(indexedHash.begin(), indexedHash.end()));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
         "changed PRI cannot reuse the selected resource association");
     DevToolsAuthored_Init(root, 0);
     write(priPath, pri);
@@ -366,9 +359,9 @@ static void Test_HashCoveredCoordinates()
     write(inventoryPath, indexed);
     indexedHash = FixtureHash(indexed);
     initialize(root, std::wstring(indexedHash.begin(), indexedHash.end()));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::UnverifiedBuild,
         "explicit advisory inventories cannot bypass disk admission");
-    ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 2, &span, 3, L"TextBlock", L"Title") == DevToolsAuthoredState::Available,
+    Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 2, &span, 3, L"TextBlock", L"Title") == DevToolsAuthoredState::Available,
         "an advisory map does not disable unaffected original declarations");
     DevToolsAuthored_Init(root, 0);
     auto likely = inventory;
@@ -377,17 +370,17 @@ static void Test_HashCoveredCoordinates()
     write(inventoryPath, likely);
     const auto likelyHash = FixtureHash(likely);
     initialize(L"", std::wstring(likelyHash.begin(), likelyHash.end()));
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock", L"", &location)
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock", L"", &location)
         == DevToolsAuthoredState::Likely && location.mapped && !location.evidence.empty() && location.column == 25,
         "missing compiled proof yields explicit likely source with authored coordinates and missing evidence");
-    ACheck(DevToolsAuthored_ReadElement(L"", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::NoSourceInfo,
+    Check(DevToolsAuthored_ReadElement(L"", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::NoSourceInfo,
         "likely attribution never invents a missing runtime URI");
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"Button") == DevToolsAuthoredState::Unavailable,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"Button") == DevToolsAuthoredState::Unavailable,
         "likely attribution still rejects runtime type mismatch");
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock", L"Other") == DevToolsAuthoredState::Unavailable,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock", L"Other") == DevToolsAuthoredState::Unavailable,
         "likely attribution still rejects runtime name mismatch");
     write(sourcePath, original + " ");
-    ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::Stale,
+    Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", 246, &span, 128, L"TextBlock") == DevToolsAuthoredState::Stale,
         "likely attribution rehashes current source after disk edits or hot reload");
     DevToolsAuthored_Init(root, 0);
     DeleteFileW(priPath.c_str());
@@ -419,7 +412,7 @@ static void Test_UniqueAuthoredLineCountsEveryOpeningSpan()
         const auto hash = FixtureHash(inventory);
         DevToolsAuthored_InitCoordinates(inventoryPath, std::wstring(hash.begin(), hash.end()), root);
         std::wstring span;
-        ACheck(DevToolsAuthored_ReadElement(L"MainPage.xaml", line, &span, 128, L"TextBlock", name) == expected, message);
+        Check(DevToolsAuthored_ReadElement(L"MainPage.xaml", line, &span, 128, L"TextBlock", name) == expected, message);
     };
     check("<Grid><TextBlock x:Name='Heading'/></Grid>",
         element(1, 1, 1, "Grid", "") + "," + element(1, 1, 7, "TextBlock", "Heading"), 1, L"Heading",
@@ -454,38 +447,38 @@ static void Test_ClassDeclarationIdentity()
         return DevToolsAuthored_ReadElement(L"Class.xaml", 1, out, 2, type, name);
     };
     std::wstring span, value;
-    ACheck(read("<Page xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' "
+    Check(read("<Page xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' "
         "x:Class='App.HomePage' x:Name='Home' Tag='{x:Bind Vm.Title}'/>",
         L"App.HomePage", L"Home", &span) == DevToolsAuthoredState::Available,
         "class identity: runtime HomePage resolves its authored Page root");
-    ACheck(DevToolsAuthored_FindAttribute(span, L"Tag", &value) && value == L"{x:Bind Vm.Title}",
+    Check(DevToolsAuthored_FindAttribute(span, L"Tag", &value) && value == L"{x:Bind Vm.Title}",
         "class identity: Page root compiled binding remains available");
-    ACheck(read("<Page xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'\n"
+    Check(read("<Page xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'\n"
         "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'\n"
         "x:Class='App.HomePage' Tag='{x:Bind Vm.Title}'>\n<Grid/></Page>",
         L"App.HomePage", L"", &span) == DevToolsAuthoredState::Available &&
         DevToolsAuthored_FindAttribute(span, L"Tag", &value) && value == L"{x:Bind Vm.Title}",
         "class identity: a normal multiline non-self-closing Page root retains its compiled property");
-    ACheck(read("<UserControl xmlns:lang='http://schemas.microsoft.com/winfx/2006/xaml' "
+    Check(read("<UserControl xmlns:lang='http://schemas.microsoft.com/winfx/2006/xaml' "
         "lang:Class='App.ReviewCard' Tag='{x:Bind Card.Title}'/>",
         L"App.ReviewCard", L"", &span) == DevToolsAuthoredState::Available,
         "class identity: namespace alias resolves a UserControl declaration");
-    ACheck(DevToolsAuthored_FindAttribute(span, L"Tag", &value) && value == L"{x:Bind Card.Title}",
+    Check(DevToolsAuthored_FindAttribute(span, L"Tag", &value) && value == L"{x:Bind Card.Title}",
         "class identity: UserControl root property authorship is retained");
-    ACheck(read("<Page xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' "
+    Check(read("<Page xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' "
         "x:Class='Other.HomePage'/>", L"App.HomePage", L"", &span) == DevToolsAuthoredState::Unavailable && span.empty(),
         "class identity: another namespace with the same short class name is refused");
-    ACheck(read("<Page xmlns:x='urn:not-xaml' x:Class='App.HomePage'/>",
+    Check(read("<Page xmlns:x='urn:not-xaml' x:Class='App.HomePage'/>",
         L"App.HomePage", L"", &span) == DevToolsAuthoredState::Unavailable,
         "class identity: a lookalike Class attribute outside the XAML namespace is refused");
-    ACheck(read("<Page Tag=\"x:Class='App.HomePage'\"/>",
+    Check(read("<Page Tag=\"x:Class='App.HomePage'\"/>",
         L"App.HomePage", L"", &span) == DevToolsAuthoredState::Unavailable,
         "class identity: quoted prose cannot spoof an authored class");
-    ACheck(read("<Page xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' "
+    Check(read("<Page xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' "
         "x:Class='App.HomePage' x:Name='Other'/>",
         L"App.HomePage", L"Home", &span) == DevToolsAuthoredState::Unavailable,
         "class identity: a matching class does not bypass selected element name validation");
-    ACheck(read("<Grid/>", L"Microsoft.UI.Xaml.Controls.Page", L"", &span) == DevToolsAuthoredState::Unavailable,
+    Check(read("<Grid/>", L"Microsoft.UI.Xaml.Controls.Page", L"", &span) == DevToolsAuthoredState::Unavailable,
         "class identity: wrong ordinary tag still refuses attribution");
     DeleteFileW(path.c_str());
     DeleteFileW((root + L"\\MainWindow.xaml").c_str());
@@ -525,23 +518,23 @@ static void Test_CanonicalContainmentAndSpellings()
     const auto root = MakeFixture();
     const auto source = root + L"\\source";
     const auto outside = root + L"\\outside";
-    ACheck(CreateDirectoryW(source.c_str(), nullptr) != FALSE, "owned source directory is created");
-    ACheck(CreateDirectoryW(outside.c_str(), nullptr) != FALSE, "owned outside directory is created");
-    ACheck(MoveFileW((root + L"\\MainWindow.xaml").c_str(), (source + L"\\MainWindow.xaml").c_str()) != FALSE,
+    Check(CreateDirectoryW(source.c_str(), nullptr) != FALSE, "owned source directory is created");
+    Check(CreateDirectoryW(outside.c_str(), nullptr) != FALSE, "owned outside directory is created");
+    Check(MoveFileW((root + L"\\MainWindow.xaml").c_str(), (source + L"\\MainWindow.xaml").c_str()) != FALSE,
         "source file is inside the selected source root");
-    ACheck(CopyFileW((source + L"\\MainWindow.xaml").c_str(), (outside + L"\\Outside.xaml").c_str(), TRUE) != FALSE,
+    Check(CopyFileW((source + L"\\MainWindow.xaml").c_str(), (outside + L"\\Outside.xaml").c_str(), TRUE) != FALSE,
         "outside source fixture exists independently");
     const auto alias = source + L"\\alias";
     const auto escape = source + L"\\escape";
-    ACheck(MakeJunction(alias, source), "contained junction is created without elevation");
-    ACheck(MakeJunction(escape, outside), "escape junction targets only our owned outside fixture");
+    Check(MakeJunction(alias, source), "contained junction is created without elevation");
+    Check(MakeJunction(escape, outside), "escape junction targets only our owned outside fixture");
     DevToolsAuthored_Init(source, 0);
     std::wstring resolved, text;
-    ACheck(DevToolsSourcePath_ResolveExisting(source, L"ms-appx:///alias/MainWindow.xaml", &resolved),
+    Check(DevToolsSourcePath_ResolveExisting(source, L"ms-appx:///alias/MainWindow.xaml", &resolved),
         "canonical resolver permits a contained junction");
     for (const auto spelling : { L"ms-appx:///MainWindow.xaml", L"MainWindow.xaml", L"/MainWindow.xaml",
             L"\\MainWindow.xaml", L"alias\\MainWindow.xaml", L"ms-appx:///alias/MainWindow.xaml" }) {
-        ACheck(DevToolsAuthored_ReadElement(spelling, 1, &text) == DevToolsAuthoredState::Available && text == L"<Page>",
+        Check(DevToolsAuthored_ReadElement(spelling, 1, &text) == DevToolsAuthoredState::Available && text == L"<Page>",
             "legitimate source spelling preserves the authored declaration");
     }
     const auto inventoryPath = source + L"\\excluded.json";
@@ -551,31 +544,31 @@ static void Test_CanonicalContainmentAndSpellings()
     const auto excludedHash = FixtureHash(excluded);
     DevToolsAuthored_InitCoordinates(inventoryPath, std::wstring(excludedHash.begin(), excludedHash.end()), source);
     for (const auto spelling : { L"alias\\MainWindow.xaml", L"ms-appx:///alias/MainWindow.xaml" }) {
-        ACheck(DevToolsAuthored_ReadElement(spelling, 1, &text) == DevToolsAuthoredState::UnverifiedBuild,
+        Check(DevToolsAuthored_ReadElement(spelling, 1, &text) == DevToolsAuthoredState::UnverifiedBuild,
             "a contained filesystem alias cannot bypass the source exclusion");
     }
     DevToolsAuthored_Init(source, 0);
     DeleteFileW(inventoryPath.c_str());
-    ACheck(!DevToolsSourcePath_ResolveExisting(source, L"ms-appx:///escape/Outside.xaml", &resolved),
+    Check(!DevToolsSourcePath_ResolveExisting(source, L"ms-appx:///escape/Outside.xaml", &resolved),
         "canonical resolver refuses the outside junction target");
     for (const auto spelling : { L"ms-appx:///escape/Outside.xaml", L"escape\\Outside.xaml" }) {
-        ACheck(DevToolsAuthored_ReadElement(spelling, 1, &text) == DevToolsAuthoredState::NoFile && text.empty(),
+        Check(DevToolsAuthored_ReadElement(spelling, 1, &text) == DevToolsAuthoredState::NoFile && text.empty(),
             "authored reads share canonical junction containment");
     }
     for (const auto spelling : { L"../outside/Outside.xaml", L"ms-appx:///../outside/Outside.xaml", L"missing.xaml" }) {
-        ACheck(DevToolsAuthored_ReadElement(spelling, 1, &text) == DevToolsAuthoredState::NoFile && text.empty(),
+        Check(DevToolsAuthored_ReadElement(spelling, 1, &text) == DevToolsAuthoredState::NoFile && text.empty(),
             "invalid or unavailable source still returns noFile and clears output");
     }
     DevToolsAuthored_Init(source, 1);
-    ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 1, &text) == DevToolsAuthoredState::Stale && text.empty(),
+    Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 1, &text) == DevToolsAuthoredState::Stale && text.empty(),
         "canonical reading preserves source staleness");
-    ACheck(DevToolsAuthored_ReadElement(L"", 1, &text) == DevToolsAuthoredState::NoSourceInfo && text.empty(),
+    Check(DevToolsAuthored_ReadElement(L"", 1, &text) == DevToolsAuthoredState::NoSourceInfo && text.empty(),
         "missing source metadata preserves its distinct state");
     DevToolsAuthored_Init(L"", 0);
-    ACheck(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 1, &text) == DevToolsAuthoredState::NoFile,
+    Check(DevToolsAuthored_ReadElement(L"MainWindow.xaml", 1, &text) == DevToolsAuthoredState::NoFile,
         "missing source root remains unavailable");
-    ACheck(RemoveDirectoryW(alias.c_str()) != FALSE, "contained junction is removed without traversing it");
-    ACheck(RemoveDirectoryW(escape.c_str()) != FALSE, "escape junction is removed without traversing it");
+    Check(RemoveDirectoryW(alias.c_str()) != FALSE, "contained junction is removed without traversing it");
+    Check(RemoveDirectoryW(escape.c_str()) != FALSE, "escape junction is removed without traversing it");
     DeleteFileW((source + L"\\MainWindow.xaml").c_str());
     DeleteFileW((outside + L"\\Outside.xaml").c_str());
     RemoveDirectoryW(source.c_str());
@@ -612,65 +605,65 @@ static void Test_SourceQualifiedAnchors()
     home(100);
     const auto action = capture(101), cardOne = capture(104), cardTwo = capture(105);
     const auto heading = capture(106);
-    ACheck(!heading.empty() && resolve(heading) == 106,
+    Check(!heading.empty() && resolve(heading) == 106,
         "unnamed heading pin uses source and structural context, not dynamic text or historical columns");
-    ACheck(!action.empty() && !cardOne.empty() && cardOne != cardTwo,
+    Check(!action.empty() && !cardOne.empty() && cardOne != cardTwo,
         "H1: repeated UserControl names retain distinct authored parent anchors");
-    ACheck(DevToolsCommentAnchor::IsUnique(Handle{104}, cardOne, names, types, sources, parents, children),
+    Check(DevToolsCommentAnchor::IsUnique(Handle{104}, cardOne, names, types, sources, parents, children),
         "a named authored ancestor distinguishes a captured source scope");
     add(200, 0, L"", L"ReviewDialog", L"ms-appx:///ReviewDialog.xaml");
     add(201, 200, L"DialogEditor", L"TextBox", L"ms-appx:///ReviewDialog.xaml");
     add(202, 200, L"ActionButton", L"Button", L"ms-appx:///ReviewDialog.xaml");
     const auto dialog = capture(201);
-    ACheck(resolve(action) == 101 && resolve(dialog) == 201,
+    Check(resolve(action) == 101 && resolve(dialog) == 201,
         "H1: opening a same-name dialog never steals the HomePage note");
     for (Handle cycle = 1; cycle <= 3; ++cycle) {
         clear();
         const Handle base = cycle * 1000;
         add(base, 0, L"", L"DetailsPage", L"ms-appx:///DetailsPage.xaml");
         add(base + 1, base, L"ActionButton", L"Button", L"ms-appx:///DetailsPage.xaml");
-        ACheck(resolve(action) == 0 && resolve(cardOne) == 0 && resolve(cardTwo) == 0,
+        Check(resolve(action) == 0 && resolve(cardOne) == 0 && resolve(cardTwo) == 0,
             "H1: fresh DetailsPage leaves HomePage and ReviewCard notes unplaced");
         clear(); home(base);
-        ACheck(resolve(heading) == base + 6,
+        Check(resolve(heading) == base + 6,
             "unnamed heading pin survives new handles when source, ancestry and sibling slot are unchanged");
-        ACheck(resolve(action) == base + 1 && resolve(cardOne) == base + 4 && resolve(cardTwo) == base + 5,
+        Check(resolve(action) == base + 1 && resolve(cardOne) == base + 4 && resolve(cardTwo) == base + 5,
             "H1: fresh HomePage restores both distinct card anchors and its own note");
         add(base + 100, 0, L"", L"ReviewDialog", L"ms-appx:///ReviewDialog.xaml");
         add(base + 101, base + 100, L"DialogEditor", L"TextBox", L"ms-appx:///ReviewDialog.xaml");
         add(base + 102, base + 100, L"ActionButton", L"Button", L"ms-appx:///ReviewDialog.xaml");
-        ACheck(resolve(dialog) == base + 101 && resolve(action) == base + 1,
+        Check(resolve(dialog) == base + 101 && resolve(action) == base + 1,
             "H1: reopened dialog restores its own note without stealing a same-name HomePage note");
     }
     clear();
     home(5000); home(6000);
-    ACheck(capture(5001) == capture(6001),
+    Check(capture(5001) == capture(6001),
         "H1: identical source trees in two windows do not invent persistent window identity");
-    ACheck(!DevToolsCommentAnchor::IsUnique(Handle{5001}, action, names, types, sources, parents, children),
+    Check(!DevToolsCommentAnchor::IsUnique(Handle{5001}, action, names, types, sources, parents, children),
         "repeated source scopes cannot auto-confirm one captured instance");
     sources.erase(6001);
     const wchar_t* reason = nullptr;
-    ACheck(!DevToolsCommentAnchor::IsUnique(Handle{5001}, action, names, types, sources, parents, children, &reason) &&
+    Check(!DevToolsCommentAnchor::IsUnique(Handle{5001}, action, names, types, sources, parents, children, &reason) &&
         std::wstring(reason) == L"unclassified-peer",
         "a potential repeated instance with unclassified source prevents uniqueness");
     sources[6001] = L"ms-appx:///HomePage.xaml";
     sources.erase(6000);
-    ACheck(!DevToolsCommentAnchor::IsUnique(Handle{5001}, action, names, types, sources, parents, children, &reason) &&
+    Check(!DevToolsCommentAnchor::IsUnique(Handle{5001}, action, names, types, sources, parents, children, &reason) &&
         std::wstring(reason) == L"unclassified-ancestor",
         "a potential repeated instance with unclassified ancestry prevents uniqueness");
     sources[6000] = L"ms-appx:///HomePage.xaml";
     sources[6001] = L"";
-    ACheck(DevToolsCommentAnchor::IsUnique(Handle{5001}, action, names, types, sources, parents, children),
+    Check(DevToolsCommentAnchor::IsUnique(Handle{5001}, action, names, types, sources, parents, children),
         "classified no-source controls do not invent competing authored instances");
     sources[6001] = L"ms-appx:///HomePage.xaml";
-    ACheck(resolve(action) == 5001,
+    Check(resolve(action) == 5001,
         "H1: the source-wide anchor may resolve on either identical-source window");
     const auto before = capture(5004);
     names[5002] = L"DifferentCard";
-    ACheck(capture(5004) != before, "H1: a changed authored parent cannot satisfy the captured namescope");
+    Check(capture(5004) != before, "H1: a changed authored parent cannot satisfy the captured namescope");
     sources[5001].clear();
-    ACheck(capture(5001).empty(), "H1: missing captured source is unavailable rather than name-only");
-    ACheck(resolve(L"ActionButton") == 0, "H1: an unqualified name never guesses a live placement");
+    Check(capture(5001).empty(), "H1: missing captured source is unavailable rather than name-only");
+    Check(resolve(L"ActionButton") == 0, "H1: an unqualified name never guesses a live placement");
 }
 
 static std::wstring ReadXmlAttribute(const std::wstring& attribute)
@@ -712,7 +705,7 @@ static void Test_ExactCommentTextAndHistoricalLabels()
         std::wstring(L"  \"caf\u00e9\" & <tag>\t\r\nline two \U0001f642\\  "),
         std::wstring(L"Single CR\rline") }) {
         const auto attribute = DevToolsXmlEscape(text, true);
-        ACheck(ReadXmlAttribute(attribute) == text,
+        Check(ReadXmlAttribute(attribute) == text,
             "M3: real XML attribute parsing preserves exact Unicode, LF, CRLF, tabs and outer whitespace");
             std::wstring oldAttribute = attribute;
             for (const auto& entity : { std::make_pair(L"&#xA;", L'\n'), std::make_pair(L"&#xD;", L'\r'),
@@ -723,45 +716,45 @@ static void Test_ExactCommentTextAndHistoricalLabels()
                     ++pos;
                 }
             }
-            ACheck(ReadXmlAttribute(oldAttribute) != text,
+            Check(ReadXmlAttribute(oldAttribute) != text,
                 "M3 negative control: the former literal XML whitespace prefill loses exact text");
         int argc = 0;
         const std::wstring command = L"winapp -t " + DevToolsCommentText::QuoteArgument(text);
         wchar_t** argv = CommandLineToArgvW(command.c_str(), &argc);
-        ACheck(argv && argc == 3 && argv[2] == text,
+        Check(argv && argc == 3 && argv[2] == text,
             "M3: CreateProcess argument quoting round-trips exact comment prose without flattening");
         if (argv) LocalFree(argv);
-        ACheck(DevToolsCommentText::Unchanged(text, text) &&
+        Check(DevToolsCommentText::Unchanged(text, text) &&
             DevToolsCommentText::Unchanged(DevToolsCommentText::NormalizeLineEndings(text), text),
             "M3: no-edit prefill/blur (including TextBox line normalization) skips persistence and updatedAt");
-        ACheck(!DevToolsCommentText::Unchanged(text + L" edit", text),
+        Check(!DevToolsCommentText::Unchanged(text + L" edit", text),
             "M3: an actual text edit still requires persistence");
     }
-    ACheck(DevToolsXmlEscape(L"{Binding is just prose}", true) == L"{}{Binding is just prose}",
+    Check(DevToolsXmlEscape(L"{Binding is just prose}", true) == L"{}{Binding is just prose}",
         "M3: a leading brace is XAML literal text, not a markup extension");
-    ACheck(!DevToolsCommentText::Unchanged(L"  note", L"note"),
+    Check(!DevToolsCommentText::Unchanged(L"  note", L"note"),
         "M3: intentional leading/trailing whitespace is not discarded by the no-op check");
-    ACheck(DevToolsCommentText::IsBlank(L" \r\n\t") && !DevToolsCommentText::IsBlank(L" \u6771 "),
+    Check(DevToolsCommentText::IsBlank(L" \r\n\t") && !DevToolsCommentText::IsBlank(L" \u6771 "),
         "M3: clear/blank detection is independent from exact saved text");
-    ACheck(DevToolsCommentText::SourceLabel(L"HomePage.xaml", 7) == L"Historical: HomePage.xaml:7",
+    Check(DevToolsCommentText::SourceLabel(L"HomePage.xaml", 7) == L"Historical: HomePage.xaml:7",
         "M6: stored line 7 is explicitly historical when the rebuilt live element moves to line 12");
-    ACheck(DevToolsCommentText::SourceLabel(L"Pages\\HomePage.xaml", 7, L"ms-appx:///Pages/HomePage.xaml", 7) ==
+    Check(DevToolsCommentText::SourceLabel(L"Pages\\HomePage.xaml", 7, L"ms-appx:///Pages/HomePage.xaml", 7) ==
             L"Pages\\HomePage.xaml:7",
         "a comment whose element is on screen shows its current declaration, not a historical label");
-    ACheck(DevToolsCommentText::SourceLabel(L"HomePage.xaml", 7, L"ms-appx:///HomePage.xaml", 12) == L"HomePage.xaml:12",
+    Check(DevToolsCommentText::SourceLabel(L"HomePage.xaml", 7, L"ms-appx:///HomePage.xaml", 12) == L"HomePage.xaml:12",
         "an on-screen element that moved shows where it is now");
-    ACheck(DevToolsCommentText::SourceLabel(L"", 7).empty(),
+    Check(DevToolsCommentText::SourceLabel(L"", 7).empty(),
         "M6: no captured file does not manufacture source coordinates");
-    ACheck(DevToolsCommentText::SavedStatus(false, true) == L"Saved." &&
+    Check(DevToolsCommentText::SavedStatus(false, true) == L"Saved." &&
         DevToolsCommentText::SavedStatus(true, true) == L"Saved on the host.",
         "a comment on authored source reports a plain save");
-    ACheck(DevToolsCommentText::SavedStatus(false, false) == L"Saved. Not linked to source." &&
+    Check(DevToolsCommentText::SavedStatus(false, false) == L"Saved. Not linked to source." &&
         DevToolsCommentText::SavedStatus(true, false) == L"Saved on the host. Not linked to source.",
         "a comment on an element without source says it is not linked to source");
-    ACheck(std::wstring(DevToolsCommentText::AbsentLabel(true)) == L"not on this screen" &&
+    Check(std::wstring(DevToolsCommentText::AbsentLabel(true)) == L"not on this screen" &&
         std::wstring(DevToolsCommentText::AbsentLabel(false)) == L"not linked to source",
         "an unanchored comment is not described as off screen");
-    ACheck(DevToolsCommentText::OffscreenNote(0).empty() &&
+    Check(DevToolsCommentText::OffscreenNote(0).empty() &&
         DevToolsCommentText::OffscreenNote(1) == L"1 of these isn\u2019t on this screen right now, so it has no marker in the app." &&
         DevToolsCommentText::OffscreenNote(2) == L"2 of these aren\u2019t on this screen right now, so they have no marker in the app.",
         "the off-screen footnote agrees in number");
@@ -786,15 +779,15 @@ static void Test_SourceUnderTheRootIsFoundByItsPath()
     DevToolsAuthored_Init(root, 0);
 
     std::wstring text;
-    ACheck(DevToolsAuthored_IsProjectSource(L"ms-appx:///TermControl.xaml"),
+    Check(DevToolsAuthored_IsProjectSource(L"ms-appx:///TermControl.xaml"),
         "a file deep under the source root is found by its name, skipping build output and generated copies");
-    ACheck(DevToolsAuthored_ReadElement(L"ms-appx:///TermControl.xaml", 1, &text) == DevToolsAuthoredState::Available &&
+    Check(DevToolsAuthored_ReadElement(L"ms-appx:///TermControl.xaml", 1, &text) == DevToolsAuthoredState::Available &&
         text == L"<UserControl>", "its declarations are read from that file");
-    ACheck(DevToolsAuthored_IsProjectSource(L"ms-appx:///Control/TermControl.xaml"),
+    Check(DevToolsAuthored_IsProjectSource(L"ms-appx:///Control/TermControl.xaml"),
         "a partial path matches the end of the file's path under the root");
-    ACheck(!DevToolsAuthored_IsProjectSource(L"ms-appx:///Shared.xaml"), "a name two project files share is not guessed");
-    ACheck(!DevToolsAuthored_IsProjectSource(L"ms-appx:///Missing.xaml"), "a file that isn't under the root is not linked");
-    ACheck(DevToolsAuthored_IsProjectSource(L"ms-appx:///MainWindow.xaml"), "a file at the root still resolves directly");
+    Check(!DevToolsAuthored_IsProjectSource(L"ms-appx:///Shared.xaml"), "a name two project files share is not guessed");
+    Check(!DevToolsAuthored_IsProjectSource(L"ms-appx:///Missing.xaml"), "a file that isn't under the root is not linked");
+    Check(DevToolsAuthored_IsProjectSource(L"ms-appx:///MainWindow.xaml"), "a file at the root still resolves directly");
 
     // Without a build map the runtime line is the compiled XAML's (here the start tag's last line), so the panel shows
     // the file without a line, as inspect and get-source do.
@@ -803,10 +796,10 @@ static void Test_SourceUnderTheRootIsFoundByItsPath()
     DevToolsAuthored_Init(root, 0);
     DevToolsAuthoredLocation location;
     const auto state = DevToolsAuthored_ReadElement(L"ms-appx:///Button.xaml", 4, &text, 0, L"Button", L"Go", &location);
-    ACheck(state == DevToolsAuthoredState::Available && !location.mapped && DevToolsAuthored_DisplayLine(state, location) == 0,
+    Check(state == DevToolsAuthoredState::Available && !location.mapped && DevToolsAuthored_DisplayLine(state, location) == 0,
         "an unconfirmed runtime line is not shown");
     location.mapped = true; location.line = 2;
-    ACheck(DevToolsAuthored_DisplayLine(DevToolsAuthoredState::Available, location) == 2, "a line the build map confirms is shown");
+    Check(DevToolsAuthored_DisplayLine(DevToolsAuthoredState::Available, location) == 2, "a line the build map confirms is shown");
     DeleteFileW((root + L"\\src\\Control\\Button.xaml").c_str());
 
     DevToolsAuthored_Init(L"", 0);
@@ -830,14 +823,14 @@ int RunAuthoredTests()
     Test_SourceQualifiedAnchors();
     Test_ExactCommentTextAndHistoricalLabels();
     Test_SourceUnderTheRootIsFoundByItsPath();
-    return g_authoredFailures;
+    return g_testFailures;
 }
 
 #ifdef WINAPP_DEVTOOLS_AUTHORED_TESTS_ONLY
 int main()
 {
     const int failures = RunAuthoredTests();
-    std::printf("Authored/comments acceptance failures: %d\n", g_authoredFailures);
-    return failures || g_authoredFailures ? 1 : 0;
+    std::printf("Authored/comments acceptance failures: %d\n", g_testFailures);
+    return failures || g_testFailures ? 1 : 0;
 }
 #endif

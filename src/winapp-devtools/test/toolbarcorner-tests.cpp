@@ -6,23 +6,9 @@
 #include "DevToolsToolbarCorner.h"
 
 #include <cstdio>
+#include "DevToolsTestCheck.h"
 
 using namespace DevToolsToolbar;
-
-static int g_failures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_failures; std::printf("  FAIL  %s\n", what); }
-    else       {              std::printf("  ok    %s\n", what); }
-}
-
-static void CheckEqD(double got, double want, const char* what)
-{
-    const double d = got - want;
-    if (d > 0.001 || d < -0.001) { ++g_failures; std::printf("  FAIL  %s (want %.2f, got %.2f)\n", what, want, got); }
-    else                         {              std::printf("  ok    %s (%.2f)\n", what, got); }
-}
 
 // Negative control: top corners ignore the app's title-bar inset. Keep this deliberately wrong.
 static void AnchorPreFix(int c, const Client& client, double w, double h, double* x, double* y)
@@ -144,5 +130,5 @@ int RunToolbarCornerTests()
     TestNonExtendingAppIsUnchanged();
     TestNonsenseInsetCannotStrandTheToolbar();
     TestEveryPositionIsReachableByDrag();
-    return g_failures;
+    return g_testFailures;
 }

@@ -29,6 +29,7 @@
 #include <sstream>
 #include <wrl/client.h>
 #include <stdexcept>
+#include "DevToolsTestCheck.h"
 
 struct BindingFixture;
 extern "C" HRESULT BindingFixtureCreate(BindingFixture**);
@@ -37,8 +38,6 @@ extern "C" HRESULT BindingFixtureOwner(BindingFixture*, IAgileReference**);
 extern "C" HRESULT BindingFixtureIdentity(BindingFixture*, IAgileReference*);
 extern "C" void BindingFixtureCounts(BindingFixture*, ULONG*, ULONG*, ULONG*);
 extern "C" void BindingFixtureFailPacketCopy(bool);
-
-static int g_failures = 0;
 
 static int ForeignPeer(DWORD target, const std::wstring& readyName)
 {
@@ -94,25 +93,13 @@ static const int g_peerMode = [] {
     return 0;
 }();
 
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_failures; std::printf("  FAIL  %s\n", what); }
-    else       {              std::printf("  ok    %s\n", what); }
-}
-
-static void CheckEqI(long long got, long long want, const char* what)
-{
-    if (got != want) { ++g_failures; std::printf("  FAIL  %s (want %lld, got %lld)\n", what, want, got); }
-    else             {              std::printf("  ok    %s (%lld)\n", what, got); }
-}
-
 // Decode the frame with the READER's rules rather than reusing the writer's, and BOUNDS-CHECK every read: a
 // frame that is short by a byte is exactly the bug this suite exists to catch, and a decoder that walks off
 // the end would report it as an access violation instead of as a named assertion.
 static bool InBounds(const std::vector<char>& f, size_t at, size_t need, const char* what)
 {
     if (at + need <= f.size()) return true;
-    ++g_failures;
+    ++g_testFailures;
     std::printf("  FAIL  %s (frame is %zu bytes, needed %zu)\n", what, f.size(), at + need);
     return false;
 }
@@ -142,13 +129,13 @@ static void Test_FrameMatchesWhatTheAgentReads()
           "the frame opens with the versioned ASCII header");
 
     size_t at = 9;
-    CheckEqI(ReadI32(f, at), 3, "the COM packet has a bounded length");
+    CheckEq(ReadI32(f, at), 3, "the COM packet has a bounded length");
     at += 4;
     Check(ReadStr(f, at, 3) == "COM", "COM bytes follow the length, not an address");
     at += 3;
 
     int opLen = ReadI32(f, at); at += 4;
-    CheckEqI(opLen, 8, "the op is length-prefixed");
+    CheckEq(opLen, 8, "the op is length-prefixed");
     Check(ReadStr(f, at, opLen) == "diagnose", "the op is UTF-8 with no terminator");
     at += (size_t)opLen;
 
@@ -161,7 +148,7 @@ static void Test_FrameMatchesWhatTheAgentReads()
           "the authored markup follows the property name");
     at += (size_t)authLen;
 
-    CheckEqI((long long)at, (long long)f.size(), "the frame ends exactly after the last field");
+    CheckEq((long long)at, (long long)f.size(), "the frame ends exactly after the last field");
 }
 
 static void Test_EmptyAuthoredIsStillAField()
@@ -173,8 +160,8 @@ static void Test_EmptyAuthoredIsStillAField()
     size_t at = 9 + 4 + 1;
     int opLen = ReadI32(f, at); at += 4 + (size_t)opLen;
     int propLen = ReadI32(f, at); at += 4 + (size_t)propLen;
-    CheckEqI(ReadI32(f, at), 0, "the authored field is present with length 0");
-    CheckEqI((long long)(at + 4), (long long)f.size(), "and nothing follows it");
+    CheckEq(ReadI32(f, at), 0, "the authored field is present with length 0");
+    CheckEq((long long)(at + 4), (long long)f.size(), "and nothing follows it");
 }
 
 static void Test_NonAsciiSurvivesAsUtf8()
@@ -556,5 +543,5 @@ int RunBindingRelayTests()
     Test_ConnectedReplyDeadline(true);
     Test_ConnectedReplyDeadline(false, true);
     Test_ConfiguredHostIsAwaitedNotDeclaredAbsent();
-    return g_failures;
+    return g_testFailures;
 }

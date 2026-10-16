@@ -7,16 +7,9 @@
 
 #include <cmath>
 #include <cstdio>
+#include "DevToolsTestCheck.h"
 
 using namespace DevToolsSelection;
-
-static int g_selectionPlacementFailures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_selectionPlacementFailures; std::printf("  FAIL  %s\n", what); }
-    else       {                                 std::printf("  ok    %s\n", what); }
-}
 
 static Placement PlacePreFix(const Rect& element, const Rect& client, int panelWidth, int estimatedHeight)
 {
@@ -181,5 +174,5 @@ int RunSelectionPlacementTests()
     TestPanelKeepsClearOfTheToolbar();
     TestPinsAvoidTheirElementWhenThereIsRoom();
     TestPinsSitOnWholeDevicePixels();
-    return g_selectionPlacementFailures;
+    return g_testFailures;
 }

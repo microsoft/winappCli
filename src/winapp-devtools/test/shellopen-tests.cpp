@@ -8,14 +8,7 @@
 
 #include <cstdio>
 #include <string>
-
-static int g_shellOpenFailures = 0;
-
-static void CheckShellOpen(bool condition, const char* what)
-{
-    if (!condition) { ++g_shellOpenFailures; std::printf("  FAIL  %s\n", what); }
-    else            {                        std::printf("  ok    %s\n", what); }
-}
+#include "DevToolsTestCheck.h"
 
 namespace {
 
@@ -54,17 +47,17 @@ static void TestNoHandlerNeverLaunches()
 {
     Shell s; s.handler = L"";
     const auto r = Run(s, L"C:\\app\\MainWindow.xaml");
-    CheckShellOpen(r.outcome == DevToolsShellOpen::Outcome::NoHandler,
+    Check(r.outcome == DevToolsShellOpen::Outcome::NoHandler,
                    "no association reports NoHandler");
-    CheckShellOpen(!s.launched,
+    Check(!s.launched,
                    "with no handler, the launcher is never reached (the picker cannot appear)");
-    CheckShellOpen(s.askedExtension == L".xaml",
+    Check(s.askedExtension == L".xaml",
                    "the association is asked for the extension the caller named");
     const std::wstring msg = DevToolsShellOpen::Describe(r, L"MainWindow.xaml", 88, L"C:\\app\\MainWindow.xaml", L"");
-    CheckShellOpen(msg.find(L"Reveal in File Explorer") != std::wstring::npos &&
+    Check(msg.find(L"Reveal in File Explorer") != std::wstring::npos &&
                        msg.find(L"Copy path") != std::wstring::npos,
                    "and the status names the two actions that cannot fail instead");
-    CheckShellOpen(msg.find(L"88") == std::wstring::npos,
+    Check(msg.find(L"88") == std::wstring::npos,
                    "a no-handler status does not mention a line nothing was going to reach");
 }
 
@@ -74,18 +67,18 @@ static void TestSuccessDoesNotClaimTheLine()
 {
     Shell s; s.handler = L"Visual Studio Code";
     const auto r = Run(s, L"C:\\app\\SettingsPage.xaml");
-    CheckShellOpen(s.launched && r.outcome == DevToolsShellOpen::Outcome::Handed,
+    Check(s.launched && r.outcome == DevToolsShellOpen::Outcome::Handed,
                    "with a handler the launcher runs and the verb is reported accepted");
-    CheckShellOpen(!r.lineHonoured,
+    Check(!r.lineHonoured,
                    "the shell `open` verb is not line-capable, and says so");
     const std::wstring msg = DevToolsShellOpen::Describe(r, L"SettingsPage.xaml", 88, L"C:\\app\\SettingsPage.xaml", L"");
-    CheckShellOpen(msg.find(L"88") == std::wstring::npos,
+    Check(msg.find(L"88") == std::wstring::npos,
                    "the success message does not claim a line the launcher could not pass");
-    CheckShellOpen(msg.find(L"Visual Studio Code") != std::wstring::npos,
+    Check(msg.find(L"Visual Studio Code") != std::wstring::npos,
                    "it names the handler it actually handed the file to");
     // RULE 2. rc > 32 means "the shell accepted the verb", not "an editor is open". The verb is what the
     // message reports.
-    CheckShellOpen(msg.find(L"handed") != std::wstring::npos && msg.find(L"opened") == std::wstring::npos,
+    Check(msg.find(L"handed") != std::wstring::npos && msg.find(L"opened") == std::wstring::npos,
                    "and reports what happened (handed off), not what was hoped for (opened)");
 
     // The day a line-capable launcher is added, the line comes back with it -- carried by the launcher's
@@ -94,7 +87,7 @@ static void TestSuccessDoesNotClaimTheLine()
     honoured.lineHonoured = true;
     const std::wstring withLine =
         DevToolsShellOpen::Describe(honoured, L"SettingsPage.xaml", 88, L"C:\\app\\SettingsPage.xaml", L"");
-    CheckShellOpen(withLine.find(L"88") != std::wstring::npos,
+    Check(withLine.find(L"88") != std::wstring::npos,
                    "a line-capable launcher DOES get to name the line");
 }
 
@@ -102,10 +95,10 @@ static void TestLaunchRefused()
 {
     Shell s; s.handler = L"Notepad"; s.rc = 31;   // <= 32 is the shell's refusal
     const auto r = Run(s, L"C:\\app\\MainWindow.xaml");
-    CheckShellOpen(r.outcome == DevToolsShellOpen::Outcome::LaunchFailed,
+    Check(r.outcome == DevToolsShellOpen::Outcome::LaunchFailed,
                    "a refused verb is reported as a failure, not as success");
     const std::wstring msg = DevToolsShellOpen::Describe(r, L"MainWindow.xaml", 0, L"C:\\app\\MainWindow.xaml", L"");
-    CheckShellOpen(msg.find(L"Notepad") != std::wstring::npos,
+    Check(msg.find(L"Notepad") != std::wstring::npos,
                    "and the failure names the handler that refused it");
 }
 
@@ -114,15 +107,15 @@ static void TestUnresolvedAndMissing()
     {
         Shell s; s.handler = L"Notepad";
         const auto r = Run(s, L"");
-        CheckShellOpen(r.outcome == DevToolsShellOpen::Outcome::NoPath, "an unresolved URI reports NoPath");
-        CheckShellOpen(!s.launched, "and nothing is launched for it");
+        Check(r.outcome == DevToolsShellOpen::Outcome::NoPath, "an unresolved URI reports NoPath");
+        Check(!s.launched, "and nothing is launched for it");
     }
     {
         Shell s; s.handler = L"Notepad"; s.fileExists = false;
         const auto r = Run(s, L"C:\\app\\Gone.xaml");
-        CheckShellOpen(r.outcome == DevToolsShellOpen::Outcome::NotFound, "a missing file reports NotFound");
-        CheckShellOpen(!s.launched, "and nothing is launched for it either");
-        CheckShellOpen(s.askedExtension.empty(),
+        Check(r.outcome == DevToolsShellOpen::Outcome::NotFound, "a missing file reports NotFound");
+        Check(!s.launched, "and nothing is launched for it either");
+        Check(s.askedExtension.empty(),
                        "the association is not even asked for a file that is not there");
     }
 }
@@ -137,11 +130,11 @@ static void TestOffScreenPrefix()
         DevToolsShellOpen::Describe(r, L"MainWindow.xaml", 0, L"C:\\app\\MainWindow.xaml", L"That element isn't on this screen right now");
     const std::wstring fromProps =
         DevToolsShellOpen::Describe(r, L"MainWindow.xaml", 0, L"C:\\app\\MainWindow.xaml", L"");
-    CheckShellOpen(fromRow.find(L"isn't on this screen") != std::wstring::npos,
+    Check(fromRow.find(L"isn't on this screen") != std::wstring::npos,
                    "the comments row's status leads with why it did not select anything");
-    CheckShellOpen(fromProps.find(L"isn't on this screen") == std::wstring::npos,
+    Check(fromProps.find(L"isn't on this screen") == std::wstring::npos,
                    "the properties pane's status does not, because nothing was off screen there");
-    CheckShellOpen(fromRow.find(L"Notepad") != std::wstring::npos &&
+    Check(fromRow.find(L"Notepad") != std::wstring::npos &&
                        fromProps.find(L"Notepad") != std::wstring::npos,
                    "and both report the same outcome from the same decision");
 }
@@ -154,5 +147,5 @@ int RunShellOpenTests()
     TestLaunchRefused();
     TestUnresolvedAndMissing();
     TestOffScreenPrefix();
-    return g_shellOpenFailures;
+    return g_testFailures;
 }

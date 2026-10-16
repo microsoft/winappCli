@@ -17,20 +17,7 @@
 
 #include <cstdio>
 #include <string>
-
-static int g_failures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_failures; std::printf("  FAIL  %s\n", what); }
-    else       {              std::printf("  ok    %s\n", what); }
-}
-
-static void CheckEqW(const std::wstring& got, const std::wstring& want, const char* what)
-{
-    if (got != want) { ++g_failures; std::printf("  FAIL  %s (want \"%ls\", got \"%ls\")\n", what, want.c_str(), got.c_str()); }
-    else             {              std::printf("  ok    %s (\"%ls\")\n", what, got.c_str()); }
-}
+#include "DevToolsTestCheck.h"
 
 // ---- verbatim answers from the fixture --------------------------------------------------------------
 static const wchar_t* kBadSegment =
@@ -235,5 +222,5 @@ int RunBindingRowTests()
     Test_ScopeWarningsCannotBeHiddenByNativeFallback();
     Test_SummaryIsAFewLabelledLines();
     Test_LiveEditOverridesAnXBind();
-    return g_failures;
+    return g_testFailures;
 }

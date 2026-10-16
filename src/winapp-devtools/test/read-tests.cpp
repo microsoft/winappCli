@@ -8,20 +8,7 @@
 
 #include <cstdio>
 #include <string>
-
-static int g_readFailures = 0;
-
-static void RCheck(bool cond, const char* what)
-{
-    if (!cond) { ++g_readFailures; std::printf("  FAIL  %s\n", what); }
-    else       {                   std::printf("  ok    %s\n", what); }
-}
-
-static void RCheckEqW(const std::wstring& got, const std::wstring& want, const char* what)
-{
-    if (got != want) { ++g_readFailures; std::printf("  FAIL  %s (want \"%ls\", got \"%ls\")\n", what, want.c_str(), got.c_str()); }
-    else             {                   std::printf("  ok    %s (\"%ls\")\n", what, got.c_str()); }
-}
+#include "DevToolsTestCheck.h"
 
 static bool Contains(const std::wstring& hay, const wchar_t* needle)
 {
@@ -34,29 +21,29 @@ static bool Contains(const std::wstring& hay, const wchar_t* needle)
 
 static void Test_ClassifyAuthored()
 {
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L"{ThemeResource TextFillColorSecondaryBrush}"), L"themeResource",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L"{ThemeResource TextFillColorSecondaryBrush}"), L"themeResource",
               "a {ThemeResource} is classified as one");
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L"{StaticResource CountToText}"), L"staticResource",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L"{StaticResource CountToText}"), L"staticResource",
               "a {StaticResource} is classified as one");
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L"{x:Bind Vm.Title, Mode=OneWay}"), L"xBind",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L"{x:Bind Vm.Title, Mode=OneWay}"), L"xBind",
               "an {x:Bind} keeps its x: prefix and is NOT collapsed into {Binding}");
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L"{Binding Title, Mode=TwoWay}"), L"binding",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L"{Binding Title, Mode=TwoWay}"), L"binding",
               "a runtime {Binding} is classified as one");
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L"{TemplateBinding Padding}"), L"templateBinding",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L"{TemplateBinding Padding}"), L"templateBinding",
               "a {TemplateBinding} is classified as one");
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L"{x:Null}"), L"customMarkup",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L"{x:Null}"), L"customMarkup",
               "markup we have no specific handling for stays OUT of the literal bucket");
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L"theme brush"), L"literal",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L"theme brush"), L"literal",
               "plain text is a literal");
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L"#FF0000FF"), L"literal",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L"#FF0000FF"), L"literal",
               "a hex colour is a literal");
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L""), L"",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L""), L"",
               "nothing authored classifies as nothing, not as a literal");
     // The XAML markup ESCAPE. "{}" exists so an author can write a value whose first character is a brace,
     // so it is the one string where treating a leading '{' as markup is provably wrong.
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L"{}{NotMarkup}"), L"literal",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L"{}{NotMarkup}"), L"literal",
               "the {} markup escape is a literal, not a markup extension");
-    RCheckEqW(DevToolsRead_ClassifyAuthored(L"  {ThemeResource X}"), L"themeResource",
+    CheckEqW(DevToolsRead_ClassifyAuthored(L"  {ThemeResource X}"), L"themeResource",
               "leading whitespace does not hide the markup");
 }
 
@@ -68,15 +55,15 @@ static void Test_TheRowNoLongerContradictsItself()
     // while their origin lines say different things.
     const std::wstring themeSource = L"Local";
     const std::wstring localSource = L"Local";
-    RCheck(themeSource == localSource,
+    Check(themeSource == localSource,
            "PREMISE: valueSource cannot tell a {ThemeResource} row from a literal row -- both say Local");
 
     const std::wstring themeKind = DevToolsRead_ClassifyAuthored(L"{ThemeResource TextFillColorSecondaryBrush}");
     const std::wstring localKind = DevToolsRead_ClassifyAuthored(L"#FF0000FF");
-    RCheck(themeKind != localKind,
+    Check(themeKind != localKind,
            "CONTROL: authoredKind DOES tell them apart -- the two rows must not report the same origin");
-    RCheckEqW(themeKind, L"themeResource", "the {ThemeResource} row's origin is the resource, not Local");
-    RCheckEqW(localKind, L"literal",       "the literal row's origin is the literal");
+    CheckEqW(themeKind, L"themeResource", "the {ThemeResource} row's origin is the resource, not Local");
+    CheckEqW(localKind, L"literal",       "the literal row's origin is the literal");
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -85,29 +72,29 @@ static void Test_TheRowNoLongerContradictsItself()
 
 static void Test_DeriveWriteType()
 {
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.Double", false), L"Double",
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.Double", false), L"Double",
               "a Double-declared property is written as a Double");
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.String", false), L"String", "String");
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.Boolean", false), L"Boolean", "Boolean");
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Thickness", false), L"Thickness", "Thickness");
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.CornerRadius", false), L"CornerRadius", "CornerRadius");
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.String", false), L"String", "String");
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.Boolean", false), L"Boolean", "Boolean");
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Thickness", false), L"Thickness", "Thickness");
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.CornerRadius", false), L"CornerRadius", "CornerRadius");
     // A Brush-declared property is written by CONSTRUCTING a solid brush, never by recolouring the brush
     // already attached -- which may be the app's single shared instance of a theme brush.
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Media.Brush", false), L"SolidColorBrush",
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Media.Brush", false), L"SolidColorBrush",
               "a Brush-declared property writes a NEW SolidColorBrush");
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Media.SolidColorBrush", false), L"SolidColorBrush",
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Media.SolidColorBrush", false), L"SolidColorBrush",
               "so does one already holding a SolidColorBrush");
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Visibility", true), L"Visibility",
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Visibility", true), L"Visibility",
               "an enum writes by member name, under its short type name");
     // The conservative half. A type with no XAML string parser we have exercised reports NO write type, which
     // renders the row read-only -- rather than offering an editor whose write silently does nothing.
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Controls.ControlTemplate", false), L"",
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Controls.ControlTemplate", false), L"",
               "a type no literal can construct is reported read-only, not guessed at");
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"", false), L"", "no declared type, no write type");
+    CheckEqW(DevToolsRead_DeriveWriteType(L"", false), L"", "no declared type, no write type");
 
     // The REGRESSION this replaces. The old map answered by NAME, so it knew Width and knew nothing else; a
     // pane that now shows every property would have rendered all of them read-only.
-    RCheck(!DevToolsRead_DeriveWriteType(L"Windows.Foundation.Double", false).empty() &&
+    Check(!DevToolsRead_DeriveWriteType(L"Windows.Foundation.Double", false).empty() &&
            !DevToolsRead_DeriveWriteType(L"Microsoft.UI.Xaml.Thickness", false).empty(),
            "CONTROL: a property the old 20-name table never heard of is still editable when its type is");
 }
@@ -118,28 +105,28 @@ static void Test_DeriveWriteType()
 
 static void Test_ExpandableKind()
 {
-    RCheckEqW(DevToolsRead_ExpandableKind(L"Microsoft.UI.Xaml.Media.SolidColorBrush"), L"brush",
+    CheckEqW(DevToolsRead_ExpandableKind(L"Microsoft.UI.Xaml.Media.SolidColorBrush"), L"brush",
               "a solid brush opens as a brush");
-    RCheckEqW(DevToolsRead_ExpandableKind(L"Microsoft.UI.Xaml.Media.CompositeTransform"), L"transform",
+    CheckEqW(DevToolsRead_ExpandableKind(L"Microsoft.UI.Xaml.Media.CompositeTransform"), L"transform",
               "a CompositeTransform opens as a transform -- nine flat doubles, not a tree");
-    RCheckEqW(DevToolsRead_ExpandableKind(L"Microsoft.UI.Xaml.Media.ScaleTransform"), L"transform", "ScaleTransform");
+    CheckEqW(DevToolsRead_ExpandableKind(L"Microsoft.UI.Xaml.Media.ScaleTransform"), L"transform", "ScaleTransform");
     // A template opens another tree; a transform exposes supported leaf values.
-    RCheckEqW(DevToolsRead_ExpandableKind(L"Microsoft.UI.Xaml.Controls.ControlTemplate"), L"",
+    CheckEqW(DevToolsRead_ExpandableKind(L"Microsoft.UI.Xaml.Controls.ControlTemplate"), L"",
               "a ControlTemplate does not expand -- opening it yields a tree, not leaf values");
-    RCheckEqW(DevToolsRead_ExpandableKind(L"Windows.Foundation.Double"), L"", "a Double has no structure to open");
+    CheckEqW(DevToolsRead_ExpandableKind(L"Windows.Foundation.Double"), L"", "a Double has no structure to open");
 }
 
 static void Test_ChildEditingIsGatedOnOwnership()
 {
-    RCheck(DevToolsRead_ChildEditingIsSafe(L"Local", L"literal"),
+    Check(DevToolsRead_ChildEditingIsSafe(L"Local", L"literal"),
            "a locally-authored value's children are this element's to edit");
-    RCheck(!DevToolsRead_ChildEditingIsSafe(L"Local", L"themeResource"),
+    Check(!DevToolsRead_ChildEditingIsSafe(L"Local", L"themeResource"),
            "a {ThemeResource} brush is SHARED -- editing its Color in place would recolour the whole app");
-    RCheck(!DevToolsRead_ChildEditingIsSafe(L"Local", L"staticResource"),
+    Check(!DevToolsRead_ChildEditingIsSafe(L"Local", L"staticResource"),
            "so is a {StaticResource} one");
-    RCheck(!DevToolsRead_ChildEditingIsSafe(L"Style", L"literal"),
+    Check(!DevToolsRead_ChildEditingIsSafe(L"Style", L"literal"),
            "a value handed out by a style is shared with every element using that style");
-    RCheck(!DevToolsRead_ChildEditingIsSafe(L"Default", L""),
+    Check(!DevToolsRead_ChildEditingIsSafe(L"Default", L""),
            "so is the type default");
 }
 
@@ -165,11 +152,11 @@ static void Test_SerializeEmitsAuthoredKindWithAuthored()
     props.push_back(fg);
 
     const std::wstring json = DevToolsRead_SerializeProps(42, props, L"available");
-    RCheck(Contains(json, L"\"authored\":\"{ThemeResource TextFillColorSecondaryBrush}\""),
+    Check(Contains(json, L"\"authored\":\"{ThemeResource TextFillColorSecondaryBrush}\""),
            "the authored expression is on the wire");
-    RCheck(Contains(json, L"\"authoredKind\":\"themeResource\""),
+    Check(Contains(json, L"\"authoredKind\":\"themeResource\""),
            "and so is its classification -- a client must not have to re-parse the expression");
-    RCheck(Contains(json, L"\"valueSource\":\"Local\""),
+    Check(Contains(json, L"\"valueSource\":\"Local\""),
            "valueSource is still reported honestly: the runtime really did apply it locally");
 }
 
@@ -178,7 +165,7 @@ static void Test_SerializeOmitsAuthoredKindWhenNothingWasAuthored()
     std::vector<DevToolsReadProp> props;
     props.push_back(MakeProp(L"Width", L"Auto", L"Windows.Foundation.Double"));
     const std::wstring json = DevToolsRead_SerializeProps(1, props, L"available");
-    RCheck(!Contains(json, L"authoredKind"),
+    Check(!Contains(json, L"authoredKind"),
            "absence stays meaningful: no authored value means no authoredKind key at all");
 }
 
@@ -193,9 +180,9 @@ static void Test_SerializeUnsetIsAStateNotAValue()
     w.valueState = L"unset";
     props.push_back(w);
     const std::wstring json = DevToolsRead_SerializeProps(1, props, L"available");
-    RCheck(Contains(json, L"\"valueState\":\"unset\""),
+    Check(Contains(json, L"\"valueState\":\"unset\""),
            "an unset Double is reported as a STATE, so a surface can render a placeholder");
-    RCheck(Contains(json, L"\"writeType\":\"Double\""),
+    Check(Contains(json, L"\"writeType\":\"Double\""),
            "and it stays writable -- unset is not read-only");
 }
 
@@ -217,18 +204,18 @@ static void Test_SerializeChildren()
     props.push_back(fg);
 
     const std::wstring json = DevToolsRead_SerializeProps(7, props, L"available");
-    RCheck(Contains(json, L"\"children\":["), "an expandable value carries its children");
-    RCheck(Contains(json, L"\"name\":\"Color\""), "the leaf a user actually edits is one of them");
-    RCheck(Contains(json, L"\"name\":\"Opacity\""), "so is Opacity");
+    Check(Contains(json, L"\"children\":["), "an expandable value carries its children");
+    Check(Contains(json, L"\"name\":\"Color\""), "the leaf a user actually edits is one of them");
+    Check(Contains(json, L"\"name\":\"Opacity\""), "so is Opacity");
     // A child row is an ORDINARY row. If it were a cut-down shape, a client would need a second renderer for
     // the inside of a brush -- which is how the pane ended up with a type name in a textbox and two dropdowns
     // beneath it in the first place.
-    RCheck(Contains(json, L"\"name\":\"Color\",\"value\":\"#FF0000FF\",\"valueType\":\"Windows.UI.Color\",")
+    Check(Contains(json, L"\"name\":\"Color\",\"value\":\"#FF0000FF\",\"valueType\":\"Windows.UI.Color\",")
            && Contains(json, L"\"editKind\":\"color\""),
            "a child is serialized with the SAME row anatomy as a top-level row");
 
     // The value we were flattening to a type name is now the row you open, and the type name is not the value.
-    RCheck(!Contains(json, L"\"value\":\"{SolidColorBrush}\""),
+    Check(!Contains(json, L"\"value\":\"{SolidColorBrush}\""),
            "CONTROL: the brush's value is a colour, never the literal token {SolidColorBrush}");
 }
 
@@ -242,10 +229,10 @@ static void Test_SerializeStaysValidJsonOnOneLine()
     p.children.push_back(child);
     props.push_back(p);
     const std::wstring json = DevToolsRead_SerializeProps(1, props, L"available");
-    RCheck(json.find(L'\n') == std::wstring::npos && json.find(L'\r') == std::wstring::npos,
+    Check(json.find(L'\n') == std::wstring::npos && json.find(L'\r') == std::wstring::npos,
            "the payload stays on ONE wire line even with newlines in a value and a nested child");
-    RCheck(Contains(json, L"\\\"quoted\\\""), "quotes inside a value are escaped");
-    RCheck(Contains(json, L"a\\\\b"), "so are backslashes inside a CHILD's value");
+    Check(Contains(json, L"\\\"quoted\\\""), "quotes inside a value are escaped");
+    Check(Contains(json, L"a\\\\b"), "so are backslashes inside a CHILD's value");
 }
 
 static void Test_SerializeChainCarriesConfirmedDeclaration()
@@ -258,19 +245,19 @@ static void Test_SerializeChainCarriesConfirmedDeclaration()
     p.chain = { style, fallback };
     props.push_back(p);
     const std::wstring json = DevToolsRead_SerializeProps(1, props, L"available");
-    RCheck(Contains(json, L"\"file\":\"ms-appx:///App.xaml\",\"line\":14,\"authoredFileName\":\"App.xaml\",\"authoredLineNumber\":12"),
+    Check(Contains(json, L"\"file\":\"ms-appx:///App.xaml\",\"line\":14,\"authoredFileName\":\"App.xaml\",\"authoredLineNumber\":12"),
            "a chain source keeps its runtime position and adds its confirmed declaration start");
-    RCheck(Contains(json, L"{\"source\":\"Default\",\"value\":\"\",\"winner\":false}"),
+    Check(Contains(json, L"{\"source\":\"Default\",\"value\":\"\",\"winner\":false}"),
            "a source without a confirmed declaration adds nothing");
 }
 
 // Core properties are an ordering hint, not a read filter.
 static void Test_CorePropsAreAnOrderingHintNotAReadGate()
 {
-    RCheck(DevToolsRead_IsCoreProp(L"Foreground"), "Foreground is core");
-    RCheck(DevToolsRead_IsCoreProp(L"RenderTransform"),
+    Check(DevToolsRead_IsCoreProp(L"Foreground"), "Foreground is core");
+    Check(DevToolsRead_IsCoreProp(L"RenderTransform"),
            "RenderTransform is core -- it was absent from the payload entirely, not merely un-expandable");
-    RCheck(!DevToolsRead_IsCoreProp(L"CharacterSpacing"),
+    Check(!DevToolsRead_IsCoreProp(L"CharacterSpacing"),
            "CharacterSpacing is not core -- and must still reach the pane, which is the point of dropping the gate");
 }
 
@@ -278,57 +265,57 @@ static void Test_CorePropsAreAnOrderingHintNotAReadGate()
 
 static void Test_FieldLabelsAreMeasuredNotAssumed()
 {
-    RCheckEqW(std::to_wstring(DevToolsRead_FieldLabels(L"Microsoft.UI.Xaml.Thickness").size()), L"4",
+    CheckEqW(std::to_wstring(DevToolsRead_FieldLabels(L"Microsoft.UI.Xaml.Thickness").size()), L"4",
               "a Thickness is four fields");
-    RCheckEqW(DevToolsRead_FieldLabels(L"Microsoft.UI.Xaml.Thickness")[0], L"Left", "named, not indexed");
-    RCheckEqW(std::to_wstring(DevToolsRead_FieldLabels(L"Windows.Foundation.Point").size()), L"2", "a Point is two");
-    RCheckEqW(std::to_wstring(DevToolsRead_FieldLabels(L"Windows.Foundation.Numerics.Vector3").size()), L"3",
+    CheckEqW(DevToolsRead_FieldLabels(L"Microsoft.UI.Xaml.Thickness")[0], L"Left", "named, not indexed");
+    CheckEqW(std::to_wstring(DevToolsRead_FieldLabels(L"Windows.Foundation.Point").size()), L"2", "a Point is two");
+    CheckEqW(std::to_wstring(DevToolsRead_FieldLabels(L"Windows.Foundation.Numerics.Vector3").size()), L"3",
               "a Vector3 is three -- the type round 2 never mentioned and which outnumbers Point 4:1");
-    RCheckEqW(DevToolsRead_FieldLabels(L"Windows.Foundation.Numerics.Vector3")[2], L"Z", "and its third field is Z");
-    RCheckEqW(std::to_wstring(DevToolsRead_FieldLabels(L"Microsoft.UI.Xaml.CornerRadius").size()), L"4", "CornerRadius");
+    CheckEqW(DevToolsRead_FieldLabels(L"Windows.Foundation.Numerics.Vector3")[2], L"Z", "and its third field is Z");
+    CheckEqW(std::to_wstring(DevToolsRead_FieldLabels(L"Microsoft.UI.Xaml.CornerRadius").size()), L"4", "CornerRadius");
 
     // Size is not a comma-separated writable field type; Rect is not an included editor type.
-    RCheck(DevToolsRead_FieldLabels(L"Windows.Foundation.Size").empty(),
+    Check(DevToolsRead_FieldLabels(L"Windows.Foundation.Size").empty(),
            "CONTROL: Size is NOT a field editor -- its value is 'WxH' and a write to it fails");
-    RCheck(DevToolsRead_FieldLabels(L"Windows.Foundation.Rect").empty(),
+    Check(DevToolsRead_FieldLabels(L"Windows.Foundation.Rect").empty(),
            "CONTROL: Rect is not built for -- it appears on no element measured");
-    RCheck(DevToolsRead_FieldLabels(L"Windows.Foundation.Numerics.Matrix4x4").empty(),
+    Check(DevToolsRead_FieldLabels(L"Windows.Foundation.Numerics.Matrix4x4").empty(),
            "CONTROL: a Matrix4x4 arrives as nested braces, not a flat row of boxes");
-    RCheck(DevToolsRead_FieldLabels(L"Windows.Foundation.Double").empty(), "a Double is one number, not a field list");
+    Check(DevToolsRead_FieldLabels(L"Windows.Foundation.Double").empty(), "a Double is one number, not a field list");
 }
 
 static void Test_PointAndVector3AreWritable_OnAMeasuredRoundTrip()
 {
     // Both were reported read-only while the write demonstrably worked -- ~195 rows per element refused an
     // editor that would have committed. Added on a watched round-trip, not on their shape.
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.Point", false), L"Point",
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.Point", false), L"Point",
               "Point writes -- RenderTransformOrigin took '0.25,0.75' and read back changed");
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.Numerics.Vector3", false), L"Vector3",
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.Numerics.Vector3", false), L"Vector3",
               "Vector3 writes -- Translation took '1,2,3' and read back changed");
     // The control: the same measurement REFUSED Size, so it must stay read-only. Without this, "add every
     // struct that has commas" would pass.
-    RCheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.Size", false), L"",
+    CheckEqW(DevToolsRead_DeriveWriteType(L"Windows.Foundation.Size", false), L"",
               "CONTROL: Size stays read-only -- writing RenderSize returns an error, as it should");
 }
 
 static void Test_AuthoredKeyIsWhatTheChipShowsBesideIt()
 {
-    RCheckEqW(DevToolsRead_AuthoredKey(L"{ThemeResource TextFillColorSecondaryBrush}"), L"TextFillColorSecondaryBrush",
+    CheckEqW(DevToolsRead_AuthoredKey(L"{ThemeResource TextFillColorSecondaryBrush}"), L"TextFillColorSecondaryBrush",
               "a resource row shows its KEY, not the whole markup");
-    RCheckEqW(DevToolsRead_AuthoredKey(L"{StaticResource CardPadding}"), L"CardPadding", "static resource key");
-    RCheckEqW(DevToolsRead_AuthoredKey(L"{x:Bind Vm.Title, Mode=OneWay}"), L"Vm.Title",
+    CheckEqW(DevToolsRead_AuthoredKey(L"{StaticResource CardPadding}"), L"CardPadding", "static resource key");
+    CheckEqW(DevToolsRead_AuthoredKey(L"{x:Bind Vm.Title, Mode=OneWay}"), L"Vm.Title",
               "an x:Bind shows its PATH; Mode describes the expression rather than naming it");
-    RCheckEqW(DevToolsRead_AuthoredKey(L"{Binding Title}"), L"Title", "a binding shows its path");
-    RCheckEqW(DevToolsRead_AuthoredKey(L"{Binding Path=Title}"), L"Title",
+    CheckEqW(DevToolsRead_AuthoredKey(L"{Binding Title}"), L"Title", "a binding shows its path");
+    CheckEqW(DevToolsRead_AuthoredKey(L"{Binding Path=Title}"), L"Title",
               "Path= is an assignment; the reader wants the value on its right");
     // A comma INSIDE a nested extension must not truncate the argument.
-    RCheckEqW(DevToolsRead_AuthoredKey(L"{Binding Count, Converter={StaticResource X}}"), L"Count",
+    CheckEqW(DevToolsRead_AuthoredKey(L"{Binding Count, Converter={StaticResource X}}"), L"Count",
               "a nested extension's comma does not cut the path short");
-    RCheckEqW(DevToolsRead_AuthoredKey(L"{x:Null}"), L"",
+    CheckEqW(DevToolsRead_AuthoredKey(L"{x:Null}"), L"",
               "markup with no argument has no key -- the chip stands alone rather than inventing one");
-    RCheckEqW(DevToolsRead_AuthoredKey(L"{Binding ElementName=Box, Path=Text}"), L"",
+    CheckEqW(DevToolsRead_AuthoredKey(L"{Binding ElementName=Box, Path=Text}"), L"",
               "two named arguments have no single key, and guessing one would be worse than none");
-    RCheckEqW(DevToolsRead_AuthoredKey(L"0,0,8,0"), L"",
+    CheckEqW(DevToolsRead_AuthoredKey(L"0,0,8,0"), L"",
               "CONTROL: a literal has no key -- its value is already in the editor beside the line");
 }
 
@@ -341,13 +328,13 @@ static void Test_SerializeFields()
     p.writeType = L"Vector3";
     props.push_back(p);
     const std::wstring json = DevToolsRead_SerializeProps(3, props, L"available");
-    RCheck(Contains(json, L"\"editKind\":\"fields\""), "the multi-field kind is general, not named after Thickness");
-    RCheck(Contains(json, L"\"fields\":[\"X\",\"Y\",\"Z\"]"),
+    Check(Contains(json, L"\"editKind\":\"fields\""), "the multi-field kind is general, not named after Thickness");
+    Check(Contains(json, L"\"fields\":[\"X\",\"Y\",\"Z\"]"),
            "the LABELS ride on the wire -- '0,0,0' cannot say whether it is a Vector3 or an RGB triple");
 
     std::vector<DevToolsReadProp> plain;
     plain.push_back(MakeProp(L"Opacity", L"1", L"Windows.Foundation.Double"));
-    RCheck(!Contains(DevToolsRead_SerializeProps(3, plain, L"available"), L"fields"),
+    Check(!Contains(DevToolsRead_SerializeProps(3, plain, L"available"), L"fields"),
            "CONTROL: a single-value row carries no field labels");
 }
 
@@ -368,16 +355,16 @@ static void Test_LayoutParentContext()
     L.childIndex = 0; L.childCount = 3;
 
     const std::wstring json = DevToolsRead_SerializeLayout(L);
-    RCheck(Contains(json, L"\"orientation\":\"Vertical\""), "the parent's orientation is on the wire");
-    RCheck(Contains(json, L"\"padding\":\"40,40,40,40\""), "and its padding -- the number that explains the offset");
-    RCheck(Contains(json, L"\"spacing\":\"8\""), "and its spacing");
-    RCheck(Contains(json, L"\"childIndex\":0") && Contains(json, L"\"childCount\":3"),
+    Check(Contains(json, L"\"orientation\":\"Vertical\""), "the parent's orientation is on the wire");
+    Check(Contains(json, L"\"padding\":\"40,40,40,40\""), "and its padding -- the number that explains the offset");
+    Check(Contains(json, L"\"spacing\":\"8\""), "and its spacing");
+    Check(Contains(json, L"\"childIndex\":0") && Contains(json, L"\"childCount\":3"),
            "and where this element sits among its siblings, which is what makes 'no spacing applies' sayable");
     // inParent is NOT a duplicate of offset. The root-space number cannot be compared against the parent's
     // own padding, which is the thing that usually explains it.
-    RCheck(Contains(json, L"\"inParent\":{\"x\":40,\"y\":40}"),
+    Check(Contains(json, L"\"inParent\":{\"x\":40,\"y\":40}"),
            "the offset INSIDE the parent is reported separately from the root-space one");
-    RCheck(Contains(json, L"\"offset\":{\"x\":40,\"y\":40}"), "and the root-space one is still there");
+    Check(Contains(json, L"\"offset\":{\"x\":40,\"y\":40}"), "and the root-space one is still there");
 }
 
 static void Test_LayoutOmitsWhatItCouldNotRead()
@@ -389,11 +376,11 @@ static void Test_LayoutOmitsWhatItCouldNotRead()
     L.haveRender = true; L.renderW = 10; L.renderH = 10;
     L.parentType = L"Microsoft.UI.Xaml.Controls.Border";
     const std::wstring json = DevToolsRead_SerializeLayout(L);
-    RCheck(!Contains(json, L"orientation"), "CONTROL: a parent with no Orientation reports none");
-    RCheck(!Contains(json, L"spacing"),     "CONTROL: nor a Spacing it does not have");
-    RCheck(!Contains(json, L"childIndex"),  "CONTROL: an unknown sibling position is omitted, not reported as 0");
-    RCheck(!Contains(json, L"inParent"),    "CONTROL: an unread in-parent offset is omitted, not reported as 0,0");
-    RCheck(Contains(json, L"\"type\":\"Microsoft.UI.Xaml.Controls.Border\""), "the parent itself is still named");
+    Check(!Contains(json, L"orientation"), "CONTROL: a parent with no Orientation reports none");
+    Check(!Contains(json, L"spacing"),     "CONTROL: nor a Spacing it does not have");
+    Check(!Contains(json, L"childIndex"),  "CONTROL: an unknown sibling position is omitted, not reported as 0");
+    Check(!Contains(json, L"inParent"),    "CONTROL: an unread in-parent offset is omitted, not reported as 0,0");
+    Check(Contains(json, L"\"type\":\"Microsoft.UI.Xaml.Controls.Border\""), "the parent itself is still named");
 }
 
 static void Test_LayoutGridPlacementOnlyWhenThereIsOne()
@@ -401,42 +388,42 @@ static void Test_LayoutGridPlacementOnlyWhenThereIsOne()
     DevToolsReadLayout g;
     g.handle = 2; g.parentType = L"Microsoft.UI.Xaml.Controls.Grid";
     g.gridRow = L"2"; g.gridColumn = L"1"; g.gridColumnSpan = L"3";
-    RCheck(Contains(DevToolsRead_SerializeLayout(g), L"\"grid\":{\"row\":\"2\",\"column\":\"1\""),
+    Check(Contains(DevToolsRead_SerializeLayout(g), L"\"grid\":{\"row\":\"2\",\"column\":\"1\""),
            "an element in a Grid reports its cell");
-    RCheck(Contains(DevToolsRead_SerializeLayout(g), L"\"columnSpan\":\"3\""), "including a span");
+    Check(Contains(DevToolsRead_SerializeLayout(g), L"\"columnSpan\":\"3\""), "including a span");
 
     // EVERY element carries these attached properties. A child of a StackPanel has them all at 0, and
     // printing a cell there would send a reader looking for a Grid that is not in the tree.
     DevToolsReadLayout s;
     s.handle = 3; s.parentType = L"Microsoft.UI.Xaml.Controls.StackPanel";
-    RCheck(!Contains(DevToolsRead_SerializeLayout(s), L"grid"),
+    Check(!Contains(DevToolsRead_SerializeLayout(s), L"grid"),
            "CONTROL: an element with no Grid placement reports none rather than a row of zeroes");
 }
 
 // Strip assembly qualification before taking a short type name; version dots are not namespace dots.
 static void Test_ShortTypeNameSurvivesAnAssemblyQualifiedName()
 {
-    RCheckEqW(DevToolsRead_ShortTypeName(L"winui_binding_fixture.FixtureViewModel"), L"FixtureViewModel",
+    CheckEqW(DevToolsRead_ShortTypeName(L"winui_binding_fixture.FixtureViewModel"), L"FixtureViewModel",
               "a plain XAML type name reduces to its class");
-    RCheckEqW(DevToolsRead_ShortTypeName(
+    CheckEqW(DevToolsRead_ShortTypeName(
                   L"winui_binding_fixture.UnknownToXamlViewModel, winui-binding-fixture, Version=1.0.0.0, "
                   L"Culture=neutral, PublicKeyToken=null"),
               L"UnknownToXamlViewModel",
               "an ASSEMBLY-QUALIFIED CLR name reduces to its class, not to a fragment of its version");
     // The regression itself, stated as the thing that must NOT come back.
-    RCheck(DevToolsRead_ShortTypeName(
+    Check(DevToolsRead_ShortTypeName(
                L"winui_binding_fixture.UnknownToXamlViewModel, winui-binding-fixture, Version=1.0.0.0, "
                L"Culture=neutral, PublicKeyToken=null").find(L"PublicKeyToken") == std::wstring::npos,
            "and never carries the assembly qualification into the row");
 
     // WinRT names have no comma at all, so the cut must be a no-op for every type the pane already showed.
-    RCheckEqW(DevToolsRead_ShortTypeName(L"Microsoft.UI.Xaml.Media.SolidColorBrush"), L"SolidColorBrush",
+    CheckEqW(DevToolsRead_ShortTypeName(L"Microsoft.UI.Xaml.Media.SolidColorBrush"), L"SolidColorBrush",
               "CONTROL: an ordinary WinRT type is unchanged");
-    RCheckEqW(DevToolsRead_ShortTypeName(L"Windows.Foundation.IReference`1<String>"), L"IReference`1<String>",
+    CheckEqW(DevToolsRead_ShortTypeName(L"Windows.Foundation.IReference`1<String>"), L"IReference`1<String>",
               "a projected generic keeps its argument list");
     // The generic argument carries its OWN namespace and its own assembly qualification. Neither belongs to
     // the outer type, and a depth-blind scan would return "String]]" or cut the name in half.
-    RCheckEqW(DevToolsRead_ShortTypeName(
+    CheckEqW(DevToolsRead_ShortTypeName(
                   L"System.Collections.Generic.List`1[[System.String, mscorlib, Version=4.0.0.0]], mscorlib, "
                   L"Version=4.0.0.0"),
               L"List`1[[System.String, mscorlib, Version=4.0.0.0]]",
@@ -454,34 +441,34 @@ static void Test_OriginLabel()
     auto pill = [](const wchar_t* kind, const wchar_t* source) {
         return DevToolsRead_OriginLabel(kind, L"", L"", L"", source, true);
     };
-    RCheckEqW(full(L"themeResource", L"{ThemeResource TextFillColorSecondaryBrush}", L"TextFillColorSecondaryBrush", L"", L"Local"),
+    CheckEqW(full(L"themeResource", L"{ThemeResource TextFillColorSecondaryBrush}", L"TextFillColorSecondaryBrush", L"", L"Local"),
               L"ThemeResource TextFillColorSecondaryBrush", "a theme resource names its key");
-    RCheckEqW(full(L"themeResource", L"{ThemeResource}", L"", L"", L"Local"), L"ThemeResource", "a theme resource without a key");
-    RCheckEqW(full(L"staticResource", L"{StaticResource CardBrush}", L"CardBrush", L"", L"Local"),
+    CheckEqW(full(L"themeResource", L"{ThemeResource}", L"", L"", L"Local"), L"ThemeResource", "a theme resource without a key");
+    CheckEqW(full(L"staticResource", L"{StaticResource CardBrush}", L"CardBrush", L"", L"Local"),
               L"StaticResource CardBrush", "a static resource names its key");
-    RCheckEqW(full(L"literal", L"4", L"", L"", L"Local"), L"Local", "a literal authored here is a local value");
-    RCheckEqW(full(L"", L"", L"", L"", L"Local"), L"Local", "nothing authored reads as the precedence slot");
-    RCheckEqW(full(L"xBind", L"{x:Bind ViewModel.CanSave}", L"", L"", L"Local"), L"{x:Bind ViewModel.CanSave}", "an x:Bind reads as authored");
-    RCheckEqW(full(L"xBind", L"", L"", L"", L"Local"), L"x:Bind", "an x:Bind without its markup");
-    RCheckEqW(full(L"binding", L"", L"", L"{Binding Title}", L"Local"), L"{Binding Title}", "a binding falls back to the live binding");
-    RCheckEqW(full(L"binding", L"", L"", L"", L"Local"), L"Binding", "a binding with neither");
-    RCheckEqW(full(L"templateBinding", L"", L"", L"", L"Local"), L"TemplateBinding", "a template binding");
-    RCheckEqW(full(L"customMarkup", L"", L"", L"", L"Local"), L"Markup", "other markup");
-    RCheckEqW(full(L"", L"", L"", L"{Binding CanSave}", L"local"), L"{Binding CanSave}", "a bound value is the binding, not its slot");
-    RCheckEqW(full(L"", L"", L"", L"", L""), L"", "no origin at all");
-    RCheckEqW(pill(L"themeResource", L"Local"), L"Theme resource", "the pill says theme resource");
-    RCheckEqW(pill(L"staticResource", L"Local"), L"Static resource", "the pill says static resource");
-    RCheckEqW(pill(L"xBind", L"Local"), L"x:Bind", "the pill says x:Bind");
-    RCheckEqW(pill(L"binding", L"Local"), L"Binding", "the pill says Binding");
-    RCheckEqW(pill(L"templateBinding", L"Local"), L"TemplateBinding", "the pill says TemplateBinding");
-    RCheckEqW(pill(L"customMarkup", L"Local"), L"Markup", "the pill says Markup");
-    RCheckEqW(pill(L"literal", L"Style"), L"Style", "otherwise the pill is the precedence slot");
+    CheckEqW(full(L"literal", L"4", L"", L"", L"Local"), L"Local", "a literal authored here is a local value");
+    CheckEqW(full(L"", L"", L"", L"", L"Local"), L"Local", "nothing authored reads as the precedence slot");
+    CheckEqW(full(L"xBind", L"{x:Bind ViewModel.CanSave}", L"", L"", L"Local"), L"{x:Bind ViewModel.CanSave}", "an x:Bind reads as authored");
+    CheckEqW(full(L"xBind", L"", L"", L"", L"Local"), L"x:Bind", "an x:Bind without its markup");
+    CheckEqW(full(L"binding", L"", L"", L"{Binding Title}", L"Local"), L"{Binding Title}", "a binding falls back to the live binding");
+    CheckEqW(full(L"binding", L"", L"", L"", L"Local"), L"Binding", "a binding with neither");
+    CheckEqW(full(L"templateBinding", L"", L"", L"", L"Local"), L"TemplateBinding", "a template binding");
+    CheckEqW(full(L"customMarkup", L"", L"", L"", L"Local"), L"Markup", "other markup");
+    CheckEqW(full(L"", L"", L"", L"{Binding CanSave}", L"local"), L"{Binding CanSave}", "a bound value is the binding, not its slot");
+    CheckEqW(full(L"", L"", L"", L"", L""), L"", "no origin at all");
+    CheckEqW(pill(L"themeResource", L"Local"), L"Theme resource", "the pill says theme resource");
+    CheckEqW(pill(L"staticResource", L"Local"), L"Static resource", "the pill says static resource");
+    CheckEqW(pill(L"xBind", L"Local"), L"x:Bind", "the pill says x:Bind");
+    CheckEqW(pill(L"binding", L"Local"), L"Binding", "the pill says Binding");
+    CheckEqW(pill(L"templateBinding", L"Local"), L"TemplateBinding", "the pill says TemplateBinding");
+    CheckEqW(pill(L"customMarkup", L"Local"), L"Markup", "the pill says Markup");
+    CheckEqW(pill(L"literal", L"Style"), L"Style", "otherwise the pill is the precedence slot");
 
     DevToolsReadProp themed;
     themed.name = L"Foreground"; themed.value = L"#C5FFFFFF"; themed.type = L"SolidColorBrush"; themed.source = L"Local";
     themed.authored = L"{ThemeResource TextFillColorSecondaryBrush}"; themed.authoredKind = L"themeResource";
     themed.authoredKey = L"TextFillColorSecondaryBrush";
-    RCheck(Contains(DevToolsRead_SerializeProps(1, { themed }, L""), L"\"origin\":\"ThemeResource TextFillColorSecondaryBrush\""),
+    Check(Contains(DevToolsRead_SerializeProps(1, { themed }, L""), L"\"origin\":\"ThemeResource TextFillColorSecondaryBrush\""),
            "Property.get rows carry the label as origin");
 }
 
@@ -509,5 +496,5 @@ int RunReadTests()
     Test_LayoutOmitsWhatItCouldNotRead();
     Test_LayoutGridPlacementOnlyWhenThereIsOne();
     Test_ShortTypeNameSurvivesAnAssemblyQualifiedName();
-    return g_readFailures;
+    return g_testFailures;
 }

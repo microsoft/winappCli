@@ -7,14 +7,7 @@
 #include "DevToolsSink.h"
 
 #include <cstdio>
-
-static int g_sinkFailures = 0;
-
-static void Check(bool cond, const char* what)
-{
-    if (!cond) { ++g_sinkFailures; std::printf("  FAIL  %s\n", what); }
-    else       {                   std::printf("  ok    %s\n", what); }
-}
+#include "DevToolsTestCheck.h"
 
 // Arbitrary IIDs standing in for the real delegate GUIDs; the base treats them as opaque data.
 static const GUID kIidPrimary   = { 0x1D9F5C41, 0x0001, 0x4A2B, { 0x9E, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 } };
@@ -247,5 +240,5 @@ int RunSinkTests()
     Test_TheMarshalerIsBuiltOnceForRebindableSinks();
 
     if (SUCCEEDED(coHr)) CoUninitialize();
-    return g_sinkFailures;
+    return g_testFailures;
 }
