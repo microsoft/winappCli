@@ -174,11 +174,7 @@ internal partial class MsixService
             throw new InvalidOperationException("Developer Mode is not enabled on this machine. Please enable Developer Mode and try again.");
         }
 
-        EnsureLayoutIsNotVirtualized(
-            outputAppXDirectory.FullName,
-            EngineStaging.IsPackaged,
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
-            Path.GetTempPath());
+        EnsureLayoutIsNotVirtualized(outputAppXDirectory.FullName, EngineStaging.IsPackaged, GetAppDataFolders(), Path.GetTempPath());
 
         taskContext.AddDebugMessage($"Using AppX manifest: {appxManifestPath}");
 
@@ -576,18 +572,11 @@ internal partial class MsixService
     /// makepri and the deployment service look at the real path, find nothing, and registration
     /// fails with a "file not found" error that points at the manifest. %TEMP% is not redirected.
     /// </remarks>
-    internal static void EnsureLayoutIsNotVirtualized(string layoutPath, bool isPackaged, string localAppData, string tempPath)
+    internal static void EnsureLayoutIsNotVirtualized(string layoutPath, bool isPackaged, IEnumerable<string?> appDataFolders, string tempPath)
     {
-        if (!isPackaged || string.IsNullOrEmpty(localAppData))
-        {
-            return;
-        }
-
-        // Local, LocalLow and Roaming are all redirected, so check their shared AppData parent.
-        var appDataRoot = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(localAppData)));
-        if (string.IsNullOrEmpty(appDataRoot) ||
-            !IsPathInsideDirectory(layoutPath, appDataRoot) ||
-            (!string.IsNullOrEmpty(tempPath) && IsPathInsideDirectory(layoutPath, tempPath)))
+        if (!isPackaged ||
+            (!string.IsNullOrEmpty(tempPath) && IsPathInsideDirectory(layoutPath, tempPath)) ||
+            !appDataFolders.Any(folder => !string.IsNullOrEmpty(folder) && IsPathInsideDirectory(layoutPath, folder)))
         {
             return;
         }
@@ -597,6 +586,34 @@ internal partial class MsixService
             "package, and Windows redirects its writes under AppData to a private folder, so the app could not " +
             "be registered from there. Point --output-appx-directory at a folder outside AppData, " +
             "or move the project out of AppData.");
+    }
+
+    /// <summary>
+    /// The actual Local, Roaming and LocalLow folders. Each can be relocated on its own, so they
+    /// may not share a parent.
+    /// </summary>
+    private static string?[] GetAppDataFolders() =>
+    [
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+        GetLocalLowFolder(),
+    ];
+
+    private static unsafe string? GetLocalLowFolder()
+    {
+        var hr = Windows.Win32.PInvoke.SHGetKnownFolderPath(
+            Windows.Win32.PInvoke.FOLDERID_LocalAppDataLow,
+            Windows.Win32.UI.Shell.KNOWN_FOLDER_FLAG.KF_FLAG_DONT_VERIFY,
+            null,
+            out var path);
+        try
+        {
+            return hr.Succeeded ? path.ToString() : null;
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeCoTaskMem((nint)path.Value);
+        }
     }
 
     /// <summary>
