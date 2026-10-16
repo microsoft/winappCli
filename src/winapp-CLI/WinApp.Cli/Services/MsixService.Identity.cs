@@ -174,6 +174,12 @@ internal partial class MsixService
             throw new InvalidOperationException("Developer Mode is not enabled on this machine. Please enable Developer Mode and try again.");
         }
 
+        EnsureLayoutIsNotVirtualized(
+            outputAppXDirectory.FullName,
+            EngineStaging.IsPackaged,
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+            Path.GetTempPath());
+
         taskContext.AddDebugMessage($"Using AppX manifest: {appxManifestPath}");
 
         var manifestContent = await File.ReadAllTextAsync(appxManifestPath.FullName, Encoding.UTF8, cancellationToken);
@@ -560,6 +566,38 @@ internal partial class MsixService
 
     /// <summary>One validated recipe entry: an existing source file and where it goes in the layout.</summary>
     private readonly record struct RecipeEntry(string SourcePath, string PackagePath);
+
+    /// <summary>
+    /// Rejects a layout under AppData when winapp itself runs from its MSIX package.
+    /// </summary>
+    /// <remarks>
+    /// Windows redirects a packaged app's new files under AppData into the app's private
+    /// <c>Packages\&lt;family name&gt;\LocalCache</c> folder. Only winapp sees the redirected copy:
+    /// makepri and the deployment service look at the real path, find nothing, and registration
+    /// fails with a "file not found" error that points at the manifest. %TEMP% is not redirected.
+    /// </remarks>
+    internal static void EnsureLayoutIsNotVirtualized(string layoutPath, bool isPackaged, string localAppData, string tempPath)
+    {
+        if (!isPackaged || string.IsNullOrEmpty(localAppData))
+        {
+            return;
+        }
+
+        // Local, LocalLow and Roaming are all redirected, so check their shared AppData parent.
+        var appDataRoot = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(localAppData)));
+        if (string.IsNullOrEmpty(appDataRoot) ||
+            !IsPathInsideDirectory(layoutPath, appDataRoot) ||
+            (!string.IsNullOrEmpty(tempPath) && IsPathInsideDirectory(layoutPath, tempPath)))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"The AppX layout directory '{layoutPath}' is under AppData. This winapp is installed as an MSIX " +
+            "package, and Windows redirects its writes under AppData to a private folder, so the app could not " +
+            "be registered from there. Point --output-appx-directory at a folder outside AppData, " +
+            "or move the project out of AppData.");
+    }
 
     /// <summary>
     /// Rejects a layout path that is, or sits beneath, a reparse point.
