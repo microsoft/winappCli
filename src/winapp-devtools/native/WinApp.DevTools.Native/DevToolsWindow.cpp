@@ -299,6 +299,14 @@ static std::wstring ShortType(const std::wstring& t)
     return dot == std::wstring::npos ? t : t.substr(dot + 1);
 }
 
+// Attribute runs the C++-built pane markup repeats, kept in one place. They are not keyed Styles in window-shell.xaml
+// because XamlReader.Load parses each pane fragment on its own, where only Application resources are in scope.
+#define DT_FG_SECONDARY L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
+#define DT_NOTE_TEXT L" FontSize=\"11\" TextWrapping=\"Wrap\"" DT_FG_SECONDARY
+#define DT_NOTE_BOX L" Margin=\"0,6,0,0\" Padding=\"8,6,8,6\" CornerRadius=\"4\"" \
+    L" Background=\"{ThemeResource CardBackgroundFillColorSecondaryBrush}\""
+#define DT_SECTION_CAPTION L" Style=\"{StaticResource CaptionTextBlockStyle}\"" DT_FG_SECONDARY L" CharacterSpacing=\"60\""
+
 #include "DevToolsWindow.State.inc"
 #include "DevToolsWindow.TreeView.inc"
 #include "DevToolsWindow.PaneSinks.inc"

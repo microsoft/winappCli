@@ -213,11 +213,11 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
              L" Background=\"{ThemeResource ControlFillColorSecondaryBrush}\" VerticalAlignment=\"Center\""
              L" Visibility=\"" + (live ? L"Collapsed" : L"Visible") + L"\">"
              L"<TextBlock Text=\"" + absent + L"\" FontSize=\"10\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></Border>";
+             DT_FG_SECONDARY L"/></Border>";
     }
     m += L"<TextBlock FontSize=\"11\" VerticalAlignment=\"Center\" TextTrimming=\"CharacterEllipsis\">";
     if (!c.element.empty()) {
-        m += L"<Run Text=\"" + DevToolsXmlEscape(c.element) + L"\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/>";
+        m += L"<Run Text=\"" + DevToolsXmlEscape(c.element) + L"\"" DT_FG_SECONDARY L"/>";
         m += L"<Run Text=\"   \"/>";
     }
     if (!where.empty()) {
@@ -258,7 +258,7 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
 static std::wstring CommentCaptionMarkup(const std::wstring& text)
 {
     return L"<TextBlock xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Text=\"" + DevToolsXmlEscape(text) +
-        L"\" Style=\"{StaticResource CaptionTextBlockStyle}\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
+        L"\" Style=\"{StaticResource CaptionTextBlockStyle}\"" DT_FG_SECONDARY
         L" CharacterSpacing=\"60\" Margin=\"4,10,4,6\" AutomationProperties.HeadingLevel=\"Level2\"/>";
 }
 
@@ -286,7 +286,7 @@ static std::wstring BuildCommentsFragment(const std::vector<DevToolsWindowCommen
               L"they persist in the host project store. From your host project, an agent can read them with "
               L"&#x2018;winapp devtools comments list --status open --json&#x2019;."
             : L"No comments for this app yet. Restart the target so winapp can attach it writable, then add one.";
-        m += L"<TextBlock TextWrapping=\"Wrap\" Margin=\"4,10,4,0\" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
+        m += L"<TextBlock TextWrapping=\"Wrap\" Margin=\"4,10,4,0\"" DT_FG_SECONDARY
              L" Text=\"" + emptyMessage + L"\"/>";
         m += L"</StackPanel>";
         outOpen = 0;

@@ -140,7 +140,7 @@ static std::wstring LayoutLine(const std::wstring& label, const std::wstring& va
                      L"<ColumnDefinition Width=\"104\"/><ColumnDefinition Width=\"*\"/>"
                      L"</Grid.ColumnDefinitions>";
     m += L"<TextBlock Grid.Column=\"0\" Text=\"" + DevToolsXmlEscape(label) + L"\" FontSize=\"12\""
-         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" TextWrapping=\"NoWrap\""
+         DT_FG_SECONDARY L" TextWrapping=\"NoWrap\""
          L" TextTrimming=\"CharacterEllipsis\"/>";
     m += L"<TextBlock Grid.Column=\"1\" Text=\"" + DevToolsXmlEscape(value) + L"\" FontSize=\"12\""
          L" FontFamily=\"Consolas\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" Foreground=\"";
@@ -456,8 +456,7 @@ static std::wstring BuildParentDecidesBlock(const DevToolsWindowLayout& L)
     if (!anyDetail) return L"";
 
     std::wstring m;
-    m += L"<TextBlock Text=\"PARENT DECIDES\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" CharacterSpacing=\"60\""
+    m += L"<TextBlock Text=\"PARENT DECIDES\"" DT_SECTION_CAPTION
          L" Margin=\"0,10,0,0\"/>";
     m += L"<StackPanel Spacing=\"0\" Margin=\"0,-4,0,0\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsParentDecides\">";
@@ -509,10 +508,9 @@ static std::wstring BuildParentDecidesBlock(const DevToolsWindowLayout& L)
         }
     }
     if (!why.empty()) {
-        m += L"<Border Margin=\"0,6,0,0\" Padding=\"8,6,8,6\" CornerRadius=\"4\""
-             L" Background=\"{ThemeResource CardBackgroundFillColorSecondaryBrush}\">";
-        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(why) + L"\" FontSize=\"11\" TextWrapping=\"Wrap\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></Border>";
+        m += L"<Border" DT_NOTE_BOX L">";
+        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(why) + L"\""
+             DT_NOTE_TEXT L"/></Border>";
     }
     m += L"</StackPanel>";
     return m;
@@ -567,8 +565,8 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
     if (!why.empty()) {
         m += L"<Border Margin=\"0,8,0,0\" Padding=\"9,7,9,7\" CornerRadius=\"4\""
              L" Background=\"{ThemeResource CardBackgroundFillColorSecondaryBrush}\">";
-        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(why) + L"\" FontSize=\"11\" TextWrapping=\"Wrap\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></Border>";
+        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(why) + L"\""
+             DT_NOTE_TEXT L"/></Border>";
     }
 
     m += L"<StackPanel Spacing=\"0\" Margin=\"0,7,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsBoxModelDetail\">";
@@ -593,7 +591,7 @@ static std::wstring BuildLayoutDisclosure(const DevToolsWindowLayout& L, const s
          L" VerticalAlignment=\"Center\" Text=\"" + std::wstring(open ? L"\uE70D" : L"\uE76C") + L"\""
          L" AutomationProperties.AccessibilityView=\"Raw\"/>";
     m += L"<TextBlock Text=\"SIZE &amp; SPACING\" Style=\"{StaticResource CaptionTextBlockStyle}\" CharacterSpacing=\"60\""
-         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.AccessibilityView=\"Raw\"/>";
+         DT_FG_SECONDARY L" AutomationProperties.AccessibilityView=\"Raw\"/>";
     m += L"</StackPanel></HyperlinkButton>";
     m += L"<StackPanel x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\" Visibility=\"" +
          std::wstring(open ? L"Visible" : L"Collapsed") + L"\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\">";

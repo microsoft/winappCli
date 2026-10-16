@@ -108,8 +108,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
     m += L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
          L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Spacing=\"10\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsProps\">";
-    m += L"<TextBlock Text=\"PROPERTIES\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" CharacterSpacing=\"60\"/>";
+    m += L"<TextBlock Text=\"PROPERTIES\"" DT_SECTION_CAPTION L"/>";
     m += L"<Grid ColumnSpacing=\"8\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"*\"/><ColumnDefinition Width=\"Auto\"/>"
          L"</Grid.ColumnDefinitions>";
     m += L"<TextBlock Text=\"" + DevToolsXmlEscape(badge) + L"\" Style=\"{StaticResource BodyStrongTextBlockStyle}\""
@@ -132,13 +131,13 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         size_t segs = 0;
         const std::wstring shortBc = ElideBreadcrumb(breadcrumb, segs);
         m += L"<TextBlock x:Name=\"BcShort\" Text=\"" + DevToolsXmlEscape(shortBc) + L"\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" TextWrapping=\"NoWrap\""
+             DT_FG_SECONDARY L" TextWrapping=\"NoWrap\""
              L" TextTrimming=\"CharacterEllipsis\" Margin=\"0,-6,0,0\""
              L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(breadcrumb) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsBreadcrumb\"/>";
         if (shortBc != breadcrumb) {
             m += L"<TextBlock x:Name=\"BcFull\" Text=\"" + DevToolsXmlEscape(breadcrumb) + L"\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-                 L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" TextWrapping=\"Wrap\""
+                 DT_FG_SECONDARY L" TextWrapping=\"Wrap\""
                  L" Visibility=\"Collapsed\" Margin=\"0,-6,0,0\""
                  L" AutomationProperties.AutomationId=\"WinAppDevToolsBreadcrumbFull\"/>";
             g_bcExpandText = L"Show all " + std::to_wstring(segs) + L" ancestors";
@@ -160,9 +159,9 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
             const bool canOpen = !ResolveSourcePath(sourceUri).empty();
             m += L"<StackPanel Orientation=\"Horizontal\" Spacing=\"6\" Margin=\"0,2,0,0\">";
             m += L"<FontIcon Glyph=\"&#xE8A5;\" FontSize=\"12\" VerticalAlignment=\"Center\""
-                 L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/>";
+                 DT_FG_SECONDARY L"/>";
             m += L"<TextBlock Text=\"" + DevToolsXmlEscape(disp) + L"\" Style=\"{StaticResource CaptionTextBlockStyle}\""
-                 L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" VerticalAlignment=\"Center\""
+                 DT_FG_SECONDARY L" VerticalAlignment=\"Center\""
                  L" TextTrimming=\"CharacterEllipsis\" AutomationProperties.AutomationId=\"WinAppDevToolsSource\"/>";
             if (canOpen) {
                 m += L"<HyperlinkButton x:Name=\"OpenSource\" Content=\"Open\" Padding=\"4,0,4,0\" FontSize=\"12\""
@@ -178,7 +177,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAddCommentText\"/>"
              L"<TextBlock x:Name=\"AddCommentStatus\" Text=\"" + DevToolsXmlEscape(kAddCommentHint) + L"\""
              L" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" AutomationProperties.LiveSetting=\"Polite\""
+             DT_FG_SECONDARY L" AutomationProperties.LiveSetting=\"Polite\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAddCommentStatus\"/></StackPanel>";
     }
     if (!authoredXaml.empty()) {
@@ -192,7 +191,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L"\" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\""
              L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(note) + L"\" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(note) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceNote\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/>";
+             DT_FG_SECONDARY L"/>";
         m += L"<HyperlinkButton x:Name=\"AxmlToggle\" Padding=\"0\" HorizontalAlignment=\"Stretch\""
              L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Toggle authored XAML\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlToggle\">";
@@ -200,13 +199,13 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
         m += L"<TextBlock x:Name=\"AxmlChev\" Grid.Column=\"0\" FontFamily=\"Segoe Fluent Icons,Segoe MDL2 Assets\""
              L" FontSize=\"8\" VerticalAlignment=\"Center\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" Text=\"\uE76C\""
+             DT_FG_SECONDARY L" Text=\"\uE76C\""
              L" AutomationProperties.AccessibilityView=\"Raw\"/>";
         m += L"<TextBlock x:Name=\"AxmlOne\" Grid.Column=\"1\" Text=\"" +
              DevToolsXmlEscape(AuthoredXamlOneLine(authoredXaml)) +
              L"\" FontFamily=\"Cascadia Mono, Consolas\" FontSize=\"11\" TextWrapping=\"NoWrap\""
              L" TextTrimming=\"CharacterEllipsis\" VerticalAlignment=\"Center\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
+             DT_FG_SECONDARY
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlOneLine\"/>";
         m += L"</Grid></HyperlinkButton>";
         m += L"<TextBlock x:Name=\"AxmlFull\" Text=\"" + DevToolsXmlEscape(authoredXaml, true) + L"\""
@@ -268,7 +267,7 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         m += L"<TextBlock Text=\"x:Bind and resource sources not shown (why?)\" FontSize=\"11\" TextWrapping=\"NoWrap\""
              L" TextTrimming=\"CharacterEllipsis\" Margin=\"0,0,0,2\""
              L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(why) + L"\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
+             DT_FG_SECONDARY
              L" AutomationProperties.Name=\"x:Bind and resource sources not shown\""
              L" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(why) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredUnavailable\"/>";
@@ -314,10 +313,9 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
         if (styled) line += L" " + std::to_wstring(styled) + L" came from a style; the rest are type defaults.";
         else        line += L" The rest are type defaults.";
         line += L" A defaulted value is still a value. It is the one nobody remembers choosing.";
-        m += L"<Border Margin=\"0,6,0,0\" Padding=\"8,6,8,6\" CornerRadius=\"4\""
-             L" Background=\"{ThemeResource CardBackgroundFillColorSecondaryBrush}\">";
-        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(line) + L"\" FontSize=\"11\" TextWrapping=\"Wrap\""
-             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></Border>";
+        m += L"<Border" DT_NOTE_BOX L">";
+        m += L"<TextBlock Text=\"" + DevToolsXmlEscape(line) + L"\""
+             DT_NOTE_TEXT L"/></Border>";
     }
 
     m += L"<ItemsRepeater x:Name=\"PropRepeater\" TabFocusNavigation=\"Local\">"
@@ -331,8 +329,8 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
     m += L"<StackPanel Spacing=\"3\">";
     m += L"<TextBlock x:Name=\"PropNoMatchLbl\" FontSize=\"12\" TextWrapping=\"Wrap\" Text=\"\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsPropNoMatchLabel\"/>";
-    m += L"<TextBlock FontSize=\"11\" TextWrapping=\"Wrap\""
-         L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\""
+    m += L"<TextBlock"
+         DT_NOTE_TEXT
          L" Text=\"The filter matches a property name, its value, and its authored text.\"/>";
     m += L"<HyperlinkButton x:Name=\"PropClearFilter\" Padding=\"0\" Margin=\"0,2,0,0\" FontSize=\"12\""
          L" Visibility=\"Collapsed\""
@@ -373,7 +371,7 @@ static void ShowPaneNotice(const wchar_t* text)
     // to register it in), and the load fails wholesale. The error-line fragment below is unnamed for the same
     // reason. The text itself is the assertable surface.
     std::wstring m = L"<TextBlock xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
-                     L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\" FontSize=\"12\""
+                     DT_FG_SECONDARY L" FontSize=\"12\""
                      L" Margin=\"12,12,12,12\" TextWrapping=\"Wrap\" Text=\"";
     m += DevToolsXmlEscape(text);
     m += L"\"/>";
