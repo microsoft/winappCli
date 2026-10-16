@@ -238,7 +238,7 @@ winapp ui wait-for itm-status-c3d4 -a myapp --value "Complete" --timeout 5000
 - Use `--focus` to foreground the target window before capture without switching to screen-DC capture (default capture path uses Windows.Graphics.Capture and works while occluded)
 - Use `--hide-disabled` and `--hide-offscreen` to reduce noise
 - If `focus` or another foreground action is refused, look for a blocking dialog and ask the user to activate the intended window; don't retry in a loop or switch from Sandbox to the local desktop. If the target window is minimized, `winapp ui focus -a <app>` (no selector) restores and activates it
-- `win+…` shortcuts act on the Windows shell and are refused unless you pass `--allow-system-keys`; use it only for a shortcut the user asked for
+- To fire a `win+…` global hotkey (or another system combo such as `alt+f4`), pass `--via send-input --allow-system-keys`, and only for a shortcut the user asked for. The default `--via post-message` sends keys only to the target window, so shell hotkeys never fire and `--allow-system-keys` has no effect there. `win+l` and `ctrl+alt+del` stay blocked
 
 ### Why `;` instead of `&&`
 Use `;` (not `&&`) to chain commands. PowerShell's `&&` operator can freeze when a native CLI writes to stderr or uses ANSI escape sequences — this causes a pipeline deadlock. `;` runs each command unconditionally and avoids this issue. This is also better for agent workflows: you usually want the screenshot to run even if the invoke had a non-zero exit (to see what went wrong).

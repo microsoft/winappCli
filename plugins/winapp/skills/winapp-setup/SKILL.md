@@ -75,6 +75,8 @@ winapp new --use-defaults --name MyApp --json
 
 ### Initialize a new winapp project
 
+> **Trust the directory first.** `init` and `restore` use the target directory's `nuget.config`; run them only on directories you trust.
+
 ```powershell
 # Interactive — prompts for app name, publisher, SDK channel, etc.
 # Automatically searches for compatible projects (Tauri, Electron, .NET, Rust, C++, Flutter)

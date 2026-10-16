@@ -21,7 +21,7 @@ The Windows App SDK is not WinUI: a WPF, WinForms, or Electron app that referenc
 
 ## Best Practices
 
-- **Efficiency:** Batch file creates/edits in one pass. Don't re-read files you just wrote. In PowerShell, chain commands with `;`, not `&&`.
+- **Efficiency:** Batch file creates/edits in one pass. Don't re-read files you just wrote. In PowerShell, chain commands with `;`, not `&&`. Use `;` only for independent commands. For dependent steps, check `$LASTEXITCODE` before the next command.
 - **ReadEfficiently:** Read files efficiently. Avoid reading the same file multiple times. Use caching or batch operations when possible.
 - **Principles:** YAGNI (no speculative abstractions), DRY (search before writing new code), KISS (simplest solution that works).
 - **Accessibility:** Set `AutomationProperties.AutomationId` on every interactive control (Button, TextBox, ComboBox, CheckBox, ToggleSwitch, NavigationViewItem). Use unique naming for each control.
