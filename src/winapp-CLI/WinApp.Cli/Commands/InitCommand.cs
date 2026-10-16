@@ -115,7 +115,7 @@ internal class InitCommand : Command, IShortDescription, ICompactHelpCommand
         };
     }
 
-    public InitCommand() : base("init", "Sets up an existing project for Windows app development: creates Package.appxmanifest with default assets, downloads the Windows SDK and Windows App SDK, and generates projections. With managed SDKs (the default), also creates winapp.yaml to pin versions for 'restore' and 'update'; --setup-sdks none (for projects that bring their own SDK bindings, such as Rust or Tauri) creates no winapp.yaml. Asks questions unless --use-defaults is set or the terminal isn't interactive. Cloned a repo that already has winapp.yaml? Run 'winapp restore' instead. Only need a manifest? Run 'winapp manifest generate'.")
+    public InitCommand() : base("init", "Sets up an existing project for Windows app development: creates Package.appxmanifest with default assets, downloads the Windows SDK and Windows App SDK, and generates projections. With managed SDKs (the default), non-.NET projects also get winapp.yaml to pin versions for 'restore' and 'update'; .NET projects get PackageReferences in the .csproj instead. --setup-sdks none (for projects that bring their own SDK bindings, such as Rust or Tauri) creates no winapp.yaml. Asks questions unless --use-defaults is set or the terminal isn't interactive. Cloned a repo that already has winapp.yaml? Run 'winapp restore' instead. Only need a manifest? Run 'winapp manifest generate'.")
     {
         Arguments.Add(BaseDirectoryArgument);
         Options.Add(ConfigDirOption);

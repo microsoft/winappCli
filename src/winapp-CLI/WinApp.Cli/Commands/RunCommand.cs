@@ -274,7 +274,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         return true;
     }
 
-    public RunCommand() : base("run", "Builds and launches a Windows app with package identity from a .csproj, .vcxproj, or .sln (via dotnet build or MSBuild), a .cs file-based app, or a build output folder (default: current directory). With --aot, runs the project's Native AOT publish instead of a build. A .cs app gets a manifest from its #:property directives; folder input is registered as a debug-signed layout.")
+    public RunCommand() : base("run", "Builds and launches a Windows app (packaged or unpackaged) from a .csproj, .vcxproj, or .sln (via dotnet build or MSBuild), a .cs file-based app, or a build output folder (default: current directory). Packaged apps launch with package identity. With --aot, runs the project's Native AOT publish instead of a build. A packaged .cs app gets a manifest from its #:property directives; folder input is registered as a debug-signed layout.")
     {
         Arguments.Add(InputArgument);
         Arguments.Add(PassthroughArgument);
