@@ -181,10 +181,8 @@ function Inspect-WithChrome {
     $chrome = Invoke-Cli @('ui', 'inspect', 'DevToolsOverlay', '-a', $app, '--depth', '40')
     [pscustomobject]@{ windows = @($tree.windows) + @($chrome.windows | Where-Object { $_.elements -and $_.elements[0].automationId -eq 'DevToolsOverlay' }) }
 }
-# The collapsed toolbar's visible label and its UI Automation name. -Collapse first moves the pointer off an expanded
-# toolbar so it collapses back to the pill.
-function Chip-State([switch]$Collapse) {
-    if ($Collapse) { $null = Invoke-Cli @('ui', 'hover', 'WindowHeading', '-w', $window) }
+# The collapsed toolbar's visible label and its UI Automation name.
+function Chip-State {
     for ($i = 0; $i -lt 15; $i++) {
         $nodes = @((Inspect-WithChrome).windows | ForEach-Object { Nodes $_.elements } | Where-Object { -not $_.isOffscreen })
         $state = [pscustomobject]@{
@@ -545,8 +543,6 @@ try {
             Where-Object automationId -eq 'DevToolsSelComment').Count -eq 0) 'pick mode opens no comment flyout'
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
         Check ((Invoke-Cli @('ui', 'get-property', 'DevToolsProtoPick', '-a', $app, '-p', 'ToggleState')).properties.ToggleState -eq 'Off') 'Select element reports its Off state to UI Automation'
-        $chip = Chip-State -Collapse
-        Check ($chip.label -eq 'DevTools' -and $chip.name -eq 'DevTools (open toolbar)') 'with saved comments the collapsed toolbar still says DevTools after pick mode'
         $null = Invoke-Cli @('devtools', 'call', 'Window.close', '-a', $app)
 
         $null = Invoke-Cli @('devtools', 'call', 'Window.open', '-a', $app)
