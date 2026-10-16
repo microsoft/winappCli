@@ -464,51 +464,25 @@ public class DevToolsAgentCommandTests : BaseCommandTests
     }
 
     /// <summary>
-    /// the runtime resolves a <c>{ThemeResource}</c> to a plain local value, so <c>valueSource</c> really
-    /// does say <c>Local</c>. A label built from it alone printed "Local" for a brush the developer wrote as
-    /// <c>{ThemeResource TextFillColorSecondaryBrush}</c>, the one thing this command exists to tell them.
-    /// Provenance comes from <c>authoredKind</c> first, matching <c>OriginLabel</c> in <c>DevToolsWindow.cpp</c>.
+    /// The engine names where a value came from (<c>origin</c>), so get-property and the DevTools window's pill read the
+    /// same label. The label's rules are tested in the engine (read-tests.cpp, Test_OriginLabel).
     /// </summary>
     [TestMethod]
-    public void PropertyRows_AuthoredKindWinsOverAResolvedLocalValueSource()
+    public void PropertyRows_SourceLabelIsTheEnginesOrigin()
     {
         var rows = DevToolsPropertyRow.Parse(
             """
             {"handle":"1","props":[
               {"name":"Foreground","value":"#C5FFFFFF","valueType":"SolidColorBrush","valueSource":"Local",
                "authored":"{ThemeResource TextFillColorSecondaryBrush}","authoredKind":"themeResource",
-               "authoredKey":"TextFillColorSecondaryBrush","editKind":"none"},
-              {"name":"Background","value":"#FF102030","valueType":"SolidColorBrush","valueSource":"Local",
-               "authored":"{StaticResource CardBrush}","authoredKind":"staticResource","authoredKey":"CardBrush","editKind":"none"},
-              {"name":"Padding","value":"4","valueType":"Thickness","valueSource":"Local",
-               "authored":"4","authoredKind":"literal","editKind":"text"},
-              {"name":"Width","value":"120","valueType":"Double","valueSource":"Local","editKind":"text"}]}
+               "authoredKey":"TextFillColorSecondaryBrush","editKind":"none","origin":"ThemeResource TextFillColorSecondaryBrush"},
+              {"name":"Width","value":"120","valueType":"Double","valueSource":"Local","editKind":"text","origin":"Local"},
+              {"name":"Height","value":"40","valueType":"Double","editKind":"text"}]}
             """)!;
 
         Assert.AreEqual("ThemeResource TextFillColorSecondaryBrush", DevToolsPropertyRow.Find(rows, "Foreground")!.SourceLabel);
-        Assert.AreEqual("StaticResource CardBrush", DevToolsPropertyRow.Find(rows, "Background")!.SourceLabel);
-        Assert.AreEqual("Local", DevToolsPropertyRow.Find(rows, "Padding")!.SourceLabel,
-            "A literal authored here IS a local value; the runtime's own vocabulary is right.");
         Assert.AreEqual("Local", DevToolsPropertyRow.Find(rows, "Width")!.SourceLabel);
-    }
-
-    [TestMethod]
-    public void PropertyRows_BindingKindsReadAsWhatWasAuthored()
-    {
-        var rows = DevToolsPropertyRow.Parse(
-            """
-            {"handle":"1","props":[
-              {"name":"IsEnabled","value":"True","valueType":"Boolean","valueSource":"Local",
-               "authored":"{x:Bind ViewModel.CanSave}","authoredKind":"xBind","editKind":"none"},
-              {"name":"Text","value":"hi","valueType":"String","valueSource":"Local","authoredKind":"binding",
-               "binding":"{Binding Title}","editKind":"none"},
-              {"name":"Foreground","value":"#FF000000","valueType":"SolidColorBrush","valueSource":"Local",
-               "authoredKind":"templateBinding","editKind":"none"}]}
-            """)!;
-
-        Assert.AreEqual("{x:Bind ViewModel.CanSave}", DevToolsPropertyRow.Find(rows, "IsEnabled")!.SourceLabel);
-        Assert.AreEqual("{Binding Title}", DevToolsPropertyRow.Find(rows, "Text")!.SourceLabel);
-        Assert.AreEqual("TemplateBinding", DevToolsPropertyRow.Find(rows, "Foreground")!.SourceLabel);
+        Assert.IsNull(DevToolsPropertyRow.Find(rows, "Height")!.SourceLabel);
     }
 
     /// <summary>An authored value is "set", even where the runtime's precedence slot alone would not say so.</summary>
@@ -606,7 +580,7 @@ public class DevToolsAgentCommandTests : BaseCommandTests
             """
             {"handle":"1","props":[
               {"name":"Width","value":"120","valueType":"Double","valueSource":"local","writeType":"Double"},
-              {"name":"IsEnabled","value":"True","valueType":"Boolean","binding":"{Binding CanSave}","editKind":"none"}]}
+              {"name":"IsEnabled","value":"True","valueType":"Boolean","binding":"{Binding CanSave}","editKind":"none","origin":"{Binding CanSave}"}]}
             """);
 
         Assert.IsNotNull(rows);

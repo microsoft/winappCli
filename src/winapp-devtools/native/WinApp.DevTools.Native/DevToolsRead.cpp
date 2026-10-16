@@ -168,6 +168,8 @@ static void AppendProp(std::wstring& out, const DevToolsReadProp& source, int de
     if (!p.authored.empty())    { out += L",\"authored\":\"";    out += DevToolsJsonEscape(p.authored);    out += L"\""; }
     if (!p.authoredKind.empty()) { out += L",\"authoredKind\":\""; out += DevToolsJsonEscape(p.authoredKind); out += L"\""; }
     if (!p.authoredKey.empty()) { out += L",\"authoredKey\":\""; out += DevToolsJsonEscape(p.authoredKey); out += L"\""; }
+    const std::wstring origin = DevToolsRead_OriginLabel(p.authoredKind, p.authored, p.authoredKey, p.binding, p.source, false);
+    if (!origin.empty())        { out += L",\"origin\":\"";      out += DevToolsJsonEscape(origin);        out += L"\""; }
     if (p.redacted) out += L",\"redacted\":true";
     if (!p.chain.empty())
     {
@@ -509,4 +511,20 @@ std::wstring DevToolsRead_ShortTypeName(const std::wstring& type)
         if (depth == 0 && c == L'.') dot = i;
     }
     return dot == std::wstring::npos ? name : name.substr(dot + 1);
+}
+
+std::wstring DevToolsRead_OriginLabel(const std::wstring& authoredKind, const std::wstring& authored,
+                                      const std::wstring& authoredKey, const std::wstring& binding,
+                                      const std::wstring& valueSource, bool compact)
+{
+    auto resource = [&](const wchar_t* kind) { return authoredKey.empty() ? std::wstring(kind) : std::wstring(kind) + L" " + authoredKey; };
+    auto or_ = [](const std::wstring& value, const wchar_t* fallback) { return value.empty() ? std::wstring(fallback) : value; };
+    if (authoredKind == L"themeResource")   return compact ? L"Theme resource" : resource(L"ThemeResource");
+    if (authoredKind == L"staticResource")  return compact ? L"Static resource" : resource(L"StaticResource");
+    if (authoredKind == L"xBind")           return compact ? L"x:Bind" : or_(authored, L"x:Bind");
+    if (authoredKind == L"binding")         return compact ? L"Binding" : or_(authored, binding.empty() ? L"Binding" : binding.c_str());
+    if (authoredKind == L"templateBinding") return compact ? L"TemplateBinding" : or_(authored, L"TemplateBinding");
+    if (authoredKind == L"customMarkup")    return compact ? L"Markup" : or_(authored, L"Markup");
+    // A literal authored on this element IS a local value, and the precedence slot says so in the runtime's words.
+    return compact || binding.empty() ? valueSource : binding;
 }

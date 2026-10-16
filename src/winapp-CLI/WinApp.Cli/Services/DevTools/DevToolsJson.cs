@@ -160,6 +160,11 @@ internal static class DevToolsJson
     {
         foreach (var field in row.EnumerateObject())
         {
+            // get-property reports the engine's origin label as `source`.
+            if (field.Name == "origin")
+            {
+                continue;
+            }
             if (field.Name == "chain" && field.Value.ValueKind == JsonValueKind.Array)
             {
                 writer.WriteStartArray("chain");

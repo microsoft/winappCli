@@ -98,13 +98,7 @@ static std::vector<std::wstring> SplitFields(const std::wstring& v, size_t count
 // A resource-resolved Local value is not necessarily an authored literal.
 static std::wstring OriginLabel(const DevToolsCardRow& r)
 {
-    if (r.authoredKind == L"themeResource")   return L"Theme resource";
-    if (r.authoredKind == L"staticResource")  return L"Static resource";
-    if (r.authoredKind == L"xBind")           return L"x:Bind";
-    if (r.authoredKind == L"binding")         return L"Binding";
-    if (r.authoredKind == L"templateBinding") return L"TemplateBinding";
-    if (r.authoredKind == L"customMarkup")    return L"Markup";
-    return r.source;
+    return DevToolsRead_OriginLabel(r.authoredKind, r.authored, r.authoredKey, r.binding, r.source, true);
 }
 
 // One line explaining what the origin means, used as the pill's tooltip. Written per KIND rather than per

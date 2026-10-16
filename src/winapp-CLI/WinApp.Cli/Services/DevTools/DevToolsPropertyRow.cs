@@ -22,6 +22,7 @@ namespace WinApp.Cli.Services.DevTools;
 /// <param name="AuthoredKey">The resource key, for the resource kinds.</param>
 /// <param name="WriteType">The XAML type a write must create. Absent means the tap reports it as not settable.</param>
 /// <param name="Redacted">The property holds a secret (a password): DevTools neither shows nor writes it.</param>
+/// <param name="Origin">Where the value came from, in one label, as the engine reports it.</param>
 internal sealed record DevToolsPropertyRow(
     string Name,
     string Value,
@@ -32,35 +33,15 @@ internal sealed record DevToolsPropertyRow(
     string? AuthoredKind,
     string? AuthoredKey,
     string? WriteType,
-    bool Redacted = false)
+    bool Redacted = false,
+    string? Origin = null)
 {
     /// <summary>
-    /// How this row's provenance reads in one bracketed token.
-    /// <para>
-    /// Derived from <see cref="AuthoredKind"/> FIRST, and from <see cref="ValueSource"/> only when nothing was
-    /// authored on this element. The two fields answer different questions and both answer truthfully: the
-    /// runtime resolves a <c>{ThemeResource}</c> to a plain local value, so <c>valueSource</c> genuinely says
-    /// <c>Local</c>, and a label built from it alone prints "Local" for a brush the developer wrote as
-    /// <c>{ThemeResource TextFillColorSecondaryBrush}</c>, which is the one thing this command exists to tell
-    /// them. This mirrors <c>OriginLabel</c> in <c>DevToolsWindow.cpp</c>, which resolved the same bug for the
-    /// in-app pane; the two surfaces must not disagree about the same wire fields.
-    /// </para>
+    /// How this row's provenance reads in one bracketed token: the engine's <c>origin</c>, which names what the developer
+    /// authored on this element (a resource and its key, a binding) before the runtime's precedence slot. The DevTools
+    /// window's pill is the same label in its short form.
     /// </summary>
-    public string? SourceLabel => AuthoredKind switch
-    {
-        "themeResource" => Describe("ThemeResource"),
-        "staticResource" => Describe("StaticResource"),
-        "xBind" => Authored ?? "x:Bind",
-        "binding" => Authored ?? Binding ?? "Binding",
-        "templateBinding" => Authored ?? "TemplateBinding",
-        "customMarkup" => Authored ?? "Markup",
-        // A literal authored on this element IS a local value, and valueSource says so in the runtime's own
-        // vocabulary. Nothing to correct.
-        _ => Binding ?? ValueSource,
-    };
-
-    private string Describe(string kind) =>
-        string.IsNullOrEmpty(AuthoredKey) ? kind : $"{kind} {AuthoredKey}";
+    public string? SourceLabel => Origin;
 
     public static IReadOnlyList<DevToolsPropertyRow>? Parse(string? resultJson)
     {
@@ -171,7 +152,7 @@ internal sealed record DevToolsPropertyRow(
         {
             return null;
         }
-        foreach (var field in new[] { "valueSource", "binding", "authored", "authoredKind", "authoredKey", "writeType" })
+        foreach (var field in new[] { "valueSource", "binding", "authored", "authoredKind", "authoredKey", "writeType", "origin" })
         {
             if (row.TryGetProperty(field, out var optional) &&
                 optional.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
@@ -192,7 +173,8 @@ internal sealed record DevToolsPropertyRow(
                 NullIfEmpty(ReadString(row, "authoredKind")),
                 NullIfEmpty(ReadString(row, "authoredKey")),
                 NullIfEmpty(ReadString(row, "writeType")),
-                row.TryGetProperty("redacted", out var redacted) && redacted.ValueKind == JsonValueKind.True);
+                row.TryGetProperty("redacted", out var redacted) && redacted.ValueKind == JsonValueKind.True,
+                NullIfEmpty(ReadString(row, "origin")));
     }
 
     public bool IsSet =>

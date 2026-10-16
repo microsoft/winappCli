@@ -443,10 +443,53 @@ static void Test_ShortTypeNameSurvivesAnAssemblyQualifiedName()
               "a CLR generic is cut at the OUTER qualification, not inside its argument list");
 }
 
+// One label for where a row's value came from, used by `get-property` (through the wire's `origin`) and, compact, by
+// the DevTools window's pill. What the developer authored on this element wins over the precedence slot: the runtime
+// applies a {ThemeResource} as a plain local value, so the slot alone would say "Local".
+static void Test_OriginLabel()
+{
+    auto full = [](const wchar_t* kind, const wchar_t* authored, const wchar_t* key, const wchar_t* binding, const wchar_t* source) {
+        return DevToolsRead_OriginLabel(kind, authored, key, binding, source, false);
+    };
+    auto pill = [](const wchar_t* kind, const wchar_t* source) {
+        return DevToolsRead_OriginLabel(kind, L"", L"", L"", source, true);
+    };
+    RCheckEqW(full(L"themeResource", L"{ThemeResource TextFillColorSecondaryBrush}", L"TextFillColorSecondaryBrush", L"", L"Local"),
+              L"ThemeResource TextFillColorSecondaryBrush", "a theme resource names its key");
+    RCheckEqW(full(L"themeResource", L"{ThemeResource}", L"", L"", L"Local"), L"ThemeResource", "a theme resource without a key");
+    RCheckEqW(full(L"staticResource", L"{StaticResource CardBrush}", L"CardBrush", L"", L"Local"),
+              L"StaticResource CardBrush", "a static resource names its key");
+    RCheckEqW(full(L"literal", L"4", L"", L"", L"Local"), L"Local", "a literal authored here is a local value");
+    RCheckEqW(full(L"", L"", L"", L"", L"Local"), L"Local", "nothing authored reads as the precedence slot");
+    RCheckEqW(full(L"xBind", L"{x:Bind ViewModel.CanSave}", L"", L"", L"Local"), L"{x:Bind ViewModel.CanSave}", "an x:Bind reads as authored");
+    RCheckEqW(full(L"xBind", L"", L"", L"", L"Local"), L"x:Bind", "an x:Bind without its markup");
+    RCheckEqW(full(L"binding", L"", L"", L"{Binding Title}", L"Local"), L"{Binding Title}", "a binding falls back to the live binding");
+    RCheckEqW(full(L"binding", L"", L"", L"", L"Local"), L"Binding", "a binding with neither");
+    RCheckEqW(full(L"templateBinding", L"", L"", L"", L"Local"), L"TemplateBinding", "a template binding");
+    RCheckEqW(full(L"customMarkup", L"", L"", L"", L"Local"), L"Markup", "other markup");
+    RCheckEqW(full(L"", L"", L"", L"{Binding CanSave}", L"local"), L"{Binding CanSave}", "a bound value is the binding, not its slot");
+    RCheckEqW(full(L"", L"", L"", L"", L""), L"", "no origin at all");
+    RCheckEqW(pill(L"themeResource", L"Local"), L"Theme resource", "the pill says theme resource");
+    RCheckEqW(pill(L"staticResource", L"Local"), L"Static resource", "the pill says static resource");
+    RCheckEqW(pill(L"xBind", L"Local"), L"x:Bind", "the pill says x:Bind");
+    RCheckEqW(pill(L"binding", L"Local"), L"Binding", "the pill says Binding");
+    RCheckEqW(pill(L"templateBinding", L"Local"), L"TemplateBinding", "the pill says TemplateBinding");
+    RCheckEqW(pill(L"customMarkup", L"Local"), L"Markup", "the pill says Markup");
+    RCheckEqW(pill(L"literal", L"Style"), L"Style", "otherwise the pill is the precedence slot");
+
+    DevToolsReadProp themed;
+    themed.name = L"Foreground"; themed.value = L"#C5FFFFFF"; themed.type = L"SolidColorBrush"; themed.source = L"Local";
+    themed.authored = L"{ThemeResource TextFillColorSecondaryBrush}"; themed.authoredKind = L"themeResource";
+    themed.authoredKey = L"TextFillColorSecondaryBrush";
+    RCheck(Contains(DevToolsRead_SerializeProps(1, { themed }, L""), L"\"origin\":\"ThemeResource TextFillColorSecondaryBrush\""),
+           "Property.get rows carry the label as origin");
+}
+
 int RunReadTests()
 {
     std::printf("DevToolsRead tests -- the property payload's classifiers and serializer\n");
     Test_ClassifyAuthored();
+    Test_OriginLabel();
     Test_TheRowNoLongerContradictsItself();
     Test_DeriveWriteType();
     Test_ExpandableKind();

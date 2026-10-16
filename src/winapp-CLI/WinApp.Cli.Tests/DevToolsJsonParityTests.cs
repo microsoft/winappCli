@@ -467,7 +467,8 @@ public class DevToolsJsonParityTests
                 {"handle":"42","authoredState":"available","props":[
                   {"name":"Width","value":"120","valueType":"Double","valueSource":"Local","editKind":"text"},
                   {"name":"Foreground","value":"#C5FFFFFF","valueType":"SolidColorBrush","valueSource":"Local",
-                   "authored":"{ThemeResource K}","authoredKind":"themeResource","authoredKey":"K","editKind":"none"},
+                   "authored":"{ThemeResource K}","authoredKind":"themeResource","authoredKey":"K","editKind":"none",
+                   "origin":"ThemeResource K"},
                   {"name":"Opacity","value":"1","valueType":"Double","valueSource":"Default","editKind":"text"}]}
                 """);
 
@@ -631,6 +632,7 @@ public class DevToolsJsonParityTests
                   {"name":"Foreground","value":"#C5FFFFFF","valueType":"SolidColorBrush","valueSource":"Local",
                    "editKind":"brush","valueState":"set","enumValues":["a","b"],"fields":["A","R","G","B"],
                    "writeType":"SolidColorBrush","authored":"{ThemeResource K}","authoredKind":"themeResource","authoredKey":"K",
+                   "origin":"ThemeResource K",
                    "chain":[{"source":"Local","value":"#C5FFFFFF","winner":true},{"source":"Default","value":"#FF000000","winner":false}],
                    "children":[{"name":"Color","value":"#C5FFFFFF","valueType":"Color","editKind":"text"}]}]}
                 """);
@@ -655,6 +657,7 @@ public class DevToolsJsonParityTests
 
         // Derived fields are APPENDED, never a replacement for the wire view.
         Assert.AreEqual("ThemeResource K", row.GetProperty("source").GetString());
+        Assert.IsFalse(row.TryGetProperty("origin", out _), "The engine's origin is reported once, as source.");
         Assert.IsTrue(row.GetProperty("isSet").GetBoolean());
     }
 

@@ -82,6 +82,15 @@ std::wstring DevToolsRead_SerializeTree(const std::vector<DevToolsReadNode>& roo
 std::wstring DevToolsRead_SerializeProps(unsigned long long handle, const std::vector<DevToolsReadProp>& props,
                                     const std::wstring& authoredState);
 
+// Where a row's value came from, in one label: what the developer authored on this element first (a resource, a
+// binding), and the runtime precedence slot only when nothing was authored here. The runtime applies a
+// {ThemeResource} as a plain local value, so the slot alone would say "Local" for it. The full label names the
+// resource key or the authored markup (`get-property`, through the wire's `origin`); `compact` is the DevTools
+// window's pill.
+std::wstring DevToolsRead_OriginLabel(const std::wstring& authoredKind, const std::wstring& authored,
+                                      const std::wstring& authoredKey, const std::wstring& binding,
+                                      const std::wstring& valueSource, bool compact);
+
 std::wstring DevToolsRead_NormalizeColor(const std::wstring& raw);
 bool DevToolsRead_IsHexColor(const std::wstring& value);
 
