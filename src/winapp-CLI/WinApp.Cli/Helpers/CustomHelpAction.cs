@@ -174,7 +174,7 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
     [
         ("Build a WinUI app",
         [
-            ("winapp new", "create a project from a template"),
+            ("winapp new", "create a project, then cd into its folder"),
             ("winapp run .", "build and launch it"),
             ("winapp find-ui \"<control>\"", "get working XAML for a control"),
             ("winapp find-api \"<type>\"", "look up Windows APIs you can call"),
