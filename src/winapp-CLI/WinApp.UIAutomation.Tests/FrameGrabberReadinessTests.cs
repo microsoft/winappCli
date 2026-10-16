@@ -69,7 +69,8 @@ public class FrameGrabberReadinessTests
         using IFrameGrabber grabber = new LegacyGrabber((_, _) => Task.FromResult(true), () => null);
         var timer = Stopwatch.StartNew();
         Assert.IsNull(await grabber.GetFrameAsync(TimeSpan.FromMilliseconds(60), CancellationToken.None));
-        Assert.IsGreaterThanOrEqualTo(50L, timer.ElapsedMilliseconds);
+        // The deadline uses Environment.TickCount64, which advances in ~16 ms steps.
+        Assert.IsGreaterThanOrEqualTo(30L, timer.ElapsedMilliseconds);
         Assert.IsLessThan(1000L, timer.ElapsedMilliseconds);
     }
 
