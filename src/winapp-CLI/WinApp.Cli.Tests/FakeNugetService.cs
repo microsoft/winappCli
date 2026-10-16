@@ -114,6 +114,8 @@ internal class FakeNugetService : INugetService
         return dir;
     }
 
+    public DirectoryInfo GetNuGetGlobalPackagesDir(string configRoot) => GetNuGetGlobalPackagesDir();
+
     public DirectoryInfo GetNuGetPackageDir(string packageName, string version)
     {
         var cache = GetNuGetGlobalPackagesDir();

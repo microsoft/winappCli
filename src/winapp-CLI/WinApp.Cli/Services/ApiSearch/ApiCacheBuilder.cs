@@ -21,11 +21,15 @@ namespace WinApp.Cli.Services.ApiSearch;
 /// </summary>
 internal static class ApiCacheBuilder
 {
+    /// <param name="globalPackagesDirFor">
+    /// Maps a project directory to the NuGet global packages folder its nuget.config hierarchy selects.
+    /// </param>
     public static ApiRefreshOutput BuildCache(
         string projectDir,
         string cacheDir,
         bool scan,
         string? winAppSdkRuntimePath,
+        Func<string, string> globalPackagesDirFor,
         Action<string>? onProgress = null,
         bool force = false)
     {
@@ -83,7 +87,7 @@ internal static class ApiCacheBuilder
                 }
             }
 
-            List<PackageWithWinMd> packages = NuGetResolver.FindPackagesWithWinMd(dir, projectFile, winAppSdkRuntimePath, collect);
+            List<PackageWithWinMd> packages = NuGetResolver.FindPackagesWithWinMd(dir, projectFile, globalPackagesDirFor(dir), winAppSdkRuntimePath, collect);
             if (packages.Count == 0)
             {
                 continue;
