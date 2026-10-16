@@ -706,66 +706,14 @@ static void ReadParentContext(InstanceHandle elem, InstanceHandle parent, void* 
 }
 
 // Already on the UI thread, so the reads happen inline with no RunOnUiThread hop -- the same reason Route1Source has
-// none. Shares its reads with CmdElementLayout deliberately at the level of the projected calls rather than by
-// calling that verb: this path already holds the UI thread and must not re-enter the dispatcher.
+// none -- and share CmdElementLayout's reads without re-entering the dispatcher.
 static bool Route1Layout(InstanceHandle wire, DevToolsWindowLayout& out)
 {
     InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
     AcquireSRWLockShared(&g_censusLock);
     ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
     ReleaseSRWLockShared(&g_censusLock);
-    if (!ok || !g_diag) return false;
-
-    IInspectable* insp = nullptr;
-    if (FAILED(g_diag->GetIInspectableFromHandle(ih, &insp)) || !insp) return false;
-
-    void* ui = nullptr; void* fe = nullptr;
-    if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-        float w = 0, h = 0;
-        if (SUCCEEDED(DevToolsGetDesiredSize(ui, &w, &h))) { out.desiredW = w; out.desiredH = h; out.haveDesired = true; }
-        if (SUCCEEDED(DevToolsGetRenderSize(ui, &w, &h)))  { out.renderW  = w; out.renderH  = h; out.haveRender  = true; }
-    }
-    if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
-        double d = 0;
-        if (SUCCEEDED(DevToolsGetActualWidth(fe, &d)))  { out.actualW = d; out.haveActual = true; }
-        if (SUCCEEDED(DevToolsGetActualHeight(fe, &d))) { out.actualH = d; }
-    }
-    std::vector<InstanceHandle> path;
-    {
-        AcquireSRWLockShared(&g_censusLock);
-        InstanceHandle cur = ih;
-        for (int guard = 0; guard < 512; guard++) {
-            auto it = g_parent.find(cur);
-            if (it == g_parent.end() || !it->second) break;
-            cur = it->second;
-            path.push_back(cur);
-        }
-        ReleaseSRWLockShared(&g_censusLock);
-    }
-    for (size_t k = path.size(); k-- > 0 && ui && !out.haveOffset; ) {
-        IInspectable* rInsp = nullptr;
-        if (FAILED(g_diag->GetIInspectableFromHandle(path[k], &rInsp)) || !rInsp) continue;
-        void* rUi = nullptr;
-        if (SUCCEEDED(rInsp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &rUi)) && rUi) {
-            void* gt = nullptr;
-            if (SUCCEEDED(DevToolsTransformToVisual(ui, rUi, &gt)) && gt) {
-                float x = 0, y = 0;
-                if (SUCCEEDED(DevToolsTransformPoint(gt, 0.0f, 0.0f, &x, &y))) {
-                    out.offsetX = x; out.offsetY = y; out.haveOffset = true;
-                }
-                reinterpret_cast<IUnknown*>(gt)->Release();
-            }
-            reinterpret_cast<IUnknown*>(rUi)->Release();
-        }
-        rInsp->Release();
-    }
-    if (!path.empty()) out.parentType = TypeOf(path.front());
-    if (!path.empty()) ReadParentContext(ih, path.front(), ui, out);
-
-    if (ui) reinterpret_cast<IUnknown*>(ui)->Release();
-    if (fe) reinterpret_cast<IUnknown*>(fe)->Release();
-    insp->Release();
-    return out.haveDesired || out.haveRender || out.haveOffset;
+    return ok && SUCCEEDED(ReadElementLayout_ui(ih, out)) && (out.haveDesired || out.haveRender || out.haveOffset);
 }
 
 // The overlay works in RAW diagnostics handles (straight from HitTest), so this is a direct ReadElementSourceInfo,

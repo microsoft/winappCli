@@ -229,6 +229,66 @@ static std::wstring CmdBindingWalk(unsigned long long wire, const std::wstring& 
     return DevToolsPathProbe_ToJson(*res);
 }
 
+// An element's size, offset from the root and its parent's context, as `Layout.get` and the DevTools window show them.
+// UI thread; `ih` is a raw diagnostics handle. E_FAIL when the element can't be read at all.
+static HRESULT ReadElementLayout_ui(InstanceHandle ih, DevToolsReadLayout& out, InstanceHandle* parentOut = nullptr)
+{
+    if (!g_diag) return E_FAIL;
+    IInspectable* insp = nullptr;
+    if (FAILED(g_diag->GetIInspectableFromHandle(ih, &insp)) || !insp) return E_FAIL;
+
+    void* ui = nullptr; void* fe = nullptr;
+    if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
+        float w = 0, h = 0;
+        if (SUCCEEDED(DevToolsGetDesiredSize(ui, &w, &h))) { out.desiredW = w; out.desiredH = h; out.haveDesired = true; }
+        if (SUCCEEDED(DevToolsGetRenderSize(ui, &w, &h)))  { out.renderW = w; out.renderH = h; out.haveRender  = true; }
+    }
+    if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+        double d = 0;
+        if (SUCCEEDED(DevToolsGetActualWidth(fe, &d)))  { out.actualW = d; out.haveActual = true; }
+        if (SUCCEEDED(DevToolsGetActualHeight(fe, &d))) { out.actualH = d; }
+    }
+    std::vector<InstanceHandle> path;
+    {
+        AcquireSRWLockShared(&g_censusLock);
+        InstanceHandle cur = ih;
+        for (int guard = 0; guard < 512; guard++) {   // bounded: a cycle must not hang the UI thread
+            auto it = g_parent.find(cur);
+            if (it == g_parent.end() || !it->second) break;
+            cur = it->second;
+            path.push_back(cur);
+        }
+        ReleaseSRWLockShared(&g_censusLock);
+    }
+    for (size_t k = path.size(); k-- > 0 && ui && !out.haveOffset; ) {
+        IInspectable* rInsp = nullptr;
+        if (FAILED(g_diag->GetIInspectableFromHandle(path[k], &rInsp)) || !rInsp) continue;
+        void* rUi = nullptr;
+        if (SUCCEEDED(rInsp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &rUi)) && rUi) {
+            void* gt = nullptr;
+            if (SUCCEEDED(DevToolsTransformToVisual(ui, rUi, &gt)) && gt) {
+                float x = 0, y = 0;
+                if (SUCCEEDED(DevToolsTransformPoint(gt, 0.0f, 0.0f, &x, &y))) {
+                    out.offsetX = x; out.offsetY = y; out.haveOffset = true;
+                }
+                reinterpret_cast<IUnknown*>(gt)->Release();
+            }
+            reinterpret_cast<IUnknown*>(rUi)->Release();
+        }
+        rInsp->Release();
+    }
+    // The parent is what actually decided the arrangement, and the census already knows it.
+    if (!path.empty()) {
+        out.parentType = TypeOf(path.front());
+        ReadParentContext(ih, path.front(), ui, out);
+        if (parentOut) *parentOut = path.front();
+    }
+    if (ui) reinterpret_cast<IUnknown*>(ui)->Release();
+    if (fe) reinterpret_cast<IUnknown*>(fe)->Release();
+    insp->Release();
+    return S_OK;
+}
+
 static std::wstring CmdElementLayout(const std::vector<std::wstring>& p)
 {
     if (p.size() < 2 || p[1].empty()) return L"ERR bad-args";
@@ -246,72 +306,16 @@ static std::wstring CmdElementLayout(const std::vector<std::wstring>& p)
         InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
         AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih, &e); ReleaseSRWLockShared(&g_censusLock);
         if (!ok) { *rerr = e; return E_INVALIDARG; }
-        if (!g_diag) return E_FAIL;
-
-        IInspectable* insp = nullptr;
-        if (FAILED(g_diag->GetIInspectableFromHandle(ih, &insp)) || !insp) return E_FAIL;
-
-        void* ui = nullptr; void* fe = nullptr;
-        if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-            float w = 0, h = 0;
-            if (SUCCEEDED(DevToolsGetDesiredSize(ui, &w, &h))) { facts->desiredW = w; facts->desiredH = h; facts->haveDesired = true; }
-            if (SUCCEEDED(DevToolsGetRenderSize(ui, &w, &h)))  { facts->renderW = w; facts->renderH = h; facts->haveRender  = true; }
+        InstanceHandle parent = 0;
+        const HRESULT read = ReadElementLayout_ui(ih, *facts, &parent);
+        // Reported as type + wire handle so a client can offer "select the parent".
+        if (SUCCEEDED(read) && parent) {
+            AcquireSRWLockExclusive(&g_censusLock);
+            unsigned long long pw = PackWire_nolock(parent);
+            ReleaseSRWLockExclusive(&g_censusLock);
+            if (pw) facts->parentHandle = std::to_wstring(pw);
         }
-        if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
-            double d = 0;
-            if (SUCCEEDED(DevToolsGetActualWidth(fe, &d)))  { facts->actualW = d; facts->haveActual = true; }
-            if (SUCCEEDED(DevToolsGetActualHeight(fe, &d))) { facts->actualH = d; }
-        }
-        std::vector<InstanceHandle> path;
-        {
-            AcquireSRWLockShared(&g_censusLock);
-            InstanceHandle cur = ih;
-            for (int guard = 0; guard < 512; guard++) {   // bounded: a cycle must not hang the UI thread
-                auto it = g_parent.find(cur);
-                if (it == g_parent.end() || !it->second) break;
-                cur = it->second;
-                path.push_back(cur);
-            }
-            ReleaseSRWLockShared(&g_censusLock);
-        }
-        for (size_t k = path.size(); k-- > 0 && ui && !facts->haveOffset; ) {
-            IInspectable* rInsp = nullptr;
-            if (FAILED(g_diag->GetIInspectableFromHandle(path[k], &rInsp)) || !rInsp) continue;
-            void* rUi = nullptr;
-            if (SUCCEEDED(rInsp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &rUi)) && rUi) {
-                void* gt = nullptr;
-                if (SUCCEEDED(DevToolsTransformToVisual(ui, rUi, &gt)) && gt) {
-                    float x = 0, y = 0;
-                    if (SUCCEEDED(DevToolsTransformPoint(gt, 0.0f, 0.0f, &x, &y))) {
-                        facts->offsetX = x; facts->offsetY = y; facts->haveOffset = true;
-                    }
-                    reinterpret_cast<IUnknown*>(gt)->Release();
-                }
-                reinterpret_cast<IUnknown*>(rUi)->Release();
-            }
-            rInsp->Release();
-        }
-        // The parent is what actually decided the arrangement, and the census already knows it -- no second
-        // diagnostics call. Reported as type + wire handle so a client can offer "select the parent".
-        {
-            InstanceHandle ph = 0;
-            AcquireSRWLockShared(&g_censusLock);
-            auto it = g_parent.find(ih);
-            if (it != g_parent.end()) ph = it->second;
-            ReleaseSRWLockShared(&g_censusLock);
-            if (ph) {
-                facts->parentType = TypeOf(ph);
-                AcquireSRWLockExclusive(&g_censusLock);
-                unsigned long long pw = PackWire_nolock(ph);
-                ReleaseSRWLockExclusive(&g_censusLock);
-                if (pw) facts->parentHandle = std::to_wstring(pw);
-                ReadParentContext(ih, ph, ui, *facts);
-            }
-        }
-        if (ui) reinterpret_cast<IUnknown*>(ui)->Release();
-        if (fe) reinterpret_cast<IUnknown*>(fe)->Release();
-        insp->Release();
-        return S_OK;
+        return read;
     }, &completed);
     if (completed && *rerr) return std::wstring(L"ERR ") + *rerr;
     if (FAILED(hr)) return L"ERR " + HrStr(hr);
