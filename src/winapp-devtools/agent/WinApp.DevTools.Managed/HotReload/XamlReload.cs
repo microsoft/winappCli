@@ -793,18 +793,40 @@ internal static class XamlReload
                         Renavigate(frame, page);
                         UiState.RestoreWhenLoaded((frame.Content as Page)?.Content as FrameworkElement, state, s_dispatcher);
                     }
-                    else if (s_pageUpdate is { } strategy && replay.Contains(type))
+                    else if (everything && !replay.Contains(type) && s_pageUpdate is PageUpdateRecreate && NamedFrames(page.Content).Count > 0)
+                    {
+                        // Re-created, it would rebuild the pages it hosts too (and what the user did in them).
+                        InPlace();
+                        (s_notes ??= []).Add($"{page.GetType().Name} hosts pages in its own frames, so it was reloaded in place for the new resources: values its OnNavigatedTo set stay as they were");
+                    }
+                    else if (s_pageUpdate is { } strategy && (replay.Contains(type) || everything))
                     {
                         var update = new PageUpdate(page, frame, ClassUris.GetValueOrDefault(type) ?? "", s_savedFiles, InPlace, () => Recreate(frame, page),
                             s_notes ?? [], s_restarts ?? [], s_settled ?? []) { StateBefore = state };
-                        try
+                        void Run()
                         {
-                            strategy.Update(update);
+                            try
+                            {
+                                strategy.Update(update);
+                            }
+                            catch (Exception ex)
+                            {
+                                HotReloadAgent.Log($"{page.GetType().Name}: updating the page failed: {ex}");
+                                ReportError($"{page.GetType().Name}: updating the page failed: {ex.GetBaseException().Message}");
+                            }
                         }
-                        catch (Exception ex)
+                        if (s_heldFrames.TryGetValue(frame, out var held) && s_settled is { } settled)
                         {
-                            HotReloadAgent.Log($"{page.GetType().Name}: updating the page failed: {ex}");
-                            ReportError($"{page.GetType().Name}: updating the page failed: {ex.GetBaseException().Message}");
+                            // Its window was rebuilt by this update (new App resources): after the kept frame is released.
+                            settled.Add(async () =>
+                            {
+                                await held.Task.ConfigureAwait(true);
+                                Run();
+                            });
+                        }
+                        else
+                        {
+                            Run();
                         }
                     }
                     else
@@ -1255,6 +1277,12 @@ internal static class XamlReload
     }
 
     /// <summary>
+    /// Frames kept by a rebuilt window whose navigation is held until the new tree settles (see KeepLocation): a page in
+    /// one is updated once it is released, since navigating it before then fails.
+    /// </summary>
+    private static readonly Dictionary<Frame, TaskCompletionSource> s_heldFrames = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
     /// A rebuilt window shows the page the user was on: its markup re-selects the default navigation item (and the
     /// app's SelectionChanged handler navigates), so navigation on the kept frames is held off until the new tree has
     /// settled, and each NavigationView's selection is put back.
@@ -1266,8 +1294,19 @@ internal static class XamlReload
             return;
         }
         void Cancel(object sender, Microsoft.UI.Xaml.Navigation.NavigatingCancelEventArgs e) => e.Cancel = true;
-        frames.ForEach(frame => frame.Navigating += Cancel);
-        void Release() => frames.ForEach(frame => frame.Navigating -= Cancel);
+        frames.ForEach(frame =>
+        {
+            frame.Navigating += Cancel;
+            s_heldFrames[frame] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        });
+        void Release() => frames.ForEach(frame =>
+        {
+            frame.Navigating -= Cancel;
+            if (s_heldFrames.Remove(frame, out var held))
+            {
+                held.TrySetResult();
+            }
+        });
         void Settle()
         {
             dispatcher.TryEnqueue(DispatcherQueuePriority.Low, () =>

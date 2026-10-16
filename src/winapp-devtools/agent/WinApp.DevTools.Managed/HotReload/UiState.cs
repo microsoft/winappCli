@@ -143,8 +143,9 @@ internal static class UiState
             case ToggleSwitch toggle when Carry(s => s.Checked):
                 toggle.IsOn = current.Checked == true;
                 break;
-            case Selector selector when Carry(s => s.SelectedIndex) && current.SelectedIndex < selector.Items.Count:
-                selector.SelectedIndex = current.SelectedIndex ?? -1;
+            case Selector selector when Carry(s => s.SelectedIndex):
+                // Items the page fills in later (in OnNavigatedTo, or from a load) aren't there yet: selected once they are.
+                WhenReady(selector, () => current.SelectedIndex < selector.Items.Count, () => selector.SelectedIndex = current.SelectedIndex ?? -1);
                 break;
             case RangeBase range when Carry(s => s.Value):
                 range.Value = current.Value ?? range.Value;
@@ -170,8 +171,18 @@ internal static class UiState
     {
         bool Fits() => viewer.ScrollableHeight + 0.5 >= vertical && viewer.ScrollableWidth + 0.5 >= horizontal;
         viewer.ChangeView(horizontal, vertical, null, disableAnimation: true);
-        if (Fits())
+        if (!Fits())
         {
+            WhenReady(viewer, Fits, () => viewer.ChangeView(horizontal, vertical, null, disableAnimation: true));
+        }
+    }
+
+    /// <summary>Runs <paramref name="apply"/> now when <paramref name="ready"/>, else after a layout pass that makes it so (up to 3 s).</summary>
+    private static void WhenReady(FrameworkElement element, Func<bool> ready, Action apply)
+    {
+        if (ready())
+        {
+            apply();
             return;
         }
         var until = DateTime.UtcNow.AddSeconds(3);
@@ -179,16 +190,15 @@ internal static class UiState
         {
             if (DateTime.UtcNow > until)
             {
-                viewer.LayoutUpdated -= OnLayout;
-                return;
+                element.LayoutUpdated -= OnLayout;
             }
-            if (Fits())
+            else if (ready())
             {
-                viewer.LayoutUpdated -= OnLayout;
-                viewer.ChangeView(horizontal, vertical, null, disableAnimation: true);
+                element.LayoutUpdated -= OnLayout;
+                apply();
             }
         }
-        viewer.LayoutUpdated += OnLayout;
+        element.LayoutUpdated += OnLayout;
     }
 
     /// <summary>Elements under <paramref name="root"/> with stable keys; list items are skipped (they come from data).</summary>

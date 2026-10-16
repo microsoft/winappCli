@@ -1265,7 +1265,10 @@ internal sealed partial class HotReloadSession
         }
         try
         {
-            return await _enc.GetUpdatesAsync(_solution, cancellationToken).ConfigureAwait(false);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var result = await _enc.GetUpdatesAsync(_solution, cancellationToken).ConfigureAwait(false);
+            Log($"edit and continue pass: {clock.ElapsedMilliseconds} ms, {result.Deltas.Count} delta(s), errors [{string.Join(",", result.Errors.Select(e => e.Id).Distinct())}], rude [{string.Join(",", result.RudeEdits.Select(e => e.Id).Distinct())}]");
+            return result;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
