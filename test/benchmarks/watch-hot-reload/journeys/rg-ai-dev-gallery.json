@@ -1,0 +1,314 @@
+{
+  "schemaVersion": "1.0",
+  "id": "rg-ai-dev-gallery",
+  "title": "Real app: a developer's session in AI Dev Gallery",
+  "description": [
+    "Fifteen saves on AI Dev Gallery's Settings page (and one on the Models page, not shown at the time), made after the",
+    "app is in a used state: navigated Home > Settings (a back stack of 1), \"phi\" typed in the title bar's search box, the",
+    "Model cache section expanded and the page scrolled to the bottom; the page itself loaded the cache folder when it was",
+    "navigated to. After every save: is the change on screen (and when), and which of those five survived. A save that",
+    "lost the typed text, the expanded section or the scroll gets them put back (\"restore\"); data the page loads on",
+    "navigation can't be, so once lost it stays lost. Setup gives the page what an edit needs and the Settings page",
+    "lacks: a small list with a DataTemplate, an App.xaml brush (HrAppBrush), and names for its ScrollViewer, its main",
+    "panel and a section header. Run with -AppSource <checkout> (main, with nuget.config's winui-local source and the",
+    "WinUI package reference); a cold checkout builds AIDevGallery.Utils first (the prebuild)."
+  ],
+  "app": {
+    "external": { "repo": "microsoft/ai-dev-gallery", "commit": "f2eeef4" },
+    "projectFile": "AIDevGallery/AIDevGallery.csproj",
+    "processName": "AIDevGallery",
+    "rootNamespace": "AIDevGallery",
+    "packaged": true,
+    "runArguments": [ "--project", "AIDevGallery" ],
+    "prebuild": [ [ "build", "AIDevGallery.Utils/AIDevGallery.Utils.csproj", "-c", "Debug" ] ]
+  },
+  "parity": {
+    "root": "SettingsPage",
+    "nestedControls": false,
+    "replayInputs": false,
+    "navigate": [
+      { "assert": "invoke", "target": "Settings", "type": "ListItem" },
+      { "assert": "xaml-exists", "target": "HrSettingsPanel" },
+      { "assert": "set-property", "target": "ModelsExpander", "value": "IsExpanded=True" },
+      { "assert": "scroll-to-bottom", "target": "HrSettingsScroll" }
+    ],
+    "ignore": []
+  },
+  "before": [
+    { "assert": "invoke", "target": "Settings", "type": "ListItem", "pauseMs": 1000 },
+    { "assert": "xaml-exists", "target": "HrSettingsPanel" },
+    { "assert": "set-property", "target": "SearchBox", "value": "Text=phi" },
+    { "assert": "set-property", "target": "ModelsExpander", "value": "IsExpanded=True", "pauseMs": 1000 },
+    { "assert": "scroll-to-bottom", "target": "HrSettingsScroll", "pauseMs": 500 }
+  ],
+  "stateProbes": [
+    { "assert": "property-equals", "target": "SearchBox", "value": "Text=phi", "state": "typed text" },
+    { "assert": "property-equals", "target": "ModelsExpander", "value": "IsExpanded=True", "state": "expanded section" },
+    { "assert": "property-equals", "target": "HrSettingsScroll", "value": "VerticalOffset>50", "state": "scroll position" },
+    { "assert": "property-equals", "target": "NavFrame", "value": "BackStackDepth=1", "state": "back stack" },
+    { "assert": "property-equals", "target": "FolderPathTxt", "value": "Content~aigallery", "state": "data loaded on navigation" }
+  ],
+  "restore": [
+    { "assert": "set-property", "target": "SearchBox", "value": "Text=phi" },
+    { "assert": "set-property", "target": "ModelsExpander", "value": "IsExpanded=True" },
+    { "assert": "scroll-to-bottom", "target": "HrSettingsScroll" }
+  ],
+  "after": [
+    { "assert": "invoke", "target": "Models", "type": "ListItem", "pauseMs": 1500 },
+    { "assert": "xaml-exists", "target": "Models (hr13)", "verifies": "a13-page-not-shown" }
+  ],
+  "dimensions": [],
+  "variants": [ { "id": "default", "primary": true, "summary": "The only ordering.", "choices": {} } ],
+  "setup": [
+    {
+      "id": "setup-app-brush",
+      "file": "AIDevGallery/App.xaml",
+      "edit": { "op": "insert-after", "anchor": "</ResourceDictionary.ThemeDictionaries>", "text": "            <SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FF808080\" />" }
+    },
+    {
+      "id": "setup-name-scroll",
+      "file": "AIDevGallery/Pages/SettingsPage.xaml",
+      "edit": { "op": "replace", "find": "<ScrollViewer>", "text": "<ScrollViewer x:Name=\"HrSettingsScroll\">" }
+    },
+    {
+      "id": "setup-name-panel",
+      "file": "AIDevGallery/Pages/SettingsPage.xaml",
+      "edit": { "op": "replace", "find": "MaxWidth=\"1000\"", "text": "x:Name=\"HrSettingsPanel\" MaxWidth=\"1000\"" }
+    },
+    {
+      "id": "setup-header-uses-app-brush",
+      "file": "AIDevGallery/Pages/SettingsPage.xaml",
+      "edit": {
+        "op": "replace",
+        "find": "<TextBlock Style=\"{StaticResource SettingsSectionHeaderTextBlockStyle}\" Text=\"Model management\" />",
+        "text": "<TextBlock x:Name=\"HrSectionHeader\" Foreground=\"{ThemeResource HrAppBrush}\" Style=\"{StaticResource SettingsSectionHeaderTextBlockStyle}\" Text=\"Model management\" />"
+      }
+    },
+    {
+      "id": "setup-list-with-template",
+      "file": "AIDevGallery/Pages/SettingsPage.xaml",
+      "edit": {
+        "op": "insert-after",
+        "anchor": "<TextBlock Style=\"{StaticResource TitleTextBlockStyle}\" Text=\"Settings\" />",
+        "text": [
+          "                    <ItemsControl x:Name=\"HrList\">",
+          "                        <ItemsControl.ItemTemplate>",
+          "                            <DataTemplate x:DataType=\"x:String\">",
+          "                                <TextBlock Text=\"{x:Bind}\" />",
+          "                            </DataTemplate>",
+          "                        </ItemsControl.ItemTemplate>",
+          "                        <x:String>hr item one</x:String>",
+          "                        <x:String>hr item two</x:String>",
+          "                    </ItemsControl>"
+        ]
+      }
+    }
+  ],
+  "segments": [
+    {
+      "id": "session",
+      "kind": "fixed",
+      "actions": [
+        {
+          "id": "a01-text",
+          "file": "AIDevGallery/Pages/SettingsPage.xaml",
+          "edit": { "op": "replace", "find": "Text=\"Model management\" />", "text": "Text=\"Model management (hr1)\" />" },
+          "visible": [ { "assert": "property-equals", "target": "HrSectionHeader", "value": "Text=Model management (hr1)" } ]
+        },
+        {
+          "id": "a02-insert-element",
+          "file": "AIDevGallery/Pages/SettingsPage.xaml",
+          "edit": { "op": "insert-after", "anchor": "<TextBlock Style=\"{StaticResource TitleTextBlockStyle}\" Text=\"Settings\" />", "text": "                    <TextBlock x:Name=\"HrInserted\" Text=\"inserted hr2\" />" },
+          "visible": [ { "assert": "property-equals", "target": "HrInserted", "value": "Text=inserted hr2" } ]
+        },
+        {
+          "id": "a03-click-handler",
+          "edits": [
+            {
+              "file": "AIDevGallery/Pages/SettingsPage.xaml.cs",
+              "edit": {
+                "op": "insert-before",
+                "anchor": "    private void FolderPathTxt_Click(object sender, RoutedEventArgs e)",
+                "text": [
+                  "    private int hrClicks;",
+                  "",
+                  "    private void HrCount_Click(object sender, RoutedEventArgs e)",
+                  "    {",
+                  "        HrCountText.Text = $\"clicks {++hrClicks}\";",
+                  "    }",
+                  ""
+                ]
+              }
+            },
+            {
+              "file": "AIDevGallery/Pages/SettingsPage.xaml",
+              "edit": {
+                "op": "insert-after",
+                "anchor": "<TextBlock x:Name=\"HrInserted\" Text=\"inserted hr2\" />",
+                "text": [
+                  "                    <Button x:Name=\"HrCountButton\" Content=\"hr count\" Click=\"HrCount_Click\" />",
+                  "                    <TextBlock x:Name=\"HrCountText\" Text=\"not clicked\" />"
+                ]
+              }
+            }
+          ],
+          "visible": [
+            { "assert": "invoke", "target": "HrCountButton" },
+            { "assert": "property-equals", "target": "HrCountText", "value": "Text=clicks 1" }
+          ]
+        },
+        {
+          "id": "a04-add-xbind",
+          "file": "AIDevGallery/Pages/SettingsPage.xaml",
+          "edit": { "op": "insert-after", "anchor": "<TextBlock x:Name=\"HrCountText\" Text=\"not clicked\" />", "text": "                    <TextBlock x:Name=\"HrBind\" Text=\"{x:Bind HrInserted.Text, Mode=OneWay}\" />" },
+          "visible": [ { "assert": "property-equals", "target": "HrBind", "value": "Text=inserted hr2" } ]
+        },
+        {
+          "id": "a05-change-xbind",
+          "file": "AIDevGallery/Pages/SettingsPage.xaml",
+          "edit": { "op": "replace", "find": "Text=\"{x:Bind HrInserted.Text, Mode=OneWay}\"", "text": "Text=\"{x:Bind HrSectionHeader.Text, Mode=OneWay}\"" },
+          "visible": [ { "assert": "property-equals", "target": "HrBind", "value": "Text=Model management (hr1)" } ],
+          "checkpoint": { "id": "p1-xbind", "parity": { "root": "HrSettingsPanel" } }
+        },
+        {
+          "id": "a06-datatemplate",
+          "file": "AIDevGallery/Pages/SettingsPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": "<TextBlock Text=\"{x:Bind}\" />",
+            "text": "<StackPanel Orientation=\"Horizontal\" Spacing=\"8\"><TextBlock Text=\"{x:Bind}\" /><TextBlock FontSize=\"10\" Text=\"tpl hr6\" /></StackPanel>"
+          },
+          "visible": [ { "assert": "xaml-exists", "target": "tpl hr6" } ],
+          "checkpoint": { "id": "p2-template", "parity": { "root": "HrList", "nestedControls": true } }
+        },
+        {
+          "id": "a07-page-style",
+          "edits": [
+            {
+              "file": "AIDevGallery/Pages/SettingsPage.xaml",
+              "edit": {
+                "op": "insert-after",
+                "anchor": "<Page.Resources>",
+                "text": [
+                  "        <Style x:Key=\"HrLabelStyle\" TargetType=\"TextBlock\">",
+                  "            <Setter Property=\"FontSize\" Value=\"22\" />",
+                  "        </Style>"
+                ]
+              }
+            },
+            {
+              "file": "AIDevGallery/Pages/SettingsPage.xaml",
+              "edit": { "op": "replace", "find": "<TextBlock x:Name=\"HrInserted\" Text=\"inserted hr2\" />", "text": "<TextBlock x:Name=\"HrInserted\" Style=\"{StaticResource HrLabelStyle}\" Text=\"inserted hr2\" />" }
+            }
+          ],
+          "visible": [ { "assert": "property-equals", "target": "HrInserted", "value": "FontSize=22" } ]
+        },
+        {
+          "id": "a08-app-resource",
+          "file": "AIDevGallery/App.xaml",
+          "edit": { "op": "replace", "find": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FF808080\" />", "text": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FFFF8C00\" />" },
+          "visible": [ { "assert": "property-equals", "target": "HrSectionHeader", "value": "Foreground=#FFFF8C00" } ],
+          "checkpoint": { "id": "p3-styles", "parity": { "root": "HrSettingsPanel" } }
+        },
+        {
+          "id": "a09-xload-off",
+          "file": "AIDevGallery/Pages/SettingsPage.xaml",
+          "edit": { "op": "replace", "find": "<TextBlock x:Name=\"HrBind\" Text=", "text": "<TextBlock x:Name=\"HrBind\" x:Load=\"False\" Text=" },
+          "visible": [ { "assert": "xaml-absent", "target": "HrBind" } ]
+        },
+        {
+          "id": "a10-cs-only",
+          "file": "AIDevGallery/Pages/SettingsPage.xaml.cs",
+          "edit": { "op": "replace", "find": "HrCountText.Text = $\"clicks {++hrClicks}\";", "text": "HrCountText.Text = $\"hr clicks {++hrClicks}\";" },
+          "visible": [
+            { "assert": "invoke", "target": "HrCountButton" },
+            { "assert": "property-equals", "target": "HrCountText", "value": "Text~hr clicks" }
+          ]
+        },
+        {
+          "id": "a11-xaml-and-cs",
+          "edits": [
+            {
+              "file": "AIDevGallery/Pages/SettingsPage.xaml.cs",
+              "edit": { "op": "insert-before", "anchor": "    private int hrClicks;", "text": [ "    public string HrStatus => \"status hr11\";", "" ] }
+            },
+            {
+              "file": "AIDevGallery/Pages/SettingsPage.xaml",
+              "edit": { "op": "insert-after", "anchor": "<TextBlock x:Name=\"HrCountText\" Text=\"not clicked\" />", "text": "                    <TextBlock x:Name=\"HrStatusText\" Text=\"{x:Bind HrStatus}\" />" }
+            }
+          ],
+          "visible": [ { "assert": "property-equals", "target": "HrStatusText", "value": "Text=status hr11" } ]
+        },
+        {
+          "id": "a12-new-usercontrol",
+          "edits": [
+            {
+              "file": "AIDevGallery/Controls/HrBadge.xaml",
+              "edit": {
+                "op": "create-file",
+                "text": [
+                  "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+                  "<UserControl",
+                  "    x:Class=\"AIDevGallery.Controls.HrBadge\"",
+                  "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+                  "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">",
+                  "    <Border Padding=\"4\" BorderBrush=\"Gray\" BorderThickness=\"1\">",
+                  "        <TextBlock x:Name=\"BadgeText\" Text=\"badge hr12\" />",
+                  "    </Border>",
+                  "</UserControl>"
+                ]
+              }
+            },
+            {
+              "file": "AIDevGallery/Controls/HrBadge.xaml.cs",
+              "edit": {
+                "op": "create-file",
+                "text": [
+                  "// Copyright (c) Microsoft Corporation. All rights reserved.",
+                  "// Licensed under the MIT License.",
+                  "",
+                  "using Microsoft.UI.Xaml.Controls;",
+                  "",
+                  "namespace AIDevGallery.Controls;",
+                  "",
+                  "internal sealed partial class HrBadge : UserControl",
+                  "{",
+                  "    public HrBadge()",
+                  "    {",
+                  "        this.InitializeComponent();",
+                  "    }",
+                  "}"
+                ]
+              }
+            },
+            {
+              "file": "AIDevGallery/Pages/SettingsPage.xaml",
+              "edit": { "op": "insert-after", "anchor": "<TextBlock x:Name=\"HrStatusText\" Text=\"{x:Bind HrStatus}\" />", "text": "                    <hrc:HrBadge xmlns:hrc=\"using:AIDevGallery.Controls\" x:Name=\"HrBadge1\" />" }
+            }
+          ],
+          "visible": [ { "assert": "property-equals", "target": "BadgeText", "value": "Text=badge hr12" } ]
+        },
+        {
+          "id": "a13-page-not-shown",
+          "file": "AIDevGallery/Pages/Models/ModelSelectionPage.xaml",
+          "edit": { "op": "replace", "find": "Text=\"Models\" />", "text": "Text=\"Models (hr13)\" />" }
+        },
+        {
+          "id": "a14-broken-save",
+          "file": "AIDevGallery/Pages/SettingsPage.xaml",
+          "edit": { "op": "replace", "find": "<TextBlock x:Name=\"HrInserted\" Style=", "text": "<TextBlock x:Name=\"HrInserted\" Margin=\"1,2,3,4,5\" Style=" },
+          "expect": { "outcome": "error" }
+        },
+        {
+          "id": "a15-fix",
+          "file": "AIDevGallery/Pages/SettingsPage.xaml",
+          "edit": { "op": "replace", "find": "<TextBlock x:Name=\"HrInserted\" Margin=\"1,2,3,4,5\" Style=", "text": "<TextBlock x:Name=\"HrInserted\" Style=" },
+          "visible": [
+            { "assert": "property-equals", "target": "HrInserted", "value": "Text=inserted hr2" },
+            { "assert": "property-equals", "target": "HrInserted", "value": "FontSize=22" }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,621 @@
+{
+  "schemaVersion": "1.0",
+  "id": "rg-winui-gallery",
+  "title": "Real app: a developer's session in WinUI Gallery",
+  "description": [
+    "Fifteen saves on WinUI Gallery's ListView page (and one on the Button page, not shown at the time), made after the",
+    "app is in a used state: navigated Home > Collections > ListView (a back stack of 2), text typed in the filter box,",
+    "an item selected, two messages sent (a page field counts them) and the page scrolled to the bottom. After every save:",
+    "is the change on screen (and when), and which of those five pieces of state survived. A save that lost the typed",
+    "text, the selection or the scroll gets them put back (\"restore\") so the next save is judged on its own; sent messages",
+    "can't be put back, so once lost they stay lost. Parity runs after the x:Bind,",
+    "template and App.xaml edits and after the last save. Setup gives the page an App.xaml brush (HrAppBrush) so an",
+    "App.xaml-only save has something visible to change. Run with -AppSource <checkout> (the Gallery's main plus the",
+    "local-WinUI patches: nuget.config with a winui-local source, the WinUI package reference, Charts removed)."
+  ],
+  "app": {
+    "external": {
+      "repo": "microsoft/WinUI-Gallery",
+      "commit": "e41d8f1"
+    },
+    "projectFile": "WinUIGallery/WinUIGallery.csproj",
+    "processName": "WinUIGallery",
+    "rootNamespace": "WinUIGallery",
+    "packaged": true,
+    "runArguments": [
+      "--project",
+      "WinUIGallery"
+    ]
+  },
+  "parity": {
+    "root": "ListViewPage",
+    "nestedControls": false,
+    "replayInputs": false,
+    "navigate": [
+      {
+        "assert": "invoke",
+        "target": "Collections",
+        "type": "ListItem"
+      },
+      {
+        "assert": "exists",
+        "target": "ItemGridView"
+      },
+      {
+        "assert": "invoke",
+        "target": "ListView",
+        "type": "ListItem",
+        "root": "ItemGridView"
+      },
+      {
+        "assert": "exists",
+        "target": "Control2"
+      },
+      {
+        "assert": "invoke",
+        "target": "Send Message",
+        "type": "Button"
+      },
+      {
+        "assert": "invoke",
+        "target": "Send Message",
+        "type": "Button"
+      },
+      {
+        "assert": "scroll-to-bottom",
+        "target": "svPanel"
+      }
+    ],
+    "prepare": [
+      {
+        "assert": "set-value",
+        "target": "FilterByFirstName",
+        "value": "Ka"
+      },
+      {
+        "assert": "set-property",
+        "target": "Control2",
+        "value": "SelectedIndex=2"
+      }
+    ],
+    "ignore": [
+      "*InvertedListView*",
+      "*ListView#Control4*"
+    ]
+  },
+  "before": [
+    {
+      "assert": "invoke",
+      "target": "Collections",
+      "type": "ListItem",
+      "pauseMs": 1000
+    },
+    {
+      "assert": "exists",
+      "target": "ItemGridView"
+    },
+    {
+      "assert": "invoke",
+      "target": "ListView",
+      "type": "ListItem",
+      "root": "ItemGridView",
+      "pauseMs": 1000
+    },
+    {
+      "assert": "exists",
+      "target": "Control2"
+    },
+    {
+      "assert": "set-value",
+      "target": "FilterByFirstName",
+      "value": "Ka"
+    },
+    {
+      "assert": "set-property",
+      "target": "Control2",
+      "value": "SelectedIndex=2"
+    },
+    {
+      "assert": "invoke",
+      "target": "Send Message",
+      "type": "Button"
+    },
+    {
+      "assert": "invoke",
+      "target": "Send Message",
+      "type": "Button"
+    },
+    {
+      "assert": "scroll-to-bottom",
+      "target": "svPanel",
+      "pauseMs": 500
+    }
+  ],
+  "stateProbes": [
+    {
+      "assert": "property-equals",
+      "target": "FilterByFirstName",
+      "value": "Text=Ka",
+      "state": "typed text"
+    },
+    {
+      "assert": "property-equals",
+      "target": "Control2",
+      "value": "SelectedIndex=2",
+      "state": "selected item"
+    },
+    {
+      "assert": "property-equals",
+      "target": "svPanel",
+      "value": "VerticalOffset>1000",
+      "state": "scroll position"
+    },
+    {
+      "assert": "property-equals",
+      "target": "rootFrame",
+      "value": "BackStackDepth=2",
+      "state": "back stack"
+    },
+    {
+      "assert": "xaml-exists",
+      "target": "Message 3",
+      "state": "page field (messages sent)"
+    }
+  ],
+  "restore": [
+    {
+      "assert": "set-value",
+      "target": "FilterByFirstName",
+      "value": "Ka"
+    },
+    {
+      "assert": "set-property",
+      "target": "Control2",
+      "value": "SelectedIndex=2"
+    },
+    {
+      "assert": "scroll-to-bottom",
+      "target": "svPanel"
+    }
+  ],
+  "after": [
+    {
+      "assert": "invoke",
+      "target": "Basic input",
+      "type": "ListItem",
+      "pauseMs": 1000
+    },
+    {
+      "assert": "exists",
+      "target": "ItemGridView"
+    },
+    {
+      "assert": "invoke",
+      "target": "Button",
+      "type": "ListItem",
+      "root": "ItemGridView",
+      "exact": true,
+      "pauseMs": 1000
+    },
+    {
+      "assert": "xaml-exists",
+      "target": "Another option is to explicitly wrap the Button's content (hr13)",
+      "verifies": "g13-page-not-shown"
+    }
+  ],
+  "dimensions": [],
+  "variants": [
+    {
+      "id": "default",
+      "primary": true,
+      "summary": "The only ordering.",
+      "choices": {}
+    }
+  ],
+  "setup": [
+    {
+      "id": "setup-app-brush",
+      "file": "WinUIGallery/App.xaml",
+      "edit": {
+        "op": "insert-after",
+        "anchor": "<x:String x:Key=\"ControlsName\">All</x:String>",
+        "text": "            <SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FF808080\" />"
+      }
+    },
+    {
+      "id": "setup-name-options-panel",
+      "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+      "edit": {
+        "op": "replace",
+        "find": "<StackPanel Width=\"200\">",
+        "text": "<StackPanel x:Name=\"HrOptions\" Width=\"200\">"
+      }
+    },
+    {
+      "id": "setup-page-uses-app-brush",
+      "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+      "edit": {
+        "op": "replace",
+        "find": "<TextBlock Margin=\"8,8,8,4\" Style=\"{ThemeResource BaseTextBlockStyle}\">Filter by...</TextBlock>",
+        "text": "<TextBlock x:Name=\"HrFilterLabel\" Margin=\"8,8,8,4\" Foreground=\"{ThemeResource HrAppBrush}\" Style=\"{ThemeResource BaseTextBlockStyle}\">Filter by...</TextBlock>"
+      }
+    }
+  ],
+  "segments": [
+    {
+      "id": "session",
+      "kind": "fixed",
+      "actions": [
+        {
+          "id": "g01-text",
+          "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": ">Filter by...</TextBlock>",
+            "text": ">Filter by (hr1)...</TextBlock>"
+          },
+          "visible": [
+            {
+              "assert": "property-equals",
+              "target": "HrFilterLabel",
+              "value": "Text=Filter by (hr1)..."
+            }
+          ]
+        },
+        {
+          "id": "g02-insert-element",
+          "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+          "edit": {
+            "op": "insert-after",
+            "anchor": ">Filter by (hr1)...</TextBlock>",
+            "text": "                    <TextBlock x:Name=\"HrInserted\" Margin=\"8\" Text=\"inserted hr2\" />"
+          },
+          "visible": [
+            {
+              "assert": "property-equals",
+              "target": "HrInserted",
+              "value": "Text=inserted hr2"
+            }
+          ]
+        },
+        {
+          "id": "g03-click-handler",
+          "edits": [
+            {
+              "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml.cs",
+              "edit": {
+                "op": "insert-before",
+                "anchor": "    private void AddItemToEnd()",
+                "text": [
+                  "    private int hrClicks;",
+                  "",
+                  "    private void HrCount_Click(object sender, RoutedEventArgs e)",
+                  "    {",
+                  "        HrCountText.Text = $\"clicks {++hrClicks}\";",
+                  "    }",
+                  ""
+                ]
+              }
+            },
+            {
+              "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+              "edit": {
+                "op": "insert-after",
+                "anchor": "<TextBlock x:Name=\"HrInserted\" Margin=\"8\" Text=\"inserted hr2\" />",
+                "text": [
+                  "                    <Button x:Name=\"HrCountButton\" Margin=\"8\" Content=\"hr count\" Click=\"HrCount_Click\" />",
+                  "                    <TextBlock x:Name=\"HrCountText\" Margin=\"8\" Text=\"not clicked\" />"
+                ]
+              }
+            }
+          ],
+          "visible": [
+            {
+              "assert": "invoke",
+              "target": "HrCountButton"
+            },
+            {
+              "assert": "property-equals",
+              "target": "HrCountText",
+              "value": "Text=clicks 1"
+            }
+          ]
+        },
+        {
+          "id": "g04-add-xbind",
+          "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+          "edit": {
+            "op": "insert-after",
+            "anchor": "<TextBlock x:Name=\"HrCountText\" Margin=\"8\" Text=\"not clicked\" />",
+            "text": "                    <TextBlock x:Name=\"HrBind\" Margin=\"8\" Text=\"{x:Bind Control2.SelectionMode, Mode=OneWay}\" />"
+          },
+          "visible": [
+            {
+              "assert": "property-equals",
+              "target": "HrBind",
+              "value": "Text=Single"
+            }
+          ]
+        },
+        {
+          "id": "g05-change-xbind",
+          "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": "x:Name=\"HrBind\" Margin=\"8\" Text=\"{x:Bind Control2.SelectionMode, Mode=OneWay}\"",
+            "text": "x:Name=\"HrBind\" Margin=\"8\" Text=\"{x:Bind FilteredListView.Width, Mode=OneWay}\""
+          },
+          "visible": [
+            {
+              "assert": "property-equals",
+              "target": "HrBind",
+              "value": "Text=400"
+            }
+          ],
+          "checkpoint": {
+            "id": "p1-xbind",
+            "parity": {
+              "root": "HrOptions",
+              "nestedControls": true
+            }
+          }
+        },
+        {
+          "id": "g06-datatemplate",
+          "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": [
+              "x:Phase=\"2\"",
+              "                    Style=\"{ThemeResource BodyTextBlockStyle}\"",
+              "                    Text=\"{x:Bind Company}\" />"
+            ],
+            "text": [
+              "x:Phase=\"2\"",
+              "                    Style=\"{ThemeResource BodyTextBlockStyle}\"",
+              "                    Text=\"{x:Bind Company}\" />",
+              "                <TextBlock",
+              "                    Grid.Row=\"1\"",
+              "                    Grid.Column=\"1\"",
+              "                    Margin=\"200,0,0,6\"",
+              "                    FontSize=\"10\"",
+              "                    Text=\"tpl hr6\" />"
+            ]
+          },
+          "visible": [
+            {
+              "assert": "xaml-exists",
+              "target": "tpl hr6"
+            }
+          ],
+          "checkpoint": {
+            "id": "p2-template",
+            "parity": {
+              "root": "Control2",
+              "nestedControls": true
+            }
+          }
+        },
+        {
+          "id": "g07-page-style",
+          "edits": [
+            {
+              "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+              "edit": {
+                "op": "insert-after",
+                "anchor": "<Page.Resources>",
+                "text": [
+                  "        <Style x:Key=\"HrLabelStyle\" TargetType=\"TextBlock\">",
+                  "            <Setter Property=\"FontSize\" Value=\"22\" />",
+                  "        </Style>"
+                ]
+              }
+            },
+            {
+              "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+              "edit": {
+                "op": "replace",
+                "find": "<TextBlock x:Name=\"HrInserted\" Margin=\"8\" Text=\"inserted hr2\" />",
+                "text": "<TextBlock x:Name=\"HrInserted\" Margin=\"8\" Style=\"{StaticResource HrLabelStyle}\" Text=\"inserted hr2\" />"
+              }
+            }
+          ],
+          "visible": [
+            {
+              "assert": "property-equals",
+              "target": "HrInserted",
+              "value": "FontSize=22"
+            }
+          ]
+        },
+        {
+          "id": "g08-app-resource",
+          "file": "WinUIGallery/App.xaml",
+          "edit": {
+            "op": "replace",
+            "find": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FF808080\" />",
+            "text": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FFFF8C00\" />"
+          },
+          "visible": [
+            {
+              "assert": "property-equals",
+              "target": "HrFilterLabel",
+              "value": "Foreground=#FFFF8C00"
+            }
+          ],
+          "checkpoint": {
+            "id": "p3-styles",
+            "parity": {
+              "root": "HrOptions",
+              "nestedControls": true
+            }
+          }
+        },
+        {
+          "id": "g09-xload-off",
+          "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": "<TextBlock x:Name=\"HrBind\" Margin=\"8\"",
+            "text": "<TextBlock x:Name=\"HrBind\" x:Load=\"False\" Margin=\"8\""
+          },
+          "visible": [
+            {
+              "assert": "xaml-absent",
+              "target": "HrBind"
+            }
+          ]
+        },
+        {
+          "id": "g10-cs-only",
+          "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml.cs",
+          "edit": {
+            "op": "replace",
+            "find": "HrCountText.Text = $\"clicks {++hrClicks}\";",
+            "text": "HrCountText.Text = $\"hr clicks {++hrClicks}\";"
+          },
+          "visible": [
+            {
+              "assert": "invoke",
+              "target": "HrCountButton"
+            },
+            {
+              "assert": "property-equals",
+              "target": "HrCountText",
+              "value": "Text~hr clicks"
+            }
+          ]
+        },
+        {
+          "id": "g11-xaml-and-cs",
+          "edits": [
+            {
+              "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml.cs",
+              "edit": {
+                "op": "insert-before",
+                "anchor": "    private int hrClicks;",
+                "text": [
+                  "    public string HrStatus => \"status hr11\";",
+                  ""
+                ]
+              }
+            },
+            {
+              "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+              "edit": {
+                "op": "insert-after",
+                "anchor": "<TextBlock x:Name=\"HrCountText\" Margin=\"8\" Text=\"not clicked\" />",
+                "text": "                    <TextBlock x:Name=\"HrStatusText\" Margin=\"8\" Text=\"{x:Bind HrStatus}\" />"
+              }
+            }
+          ],
+          "visible": [
+            {
+              "assert": "property-equals",
+              "target": "HrStatusText",
+              "value": "Text=status hr11"
+            }
+          ]
+        },
+        {
+          "id": "g12-new-usercontrol",
+          "edits": [
+            {
+              "file": "WinUIGallery/Controls/HrBadge.xaml",
+              "edit": {
+                "op": "create-file",
+                "text": [
+                  "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+                  "<UserControl",
+                  "    x:Class=\"WinUIGallery.Controls.HrBadge\"",
+                  "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+                  "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">",
+                  "    <Border Padding=\"4\" BorderBrush=\"Gray\" BorderThickness=\"1\">",
+                  "        <TextBlock x:Name=\"BadgeText\" Text=\"badge hr12\" />",
+                  "    </Border>",
+                  "</UserControl>"
+                ]
+              }
+            },
+            {
+              "file": "WinUIGallery/Controls/HrBadge.xaml.cs",
+              "edit": {
+                "op": "create-file",
+                "text": [
+                  "using Microsoft.UI.Xaml.Controls;",
+                  "",
+                  "namespace WinUIGallery.Controls;",
+                  "",
+                  "public sealed partial class HrBadge : UserControl",
+                  "{",
+                  "    public HrBadge()",
+                  "    {",
+                  "        InitializeComponent();",
+                  "    }",
+                  "}"
+                ]
+              }
+            },
+            {
+              "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+              "edit": {
+                "op": "insert-after",
+                "anchor": "<TextBlock x:Name=\"HrStatusText\" Margin=\"8\" Text=\"{x:Bind HrStatus}\" />",
+                "text": "                    <controls:HrBadge x:Name=\"HrBadge1\" Margin=\"8\" />"
+              }
+            }
+          ],
+          "visible": [
+            {
+              "assert": "property-equals",
+              "target": "BadgeText",
+              "value": "Text=badge hr12"
+            }
+          ]
+        },
+        {
+          "id": "g13-page-not-shown",
+          "file": "WinUIGallery/Samples/Button/ButtonPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": "Text=\"Another option is to explicitly wrap the Button's content\"",
+            "text": "Text=\"Another option is to explicitly wrap the Button's content (hr13)\""
+          }
+        },
+        {
+          "id": "g14-broken-save",
+          "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": "<TextBlock x:Name=\"HrInserted\" Margin=\"8\"",
+            "text": "<TextBlock x:Name=\"HrInserted\" Margin=\"1,2,3,4,5\""
+          },
+          "expect": {
+            "outcome": "error"
+          }
+        },
+        {
+          "id": "g15-fix",
+          "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": "<TextBlock x:Name=\"HrInserted\" Margin=\"1,2,3,4,5\"",
+            "text": "<TextBlock x:Name=\"HrInserted\" Margin=\"8\""
+          },
+          "visible": [
+            {
+              "assert": "property-equals",
+              "target": "HrInserted",
+              "value": "Text=inserted hr2"
+            },
+            {
+              "assert": "property-equals",
+              "target": "HrInserted",
+              "value": "FontSize=22"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

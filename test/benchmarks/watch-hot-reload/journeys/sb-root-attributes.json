@@ -1,0 +1,184 @@
+{
+  "schemaVersion": "1.0",
+  "id": "sb-root-attributes",
+  "title": "Scoreboard: attributes added to and removed from a page's root element",
+  "description": [
+    "Save 1 adds Background and Tag to the <Page> root; save 2 removes both. A clean build of save 2 has neither, so",
+    "an in-place re-run that leaves them set (the runtime not clearing root properties the new markup no longer sets) fails",
+    "the parity gate, which reads Background and Tag on the page itself."
+  ],
+  "app": {
+    "template": "app-template",
+    "assetsFrom": "samples/winui-app/Assets",
+    "projectFile": "TodoBench.csproj",
+    "rootNamespace": "TodoBench"
+  },
+  "parity": {
+    "auto": true,
+    "root": "RootPage",
+    "properties": [
+      "Text",
+      "Content",
+      "Visibility",
+      "IsEnabled",
+      "FontSize",
+      "Opacity",
+      "Width",
+      "Height",
+      "Background",
+      "Tag"
+    ]
+  },
+  "dimensions": [],
+  "variants": [
+    {
+      "id": "default",
+      "primary": true,
+      "summary": "The only ordering.",
+      "choices": {}
+    }
+  ],
+  "setup": [
+    {
+      "id": "setup-window",
+      "file": "MainWindow.xaml",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+          "<Window",
+          "    x:Class=\"TodoBench.MainWindow\"",
+          "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+          "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+          "    Title=\"TodoBench\">",
+          "    <Frame x:Name=\"Nav\" />",
+          "</Window>"
+        ]
+      }
+    },
+    {
+      "id": "setup-window-cs",
+      "file": "MainWindow.xaml.cs",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "using Microsoft.UI.Xaml;",
+          "",
+          "namespace TodoBench;",
+          "",
+          "public sealed partial class MainWindow : Window",
+          "{",
+          "    public MainWindow()",
+          "    {",
+          "        InitializeComponent();",
+          "        Nav.Navigate(typeof(RootPage));",
+          "    }",
+          "}"
+        ]
+      }
+    },
+    {
+      "id": "setup-page",
+      "file": "RootPage.xaml",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "<?xml version=\"1.0\" encoding=\"utf-8\" ?>",
+          "<Page",
+          "    x:Class=\"TodoBench.RootPage\"",
+          "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+          "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">",
+          "    <StackPanel x:Name=\"Root\" Padding=\"12\">",
+          "        <TextBlock x:Name=\"Label\" Text=\"root attributes\" />",
+          "    </StackPanel>",
+          "</Page>"
+        ]
+      }
+    },
+    {
+      "id": "setup-page-cs",
+      "file": "RootPage.xaml.cs",
+      "edit": {
+        "op": "create-file",
+        "text": [
+          "using Microsoft.UI.Xaml.Controls;",
+          "",
+          "namespace TodoBench;",
+          "",
+          "public sealed partial class RootPage : Page",
+          "{",
+          "    public RootPage()",
+          "    {",
+          "        InitializeComponent();",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "segments": [
+    {
+      "kind": "common",
+      "phase": "scoreboard",
+      "title": "Root attributes added, then removed",
+      "actions": [
+        {
+          "id": "r1-add-root-attributes",
+          "title": "Add Background and Tag to the page root",
+          "file": "RootPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": [
+              "<Page",
+              "    x:Class=\"TodoBench.RootPage\"",
+              "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+              "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">"
+            ],
+            "text": [
+              "<Page",
+              "    x:Class=\"TodoBench.RootPage\"",
+              "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+              "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+              "    Background=\"Orange\"",
+              "    Tag=\"x\">"
+            ]
+          },
+          "checkpoint": {
+            "id": "k-r1-added",
+            "kind": "live",
+            "parity": true,
+            "runtimeState": "The page shows Background and Tag, as a clean build of this save does."
+          }
+        },
+        {
+          "id": "r2-remove-root-attributes",
+          "title": "Remove both again",
+          "file": "RootPage.xaml",
+          "edit": {
+            "op": "replace",
+            "find": [
+              "<Page",
+              "    x:Class=\"TodoBench.RootPage\"",
+              "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+              "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"",
+              "    Background=\"Orange\"",
+              "    Tag=\"x\">"
+            ],
+            "text": [
+              "<Page",
+              "    x:Class=\"TodoBench.RootPage\"",
+              "    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"",
+              "    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">"
+            ]
+          },
+          "checkpoint": {
+            "id": "k-r2-removed",
+            "kind": "live",
+            "parity": true,
+            "runtimeState": "A clean build has neither Background nor Tag on the page; an in-place re-run must clear them."
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -47,7 +47,12 @@ param(
     [switch]$ExclusiveDesktop,
     # MSBuild properties (Name=Value) every build of the app gets, the clean parity build included (for example
     # EnableHotReloadStableConnectionIds=true for one approach on a scoreboard).
-    [string[]]$BuildProperty = @()
+    [string[]]$BuildProperty = @(),
+    # A parity difference that one of the save's notes reported doesn't fail the check (still printed and counted as
+    # reported). Journeys and checkpoints can ask for the same with "parity": { "reportedNotesCount": true }.
+    [switch]$ParityAcceptReported,
+    # For a journey on an existing app ("app": { "external": {...} }): the checkout to copy (without its build output).
+    [string]$AppSource
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'WatchJourney.psm1') -Force
@@ -58,7 +63,24 @@ if (-not $Variant) { $Variant = @($journey.variants | Where-Object primary | For
 $runRoot = Join-Path $OutputRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
 New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
 
+$external = $journey.app.external
+if ($external -and -not $AppSource) { throw "Journey '$JourneyName' runs on an existing app ($($external.repo)); pass its checkout with -AppSource." }
+
 function New-JourneyApp([string]$Directory) {
+    if ($external) {
+        # A real repository: copied as it is (its own nuget.config and Directory.Build files), with the WinUI package
+        # source pointed at the package under test, and a package identity of its own so it never replaces the original
+        # checkout's registration (or closes its running app).
+        Copy-ExternalApp -Source $AppSource -Destination $Directory
+        if ($WinUIPackageSource) { Set-NuGetLocalSource -Root $Directory -Folder $WinUIPackageSource }
+        $script:identitySuffix = Set-PackageIdentitySuffix -Root $Directory
+        # Never launch a copy that could register the original checkout's identity (it would replace that app's registration).
+        $unsuffixed = @(Get-ChildItem $Directory -Recurse -Filter '*.appxmanifest' -File | Where-Object { $_.FullName -notmatch '\\(bin|obj|\.git)\\' } |
+            Where-Object { (Get-Content $_.FullName -Raw) -notmatch "<Identity[^>]*Name=`"[^`"]*\.$($script:identitySuffix)`"" })
+        if ($unsuffixed) { throw "These manifests in the copy lack the identity suffix .$($script:identitySuffix): $($unsuffixed.FullName -join ', ')" }
+        Write-Host "[app] copied $AppSource; package identity suffix .$($script:identitySuffix)"
+        return
+    }
     New-Item -ItemType Directory -Path $Directory -Force | Out-Null
     Copy-Item (Join-Path $PSScriptRoot 'app-template\*') $Directory
     $assets = Join-Path $PSScriptRoot "..\..\..\$($journey.app.assetsFrom)"
@@ -151,7 +173,19 @@ function Test-UiCheck($Check, [int]$ProcessId) {
             $output = & $Winapp devtools search $target --all --json @app 2>&1 | Out-String
             return [pscustomobject]@{ Ok = ($LASTEXITCODE -eq 0 -and $output -match "`"$target`""); Output = "devtools: $($output.Trim())" }
         }
-        'invoke' { return Invoke-Ui (@('invoke', $target) + $app) }
+        'invoke' {
+            if ($Check.exact) {
+                # UI Automation matches labels as substrings ("Button" also finds "ToggleButton"): take the element whose
+                # name is exactly the target and invoke it by its selector.
+                $found = Invoke-Ui (@('search', $target, '--json') + $(if ($Check.type) { @('--type', [string]$Check.type) } else { @() }) + $(if ($Check.root) { @('--root', [string]$Check.root) } else { @() }) + $app)
+                $json = $found.Output.Substring([Math]::Max(0, $found.Output.IndexOf('{')))
+                $match = try { @(($json | ConvertFrom-Json).matches | Where-Object { $_.name -ceq $target -and (-not $Check.type -or $_.type -eq [string]$Check.type) } | Select-Object -First 1) } catch { @() }
+                if (-not $match) { return [pscustomobject]@{ Ok = $false; Output = "no element named exactly '$target': $($found.Output)" } }
+                $selector = if ($match[0].selector) { [string]$match[0].selector } else { [string]$match[0].id }
+                return Invoke-Ui (@('invoke', $selector) + $app)
+            }
+            return Invoke-Ui (@('invoke', $target) + $(if ($Check.type) { @('--type', [string]$Check.type) } else { @() }) + $(if ($Check.root) { @('--root', [string]$Check.root) } else { @() }) + $app)
+        }
         'focus' { return Invoke-Ui (@('focus', $target) + $app) }
         'set-value' { return Invoke-Ui (@('set-value', $target, $value) + $app) }
         'text-equals' { return Invoke-Ui (@('wait-for', $target, '--value', $value) + $app + @('-t', '5000')) }
@@ -162,15 +196,17 @@ function Test-UiCheck($Check, [int]$ProcessId) {
         'property-equals' {
             # value is "Property=Value", read from the XAML tree (properties UI Automation doesn't expose, like FontSize).
             # "Property>N" and "Property<N" compare numbers (a scroll offset that only has to be past a point).
-            if ($value -notmatch '^(?<p>[^=<>]+)(?<op>[=<>])(?<v>.*)$') { throw "property-equals value '$value' is not Property=Value, Property>N or Property<N." }
+            if ($value -notmatch '^(?<p>[^=<>~]+)(?<op>[=<>~])(?<v>.*)$') { throw "property-equals value '$value' is not Property=Value, Property~Text, Property>N or Property<N." }
             $property, $op, $expected = $Matches.p, $Matches.op, $Matches.v
             $deadline = (Get-Date).AddSeconds(5)
             do {
                 $output = & $Winapp devtools get-property $target $property @app 2>&1 | Out-String
-                if ($output -match "(?m)^\s*$([regex]::Escape($property)):\s*(\S+)") {
+                # "  Text: Filter by (hr1)... [Local]": the value is everything up to the value source in brackets.
+                if ($output -match "(?m)^\s*$([regex]::Escape($property)):\s*(.*?)\s*(\[\w+\])?\s*$") {
                     $actual = $Matches[1]
                     $ok = switch ($op) {
                         '=' { $actual -eq $expected }
+                        '~' { $actual.Contains($expected) }
                         '>' { $actual -as [double] -gt [double]$expected }
                         '<' { $actual -as [double] -lt [double]$expected }
                     }
@@ -181,6 +217,19 @@ function Test-UiCheck($Check, [int]$ProcessId) {
             return [pscustomobject]@{ Ok = $false; Output = "$($output.Trim()), expected $property$op$expected" }
         }
         'scroll-to-bottom' { return Invoke-Ui (@('scroll', $target, '--to', 'bottom') + $app) }
+        { $_ -in 'xaml-exists', 'xaml-absent' } {
+            # In the XAML tree (by x:Name or shown text), whether or not it's scrolled into view: UI Automation doesn't see
+            # elements a ScrollViewer has scrolled away.
+            $want = [string]$Check.assert -eq 'xaml-exists'
+            $deadline = (Get-Date).AddSeconds(5)
+            do {
+                $output = & $Winapp devtools search $target --all --json @app 2>&1 | Out-String
+                $found = $LASTEXITCODE -eq 0 -and $output -match "`"$([regex]::Escape($target))`""
+                if ($found -eq $want) { return [pscustomobject]@{ Ok = $true; Output = "$(if ($want) { 'found' } else { 'absent' }): $target" } }
+                Start-Sleep -Milliseconds 250
+            } while ((Get-Date) -lt $deadline)
+            return [pscustomobject]@{ Ok = $false; Output = "expected $(if ($want) { 'present' } else { 'absent' }): $($output.Trim())" }
+        }
         'set-property' {
             # value is "Property=Value", set through DevTools (a list's SelectedIndex, as if the user picked an item).
             $property, $newValue = $value -split '=', 2
@@ -230,11 +279,37 @@ function Test-UiCheck($Check, [int]$ProcessId) {
 }
 
 # Only this run's app: other runs of the same app may be on the machine.
-function Get-AppPid { (Get-Process TodoBench -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($appDir, [StringComparison]::OrdinalIgnoreCase) } | Sort-Object StartTime -Descending | Select-Object -First 1).Id }
+$appProcessName = if ($journey.app.processName) { [string]$journey.app.processName } else { 'TodoBench' }
+function Get-AppPid { (Get-Process $appProcessName -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($appDir, [StringComparison]::OrdinalIgnoreCase) } | Sort-Object StartTime -Descending | Select-Object -First 1).Id }
+
+# A check that the save's change is on screen, retried until it passes or the time is up: when it first passed tells how
+# long the developer waited to see the change.
+function Wait-UiCheck($Check, [int]$ProcessId, [int]$TimeoutSeconds = 15) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $result = Test-UiCheck $Check $ProcessId
+        if ($result.Ok) { return $result }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    return $result
+}
+
+# Steps that put the app in a used state ("before": navigate, type, select, scroll, click), run after launch and again
+# after every restart, so later saves still start from a used app. Returns the checks.
+function Invoke-BeforeSteps([int]$ProcessId) {
+    foreach ($step in @($journey.before)) {
+        if ($null -eq $step) { continue }
+        $result = if ($step.assert -in 'exists', 'text-equals', 'text-contains', 'property-equals') { Wait-UiCheck $step $ProcessId 20 } else { Test-UiCheck $step $ProcessId }
+        [pscustomobject]@{ Check = "before $($step.assert) $($step.target) $($step.value)".Trim(); Ok = $result.Ok; Output = $result.Output }
+        if ($step.pauseMs) { Start-Sleep -Milliseconds ([int]$step.pauseMs) }
+    }
+}
 
 $parityOn = $journey.parity.enabled -ne $false -and ($Parity -eq 'On' -or ($Parity -eq 'Auto' -and $journey.parity.auto))
 $parityConfig = if ($journey.parity) { $journey.parity } else { [pscustomobject]@{} }
 $parityProbe = { param($Probe, [int]$ProcessId) Test-UiCheck $Probe $ProcessId }
+# An existing app is packaged or not by its own project ("packaged": true); the template app by -Packaging.
+$parityPackaging = if ($external) { if ($journey.app.packaged) { 'Packaged' } else { 'Unpackaged' } } else { $Packaging }
 
 $summary = [System.Collections.Generic.List[object]]::new()
 # Everything that launches an app or drives UI runs under the desktop lock several hot reload sessions share on one
@@ -246,16 +321,35 @@ $runVariants = {
         # Setup edits are part of the app the first build compiles.
         foreach ($setup in @($journey.setup)) { if ($setup) { Invoke-JourneyEdit -AppDir $appDir -Action $setup } }
         $log = Join-Path $runRoot "$variantId\watch.log"
+        # Steps a cold checkout needs before the app builds (a project its source generator reads the output of).
+        $prebuildSeconds = $null
+        if ($journey.app.prebuild) {
+            $prebuildClock = [System.Diagnostics.Stopwatch]::StartNew()
+            foreach ($command in @($journey.app.prebuild)) {
+                $commandArguments = @($command | ForEach-Object { [string]$_ })
+                Push-Location $appDir
+                try { & dotnet @commandArguments *>> (Join-Path $runRoot "$variantId\prebuild.log") } finally { Pop-Location }
+                if ($LASTEXITCODE -ne 0) { throw "Prebuild 'dotnet $($commandArguments -join ' ')' failed (see prebuild.log)." }
+            }
+            $prebuildSeconds = [math]::Round($prebuildClock.Elapsed.TotalSeconds, 1)
+        }
         # A journey can pin the build configuration (for example Release, where XAML hot reload is not enabled).
-        $runArguments = @('run', $appDir, '--watch') + $(if ($journey.app.configuration) { @('-c', $journey.app.configuration) } else { @() })
+        $runArguments = @('run', $appDir, '--watch') + $(if ($journey.app.configuration) { @('-c', $journey.app.configuration) } else { @() }) +
+            @($journey.app.runArguments | Where-Object { $_ } | ForEach-Object { [string]$_ })
+        # An existing app keeps its own Directory.Build files, so build properties go on the command line.
+        if ($external) { foreach ($property in $BuildProperty) { $runArguments += @('-p', $property) } }
+        $startClock = [System.Diagnostics.Stopwatch]::StartNew()
         $process = Start-Process -FilePath $Winapp -ArgumentList $runArguments -WorkingDirectory $appDir `
             -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
         $script:consumed = 0
+        $script:closingLine = $null
         function Read-NewLines {
             if (-not (Test-Path $log)) { return @() }
             $all = @(Get-Content $log)
             $new = @($all | Select-Object -Skip $script:consumed)
             $script:consumed = $all.Count
+            # winapp closing instances this run didn't start (another session's copy of the app) must stop the run.
+            foreach ($line in $new) { if (-not $script:closingLine -and $line -match 'Closing \d+ running instance') { $script:closingLine = $line } }
             return $new
         }
         function Wait-Line([string]$Pattern, [int]$TimeoutSeconds, [System.Collections.Generic.List[string]]$Seen) {
@@ -271,11 +365,31 @@ $runVariants = {
             }
             return $null
         }
+        function Stop-IfClosedOthers {
+            if (-not $script:closingLine) { return }
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            $running = Get-AppPid
+            if ($running) { Stop-Process -Id ([int]$running) -Force -ErrorAction SilentlyContinue }
+            throw "winapp printed '$($script:closingLine)' in ${log}: it closed app instances this run did not start. Stopped."
+        }
         $seen = [System.Collections.Generic.List[string]]::new()
-        $ready = Wait-Line '^\[watch\] (ready|error)' 600 $seen
+        $ready = Wait-Line '^\[watch\] (ready|error)' 900 $seen
+        $readySeconds = [math]::Round($startClock.Elapsed.TotalSeconds, 1)
+        Stop-IfClosedOthers
+        if (-not $ready -or $ready -match '^\[watch\] error') {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            $tail = (@($seen | Where-Object { $_ -match '\berror\b|❌' } | Select-Object -First 3) -join "`n")
+            throw "The app never got ready (see $log):`n$tail"
+        }
         $appPid = Get-AppPid
         Write-Host "[$variantId] $ready"
         $launchPid = $appPid
+        # The first build (MSBuild's own "Time Elapsed") and what winapp said before the app was ready.
+        $buildElapsed = @($seen | Where-Object { $_ -match 'Time Elapsed (\d+):(\d+):(\d+\.\d+)' } | Select-Object -First 1)
+        $buildSeconds = if ($buildElapsed -and $buildElapsed[0] -match 'Time Elapsed (\d+):(\d+):(\d+\.\d+)') { [math]::Round([int]$Matches[1] * 3600 + [int]$Matches[2] * 60 + [double]$Matches[3], 1) } else { $null }
+        $launchNotes = @($seen | Where-Object { $_ -match '^\s*note:|^\[watch\] (note|warning)' } | ForEach-Object { $_.Trim() })
+        $startup = [pscustomobject]@{ PrebuildSeconds = $prebuildSeconds; BuildSeconds = $buildSeconds; ReadySeconds = $readySeconds; Ready = $ready; Notes = $launchNotes }
+        $startup | ConvertTo-Json | Set-Content (Join-Path $runRoot "$variantId\startup.json")
         # What winapp must say once the app is up (for example why XAML hot reload is unavailable): checked with the first save.
         $launchChecks = @()
         if ($journey.app.launchExpect) {
@@ -287,12 +401,26 @@ $runVariants = {
         $rows = [System.Collections.Generic.List[object]]::new()
         # Text typed and boxes toggled by the journey's checks in the running app, latest per element (for the parity gate).
         $inputsSoFar = [System.Collections.Generic.List[object]]::new()
+        # The notes winapp printed with saves since the app was (re)launched: a difference they report is still there.
+        $notesSoFar = [System.Collections.Generic.List[string]]::new()
+        if ($journey.before -and $appPid) {
+            $beforeChecks = @(Invoke-BeforeSteps ([int]$appPid))
+            $stateChecks = @(foreach ($probe in @($journey.stateProbes)) { if ($probe) { $r = Wait-UiCheck $probe ([int]$appPid) 5; [pscustomobject]@{ Check = "$($probe.assert) $($probe.target) $($probe.value)".Trim(); Ok = $r.Ok; Output = $r.Output; State = $probe.state } } })
+            $rows.Add([pscustomobject]@{ Index = 0; Action = 'before'; Kind = 'before'; Outcome = 'used state'; Ms = $null; WallMs = $null; Pid = $appPid; Reason = $null; SameProcess = $true; Checkpoint = $null; Checks = @($beforeChecks + $stateChecks); Detail = ''; ParitySeconds = $null })
+            Write-Host ("[{0}]  0 before: {1}" -f $variantId, (($beforeChecks + $stateChecks | ForEach-Object { if ($_.Ok) { 'ok' } else { "FAIL($($_.Check))" } }) -join ','))
+        }
         $plan = Get-JourneyPlan $journey $variantId
         $lastIndex = if ($MaxActions -gt 0) { [Math]::Min($MaxActions, $plan.Count) } else { $plan.Count }
         foreach ($step in $plan) {
             if ($MaxActions -gt 0 -and $step.Index -gt $MaxActions) { break }
             $seen = [System.Collections.Generic.List[string]]::new()
-            $null = Read-NewLines
+            # What winapp printed after the previous save's outcome (an app that crashed after "applied") belongs to that save.
+            $between = @(Read-NewLines | Where-Object { $_ -match '^\[watch\]|^  ' })
+            if ($between -and $rows.Count) {
+                $previous = $rows[$rows.Count - 1]
+                $previous.Detail = (@($previous.Detail) + $between) -join "`n"
+                if ($between -match '^\[watch\] (the app exited|lost the connection)') { $previous | Add-Member -NotePropertyName CrashedAfter -NotePropertyValue $true -Force }
+            }
             if ($appPid) { Read-Baselines $step.Checkpoint.uiChecks ([int]$appPid) }
             $saveClock = [System.Diagnostics.Stopwatch]::StartNew()
             Invoke-JourneyEdit -AppDir $appDir -Action $step.Action
@@ -308,13 +436,47 @@ $runVariants = {
             $timed = @($seen | Where-Object { $_ -match '\((\d+) ms\)\s*$' } | Select-Object -First 1)
             $ms = if ($timed -and $timed[0] -match '\((\d+) ms\)\s*$') { [int]$Matches[1] } else { $null }
             if ($outcome -eq 'restart') {
-                if (-not $relaunched) { $null = Wait-Line '^\[watch\] ready' 600 $seen }
+                if (-not $relaunched) { $null = Wait-Line '^\[watch\] ready' 900 $seen }
                 $wallMs = [int]$saveClock.Elapsed.TotalMilliseconds
                 $appPid = Get-AppPid
                 $inputsSoFar.Clear()
+                $notesSoFar.Clear()
             }
+            Stop-IfClosedOthers
             $checks = @($launchChecks)
             $launchChecks = @()
+            # A restarted app starts over: back to the used state, so the next saves are measured on a used app again.
+            if ($outcome -eq 'restart' -and $journey.before -and $appPid) { $checks += @(Invoke-BeforeSteps ([int]$appPid)) }
+            # Is the change on screen, and when did it first show (the save's "applied" can't tell).
+            $visibleMs = $null
+            $applied = $null
+            if ($step.Action.visible -and $appPid) {
+                $visibleOk = $true
+                foreach ($check in @($step.Action.visible)) {
+                    $result = Wait-UiCheck $check ([int]$appPid)
+                    $checks += [pscustomobject]@{ Check = "visible $($check.assert) $($check.target) $($check.value)".Trim(); Ok = $result.Ok; Output = $result.Output; Visible = $true }
+                    if (-not $result.Ok) { $visibleOk = $false }
+                }
+                $applied = $visibleOk
+                if ($visibleOk) { $visibleMs = [int]$saveClock.Elapsed.TotalMilliseconds }
+            }
+            # What the user and the page built up before the save ("stateProbes": the typed text, the selection, the scroll...).
+            if ($journey.stateProbes -and $appPid) {
+                $lost = $false
+                foreach ($probe in @($journey.stateProbes)) {
+                    $result = Test-UiCheck $probe ([int]$appPid)
+                    $checks += [pscustomobject]@{ Check = "$($probe.assert) $($probe.target) $($probe.value)".Trim(); Ok = $result.Ok; Output = $result.Output; State = $probe.state }
+                    if (-not $result.Ok) { $lost = $true }
+                }
+                # Put back what the user can ("restore": type the text again, select again, scroll again), so the next save is
+                # judged on its own rather than on what an earlier save lost.
+                if ($lost -and $journey.restore) {
+                    foreach ($restoreStep in @($journey.restore)) {
+                        $result = Test-UiCheck $restoreStep ([int]$appPid)
+                        $checks += [pscustomobject]@{ Check = "restore $($restoreStep.assert) $($restoreStep.target) $($restoreStep.value)".Trim(); Ok = $result.Ok; Output = $result.Output; Restore = $true }
+                    }
+                }
+            }
             if ($step.Checkpoint.uiChecks) {
                 Start-Sleep -Milliseconds 700
                 foreach ($check in $step.Checkpoint.uiChecks) {
@@ -329,6 +491,7 @@ $runVariants = {
                 }
             }
             $detail = (($seen | Where-Object { $_ -match '^\[watch\]|^  ' }) -join "`n")
+            foreach ($noteLine in @($seen | Where-Object { $_ -match '^\s+note:' })) { $notesSoFar.Add(($noteLine -replace '\s*\(\d+ ms\)\s*$', '')) }
             # What the status line itself must say (an error the compiler would report, a note), checked like the UI.
             if ($step.Action.expect.outcome) {
                 $checks += [pscustomobject]@{ Check = "outcome $($step.Action.expect.outcome)"; Ok = ($outcome -eq $step.Action.expect.outcome); Output = $detail }
@@ -340,8 +503,9 @@ $runVariants = {
             if ($parityOn -and ($step.Checkpoint.parity -or $step.Index -eq $lastIndex)) {
                 $label = if ($step.Checkpoint.id) { [string]$step.Checkpoint.id } else { "save$($step.Index)" }
                 if ($outcome -eq 'error' -or -not $appPid) {
-                    # The source doesn't build (or no app is running), so there is no clean build to compare with.
-                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $true; Output = "parity: skipped, the save left the app $(if ($outcome -eq 'error') { 'with a build error' } else { 'not running' })" }
+                    # The source doesn't build: there is no clean build to compare with, and that's what the save meant. No app
+                    # running is a failure of the run, never a pass.
+                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = ($outcome -eq 'error' -and [bool]$appPid); Skipped = $true; Output = "parity: skipped, the save left the app $(if (-not $appPid) { 'not running' } else { 'with a build error' })" }
                 } else {
                     # A checkpoint can carry its own parity settings ({ "probes": [...] }) over the journey's.
                     $config = $parityConfig.PSObject.Copy()
@@ -356,9 +520,11 @@ $runVariants = {
                         $config | Add-Member -NotePropertyName replay -NotePropertyValue $replay -Force
                     }
                     $parityResult = Invoke-ParityCheck -Winapp $Winapp -ProcessId ([int]$appPid) -AppDir $appDir -WorkDir (Join-Path $runRoot "$variantId\parity\$label") `
-                        -InvokeProbe $parityProbe -Config $config -RootNamespace $journey.app.rootNamespace -Configuration $journey.app.configuration -Packaging $Packaging
+                        -InvokeProbe $parityProbe -Config $config -RootNamespace $journey.app.rootNamespace -Configuration $journey.app.configuration -Packaging $parityPackaging `
+                        -ReportedNotes $notesSoFar.ToArray() -AcceptReported:$ParityAcceptReported `
+                        -RunArguments @($journey.app.runArguments | Where-Object { $_ } | ForEach-Object { [string]$_ }) -Prebuild $journey.app.prebuild -OwnIdentity:([bool]$external) -RemoveCleanBuild:([bool]$external) -ProjectFile $(if ($external) { [string]$journey.app.projectFile } else { '' })
                     $paritySeconds = $parityResult.Seconds
-                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $parityResult.Ok; Output = $parityResult.Output; Diffs = @($parityResult.Diffs).Count }
+                    $checks += [pscustomobject]@{ Check = "parity $label"; Ok = $parityResult.Ok; Output = $parityResult.Output; Diffs = @($parityResult.Diffs).Count; Reported = @($parityResult.Reported).Count; CleanBuildFailed = [bool]$parityResult.CleanBuildFailed; Incomplete = [bool]$parityResult.Incomplete }
                     Write-Host $parityResult.Output
                 }
             }
@@ -366,20 +532,40 @@ $runVariants = {
                 Index = $step.Index; Action = $step.Action.id; Kind = (Get-JourneySaveKind $step.Action); Outcome = $outcome; Ms = $ms; WallMs = $wallMs; Pid = $appPid
                 Reason = $(if ($outcome -in 'restart', 'error', 'waiting', 'timeout') { Get-JourneyOutcomeReason $detail $outcome })
                 SameProcess = ($appPid -eq $launchPid); Checkpoint = $step.Checkpoint.id
-                Checks = $checks; Detail = $detail; ParitySeconds = $paritySeconds
+                Checks = $checks; Detail = $detail; ParitySeconds = $paritySeconds; VisibleMs = $visibleMs; Applied = $applied
             }
             $rows.Add($row)
             $checkText = if ($checks) { ' checks ' + (($checks | ForEach-Object { if ($_.Ok) { 'ok' } else { "FAIL($($_.Check))" } }) -join ',') } else { '' }
             Write-Host ("[{0}] {1,2} {2,-30} {3,-9} {4,6} ms pid {5}{6}" -f $variantId, $step.Index, $step.Action.id, $outcome, $ms, $appPid, $checkText)
         }
+        # Checks after the last save ("after"): for example, navigating to the page an earlier save edited while it wasn't
+        # shown, to see whether that edit reached it. "verifies" names that save.
+        if ($journey.after -and $appPid -and -not $process.HasExited) {
+            $afterChecks = @(foreach ($check in @($journey.after)) {
+                $result = if ($check.assert -in 'invoke', 'set-value', 'set-property', 'scroll-to-bottom', 'focus') { Test-UiCheck $check ([int]$appPid) } else { Wait-UiCheck $check ([int]$appPid) }
+                [pscustomobject]@{ Check = "after $($check.assert) $($check.target) $($check.value)".Trim(); Ok = $result.Ok; Output = $result.Output; Verifies = $check.verifies }
+                if ($check.pauseMs) { Start-Sleep -Milliseconds ([int]$check.pauseMs) }
+            })
+            $rows.Add([pscustomobject]@{ Index = $rows.Count; Action = 'after'; Kind = 'after'; Outcome = 'checks'; Ms = $null; WallMs = $null; Pid = $appPid; Reason = $null; SameProcess = ($appPid -eq $launchPid); Checkpoint = $null; Checks = $afterChecks; Detail = ''; ParitySeconds = $null })
+            Write-Host ("[{0}] after: {1}" -f $variantId, (($afterChecks | ForEach-Object { if ($_.Ok) { 'ok' } else { "FAIL($($_.Check))" } }) -join ','))
+        }
         if (-not $KeepRunning -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+        $between = @(Read-NewLines | Where-Object { $_ -match '^\[watch\]|^  ' })
+        if ($between -and $rows.Count) {
+            $previous = $rows[$rows.Count - 1]
+            $previous.Detail = (@($previous.Detail) + $between) -join "`n"
+            if ($between -match '^\[watch\] (the app exited|lost the connection)') { $previous | Add-Member -NotePropertyName CrashedAfter -NotePropertyValue $true -Force }
+        }
         if (-not $KeepRunning -and $appPid) { Stop-Process -Id ([int]$appPid) -Force -ErrorAction SilentlyContinue }
+        # The copy's own package registration goes with the run (its suffix is unique to this copy).
+        if ($external -and $journey.app.packaged -and -not $KeepRunning) { Start-Sleep -Milliseconds 500; Remove-PackageBySuffix $script:identitySuffix }
         $rows | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $runRoot "$variantId\results.json")
+        $saveRows = @($rows | Where-Object { $_.Kind -notin 'before', 'after' })
         $summary.Add([pscustomobject]@{
-            Variant = $variantId; Saves = $rows.Count
-            Live = @($rows | Where-Object { $_.Outcome -ne 'restart' -and $_.Outcome -ne 'timeout' }).Count
-            Restarts = @($rows | Where-Object Outcome -eq 'restart').Count
-            Errors = @($rows | Where-Object Outcome -eq 'error').Count
+            Variant = $variantId; Saves = $saveRows.Count
+            Live = @($saveRows | Where-Object { $_.Outcome -ne 'restart' -and $_.Outcome -ne 'timeout' }).Count
+            Restarts = @($saveRows | Where-Object Outcome -eq 'restart').Count
+            Errors = @($saveRows | Where-Object Outcome -eq 'error').Count
             ChecksPassed = @($rows.Checks | Where-Object Ok).Count; Checks = @($rows.Checks).Count
             Parity = $(if ($parityOn) { $p = @($rows.Checks | Where-Object { $_.Check -like 'parity *' }); "$(@($p | Where-Object Ok).Count)/$($p.Count)" } else { 'off' })
             SameProcess = -not ($rows | Where-Object { -not $_.SameProcess })
@@ -395,6 +581,7 @@ if ($NoDesktopLock -or $env:CI -or $env:TF_BUILD -or $env:GITHUB_ACTIONS) {
     # injects real input.
     $exclusiveAsserts = @('focus')
     $steps = @($journey.segments.actions.checkpoint.uiChecks) + @($journey.parity.probes, $journey.parity.prepare, $journey.parity.navigate) +
+        @($journey.before, $journey.after, $journey.stateProbes, $journey.segments.actions.visible) +
         @($journey.segments.actions.checkpoint.parity | Where-Object { $_ -is [pscustomobject] } | ForEach-Object { @($_.probes, $_.prepare, $_.navigate) })
     $realInput = @($steps | ForEach-Object { $_ } | Where-Object { $_ -and $_.assert -in $exclusiveAsserts } | ForEach-Object assert | Sort-Object -Unique)
     $whyExclusive = if ($ExclusiveDesktop) { '-ExclusiveDesktop' }

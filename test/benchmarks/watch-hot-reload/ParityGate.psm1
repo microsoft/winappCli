@@ -19,6 +19,9 @@
 #     "prepare": [ ...probes ],     run on both apps before the first reading (a Reset button that undoes what the
 #                                   journey's clicks built up, which the clean build never saw)
 #     "enabled": false,             never run the gate for this journey (its point is state a clean launch can't have)
+#     "reportedNotesCount": true,   a difference one of the save's notes reports ("note: <Element>[.<Property>] shows
+#                                   '<hot>' here but '<clean>' after a restart: ...") doesn't fail the check; it is still
+#                                   printed and counted as reported (the runner's -ParityAcceptReported does the same)
 #     "properties": [ "Text", ... ],what to read on each element (default below)
 #     "ignore": [ "*#CountText.Text" ], element paths or path.Property wildcards that may differ (event counters)
 #     "replayInputs": false         don't give the clean build the text the journey typed (default: replay what is still shown)
@@ -35,6 +38,22 @@ $script:DefaultProperties = @(
 )
 
 function Remove-Ansi([string]$Text) { if ($null -eq $Text) { return $null }; return $script:Ansi.Replace($Text, '') }
+
+# A copy of a real app gets a package identity of its own (Set-PackageIdentitySuffix), and the clean build another one, so
+# a path into the package's data folder ("...\Packages\<name>.hr1a2b3c4d_<publisher id>\LocalState") differs only there.
+function ConvertTo-IdentityNeutral([string]$Value) { if ($null -eq $Value) { return $null }; return $Value -replace '\.hr[0-9a-f]{8}(?=_)', '.hr*' }
+
+# Properties whose value the tree query returns only as an object (a brush): read through Property.get, which shows it.
+$script:ReadByPropertyGet = @('Background', 'Foreground', 'BorderBrush', 'Fill', 'Stroke')
+
+function Get-PropertyText([string]$Winapp, [int]$ProcessId, [string]$Handle, [string]$Name) {
+    $raw = & $Winapp devtools call Property.get "handle=$Handle" -a "$ProcessId" --json 2>&1 | Out-String
+    try { $prop = @((Remove-Ansi $raw | ConvertFrom-Json).result.props | Where-Object name -eq $Name | Select-Object -First 1) } catch { return $null }
+    if (-not $prop) { return $null }
+    if ([string]$prop[0].value) { return [string]$prop[0].value }
+    if ($prop[0].valueState -in 'unset', 'null' -or -not $prop[0].valueType) { return '(unset)' }
+    return "<$($prop[0].valueType)>"
+}
 
 function ConvertTo-ShortType([string]$Type) {
     return $Type -replace '^Microsoft\.UI\.Xaml\.Controls\.Primitives\.', 'Primitives.' -replace '^Microsoft\.UI\.Xaml\.(Controls|Shapes|Documents)\.', ''
@@ -64,30 +83,112 @@ function Get-ParitySnapshot {
         [Parameter(Mandatory)][int]$ProcessId,
         [string]$Root,
         [string]$RootNamespace,
-        [string[]]$Properties = $script:DefaultProperties
+        [string[]]$Properties = $script:DefaultProperties,
+        # Only the elements DevTools attributes to the app's markup: the inside of app and library controls is not read in full.
+        [switch]$AuthoredOnly
     )
     $fields = ConvertTo-Json -Compress -InputObject @($Properties)
-    $raw = & $Winapp devtools call VisualTree.query 'authored:=true' "fields:=$fields" -a "$ProcessId" --json 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) { return $null }
-    try { $result = (Remove-Ansi $raw | ConvertFrom-Json).result } catch { return $null }
-    if (-not $result -or -not $result.ok) { return $null }
-    $rows = @($result.matches)
-    # The inside of the app's own controls (a UserControl, a templated control) counts whether or not DevTools could
-    # attribute it to a source file: hot reload may load that markup from text, a clean build from compiled .xbf.
-    if ($RootNamespace) {
-        $known = [System.Collections.Generic.HashSet[string]]::new([string[]]@($rows | ForEach-Object handle))
+    $script:LastSnapshotIncomplete = $null
+    function Invoke-TreeQuery([string[]]$Parameters) {
+        # A handle can be briefly unreadable while the UI thread is busy (a list realizing items): one retry.
+        for ($attempt = 0; $attempt -lt 2; $attempt++) {
+            $raw = & $Winapp devtools call VisualTree.query @Parameters -a "$ProcessId" --json 2>&1 | Out-String
+            if ($LASTEXITCODE -eq 0) {
+                try { $result = (Remove-Ansi $raw | ConvertFrom-Json).result } catch { $result = $null }
+                if ($result -and $result.ok) { return $result }
+                # "no-match": nothing under this element qualifies (an authored-only query under a template's own parts).
+                # That's an empty reading, not a failed one.
+                if ($result -and $result.error -eq 'no-match') { return [pscustomobject]@{ ok = $true; complete = $true; matches = @() } }
+            }
+            $script:LastQueryError = ((Remove-Ansi $raw) -replace '\s+', ' ').Trim()
+            Start-Sleep -Milliseconds 300
+        }
+        return $null
+    }
+    # Every row under a handle (the handle's own row included when it qualifies). A query that stops at the agent's time or
+    # classification budget (a real app's page has thousands of elements) is split: the element itself, then each child
+    # read the same way. Rows get the nearest qualifying ancestor read so far as their parent when theirs wasn't read.
+    $known = [System.Collections.Generic.HashSet[string]]::new()
+    function Read-TreeRows([string]$Handle, [bool]$Authored, [string]$Inherited) {
+        $scope = @("rootHandle=$Handle", "authored:=$($Authored.ToString().ToLowerInvariant())", "fields:=$fields")
+        $whole = Invoke-TreeQuery ($scope + 'depth:=-1')
+        if ($null -eq $whole) { $script:LastSnapshotIncomplete = "the query under $Handle failed: $(([string]$script:LastQueryError) -replace '^(.{0,300}).*$', '$1')"; return @() }
+        if ($whole.complete) { $found = @($whole.matches) }
+        else {
+            $self = Invoke-TreeQuery ($scope + 'depth:=0')
+            $kids = Invoke-TreeQuery @("rootHandle=$Handle", 'authored:=false', 'depth:=1')
+            if ($null -eq $self -or $null -eq $kids -or -not $kids.complete) { $script:LastSnapshotIncomplete = "the children of $Handle could not be listed completely" }
+            $found = @($self.matches | Where-Object { $_.handle -eq $Handle })
+            foreach ($row in $found) { $null = $known.Add($row.handle); if (-not ($row.PSObject.Properties['parentHandle'] -and $known.Contains($row.parentHandle))) { $row | Add-Member -NotePropertyName parentHandle -NotePropertyValue $Inherited -Force } }
+            $next = if ($found) { $Handle } else { $Inherited }
+            foreach ($child in @($kids.matches | Where-Object { $_.PSObject.Properties['parentHandle'] -and $_.parentHandle -eq $Handle })) {
+                $found += @(Read-TreeRows $child.handle $Authored $next)
+            }
+            return $found
+        }
+        $inScope = [System.Collections.Generic.HashSet[string]]::new([string[]]@($found | ForEach-Object handle))
+        foreach ($row in $found) {
+            $parentKnown = $row.PSObject.Properties['parentHandle'] -and ($known.Contains($row.parentHandle) -or $inScope.Contains($row.parentHandle))
+            if (-not $parentKnown -and $Inherited) { $row | Add-Member -NotePropertyName parentHandle -NotePropertyValue $Inherited -Force }
+        }
+        foreach ($row in $found) { $null = $known.Add($row.handle) }
+        return $found
+    }
+
+    $rootRow = $null
+    if ($Root) {
+        # The root by its type (the page) or its x:Name (the area a save touched), read on its own so the rest of the
+        # window doesn't count against the agent's budget.
+        $byType = Invoke-TreeQuery @("ofType=$Root", 'authored:=false')
+        $rootRow = @($byType.matches | Select-Object -First 1)
+        if (-not $rootRow) {
+            $byName = Invoke-TreeQuery @("text=$Root", 'authored:=false')
+            $rootRow = @($byName.matches | Where-Object name -eq $Root | Select-Object -First 1)
+        }
+    }
+    if ($rootRow) {
+        $rows = @(Read-TreeRows $rootRow[0].handle $true '')
+        if (-not @($rows | Where-Object handle -eq $rootRow[0].handle)) {
+            # The page itself isn't an authored element in the tree: read it from the full query so the tree has its root.
+            $self = Invoke-TreeQuery @("rootHandle=$($rootRow[0].handle)", 'authored:=false', 'depth:=0', "fields:=$fields")
+            $top = @($self.matches | Select-Object -First 1)
+            if ($top) { $rows = @($top) + $rows; $null = $known.Add($top[0].handle) }
+        }
+        $readHandles = [System.Collections.Generic.HashSet[string]]::new([string[]]@($rows | ForEach-Object handle))
+        foreach ($row in $rows) {
+            if ($row.handle -eq $rootRow[0].handle) { $row | Add-Member -NotePropertyName parentHandle -NotePropertyValue '' -Force }
+            elseif (-not ($row.PSObject.Properties['parentHandle'] -and $readHandles.Contains([string]$row.parentHandle))) { $row | Add-Member -NotePropertyName parentHandle -NotePropertyValue $rootRow[0].handle -Force }
+        }
+    } else {
+        $result = Invoke-TreeQuery @('authored:=true', "fields:=$fields")
+        if (-not $result) { return $null }
+        if (-not $result.complete) { $script:LastSnapshotIncomplete = "the window's query stopped at its $($result.truncatedBy) budget (set the journey's parity root to read one page)" }
+        $rows = @($result.matches)
+        foreach ($row in $rows) { $null = $known.Add($row.handle) }
+    }
+    # The inside of the app's own controls (a UserControl, a templated control) and of a library's controls (a NuGet
+    # package's templated control) counts whether or not DevTools could attribute it to a source file: hot reload may
+    # load that markup from text or serve a library's Generic.xbf through the markup override, where a clean build
+    # loads compiled .xbf or the merged .pri. WinUI's own controls are left out: their templates are chrome.
+    if ($RootNamespace -and -not $AuthoredOnly) {
         $parentOf = @{}; $typeOf = @{}
         foreach ($row in $rows) { $typeOf[$row.handle] = $row.type; if ($row.PSObject.Properties['parentHandle']) { $parentOf[$row.handle] = $row.parentHandle } }
         $nested = @($rows | Where-Object {
-            if (-not $_.type.StartsWith("$RootNamespace.")) { return $false }
-            # Inside another of the app's types: a control on a page. A page itself, under its Frame, is read as authored.
+            if ($_.type -match '^(Microsoft\.UI\.Xaml|Windows)\.') { return $false }
+            # A library's control, wherever it is.
+            if (-not $_.type.StartsWith("$RootNamespace.")) { return [bool]$_.parentHandle }
+            # The app's own: inside another of the app's types (a control on a page). A page itself, under its Frame, is
+            # read as authored.
             for ($h = $parentOf[$_.handle]; $h; $h = $parentOf[$h]) { if ([string]$typeOf[$h] -like "$RootNamespace.*") { return $true } }
             return $false
         })
         foreach ($control in $nested) {
-            $raw = & $Winapp devtools call VisualTree.query 'authored:=false' "rootHandle=$($control.handle)" "fields:=$fields" -a "$ProcessId" --json 2>&1 | Out-String
-            try { $inner = (Remove-Ansi $raw | ConvertFrom-Json).result } catch { continue }
-            foreach ($row in @($inner.matches)) { if ($row.PSObject.Properties['parentHandle'] -and $known.Add($row.handle)) { $rows += $row } }
+            # Inside the control, the full reading wins over the authored one: an authored row's parent is its nearest
+            # authored ancestor, which skips elements DevTools didn't attribute (a Viewbox's inner Border, say), so the same
+            # element would sit at a different path depending on which of its ancestors were attributed.
+            $innerRows = @(Read-TreeRows $control.handle $false $control.handle | Where-Object { $_.handle -ne $control.handle -and $_.parentHandle })
+            $replaced = [System.Collections.Generic.HashSet[string]]::new([string[]]@($innerRows | ForEach-Object handle))
+            $rows = @($rows | Where-Object { -not $replaced.Contains($_.handle) }) + $innerRows
         }
     }
     $byHandle = @{}
@@ -119,13 +220,18 @@ function Get-ParitySnapshot {
                 { $_ -in 'value', 'binding' } { $values[$field.name] = [string]$field.value; break }
                 'unset' { $values[$field.name] = '(unset)'; break }
                 default {
-                    if ($field.valueSource -eq 'Binding') {
+                    if ($field.name -in $script:ReadByPropertyGet) {
+                        # A brush: the query has no value for it; Property.get does (null when the element has no such property).
+                        $text = Get-PropertyText $Winapp $ProcessId $Node.handle $field.name
+                        if ($null -ne $text) { $values[$field.name] = $text }
+                    }
+                    elseif ($field.valueSource -eq 'Binding') {
                         # Bound, but the runtime holds no value it can show (a Binding that couldn't convert, say).
                         if ($field.name -eq 'Visibility') { $values['Visibility'] = Get-LaidOutVisibility $Winapp $ProcessId $Node.handle }
                         else { $unreadable.Add($field.name) }
                     }
                     # An object reference (a Frame's page, a Content element) is compared by its type.
-                    elseif ($field.valueState -eq 'unresolved' -and $field.valueType) { $values[$field.name] = "<$($field.valueType)>" }
+                    elseif ($field.valueState -in 'unresolved', 'object' -and $field.valueType) { $values[$field.name] = "<$($field.valueType)>" }
                 }
             }
         }
@@ -175,21 +281,27 @@ function Wait-ParitySnapshot {
         [string]$Root,
         [string]$RootNamespace,
         [string[]]$Properties = $script:DefaultProperties,
+        [switch]$AuthoredOnly,
         [int]$TimeoutSeconds = 20
     )
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $previous = $null
     $last = $null
+    $reads = 0
     do {
-        $last = Get-ParitySnapshot -Winapp $Winapp -ProcessId $ProcessId -Root $Root -RootNamespace $RootNamespace -Properties $Properties
+        $last = Get-ParitySnapshot -Winapp $Winapp -ProcessId $ProcessId -Root $Root -RootNamespace $RootNamespace -Properties $Properties -AuthoredOnly:$AuthoredOnly
+        $incomplete = $script:LastSnapshotIncomplete
+        $reads++
         if ($null -ne $last) {
             $text = ConvertTo-SnapshotText $last
-            if ($null -ne $previous -and $text -eq $previous) { return [pscustomobject]@{ Snapshot = $last; Stable = $true } }
+            if ($null -ne $previous -and $text -eq $previous) { return [pscustomobject]@{ Snapshot = $last; Stable = $true; Incomplete = $incomplete } }
             $previous = $text
         }
         Start-Sleep -Milliseconds 200
-    } while ((Get-Date) -lt $deadline)
-    return [pscustomobject]@{ Snapshot = $last; Stable = $false }
+    # A reading of a real app's page takes seconds: always take two, however long they take. A reading that couldn't
+    # finish (an element left the tree while it was read: a list still realizing items) is taken again, a few times.
+    } while ((Get-Date) -lt $deadline -or $reads -lt 2 -or ($incomplete -and $reads -lt 6))
+    return [pscustomobject]@{ Snapshot = $last; Stable = $false; Incomplete = $incomplete }
 }
 
 <#
@@ -232,7 +344,7 @@ function Compare-ParitySnapshot {
             }
             $h = if ($hotNode.Values.Contains($name)) { $hotNode.Values[$name] } else { '(not set)' }
             $c = if ($cleanNode.Values.Contains($name)) { $cleanNode.Values[$name] } else { '(not set)' }
-            if ($h -cne $c) { Add $hotNode $name $h $c }
+            if ((ConvertTo-IdentityNeutral $h) -cne (ConvertTo-IdentityNeutral $c)) { Add $hotNode $name $h $c }
         }
     }
     foreach ($path in $Clean.Keys) {
@@ -265,6 +377,7 @@ function Read-ParityPhases {
         [string]$Root,
         [string]$RootNamespace,
         [string[]]$Properties,
+        [switch]$AuthoredOnly,
         [int]$TimeoutSeconds
     )
     $phases = [ordered]@{}
@@ -274,8 +387,10 @@ function Read-ParityPhases {
         $outcome = & $InvokeProbe $step $ProcessId
         if (-not $outcome.Ok) { $notes.Add("prepare $($step.assert) $($step.target): the step failed: $(Remove-Ansi $outcome.Output)") }
     }
-    $read = Wait-ParitySnapshot -Winapp $Winapp -ProcessId $ProcessId -Root $Root -RootNamespace $RootNamespace -Properties $Properties -TimeoutSeconds $TimeoutSeconds
+    $read = Wait-ParitySnapshot -Winapp $Winapp -ProcessId $ProcessId -Root $Root -RootNamespace $RootNamespace -Properties $Properties -AuthoredOnly:$AuthoredOnly -TimeoutSeconds $TimeoutSeconds
     if (-not $read.Stable) { $notes.Add('initial: the UI did not settle') }
+    $incomplete = [System.Collections.Generic.List[string]]::new()
+    if ($read.Incomplete) { $incomplete.Add("initial: $($read.Incomplete)") }
     $phases['initial'] = $read.Snapshot
     $i = 0
     foreach ($probe in @($Probes)) {
@@ -284,11 +399,12 @@ function Read-ParityPhases {
         $label = if ($probe.id) { [string]$probe.id } else { "probe$i $($probe.assert) $($probe.target)" }
         $outcome = & $InvokeProbe $probe $ProcessId
         if (-not $outcome.Ok) { $notes.Add("${label}: the probe failed: $(Remove-Ansi $outcome.Output)") }
-        $read = Wait-ParitySnapshot -Winapp $Winapp -ProcessId $ProcessId -Root $Root -RootNamespace $RootNamespace -Properties $Properties -TimeoutSeconds $TimeoutSeconds
+        $read = Wait-ParitySnapshot -Winapp $Winapp -ProcessId $ProcessId -Root $Root -RootNamespace $RootNamespace -Properties $Properties -AuthoredOnly:$AuthoredOnly -TimeoutSeconds $TimeoutSeconds
         if (-not $read.Stable) { $notes.Add("${label}: the UI did not settle") }
+        if ($read.Incomplete) { $incomplete.Add("${label}: $($read.Incomplete)") }
         $phases["after $label"] = $read.Snapshot
     }
-    return [pscustomobject]@{ Phases = $phases; Notes = $notes }
+    return [pscustomobject]@{ Phases = $phases; Notes = $notes; Incomplete = $incomplete }
 }
 
 <#
@@ -335,6 +451,17 @@ function Select-ShownInputs($Inputs, $Snapshot) {
     }
 }
 
+# The first build error as "WMC9999: message" (the compiler's code and text, without the path in front), else winapp's
+# own error, else that no app process was reported.
+function Get-CleanBuildError([string[]]$Lines) {
+    foreach ($line in $Lines) {
+        if ($line -match '\berror\s+([A-Z]+\d+)\s*:\s*(.+?)(\s+\[[^\]]+\])?\s*$') { $text = "$($Matches[1]): $($Matches[2])"; return $(if ($text.Length -gt 220) { $text.Substring(0, 217) + '...' } else { $text }) }
+    }
+    $winapp = @($Lines | Where-Object { $_ -match '"Error":\s*"([^"]+)"' } | Select-Object -First 1)
+    if ($winapp -and $winapp[0] -match '"Error":\s*"([^"]+)"') { return $Matches[1] }
+    return 'winapp run reported no app process'
+}
+
 <#
 .SYNOPSIS
   The parity check for one checkpoint: reads the hot-reloaded app, builds and launches the same source from scratch,
@@ -352,36 +479,71 @@ function Invoke-ParityCheck {
         [string]$Configuration,
         [ValidateSet('Unpackaged', 'Packaged')][string]$Packaging = 'Unpackaged',
         [int]$TimeoutSeconds = 20,
-        [int]$BuildTimeoutSeconds = 900
+        [int]$BuildTimeoutSeconds = 900,
+        # What winapp said with the save ("note: <Element>[.<Property>] shows '<hot>' here but '<clean>' after a restart: ...").
+        [string[]]$ReportedNotes = @(),
+        # A difference a note reported doesn't fail the check (it is still printed, and counted as reported).
+        [switch]$AcceptReported,
+        # Extra 'winapp run' arguments (an existing app's --project), and dotnet commands its cold checkout needs first.
+        [string[]]$RunArguments = @(),
+        $Prebuild,
+        # Give the clean copy a package identity of its own by its manifests (for apps --unique-identity refuses).
+        [switch]$OwnIdentity,
+        # Delete the clean copy once read (a real app's build output is large); its log and readings stay.
+        [switch]$RemoveCleanBuild,
+        # The app's project inside the copy (a repository with several projects), for unregistering its package.
+        [string]$ProjectFile
     )
     $clock = [System.Diagnostics.Stopwatch]::StartNew()
     $root = if ($Config.root) { [string]$Config.root } else { $null }
     $properties = if ($Config.properties) { @($Config.properties) } else { $script:DefaultProperties }
     $ignore = @($Config.ignore | Where-Object { $_ })
-    $common = @{ Winapp = $Winapp; InvokeProbe = $InvokeProbe; Probes = $Config.probes; Prepare = $Config.prepare; Root = $root; RootNamespace = $RootNamespace; Properties = $properties; TimeoutSeconds = $TimeoutSeconds }
+    $common = @{ Winapp = $Winapp; InvokeProbe = $InvokeProbe; Probes = $Config.probes; Prepare = $Config.prepare; Root = $root; RootNamespace = $RootNamespace; Properties = $properties; TimeoutSeconds = $TimeoutSeconds; AuthoredOnly = ($Config.nestedControls -eq $false) }
 
     $hot = Read-ParityPhases @common -ProcessId $ProcessId
     $hotSeconds = $clock.Elapsed.TotalSeconds
     $replay = @(Select-ShownInputs -Inputs $Config.replay -Snapshot $hot.Phases['initial'])
 
     $source = Copy-ParitySource -AppDir $AppDir -Destination $WorkDir
-    $runArguments = @('run', $source, '--devtools', 'headless', '--detach', '--json')
+    # Test hook: break the clean build on purpose, to see the gate fail when there is no clean build to compare with.
+    if ($env:WINAPP_PARITY_TEST_BREAK_CLEAN_BUILD -eq '1') { Add-Content (Join-Path $source 'ParityGateBrokenOnPurpose.cs') 'this is not C# (WINAPP_PARITY_TEST_BREAK_CLEAN_BUILD)' }
+    # Test hook: change the clean build's copy ("<file>|<find>|<replace>"), to see the gate fail on a difference only the
+    # clean build has.
+    if ($env:WINAPP_PARITY_TEST_CLEAN_REPLACE -and $env:WINAPP_PARITY_TEST_CLEAN_REPLACE -match '^(?<file>[^|]+)\|(?<find>[^|]+)\|(?<text>.*)$') {
+        $target = Join-Path $source $Matches.file
+        $find = $Matches.find; $text = $Matches.text
+        [IO.File]::WriteAllText($target, [IO.File]::ReadAllText($target).Replace($find, $text))
+    }
+    $runArguments = @('run', $source, '--devtools', 'headless', '--detach', '--json') + $RunArguments
     if ($Configuration) { $runArguments += @('-c', $Configuration) }
     # Its own identity, so registering the clean build doesn't replace the hot-reloaded app's package.
-    if ($Packaging -eq 'Packaged') { $runArguments += '--unique-identity' }
+    $cleanSuffix = $null
+    if ($Packaging -eq 'Packaged' -and $OwnIdentity) { $cleanSuffix = Set-PackageIdentitySuffix -Root $source }
+    elseif ($Packaging -eq 'Packaged') { $runArguments += '--unique-identity' }
     $log = Join-Path $WorkDir 'clean-run.log'
+    foreach ($command in @($Prebuild)) {
+        if ($null -eq $command) { continue }
+        $commandArguments = @($command | ForEach-Object { [string]$_ })
+        Push-Location $source
+        try { & dotnet @commandArguments *>> (Join-Path $WorkDir 'clean-prebuild.log') } finally { Pop-Location }
+    }
     $runner = Start-Process -FilePath $Winapp -ArgumentList $runArguments -WorkingDirectory $source -RedirectStandardOutput $log `
         -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
     if (-not $runner.WaitForExit($BuildTimeoutSeconds * 1000)) {
         Stop-Process -Id $runner.Id -Force -ErrorAction SilentlyContinue
-        return [pscustomobject]@{ Ok = $false; Output = "parity: the clean build did not launch within $BuildTimeoutSeconds s (log: $log)"; Diffs = @(); Seconds = [int]$clock.Elapsed.TotalSeconds }
+        return [pscustomobject]@{ Ok = $false; CleanBuildFailed = $true; Output = "parity: clean build failed: it did not launch within $BuildTimeoutSeconds s (log: $log)"; Diffs = @(); Seconds = [int]$clock.Elapsed.TotalSeconds }
     }
     $buildSeconds = $clock.Elapsed.TotalSeconds - $hotSeconds
     $runText = Remove-Ansi ((Get-Content $log -Raw -ErrorAction SilentlyContinue) + (Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue))
     $cleanPid = if ($runText -match '"ProcessId":\s*(\d+)') { [int]$Matches[1] } else { $null }
     if (-not $cleanPid) {
-        $tail = (@($runText -split "`r?`n" | Where-Object { $_.Trim() }) | Select-Object -Last 15) -join "`n"
-        return [pscustomobject]@{ Ok = $false; Output = "parity: the clean build failed to build or launch (log: $log)`n$tail"; Diffs = @(); Seconds = [int]$clock.Elapsed.TotalSeconds }
+        # Without a clean build there is nothing to compare with: the check fails, never passes for lack of differences.
+        $lines = @($runText -split "`r?`n" | Where-Object { $_.Trim() })
+        $reason = Get-CleanBuildError $lines
+        $tail = ($lines | Select-Object -Last 15) -join "`n"
+        if ($cleanSuffix) { Remove-PackageBySuffix $cleanSuffix }
+        if ($RemoveCleanBuild) { Remove-Item $source -Recurse -Force -ErrorAction SilentlyContinue }
+        return [pscustomobject]@{ Ok = $false; CleanBuildFailed = $true; Output = "parity: clean build failed: $reason`n  (log: $log)`n$tail"; Diffs = @(); Seconds = [int]$clock.Elapsed.TotalSeconds }
     }
     try {
         foreach ($step in @($Config.navigate) + $replay) {
@@ -395,8 +557,10 @@ function Invoke-ParityCheck {
         if ($Packaging -eq 'Packaged') {
             # The clean build's identity is unique to its folder, so each check would leave one more registration behind.
             Start-Sleep -Milliseconds 500
-            $null = & $Winapp unregister $source --quiet 2>&1
+            if ($cleanSuffix) { Remove-PackageBySuffix $cleanSuffix }
+            else { $null = & $Winapp unregister $(if ($ProjectFile) { Join-Path $source $ProjectFile } else { $source }) --quiet 2>&1 }
         }
+        if ($RemoveCleanBuild) { Start-Sleep -Milliseconds 500; Remove-Item $source -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
     $diffs = [System.Collections.Generic.List[object]]::new()
@@ -413,15 +577,95 @@ function Invoke-ParityCheck {
         })
     $elements = @($hot.Phases['initial'].Keys).Count
     $timing = "hot reload read {0:n1} s, clean build+launch {1:n0} s, total {2:n0} s" -f $hotSeconds, $buildSeconds, $clock.Elapsed.TotalSeconds
-    $header = if ($diffs.Count -eq 0) {
+    # Differences hot reload told the developer about, matched by element (x:Name), property and both values.
+    $reported = [System.Collections.Generic.List[object]]::new()
+    if ($AcceptReported -or $Config.reportedNotesCount) {
+        $split = Split-ReportedDifferences $diffs $ReportedNotes
+        $diffs = $split.Silent
+        $reported = $split.Reported
+    }
+    $incomplete = @($hot.Incomplete | ForEach-Object { "hot reload $_" }) + @($clean.Incomplete | ForEach-Object { "clean build $_" })
+    $header = if ($incomplete) {
+        # Not a verdict either way: a reading that stopped early can't show a match.
+        "parity: could not read the whole page, so the comparison is incomplete: $($incomplete -join '; ') ($elements elements read; $timing)"
+    } elseif ($diffs.Count -eq 0 -and $reported.Count -eq 0) {
         "parity: hot reload matches a clean build ($elements elements, $($hot.Phases.Count) readings; $timing)"
+    } elseif ($diffs.Count -eq 0) {
+        "parity: $($reported.Count) difference(s) from a clean build, all reported by hot reload ($elements elements, $($hot.Phases.Count) readings; $timing)"
     } else {
-        "parity: $($diffs.Count) difference(s) between hot reload and a clean build ($elements elements, $($hot.Phases.Count) readings; $timing)"
+        "parity: $($diffs.Count) difference(s) between hot reload and a clean build$(if ($reported.Count) { ", and $($reported.Count) reported by hot reload" }) ($elements elements, $($hot.Phases.Count) readings; $timing)"
     }
     $text = @($header) + @($notes | ForEach-Object { "  note: $_" })
     if ($diffs.Count) { $text += Format-ParityDiff $diffs }
-    [pscustomobject]@{ HotReload = $hot.Phases; Clean = $clean.Phases; Diffs = $diffs; Notes = $notes } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $WorkDir 'parity.json')
-    return [pscustomobject]@{ Ok = ($diffs.Count -eq 0); Output = ($text -join "`n"); Diffs = $diffs; Seconds = [int]$clock.Elapsed.TotalSeconds }
+    if ($reported.Count) { $text += '  reported by hot reload:'; $text += Format-ParityDiff $reported }
+    [pscustomobject]@{ HotReload = $hot.Phases; Clean = $clean.Phases; Diffs = $diffs; Reported = $reported; Notes = $notes } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $WorkDir 'parity.json')
+    return [pscustomobject]@{ Ok = ($diffs.Count -eq 0 -and -not $incomplete); Incomplete = [bool]$incomplete; Output = ($text -join "`n"); Diffs = $diffs; Reported = $reported; Seconds = [int]$clock.Elapsed.TotalSeconds }
 }
 
-Export-ModuleMember -Function Get-ParitySnapshot, Wait-ParitySnapshot, Compare-ParitySnapshot, Format-ParityDiff, Invoke-ParityCheck, Remove-Ansi
+<#
+.SYNOPSIS
+  The differences winapp's notes say a save leaves ("note: <Element>[.<Property>] shows '<hot>' here but '<clean>' after a
+  restart: <cause>"), as { Element, Property, Hot, Clean }.
+#>
+function Get-ReportedDifferences([string[]]$Notes) {
+    foreach ($note in @($Notes)) {
+        $text = Remove-Ansi $note
+        if ($text -match "^\s*(note:\s*)?(?<element>[A-Za-z_][\w]*)(\.(?<property>[A-Za-z_]\w*))?\s+shows\s+'(?<hot>.*?)'\s+here\s+but\s+'(?<clean>.*?)'\s+after\s+a\s+restart") {
+            [pscustomobject]@{ Kind = 'value'; Element = $Matches.element; Property = $Matches.property; Hot = $Matches.hot; Clean = $Matches.clean }
+        }
+        elseif ($text -match "^\s*(note:\s*)?\d+\s+elements?\s+under\s+(?<parent>[A-Za-z_]\w*)\b.*?\s+(is|are)\s+missing\s+here\s+but\s+shown\s+after\s+a\s+restart") {
+            [pscustomobject]@{ Kind = 'missing-under'; Element = $Matches.parent }
+        }
+        elseif ($text -match "^\s*(note:\s*)?(?<element>[A-Za-z_]\w*)\s+is\s+missing\s+here\s+but\s+shown\s+after\s+a\s+restart") {
+            [pscustomobject]@{ Kind = 'missing'; Element = $Matches.element }
+        }
+    }
+}
+
+# How a note and the gate each write "no value": the note says null, the gate (not set) or (unset).
+function ConvertTo-ComparableValue([string]$Value) { if ($Value -in 'null', '(not set)', '(unset)') { return '<no value>' }; return $Value }
+
+<#
+.SYNOPSIS
+  Splits parity differences into those a note reported and silent ones. Returns { Silent, Reported }. A note covers:
+  - "<X>[.<Property>] shows '<hot>' here but '<clean>' after a restart": the difference on the element named X (or on
+    the page itself, written <PageType>.<Property>), that property if named, with both values;
+  - "<X>.Items shows 'n' here but 'm' after a restart": item elements missing under X (n < m) or extra there (n > m);
+  - "N elements under <Parent> (...) are missing here but shown after a restart": elements missing under Parent;
+  - "<X> is missing here but shown after a restart": the element named X, missing.
+#>
+function Split-ReportedDifferences($Diffs, [string[]]$Notes) {
+    $said = @(Get-ReportedDifferences $Notes)
+    $silent = [System.Collections.Generic.List[object]]::new()
+    $reported = [System.Collections.Generic.List[object]]::new()
+    foreach ($d in @($Diffs)) {
+        if ($null -eq $d) { continue }
+        $path = [string]$d.Element
+        $name = if ($path -match '#([^/#\[]+)(\[\d+\])?$') { $Matches[1] } else { $null }
+        $isElement = $d.Property -eq '(element)'
+        $match = @($said | Where-Object {
+            $note = $_
+            switch ($note.Kind) {
+                'value' {
+                    if ($note.Property -eq 'Items') {
+                        # The list's item elements: missing here when it shows fewer, extra when it shows more.
+                        $fewer = [int]("0$($note.Hot)" -replace '\D', '') -lt [int]("0$($note.Clean)" -replace '\D', '')
+                        $isElement -and $path -match "#$([regex]::Escape($note.Element))(\[\d+\])?/" -and
+                            $d.HotReload -eq $(if ($fewer) { 'missing' } else { 'present' })
+                    } else {
+                        $onElement = ($name -and $note.Element -eq $name) -or ($path -eq '(root)' -and $note.Element -eq $d.Page)
+                        $onElement -and (-not $note.Property -or $note.Property -eq $d.Property) -and
+                            (ConvertTo-ComparableValue $note.Hot) -ceq (ConvertTo-ComparableValue ([string]$d.HotReload)) -and
+                            (ConvertTo-ComparableValue $note.Clean) -ceq (ConvertTo-ComparableValue ([string]$d.Clean))
+                    }
+                }
+                'missing-under' { $isElement -and $d.HotReload -eq 'missing' -and $path -match "#$([regex]::Escape($note.Element))(\[\d+\])?/" }
+                'missing' { $isElement -and $d.HotReload -eq 'missing' -and $name -eq $note.Element }
+            }
+        }).Count
+        if ($match) { $reported.Add($d) } else { $silent.Add($d) }
+    }
+    return [pscustomobject]@{ Silent = $silent; Reported = $reported }
+}
+
+Export-ModuleMember -Function Get-CleanBuildError, Get-ReportedDifferences, Split-ReportedDifferences, Get-ParitySnapshot, Wait-ParitySnapshot, Compare-ParitySnapshot, Format-ParityDiff, Invoke-ParityCheck, Remove-Ansi
