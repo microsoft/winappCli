@@ -252,6 +252,56 @@
       "id": "winapp-current",
       "plugin": "winapp",
       "source": "plugins/winapp",
+      "skillSetHash": "e20195ae2f87",
+      "skills": {
+        "winapp-find-api": [
+          "api.lookup"
+        ],
+        "winapp-find-ui": [
+          "ui.samples"
+        ],
+        "winapp-frameworks": [
+          "framework.guidance"
+        ],
+        "winapp-identity": [
+          "identity"
+        ],
+        "winapp-manifest": [
+          "msix.manifest"
+        ],
+        "winapp-maui": [
+          "maui.package"
+        ],
+        "winapp-package": [
+          "msix.package"
+        ],
+        "winapp-performance": [],
+        "winapp-sandbox": [
+          "sandbox.run",
+          "ui.automate"
+        ],
+        "winapp-setup": [
+          "project.setup",
+          "project.scaffold"
+        ],
+        "winapp-signing": [
+          "msix.sign"
+        ],
+        "winapp-troubleshoot": [
+          "troubleshoot"
+        ],
+        "winapp-ui-automation": [
+          "ui.automate"
+        ],
+        "winui-devtools": [
+          "winui.inspect"
+        ]
+      }
+    },
+    {
+      "id": "winapp-before-performance",
+      "plugin": "winapp",
+      "source": "plugins/winapp with winui-devtools, before winapp-performance was mapped",
       "skillSetHash": "ea21288d7949",
       "skills": {
         "winapp-find-api": [
@@ -300,7 +350,54 @@
     {
       "id": "winapp-before-devtools",
       "plugin": "winapp",
-      "source": "plugins/winapp (before winui-devtools)",
+      "source": "plugins/winapp with winapp-performance, before winui-devtools",
+      "skillSetHash": "93d52ca8d877",
+      "skills": {
+        "winapp-find-api": [
+          "api.lookup"
+        ],
+        "winapp-find-ui": [
+          "ui.samples"
+        ],
+        "winapp-frameworks": [
+          "framework.guidance"
+        ],
+        "winapp-identity": [
+          "identity"
+        ],
+        "winapp-manifest": [
+          "msix.manifest"
+        ],
+        "winapp-maui": [
+          "maui.package"
+        ],
+        "winapp-package": [
+          "msix.package"
+        ],
+        "winapp-performance": [],
+        "winapp-sandbox": [
+          "sandbox.run",
+          "ui.automate"
+        ],
+        "winapp-setup": [
+          "project.setup",
+          "project.scaffold"
+        ],
+        "winapp-signing": [
+          "msix.sign"
+        ],
+        "winapp-troubleshoot": [
+          "troubleshoot"
+        ],
+        "winapp-ui-automation": [
+          "ui.automate"
+        ]
+      }
+    },
+    {
+      "id": "winapp-before-performance-and-devtools",
+      "plugin": "winapp",
+      "source": "plugins/winapp before winapp-performance and winui-devtools",
       "skillSetHash": "4a4abc8b6541",
       "skills": {
         "winapp-find-api": [
