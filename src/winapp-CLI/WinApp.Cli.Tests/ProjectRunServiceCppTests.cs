@@ -58,6 +58,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
     private static readonly string[] ExpectedBuildTokens = ["-restore", "-p:RestorePackagesConfig=true", "-t:Build", "-p:Configuration=Debug", "-p:Platform=x64"];
     private static readonly string[] ExpectedArm64Tokens = ["-p:Foo=Bar", "-p:Configuration=Release", "-p:Platform=ARM64"];
+    private static readonly string[] ExpectedReleaseArm64Tokens = ["-p:Platform=ARM64", "-p:Configuration=Release"];
     private static readonly string[] ExpectedPackageIds = ["Microsoft.WindowsAppSDK", "Microsoft.WindowsAppSDK.Runtime"];
 
     private DirectoryInfo _tempDir = null!;
@@ -535,6 +536,24 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         Assert.AreEqual("x86", ProjectRunService.CppArchitectureFromProperties(["Foo=1;Platform=Win32"]));
         Assert.IsNull(ProjectRunService.CppArchitectureFromProperties(["Platform=Custom"]));
         Assert.IsNull(ProjectRunService.CppArchitectureFromProperties([]));
+    }
+
+    [TestMethod]
+    public void CppConfigurationFromProperties_ReadsLastNonEmptyValue()
+    {
+        Assert.AreEqual("Release", ProjectRunService.CppConfigurationFromProperties(["Configuration=Release"]));
+        Assert.AreEqual("Release", ProjectRunService.CppConfigurationFromProperties(["Configuration=Debug", "configuration=Release", "Configuration="]));
+        Assert.IsNull(ProjectRunService.CppConfigurationFromProperties(["Platform=ARM64"]));
+    }
+
+    [TestMethod]
+    public void BuildCppPropertyTokens_UserConfigurationProperty_EmitsOneConfiguration()
+    {
+        var options = new ProjectRunOptions("Release", "arm64", null, false, false, ["Configuration=Release", "Platform=ARM64"]);
+
+        var tokens = ProjectRunService.BuildCppPropertyTokens(options);
+
+        CollectionAssert.AreEqual(ExpectedReleaseArm64Tokens, tokens);
     }
 
     [TestMethod]
