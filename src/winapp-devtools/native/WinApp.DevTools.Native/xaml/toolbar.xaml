@@ -7,6 +7,14 @@
 
   <Canvas.Resources>
 
+    <!-- Toolbar toggles show their checked state with their own content, not the default checked fill. -->
+    <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+    <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+    <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+    <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+
     <!-- FillBehavior="Stop" returns the glow to its local opacity, so the attach pulse does not keep running. -->
     <Storyboard x:Name="DevToolsAttachPulse">
       <DoubleAnimation Storyboard.TargetName="DevToolsGlowHalo" Storyboard.TargetProperty="Opacity"
@@ -97,14 +105,6 @@
               ToolTipService.ToolTip="Select an element to inspect (Esc to exit)"
               AutomationProperties.AutomationId="DevToolsProtoPick"
               AutomationProperties.Name="Select element">
-        <ToggleButton.Resources>
-          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
-        </ToggleButton.Resources>
         <Grid Width="30" Height="26">
           <FontIcon x:Name="DevToolsPickOff" FlowDirection="LeftToRight" Glyph="&#xE7C9;"
                     FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -122,14 +122,6 @@
               ToolTipService.ToolTip="Comment on elements (Esc to exit)"
               AutomationProperties.AutomationId="DevToolsProtoComments"
               AutomationProperties.Name="Comment mode">
-        <ToggleButton.Resources>
-          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
-        </ToggleButton.Resources>
         <Grid Width="34" Height="26">
           <FontIcon x:Name="DevToolsCommentsOff" FlowDirection="LeftToRight" Glyph="&#xE90A;" FontSize="15"
                     Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -159,14 +151,6 @@
               ToolTipService.ToolTip="Layout adorners: margin, padding and alignment of the element you hover or select"
               AutomationProperties.AutomationId="DevToolsProtoLayout"
               AutomationProperties.Name="Layout adorners">
-        <ToggleButton.Resources>
-          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
-        </ToggleButton.Resources>
         <Grid Width="30" Height="26">
           <FontIcon x:Name="DevToolsLayoutOff" FlowDirection="LeftToRight" Glyph="&#xE80A;"
                     FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -264,12 +248,6 @@
               AutomationProperties.AutomationId="DevToolsToggleMarkers"
               AutomationProperties.Name="Show comment markers">
         <ToggleButton.Resources>
-          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
           <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="$TEXT$" />
         </ToggleButton.Resources>
         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -342,12 +320,6 @@
               AutomationProperties.AutomationId="DevToolsProtoPin"
               AutomationProperties.Name="Keep toolbar open">
         <ToggleButton.Resources>
-          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
-          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
           <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="$TEXT$" />
         </ToggleButton.Resources>
         <StackPanel Orientation="Horizontal" Spacing="8">
