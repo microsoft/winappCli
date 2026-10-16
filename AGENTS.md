@@ -223,6 +223,8 @@ guide, and its TypeScript examples are checked against the public API by npm tes
 
 To measure which plugin skills Copilot CLI loads (and the tokens it uses) for realistic prompts, run the local agent benchmark: `pwsh benchmarks\agents\run.ps1 -Plan`. See [`benchmarks/agents/README.md`](benchmarks/agents/README.md).
 
+To measure whether the plugins help Copilot build complete, working WinUI apps (build, launch, requirements, quality checks, design), run the app benchmark: `cd benchmarks\apps; npm ci; npm run bench -- --scenario calc --agent "none,published,winappcli@main,winappcli@my-branch" --dry-run`. Trials cost real AI credits and take minutes each. See [`benchmarks/apps/README.md`](benchmarks/apps/README.md).
+
 ### Running tests on a Microsoft corporate machine
 
 `api.nuget.org` is **not reachable** from corp machines. Any test that downloads a package

@@ -196,6 +196,19 @@ internal partial class RunCommand
                 return Fail($"{(aot ? "--aot" : "--framework")} applies to .NET projects and can't be used with a C++ project ({csproj.Name}).", isJson);
             }
 
+            // For C++, -p Configuration=Release is how Visual Studio users pick the configuration, so treat it
+            // like -c. Both are allowed only when they name the same configuration.
+            if (isCpp && ProjectRunService.CppConfigurationFromProperties(properties) is { } propertyConfiguration)
+            {
+                if (parseResult.GetResult(ConfigurationOption) is { Implicit: false }
+                    && !string.Equals(propertyConfiguration, configuration, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Fail($"-p Configuration={propertyConfiguration} conflicts with -c {configuration}. Pass only one of them.", isJson);
+                }
+
+                configuration = propertyConfiguration;
+            }
+
             // For C++, -p Platform=ARM64 is how Visual Studio users pick the architecture, so honor it when
             // --arch/--runtime weren't given instead of defaulting to the machine's architecture.
             if (isCpp && archOption is null && runtimeOption is null
