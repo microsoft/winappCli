@@ -10,6 +10,24 @@ static void SetStatusText(const std::wstring& s)
     WindowsDeleteString(hs);
 }
 
+// The last write's failure reason, and the row it is shown on until that row's next commit or another selection.
+static void SetTextOn(IInspectable* el, const std::wstring& text);
+static std::wstring g_lastWriteReason;
+static InstanceHandle g_writeErrorWire = 0;
+static std::wstring g_writeErrorPath, g_writeErrorText;
+
+static void ShowWriteError(const std::wstring& prop, const std::wstring& text)
+{
+    g_writeErrorWire = text.empty() ? 0 : g_selWire;
+    g_writeErrorPath = text.empty() ? std::wstring() : prop;
+    g_writeErrorText = text;
+    if (void* er = PaneRowChild(prop, L"PError")) {
+        if (!text.empty()) SetTextOn(reinterpret_cast<IInspectable*>(er), text);
+        DevToolsPutVisibility(er, text.empty() ? 1 : 0);
+        reinterpret_cast<IUnknown*>(er)->Release();
+    }
+}
+
 static void NoteChange(const std::wstring& prop, const std::wstring& preVal, const std::wstring& newVal)
 {
     std::wstring* seedp = DirtyFind(prop);
@@ -46,7 +64,8 @@ static DevToolsWriteOutcome CommitWrite(InstanceHandle wire, const std::wstring&
     if (!g_ctx.writeFn) return DevToolsWriteOutcome::Failed;
     if (!confirmed && ResourceBacked(prop) && !LinkLost(prop)) return DevToolsWriteOutcome::NeedsConfirm;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropWrite);
-    const DevToolsWriteOutcome oc = g_ctx.writeFn(wire, prop, type, value, confirmed);
+    g_lastWriteReason.clear();
+    const DevToolsWriteOutcome oc = g_ctx.writeFn(wire, prop, type, value, confirmed, &g_lastWriteReason);
     // A landed write over a resource link retires the link. Recorded BEFORE the caller reacts, so the pane
     // rebuild that ApplyCommitOutcome may trigger already sees the row as unlinked -- otherwise the row would
     // re-render still armed and prompt again for a link that is already gone.
@@ -65,6 +84,7 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
 {
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropCommit);
     if (wire != g_selWire) return DevToolsWriteLanded(oc);
+    if (oc != DevToolsWriteOutcome::Failed && g_writeErrorWire == wire && g_writeErrorPath == prop) ShowWriteError(prop, L"");
     switch (oc) {
     case DevToolsWriteOutcome::Ok:
         PendingErase(prop);
@@ -102,7 +122,7 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
         const std::wstring ask = (link ? L"Replace resource with " : L"Replace binding with ")
                                + QuoteForPrompt(val) + L"?";
         if (void* ct = PaneRowChild(prop, L"PConfirmText")) {
-            HSTRING hs = MakeStr(ask); DevToolsPutText(ct, hs); WindowsDeleteString(hs);
+            SetTextOn(reinterpret_cast<IInspectable*>(ct), ask);
             reinterpret_cast<IUnknown*>(ct)->Release();
         }
         if (void* po = PaneRowChild(prop, L"POrigin")) {
@@ -120,9 +140,15 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
     }
 
     case DevToolsWriteOutcome::Failed:
-    default:
-        SetStatusText(L"Couldn't set " + prop);
+    default: {
+        // The tap's reason is "token|message"; the message is what the row shows.
+        const size_t bar = g_lastWriteReason.find(L'|');
+        const std::wstring why = bar == std::wstring::npos ? g_lastWriteReason : g_lastWriteReason.substr(bar + 1);
+        const std::wstring text = why.empty() ? L"Couldn't set " + prop : why;
+        ShowWriteError(prop, text);
+        SetStatusText(text);
         return false;
+    }
     }
 }
 

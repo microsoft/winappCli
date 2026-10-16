@@ -142,7 +142,7 @@ int main()
     DevToolsCardRow row;
     row.name=L"IsEnabled";row.type=L"Boolean";row.valueType=L"Windows.Foundation.Boolean";
     row.value=L"True";row.source=L"Default";
-    g_ctx.writeFn=[&](InstanceHandle wire,const std::wstring&,const std::wstring&,const std::wstring& value,bool) {
+    g_ctx.writeFn=[&](InstanceHandle wire,const std::wstring&,const std::wstring&,const std::wstring& value,bool,std::wstring*) {
         ++writes;values[wire]=value;return DevToolsWriteOutcome::Ok;
     };
     g_ctx.rowsFn=[&](InstanceHandle wire,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>& rows,std::wstring&,std::wstring&) {
@@ -272,7 +272,7 @@ int main()
         "successful write with failed readback reports display refresh failure");
     InstanceHandle written=0;
     g_selWire=77;testStatus.text=L"new selection";
-    g_ctx.writeFn=[&](InstanceHandle wire,const std::wstring&,const std::wstring&,const std::wstring&,bool){
+    g_ctx.writeFn=[&](InstanceHandle wire,const std::wstring&,const std::wstring&,const std::wstring&,bool,std::wstring*){
         written=wire;g_selWire=g_dirtyNode=88;g_propRows={row};
         NoteSessionAssign(L"Text",DevToolsKind::Theme,L"NewSelectionResource");
         g_linkedRows={L"Text"};
@@ -284,6 +284,23 @@ int main()
         "reentrant commit preserves new selection resource witness");
     check(testStatus.text==L"new selection" && g_propRows[0].value==row.value,
         "reentrant literal commit never refreshes the new selection");
+    {
+        void* repeater=g_propRepeater; g_propRepeater=nullptr; g_selWire=88;
+        g_ctx.writeFn=[&](InstanceHandle,const std::wstring&,const std::wstring&,const std::wstring&,bool,std::wstring* reason){
+            *reason=L"property-write-failed|Couldn't set Content: TitleBar rejected 'x' (String). The previous value was kept (0x80004005)";
+            return DevToolsWriteOutcome::Failed;
+        };
+        check(!ApplyLiteralValue(L"Content",L"String",L"",L"x",false) &&
+            testStatus.text==L"Couldn't set Content: TitleBar rejected 'x' (String). The previous value was kept (0x80004005)" &&
+            g_writeErrorWire==88 && g_writeErrorPath==L"Content",
+            "a refused write shows the control's reason on its row and in the status line");
+        g_ctx.writeFn=[&](InstanceHandle,const std::wstring&,const std::wstring&,const std::wstring&,bool,std::wstring*){
+            return DevToolsWriteOutcome::Ok;
+        };
+        ApplyLiteralValue(L"Content",L"String",L"x",L"",false);
+        check(g_writeErrorPath.empty(), "the row's error clears on its next successful write");
+        g_propRepeater=repeater;
+    }
     g_statusTb=nullptr;g_propRepeater=nullptr;
     const ULONG captionRefsBefore=testRow.refs, rootRefsBefore=testValue.refs;
     g_captionTheme=&testRow;testRow.AddRef();

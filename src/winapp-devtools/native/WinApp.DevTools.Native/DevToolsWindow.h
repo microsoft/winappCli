@@ -34,7 +34,7 @@ using DevToolsWindowReadInputFn = std::function<bool(IInspectable* box, std::wst
 // Write outcome distinguishes failure, binding-replace refusal, and confirmed data loss.
 using DevToolsWindowWriteFn     = std::function<DevToolsWriteOutcome(InstanceHandle wire, const std::wstring& prop,
                                                            const std::wstring& type, const std::wstring& value,
-                                                           bool confirmBindingReplace)>;
+                                                           bool confirmBindingReplace, std::wstring* reason)>;
 // clearFn - reset one curated property to its inherited/default value on the node (IVisualTreeService::
 // ClearProperty). Returns false on a stale handle or if the property index cannot be resolved.
 using DevToolsWindowClearFn     = std::function<bool(InstanceHandle wire, const std::wstring& prop)>;

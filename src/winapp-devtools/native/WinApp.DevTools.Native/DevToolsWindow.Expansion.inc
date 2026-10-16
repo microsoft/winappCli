@@ -192,6 +192,12 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         sb->Release();
     }
 
+    if (IInspectable* er = FindInRow(fe, L"PError")) {
+        const bool show = g_writeErrorWire == g_selWire && g_writeErrorPath == path;
+        if (show) SetTextOn(er, g_writeErrorText);
+        ShowEl(er, show);
+        er->Release();
+    }
     if (IInspectable* cf = FindInRow(fe, L"PConfirm")) {
         const PendingWrite* pend = PendingFind(path);
         ShowEl(cf, pend != nullptr);

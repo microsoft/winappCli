@@ -225,6 +225,63 @@ static unsigned int FindPropIndex(InstanceHandle h, const std::wstring& prop)
     FreePropChain(sc, s, pc, v);
     return idx;
 }
+// A rejected write can still leave the new value stored: TitleBar.Content = "x" fails with E_NOINTERFACE yet keeps
+// "x", and the TitleBar then fail-fasts the app the next time the window is activated. So every write remembers
+// the property's local value first and puts it back when the setter fails.
+struct PriorLocalValue
+{
+    bool had = false;            // a local value was set
+    bool restorable = true;      // false for a binding, which cannot be re-created from the chain
+    InstanceHandle object = 0;   // an object value, by diagnostics handle
+    std::wstring type, value;    // a literal value
+    std::wstring owner;          // the property's declaring type, for the message
+};
+
+static PriorLocalValue ReadPriorLocalValue(InstanceHandle h, unsigned int idx)
+{
+    PriorLocalValue prior;
+    unsigned int sc = 0, pc = 0;
+    PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
+    if (g_vts3 && SUCCEEDED(ReadPropChain(h, &sc, &s, &pc, &v)) && v) {
+        for (unsigned int i = 0; i < pc; i++) {
+            if (v[i].Index != idx) continue;
+            if (prior.owner.empty() && v[i].DeclaringType) prior.owner = v[i].DeclaringType;
+            const unsigned int si = v[i].PropertyChainIndex;
+            if (!s || si >= sc || s[si].Source != 4 /*Local*/) continue;
+            prior.had = true;
+            if (v[i].MetadataBits & 0x10 /*binding*/) prior.restorable = false;
+            else if (v[i].MetadataBits & 0x1 /*object handle*/) prior.object = v[i].Value ? _wcstoui64(v[i].Value, nullptr, 10) : 0;
+            else { prior.type = v[i].ValueType ? v[i].ValueType : L""; prior.value = v[i].Value ? v[i].Value : L""; }
+        }
+    }
+    FreePropChain(sc, s, pc, v);
+    return prior;
+}
+
+static void RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const PriorLocalValue& prior)
+{
+    if (!prior.restorable || !WindowElementCurrent_ui(h)) return;
+    HRESULT hr = S_OK;
+    if (!prior.had) hr = g_vts3->ClearProperty(h, idx);
+    else if (prior.object) hr = g_vts3->SetProperty(h, prior.object, idx);
+    else {
+        BSTR tn = SysAllocString(prior.type.c_str()), vv = SysAllocString(prior.value.c_str());
+        InstanceHandle valH = 0;
+        hr = (tn && vv) ? g_vts3->CreateInstance(tn, vv, &valH) : E_OUTOFMEMORY;
+        if (SUCCEEDED(hr) && valH) hr = g_vts3->SetProperty(h, valH, idx);
+        SysFreeString(tn); SysFreeString(vv);
+    }
+    Log(L"setprop: restored the previous value after a rejected write (hr=0x%08X)", hr);
+}
+
+// Takes (and so clears) the error WinUI originated on this thread. Left in place, a later failure on this thread, for
+// example the control's own window-activation handler, reports it and fail-fasts the app.
+static void ClearOriginatedError()
+{
+    IRestrictedErrorInfo* info = nullptr;
+    if (SUCCEEDED(GetRestrictedErrorInfo(&info)) && info) info->Release();
+}
+
 // Set a literal property: CreateInstance from a XAML type-converter literal, then SetProperty. UI thread.
 static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std::wstring& type, const std::wstring& value,
                           std::wstring* error = nullptr)
@@ -236,14 +293,33 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
 #endif
     unsigned int idx = FindPropIndex(h, prop);
     if (idx == 0xFFFFFFFF) { Log(L"setprop: '%s' not found on %llu", prop.c_str(), h); return E_INVALIDARG; }
+    const PriorLocalValue prior = ReadPriorLocalValue(h, idx);
     BSTR tn = SysAllocString(type.c_str()), vv = SysAllocString(value.c_str());
     InstanceHandle valH = 0;
+    bool attempted = false;
     HRESULT hr = DevToolsInspector::WriteLiteral(prop, type, value, [&]() {
         if (!tn || !vv) return E_OUTOFMEMORY;
         HRESULT converted = g_vts3->CreateInstance(tn, vv, &valH);
         return SUCCEEDED(converted) && !valH ? E_INVALIDARG : converted;
-    }, [&]() { return WindowElementCurrent_ui(h) ? g_vts3->SetProperty(h, valH, idx) : E_ACCESSDENIED; }, error);
+    }, [&]() {
+        if (!WindowElementCurrent_ui(h)) return E_ACCESSDENIED;
+        attempted = true;
+        return g_vts3->SetProperty(h, valH, idx);
+    }, error);
     SysFreeString(tn); SysFreeString(vv);
+    if (FAILED(hr) && attempted) {
+        ClearOriginatedError();
+        RestorePriorLocalValue(h, idx, prior);
+        ClearOriginatedError();
+        if (error) {
+            wchar_t hex[16]{};
+            swprintf_s(hex, L"0x%08X", static_cast<unsigned int>(hr));
+            const std::wstring owner = prior.owner.empty() ? std::wstring(L"The element") : DevToolsRead_ShortTypeName(prior.owner);
+            *error = L"property-write-failed|Couldn't set " + prop + L": " + owner + L" rejected '" + value + L"'" +
+                     (type.empty() ? std::wstring() : L" (" + DevToolsRead_ShortTypeName(type) + L")") +
+                     (prior.restorable ? L". The previous value was kept (" : L" (") + hex + L")";
+        }
+    }
     // Every live write (quick panel, inspector, set-property) is remembered so a binding's status can say it is
     // overridden. Skipped rather than waited for when the census is being rewritten.
     if (SUCCEEDED(hr) && TryAcquireSRWLockShared(&g_censusLock)) {

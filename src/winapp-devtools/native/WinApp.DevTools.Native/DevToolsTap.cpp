@@ -10,6 +10,7 @@
 #include <inspectable.h>
 #include <winstring.h>
 #include <roapi.h>
+#include <roerrorapi.h>
 #include <RoMetadataApi.h>
 #include <roparameterizediid.h>
 #include <oleauto.h>

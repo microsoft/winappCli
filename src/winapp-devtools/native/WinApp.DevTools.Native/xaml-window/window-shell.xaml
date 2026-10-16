@@ -489,6 +489,10 @@
                   <TextBlock x:Name="PConfirmText" FontSize="11" TextWrapping="Wrap"/>
                 </Button>
 
+                <!-- A write the app's control refused; the previous value was kept. -->
+                <TextBlock x:Name="PError" Visibility="Collapsed" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"
+                           Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Assertive"/>
+
                 <TextBlock x:Name="PEditedHdr" Text="EDITED" FontSize="10" CharacterSpacing="60" Margin="0,9,0,3" Visibility="Collapsed" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                 <TextBlock x:Name="PEditedWas" FontSize="11" FontFamily="Consolas" TextWrapping="Wrap" Visibility="Collapsed" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">

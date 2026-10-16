@@ -199,7 +199,7 @@ static void Route1ReadRows(InstanceHandle wire, std::wstring& outType, std::wstr
                            std::vector<DevToolsCardRow>& outRows, std::wstring& outAuthoredState,
                            std::wstring& outAuthoredXaml);
 static DevToolsWriteOutcome Route1Write(InstanceHandle wire, const std::wstring& prop, const std::wstring& type,
-                                   const std::wstring& value, bool confirmBindingReplace);
+                                   const std::wstring& value, bool confirmBindingReplace, std::wstring* reason);
 static bool Route1Clear(InstanceHandle wire, const std::wstring& prop);
 static bool Route1Resolve(InstanceHandle wire, const std::wstring& prop, const std::wstring& resourceName, bool asTheme);
 static bool Route1Bind(InstanceHandle wire, const std::wstring& op, const std::wstring& prop,

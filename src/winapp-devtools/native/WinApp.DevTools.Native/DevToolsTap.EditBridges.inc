@@ -220,7 +220,7 @@ static bool ResolveWriteTarget(InstanceHandle h, const std::wstring& path,
 // UI thread only. Such a memo also has to key on element identity across time -- with a recyclable raw handle, so a
 // dead element's consent could be inherited by whatever is slotted next.
 static DevToolsWriteOutcome InteractiveWrite(InstanceHandle h, const std::wstring& prop, const std::wstring& type,
-                                        const std::wstring& value, bool confirmBindingReplace)
+                                        const std::wstring& value, bool confirmBindingReplace, std::wstring* reason)
 {
     InstanceHandle target = 0; std::wstring leaf;
     if (!ResolveWriteTarget(h, prop, &target, &leaf)) return DevToolsWriteOutcome::Failed;
@@ -229,7 +229,7 @@ static DevToolsWriteOutcome InteractiveWrite(InstanceHandle h, const std::wstrin
         Log(L"write.gate '%s' refused: bound, unconfirmed", prop.c_str());
         return DevToolsWriteOutcome::NeedsConfirm;
     }
-    HRESULT hr = SetLiteral(target, leaf, type, value);
+    HRESULT hr = SetLiteral(target, leaf, type, value, reason);
     if (FAILED(hr)) {
         Log(L"write '%s'='%s' (%s) hr=0x%08X", prop.c_str(), value.c_str(), type.c_str(), hr);
         return DevToolsWriteOutcome::Failed;
@@ -502,7 +502,7 @@ static void ReadPreviewFacts(InstanceHandle wire, DevToolsBatch::PreviewFacts& o
 
 // Runs on the UI thread (the window's commit sinks), so it may touch the live tree directly. Stale handle -> Failed.
 static DevToolsWriteOutcome Route1Write(InstanceHandle wire, const std::wstring& prop, const std::wstring& type,
-                                   const std::wstring& value, bool confirmBindingReplace)
+                                   const std::wstring& value, bool confirmBindingReplace, std::wstring* reason)
 {
     if (!DevToolsTrust_MutationEnabled()) {
         Log(L"route1.write refused by process posture");
@@ -513,7 +513,7 @@ static DevToolsWriteOutcome Route1Write(InstanceHandle wire, const std::wstring&
     ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
     ReleaseSRWLockShared(&g_censusLock);
     if (!ok) { Log(L"route1.write stale wire (%s)", e ? e : L"?"); return DevToolsWriteOutcome::Failed; }
-    return InteractiveWrite(ih, prop, type, value, confirmBindingReplace);
+    return InteractiveWrite(ih, prop, type, value, confirmBindingReplace, reason);
 }
 
 // Reset one curated property from the in-proc window's inspector to its inherited/default value: re-resolve
