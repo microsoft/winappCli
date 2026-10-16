@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
+using System.CommandLine.Completions;
 using System.CommandLine.Help;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -141,7 +142,10 @@ internal static partial class CompactHelpRenderer
             }
 
             _sb.AppendLine();
-            var usage = (command as IHelpExamples)?.Usage ?? (command as ICompactHelpCommand)?.Usage ?? BuildUsage(command, path);
+            // ui and devtools pages keep the exact layout agents were built against; other pages add the
+            // details System.CommandLine's default help showed (defaults, allowed values, optional arguments).
+            var detailed = !InAgentGroup(command);
+            var usage = (command as IHelpExamples)?.Usage ?? (command as ICompactHelpCommand)?.Usage ?? BuildUsage(command, path, detailed);
             _sb.AppendLine($"{Heading("Usage:")} {Code(usage)}");
 
             if (command is ICompactHelpCommand { Examples.Count: > 0 } described)
@@ -169,16 +173,16 @@ internal static partial class CompactHelpRenderer
                     .Where(g => g.Options.Count > 0)
                     .ToList();
                 // One column for every group, so descriptions line up down the whole page.
-                var column = Math.Clamp(groups.SelectMany(g => g.Options).Select(o => FormatOption(o).Length + 2)
+                var column = Math.Clamp(groups.SelectMany(g => g.Options).Select(o => FormatOption(o, detailed).Length + 2)
                     .Where(length => length <= MaxGroupedNameColumn).DefaultIfEmpty(MinNameColumn).Max(),
                     MinNameColumn, MaxGroupedNameColumn);
                 foreach (var (heading, groupOptions) in groups)
                 {
-                    AppendSection(heading, groupOptions.Select(o => (FormatOption(o), o.Description ?? "")).ToList(), column);
+                    AppendSection(heading, groupOptions.Select(o => (FormatOption(o, detailed), DescribeOption(o, detailed))).ToList(), column);
                 }
                 options = options.Except(groups.SelectMany(g => g.Options)).ToList();
             }
-            AppendSection("Options:", options.Select(o => (FormatOption(o), o.Description ?? "")).ToList());
+            AppendSection("Options:", options.Select(o => (FormatOption(o, detailed), DescribeOption(o, detailed))).ToList());
 
             _sb.AppendLine();
             // Saved-comment reads always run locally and reject --on.
@@ -330,14 +334,24 @@ internal static partial class CompactHelpRenderer
         && option != WinAppRootCommand.QuietOption
         && !ExecutionTargetSelection.IsSelectorOption(option);
 
-    private static string BuildUsage(Command command, string path)
+    private static bool InAgentGroup(Command command) =>
+        command is ICompactHelpGroup || command.Parents.OfType<Command>().Any(InAgentGroup);
+
+    private static string BuildUsage(Command command, string path, bool detailed)
     {
         var parts = new List<string> { path };
+        var arguments = command.Arguments.Where(a => !a.Hidden);
+        parts.AddRange(detailed
+            ? arguments.Select(a =>
+            {
+                var name = a.Arity.MaximumNumberOfValues > 1 ? $"<{a.Name}>..." : $"<{a.Name}>";
+                return a.Arity.MinimumNumberOfValues == 0 ? $"[{name}]" : name;
+            })
+            : arguments.Select(a => $"<{a.Name}>"));
         if (command.Subcommands.Any(c => !c.Hidden))
         {
             parts.Add(command.Action is null ? "<command>" : "[<command>]");
         }
-        parts.AddRange(command.Arguments.Where(a => !a.Hidden).Select(a => $"<{a.Name}>"));
         var hasApp = command.Options.Contains(SharedUiOptions.AppOption);
         var hasWindow = command.Options.Contains(SharedUiOptions.WindowOption);
         if (hasApp && hasWindow)
@@ -350,15 +364,57 @@ internal static partial class CompactHelpRenderer
         }
 
         parts.Add("[options]");
+        if (detailed && !command.TreatUnmatchedTokensAsErrors)
+        {
+            // Commands such as 'store' and 'tool' forward everything else to another program.
+            parts.Add("[[--] <additional arguments>...]");
+        }
         return string.Join(" ", parts);
     }
 
-    private static string FormatOption(Option option)
+    private static string FormatOption(Option option, bool detailed)
     {
         var names = option.Aliases.Where(a => a != option.Name).OrderBy(a => a.Length).Append(option.Name);
         var label = string.Join(", ", names);
         var takesValue = option.Arity.MaximumNumberOfValues > 0 && option.ValueType != typeof(bool);
-        return takesValue ? $"{label} <{option.HelpName ?? option.Name.TrimStart('-')}>" : label;
+        var placeholder = option.HelpName ?? (detailed ? AllowedValues(option) : null) ?? option.Name.TrimStart('-');
+        return takesValue ? $"{label} <{placeholder}>" : label;
+    }
+
+    /// <summary>The fixed set of values an option accepts (an enum or AcceptOnlyFromAmong), if short.</summary>
+    private static string? AllowedValues(Option option)
+    {
+        var values = option.GetCompletions(CompletionContext.Empty).Select(c => c.Label).ToList();
+        return values.Count is > 0 and <= 6 ? string.Join("|", values) : null;
+    }
+
+    /// <summary>The option's description, plus whether it's required and its default value (unless the
+    /// description already names it).</summary>
+    private static string DescribeOption(Option option, bool detailed)
+    {
+        var description = option.Description ?? "";
+        if (!detailed)
+        {
+            return description;
+        }
+        if (option.Required)
+        {
+            description = $"{description} (REQUIRED)".TrimStart();
+        }
+        if (!option.HasDefaultValue)
+        {
+            return description;
+        }
+        var value = option.GetDefaultValue() switch
+        {
+            null or bool or "" => null,
+            System.Collections.IEnumerable and not string => null,
+            var v => v.ToString(),
+        };
+        return value is null
+            || (description.Contains("default", StringComparison.OrdinalIgnoreCase) && description.Contains(value, StringComparison.OrdinalIgnoreCase))
+            ? description
+            : $"{description} [default: {value}]".TrimStart();
     }
 
     private static string GetCommandPath(Command command)

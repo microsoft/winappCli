@@ -150,6 +150,33 @@ public class CompactCommandHelpTests : BaseCommandTests
         StringAssert.Contains(CompactHelpRenderer.Render(GetRequiredService<WinAppRootCommand>().Subcommands.Single(c => c.Name == "run"), styled: true), "\u001b[");
     }
 
+    [TestMethod]
+    [DataRow("cert generate", "--if-exists <Error|Overwrite|Skip>")]
+    [DataRow("cert generate", "[default: 365]")]
+    [DataRow("manifest generate", "--template <Packaged|Sparse>")]
+    [DataRow("perf mark", "(REQUIRED)")]
+    [DataRow("find-ui", "Usage: winapp find-ui [<query>] [options]")]
+    [DataRow("target exec", "<command>...")]
+    [DataRow("store", "[[--] <additional arguments>...]")]
+    [DataRow("tool", "[[--] <additional arguments>...]")]
+    public void NonAgentHelp_KeepsDefaultsAllowedValuesAndArgumentShapes(string path, string expected)
+    {
+        Command command = GetRequiredService<WinAppRootCommand>();
+        foreach (var name in path.Split(' '))
+        {
+            command = command.Subcommands.Single(c => c.Name == name);
+        }
+        var help = Regex.Replace(CompactHelpRenderer.Render(command), @"\s+", " ");
+        StringAssert.Contains(help, expected);
+    }
+
+    [TestMethod]
+    public void UiHelp_KeepsItsExistingLayout()
+    {
+        var inspect = GetRequiredService<WinAppRootCommand>().Subcommands.Single(c => c.Name == "ui").Subcommands.Single(c => c.Name == "inspect");
+        Assert.DoesNotContain("[default:", CompactHelpRenderer.Render(inspect));
+    }
+
     private static string CompactHelpTitlePrefix(Command command)
     {
         var parts = new List<string>();
