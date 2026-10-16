@@ -35,6 +35,22 @@ Describe 'Read-SessionEvents' {
         $r.unparsedLines | Should -Be 0
     }
 
+    It 'measures tool time as the union of running tool calls, plus API and session time' {
+        $r = Read-SessionEvents -Path (Join-Path $PSScriptRoot 'events-complete.jsonl')
+        # 60 + 33 (two overlapping calls 05.063-05.096) + 4 + 4
+        $r.toolTimeMs | Should -Be 101
+        $r.apiDurationMs | Should -Be 19117
+        $r.sessionDurationMs | Should -Be 20618
+    }
+
+    It 'leaves tool time out for a call that never completed' {
+        $path = Join-Path $TestDrive 'open-tool.jsonl'
+        Get-Content (Join-Path $PSScriptRoot 'events-complete.jsonl') |
+            Where-Object { $_ -notmatch '"type":"tool\.execution_complete".*toolu_01UQbf1HTNJXhaEVVr2nVocQ' } | Set-Content $path
+        $r = Read-SessionEvents -Path $path
+        $r.toolTimeMs | Should -Be 97
+    }
+
     It 'counts repeated deliveries of the same skill and the context they add' {
         $path = Join-Path $TestDrive 'repeat.jsonl'
         $lines = Get-Content (Join-Path $PSScriptRoot 'events-complete.jsonl')

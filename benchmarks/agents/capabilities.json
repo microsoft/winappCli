@@ -188,6 +188,20 @@
         ]
       }
     },
+    "winui.inspect": {
+      "description": "Look inside a running WinUI 3 app's XAML: the live visual tree, the values properties actually resolve to, what a binding evaluates to, which XAML file and line declares an element, in-memory property edits, and review notes a person pins to elements for an agent to act on.",
+      "commands": [
+        "^devtools"
+      ],
+      "answer": {
+        "require": [
+          [
+            "winapp devtools\\b",
+            "--devtools\\b"
+          ]
+        ]
+      }
+    },
     "ui.test": {
       "description": "Write and run repeatable automated UI tests for a desktop app.",
       "commands": [
@@ -238,6 +252,55 @@
       "id": "winapp-current",
       "plugin": "winapp",
       "source": "plugins/winapp",
+      "skillSetHash": "ea21288d7949",
+      "skills": {
+        "winapp-find-api": [
+          "api.lookup"
+        ],
+        "winapp-find-ui": [
+          "ui.samples"
+        ],
+        "winapp-frameworks": [
+          "framework.guidance"
+        ],
+        "winapp-identity": [
+          "identity"
+        ],
+        "winapp-manifest": [
+          "msix.manifest"
+        ],
+        "winapp-maui": [
+          "maui.package"
+        ],
+        "winapp-package": [
+          "msix.package"
+        ],
+        "winapp-sandbox": [
+          "sandbox.run",
+          "ui.automate"
+        ],
+        "winapp-setup": [
+          "project.setup",
+          "project.scaffold"
+        ],
+        "winapp-signing": [
+          "msix.sign"
+        ],
+        "winapp-troubleshoot": [
+          "troubleshoot"
+        ],
+        "winapp-ui-automation": [
+          "ui.automate"
+        ],
+        "winui-devtools": [
+          "winui.inspect"
+        ]
+      }
+    },
+    {
+      "id": "winapp-before-devtools",
+      "plugin": "winapp",
+      "source": "plugins/winapp (before winui-devtools)",
       "skillSetHash": "4a4abc8b6541",
       "skills": {
         "winapp-find-api": [

@@ -57,6 +57,7 @@
     <!-- SampleIndexWriter is build-only (it generates the reference index, which the CLI
          never does), so its contract tests reach into the baker rather than the product. -->
     <ProjectReference Include="..\WinApp.Cli.SnapshotBaker\WinApp.Cli.SnapshotBaker.csproj" />
+    <ProjectReference Include="TestApps\guest-lifetime\WinApp.Cli.LifetimeFixture.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
@@ -73,4 +74,12 @@
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <Target Name="CopyGuestLifetimeFixture" AfterTargets="Build">
+    <ItemGroup>
+      <GuestLifetimeFixture Include="TestApps\guest-lifetime\bin\$(Configuration)\$(TargetFramework)\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(GuestLifetimeFixture)"
+          DestinationFiles="@(GuestLifetimeFixture->'$(OutDir)guest-lifetime\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>

@@ -118,12 +118,12 @@ internal partial class MsixService
         return new MsixIdentityResult(debugIdentity.PackageName, debugIdentity.Publisher, debugIdentity.ApplicationId);
     }
 
-    public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation = LayoutReconciliation.Additive, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, FileInfo? appxRecipe = null, DevelopmentIdentityOptions? developmentIdentity = null, CancellationToken cancellationToken = default)
-        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Registered, reconciliation, clean, executable, runtimeArch, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, appxRecipe, developmentIdentity, cancellationToken);
+    public Task<MsixIdentityResult> AddLooseLayoutIdentityAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation = LayoutReconciliation.Additive, bool clean = false, string? executable = null, string? runtimeArch = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, InspectorAliasRequest? inspectorAlias = null, FileInfo? appxRecipe = null, DevelopmentIdentityOptions? developmentIdentity = null, CancellationToken cancellationToken = default)
+        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Registered, reconciliation, clean, executable, runtimeArch, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, inspectorAlias, appxRecipe, developmentIdentity, cancellationToken);
 
     /// <inheritdoc/>
     public Task<MsixIdentityResult> MaterializeLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LayoutReconciliation reconciliation, string? executable = null, FileInfo? projectFile = null, string? framework = null, bool noRestore = false, bool selfContained = false, bool ensureExecutionAlias = false, PackageGraphSource? packageGraph = null, FileInfo? appxRecipe = null, DevelopmentIdentityOptions? developmentIdentity = null, CancellationToken cancellationToken = default)
-        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Materialized, reconciliation, clean: false, executable, runtimeArch: null, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, appxRecipe, developmentIdentity, cancellationToken);
+        => BuildLooseLayoutAsync(appxManifestPath, inputDirectory, outputAppXDirectory, taskContext, LooseLayoutOutcome.Materialized, reconciliation, clean: false, executable, runtimeArch: null, projectFile, framework, noRestore, selfContained, ensureExecutionAlias, packageGraph, inspectorAlias: null, appxRecipe, developmentIdentity, cancellationToken);
 
     /// <summary>How far <see cref="BuildLooseLayoutAsync"/> takes a loose layout.</summary>
     private enum LooseLayoutOutcome
@@ -151,9 +151,16 @@ internal partial class MsixService
     /// to reproduce locally.
     /// </para>
     /// </remarks>
-    private async Task<MsixIdentityResult> BuildLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LooseLayoutOutcome outcome, LayoutReconciliation reconciliation, bool clean, string? executable, string? runtimeArch, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained, bool ensureExecutionAlias, PackageGraphSource? packageGraph, FileInfo? appxRecipe, DevelopmentIdentityOptions? developmentIdentity, CancellationToken cancellationToken)
+    private async Task<MsixIdentityResult> BuildLooseLayoutAsync(FileInfo appxManifestPath, DirectoryInfo inputDirectory, DirectoryInfo outputAppXDirectory, TaskContext taskContext, LooseLayoutOutcome outcome, LayoutReconciliation reconciliation, bool clean, string? executable, string? runtimeArch, FileInfo? projectFile, string? framework, bool noRestore, bool selfContained, bool ensureExecutionAlias, PackageGraphSource? packageGraph, InspectorAliasRequest? inspectorAlias, FileInfo? appxRecipe, DevelopmentIdentityOptions? developmentIdentity, CancellationToken cancellationToken)
     {
         // Validate inputs
+        if (inspectorAlias is not null && string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(appxManifestPath.DirectoryName!)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputAppXDirectory.FullName)),
+            StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Inspector alias staging requires an output directory separate from the source manifest.");
+        }
         if (!appxManifestPath.Exists)
         {
             throw new FileNotFoundException($"AppX manifest not found at: {appxManifestPath}. You can generate one using 'winapp manifest generate'.");
@@ -284,15 +291,24 @@ internal partial class MsixService
                 await InstallRecipeFrameworkPackagesAsync(recipeFile, registrationManifest, runtimeArch, taskContext, cancellationToken);
             }
 
+            var preparedAlias = inspectorAlias is null ? null : PrepareInspectorAlias(registrationManifest, inspectorAlias);
+            // Requested DevTools stops here, before anything is registered; the default steps aside after registration.
+            if (preparedAlias?.Error is { } aliasError && inspectorAlias!.Required)
+            {
+                throw new InvalidOperationException(aliasError);
+            }
             await RemoveRegistrationOfAnotherIdentityAsync(previousPackageName, identity.PackageName, identity.Publisher, outputAppXDirectory, clean, taskContext, cancellationToken);
-
-            var skipResult = TrySkipRegistration(
+            if (preparedAlias?.Target?.ApplicationUserModelId is { } targetAumid)
+            {
+                identity = identity with { ApplicationId = targetAumid[(targetAumid.IndexOf('!') + 1)..] };
+            }
+            var skipResult = preparedAlias?.RequiresRegistration == true ? null : TrySkipRegistration(
                 identity.PackageName, identity.Publisher, identity.ApplicationId,
                 previousManifestBytes, registrationManifest, outputAppXDirectory,
                 clean, taskContext, cancellationToken);
             if (skipResult is not null)
             {
-                return skipResult with { Identity = uniqueIdentity };
+                return skipResult with { InspectorAlias = preparedAlias, Identity = uniqueIdentity };
             }
 
             // Unregister any existing package first (preserving app data by default)
@@ -306,7 +322,7 @@ internal partial class MsixService
             // Register from the AppX layout directory
             await RegisterLooseLayoutPackageAsync(registrationManifest, taskContext, cancellationToken);
 
-            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId) { Identity = uniqueIdentity };
+            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId) { InspectorAlias = preparedAlias, Identity = uniqueIdentity };
         }
 
         // --- Non-MSBuild manifest path (raw Package.appxmanifest with unresolved placeholders) ---
@@ -455,15 +471,24 @@ internal partial class MsixService
             }
 
             // See MSBuild branch above for the rationale (issue #537).
+            var preparedAlias = inspectorAlias is null ? null : PrepareInspectorAlias(copiedAppxManifestPath, inspectorAlias);
+            // Requested DevTools stops here, before anything is registered; the default steps aside after registration.
+            if (preparedAlias?.Error is { } aliasError && inspectorAlias!.Required)
+            {
+                throw new InvalidOperationException(aliasError);
+            }
             await RemoveRegistrationOfAnotherIdentityAsync(previousRawPackageName, identity.PackageName, identity.Publisher, outputAppXDirectory, clean, taskContext, cancellationToken);
-
-            var skipResult = TrySkipRegistration(
+            if (preparedAlias?.Target?.ApplicationUserModelId is { } targetAumid)
+            {
+                identity = identity with { ApplicationId = targetAumid[(targetAumid.IndexOf('!') + 1)..] };
+            }
+            var skipResult = preparedAlias?.RequiresRegistration == true ? null : TrySkipRegistration(
                 identity.PackageName, identity.Publisher, identity.ApplicationId,
                 previousRawManifestBytes, copiedAppxManifestPath, outputAppXDirectory,
                 clean, taskContext, cancellationToken);
             if (skipResult is not null)
             {
-                return skipResult with { Identity = uniqueIdentity };
+                return skipResult with { InspectorAlias = preparedAlias, Identity = uniqueIdentity };
             }
 
             // Unregister any existing package first (preserving app data by default)
@@ -477,8 +502,46 @@ internal partial class MsixService
             // Register the new debug manifest with external location
             await RegisterLooseLayoutPackageAsync(copiedAppxManifestPath, taskContext, cancellationToken);
 
-            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId) { Identity = uniqueIdentity };
+            return new MsixIdentityResult(identity.PackageName, identity.Publisher, identity.ApplicationId) { InspectorAlias = preparedAlias, Identity = uniqueIdentity };
         }
+    }
+
+    internal Func<string, bool> AliasProxyExists { get; set; } = File.Exists;
+    internal Func<string, ExecutionAliasResolver.AliasTarget?> ReadAliasTarget { get; set; } = ExecutionAliasResolver.TryReadAliasTarget;
+
+    private InspectorAlias PrepareInspectorAlias(FileInfo stagedManifest, InspectorAliasRequest request)
+    {
+        try
+        {
+            var document = AppxManifestDocument.Load(stagedManifest.FullName);
+            var target = document.GetExecutionAliasTarget(stagedManifest.DirectoryName!, request.ApplicationId);
+            var alias = ExecutionAliasResolver.SelectInspectorAlias(target, exists: AliasProxyExists, readTarget: ReadAliasTarget,
+                claimedAliases: document.GetExecutionAliasesClaimedByOtherApplications(request.ApplicationId));
+            if (alias is null)
+            {
+                return Failed("No available execution alias could be verified for the requested application.");
+            }
+
+            var result = document.AddExecutionAlias(alias, request.ApplicationId, ExecutionAliasConflictPolicy.Coexist);
+            if (result.Status is not (AddExecutionAliasStatus.Added or AddExecutionAliasStatus.AlreadyExists))
+            {
+                return Failed(result.ErrorMessage ?? $"Could not stage execution alias '{alias}': {result.Status}.");
+            }
+            if (result.Status == AddExecutionAliasStatus.Added)
+            {
+                document.Save(stagedManifest.FullName);
+            }
+            stagedManifest.Refresh();
+
+            var proxy = ExecutionAliasResolver.ResolveAliasPath(alias)!;
+            return new(alias, target, RequiresRegistration: !AliasProxyExists(proxy.FullName));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException or InvalidOperationException or ArgumentException)
+        {
+            return Failed($"Could not prepare an inspector execution alias: {ex.Message}");
+        }
+
+        InspectorAlias Failed(string error) => new(null, null, RequiresRegistration: false, Error: error);
     }
 
     /// <summary>
@@ -969,7 +1032,11 @@ internal partial class MsixService
                 EnsureDestinationIsInsideLayout(outputDir, destPath);
             }
 
-            AtomicFile.Copy(entry.SourcePath, destPath);
+            try { AtomicFile.Copy(entry.SourcePath, destPath); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                throw new IOException($"Could not stage '{entry.SourcePath}' as '{destPath}': {RunFailure.Describe(error, RunFailure.ProcessesRunningFrom(destPath))}", error);
+            }
             copied++;
         }
 
@@ -1615,31 +1682,51 @@ internal partial class MsixService
     /// list (or falls back to a cwd glob) and installs the Windows App Runtime framework packages for
     /// the given architecture. Callers gate on <c>WindowsAppSDKSelfContained</c> before calling.
     /// </summary>
-    public async Task<bool> EnsureWindowsAppRuntimeInstalledAsync(FileInfo? projectFile, string? architecture, string? framework, bool noRestore, TaskContext taskContext, PackageGraphSource? packageGraph = null, CancellationToken cancellationToken = default)
+    public async Task<bool> EnsureWindowsAppRuntimeInstalledAsync(FileInfo? projectFile, string? architecture, string? framework, bool noRestore, TaskContext taskContext, PackageGraphSource? packageGraph = null, DirectoryInfo? windowsAppSdkPackageDirectory = null, CancellationToken cancellationToken = default)
     {
-        var packageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
+        IReadOnlyList<(string Name, string Version)> expectedRuntimePackages;
+        bool referencesWindowsAppSdk;
 
-        // A framework-dependent app needs the Windows App Runtime only if it actually uses the Windows
-        // App SDK. A plain console/desktop Exe doesn't — preparing the runtime for it is wasted work and
-        // prints a noisy "could not determine runtime" warning. Skip only on a positive no-reference
-        // result; an unresolved list falls through to prep so a real WinUI app keeps its runtime.
-        //
-        // Callers that know the build's assets file pass it, which makes the graph exact. A caller that
-        // does not falls back to re-evaluating the project in the default Configuration/RID, where a
-        // Windows App SDK reference conditioned on a non-default one would be missed and prep wrongly
-        // skipped — bounded by the skip firing only on a positive no-reference result.
-        var referencesWindowsAppSdk = packageList is not null && ReferencesWindowsAppSdk(packageList);
-        if (packageList is not null && !referencesWindowsAppSdk)
+        // A C++ project that imports the Windows App SDK props (directly or from a shared .props, as
+        // packages.config projects do) names the exact package folder it built against. Its runtime MSIX is
+        // the one the app needs, so use it rather than inferring the version from a package list that may
+        // not mention the Windows App SDK at all.
+        var importedMsixDir = windowsAppSdkPackageDirectory is null
+            ? null
+            : new DirectoryInfo(Path.Join(windowsAppSdkPackageDirectory.FullName, "tools", "MSIX"));
+        if (importedMsixDir is { Exists: true })
         {
-            taskContext.AddDebugMessage(
-                $"{UiSymbols.Note} No Windows App SDK reference found; skipping Windows App Runtime preparation.");
-            return false;
+            taskContext.AddDebugMessage($"{UiSymbols.Package} Using the Windows App Runtime from the Windows App SDK the project imports: {windowsAppSdkPackageDirectory!.FullName}");
+            referencesWindowsAppSdk = true;
+            expectedRuntimePackages = await InstallWindowsAppRuntimeFromAsync(importedMsixDir, architecture, taskContext, cancellationToken);
         }
+        else
+        {
+            var packageList = await ResolveDotNetPackageListAsync(projectFile, framework, noRestore, packageGraph, cancellationToken);
 
-        // requireExactVersion:true — this unpackaged path must resolve the runtime the app was actually
-        // built against, never an unrelated cached WinAppSDK version, or the presence gate below could
-        // pass against the wrong runtime family.
-        var expectedRuntimePackages = await EnsureWindowsAppRuntimeInstalledAsync(packageList, architecture, taskContext, cancellationToken, requireExactVersion: true);
+            // A framework-dependent app needs the Windows App Runtime only if it actually uses the Windows
+            // App SDK. A plain console/desktop Exe doesn't — preparing the runtime for it is wasted work and
+            // prints a noisy "could not determine runtime" warning. Skip only on a positive no-reference
+            // result; an unresolved list falls through to prep so a real WinUI app keeps its runtime.
+            //
+            // Callers that know the build's assets file pass it, which makes the graph exact. A caller that
+            // does not falls back to re-evaluating the project in the default Configuration/RID, where a
+            // Windows App SDK reference conditioned on a non-default one would be missed and prep wrongly
+            // skipped — bounded by the skip firing only on a positive no-reference result.
+            referencesWindowsAppSdk = windowsAppSdkPackageDirectory is not null
+                || (packageList is not null && ReferencesWindowsAppSdk(packageList));
+            if (packageList is not null && !referencesWindowsAppSdk)
+            {
+                taskContext.AddDebugMessage(
+                    $"{UiSymbols.Note} No Windows App SDK reference found; skipping Windows App Runtime preparation.");
+                return false;
+            }
+
+            // requireExactVersion:true — this unpackaged path must resolve the runtime the app was actually
+            // built against, never an unrelated cached WinAppSDK version, or the presence gate below could
+            // pass against the wrong runtime family.
+            expectedRuntimePackages = await EnsureWindowsAppRuntimeInstalledAsync(packageList, architecture, taskContext, cancellationToken, requireExactVersion: true);
+        }
 
         // Callers gate on WindowsAppSDKSelfContained, so a framework-dependent app here always needs a
         // Framework + DDLM. An empty list means the exact runtime packages couldn't be located, so the
@@ -1779,6 +1866,15 @@ internal partial class MsixService
             return Array.Empty<(string, string)>();
         }
 
+        return await InstallWindowsAppRuntimeFromAsync(msixDir, architecture, taskContext, cancellationToken);
+    }
+
+    /// <summary>
+    /// Installs any missing or outdated Windows App Runtime packages from a Windows App SDK
+    /// <c>tools\MSIX</c> folder and returns the runtime package identities it describes.
+    /// </summary>
+    private async Task<IReadOnlyList<(string Name, string Version)>> InstallWindowsAppRuntimeFromAsync(DirectoryInfo msixDir, string? architecture, TaskContext taskContext, CancellationToken cancellationToken)
+    {
         var (installedCount, errorCount, runtimePackages) = await windowsAppRuntimeService.InstallWindowsAppRuntimeAsync(msixDir, taskContext, cancellationToken, architecture);
 
         if (errorCount > 0)

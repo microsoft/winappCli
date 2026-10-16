@@ -1,0 +1,25 @@
+
+<Canvas xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Name="DevToolsLayoutRoot" Canvas.ZIndex="900" IsHitTestVisible="False" Visibility="Collapsed">
+  <Rectangle x:Name="DevToolsLayoutGuideL" Width="1" Height="0" Fill="#B39B6DFF" />
+  <Rectangle x:Name="DevToolsLayoutGuideR" Width="1" Height="0" Fill="#B39B6DFF" />
+  <Rectangle x:Name="DevToolsLayoutGuideT" Width="0" Height="1" Fill="#B39B6DFF" />
+  <Rectangle x:Name="DevToolsLayoutGuideB" Width="0" Height="1" Fill="#B39B6DFF" />
+  <Rectangle x:Name="DevToolsLayoutMargin" Width="0" Height="0" Visibility="Collapsed"
+             Stroke="#FFF2A03D" StrokeThickness="1" StrokeDashArray="5,3" StrokeDashCap="Flat" />
+  <Rectangle x:Name="DevToolsLayoutPadding" Width="0" Height="0" Visibility="Collapsed"
+             Stroke="#FF3FBF6F" StrokeThickness="1" StrokeDashArray="2,2" StrokeDashCap="Flat" />
+  <Rectangle x:Name="DevToolsLayoutMarginBandL" Width="0" Height="0" Visibility="Collapsed" Fill="#38F2A03D" />
+  <Rectangle x:Name="DevToolsLayoutMarginBandT" Width="0" Height="0" Visibility="Collapsed" Fill="#38F2A03D" />
+  <Rectangle x:Name="DevToolsLayoutMarginBandR" Width="0" Height="0" Visibility="Collapsed" Fill="#38F2A03D" />
+  <Rectangle x:Name="DevToolsLayoutMarginBandB" Width="0" Height="0" Visibility="Collapsed" Fill="#38F2A03D" />
+  <Rectangle x:Name="DevToolsLayoutPadBandL" Width="0" Height="0" Visibility="Collapsed" Fill="#383FBF6F" />
+  <Rectangle x:Name="DevToolsLayoutPadBandT" Width="0" Height="0" Visibility="Collapsed" Fill="#383FBF6F" />
+  <Rectangle x:Name="DevToolsLayoutPadBandR" Width="0" Height="0" Visibility="Collapsed" Fill="#383FBF6F" />
+  <Rectangle x:Name="DevToolsLayoutPadBandB" Width="0" Height="0" Visibility="Collapsed" Fill="#383FBF6F" />
+  <Border x:Name="DevToolsLayoutSizeChip" Visibility="Collapsed" Background="#E6202020"
+          CornerRadius="3" Padding="4,1,4,1">
+    <TextBlock x:Name="DevToolsLayoutSizeText" Text="" FontSize="11" FontFamily="Consolas" Foreground="#FFFFFFFF" />
+  </Border>
+</Canvas>

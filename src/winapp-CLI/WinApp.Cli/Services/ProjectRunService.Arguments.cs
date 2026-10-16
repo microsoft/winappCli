@@ -190,14 +190,26 @@ internal sealed partial class ProjectRunService
         FileInfo csproj,
         ProjectRunOptions options,
         string verbosity,
-        string? csWinRTMetadataFolder = null)
+        string? csWinRTMetadataFolder = null,
+        bool publish = true,
+        bool nativeTerminal = false)
     {
         var tokens = WindowsCommandLine.SplitArguments(
-            BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, publish: true)).ToList();
+            BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, nativeTerminal, publish)).ToList();
+        if (!publish)
+        {
+            // Property/item queries otherwise suppress the default Build target.
+            tokens.Add("-target:Build");
+        }
         // Publish output is streamed; signing secrets are only needed by buffered package preparation.
         foreach (var name in RequestedProperties.Where(name => name != "PackageCertificatePassword"))
         {
             tokens.Add($"--getProperty:{name}");
+        }
+        if (options.CaptureDevToolsSources)
+        {
+            tokens.Add("--getItem:Page,ApplicationDefinition");
+            foreach (var property in DevTools.XamlSourceCoordinates.Properties) { tokens.Add($"--getProperty:{property}"); }
         }
         return tokens;
     }
@@ -357,6 +369,11 @@ internal sealed partial class ProjectRunService
         foreach (var name in RequestedProperties)
         {
             tokens.Add($"--getProperty:{name}");
+        }
+        if (options.CaptureDevToolsSources)
+        {
+            tokens.Add("--getItem:Page,ApplicationDefinition");
+            foreach (var property in DevTools.XamlSourceCoordinates.Properties) { tokens.Add($"--getProperty:{property}"); }
         }
 
         return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
