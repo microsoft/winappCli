@@ -194,6 +194,8 @@ public class WindowsSandboxInspectionTests
         var directories = new TargetStateDirectoryProvider(_root.FullName);
         var binary = new FileInfo(Path.Join(_root.FullName, "winapp.exe"));
         File.WriteAllText(binary.FullName, "agent");
+        File.WriteAllText(Path.Join(_root.FullName, "libSkiaSharp.dll"), "skia");
+        File.WriteAllText(Path.Join(_root.FullName, "libHarfBuzzSharp.dll"), "harfbuzz");
 
         return new WindowsSandboxBackend(
             _cli,

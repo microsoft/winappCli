@@ -17,6 +17,16 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 [TestClass]
 public class SlugGeneratorTests
 {
+    [TestMethod]
+    public void PublicApi_ExposesOnlyCanonicalNormalization()
+    {
+        Assert.IsTrue(typeof(SlugGenerator).IsPublic);
+        var methods = typeof(SlugGenerator).GetMethods(System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly);
+        Assert.AreEqual(1, methods.Length);
+        Assert.AreEqual(nameof(SlugGenerator.Normalize), methods[0].Name);
+    }
+
     // ---------------------------------------------------------------------
     // GetPrefix
     // ---------------------------------------------------------------------

@@ -145,8 +145,8 @@ Arguments you write after `dotnet run` go to **your application**, exactly as th
 project did not reference this package:
 
 ```powershell
-dotnet run --devtools          # your app receives --devtools
-dotnet run -- --devtools       # identical: the SDK consumes the -- before forwarding
+dotnet run --demo-mode          # your app receives --demo-mode
+dotnet run -- --demo-mode       # identical: the SDK consumes the -- before forwarding
 ```
 
 Use `--` when your app's flag is also a `dotnet run` option (`--configuration`, `--framework`,
@@ -161,10 +161,10 @@ Configure the WinApp launcher itself with the `WinAppRun*` MSBuild properties. M
 these, so they never reach your application:
 
 ```powershell
-dotnet run -p:WinAppRunDebugOutput=true --devtools
+dotnet run -p:WinAppRunDebugOutput=true --demo-mode
 ```
 
-Here the property configures WinApp while `--devtools` is passed to your app. See
+Here the property configures WinApp while `--demo-mode` is passed to your app. See
 [`dotnet run` support](../dotnet-run-support.md) for the full property list, including which
 properties cannot be combined.
 

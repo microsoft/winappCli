@@ -228,6 +228,9 @@ devcert.pfx
 /benchmarks/agents/experiments/
 /benchmarks/tasks/results/
 
+# Local UI benchmark results and the WinUI Gallery build cache
+/benchmarks/ui/results/
+
 # Local app benchmark (results live outside the repo by default)
 /benchmarks/apps/results/
 /benchmarks/apps/agents/.local/
