@@ -56,6 +56,14 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <!-- Resolve winapp.exe's own static imports (version.dll, bcrypt.dll, ...) from System32 only
+         (0x800 = LOAD_LIBRARY_SEARCH_SYSTEM32), so those names planted next to the exe are not
+         loaded. This does not cover DLLs that system DLLs import themselves (for example
+         crypt32.dll -> sspicli.dll), and runtime LoadLibrary calls are unaffected. -->
+    <LinkerArg Include="/DEPENDENTLOADFLAG:0x800" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Share publication logic without making it part of the recording package's public API. -->
     <Compile Include="..\WinApp.UIAutomation.Recording\RecordingArtifactPublisher.cs" Link="Helpers\RecordingArtifactPublisher.cs" />
