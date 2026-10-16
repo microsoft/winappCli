@@ -240,7 +240,8 @@ function Get-SkillFolderName {
     param([Parameter(Mandatory)][string]$SkillPath)
     $md = Join-Path $SkillPath 'SKILL.md'
     $inFrontmatter = $false
-    foreach ($line in [System.IO.File]::ReadLines($md)) {
+    # ReadAllLines, not ReadLines: returning from foreach would leave the file open until GC.
+    foreach ($line in [System.IO.File]::ReadAllLines($md)) {
         if ($line.Trim() -eq '---') { if ($inFrontmatter) { break } else { $inFrontmatter = $true; continue } }
         if ($inFrontmatter -and $line -match '^name:\s*["'']?([^"'']+?)["'']?\s*$') { return $Matches[1] }
     }

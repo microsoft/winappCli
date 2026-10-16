@@ -287,10 +287,17 @@ Describe 'Perf reports' {
         $text = Get-Content -Raw -LiteralPath $md
         $text | Should -Match '\| invoke \| winapp \| 3 \| 2 \| 120 ms \| 140 ms \| 140 ms \|'
         $text | Should -Match '\| calc-add \| winapp \| 2/3 \| 2 \| 400 ms \|'
-        $text | Should -Match 'step0 100 ms → step1 200 ms'
+        $text | Should -Match 'step0 200 ms → step1 200 ms'
         $text | Should -Match "first: element not found"
         $text | Should -Match "sequence \*\*calc-add\*\* · winapp · #3 · fail: display: 'main' reads '0'"
         $text | Should -Match 'Windows 11, Arm64, 12 CPUs'
+    }
+
+    It 'takes per-step medians from passing runs, even when the first run failed early' {
+        $seqs = @((New-SequenceRun 1 -Status fail -StepMs 100), (New-SequenceRun 2 -StepMs 500, 500))
+        $dir = Write-Results -Name 'first-fails' -OpMs @(100) -Sequences $seqs
+        Write-PerfSummary -Results (Read-PerfResults $dir) -Path (Join-Path $dir 'summary.md')
+        Get-Content -Raw (Join-Path $dir 'summary.md') | Should -Match 'step0 500 ms → step1 500 ms'
     }
 
     It 'says None when nothing failed' {

@@ -380,15 +380,7 @@ function Invoke-InstanceSetup {
     $expect = [ordered]@{}
     if ($AppInfo.App -eq 'calculator') {
         $started = Start-AppInstance -AppInfo $AppInfo
-        if (-not $script:CalculatorRestoreMode) {
-            # The first Calculator the benchmark opens still shows the user's saved mode.
-            $saved = Get-CalculatorMode -ProcessId $started.pid
-            if ($saved) { [void](Register-CalculatorMode -Mode $saved) }
-            elseif (-not $script:CalculatorModeUnreadable) {
-                $script:CalculatorModeUnreadable = $true
-                Write-Warning "Could not read Calculator's current mode, so it can't be restored afterwards."
-            }
-        }
+        Register-CalculatorModeFrom -ProcessId $started.pid
         $mode = if (& $get 'mode') { [string](& $get 'mode') } else { 'standard' }
         Set-CalculatorMode -ProcessId $started.pid -Mode $mode
         $expect['mode'] = $mode
@@ -564,7 +556,8 @@ function Clear-OwnedLedger {
 
 function Start-ScenarioInstances {
     # Launches and prepares every setup instance of a scenario. Each launched process is added to
-    # -Owned and the ledger is saved before anything else can fail, so teardown always closes it.
+    # -Owned and the ledger is saved when its setup ends, even when setup fails or is interrupted with
+    # Ctrl+C, so teardown or the next run closes it.
     param(
         [Parameter(Mandatory)]$AppInfo,
         [Parameter(Mandatory)]$Scenario,
@@ -572,21 +565,56 @@ function Start-ScenarioInstances {
         [Parameter(Mandatory)][string]$LedgerPath
     )
     $setup = [System.Collections.Generic.List[object]]::new()
+    # Owns -Instance, or, when setup failed or was interrupted (Ctrl+C runs finally blocks), every
+    # instance that appeared since -Before; saves the ledger either way. Returns the entries it added.
+    $own = {
+        param([int[]]$Before, $Instance)
+        $found = if ($Instance) { @($Instance) } else { @(Get-AppProcesses $AppInfo | Where-Object { $_.instance -and $_.pid -notin $Before }) }
+        foreach ($p in $found) {
+            $e = [pscustomobject]@{ app = $AppInfo.App; kind = 'instance'; pid = $p.pid; startTime = $p.startTime }
+            $Owned.Add($e)
+            $e
+        }
+        Save-OwnedLedger -Path $LedgerPath -Entries @($Owned)
+    }
+    if ($AppInfo.App -eq 'calculator' -and -not @($Scenario.Instances).Count -and -not $script:CalculatorRestoreMode) {
+        # The scenario starts with Calculator closed, so the agent opens the first one. Read the user's
+        # saved mode from a short-lived Calculator first, so teardown can switch the agent's one back.
+        $before = @(Get-AppProcesses $AppInfo | ForEach-Object pid)
+        $probe = $null
+        try {
+            $probe = Start-AppInstance -AppInfo $AppInfo
+            Register-CalculatorModeFrom -ProcessId $probe.pid
+        }
+        finally { $probeEntries = @(& $own $before $probe) }
+        foreach ($e in $probeEntries) {
+            if ((Stop-OwnedInstance -AppInfo $AppInfo -ProcessId ([int]$e.pid) -StartTime ([string]$e.startTime)) -eq 'still-running') {
+                throw "Could not close the Calculator (pid $($e.pid)) opened to read its saved mode."
+            }
+            [void]$Owned.Remove($e)
+            Save-OwnedLedger -Path $LedgerPath -Entries @($Owned)
+        }
+    }
     foreach ($inst in $Scenario.Instances) {
         $before = @(Get-AppProcesses $AppInfo | ForEach-Object pid)
+        $si = $null
         try { $si = Invoke-InstanceSetup -AppInfo $AppInfo -Instance $inst }
-        catch {
-            foreach ($p in @(Get-AppProcesses $AppInfo | Where-Object { $_.instance -and $_.pid -notin $before })) {
-                $Owned.Add([pscustomobject]@{ app = $AppInfo.App; kind = 'instance'; pid = $p.pid; startTime = $p.startTime })
-            }
-            Save-OwnedLedger -Path $LedgerPath -Entries @($Owned)
-            throw
-        }
-        $Owned.Add([pscustomobject]@{ app = $AppInfo.App; kind = 'instance'; pid = $si.pid; startTime = $si.startTime })
-        Save-OwnedLedger -Path $LedgerPath -Entries @($Owned)
+        finally { [void](& $own $before $si) }
         $setup.Add($si)
     }
     return $setup.ToArray()
+}
+
+function Register-CalculatorModeFrom {
+    # Records the user's saved mode from the first Calculator the benchmark opens (see Register-CalculatorMode).
+    param([Parameter(Mandatory)][int]$ProcessId)
+    if ($script:CalculatorRestoreMode) { return }
+    $saved = Get-CalculatorMode -ProcessId $ProcessId
+    if ($saved) { [void](Register-CalculatorMode -Mode $saved) }
+    elseif (-not $script:CalculatorModeUnreadable) {
+        $script:CalculatorModeUnreadable = $true
+        Write-Warning "Could not read Calculator's current mode, so it can't be restored afterwards."
+    }
 }
 
 function Get-SetupSnapshot {

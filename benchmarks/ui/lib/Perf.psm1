@@ -360,9 +360,12 @@ function Write-PerfSummary {
         [void]$sb.AppendLine('### Median per step')
         [void]$sb.AppendLine()
         foreach ($g in $seqs | Group-Object id, adapter) {
-            $steps = @($g.Group[0].steps)
+            # Like the totals, from passing runs only (all runs when none passed, to show where they stop).
+            $runs = @($g.Group | Where-Object { $_.status -eq 'pass' })
+            if (-not $runs) { $runs = @($g.Group) }
+            $steps = @($runs[0].steps)
             [void]$sb.AppendLine("**$($g.Group[0].id)** · $($g.Group[0].adapter): " + (@(for ($i = 0; $i -lt $steps.Count; $i++) {
-                            $ms = @($g.Group | ForEach-Object { $x = @($_.steps); if ($i -lt $x.Count) { [double]$x[$i].ms } })
+                            $ms = @($runs | ForEach-Object { $x = @($_.steps); if ($i -lt $x.Count) { [double]$x[$i].ms } })
                             "$($steps[$i].label) $(Format-PerfMs (Get-Median $ms))"
                         }) -join ' → '))
             [void]$sb.AppendLine()

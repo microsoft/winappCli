@@ -2,7 +2,7 @@
   "id": "gallery-dialog-left-open",
   "app": "gallery",
   "description": "A modal ContentDialog is open and blocks the app; it must be dismissed before navigating to the ToggleSwitch sample.",
-  "prompt": "In the \"WinUI 3 Gallery (UI Benchmark)\" app, a \"Save your work?\" dialog was left open. Dismiss it without saving, then go to the app's ToggleSwitch sample page and turn on the \"Toggle work\" switch. Leave the app open.",
+  "prompt": "In the \"WinUI 3 Gallery (UI Benchmark)\" app, a \"Save your work?\" dialog was left open. Close it, then go to the app's ToggleSwitch sample page and turn on the \"Toggle work\" switch. Leave the app open.",
   "setup": {
     "instances": [
       { "role": "main", "target": true, "page": "ContentDialog", "waitFor": ["ShowDialog"], "invoke": ["ShowDialog"], "expect": { "dialogOpen": true } }

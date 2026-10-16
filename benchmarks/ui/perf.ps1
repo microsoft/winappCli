@@ -88,8 +88,11 @@ if ($dupes) { throw "Two adapters are named '$($dupes[0].Name)'; adapter names m
 
 $scenarioById = @{}
 foreach ($s in $allScenarios) { $scenarioById[$s.Id] = $s }
-$neededApps = @(@($operations | Where-Object Scenario | ForEach-Object { $scenarioById[$_.Scenario].App }) + @($sequences | ForEach-Object { $scenarioById[$_.Scenario].App }) | Select-Object -Unique)
 $runPlan = Get-PerfPlan -Config $perf -Adapters $adapters -Operations $operations -Sequences $sequences
+# The plan lists what no adapter implements as skipped; drop those so their apps are not needed.
+$operations = @($operations | Where-Object { $o = $_; @($adapters | Where-Object { $_.Operations.Contains($o.Op) }).Count })
+$sequences = @($sequences | Where-Object { $q = $_; @($adapters | Where-Object { $a = $_; -not @($q.Steps | Where-Object { -not $a.Operations.Contains($_.Op) }).Count }).Count })
+$neededApps = @(@($operations | Where-Object Scenario | ForEach-Object { $scenarioById[$_.Scenario].App }) + @($sequences | ForEach-Object { $scenarioById[$_.Scenario].App }) | Select-Object -Unique)
 
 if ($Plan) {
     Write-Host "Adapters:   $(@($adapters | ForEach-Object { if ($_.CheckedIn) { $_.Name } else { "$($_.Name) ($($_.SourcePath))" } }) -join ', ')"
@@ -104,6 +107,7 @@ if ($Plan) {
     }
     return
 }
+if (-not $operations -and -not $sequences) { throw 'Nothing to run: the selected adapters implement none of the selected operations or sequences.' }
 
 Import-Module (Join-Path $PSScriptRoot 'lib\AppState.psm1') -Force
 
