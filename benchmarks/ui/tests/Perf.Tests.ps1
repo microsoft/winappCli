@@ -262,8 +262,18 @@ Describe 'Statistics' {
         $s = Get-SequenceStats $runs
         $s.Runs | Should -Be 3
         $s.Passed | Should -Be 2
-        $s.Total.median | Should -Be 300
+        $s.Total.median | Should -Be 400
         $s.Calls | Should -Be 2
+    }
+
+    It 'times sequences from passing runs only, so early failures do not look faster' {
+        $runs = @(New-SequenceRun 1 -StepMs 500, 500) + @(1..2 | ForEach-Object { New-SequenceRun $_ -Status fail -StepMs 100 })
+        $runs = $runs | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+        $s = Get-SequenceStats $runs
+        $s.Passed | Should -Be 1
+        $s.Total.median | Should -Be 1000
+        $s.Calls | Should -Be 2
+        (Get-SequenceStats @($runs[1], $runs[2])).Total.median | Should -BeNullOrEmpty
     }
 }
 
@@ -276,7 +286,7 @@ Describe 'Perf reports' {
         Write-PerfSummary -Results $results -Path $md
         $text = Get-Content -Raw -LiteralPath $md
         $text | Should -Match '\| invoke \| winapp \| 3 \| 2 \| 120 ms \| 140 ms \| 140 ms \|'
-        $text | Should -Match '\| calc-add \| winapp \| 2/3 \| 2 \| 300 ms \|'
+        $text | Should -Match '\| calc-add \| winapp \| 2/3 \| 2 \| 400 ms \|'
         $text | Should -Match 'step0 100 ms → step1 200 ms'
         $text | Should -Match "first: element not found"
         $text | Should -Match "sequence \*\*calc-add\*\* · winapp · #3 · fail: display: 'main' reads '0'"

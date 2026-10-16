@@ -93,9 +93,9 @@ $runPlan = Get-PerfPlan -Config $perf -Adapters $adapters -Operations $operation
 
 if ($Plan) {
     Write-Host "Adapters:   $(@($adapters | ForEach-Object { if ($_.CheckedIn) { $_.Name } else { "$($_.Name) ($($_.SourcePath))" } }) -join ', ')"
-    Write-Host "Operations: $(@($operations.Id) -join ', ')"
+    Write-Host "Operations: $(@($operations | ForEach-Object Id) -join ', ')"
     Write-Host "            $($perf.Warmup) warm-up + $($perf.Repeat) timed calls each = $($runPlan.OperationCalls) commands"
-    Write-Host "Sequences:  $(@($sequences.Id) -join ', ')"
+    Write-Host "Sequences:  $(@($sequences | ForEach-Object Id) -join ', ')"
     Write-Host "            $($perf.SequenceRepeat) run(s) each = $($runPlan.SequenceRuns) runs, $($runPlan.SequenceCalls) commands"
     Write-Host "Estimate:   ~$($runPlan.Minutes) min, no AI credits"
     foreach ($s in $runPlan.Skipped) { Write-Host "Skipped:    $s (the adapter does not implement it)" }
@@ -165,8 +165,8 @@ function Invoke-AdapterCall {
         -Environment $adapterEnv[$A.Name].Env -StdoutPath $out -StderrPath $err -TimeoutSeconds $perf.TimeoutSeconds
     $problem = if ($r.TimedOut) { "timed out after $($perf.TimeoutSeconds) s" }
     elseif ($r.ExitCode -ne 0) {
-        $tail = (Get-FileTail $err 300).Trim()
-        if (-not $tail) { $tail = (Get-FileTail $out 300).Trim() }
+        $tail = ([string](Get-FileTail $err 300)).Trim()
+        if (-not $tail) { $tail = ([string](Get-FileTail $out 300)).Trim() }
         "exit $($r.ExitCode): $tail"
     }
     $result = [pscustomobject]@{ ms = [double]$r.DurationMs; exitCode = $r.ExitCode; error = $problem; stdout = $out }
@@ -346,4 +346,5 @@ finally {
 }
 # Without an explicit exit, the script would return whatever native command ran last.
 $failedSequences = @($results.sequences | Where-Object { $_.status -ne 'pass' })
-exit ([int]([bool]$abort -or $failedSequences.Count -gt 0))
+$failedOperations = @($results.operations | Where-Object { $_.errors -gt 0 })
+exit ([int]([bool]$abort -or $failedSequences.Count -gt 0 -or $failedOperations.Count -gt 0))

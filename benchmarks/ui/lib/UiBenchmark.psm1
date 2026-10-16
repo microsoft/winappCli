@@ -285,9 +285,23 @@ function Get-UiMethod {
         Requires       = @(& $list 'requires')
         CheckedIn      = [bool]$checkedIn
         SourcePath     = $file
-        # Resume reruns cells when the method's definition or the skills it installs change.
-        Hash           = Get-ShortHash (($raw -replace '\s', '') + "`n" + (@($expected | Sort-Object) -join ','))
+        # Resume reruns cells when the method's definition or the skills it installs (names or content) change.
+        Hash           = Get-ShortHash (($raw -replace '\s', '') + "`n" + (@($expected | Sort-Object) -join ',') + "`n" + (Get-FolderContentHash @($plugins + $skills)))
     }
+}
+
+function Get-FolderContentHash {
+    # Short hash of every file's relative path and content under the given folders, in order.
+    param([AllowEmptyCollection()][string[]]$Paths = @())
+    $lines = [System.Collections.Generic.List[string]]::new()
+    for ($i = 0; $i -lt $Paths.Count; $i++) {
+        if (-not (Test-Path -LiteralPath $Paths[$i])) { continue }
+        $root = (Resolve-Path -LiteralPath $Paths[$i]).Path
+        $files = [string[]]@(Get-ChildItem -LiteralPath $root -Recurse -File -Force | ForEach-Object { [System.IO.Path]::GetRelativePath($root, $_.FullName) })
+        [Array]::Sort($files, [StringComparer]::Ordinal)
+        foreach ($f in $files) { $lines.Add("$i|$f|$([Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes((Join-Path $root $f)))))") }
+    }
+    return Get-ShortHash ($lines -join "`n")
 }
 
 function Expand-MethodEnv {
@@ -529,6 +543,17 @@ function Test-CellDone {
     return $true
 }
 
+function Get-UnpassedRuns {
+    # Requested cells whose latest record is not a pass, or that have no record yet. Decides the exit
+    # code from the whole result set, so a resumed run still fails when an earlier invocation failed.
+    param([AllowEmptyCollection()][object[]]$Runs = @(), [AllowEmptyCollection()][object[]]$Records = @())
+    $latest = Get-LatestRecords @($Records | Where-Object { $null -ne $_ })
+    return @($Runs | Where-Object {
+            $rec = $latest[(Get-CellKey $_.Method.Name $_.Model $_.Scenario.Id $_.Iteration)]
+            -not $rec -or [string](Get-Field $rec 'status') -ne 'pass'
+        })
+}
+
 function Get-RunPlan {
     # Splits the requested cells into done and pending, with time and credit estimates for the pending
     # ones. Measured runs already in the results replace the default per-run estimates.
@@ -737,4 +762,4 @@ function Get-UiComparison {
 Export-ModuleMember -Function Get-Field, Test-PromptLeak, Test-UiScenarioDefinition, Get-ScenarioHash, ConvertTo-UiScenario, Get-UiScenarios,
 Resolve-MethodPath, Test-UiMethodDefinition, Get-SkillFolderName, Get-UiMethod, Expand-MethodEnv, Resolve-CommandOnPath, New-HiddenCommandShim,
 Set-EnvironmentPath, Test-MethodSkillList, Format-StateValue, Test-SameProcess, Test-ScenarioState, Get-CellKey, Read-RunRecords, Get-LatestRecords,
-Test-CellDone, Get-RunPlan, Get-EnvironmentInfo, Format-Ms, Format-Credits, Get-CellStats, Write-UiSummary, Get-UiComparison
+Test-CellDone, Get-UnpassedRuns, Get-RunPlan, Get-EnvironmentInfo, Format-Ms, Format-Credits, Get-CellStats, Write-UiSummary, Get-UiComparison, Get-FolderContentHash

@@ -166,7 +166,7 @@ if (-not $runPlan.Pending.Count) {
         Write-UiSummary -RunsPath $runsPath -SummaryPath (Join-Path $OutDir 'summary.md') -ScenarioOrder @($allScenarios.Id)
     }
     Write-Host "Summary: $(Join-Path $OutDir 'summary.md')"
-    return
+    exit ([int](@(Get-UnpassedRuns -Runs $runList -Records @(Read-RunRecords $runsPath)).Count -gt 0))
 }
 
 # --- Resolve one Copilot CLI build and pin it for every invocation ---------------------------
@@ -533,5 +533,5 @@ if (-not $KeepArtifacts) {
 }
 Write-Host "Summary: $(Join-Path $OutDir 'summary.md')"
 # Without an explicit exit, the script would return whatever native command ran last.
-$notPassed = @($finished | Where-Object { $_.status -ne 'pass' })
+$notPassed = @(Get-UnpassedRuns -Runs $runList -Records @(Read-RunRecords $runsPath))
 exit ([int]($header.Contains('Stopped early') -or $notPassed.Count -gt 0))

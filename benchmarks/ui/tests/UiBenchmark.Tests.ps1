@@ -128,6 +128,19 @@ Describe 'Method definitions' {
         $m.McpServers.tool.command | Should -Be 'tool.exe'
     }
 
+    It 'changes the method hash when an installed skill''s content changes' {
+        $dir = Join-Path $TestDrive 'hashed'
+        New-Item -ItemType Directory -Force (Join-Path $dir 'my-skill') | Out-Null
+        $skill = Join-Path $dir 'my-skill\SKILL.md'
+        Set-Content $skill "---`nname: my-skill`ndescription: x`n---`nbody one"
+        @{ name = 'hashed'; skills = @('my-skill') } | ConvertTo-Json | Set-Content (Join-Path $dir 'hashed.method.json')
+        $get = { (Get-UiMethod -NameOrPath (Join-Path $dir 'hashed.method.json') -MethodsRoot (Join-Path $script:UiRoot 'methods')).Hash }
+        $first = & $get
+        & $get | Should -Be $first
+        Set-Content $skill "---`nname: my-skill`ndescription: x`n---`nbody two"
+        & $get | Should -Not -Be $first
+    }
+
     It 'names the known methods when one is unknown' {
         { Get-UiMethod -NameOrPath 'nope' -MethodsRoot (Join-Path $script:UiRoot 'methods') } | Should -Throw '*none*winapp*'
     }
@@ -260,6 +273,13 @@ Describe 'Resume and plan' {
         Test-CellDone (New-Record 1 'pass' -ScenarioHash 'old') 's1' 'm1' | Should -BeFalse
         Test-CellDone (New-Record 1 'pass' -MethodHash 'old') 's1' 'm1' | Should -BeFalse
         Test-CellDone $null 's1' 'm1' | Should -BeFalse
+    }
+
+    It 'reports cells that did not pass across every invocation of a resumed run' {
+        @(Get-UnpassedRuns -Runs $script:Runs -Records @((New-Record 1 'pass'), (New-Record 2 'pass'), (New-Record 3 'pass'))).Count | Should -Be 0
+        $records = @((New-Record 1 'fail'), (New-Record 2 'pass'), (New-Record 3 'error'), (New-Record 3 'pass'))
+        @(Get-UnpassedRuns -Runs $script:Runs -Records $records).Iteration | Should -Be @(1)
+        @(Get-UnpassedRuns -Runs $script:Runs -Records @((New-Record 1 'pass'))).Iteration | Should -Be @(2, 3)
     }
 
     It 'estimates the remaining cells from measured runs' {

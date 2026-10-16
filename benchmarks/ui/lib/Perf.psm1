@@ -298,14 +298,16 @@ function Format-PerfMs {
 }
 
 function Get-SequenceStats {
-    # Pass count and timing of one sequence's runs for one adapter.
+    # Pass count and timing of one sequence's runs for one adapter. Timing comes from passing runs
+    # only: a run that fails at an early step is short, and would otherwise look like a speedup.
     param([AllowEmptyCollection()][object[]]$Runs = @())
-    $totals = @($Runs | ForEach-Object { Get-Field $_ 'commandMs' } | Where-Object { $null -ne $_ } | ForEach-Object { [double]$_ })
+    $passed = @($Runs | Where-Object { $_.status -eq 'pass' })
+    $totals = @($passed | ForEach-Object { Get-Field $_ 'commandMs' } | Where-Object { $null -ne $_ } | ForEach-Object { [double]$_ })
     [pscustomobject]@{
         Runs   = $Runs.Count
-        Passed = @($Runs | Where-Object { $_.status -eq 'pass' }).Count
+        Passed = $passed.Count
         Total  = Get-PerfStats $totals
-        Calls  = Get-Median @($Runs | ForEach-Object { @(Get-Field $_ 'steps').Count } | ForEach-Object { [double]$_ })
+        Calls  = Get-Median @($passed | ForEach-Object { @(Get-Field $_ 'steps').Count } | ForEach-Object { [double]$_ })
     }
 }
 

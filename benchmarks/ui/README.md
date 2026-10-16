@@ -146,7 +146,7 @@ A run passes only when the state checks pass **and** nothing else was disturbed.
 - `wrong-window-modified`: a window the task did not target was changed.
 - `wrong-app-launched`: a related app, such as the Store Gallery, was started.
 
-A run that times out counts as a failure. A run that could not be scored, because app setup failed or Copilot exited with an error, is listed as excluded instead of counted. Rerunning the same `-OutDir` runs those again and skips the rest.
+A run that times out counts as a failure. A run that could not be scored, because app setup failed or Copilot exited with an error, is listed as excluded instead of counted. Rerunning the same `-OutDir` runs those again, along with any run whose scenario or method changed (including the content of the method's plugins and skills), and skips the rest. `run.ps1` exits with 1 when any run in the folder did not pass.
 
 Compare two runs, for example before and after a `winapp ui` change:
 
@@ -162,7 +162,7 @@ Compare two runs, for example before and after a `winapp ui` change:
 .\benchmarks\ui\perf.ps1 -Compare benchmarks\ui\results\perf-before,benchmarks\ui\results\perf
 ```
 
-Each operation in `perf.json` runs once to warm up, and then 20 more times (`-Repeat`). The benchmark reports the median, p95, and max wall time of one command, measured from outside the process. Each sequence (`-SequenceRepeat`, 3 by default) sets the scenario up, runs its fixed commands, and is scored with the scenario's own checks. Use `-Operation` and `-Sequence` to pick ids, and `-SkipOperations` or `-SkipSequences` to skip a part. Results go to `perf-results.json` and `summary.md`, with the machine and tool versions recorded.
+Each operation in `perf.json` runs once to warm up, and then 20 more times (`-Repeat`). The benchmark reports the median, p95, and max wall time of one command, measured from outside the process. Each sequence (`-SequenceRepeat`, 3 by default) sets the scenario up, runs its fixed commands, and is scored with the scenario's own checks. Sequence times come from passing runs only. Use `-Operation` and `-Sequence` to pick ids, and `-SkipOperations` or `-SkipSequences` to skip a part. Results go to `perf-results.json` and `summary.md`, with the machine and tool versions recorded. `perf.ps1` exits with 1 when any command errors or any sequence fails.
 
 ### Adapters
 
