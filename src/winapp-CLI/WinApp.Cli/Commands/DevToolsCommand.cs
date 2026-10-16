@@ -7,7 +7,7 @@ namespace WinApp.Cli.Commands;
 
 internal class DevToolsCommand : Command, IShortDescription, ITargetAwareCommand, ICompactHelpGroup
 {
-    public string ShortDescription => "Inspect and change a running WinUI app's XAML live (no source edits)";
+    public string ShortDescription => "Inspect and live-edit a running WinUI app's XAML";
 
     /// <summary>Group-level examples, shown after the workflow; each must parse (see DevToolsHelpTests).</summary>
     internal static readonly string[] Examples =

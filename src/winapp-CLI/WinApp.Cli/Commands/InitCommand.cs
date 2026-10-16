@@ -13,7 +13,7 @@ namespace WinApp.Cli.Commands;
 
 internal class InitCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Initialize existing project with manifest and/or SDK packages";
+    public string ShortDescription => "Add a manifest and SDK packages to a project";
 
     public static Argument<DirectoryInfo> BaseDirectoryArgument { get; }
     public static Option<DirectoryInfo> ConfigDirOption { get; }

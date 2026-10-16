@@ -10,7 +10,7 @@ namespace WinApp.Cli.Commands;
 
 internal class RestoreCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Restore packages and projections for an initialized project";
+    public string ShortDescription => "Restore packages and projections from winapp.yaml";
     public static Argument<DirectoryInfo> BaseDirectoryArgument { get; }
     public static Option<DirectoryInfo> ConfigDirOption { get; }
     static RestoreCommand()
