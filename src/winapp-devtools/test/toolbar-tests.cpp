@@ -57,6 +57,7 @@ static void TestToolbarContract()
     const std::string selectionPanel = ReadText(tapDir / "xaml" / "selection-panel.xaml");
     const std::string windowShell = ReadText(tapDir / "xaml-window" / "window-shell.xaml");
     const std::string overlay = ReadUnit(tapDir / "DevToolsOverlay.cpp");
+    const std::string theme = ReadText(tapDir / "DevToolsTheme.h");
     const std::string window = ReadUnit(tapDir / "DevToolsWindow.cpp");
     Check(!xaml.empty(), "toolbar.xaml is readable");
     Check(!selectionPanel.empty(), "selection-panel.xaml is readable");
@@ -154,9 +155,9 @@ static void TestToolbarContract()
                  "the toolbar surfaces and its menus request the inverse app theme");
     Check(CountOf(xaml, "BackgroundSizing=\"InnerBorderEdge\"") == 4,
                  "the toolbar surfaces and its menus clip Acrylic inside their borders");
-    Check(overlay.find("static const DevToolsPalette& DevToolsInverseAcrylicPalette()") != std::string::npos &&
-                     overlay.find("{ThemeResource AcrylicBackgroundFillColorDefaultBrush}") != std::string::npos &&
-                     overlay.find("{ThemeResource SurfaceStrokeColorFlyoutBrush}") != std::string::npos,
+    Check(theme.find("inline const DevToolsPalette& DevToolsInverseAcrylicPalette()") != std::string::npos &&
+                     theme.find("{ThemeResource AcrylicBackgroundFillColorDefaultBrush}") != std::string::npos &&
+                     theme.find("{ThemeResource SurfaceStrokeColorFlyoutBrush}") != std::string::npos,
                  "the toolbar uses standard WinUI flyout Acrylic and stroke resources");
     Check(overlay.find("{ThemeResource AccentFillColorSecondaryBrush}") != std::string::npos,
                  "the toolbar snap target uses a theme-aware accent brush");
@@ -171,12 +172,12 @@ static void TestToolbarContract()
                  "the comment flyout requests the inverse app theme");
     Check(selectionPanel.find("BackgroundSizing=\"InnerBorderEdge\"") != std::string::npos,
                  "the comment flyout clips Acrylic inside its border");
-    Check(overlay.find("{ThemeResource AcrylicBackgroundFillColorDefaultBrush}") != std::string::npos,
+    Check(theme.find("{ThemeResource AcrylicBackgroundFillColorDefaultBrush}") != std::string::npos,
                  "the comment flyout uses the standard flyout Acrylic brush");
     Check(overlay.find("DevToolsSetSelectionPanelRequestedTheme(toolbarTheme);") != std::string::npos &&
                      overlay.find("DevToolsPutRequestedTheme(fe, requestedTheme);") != std::string::npos,
                  "an open comment flyout stays inverse when the app theme changes");
-    Check(overlay.find("{ThemeResource SurfaceStrokeColorFlyoutBrush}") != std::string::npos,
+    Check(theme.find("{ThemeResource SurfaceStrokeColorFlyoutBrush}") != std::string::npos,
                  "the comment flyout uses the standard flyout stroke");
     Check(selectionPanel.find("x:Key=\"ButtonBackground\"") == std::string::npos &&
                      selectionPanel.find("x:Key=\"ButtonForeground\"") == std::string::npos,

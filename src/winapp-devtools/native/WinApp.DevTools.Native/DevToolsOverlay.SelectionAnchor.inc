@@ -163,7 +163,7 @@ static std::wstring BuildSelectionPanelMarkup(const std::wstring& title, const s
     _snwprintf_s(oy, _countof(oy), _TRUNCATE, L"%.3f", originY);
     const auto guestAuthority = g_guestCommentAuthority.load();
 
-    return DevToolsXamlSubst(DevToolsXaml::SelectionPanel, {
+    return DevToolsXamlSubst(DevToolsXaml::SelectionPanel, pal, {
         { L"PANELW",  std::to_wstring(kSelPanelW) },
         { L"PANELH",  std::to_wstring(panelHeight) },
         { L"PANELX",  std::to_wstring(panelX) },
@@ -173,14 +173,6 @@ static std::wstring BuildSelectionPanelMarkup(const std::wstring& title, const s
         { L"ORIGINX", std::wstring(ox) },
         { L"ORIGINY", std::wstring(oy) },
         { L"PANELTHEME", DevToolsInverseAppRequestedTheme() },
-        { L"SURFACE", pal.surface },
-        { L"SURFACEALT", pal.surfaceAlt },
-        { L"BORDER",  pal.border },
-        { L"RIM",     pal.rim },
-        { L"TEXT",    pal.textPrimary },
-        { L"TEXTDIM", pal.textSecondary },
-        { L"ACCENT",  pal.accent },
-        { L"CAUTION", pal.caution },
         { L"TITLE",   DevToolsXmlEscape(title.empty() ? std::wstring(L"Element") : title) },
         { L"TITLETIP", DevToolsXmlEscape(titleTip) },
         { L"SOURCE",  DevToolsXmlEscape(srcText) },
@@ -210,7 +202,7 @@ static std::wstring BuildSelectionMarkup(int w, int h, int tagX, int tagY,
                                          const std::wstring& panelMarkup)
 {
     const DevToolsPalette& pal = DevToolsBuildPalette();
-    return DevToolsXamlSubst(DevToolsXaml::Selection, {
+    return DevToolsXamlSubst(DevToolsXaml::Selection, pal, {
         { L"W",       std::to_wstring(w) },
         { L"H",       std::to_wstring(h) },
         { L"TAGX",    std::to_wstring(tagX) },
@@ -218,10 +210,6 @@ static std::wstring BuildSelectionMarkup(int w, int h, int tagX, int tagY,
         { L"TAGVIS",  panelMarkup.empty() ? std::wstring(L"Visible") : std::wstring(L"Collapsed") },
         { L"TAGTEXT", DevToolsXmlEscape(tagText) },
         { L"TAGDIM",  DevToolsXmlEscape(tagDim) },
-        { L"SURFACE", pal.surface },
-        { L"RIM",     pal.rim },
-        { L"TEXT",    pal.textPrimary },
-        { L"TEXTTERTIARY", pal.textTertiary },
         { L"PANEL",   panelMarkup },
     });
 }
