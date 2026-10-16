@@ -99,14 +99,38 @@ public class UiHelpTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task RootHelp_PointsToUiAndDevToolsHelp()
+    public async Task RootHelp_ShowsQuickStartBeforeAllCommands()
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["--help"]);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "Start here:");
-        Assert.IsLessThan(output.IndexOf("winapp devtools --help", StringComparison.Ordinal),
-            output.IndexOf("winapp ui --help", StringComparison.Ordinal));
-        StringAssert.Contains(output, "Inspect or change a running WinUI app's XAML live");
+        var quickStart = output.IndexOf("Quick start:", StringComparison.Ordinal);
+        var allCommands = output.IndexOf("All commands:", StringComparison.Ordinal);
+        Assert.IsGreaterThanOrEqualTo(0, quickStart, output);
+        Assert.IsLessThan(allCommands, quickStart);
+        Assert.IsLessThan(output.IndexOf("Set Up & Run", StringComparison.Ordinal), allCommands);
+        foreach (var step in CustomHelpAction.QuickStart.SelectMany(g => g.Steps))
+        {
+            StringAssert.Contains(output, step.Command);
+        }
+    }
+
+    [TestMethod]
+    public void RootHelp_QuickStartCommandsParse()
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        foreach (var step in CustomHelpAction.QuickStart.SelectMany(g => g.Steps))
+        {
+            var tokens = Regex.Matches(step.Command, "\"[^\"]*\"|\\S+")
+                .Select(m => m.Value.Trim('"'))
+                .Skip(1)
+                .Select(t => t.StartsWith('<') ? "placeholder" : t)
+                .ToArray();
+            var result = root.Parse(tokens);
+            // Only command and option names matter here; example paths don't exist on the test machine.
+            var errors = result.Errors.Where(e => !e.Message.Contains("does not exist", StringComparison.Ordinal)).ToList();
+            Assert.IsEmpty(errors, $"{step.Command}: {string.Join("; ", errors.Select(e => e.Message))}");
+            Assert.AreNotSame(root, result.CommandResult.Command, step.Command);
+        }
     }
 
     [TestMethod]

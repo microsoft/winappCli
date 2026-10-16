@@ -165,11 +165,8 @@ internal class WinAppRootCommand : RootCommand, IShortDescription
         // Replace the default help with a custom categorized help screen
         var helpOption = Options.OfType<HelpOption>().First();
         helpOption.Action = new CustomHelpAction(this, ansiConsole,
-            ("Get Started", [typeof(NewCommand), typeof(InitCommand), typeof(RestoreCommand), typeof(UpdateCommand)]),
-            ("Run & Debug", [typeof(RunCommand), typeof(CreateDebugIdentityCommand), typeof(UnregisterCommand), typeof(TargetCommand), typeof(DevToolsCommand)]),
-            ("Discovery", [typeof(FindUiCommand), typeof(FindApiCommand)]),
-            ("UI Automation", [typeof(UiCommand)]),
-            ("Performance", [typeof(PerfCommand)]),
+            ("Set Up & Run", [typeof(NewCommand), typeof(InitCommand), typeof(RestoreCommand), typeof(UpdateCommand), typeof(RunCommand), typeof(CreateDebugIdentityCommand), typeof(UnregisterCommand), typeof(TargetCommand)]),
+            ("Develop & Test", [typeof(FindUiCommand), typeof(FindApiCommand), typeof(DevToolsCommand), typeof(UiCommand), typeof(PerfCommand)]),
             ("Package, Sign & Publish", [typeof(PackageCommand), typeof(ManifestCommand), typeof(CertCommand), typeof(SignCommand), typeof(AzSignCommand), typeof(MSStoreCommand)]),
             ("Advanced", [typeof(EmbedIdentityCommand), typeof(CreateExternalCatalogCommand), typeof(ToolCommand), typeof(GetWinappPathCommand), typeof(ConfigCommand)])
         );
