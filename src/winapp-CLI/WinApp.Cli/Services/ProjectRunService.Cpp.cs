@@ -108,6 +108,13 @@ internal sealed partial class ProjectRunService
     internal static string? CppArchitectureFromProperties(IReadOnlyList<string> properties) =>
         TryGetUserProperty(properties, "Platform", out var platform) ? ArchitectureOfCppPlatform(platform) : null;
 
+    /// <summary>
+    /// The configuration a user <c>-p Configuration</c> names (last non-empty value wins), or null when none
+    /// is set. Lets <c>-p Configuration=Release</c> select the configuration like <c>-c Release</c>.
+    /// </summary>
+    internal static string? CppConfigurationFromProperties(IReadOnlyList<string> properties) =>
+        TryGetUserProperty(properties, "Configuration", out var configuration) ? configuration : null;
+
     private async Task<ProjectBuildOutcome> BuildAndResolveCppAsync(
         FileInfo project,
         ProjectRunOptions options,
@@ -166,7 +173,8 @@ internal sealed partial class ProjectRunService
     /// <summary>
     /// The global properties shared by the build and evaluate passes: the user's <c>-p</c> first, then the
     /// solution context and Configuration/Platform. MSBuild is last-wins, so a user <c>-p:Platform</c> or
-    /// <c>Solution*</c> is honored by not emitting winapp's own; Configuration always follows <c>-c</c>.
+    /// <c>Solution*</c> is honored by not emitting winapp's own; Configuration always follows the resolved
+    /// configuration (<c>-c</c>, or <c>-p Configuration</c> when <c>-c</c> isn't given).
     /// </summary>
     internal static List<string> BuildCppPropertyTokens(ProjectRunOptions options)
     {

@@ -1,0 +1,7 @@
+{
+  "description": "No-skills baseline: no plugins, no custom agent, and no WinApp CLI on PATH. Just Copilot and the prompt.",
+  "framework_hint": "WinUI 3",
+  "env": {
+    "hide_tools": ["winapp"]
+  }
+}
