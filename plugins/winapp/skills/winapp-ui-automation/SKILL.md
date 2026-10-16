@@ -242,6 +242,7 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
   request `--overwrite` to replace them after the new take finishes. Previous frame
   directories are archived, not deleted. On partial failure, keep the reported evidence
   and follow `recoveryHint`.
+- Default recording draws open menus, flyouts and tooltips over the window in place; no flag is needed. They're clipped to the window's bounds, and popups from other processes need `--capture-screen` (see [Menus and flyouts in recordings](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#menus-and-flyouts-in-recordings)).
 - `--capture-screen` captures from the screen DC so overlays and popups are included; the window is brought to the foreground first. When WGC is unavailable and `--capture-screen` is not passed, the CLI returns an error — re-run with `--capture-screen` to consent to screen-DC capture. Because the screen DC captures whatever is genuinely in front, the target's foreground is **verified immediately before capture**; if activation was refused the command fails with `foreground_not_target` and writes nothing rather than returning an image of the wrong window.
 - Providing a selector that doesn't match any element fails immediately with `element_not_found` (rather than silently recording the whole window).
 - A selector for an item in an open menu, flyout, tooltip, or teaching tip records from that item's popup window, not the window behind it.
