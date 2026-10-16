@@ -1,0 +1,9 @@
+<Page x:Class="Tallyport.Views.OrderDetailsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StackPanel Padding="24" Spacing="6">
+    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="{Binding Number}" />
+    <TextBlock x:Name="CustomerNameText" Text="{Binding Customer.DisplayName}" />
+    <TextBlock Text="{Binding Total}" />
+  </StackPanel>
+</Page>

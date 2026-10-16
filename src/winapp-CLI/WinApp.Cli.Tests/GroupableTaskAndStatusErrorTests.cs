@@ -155,6 +155,21 @@ public class StatusServiceErrorMessageFallbackTests
             logger.Entries.Any(e => e.Level == LogLevel.Error && e.Message == "Operation failed without an error message."));
     }
 
+    // `devtools attach --show-window` printed a bare check mark: a step that succeeds with nothing to say prints nothing.
+    [TestMethod]
+    public async Task ExecuteWithStatusAsync_SuccessWithoutMessage_PrintsNoBareCheckMark()
+    {
+        var console = new TestConsole();
+        var svc = new StatusService(console, new CapturingLogger());
+
+        var rc = await svc.ExecuteWithStatusAsync<string>("Attaching...", (_, _) => Task.FromResult((0, string.Empty)), CancellationToken.None);
+
+        Assert.AreEqual(0, rc);
+        var lines = console.Output.Replace("\r\n", "\n").Split('\n');
+        Assert.IsFalse(lines.Any(line => line.Trim() == Spectre.Console.Emoji.Known.CheckMarkButton),
+            "no line is only a check mark: " + console.Output);
+    }
+
     [TestMethod]
     public async Task ExecuteWithStatusAsync_RealCompletedMessage_PassesItThrough()
     {

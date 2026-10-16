@@ -462,8 +462,8 @@ public partial class GuestProcessHostTests
         var cancelledMarker = TestPaths.TempFile("cancelled-grandchild", ".pid");
         var survivorMarker = TestPaths.TempFile("survivor-grandchild", ".pid");
 
-        var cancelled = GuestProcessHost.Start(SpawningRequest(cancelledMarker), (_, _) => Task.CompletedTask);
-        var survivor = GuestProcessHost.Start(SpawningRequest(survivorMarker), (_, _) => Task.CompletedTask);
+        await using var cancelled = GuestProcessHost.Start(SpawningRequest(cancelledMarker), (_, _) => Task.CompletedTask);
+        await using var survivor = GuestProcessHost.Start(SpawningRequest(survivorMarker), (_, _) => Task.CompletedTask);
 
         try
         {
@@ -492,8 +492,6 @@ public partial class GuestProcessHostTests
         }
         finally
         {
-            await cancelled.DisposeAsync();
-            await survivor.DisposeAsync();
             TryDeleteFile(cancelledMarker);
             TryDeleteFile(survivorMarker);
         }

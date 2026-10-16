@@ -11,6 +11,7 @@ using Spectre.Console;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
+using WinApp.Cli.Services.DevTools;
 using WinApp.Cli.Services.InteractiveDesktop;
 
 namespace WinApp.Cli.Commands;
@@ -189,9 +190,21 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
                 // unbounded time, so anything resolved before the wait is advisory.
                 await using (await turn.EnterAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    pass = await CaptureUnderSectionAsync(
-                        parseResult, selector, app, window, json, captureScreen, focus,
-                        parseResult.InvocationConfiguration.Error, cancellationToken).ConfigureAwait(false);
+                    _devToolsHidden = HideDevToolsChrome(app, window);
+                    _devToolsSettled = _devToolsHidden.Count > 0 ? Task.Delay(DevToolsChromeSettle, cancellationToken) : Task.CompletedTask;
+                    try
+                    {
+                        pass = await CaptureUnderSectionAsync(
+                            parseResult, selector, app, window, json, captureScreen, focus,
+                            parseResult.InvocationConfiguration.Error, cancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        foreach (var pid in _devToolsHidden)
+                        {
+                            SetDevToolsChromeHidden(pid, false);
+                        }
+                    }
                 }
 
                 // Deliberately outside the section: composing, PNG encoding and writing to disk are pure
@@ -231,6 +244,100 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
             {
                 UiErrors.GenericError(logger, ex, json);
                 return 1;
+            }
+        }
+
+        /// <summary>Processes with WinUI DevTools attached (a DevTools pipe), found without connecting to any.</summary>
+        internal Func<IReadOnlyList<int>> InjectedDevToolsPids { get; set; } = () => DevToolsPipeDiscovery.EnumerateInjectedPids();
+
+        /// <summary>Hides or shows the DevTools chrome in a process; false when it did not answer.</summary>
+        internal Func<int, bool, bool> SetDevToolsChromeHidden { get; set; } = static (pid, hidden) =>
+            new VisualTreeTap(unchecked((uint)pid)).Request("Internal.hideChrome",
+                w => w.WriteBoolean("hidden", hidden), timeoutMs: 2000).Ok;
+
+        /// <summary>How long a hidden toolbar takes to leave the screen: two frames.</summary>
+        internal TimeSpan DevToolsChromeSettle { get; set; } = TimeSpan.FromMilliseconds(34);
+
+        private List<int> _devToolsHidden = [];
+
+        // Hidden chrome leaves the screen with the app's next frames; window discovery runs meanwhile.
+        private Task _devToolsSettled = Task.CompletedTask;
+
+        /// <summary>The title of the DevTools inspector window, followed by the app's PID.</summary>
+        internal const string DevToolsInspectorTitlePrefix = "WinApp DevTools · PID ";
+
+        /// <summary>The comment flyout's popup, a window of its own while it is open.</summary>
+        internal const string DevToolsFlyoutAutomationId = "DevToolsSelPopup";
+
+        // With DevTools on by default, a screenshot would otherwise show its toolbar, markers and flyout. They are
+        // hidden for the capture, so the image is the one the app shows without DevTools.
+        private List<int> HideDevToolsChrome(string? app, long? window)
+        {
+            var injected = InjectedDevToolsPids();
+            if (injected.Count == 0)
+            {
+                return [];
+            }
+            return DevToolsTargets(app, window, injected).Where(pid => SetDevToolsChromeHidden(pid, true)).ToList();
+        }
+
+        private List<int> DevToolsTargets(string? app, long? window, IReadOnlyList<int> injected)
+        {
+            if (window is > 0)
+            {
+                var pid = (int)systemQuery.GetProcessIdForWindow(window.Value);
+                return injected.Contains(pid) ? [pid] : [];
+            }
+            if (string.IsNullOrWhiteSpace(app))
+            {
+                return [];
+            }
+            if (int.TryParse(app, out var id))
+            {
+                return injected.Contains(id) ? [id] : [];
+            }
+            // -a also takes a window title. Only processes with DevTools are looked at, so a loose match costs nothing.
+            return injected.Where(pid =>
+            {
+                try
+                {
+                    using var process = System.Diagnostics.Process.GetProcessById(pid);
+                    return process.ProcessName.Contains(app, StringComparison.OrdinalIgnoreCase) ||
+                        uiAutomation.FindWindowsByPid(pid).Any(w => w.Title.Contains(app, StringComparison.OrdinalIgnoreCase));
+                }
+                catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    return false;
+                }
+            }).ToList();
+        }
+
+        // The inspector and the comment flyout are DevTools' own windows, not the app's.
+        private bool IsDevToolsWindow(nint hwnd, int pid, string title)
+        {
+            if (!_devToolsHidden.Contains(pid))
+            {
+                return false;
+            }
+            if (title.StartsWith(DevToolsInspectorTitlePrefix, StringComparison.Ordinal))
+            {
+                return true;
+            }
+            // The flyout is a popup window, owned by the app window it opened over.
+            if (systemQuery.GetWindowOwner(hwnd) == 0)
+            {
+                return false;
+            }
+            try
+            {
+                var elements = uiAutomation.InspectAsync(
+                        new UiTarget { ProcessId = pid, WindowHandle = hwnd, IsExplicitWindow = true }, null, 2, CancellationToken.None)
+                    .GetAwaiter().GetResult();
+                return elements.Any(e => e.AutomationId == DevToolsFlyoutAutomationId);
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+            {
+                return false;
             }
         }
 
@@ -326,6 +433,7 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
                     (targetWindowHwnd, singleTarget.ProcessId, singleTarget.WindowTitle ?? ""),
                 };
                 var ownedWindows = ownedWindowFinder.FindOwnedWindows(appWindows);
+                ownedWindows.RemoveAll(w => IsDevToolsWindow(w.Hwnd, w.Pid, w.Title));
                 if (ownedWindows.Count > 0)
                 {
                     var allWindows = ToCandidates(appWindows, ownedWindows);
@@ -354,6 +462,7 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
                 selector = exact.Selector!;
             }
 
+            await _devToolsSettled.ConfigureAwait(false);
             var (pixels, w, h) = await uiAutomation
                 .ScreenshotAsync(singleTarget, selector, captureScreen, focus, ct).ConfigureAwait(false);
 
@@ -457,6 +566,7 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
                         WindowTitle = title,
                         WindowHandle = w.Hwnd,
                     };
+                    await _devToolsSettled.ConfigureAwait(false);
                     var (pixels, width, height) = await uiAutomation
                         .ScreenshotAsync(windowTarget, null, captureScreen, focus, ct).ConfigureAwait(false);
                     captures.Add((pixels, width, height, w.Hwnd, title, info.Label));
@@ -665,6 +775,7 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
                         appWindows.AddRange(uiAutomation.FindWindowsByPid(p.Id));
                     }
                 }
+                appWindows.RemoveAll(w => IsDevToolsWindow(w.Hwnd, w.Pid, w.Title));
             }
             else
             {
@@ -673,6 +784,7 @@ internal class UiScreenshotCommand : Command, IShortDescription, IHelpExamples
 
             // Also find cross-process owned windows
             var ownedWindows = ownedWindowFinder.FindOwnedWindows(appWindows);
+            ownedWindows.RemoveAll(w => IsDevToolsWindow(w.Hwnd, w.Pid, w.Title));
 
             return ToCandidates(appWindows, ownedWindows) is { Count: > 1 } candidates ? candidates : null;
         }

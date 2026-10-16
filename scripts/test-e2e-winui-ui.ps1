@@ -452,6 +452,49 @@ Assert-ScreenshotValid "screenshot: 06-capture-screen.png" $ssScreen
 Assert-ScreenshotValid "screenshot: 07-focus.png" $ssFocus
 
 # ============================================================================
+# DevTools: a write the control rejects
+# ============================================================================
+
+Write-TestHeader "Phase 5: DevTools write a control rejects"
+
+# TitleBar.Content rejects a string but used to keep it, and the TitleBar then crashed the app at the next window
+# activation. The write must fail, leave the value as it was, and the app must keep running.
+$devLaunch = & $WinAppPath run $sampleDir --devtools on --detach --json 2>$null
+$devPid = $null
+try { $devPid = ($devLaunch | Out-String | ConvertFrom-Json).ProcessId } catch { }
+if (-not $devPid) {
+    Write-TestFail "devtools launch" "No process id: $($devLaunch | Out-String)"
+} else {
+    Write-TestPass "devtools launch" "PID $devPid"
+    $null = Invoke-Winapp @("ui", "wait-for", "AppTitleBar", "-a", "$devPid", "-t", "20000")
+    $rejected = Invoke-Winapp @("devtools", "set-property", "AppTitleBar", "Content", "x", "-a", "$devPid", "--json")
+    if ($rejected.ExitCode -ne 0 -and $rejected.Output -match "TitleBar rejected") {
+        Write-TestPass "set-property TitleBar.Content is refused"
+    } else {
+        Write-TestFail "set-property TitleBar.Content is refused" "Exit $($rejected.ExitCode): $($rejected.Output)"
+    }
+    $after = Invoke-Winapp @("devtools", "get-property", "AppTitleBar", "Content", "-a", "$devPid")
+    if ($after.Output -notmatch "Content: x") { Write-TestPass "TitleBar.Content keeps its value" }
+    else { Write-TestFail "TitleBar.Content keeps its value" $after.Output }
+
+    # Opening the DevTools window and switching between it and the app changes window activation.
+    $null = Invoke-Winapp @("devtools", "call", "Window.open", "-a", "$devPid")
+    $null = Invoke-Winapp @("ui", "wait-for", "TreeScroll", "-a", "$devPid", "-t", "10000")
+    $windows = (Invoke-Winapp @("ui", "list-windows", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
+    $inspectorHwnd = [string](@($windows | Where-Object title -like "WinApp DevTools*")[0].hwnd)
+    $mainHwnd = [string](@($windows | Where-Object { $_.title -notlike "WinApp DevTools*" })[0].hwnd)
+    for ($i = 0; $i -lt 10; $i++) {
+        $null = Invoke-Winapp @("ui", "focus", "-w", $inspectorHwnd)
+        $null = Invoke-Winapp @("ui", "focus", "-w", $mainHwnd)
+    }
+    if (Get-Process -Id $devPid -ErrorAction SilentlyContinue) { Write-TestPass "app survives window activation after the refused write" }
+    else { Write-TestFail "app survives window activation after the refused write" "Process $devPid exited" }
+
+    Assert-WinappSuccess "set-property Button.Content still accepts text" @("devtools", "set-property", "CounterButton", "Content", "Hello", "-a", "$devPid") | Out-Null
+    Stop-Process -Id $devPid -ErrorAction SilentlyContinue
+}
+
+# ============================================================================
 # Summary
 # ============================================================================
 

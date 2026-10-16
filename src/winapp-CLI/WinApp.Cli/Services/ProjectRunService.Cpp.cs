@@ -108,6 +108,13 @@ internal sealed partial class ProjectRunService
     internal static string? CppArchitectureFromProperties(IReadOnlyList<string> properties) =>
         TryGetUserProperty(properties, "Platform", out var platform) ? ArchitectureOfCppPlatform(platform) : null;
 
+    /// <summary>
+    /// The configuration a user <c>-p Configuration</c> names (last non-empty value wins), or null when none
+    /// is set. Lets <c>-p Configuration=Release</c> select the configuration like <c>-c Release</c>.
+    /// </summary>
+    internal static string? CppConfigurationFromProperties(IReadOnlyList<string> properties) =>
+        TryGetUserProperty(properties, "Configuration", out var configuration) ? configuration : null;
+
     private async Task<ProjectBuildOutcome> BuildAndResolveCppAsync(
         FileInfo project,
         ProjectRunOptions options,
@@ -137,6 +144,11 @@ internal sealed partial class ProjectRunService
         }
 
         List<string> evaluateArgs = [project.FullName, "-nologo", .. properties, .. CppRequestedProperties.Select(p => $"-getProperty:{p}")];
+        if (options.CaptureDevToolsSources)
+        {
+            evaluateArgs.Add("-getItem:Page,ApplicationDefinition");
+            evaluateArgs.AddRange(DevTools.XamlSourceCoordinates.Properties.Select(p => $"-getProperty:{p}"));
+        }
         logger.LogDebug("{UISymbol} {Command}", UiSymbols.Note, RedactSecretsForDisplay(WindowsCommandLine.JoinArguments([msbuild, .. evaluateArgs]) ?? string.Empty));
         var evaluation = await msBuildService.RunAsync(msbuild, evaluateArgs, onLine: null, cancellationToken);
         if (evaluation.ExitCode != 0)
@@ -159,14 +171,25 @@ internal sealed partial class ProjectRunService
             return new ProjectBuildOutcome(null, evaluation.ExitCode);
         }
 
-        var props = MsBuildPropertyReader.Parse(evaluation.StandardOutput, CppRequestedProperties);
-        return new ProjectBuildOutcome(CreateCppResolution(project, options, props), 0);
+        var props = MsBuildPropertyReader.Parse(evaluation.StandardOutput,
+            [.. CppRequestedProperties, .. DevTools.XamlSourceCoordinates.Properties]);
+        var resolution = CreateCppResolution(project, options, props);
+        if (options.CaptureDevToolsSources)
+        {
+            resolution = resolution with
+            {
+                DevToolsXamlSources = ReadDevToolsSources(evaluation.StandardOutput),
+                DevToolsCompilerArtifacts = DevTools.XamlSourceCoordinates.FromProperties(project, props),
+            };
+        }
+        return new ProjectBuildOutcome(resolution, 0);
     }
 
     /// <summary>
     /// The global properties shared by the build and evaluate passes: the user's <c>-p</c> first, then the
     /// solution context and Configuration/Platform. MSBuild is last-wins, so a user <c>-p:Platform</c> or
-    /// <c>Solution*</c> is honored by not emitting winapp's own; Configuration always follows <c>-c</c>.
+    /// <c>Solution*</c> is honored by not emitting winapp's own; Configuration always follows the resolved
+    /// configuration (<c>-c</c>, or <c>-p Configuration</c> when <c>-c</c> isn't given).
     /// </summary>
     internal static List<string> BuildCppPropertyTokens(ProjectRunOptions options)
     {

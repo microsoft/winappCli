@@ -44,9 +44,9 @@ runs:
       shell: pwsh
       run: |
         $resultsPath = "${{ inputs.artifacts-path }}/TestResults"
-        # Both CLI shards and UI Automation must have reported before publishing combined metrics. An
+        # All three CLI shards and UI Automation must have reported before publishing combined metrics. An
         # empty or partial download must not become a green zero-test report.
-        foreach ($name in @('WinApp.Cli.Tests.shard-1.trx', 'WinApp.Cli.Tests.shard-2.trx', 'WinApp.UIAutomation.Tests.trx')) {
+        foreach ($name in @('WinApp.Cli.Tests.shard-1.trx', 'WinApp.Cli.Tests.shard-2.trx', 'WinApp.UIAutomation.Tests.trx', 'devtools/WinApp.Cli.Tests.shard-3.trx')) {
           if (-not (Test-Path "$resultsPath/$name")) {
             throw "Missing test report: $name. Metrics require the validation job's test-results artifact."
           }
@@ -55,6 +55,9 @@ runs:
         if ($trxFiles.Count -ne 3) {
           throw "Expected exactly three test reports (two CLI shards and UI Automation); found $($trxFiles.Count)."
         }
+        # Managed multi-target framework receipts stay in devtools for the report artifact;
+        # the CLI/UI Automation baseline counts the same test projects across all three shards.
+        $trxFiles = @($trxFiles) + @(Get-Item "$resultsPath/devtools/WinApp.Cli.Tests.shard-3.trx")
         $totalTests = 0; $passed = 0; $failed = 0; $skipped = 0; $durationMs = 0
 
         foreach ($trx in $trxFiles) {
@@ -94,7 +97,7 @@ runs:
     - name: Parse coverage results
       shell: pwsh
       run: |
-        $coverageFiles = @(Get-ChildItem "${{ inputs.artifacts-path }}/TestResults/*.cobertura.xml" -ErrorAction SilentlyContinue)
+        $coverageFiles = @(Get-ChildItem "${{ inputs.artifacts-path }}/TestResults" -Filter '*.cobertura.xml' -Recurse -ErrorAction SilentlyContinue)
         if ($coverageFiles.Count -eq 0) {
           Write-Warning "No coverage.cobertura.xml found, skipping coverage metrics"
           @{ lineCoverage = $null; branchCoverage = $null } | ConvertTo-Json | Set-Content "${{ inputs.artifacts-path }}/coverage-summary.json"
