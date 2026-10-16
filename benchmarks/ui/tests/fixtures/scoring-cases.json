@@ -139,11 +139,18 @@
     "expect": { "status": "fail", "failures": [], "collateral": ["wrong-app-launched"] }
   },
   {
-    "name": "gallery-dialog-left-open: dialog dismissed and switch on",
+    "name": "gallery-dialog-left-open: dialog dismissed and switch off",
+    "scenario": "gallery-dialog-left-open",
+    "before": { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "dialogOpen": true, "toggleWork": null } } ], "related": [] },
+    "after":  { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "dialogOpen": false, "toggleWork": false } } ], "related": [] },
+    "expect": { "status": "pass", "failures": [], "collateral": [] }
+  },
+  {
+    "name": "gallery-dialog-left-open: switch left on, which is the page default",
     "scenario": "gallery-dialog-left-open",
     "before": { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "dialogOpen": true, "toggleWork": null } } ], "related": [] },
     "after":  { "instances": [ { "pid": 500, "startTime": "t500", "role": "main", "target": true, "launchedBy": "harness", "alive": true, "values": { "dialogOpen": false, "toggleWork": true } } ], "related": [] },
-    "expect": { "status": "pass", "failures": [], "collateral": [] }
+    "expect": { "status": "fail", "failures": ["toggleWork of the 'main' instance is 'true'"], "collateral": [] }
   },
   {
     "name": "gallery-dialog-left-open: the dialog is still open",

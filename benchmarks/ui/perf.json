@@ -82,13 +82,13 @@
     {
       "id": "gallery-dialog",
       "scenario": "gallery-dialog-left-open",
-      "description": "Dismiss the open dialog, navigate to ToggleSwitch, and turn on Toggle work.",
+      "description": "Dismiss the open dialog, navigate to ToggleSwitch, and turn off Toggle work.",
       "steps": [
         { "op": "invoke", "selector": "Cancel" },
         { "op": "invoke", "selector": "Basic input" },
         { "op": "invoke", "selector": "ToggleSwitch" },
         { "op": "wait-for", "selector": "ToggleSwitch2", "timeout": 10000 },
-        { "op": "invoke", "selector": "ToggleSwitch2", "action": "toggle-on" }
+        { "op": "invoke", "selector": "ToggleSwitch2", "action": "toggle-off" }
       ]
     }
   ]
