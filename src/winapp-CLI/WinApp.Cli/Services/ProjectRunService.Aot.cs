@@ -67,7 +67,12 @@ internal sealed partial class ProjectRunService
             throw new ProjectRunException(BuildPublishAotRequiredMessage(csproj));
         }
 
-        var resolution = CreateAotResolution(csproj, options, properties);
+        var resolution = CreateAotResolution(csproj, options, properties) with
+        {
+            DevToolsXamlSources = options.CaptureDevToolsSources ? ReadDevToolsSources(publish.Properties) : null,
+            DevToolsCompilerArtifacts = options.CaptureDevToolsSources
+                ? DevTools.XamlSourceCoordinates.FromProperties(csproj, properties) : null,
+        };
         logger.LogDebug(
             "{UISymbol} Native AOT output: PublishDir={PublishDir}; executable={Executable}; manifest={Manifest}; recipe={Recipe}",
             UiSymbols.Note,

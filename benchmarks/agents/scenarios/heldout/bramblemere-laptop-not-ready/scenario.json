@@ -30,7 +30,8 @@
       "forbid": [
         "project.scaffold",
         "project.setup",
-        "winui.design"
+        "winui.design",
+        "winui.inspect"
       ]
     }
   }

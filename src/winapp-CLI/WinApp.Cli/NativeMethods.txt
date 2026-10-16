@@ -26,6 +26,9 @@ CryptCATCDFClose
 CryptCATCDFEnumCatAttributes
 CryptCATCDFEnumMembersByCDFTagEx
 CryptCATCDFEnumAttributesWithCDFTag
+WTHelperProvDataFromStateData
+WTHelperGetProvSignerFromChain
+WTHelperGetProvCertFromChain
 IApplicationActivationManager
 ApplicationActivationManager
 IPackageDebugSettings
@@ -38,6 +41,10 @@ DebugSetProcessKillOnExit
 DEBUG_EVENT
 ReadProcessMemory
 OpenProcess
+CreateProcessW
+QueryFullProcessImageName
+TerminateProcess
+WaitForSingleObject
 CloseHandle
 PROCESS_ACCESS_RIGHTS
 DBG_CONTINUE
