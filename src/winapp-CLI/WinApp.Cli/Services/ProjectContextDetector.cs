@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using System.Xml.Linq;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
@@ -73,13 +74,11 @@ internal sealed class ProjectContextDetector : IProjectContextDetector
         }
     }
 
-    private static bool PackagesConfigListsWindowsAppSdk(FileInfo projectFile)
-    {
-        var config = new FileInfo(Path.Join(projectFile.DirectoryName, "packages.config"));
-        return config.Exists && CanReadMetadata(config) &&
-            XDocument.Load(config.FullName).Descendants("package").Any(package =>
-                (package.Attribute("id")?.Value ?? "").StartsWith("Microsoft.WindowsAppSDK", StringComparison.OrdinalIgnoreCase));
-    }
+    private static bool PackagesConfigListsWindowsAppSdk(FileInfo projectFile) =>
+        PackagesConfigReader.Read(projectFile)?.Projects
+            .SelectMany(project => project.Frameworks)
+            .SelectMany(framework => framework.TopLevelPackages)
+            .Any(package => package.Id.StartsWith("Microsoft.WindowsAppSDK", StringComparison.OrdinalIgnoreCase)) == true;
 
     public ProjectContext DetectDirectory(
         DirectoryInfo directory,

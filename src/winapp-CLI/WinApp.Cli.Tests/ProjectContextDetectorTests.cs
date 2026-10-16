@@ -77,6 +77,20 @@ public sealed class ProjectContextDetectorTests
     }
 
     [TestMethod]
+    public void DetectProject_CppWinUIWithMalformedPackagesConfig_IsStillWinUI()
+    {
+        var project = new FileInfo(Path.Join(_root.FullName, "App.vcxproj"));
+        File.WriteAllText(project.FullName, """
+            <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <PropertyGroup><UseWinUI>true</UseWinUI></PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Join(_root.FullName, "packages.config"), "<packages><package id=");
+
+        Assert.AreEqual(ProjectAppFramework.WinUI, _detector.DetectProject(project).Framework);
+    }
+
+    [TestMethod]
     public void DetectProject_ClassifiesTheCppWinUISample()
     {
         var sample = new FileInfo(Path.Join(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..",
