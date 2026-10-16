@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "DevToolsPathWalk.h"
+#include "DevToolsPathSyntax.h"
 #include "DevToolsProtocol.h"   // the tap's JSON reader; the walk answer arrives as one compact JSON object
 
 namespace {
@@ -10,27 +11,6 @@ std::wstring LastComponent(const std::wstring& prefix)
 {
     const size_t dot = prefix.rfind(L'.');
     return dot == std::wstring::npos ? prefix : prefix.substr(dot + 1);
-}
-
-void SplitAroundSegment(const std::wstring& path, const std::wstring& segment,
-                        std::wstring* head, std::wstring* emph, std::wstring* tail)
-{
-    *head = *emph = *tail = L"";
-    if (segment.empty()) { *emph = path; return; }
-
-    for (size_t start = 0; start <= path.size();) {
-        const size_t dot = path.find(L'.', start);
-        const size_t len = (dot == std::wstring::npos ? path.size() : dot) - start;
-        if (path.compare(start, len, segment) == 0) {
-            *head = path.substr(0, start);
-            *emph = segment;
-            *tail = path.substr(start + segment.size());
-            return;
-        }
-        if (dot == std::wstring::npos) break;
-        start = dot + 1;
-    }
-    *emph = segment;
 }
 
 std::wstring TypeNote(const std::wstring& type)
@@ -216,7 +196,7 @@ DevToolsPathWalkView DevToolsPathWalk_FromJson(const std::wstring& json, bool ag
 
     const DevToolsPathWalkStep& stop = v.steps[stopAt];
     const std::wstring failing = LastComponent(stop.path);
-    SplitAroundSegment(path.empty() ? stop.path : path, failing, &v.qHead, &v.qEmphasis, &v.qTail);
+    DevToolsPath_SplitAroundSegment(path.empty() ? stop.path : path, failing, &v.qHead, &v.qEmphasis, &v.qTail);
 
     std::wstring lookedOn = v.againstName;
     if (stopAt > 0) {

@@ -2,36 +2,12 @@
 // Licensed under the MIT License.
 
 #include "DevToolsBindingRow.h"
+#include "DevToolsPathSyntax.h"
 #include "DevToolsProtocol.h"   // the tap's JSON reader; the agent's answer arrives as one compact JSON object
 #include <algorithm>
 #include <cwchar>
 #include <utility>
 #include <vector>
-
-namespace {
-
-void SplitAroundSegment(const std::wstring& path, const std::wstring& segment,
-                        std::wstring* head, std::wstring* emph, std::wstring* tail)
-{
-    *head = *emph = *tail = L"";
-    if (segment.empty()) { *emph = path; return; }
-
-    for (size_t start = 0; start <= path.size();) {
-        size_t dot = path.find(L'.', start);
-        size_t len = (dot == std::wstring::npos ? path.size() : dot) - start;
-        if (path.compare(start, len, segment) == 0) {
-            *head = path.substr(0, start);
-            *emph = segment;
-            *tail = path.substr(start + segment.size());
-            return;
-        }
-        if (dot == std::wstring::npos) break;
-        start = dot + 1;
-    }
-    *emph = segment;
-}
-
-} // namespace
 
 const wchar_t* DevToolsBindingRow_PendingText() { return L"Checking this binding\u2026"; }
 
@@ -75,7 +51,7 @@ DevToolsBindingRowView DevToolsBindingRow_FromJson(const std::wstring& json)
     }
 
     if (state == L"bad-segment" || state == L"null-link") {
-        SplitAroundSegment(path, seg, &v.head, &v.headEmphasis, &v.headTail);
+        DevToolsPath_SplitAroundSegment(path, seg, &v.head, &v.headEmphasis, &v.headTail);
         v.subtitle = reason;
         v.isFault = true;
         return v;
