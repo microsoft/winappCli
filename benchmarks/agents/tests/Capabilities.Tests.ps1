@@ -187,6 +187,15 @@ Describe 'Test-ScenarioExpectations' {
         (Test-ScenarioExpectations -Expect $e -LoadedSkills @() -InstalledSkills $installed -WinappCommands $null -Map $map).CommandHit | Should -BeNullOrEmpty
     }
 
+    It 'counts a perf command toward the capability winapp-performance provides' {
+        $real = Read-CapabilityMap -Path (Join-Path $PSScriptRoot '..\capabilities.json')
+        $skills = Get-PluginSkillNames -PluginPath (Join-Path $repoRoot 'plugins\winapp')
+        $commands = @(Get-WinappCommands -Text 'Run winapp perf analyze .\trace --json')
+        $r = Test-ScenarioExpectations -Expect (New-CapExpect -primary 'winui.build') -LoadedSkills @() -InstalledSkills $skills -WinappCommands $commands -Map $real
+        $r.CommandHit | Should -BeTrue
+        (Test-ScenarioExpectations -Expect (New-CapExpect -primary 'winui.build') -LoadedSkills 'winapp-performance' -InstalledSkills $skills -WinappCommands $commands -Map $real).Status | Should -Be 'pass'
+    }
+
     It 'flags skill context over budget' {
         $r = Test-ScenarioExpectations -Expect (New-CapExpect -primary 'msix.sign' -budget 1000) -LoadedSkills 'winapp-signing' -InstalledSkills $installed -SkillContextTokens 2500 -Map $map
         $r.OverBudget | Should -BeTrue
