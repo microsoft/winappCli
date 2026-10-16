@@ -58,6 +58,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
     private static readonly string[] ExpectedBuildTokens = ["-restore", "-p:RestorePackagesConfig=true", "-t:Build", "-p:Configuration=Debug", "-p:Platform=x64"];
     private static readonly string[] ExpectedArm64Tokens = ["-p:Foo=Bar", "-p:Configuration=Release", "-p:Platform=ARM64"];
+    private static readonly string[] ExpectedReleaseArm64Tokens = ["-p:Platform=ARM64", "-p:Configuration=Release"];
     private static readonly string[] ExpectedPackageIds = ["Microsoft.WindowsAppSDK", "Microsoft.WindowsAppSDK.Runtime"];
 
     private DirectoryInfo _tempDir = null!;
@@ -401,6 +402,29 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         Assert.AreEqual("x64", resolution.Platform);
     }
 
+    private static readonly string[] ExpectedXamlSources = ["MainWindow.xaml", "App.xaml"];
+
+    [TestMethod]
+    public async Task BuildAndResolve_Vcxproj_CapturesDevToolsXamlSourcesAndSavedState()
+    {
+        var (project, outDir) = WritePackagedBuildOutput();
+        _msbuild.Replies.Add((new ProcessRunResult(0, $$"""
+            { "Properties": {
+              "OutDir": "{{Json(outDir)}}", "TargetPath": "{{Json(outDir)}}App.exe", "ConfigurationType": "Application",
+              "AppxPackage": "true", "WindowsPackageType": "MSIX", "Configuration": "Debug", "Platform": "x64",
+              "XamlCompilerExeInputJson": "", "XamlCompilerExeOutputJson": "",
+              "XamlSavedStateFilePath": "App\\x64\\Debug\\\\XamlSaveStateFile.xml" },
+              "Items": { "Page": [ { "Identity": "MainWindow.xaml" } ], "ApplicationDefinition": [ { "Identity": "App.xaml" } ] } }
+            """, string.Empty), []));
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: true, NoRestore: false, Properties: [], CaptureDevToolsSources: true);
+
+        var resolution = (await _service.BuildAndResolveAsync(project, options, CancellationToken.None)).Resolution!;
+
+        CollectionAssert.Contains(_msbuild.Calls[0].ToArray(), "-getItem:Page,ApplicationDefinition");
+        CollectionAssert.AreEquivalent(ExpectedXamlSources, resolution.DevToolsXamlSources!.ToArray());
+        Assert.AreEqual(Path.Join(_tempDir.FullName, @"App\x64\Debug\XamlSaveStateFile.xml"), resolution.DevToolsCompilerArtifacts!.SavedState);
+    }
+
     [TestMethod]
     public async Task BuildAndResolve_Vcxproj_NoBuild_OnlyEvaluates()
     {
@@ -535,6 +559,24 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         Assert.AreEqual("x86", ProjectRunService.CppArchitectureFromProperties(["Foo=1;Platform=Win32"]));
         Assert.IsNull(ProjectRunService.CppArchitectureFromProperties(["Platform=Custom"]));
         Assert.IsNull(ProjectRunService.CppArchitectureFromProperties([]));
+    }
+
+    [TestMethod]
+    public void CppConfigurationFromProperties_ReadsLastNonEmptyValue()
+    {
+        Assert.AreEqual("Release", ProjectRunService.CppConfigurationFromProperties(["Configuration=Release"]));
+        Assert.AreEqual("Release", ProjectRunService.CppConfigurationFromProperties(["Configuration=Debug", "configuration=Release", "Configuration="]));
+        Assert.IsNull(ProjectRunService.CppConfigurationFromProperties(["Platform=ARM64"]));
+    }
+
+    [TestMethod]
+    public void BuildCppPropertyTokens_UserConfigurationProperty_EmitsOneConfiguration()
+    {
+        var options = new ProjectRunOptions("Release", "arm64", null, false, false, ["Configuration=Release", "Platform=ARM64"]);
+
+        var tokens = ProjectRunService.BuildCppPropertyTokens(options);
+
+        CollectionAssert.AreEqual(ExpectedReleaseArm64Tokens, tokens);
     }
 
     [TestMethod]

@@ -1,6 +1,6 @@
 ---
 name: winapp-ui-automation
-description: "Inspect, drive, and verify a running Windows app UI with winapp ui (UI Automation): find elements, click, type, read text and values, wait for state, take screenshots. Works with WinUI, WPF, WinForms, Win32, and Electron. Use to check, test, or act on a live app."
+description: "Inspect, drive, and verify a running Windows app UI via winapp ui (UI Automation): find elements, click, type, read text/values, wait for state, take screenshots in WinUI, WPF, WinForms, Win32, or Electron apps. Use to check, test, or act on a live app; for WinUI XAML internals, use winui-devtools."
 ---
 
 **If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
@@ -10,9 +10,16 @@ description: "Inspect, drive, and verify a running Windows app UI with winapp ui
 - AI agents interacting with Windows applications (clicking buttons, reading text, taking screenshots)
 - Verifying UI state during development or testing
 - Automating UI workflows without Playwright or Selenium
-- Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs
+- Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs by what the user sees and can operate
+- Not for a WinUI 3 app's XAML internals (why a value or binding resolved the way it did, which XAML line made an element, live property edits, UI review comments): use `winui-devtools`
 
 ## Prerequisites
+For WinUI 3 XAML source/tree, bindings or dependency-property diagnosis and edits,
+use the `winui-devtools` skill and `winapp devtools`. It requires an attached
+target or explicit authorization to inject with `--attach`; a PID alone is not
+consent. An AutomationId works as a selector in both tools; generated slugs do
+not transfer to DevTools. Continue using `winapp ui`
+for cross-framework actions, screenshots, waits and accessibility.
 
 To measure WinUI work while driving a scenario, use the
 [performance skill](../winapp-performance/SKILL.md) to bracket UI actions with capture markers.
@@ -210,7 +217,7 @@ winapp ui screenshot -w <hwnd> --capture-screen --output with-popups.png
 winapp ui screenshot -a myapp --focus --output focused.png
 ```
 
-Default capture includes owned windows even with an explicit main HWND; it produces one labeled composite, not separate image files. An element selector for an item in an open menu, flyout, tooltip, or teaching tip crops from that item's popup window, so you don't need `--capture-screen` for it. For scope and on-screen overlay placement, see [Screenshot](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#screenshot). With `--on sandbox`, the reported screenshot path is the delivered host destination.
+Default capture includes owned windows even with an explicit main HWND; it produces one labeled composite, not separate image files. An element selector for an item in an open menu, flyout, tooltip, or teaching tip crops from that item's popup window, so you don't need `--capture-screen` for it. For scope and on-screen overlay placement, see [Screenshot](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#screenshot). With `--on sandbox`, the reported screenshot path is the delivered host destination. In an app with WinUI DevTools attached, screenshots leave out its toolbar, markers, comment panel and inspector window.
 
 ### Record video (H.264 MP4)
 Record a window or element region to MP4. Prefer a positive `--duration-sec N` for

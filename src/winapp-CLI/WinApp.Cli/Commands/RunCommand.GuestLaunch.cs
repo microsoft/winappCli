@@ -39,29 +39,9 @@ internal partial class RunCommand
             // caller's own registration phase just used. Anything else -- zero, more than one, a
             // non-dev-mode registration, or a different install location -- is refused outright.
             // There is no fallback path here that registers or unregisters to "fix" a mismatch.
-            var candidates = packageRegistrationService.FindDevPackages(packageName)
-                .Where(candidate => candidate.IsDevelopmentMode)
-                .ToList();
-
-            if (candidates.Count != 1)
+            if (GuestLaunchCommand.RegistrationError(packageRegistrationService, packageName, expectedLayout.FullName) is { } registrationError)
             {
-                return Fail(
-                    candidates.Count == 0
-                        ? $"No development-mode package named '{packageName}' is registered. Expected it registered from '{expectedLayout.FullName}'."
-                        : $"{candidates.Count} development-mode packages named '{packageName}' are registered; expected exactly one, from '{expectedLayout.FullName}'.",
-                    isJson);
-            }
-
-            var candidate = candidates[0];
-
-            if (string.IsNullOrEmpty(candidate.InstallLocation) ||
-                !TryPathsMatch(candidate.InstallLocation, expectedLayout.FullName))
-            {
-                return Fail(
-                    $"The package named '{packageName}' is registered from '{candidate.InstallLocation}', " +
-                    $"not the expected '{expectedLayout.FullName}'. Another deployment may have re-registered " +
-                    "it since this run's own registration phase completed.",
-                    isJson);
+                return Fail(registrationError, isJson);
             }
 
             var packageFullName = appLauncherService.GetPackageFullName(familyName);
@@ -108,27 +88,5 @@ internal partial class RunCommand
                 familyName, aliasWasRequested: withAlias, targetSelector, cancellationToken);
         }
 
-        /// <summary>
-        /// Compares two install-location paths the same way <c>MsixService.SkipRegistration</c>
-        /// does: full path, trailing separators trimmed, ordinal-insensitive.
-        /// </summary>
-        private static bool TryPathsMatch(string installed, string expected)
-        {
-            try
-            {
-                var installedFullPath = Path.GetFullPath(installed)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                var expectedFullPath = Path.GetFullPath(expected)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-                return string.Equals(installedFullPath, expectedFullPath, StringComparison.OrdinalIgnoreCase);
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                // Any failure normalizing either path is treated as a mismatch: this verb only ever
-                // refuses on uncertainty, it never falls back to registering or unregistering.
-                return false;
-            }
-        }
     }
 }

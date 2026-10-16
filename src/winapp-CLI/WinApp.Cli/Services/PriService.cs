@@ -3,6 +3,8 @@
 
 using System.Text.RegularExpressions;
 using System.Xml;
+using System.Xml.Linq;
+using System.Security.Cryptography;
 using WinApp.Cli.ConsoleTasks;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Tools;
@@ -16,6 +18,122 @@ namespace WinApp.Cli.Services;
 internal partial class PriService(
     IBuildToolsService buildToolsService) : IPriService
 {
+    public async Task<PriXamlResources> VerifyXamlResourcesAsync(FileInfo priFile, IReadOnlyDictionary<string, string> expectedHashes,
+        TaskContext taskContext, CancellationToken cancellationToken)
+    {
+        var directory = Directory.CreateTempSubdirectory("winapp-xaml-pri-");
+        try
+        {
+            await using var input = new FileStream(priFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (input.Length is <= 0 or > 32 * 1024 * 1024)
+            {
+                throw new InvalidDataException("The XAML PRI exceeds its 32 MiB inspection limit.");
+            }
+            var hash = Convert.ToHexString(await SHA256.HashDataAsync(input, cancellationToken).ConfigureAwait(false));
+            var output = Path.Combine(directory.FullName, "resources.xml");
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            await buildToolsService.RunBuildToolAsync(new MakePriTool(),
+                $"""dump /if "{priFile.FullName}" /of "{output}" /dt Detailed""", taskContext,
+                cancellationToken: timeout.Token).ConfigureAwait(false);
+            await using var dump = new FileStream(output, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (dump.Length > 64 * 1024 * 1024) { throw new InvalidDataException("The XAML PRI dump exceeds its 64 MiB limit."); }
+            using var reader = XmlReader.Create(dump, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 64 * 1024 * 1024,
+            });
+            return new(hash, VerifyXamlResourcesDump(XDocument.Load(reader), expectedHashes, priFile.DirectoryName));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    internal static IReadOnlyDictionary<string, string[]> VerifyXamlResourcesDump(
+        XDocument dump, IReadOnlyDictionary<string, string> expectedHashes, string? payloadRoot = null)
+    {
+        var paths = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var primary = dump.Descendants("ResourceMap").Where(map => (string?)map.Attribute("primary") == "true").ToArray();
+        if (primary.Length != 1) { throw new InvalidDataException("The XAML PRI must have one primary resource map."); }
+        foreach (var (resource, hash) in expectedHashes)
+        {
+            var key = "Files/" + Path.ChangeExtension(resource, ".xbf").Replace('\\', '/');
+            var mapName = (string?)primary[0].Attribute("name");
+            var expectedUri = $"ms-resource://{mapName}/{key}";
+            var matches = primary[0].Descendants("NamedResource")
+                .Where(item => string.Equals((string?)item.Attribute("uri"), expectedUri, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (string.IsNullOrEmpty(mapName) || matches.Length != 1)
+            {
+                throw new InvalidDataException($"The PRI does not uniquely identify '{key}'.");
+            }
+            var scopedPath = string.Join("/", matches[0].Ancestors("ResourceMapSubtree").Reverse()
+                .Select(element => (string?)element.Attribute("name")).Append((string?)matches[0].Attribute("name")));
+            if (scopedPath != key || matches[0].Ancestors("ResourceMap").FirstOrDefault() != primary[0])
+            {
+                throw new InvalidDataException($"The PRI resource path disagrees with '{key}'.");
+            }
+            var candidates = matches[0].Elements("Candidate").ToArray();
+            var decision = matches[0].Elements("Decision").ToArray();
+            var indices = candidates.Select(candidate => (string?)candidate.Element("QualifierSet")?.Attribute("index")).ToArray();
+            if (candidates.Length is 0 or > 64 || decision.Length != 1 ||
+                candidates.Any(candidate => candidate.Elements("QualifierSet").Count() != 1) ||
+                indices.Any(index => !uint.TryParse(index, out _)) ||
+                indices.Distinct(StringComparer.Ordinal).Count() != indices.Length ||
+                !indices.Order(StringComparer.Ordinal).SequenceEqual(decision[0].Elements("QualifierSet")
+                    .Select(set => (string?)set.Attribute("index")).Order(StringComparer.Ordinal)) ||
+                candidates.Any(candidate => !decision[0].Elements("QualifierSet")
+                    .Any(set => XNode.DeepEquals(set, candidate.Element("QualifierSet")))))
+            {
+                throw new InvalidDataException($"The PRI resource '{key}' has an ambiguous candidate decision.");
+            }
+            var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var candidate in candidates)
+            {
+                byte[] bytes;
+                switch ((string?)candidate.Attribute("type"))
+                {
+                    case "EmbeddedData" when candidate.Elements("Base64Value").Count() == 1 && !candidate.Elements("Value").Any():
+                        var encoded = candidate.Element("Base64Value")!.Value;
+                        if (encoded.Length > 3 * 1024 * 1024) { throw new InvalidDataException("The embedded XBF exceeds its limit."); }
+                        try { bytes = Convert.FromBase64String(encoded); }
+                        catch (FormatException ex) { throw new InvalidDataException("The embedded XBF is not valid base64.", ex); }
+                        break;
+                    case "Path" when payloadRoot is not null && candidate.Elements("Value").Count() == 1 && !candidate.Elements("Base64Value").Any():
+                        var relative = candidate.Element("Value")!.Value.Replace('\\', '/');
+                        if (string.IsNullOrWhiteSpace(relative) || relative.Split('/').Any(part => part is "" or "." or "..") ||
+                            relative.Contains(':') || !relative.EndsWith(".xbf", StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidDataException("The PRI XBF path is not a relative compiled resource path.");
+                        }
+                        var path = Path.GetFullPath(relative, payloadRoot);
+                        if (!path.StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(payloadRoot)) + Path.DirectorySeparatorChar,
+                                StringComparison.OrdinalIgnoreCase) || PathSafety.HasReparsePointOnPath(path, payloadRoot))
+                        {
+                            throw new InvalidDataException("The PRI XBF path is outside the payload or redirected.");
+                        }
+                        using (var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        {
+                            if (input.Length is <= 0 or > 2 * 1024 * 1024) { throw new InvalidDataException("The referenced XBF exceeds its limit."); }
+                            bytes = new byte[checked((int)input.Length)];
+                            input.ReadExactly(bytes);
+                        }
+                        referenced.Add(relative);
+                        break;
+                    default:
+                        throw new InvalidDataException($"The PRI resource '{key}' has an unsupported XBF candidate.");
+                }
+                // All alternatives must have identical bytes: resource context cannot change attribution.
+                if (bytes.Length > 2 * 1024 * 1024 || Convert.ToHexString(SHA256.HashData(bytes)) != hash)
+                {
+                    throw new InvalidDataException($"The PRI resource '{key}' differs from the selected compiled XAML.");
+                }
+            }
+            paths.Add(resource, referenced.ToArray());
+        }
+        return paths;
+    }
+
     // Extracts language tag from PRI dump qualifier strings like 'Language-en-US'
     [GeneratedRegex(@"qualifiers=""[^""]*Language-([a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*)", RegexOptions.IgnoreCase, "en-US")]
     private static partial Regex PriDumpLanguageQualifierRegex();

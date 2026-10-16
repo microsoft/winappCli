@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using System.Xml.Linq;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
@@ -33,7 +34,7 @@ internal sealed class ProjectContextDetector : IProjectContextDetector
         {
             return new ProjectContext(
                 ProjectFamily.Cpp,
-                ProjectAppFramework.Unknown,
+                DetectCppFramework(projectFile),
                 ProjectTargetKind.SourceProject,
                 ProjectContextSource.ResolvedProject,
                 ProjectContextConfidence.High);
@@ -41,6 +42,43 @@ internal sealed class ProjectContextDetector : IProjectContextDetector
 
         return ProjectContext.Unknown(ProjectTargetKind.SourceProject);
     }
+
+    // A C++ WinUI 3 project (the Visual Studio templates and winapp's samples) sets UseWinUI; one that dropped the
+    // property still compiles XAML (an ApplicationDefinition or Page item) against the Windows App SDK it imports,
+    // directly or through a shared .props file, with the package restored from packages.config.
+    private static ProjectAppFramework DetectCppFramework(FileInfo projectFile)
+    {
+        try
+        {
+            if (!CanReadMetadata(projectFile))
+            {
+                return ProjectAppFramework.Unknown;
+            }
+
+            var document = XDocument.Load(projectFile.FullName);
+            var elements = document.Descendants().ToList();
+            var windowsAppSdk = elements.Any(element => element.Name.LocalName == "Import" &&
+                (element.Attribute("Project")?.Value ?? "").Contains("Microsoft.WindowsAppSDK", StringComparison.OrdinalIgnoreCase)) ||
+                PackagesConfigListsWindowsAppSdk(projectFile);
+            var useWinUI = elements.Any(element => element.Parent?.Name.LocalName == "PropertyGroup" &&
+                element.Name.LocalName == "UseWinUI" && element.Value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase));
+            var xaml = elements.Any(element => element.Name.LocalName is "ApplicationDefinition" or "Page" &&
+                (element.Attribute("Include")?.Value ?? "").EndsWith(".xaml", StringComparison.OrdinalIgnoreCase));
+            return useWinUI || (windowsAppSdk && xaml) ? ProjectAppFramework.WinUI
+                : windowsAppSdk ? ProjectAppFramework.WindowsAppSdk
+                : ProjectAppFramework.Unknown;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return ProjectAppFramework.Unknown;
+        }
+    }
+
+    private static bool PackagesConfigListsWindowsAppSdk(FileInfo projectFile) =>
+        PackagesConfigReader.Read(projectFile)?.Projects
+            .SelectMany(project => project.Frameworks)
+            .SelectMany(framework => framework.TopLevelPackages)
+            .Any(package => package.Id.StartsWith("Microsoft.WindowsAppSDK", StringComparison.OrdinalIgnoreCase)) == true;
 
     public ProjectContext DetectDirectory(
         DirectoryInfo directory,

@@ -22,7 +22,9 @@ Run from repo root:
 #>
 
 param(
-    [string]$NupkgPath
+    [string]$NupkgPath,
+    [string]$CliBinariesPath,
+    [string]$NugetDirectory
 )
 
 BeforeDiscovery {
@@ -125,6 +127,8 @@ $extraProps  </PropertyGroup>
                 [switch]$WinAppRunSymbols,
                 [string]$WinAppRunExecutable = "",
                 [string]$WinAppRunUseExecutionAlias = "",
+                [string]$WinAppRunDevTools = "",
+                [string]$ExtraItems = "",
                 [string]$OutputType = "WinExe",
                 [switch]$UseWinUI,
                 [switch]$UseWPF,
@@ -152,6 +156,7 @@ $extraProps  </PropertyGroup>
             if ($WinAppRunSymbols) { $extraProps += "    <WinAppRunSymbols>true</WinAppRunSymbols>`n" }
             if ($WinAppRunExecutable) { $extraProps += "    <WinAppRunExecutable>$WinAppRunExecutable</WinAppRunExecutable>`n" }
             if ($WinAppRunUseExecutionAlias) { $extraProps += "    <WinAppRunUseExecutionAlias>$WinAppRunUseExecutionAlias</WinAppRunUseExecutionAlias>`n" }
+            if ($WinAppRunDevTools) { $extraProps += "    <WinAppRunDevTools>$WinAppRunDevTools</WinAppRunDevTools>`n" }
             if ($UseWinUI) { $extraProps += "    <UseWinUI>true</UseWinUI>`n" }
             if ($UseWPF) { $extraProps += "    <UseWPF>true</UseWPF>`n" }
             if ($UseWindowsForms) { $extraProps += "    <UseWindowsForms>true</UseWindowsForms>`n" }
@@ -163,6 +168,7 @@ $extraProps  </PropertyGroup>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <OutputType>$OutputType</OutputType>
 $extraProps  </PropertyGroup>
+  <ItemGroup>$ExtraItems</ItemGroup>
   <Import Project="$($script:propsPath)" />
   <Import Project="$($script:targetsPath)" />
 </Project>
@@ -611,6 +617,56 @@ $preCompiledItem  <Import Project="$($script:propsPath)" />
 
             $args | Should -Match ' --no-launch'
             $args | Should -Not -Match ' --with-alias'
+        }
+
+        It "Forwards no DevTools switch when WinAppRunDevTools is unset" {
+            Get-ComputedRunArgs -CaseName 'run-devtools-unset' -UseWinUI | Should -Not -Match ' --devtools '
+        }
+
+        It "Forwards WinAppRunDevTools=<value> as --devtools <value>" -ForEach @(
+            @{ Value = 'on'; Expected = 'on' }, @{ Value = 'off'; Expected = 'off' },
+            @{ Value = 'headless'; Expected = 'headless' }, @{ Value = 'Headless'; Expected = 'headless' }
+        ) {
+            Get-ComputedRunArgs -CaseName "run-devtools-$Value" -UseWinUI -WinAppRunDevTools $Value |
+                Should -Match " --devtools $Expected "
+        }
+
+        It "Rejects an unknown WinAppRunDevTools value" {
+            { Get-ComputedRunArgs -CaseName 'run-devtools-bad' -WinAppRunDevTools 'yes' } |
+                Should -Throw '*WinAppRunDevTools must be on, off or headless*'
+        }
+
+        It "Explains a DevTools run that conflicts with <Property>" -ForEach @(
+            @{ Property = 'WinAppRunNoLaunch'; Case = 'nolaunch' }, @{ Property = 'WinAppRunUseExecutionAlias'; Case = 'noalias' }
+        ) {
+            $run = if ($Case -eq 'nolaunch') {
+                { Get-ComputedRunArgs -CaseName 'run-devtools-nolaunch' -WinAppRunDevTools 'on' -WinAppRunNoLaunch }
+            } else {
+                { Get-ComputedRunArgs -CaseName 'run-devtools-noalias' -WinAppRunDevTools 'headless' -WinAppRunUseExecutionAlias 'false' }
+            }
+            $run | Should -Throw "*WinAppRunDevTools=* $Property=*"
+        }
+
+        It "Allows WinAppRunDevTools=off with either conflicting property" {
+            Get-ComputedRunArgs -CaseName 'run-devtools-off-nolaunch' -WinAppRunDevTools 'off' -WinAppRunNoLaunch |
+                Should -Match ' --devtools off '
+        }
+
+        It "Hands a WinUI app's project and XAML sources to winapp" {
+            $args = Get-ComputedRunArgs -CaseName 'run-devtools-sources' -UseWinUI `
+                -ExtraItems '<Page Include="MainWindow.xaml" /><ApplicationDefinition Include="App.xaml" />'
+
+            $args | Should -Match ' --devtools-sources "([^"]+)"'
+            $file = [regex]::Match($args, ' --devtools-sources "([^"]+)"').Groups[1].Value
+            $lines = Get-Content -LiteralPath $file
+            $lines | Should -Contain "project|$(Join-Path $script:tempRoot 'run-devtools-sources\test.csproj')"
+            $lines | Should -Contain 'source|MainWindow.xaml'
+            $lines | Should -Contain 'source|App.xaml'
+            @($lines | Where-Object { $_ -like 'savedState|*' }).Count | Should -Be 1
+        }
+
+        It "Hands no XAML sources to winapp for an app that isn't WinUI" {
+            Get-ComputedRunArgs -CaseName 'run-devtools-sources-wpf' -UseWPF | Should -Not -Match '--devtools-sources'
         }
     }
 
@@ -1429,11 +1485,18 @@ Describe "Microsoft.Windows.SDK.BuildTools.WinApp package layout" -Skip:$script:
             }
         }
         $script:nupkg = $NupkgPath
+        if (-not $CliBinariesPath) { $CliBinariesPath = Join-Path $script:repoRoot 'artifacts\cli' }
+        Import-Module (Join-Path $script:repoRoot 'scripts\DevToolsEngine.psm1') -Force
     }
 
     It "Has been built (artifacts\nuget\Microsoft.Windows.SDK.BuildTools.WinApp.*.nupkg exists)" {
         $script:nupkg | Should -Not -BeNullOrEmpty -Because "Run scripts\build-cli.ps1 to produce the package, or pass -NupkgPath."
         Test-Path $script:nupkg | Should -BeTrue
+    }
+
+    It 'Contains matching DevTools runtime and reference files, without PDBs' -Tag 'EngineArchive' {
+        { Assert-DevToolsEngineArchive -ArchivePath $script:nupkg -Format NuGet -CliBinariesPath $CliBinariesPath } |
+            Should -Not -Throw
     }
 
     It "Mirrors build\ to buildTransitive\ exactly (parity required for transitive flow)" {
@@ -1456,7 +1519,7 @@ Describe "Microsoft.Windows.SDK.BuildTools.WinApp package layout" -Skip:$script:
 Describe "UI Automation library packages" -Skip:$script:skip {
     BeforeAll {
         $script:repoRoot = (Resolve-Path "$PSScriptRoot\..\..\..").Path
-        $script:nugetDir = Join-Path $script:repoRoot "artifacts\nuget"
+        $script:nugetDir = if ($NugetDirectory) { $NugetDirectory } else { Join-Path $script:repoRoot "artifacts\nuget" }
         Add-Type -AssemblyName System.IO.Compression.FileSystem
 
         function Get-LibraryPackage([string]$Id) {
@@ -1488,6 +1551,17 @@ Describe "UI Automation library packages" -Skip:$script:skip {
     }
 
     Context "Package contents" {
+        It 'Keeps DevTools engines out of UIAutomation, Recording and analyzer packages' -Tag 'EngineArchive' {
+            foreach ($id in @($script:baseId, $script:recordingId, 'Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer')) {
+                $pkg = Get-LibraryPackage $id
+                $pkg | Should -Not -BeNullOrEmpty -Because "$id must have been packaged"
+                $entries = @(Get-NupkgEntries $pkg.FullName | Where-Object {
+                    ($_ -split '/')[-1] -in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.DevTools.Native.pdb', 'winapp-devtools-schema.json'
+                })
+                $entries | Should -BeNullOrEmpty -Because 'library-only packages must not acquire the CLI engines'
+            }
+        }
+
         It "Both library packages have been built" {
             $script:basePkg | Should -Not -BeNullOrEmpty -Because "Run scripts\build-cli.ps1 (or scripts\package-nuget.ps1 -SkipCliPackage) first."
             $script:recordingPkg | Should -Not -BeNullOrEmpty
