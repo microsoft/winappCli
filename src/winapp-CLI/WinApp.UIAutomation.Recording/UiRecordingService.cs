@@ -320,7 +320,7 @@ internal sealed partial class UiRecordingService(
                 cropH = Math.Clamp((int)selectorElement.Height, 1, srcHeight - cropY);
             }
 
-            var mode = useScreen ? "screen" : (useWgc ? "wgc" : "printwindow");
+            var mode = useScreen ? "screen" : grabber?.RootCaptureBackend ?? "printwindow";
             var (encoderW, encoderH, displayW, displayH) = ComputeTargetSize(cropW, cropH, options.MaxEdge);
             var coordinates = desktopBounds is { } sourceBounds
                 ? DescribeCoordinates(sourceBounds, encoderW, encoderH, displayW, displayH)

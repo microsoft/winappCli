@@ -376,6 +376,320 @@ public class WindowCaptureSessionLifecycleTests
     }
 
     [TestMethod]
+    [DataRow(0, 255, 0)]
+    [DataRow(0, 0, 0)]
+    public async Task Startup_InvalidArgumentUsesNativeWindowOnlyCaptureIncludingLegitimateBlack(int red, int green, int blue)
+    {
+        if (ForegroundGuard.NoInteractiveDesktop())
+        {
+            Assert.Inconclusive("Native PrintWindow requires an interactive desktop.");
+        }
+        using var fixture = new UiaTestFixture();
+        PopupWindow? popup = null;
+        var screen = UiAutomationService.s_captureFromScreenScaled;
+        var foreground = UiAutomationService.s_foregroundWindowForBlankRetry;
+        var sleep = UiAutomationService.s_sleepForBlankRetry;
+        try
+        {
+            nint handle = 0;
+            fixture.OnUiThread(() =>
+            {
+                popup = new PopupWindow
+                {
+                    FormBorderStyle = FormBorderStyle.None,
+                    BackColor = System.Drawing.Color.FromArgb(red, green, blue),
+                    Size = new(32, 32)
+                };
+                popup.Show(fixture.Form);
+                popup.Refresh();
+                handle = popup.Handle;
+            });
+            UiAutomationService.s_captureFromScreenScaled = (_, _, _, _, _, _) => throw new AssertFailedException("Screen capture is forbidden.");
+            UiAutomationService.s_foregroundWindowForBlankRetry = _ => Assert.Fail("Foreground retry is forbidden.");
+            UiAutomationService.s_sleepForBlankRetry = _ => Assert.Fail("Blank retry is forbidden.");
+            var visible = true;
+            var starts = 0;
+            var logger = new CaptureLogger();
+            var bounds = WindowCaptureSession.GetBounds(new HWND(handle));
+            var width = bounds.Right - bounds.Left;
+            var height = bounds.Bottom - bounds.Top;
+            var root = new Grabber { Width = width, Height = height, Pixels = new byte[width * height * 4] };
+            for (var i = 0; i < root.Pixels.Length; i += 4)
+            {
+                root.Pixels[i + 2] = 255;
+                root.Pixels[i + 3] = 255;
+            }
+            using var composite = new WindowCaptureSession(root, () => bounds,
+                () => visible ? [new(handle, bounds)] : [],
+                _ =>
+                {
+                    starts++;
+                    WgcCapture.CheckCreateForWindowResult(new HWND(handle), unchecked((int)0x80070057));
+                    throw new AssertFailedException("CreateForWindow failure must throw.");
+                }, logger: logger);
+            Assert.IsTrue(await composite.WaitForFirstFrameAsync(TimeSpan.FromSeconds(2), CancellationToken.None));
+            var frame = await WaitForColor((byte)blue, (byte)green, (byte)red, -1);
+            Assert.AreEqual(frame.Version, composite.TryGetLatest()!.Value.Version);
+            Assert.AreEqual(1, starts);
+            Assert.IsTrue(logger.Messages.Any(m => m.Level == LogLevel.Warning && m.Text.Contains("PrintWindow")));
+            fixture.OnUiThread(() =>
+            {
+                popup!.BackColor = System.Drawing.Color.Blue;
+                popup.Refresh();
+            });
+            var changed = await WaitForColor(255, 0, 0, frame.Version);
+            Assert.IsTrue(changed.Version > frame.Version);
+            visible = false;
+            CollectionAssert.AreEqual(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
+
+            async Task<(byte[] Pixels, int Width, int Height, long Version)> WaitForColor(byte b, byte g, byte r, long after)
+            {
+                var deadline = Environment.TickCount64 + 2000;
+                (byte[] Pixels, int Width, int Height, long Version) result = default;
+                var offset = ((height / 2) * width + width / 2) * 4;
+                do
+                {
+                    result = composite.TryGetLatest()!.Value;
+                    if (result.Version > after && InteriorMatches(result.Pixels))
+                    {
+                        Assert.AreEqual(width, result.Width);
+                        Assert.AreEqual(height, result.Height);
+                        return result;
+                    }
+                    await Task.Delay(20);
+                } while (Environment.TickCount64 < deadline);
+                CollectionAssert.AreEqual(new byte[] { b, g, r, 255 }, result.Pixels[offset..(offset + 4)]);
+                Assert.IsTrue(InteriorMatches(result.Pixels), "The central 8x8 physical popup pixels must all match the expected opaque color.");
+                Assert.Fail("Popup frame version did not advance.");
+                return result;
+
+                bool InteriorMatches(byte[] pixels)
+                {
+                    for (var y = height / 2 - 4; y < height / 2 + 4; y++)
+                    {
+                        for (var x = width / 2 - 4; x < width / 2 + 4; x++)
+                        {
+                            var index = (y * width + x) * 4;
+                            if (pixels[index] != b || pixels[index + 1] != g ||
+                                pixels[index + 2] != r || pixels[index + 3] != 255)
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
+        finally
+        {
+            UiAutomationService.s_captureFromScreenScaled = screen;
+            UiAutomationService.s_foregroundWindowForBlankRetry = foreground;
+            UiAutomationService.s_sleepForBlankRetry = sleep;
+            fixture.OnUiThread(() => popup?.Dispose());
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task TargetedOwnedToolPopup_ItemRejectionCapturesExactPixelsForScreenshotAndRecordingStartup(bool recording)
+    {
+        if (ForegroundGuard.NoInteractiveDesktop())
+        {
+            Assert.Inconclusive("Native popup capture requires an interactive desktop.");
+        }
+        using var fixture = new UiaTestFixture();
+        PopupWindow? popup = null;
+        var start = WgcCapture.s_startGrabber;
+        var screenshotStart = WgcCapture.s_startScreenshotGrabber;
+        var screen = UiAutomationService.s_captureFromScreenScaled;
+        var foreground = UiAutomationService.s_foregroundWindowForBlankRetry;
+        var blankRetry = UiAutomationService.s_sleepForBlankRetry;
+        IFrameGrabber? grabber = null;
+        try
+        {
+            nint handle = 0;
+            fixture.OnUiThread(() =>
+            {
+                popup = new PopupWindow
+                {
+                    FormBorderStyle = FormBorderStyle.None,
+                    Size = new(48, 48),
+                    BackColor = System.Drawing.Color.Lime
+                };
+                popup.Show(fixture.Form);
+                popup.Refresh();
+                handle = popup.Handle;
+            });
+            var starts = 0;
+            Func<HWND, ILogger, int, IFrameGrabber> startWithRejection = (window, logger, fps) => WindowCaptureSession.Start(window, logger, fps,
+                (candidate, _, rate) =>
+                {
+                    Assert.AreEqual(handle, (nint)candidate);
+                    Assert.AreEqual(recording ? 15 : 0, rate);
+                    starts++;
+                    WgcCapture.CheckCreateForWindowResult(candidate, unchecked((int)0x80070057));
+                    throw new AssertFailedException();
+                }, includeSecondaryWindows: recording);
+            WgcCapture.s_startGrabber = startWithRejection;
+            WgcCapture.s_startScreenshotGrabber = startWithRejection;
+            UiAutomationService.s_captureFromScreenScaled = (_, _, _, _, _, _) => throw new AssertFailedException("Screen capture is forbidden.");
+            UiAutomationService.s_foregroundWindowForBlankRetry = _ => Assert.Fail("Foreground retry is forbidden.");
+            UiAutomationService.s_sleepForBlankRetry = _ => Assert.Fail("Blank retry is forbidden.");
+            if (recording)
+            {
+                var backend = new WgcWindowCapture(NullLogger<WgcWindowCapture>.Instance);
+                grabber = backend.StartFrameGrabber(handle, 15);
+                Assert.IsTrue(await grabber.WaitForFirstFrameAsync(TimeSpan.FromSeconds(2), CancellationToken.None));
+            }
+            var bounds = WindowCaptureSession.GetBounds(new HWND(handle));
+            var deadline = Environment.TickCount64 + 2000;
+            byte[] pixels;
+            int width;
+            int height;
+            do
+            {
+                if (grabber is null)
+                {
+                    (pixels, width, height) = await WgcCapture.CaptureAsync(new HWND(handle), NullLogger.Instance, CancellationToken.None);
+                }
+                else
+                {
+                    var frame = grabber.TryGetLatest()!.Value;
+                    (pixels, width, height) = (frame.Pixels, frame.Width, frame.Height);
+                }
+                if (InteriorIsGreen(pixels, width, height))
+                {
+                    break;
+                }
+                await Task.Delay(20);
+            } while (Environment.TickCount64 < deadline);
+            Assert.AreEqual(bounds.Right - bounds.Left, width);
+            Assert.AreEqual(bounds.Bottom - bounds.Top, height);
+            Assert.IsTrue(InteriorIsGreen(pixels, width, height), "All central 8x8 physical pixels must be opaque lime.");
+            Assert.IsTrue(starts > 0);
+            if (recording)
+            {
+                Assert.AreEqual(1, starts);
+                fixture.OnUiThread(() => popup!.Close());
+                Assert.IsTrue(grabber!.IsClosed);
+                Assert.IsNotNull(grabber.TryGetLatest());
+            }
+        }
+        finally
+        {
+            grabber?.Dispose();
+            WgcCapture.s_startGrabber = start;
+            WgcCapture.s_startScreenshotGrabber = screenshotStart;
+            UiAutomationService.s_captureFromScreenScaled = screen;
+            UiAutomationService.s_foregroundWindowForBlankRetry = foreground;
+            UiAutomationService.s_sleepForBlankRetry = blankRetry;
+            fixture.OnUiThread(() => popup?.Dispose());
+        }
+
+        static bool InteriorIsGreen(byte[] pixels, int width, int height)
+        {
+            for (var y = height / 2 - 4; y < height / 2 + 4; y++)
+            {
+                for (var x = width / 2 - 4; x < width / 2 + 4; x++)
+                {
+                    var index = (y * width + x) * 4;
+                    if (pixels[index] != 0 || pixels[index + 1] != 255 || pixels[index + 2] != 0 || pixels[index + 3] != 255)
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void TargetedRoot_OrdinaryWindowRejectionAndGenericPopupInvalidArgumentStillPropagate(int kind)
+    {
+        if (ForegroundGuard.NoInteractiveDesktop())
+        {
+            Assert.Inconclusive("Native popup classification requires an interactive desktop.");
+        }
+        using var fixture = new UiaTestFixture();
+        PopupWindow? popup = null;
+        try
+        {
+            var window = new HWND(fixture.Hwnd);
+            if (kind != 0)
+            {
+                fixture.OnUiThread(() =>
+                {
+                    popup = new PopupWindow { FormBorderStyle = FormBorderStyle.None };
+                    if (kind == 2)
+                    {
+                        popup.Show(fixture.Form);
+                    }
+                    else
+                    {
+                        popup.Show();
+                    }
+                    window = new HWND(popup.Handle);
+                });
+            }
+            COMException failure = kind == 2
+                ? new COMException("Device conversion E_INVALIDARG", unchecked((int)0x80070057))
+                : new WgcCapture.UnsupportedCaptureWindowException(window);
+            if (kind == 2)
+            {
+                Assert.AreSame(failure, Assert.ThrowsExactly<COMException>(() =>
+                    WindowCaptureSession.Start(window, NullLogger.Instance, 0, (_, _, _) => throw failure)));
+            }
+            else
+            {
+                Assert.AreSame(failure, Assert.ThrowsExactly<WgcCapture.UnsupportedCaptureWindowException>(() =>
+                    WindowCaptureSession.Start(window, NullLogger.Instance, 0, (_, _, _) => throw failure)));
+            }
+        }
+        finally
+        {
+            fixture.OnUiThread(() => popup?.Dispose());
+        }
+    }
+
+    [TestMethod]
+    public void RootClosure_StrictGdiDrainsCachedFrameWithoutSchedulingAnotherCapture()
+    {
+        WithOwnedPopup((_, secondaryCapture, _) =>
+        {
+            var calls = 0;
+            var valid = true;
+            using var root = new WindowCaptureFallback(secondaryCapture,
+                () => (new byte[] { (byte)Interlocked.Increment(ref calls), 0, 0, 255 }, 1, 1));
+            using var composite = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
+                () => [], _ => throw new AssertFailedException(), isCaptureTargetValid: () => valid);
+            var deadline = Environment.TickCount64 + 2000;
+            var healthy = composite.TryGetLatest();
+            while (healthy is null && Environment.TickCount64 < deadline)
+            {
+                Thread.Sleep(5);
+                healthy = composite.TryGetLatest();
+            }
+            Assert.IsNotNull(healthy);
+            Assert.IsTrue(SpinWait.SpinUntil(() => Volatile.Read(ref calls) == 2, TimeSpan.FromSeconds(2)),
+                "One replacement render is already scheduled while the root is still valid.");
+            Assert.IsFalse(root.IsClosed, "The native HWND remains visible while the compositor identity is invalidated.");
+            valid = false;
+            Assert.IsTrue(composite.IsClosed);
+            var final = composite.TryGetLatest()!.Value;
+            Assert.AreEqual(2, calls);
+            Assert.AreEqual(healthy.Value.Version, final.Version);
+            Assert.AreSame(healthy.Value.Pixels, final.Pixels);
+            Assert.AreEqual(final.Version, composite.TryGetLatest()!.Value.Version);
+            Assert.AreEqual(2, calls);
+        });
+    }
+
+    [TestMethod]
     public void RootClosure_WgcStyleFinalFrameStillDrainsAndAdvancesVersion()
     {
         var reads = 0;

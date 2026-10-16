@@ -63,6 +63,7 @@
     <Compile Remove="Capture\WgcCapture.FrameGrabber.cs" />
     <Compile Remove="Capture\WgcWindowCapture.cs" />
     <Compile Remove="Capture\WindowCaptureSession.cs" />
+    <Compile Remove="Capture\WindowCaptureFallback.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' != 'net10.0-windows'">
