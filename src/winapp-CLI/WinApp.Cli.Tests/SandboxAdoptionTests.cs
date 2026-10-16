@@ -598,25 +598,87 @@ public class SandboxAdoptionTests
     [TestMethod]
     public async Task FirewallCleanup_CannotRemoveAnotherManagersRule()
     {
-        // The rule cleanup removes existing rules for the agent program path. When that path was a
-        // fixed name, a second winapp -- one whose state root was redirected, so it could not see
-        // this one's ownership record -- would delete the live agent's rule and cut its connection.
-        // Scoping the path to this generation is what makes that impossible.
         using var harness = new AdoptionHarness();
         harness.Cli.SetRunning(ManualInstanceId);
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
         var rule = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var material = harness.ReadMaterial();
+        var expectedName = $"WinApp-Sandbox-Agent-{WindowsSandboxBackend.EpochToken(new ExecutionTargetEpoch(material.TargetEpoch))}";
 
-        StringAssert.Contains(
-            rule,
-            ".Program -eq $agent",
-            StringComparison.Ordinal,
-            "Removal must be scoped to this generation's agent path, not to every winapp agent.");
-        Assert.IsFalse(
-            rule.Contains(@"'C:\WinAppBootstrap\", StringComparison.Ordinal),
-            "A fixed agent path would match another generation's rule.");
+        StringAssert.Contains(rule, $"$rule='{expectedName}'");
+        StringAssert.Contains(rule, "Get-NetFirewallApplicationFilter -Program $agent -PolicyStore ActiveStore");
+        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore ActiveStore");
+        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore PersistentStore");
+        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore");
+        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $rule -PolicyStore PersistentStore");
+        StringAssert.Contains(rule, "New-NetFirewallRule -Name $rule");
+        Assert.DoesNotContain("Get-NetFirewallRule -PolicyStore ActiveStore", rule, StringComparison.Ordinal);
+        Assert.DoesNotContain("$_ | Get-NetFirewallApplicationFilter", rule, StringComparison.Ordinal);
+    }
+
+    [TestMethod]
+    public async Task FirewallRepair_ReplacesTheSameGenerationsNamedRule()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        var first = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        harness.Cli.Operations.Clear();
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        var repaired = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var assignment = first[first.IndexOf("$rule=", StringComparison.Ordinal)..];
+        assignment = assignment[..assignment.IndexOf(';')];
+
+        StringAssert.Contains(repaired, assignment);
+        Assert.IsLessThan(
+            repaired.IndexOf("New-NetFirewallRule", StringComparison.Ordinal),
+            repaired.IndexOf("Remove-NetFirewallRule", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task FirewallRepair_NewPayloadPathReplacesTheSameGenerationsNamedRule()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        var epoch = harness.ReadMaterial().TargetEpoch;
+        var first = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        File.WriteAllText(Path.Join(harness.BinaryDirectory, GuestAgentCommandNames.BinaryName), "rebuilt winapp");
+        harness.Cli.Operations.Clear();
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        Assert.AreEqual(epoch, harness.ReadMaterial().TargetEpoch, "Agent repair must retain package ownership.");
+        var repaired = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var originalAgent = first[first.IndexOf("$agent=", StringComparison.Ordinal)..first.IndexOf(';')];
+        Assert.DoesNotContain(originalAgent, repaired, StringComparison.Ordinal, "A rebuilt bundle must use its own immutable path.");
+        var expectedName = $"WinApp-Sandbox-Agent-{WindowsSandboxBackend.EpochToken(new ExecutionTargetEpoch(epoch))}";
+        StringAssert.Contains(repaired, $"$rule='{expectedName}'");
+        StringAssert.Contains(repaired, "Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore");
+        Assert.IsLessThan(repaired.IndexOf("New-NetFirewallRule", StringComparison.Ordinal),
+            repaired.IndexOf("Remove-NetFirewallRule -Name $rule", StringComparison.Ordinal),
+            "The previous bundle's generation rule must be removed before reusing its name.");
+    }
+
+    [TestMethod]
+    public async Task FirewallRule_SeparateManagersUseDifferentNames()
+    {
+        using var first = new AdoptionHarness();
+        using var second = new AdoptionHarness();
+        first.Cli.SetRunning(ManualInstanceId);
+        second.Cli.SetRunning(ManualInstanceId);
+        await first.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        await second.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        Assert.AreNotEqual(first.ReadMaterial().TargetEpoch, second.ReadMaterial().TargetEpoch);
+        var firstRule = first.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var secondRule = second.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var assignment = firstRule[firstRule.IndexOf("$rule=", StringComparison.Ordinal)..];
+        assignment = assignment[..assignment.IndexOf(';')];
+        Assert.DoesNotContain(assignment, secondRule, StringComparison.Ordinal);
     }
 
     [TestMethod]
