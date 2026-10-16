@@ -11,19 +11,18 @@ body:
     id: description
     attributes:
       label: Describe the bug
-      description: A clear and concise description of what the bug is.
+      description: What goes wrong, in simple words. Assume the reader has never seen this part of winapp.
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
       label: To Reproduce
-      description: Steps to reproduce the behavior
+      description: The smallest set of commands or steps that shows the bug.
       placeholder: |
-        1. Go to '...'
-        2. Click on '....'
-        3. Scroll down to '....'
-        4. See error
+        winapp init --use-defaults
+        winapp package .\bin\Release
+        -> error: ...
     validations:
       required: true
   - type: textarea

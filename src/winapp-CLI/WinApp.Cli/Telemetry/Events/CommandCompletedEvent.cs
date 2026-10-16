@@ -33,7 +33,25 @@ internal class CommandCompletedEvent : EventBase
             UiQueueDepthBucket = coordination.QueueDepthBucket;
             UiTurnAgeBucket = coordination.TurnAgeBucket;
         }
+
+        // `winapp run`'s DevTools mode, where it came from and what DevTools did: fixed enum names only.
+        if (Services.DevTools.DevToolsRunTelemetryScope.Current is { } devTools)
+        {
+            DevToolsMode = devTools.Mode.ToString();
+            DevToolsSource = devTools.Source.ToString();
+            DevToolsOutcome = devTools.Outcome?.ToString();
+        }
     }
+
+    /// <summary><c>On</c>, <c>Off</c> or <c>Headless</c>: the DevTools mode a run used.</summary>
+    public string? DevToolsMode { get; }
+
+    /// <summary>Why the run got that mode: <c>Explicit</c>, <c>Setting</c>, <c>Default</c>, <c>Ci</c>,
+    /// <c>IncompatibleOption</c> or <c>NotWinUI</c>.</summary>
+    public string? DevToolsSource { get; }
+
+    /// <summary><c>Attached</c>, <c>FellBack</c> (ran without DevTools) or <c>Failed</c>; absent when DevTools was off.</summary>
+    public string? DevToolsOutcome { get; }
 
     public string CommandName { get; private set; }
 

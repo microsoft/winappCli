@@ -1,8 +1,13 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+extern alias winappcli;
+
 using System.Diagnostics;
+using System.Text;
 using WinApp.Cli.Services;
+using winappcli::Windows.Win32.System.Threading;
+using PInvoke = winappcli::Windows.Win32.PInvoke;
 
 namespace WinApp.Cli.Tests;
 
@@ -97,6 +102,37 @@ public class AppLauncherServiceTests
     }
 
     [TestMethod]
+    public void LaunchByAumid_ActivationNeverReturns_ThrowsTimeoutException()
+    {
+        using var release = new ManualResetEventSlim();
+        _service.ActivationTimeout = TimeSpan.FromMilliseconds(100);
+        _service.ActivateApplicationImpl = (_, _) =>
+        {
+            release.Wait();
+            return 1;
+        };
+
+        try
+        {
+            var ex = Assert.ThrowsExactly<TimeoutException>(() => _service.LaunchByAumid("Contoso.App_abc!App"));
+            StringAssert.Contains(ex.Message, "Contoso.App_abc!App");
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [TestMethod]
+    public void LaunchByAumid_ActivatorThrows_PropagatesOriginalException()
+    {
+        _service.ActivateApplicationImpl = (_, _) => throw new System.Runtime.InteropServices.COMException("activation refused", unchecked((int)0x80270254));
+
+        var ex = Assert.ThrowsExactly<System.Runtime.InteropServices.COMException>(() => _service.LaunchByAumid("Contoso.App_abc!App"));
+        Assert.AreEqual("activation refused", ex.Message);
+    }
+
+    [TestMethod]
     public void LaunchByAumid_DefaultActivator_BogusAumid_Throws()
     {
         // Exercises the real DefaultActivateApplication COM path. A non-existent
@@ -147,6 +183,38 @@ public class AppLauncherServiceTests
         var result = _service.GetPackageFullName(family);
 
         Assert.IsNull(result);
+    }
+
+    [TestMethod]
+    public void GetPackageFullName_DefaultImpl_InstalledForCurrentUser_ReturnsFullName()
+    {
+        // Must succeed without elevation: a query that needs admin rights would throw, and
+        // GetPackageFullName would swallow that into null, leaving --unregister-on-exit unable
+        // to remove the package (#1065).
+        using (var identity = System.Security.Principal.WindowsIdentity.GetCurrent())
+        {
+            if (new System.Security.Principal.WindowsPrincipal(identity)
+                .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator))
+            {
+                Assert.Inconclusive("Elevated: an all-users query would also succeed, so this cannot detect the regression.");
+            }
+        }
+
+        var installed = new Windows.Management.Deployment.PackageManager()
+            .FindPackagesForUser(string.Empty)
+            .FirstOrDefault();
+        if (installed is null)
+        {
+            Assert.Inconclusive("No packages are registered for the current user.");
+        }
+
+        var result = _service.GetPackageFullName(installed.Id.FamilyName);
+
+        var familyFullNames = new Windows.Management.Deployment.PackageManager()
+            .FindPackagesForUser(string.Empty, installed.Id.FamilyName)
+            .Select(p => p.Id.FullName)
+            .ToList();
+        CollectionAssert.Contains(familyFullNames, result);
     }
 
     // ---- GetRegisteredPackageOrThrow -----------------------------------------
@@ -208,6 +276,129 @@ public class AppLauncherServiceTests
     }
 
     // ---- LaunchExecutable (real stdio paths) -------------------------------
+
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(LaunchStdioMode.Inherit)]
+    [DataRow(LaunchStdioMode.Suppress)]
+    public async Task LaunchExecutable_EnvironmentIsChildPrivate_AndRemovalDoesNotChangeParent(object stdio)
+    {
+        var workingDir = Directory.CreateTempSubdirectory("winapp-private-env-");
+        var key = "WINAPP_TEST_" + Guid.NewGuid().ToString("N");
+        var removeKey = key + "_REMOVE";
+        Environment.SetEnvironmentVariable(key, "parent");
+        Environment.SetEnvironmentVariable(removeKey, "parent");
+        try
+        {
+            var environment = new Dictionary<string, string?> { [key] = "child value", [removeKey] = null };
+            using var process = _service.LaunchExecutable(
+                Environment.GetEnvironmentVariable("ComSpec")!,
+                $"/d /c \"echo %{key}%> \"sentinel file.txt\" & if defined {removeKey} exit /b 9 & if not defined PATH exit /b 8\"",
+                workingDir.FullName, (LaunchStdioMode)stdio, environment);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await process.WaitForExitAsync(cts.Token);
+            Assert.IsTrue(process.HasExited);
+            Assert.AreEqual(0, process.ExitCode);
+            Assert.AreEqual("child value", (await File.ReadAllTextAsync(Path.Join(workingDir.FullName, "sentinel file.txt"), cts.Token)).Trim());
+            Assert.AreEqual("parent", Environment.GetEnvironmentVariable(key));
+            Assert.AreEqual("parent", Environment.GetEnvironmentVariable(removeKey));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(key, null);
+            Environment.SetEnvironmentVariable(removeKey, null);
+            workingDir.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task LaunchExecutable_OwnedHandleReportsUnpackagedIdentityAndImage()
+    {
+        var identity = Guid.NewGuid().ToString("N");
+        using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, @"Local\winapp-ready-" + identity);
+        using var release = new EventWaitHandle(false, EventResetMode.ManualReset, @"Local\winapp-release-" + identity);
+        var script = "$ready=[Threading.EventWaitHandle]::OpenExisting('Local\\winapp-ready-" + identity + "');" +
+            "$release=[Threading.EventWaitHandle]::OpenExisting('Local\\winapp-release-" + identity + "');" +
+            "$ready.Set()|Out-Null;if(-not $release.WaitOne(30000)){exit 9}";
+        var shell = TestPaths.SystemExecutable(@"WindowsPowerShell\v1.0\powershell.exe");
+        using var process = _service.LaunchExecutable(
+            Environment.GetEnvironmentVariable("ComSpec")!,
+            $"/d /c \"\"{shell}\" -NoProfile -NonInteractive -EncodedCommand {Convert.ToBase64String(Encoding.Unicode.GetBytes(script))}\"",
+            stdioMode: LaunchStdioMode.Suppress);
+        try
+        {
+            Assert.IsTrue(ready.WaitOne(TimeSpan.FromSeconds(10)), "The child must acknowledge its release gate, not rely on ping duration.");
+            Assert.IsFalse(process.HasExited);
+            Assert.IsNull(process.PackageFamilyName);
+            Assert.IsNull(process.ApplicationUserModelId);
+            Assert.AreEqual(Path.GetFullPath(Environment.GetEnvironmentVariable("ComSpec")!), process.ExecutablePath, true);
+            release.Set();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await process.WaitForExitAsync(cts.Token);
+            Assert.AreEqual(0, process.ExitCode);
+        }
+        finally
+        {
+            release.Set();
+            process.Kill();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await process.WaitForExitAsync(cts.Token);
+        }
+    }
+
+    [TestMethod]
+    public unsafe void OwnedHandle_ReportsImageBeforeTheUserModeLoaderStarts()
+    {
+        var executable = TestPaths.SystemExecutable("cmd.exe");
+        var startup = new STARTUPINFOW { cb = (uint)sizeof(STARTUPINFOW) };
+        var arguments = ("\"" + executable + "\" /d /c exit /b 7\0").ToCharArray();
+        PROCESS_INFORMATION created;
+        fixed (char* command = arguments)
+        {
+            if (!PInvoke.CreateProcess(null, command, null, null, false,
+                PROCESS_CREATION_FLAGS.CREATE_SUSPENDED | PROCESS_CREATION_FLAGS.CREATE_NO_WINDOW,
+                null, null, &startup, &created))
+            {
+                throw new System.ComponentModel.Win32Exception();
+            }
+        }
+        try
+        {
+            using var process = Process.GetProcessById(checked((int)created.dwProcessId));
+            using var owned = new LaunchedProcess(process);
+            Assert.IsFalse(owned.HasExited);
+            Assert.AreEqual(executable, owned.ExecutablePath, true,
+                "Image identity must not depend on the child initializing its module list.");
+        }
+        finally
+        {
+            try
+            {
+                _ = PInvoke.TerminateProcess(created.hProcess, 1);
+                Assert.AreEqual(0u, (uint)PInvoke.WaitForSingleObject(created.hProcess, 10_000),
+                    "The exact owned suspended child must terminate before its handles are released.");
+            }
+            finally
+            {
+                PInvoke.CloseHandle(created.hThread);
+                PInvoke.CloseHandle(created.hProcess);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task LaunchExecutable_EarlyExitNeverInventsImageIdentity()
+    {
+        var executable = TestPaths.SystemExecutable("cmd.exe");
+        using var process = _service.LaunchExecutable(executable, "/d /c exit /b 7", stdioMode: LaunchStdioMode.Suppress);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await process.WaitForExitAsync(cts.Token);
+        Assert.IsTrue(process.HasExited);
+        Assert.AreEqual(7, process.ExitCode);
+        var image = process.ExecutablePath;
+        Assert.IsTrue(image is null || string.Equals(executable, image, StringComparison.OrdinalIgnoreCase),
+            "An exited owned handle may be unverifiable, but must never report another process's image.");
+    }
 
     [TestMethod]
     [DoNotParallelize]
@@ -296,6 +487,34 @@ public class AppLauncherServiceTests
         }
     }
 
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task LaunchExecutable_SuppressMode_DoesNotShareTheInvokingConsole()
+    {
+        var consoleProcesses = new uint[64];
+        var before = GetConsoleProcessList(consoleProcesses, (uint)consoleProcesses.Length);
+        if (before == 0 || !consoleProcesses.Take((int)Math.Min(before, (uint)consoleProcesses.Length))
+            .Contains((uint)Environment.ProcessId))
+        {
+            Assert.Inconclusive("The test host has no Windows console, so console-lifetime isolation cannot be observed.");
+        }
+
+        using var launched = _service.LaunchExecutable(
+            "cmd.exe", "/c ping 127.0.0.1 -n 60 > nul", null, LaunchStdioMode.Suppress);
+        try
+        {
+            await Task.Delay(100);
+            var count = GetConsoleProcessList(consoleProcesses, (uint)consoleProcesses.Length);
+            Assert.IsFalse(consoleProcesses.Take((int)Math.Min(count, (uint)consoleProcesses.Length))
+                    .Contains(launched.ProcessId),
+                "A background performance worker must not share winapp's console, or Ctrl+C for a later command can terminate it.");
+        }
+        finally
+        {
+            launched.Kill();
+        }
+    }
+
     private const int STD_OUTPUT_HANDLE = -11;
     private const uint HANDLE_FLAG_INHERIT = 0x1;
 
@@ -317,6 +536,9 @@ public class AppLauncherServiceTests
     [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static extern bool CloseHandle(IntPtr hObject);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint GetConsoleProcessList([System.Runtime.InteropServices.Out] uint[] processList, uint processCount);
 
     // ---- TerminatePackageProcesses -----------------------------------------
 

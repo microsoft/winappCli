@@ -108,6 +108,11 @@ internal sealed class PlainProgressRenderer
 
         var symbol = success ? UiSymbols.Check : UiSymbols.Error;
         var message = task.CompletedDisplayMessage ?? task.InProgressMessage;
+        // A step that succeeded with nothing to say prints nothing rather than a bare check mark.
+        if (success && string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
         _console.WriteLine($"{indent}{symbol} {message}");
     }
 

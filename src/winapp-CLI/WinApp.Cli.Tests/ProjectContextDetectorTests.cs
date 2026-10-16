@@ -30,6 +30,76 @@ public sealed class ProjectContextDetectorTests
     }
 
     [TestMethod]
+    [DataRow("winui-template", """
+        <PropertyGroup><UseWinUI>true</UseWinUI><ApplicationType>Windows Store</ApplicationType></PropertyGroup>
+        <ItemGroup><ApplicationDefinition Include="App.xaml" /></ItemGroup>
+        """, "WinUI")]
+    [DataRow("winui-without-usewinui", """
+        <Import Project="packages\Microsoft.WindowsAppSDK.2.3.1\build\native\Microsoft.WindowsAppSDK.props" />
+        <ItemGroup><ApplicationDefinition Include="App.xaml" /><Page Include="MainWindow.xaml" /></ItemGroup>
+        """, "WinUI")]
+    [DataRow("windows-app-sdk-console", """
+        <Import Project="packages\Microsoft.WindowsAppSDK.2.3.1\build\native\Microsoft.WindowsAppSDK.props" />
+        <ItemGroup><ClCompile Include="main.cpp" /></ItemGroup>
+        """, "WindowsAppSdk")]
+    [DataRow("console", """
+        <PropertyGroup><ConfigurationType>Application</ConfigurationType></PropertyGroup>
+        <ItemGroup><ClCompile Include="main.cpp" /></ItemGroup>
+        """, "Unknown")]
+    public void DetectProject_ClassifiesCppProjects(string name, string body, string expected)
+    {
+        var project = new FileInfo(Path.Join(_root.FullName, name + ".vcxproj"));
+        File.WriteAllText(project.FullName, $"""<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">{body}</Project>""");
+
+        var context = _detector.DetectProject(project);
+
+        Assert.AreEqual(ProjectFamily.Cpp, context.Family);
+        Assert.AreEqual(expected, context.Framework.ToString());
+    }
+
+    // A legacy C++ app imports the Windows App SDK through its own shared .props and restores it from packages.config.
+    [TestMethod]
+    public void DetectProject_CppWinUIRestoredThroughPackagesConfig_IsWinUI()
+    {
+        var project = new FileInfo(Path.Join(_root.FullName, "AppHost.vcxproj"));
+        File.WriteAllText(project.FullName, """
+            <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <Import Project="..\common.props" />
+              <ItemGroup><Page Include="TabStrip.xaml" /></ItemGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Join(_root.FullName, "packages.config"), """
+            <?xml version="1.0" encoding="utf-8"?>
+            <packages><package id="Microsoft.WindowsAppSDK" version="1.8.250916003" targetFramework="native" /></packages>
+            """);
+
+        Assert.AreEqual(ProjectAppFramework.WinUI, _detector.DetectProject(project).Framework);
+    }
+
+    [TestMethod]
+    public void DetectProject_CppWinUIWithMalformedPackagesConfig_IsStillWinUI()
+    {
+        var project = new FileInfo(Path.Join(_root.FullName, "App.vcxproj"));
+        File.WriteAllText(project.FullName, """
+            <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <PropertyGroup><UseWinUI>true</UseWinUI></PropertyGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Join(_root.FullName, "packages.config"), "<packages><package id=");
+
+        Assert.AreEqual(ProjectAppFramework.WinUI, _detector.DetectProject(project).Framework);
+    }
+
+    [TestMethod]
+    public void DetectProject_ClassifiesTheCppWinUISample()
+    {
+        var sample = new FileInfo(Path.Join(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..",
+            "samples", "cpp-winui-app", "CppWinUIApp.vcxproj"));
+        Assert.IsTrue(sample.Exists, sample.FullName);
+        Assert.AreEqual(ProjectAppFramework.WinUI, _detector.DetectProject(sample).Framework);
+    }
+
+    [TestMethod]
     public void DetectProject_ClassifiesKnownDotnetFrameworkProperties()
     {
         AssertDotnetFramework("winui", "<UseWinUI>true</UseWinUI>", ProjectAppFramework.WinUI);

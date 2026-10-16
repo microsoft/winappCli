@@ -14,6 +14,59 @@ public class PackageRegistrationServiceTests
     private const int ERROR_INSTALL_FAILED = unchecked((int)0x80073CF9);
 
     [TestMethod]
+    [DataRow(false, DisplayName = "Operation succeeds")]
+    [DataRow(true, DisplayName = "Operation faults")]
+    public async Task OffDeploymentCallback_ContinuationDoesNotRunOnCompletingThread(bool fault)
+    {
+        // Mirrors the WinRT task bridge: a plain TaskCompletionSource completed from a foreign
+        // thread runs awaiting continuations inline on that thread unless the awaiter yields.
+        var operation = new TaskCompletionSource<int>();
+        using var callerResumed = new ManualResetEventSlim();
+        var resumedThread = 0;
+
+        async Task<bool> CallerAsync()
+        {
+            var faulted = false;
+            try
+            {
+                await PackageRegistrationService.OffDeploymentCallbackAsync(operation.Task);
+            }
+            catch (InvalidOperationException)
+            {
+                faulted = true;
+            }
+
+            resumedThread = Environment.CurrentManagedThreadId;
+            callerResumed.Wait(TimeSpan.FromSeconds(10));
+            return faulted;
+        }
+
+        var caller = CallerAsync();
+        var completingThread = 0;
+        var callbackReturned = false;
+        var callback = new Thread(() =>
+        {
+            completingThread = Environment.CurrentManagedThreadId;
+            if (fault)
+            {
+                operation.SetException(new InvalidOperationException("deployment failed"));
+            }
+            else
+            {
+                operation.SetResult(1);
+            }
+            callbackReturned = true;
+        });
+        callback.Start();
+
+        Assert.IsTrue(callback.Join(TimeSpan.FromSeconds(10)), "The completing callback must return without waiting for the caller.");
+        Assert.IsTrue(callbackReturned);
+        callerResumed.Set();
+        Assert.AreEqual(fault, await caller, "The original exception must reach the caller.");
+        Assert.AreNotEqual(completingThread, resumedThread);
+    }
+
+    [TestMethod]
     public void BuildRegistrationException_InstallFailed_HintsAtMaxPath()
     {
         // 0x80073CF9 arrives with no error text, so without a hint the caller sees only

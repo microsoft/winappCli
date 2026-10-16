@@ -2,7 +2,7 @@
 <!-- description: Add Windows App SDK support to a .NET WPF or WinForms project with the winapp CLI, then build, add identity, and package the app as MSIX. -->
 # Using winapp CLI with .NET 
 
-> This guide should work for most .NET project types. The steps have been tested with both console and UI-based projects like WPF. For working examples, check out the [dotnet-app](../../samples/dotnet-app) (console) and [wpf-app](../../samples/wpf-app) (WPF) samples in the samples folder.
+> This guide should work for most .NET project types. The steps have been tested with both console and UI-based projects like WPF. For working examples, check out the [dotnet-app](../../samples/dotnet-app) (console) and [wpf-app](../../samples/wpf-app) (WPF) samples in the samples folder. For a single `.cs` file with no project, see [.NET file-based apps](dotnet-file-based.md).
 
 This guide demonstrates how to use the `winapp` CLI with a .NET application to debug with package identity and package your application as an MSIX.
 
@@ -145,8 +145,8 @@ Arguments you write after `dotnet run` go to **your application**, exactly as th
 project did not reference this package:
 
 ```powershell
-dotnet run --devtools          # your app receives --devtools
-dotnet run -- --devtools       # identical: the SDK consumes the -- before forwarding
+dotnet run --demo-mode          # your app receives --demo-mode
+dotnet run -- --demo-mode       # identical: the SDK consumes the -- before forwarding
 ```
 
 Use `--` when your app's flag is also a `dotnet run` option (`--configuration`, `--framework`,
@@ -161,10 +161,10 @@ Configure the WinApp launcher itself with the `WinAppRun*` MSBuild properties. M
 these, so they never reach your application:
 
 ```powershell
-dotnet run -p:WinAppRunDebugOutput=true --devtools
+dotnet run -p:WinAppRunDebugOutput=true --demo-mode
 ```
 
-Here the property configures WinApp while `--devtools` is passed to your app. See
+Here the property configures WinApp while `--demo-mode` is passed to your app. See
 [`dotnet run` support](../dotnet-run-support.md) for the full property list, including which
 properties cannot be combined.
 
@@ -209,7 +209,7 @@ Project mode supports both **packaged** and **unpackaged** WinUI apps — it det
 
 **Multi-project apps** (an app referencing class libraries) build correctly: winapp keeps `AnyCPU`/`netstandard2.0` references on their compatible platform instead of forcing the app's architecture across the graph. RID-only remains the default; when the effective configuration requires a self-contained profile (for example, a trimmed Release build), winapp selects the matching profile without changing referenced libraries' platforms.
 
-The `dotnet build` output streams live, with the exact invocation printed first. Add `--verbose` for winapp's own build decision traces. Requires .NET SDK 8.0.100 or newer. See [`winapp run` in the usage reference](../usage.md#project-mode-net-sdk-projects) for the full option list.
+The build output looks like `dotnet build`'s; a failed step shows the exact `dotnet` command. Add `--verbose` to see every command and winapp's own build decision traces. Requires .NET SDK 8.0.100 or newer. See [`winapp run` in the usage reference](../usage.md#project-mode-net-sdk-projects) for the full option list.
 
 For two worktrees of the same packaged project, use the CLI explicitly:
 

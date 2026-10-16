@@ -189,12 +189,13 @@ internal sealed partial class ProjectRunService(
 
     /// <summary>
     /// Runs the pre-build steps — effective-framework pinning, the CsWinRT metadata shim, and the
-    /// pre-build restore (whole-solution when applicable) — before the build pass. Property discovery is
-    /// buffered because its output is parsed; restores stream their output live. Returns the
-    /// (possibly framework-pinned) options, the build-pass options (with <c>NoRestore</c> set when a
-    /// pre-restore already covered the target), and the resolved CsWinRT metadata folder (or null).
+    /// pre-build restores (the solution's other projects when applicable, plus the target on an interactive
+    /// terminal) — before the build pass. Returns the (possibly framework-pinned) options, the build-pass
+    /// options (with <c>NoRestore</c> set when a pre-restore already covered the target), the resolved CsWinRT
+    /// metadata folder (or null), and whether restore output needed redaction: the build replays restore
+    /// warnings, so its output then needs redacting too.
     /// </summary>
-    private async Task<(ProjectRunOptions Options, ProjectRunOptions BuildOptions, string? CsWinRTMetadata)>
+    private async Task<(ProjectRunOptions Options, ProjectRunOptions BuildOptions, string? CsWinRTMetadata, bool RedactBuildOutput)>
         PrepareBuildInputsAsync(
             FileInfo csproj,
             ProjectRunOptions options,
@@ -237,58 +238,118 @@ internal sealed partial class ProjectRunService(
         }
         var buildOptions = options;
 
-        // When the target lives in a solution, restore the whole solution's managed projects up front so
+        // A --no-restore build replays the warnings stored by a restore winapp never saw, and those can quote an
+        // authenticated feed URL anywhere in the build graph, so its output always goes through winapp's redaction.
+        var redactBuildOutput = options.NoRestore;
+
+        // When the target lives in a solution, restore the solution's other managed projects up front so
         // build-dependency siblings that aren't ProjectReferences (e.g. a COM server) have project.assets.json
         // (else NETSDK1004) — matching VS / `dotnet build <sln>`. Gated on actually building + restore not opted out.
         if (!options.NoBuild && !options.NoRestore)
         {
-            // (1) Restore the owning solution's managed siblings. Build mode may reuse this restore;
-            // package preparation must also restore the selected project's exact publish inputs.
-            var restoredWholeSolution = await RestoreSolutionSiblingsAsync(csproj, options, workingDir, cancellationToken, publish);
-
-            if (publish)
-            {
-                // A solution can map Release to Debug for this project. Always refresh its publish
-                // graph directly before reading signing policy, even after a successful solution restore.
-                var restoreArgs = BuildRestorePassArguments(csproj, options, ResolveRestoreVerbosity(logger, options.Json), pinFramework: true);
-                var restoreExit = await RunRestoreCommandAsync(
-                    restoreArgs, $"Restoring {csproj.Name} dependencies...", options, workingDir, cancellationToken);
-                if (restoreExit != 0)
-                {
-                    throw new ProjectRunException($"Publish restore failed for '{csproj.Name}' (exit code {restoreExit}).");
-                }
-                csWinRTMetadata ??= ResolveCsWinRTMetadataShim(options, shimFramework);
-                return (options, options with { NoRestore = true }, csWinRTMetadata);
-            }
-
-            // (2) SHIM (temporary): on a clean SDK-less host the ref pack may not be on disk when the shim
+            // SHIM (temporary): on a clean SDK-less host the ref pack may not be on disk when the shim
             // first resolves, so it no-ops and the first build fails even though it restores the ref pack.
             // Pre-populate it with an explicit restore, then re-resolve. Only when the shim would inject.
-            if (csWinRTMetadata is null
+            var shimNeedsRestore = csWinRTMetadata is null
                 && !UserSetCsWinRTMetadata(options)
-                && csWinRTMetadataShimService.IsWindowsSdkAbsent())
+                && csWinRTMetadataShimService.IsWindowsSdkAbsent();
+
+            // On an interactive terminal the build hands the console to dotnet's terminal logger, which
+            // can't redact authenticated NuGet source URLs. Restore separately (through winapp, which
+            // redacts them) so that build can run with --no-restore. A Native AOT publish restores its
+            // own publish graph, so a build-context target restore would be wasted there.
+            var separateTargetRestore = !publish && !aotPublish && UsesNativeTerminalBuild(options);
+
+            SolutionRestorePlan? plan = null;
+            if (options.Solution is { } solution)
             {
-                var restoreExit = restoredWholeSolution
-                    ? 0
-                    : await RunRestorePassAsync(csproj, options, workingDir, cancellationToken);
-                if (restoreExit == 0)
+                plan = ComputeSolutionRestorePlan(solution, csproj);
+                if (plan.MissingProjects.Count > 0)
                 {
-                    csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimFramework);
-                    // A project-scoped restore mirrors Platform and fully covers the build. A solution-scoped
-                    // restore omits Platform to avoid MSB4126, so a platform-specific build must restore again.
-                    if (!restoredWholeSolution || !HasEffectivePlatform(options))
-                    {
-                        buildOptions = options with { NoRestore = true };
-                    }
+                    ReportMissingSolutionProjects(options, solution, plan.MissingProjects);
                 }
             }
-            else if (restoredWholeSolution && !HasEffectivePlatform(options))
+
+            var restoresSiblings = plan is { ManagedSiblings.Count: > 0 };
+
+            if (restoresSiblings || publish || shimNeedsRestore || separateTargetRestore)
             {
-                buildOptions = options with { NoRestore = true };
+                var restoresTarget = publish || shimNeedsRestore || separateTargetRestore;
+                var subject = DescribeRestoreSubject(csproj, restoresTarget, plan?.ManagedSiblings.Count ?? 0);
+                var verbosity = ResolveRestoreVerbosity(logger, options.Json);
+
+                RestoreStep? restoreStep = null;
+                var targetRestored = await RunRestoreStepAsync(subject, options, workingDir, async step =>
+                {
+                    restoreStep = step;
+
+                    // (1) Restore the owning solution's managed siblings. The target always restores on its own:
+                    // a solution-scoped restore can't carry its Platform (MSB4126) or RuntimeIdentifier.
+                    if (plan is not null)
+                    {
+                        await RestoreSolutionSiblingsAsync(step, plan, options, publish, cancellationToken);
+                    }
+
+                    if (publish)
+                    {
+                        // Restore the selected project's exact publish graph before signing policy is read.
+                        var publishRestore = await RunRestoreAsync(
+                            step, BuildRestorePassArguments(csproj, options, verbosity, pinFramework: true), cancellationToken);
+                        if (publishRestore.ExitCode != 0)
+                        {
+                            throw new ProjectRunException($"Publish restore failed for '{csproj.Name}' (exit code {publishRestore.ExitCode}).");
+                        }
+
+                        return true;
+                    }
+
+                    if (!shimNeedsRestore && !separateTargetRestore)
+                    {
+                        return false;
+                    }
+
+                    // No framework pin: -p:TargetFramework is global and would restore every ProjectReference for
+                    // the app's framework, breaking multi-targeted libraries. dotnet build's own restore omits it too.
+                    var targetRestore = await RunRestoreAsync(
+                        step, BuildRestorePassArguments(csproj, options, verbosity), cancellationToken);
+                    if (targetRestore.ExitCode == 0)
+                    {
+                        return true;
+                    }
+
+                    if (separateTargetRestore)
+                    {
+                        throw new ProjectRunException($"Restore failed for '{csproj.Name}' (exit code {targetRestore.ExitCode}).");
+                    }
+
+                    // Non-fatal: fall through and let the build pass restore + surface any real error itself.
+                    step.Warn($"{UiSymbols.Warning} Initial restore failed (exit code {targetRestore.ExitCode}); continuing with the build, which will retry restore.");
+                    return false;
+                }, cancellationToken);
+
+                // The build replays restore warnings (from project.assets.json), so if restore output quoted
+                // something winapp had to redact, the build's output must go through winapp too.
+                redactBuildOutput = restoreStep?.OutputRedacted == true;
+
+                if (publish)
+                {
+                    csWinRTMetadata ??= ResolveCsWinRTMetadataShim(options, shimFramework);
+                    return (options, options with { NoRestore = true }, csWinRTMetadata, redactBuildOutput);
+                }
+
+                if (targetRestored)
+                {
+                    if (shimNeedsRestore)
+                    {
+                        csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimFramework);
+                    }
+
+                    buildOptions = options with { NoRestore = true };
+                }
             }
         }
 
-        return (options, buildOptions, csWinRTMetadata);
+        return (options, buildOptions, csWinRTMetadata, redactBuildOutput);
     }
 
     /// <inheritdoc />
@@ -327,12 +388,12 @@ internal sealed partial class ProjectRunService(
             ThrowIfReferencesCppProject(csproj);
         }
 
-        // Restore output must remain visible: NuGet can spend minutes retrying an unreachable feed, and
-        // buffering those diagnostics makes the command look frozen. Property discovery remains buffered
-        // because winapp parses it, but every restore below streams progress and failures immediately.
-        var (preparedOptions, buildOptions, csWinRTMetadata) = preparation is null
+        // Restores never look frozen: on an interactive terminal they run behind a spinner with elapsed time
+        // (a slow or unreachable feed can take minutes), elsewhere their output streams live. Property
+        // discovery stays buffered because winapp parses it.
+        var (preparedOptions, buildOptions, csWinRTMetadata, redactBuildOutput) = preparation is null
             ? await PrepareBuildInputsAsync(csproj, options, workingDir, cancellationToken)
-            : (preparation.Options, preparation.Options, preparation.CsWinRTMetadata);
+            : (preparation.Options, preparation.Options, preparation.CsWinRTMetadata, false);
         options = preparedOptions;
 
         // Reject a non-runnable project (e.g. a class library) before building it — the post-build
@@ -359,14 +420,32 @@ internal sealed partial class ProjectRunService(
 
         // Builds keep their evaluate-only output-discovery fallback. Publishes capture properties
         // after targets execute: a separate evaluation cannot recover target-assigned PublishDir.
+        // A DevTools run's build also reports the XAML pages and properties winapp reads, so it needs no separate evaluate.
+        var captureBuild = options.CaptureDevToolsSources && !options.NoBuild;
+        string? captured = null;
         if (!publish && !options.NoBuild)
         {
-            var buildExit = await RunBuildPassAsync(csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken);
-            if (buildExit != 0)
+            var resultFile = captureBuild ? Path.Join(Path.GetTempPath(), $"winapp-build-{Guid.NewGuid():N}.json") : null;
+            try
             {
-                // dotnet's diagnostics were already streamed live; log the summary and propagate the exit code.
-                logger.LogError("{UISymbol} Build failed for {Project} (exit code {ExitCode}).", UiSymbols.Error, csproj.Name, buildExit);
-                return new ProjectBuildOutcome(null, buildExit);
+                var buildExit = await RunBuildPassAsync(csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken, redactBuildOutput, resultFile);
+                if (buildExit != 0)
+                {
+                    // dotnet's diagnostics were already streamed live; log the summary and propagate the exit code.
+                    logger.LogError("{UISymbol} Build failed for {Project} (exit code {ExitCode}).", UiSymbols.Error, csproj.Name, buildExit);
+                    return new ProjectBuildOutcome(null, buildExit);
+                }
+                if (resultFile is not null)
+                {
+                    captured = File.Exists(resultFile) ? await File.ReadAllTextAsync(resultFile, cancellationToken) : string.Empty;
+                }
+            }
+            finally
+            {
+                if (resultFile is not null)
+                {
+                    TryDeleteFile(resultFile);
+                }
             }
         }
 
@@ -378,6 +457,10 @@ internal sealed partial class ProjectRunService(
             // Publish output already streamed; its properties come from the MSBuild result file.
             (exitCode, _, stderr, stdout) = await RunPublishPassAsync(
                 csproj, buildOptions, workingDir, csWinRTMetadata, cancellationToken);
+        }
+        else if (captured is not null)
+        {
+            (exitCode, stdout, stderr) = (0, captured, string.Empty);
         }
         else
         {
@@ -392,7 +475,7 @@ internal sealed partial class ProjectRunService(
             logger.LogError("{UISymbol} {Operation} failed for {Project} (exit code {ExitCode}).", UiSymbols.Error, publish ? "Publish" : "Property evaluation", csproj.Name, exitCode);
             var combined = string.Join(Environment.NewLine,
                 new[] { stdout, stderr }.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.TrimEnd()));
-            if (!publish && !string.IsNullOrWhiteSpace(combined))
+            if (!publish && !captureBuild && !string.IsNullOrWhiteSpace(combined))
             {
                 // Keep stdout clean for --json consumers; route diagnostics to stderr instead.
                 if (options.Json)
@@ -454,6 +537,7 @@ internal sealed partial class ProjectRunService(
                             "{UISymbol} --no-build: '{Primary}' not found; using existing output '{Fallback}' (RID={Rid}, Platform={Platform}, PublishProfile={PublishProfile}).",
                             UiSymbols.Note, primaryTargetDir, fallbackTargetDir, includeRid, includePlatform, includePublishProfile);
                         props = fallbackProps;
+                        stdout = fallbackStdout;
                         break;
                     }
                 }
@@ -525,6 +609,9 @@ internal sealed partial class ProjectRunService(
             }
         }
 
+        var devToolsSources = options.CaptureDevToolsSources ? ReadDevToolsSources(stdout) : null;
+        var compiler = options.CaptureDevToolsSources
+            ? DevTools.XamlSourceCoordinates.FromProperties(csproj, props) : null;
         var resolution = new ProjectRunResolution(
             csproj,
             targetDir,
@@ -539,10 +626,22 @@ internal sealed partial class ProjectRunService(
             ReadAliasPreference(props),
             GetProp(props, "ProjectAssetsFile") is { Length: > 0 } assetsFile ? assetsFile : null,
             GetProp(props, "RuntimeIdentifier") is { Length: > 0 } assetsRid ? assetsRid : null,
+            DevToolsXamlSources: devToolsSources,
             AppxManifestPath: appxManifestPath,
-            AppxRecipePath: appxRecipePath);
+            AppxRecipePath: appxRecipePath,
+            DevToolsCompilerArtifacts: compiler);
 
         return new ProjectBuildOutcome(resolution, 0);
+    }
+
+    internal static IReadOnlyList<string> ReadDevToolsSources(string output)
+    {
+        var items = MsBuildPropertyReader.ParseItems(output);
+        if (!items.ContainsKey("Page") || !items.ContainsKey("ApplicationDefinition"))
+        {
+            throw new ProjectRunException("MSBuild did not report the requested XAML source items. Host-backed Sandbox comments require a verified project source snapshot.");
+        }
+        return items["Page"].Concat(items["ApplicationDefinition"]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     /// <summary>
@@ -646,7 +745,7 @@ internal sealed partial class ProjectRunService(
     {
         var workingDir = csproj.Directory ?? new DirectoryInfo(Directory.GetCurrentDirectory());
         ThrowIfReferencesCppProject(csproj, packaging: true);
-        (_, options, var metadata) = await PrepareBuildInputsAsync(
+        (_, options, var metadata, _) = await PrepareBuildInputsAsync(
             csproj, options, workingDir, cancellationToken, publish: true);
         var props = await EvaluatePreparedPropertiesAsync(csproj, options, workingDir, metadata, cancellationToken);
         return new ProjectPackagePreparation(
@@ -805,174 +904,6 @@ internal sealed partial class ProjectRunService(
         return ProjectPackaging.Unpackaged;
     }
 
-    /// <summary>
-    /// SHIM (temporary): runs an explicit <c>dotnet restore</c> so the <c>Microsoft.Windows.SDK.NET.Ref</c>
-    /// ref pack lands on disk BEFORE the shim resolves its winmd folder (fixes the clean-host first-build
-    /// failure). Returns the dotnet exit code so the caller only skips the build's own restore on success.
-    /// </summary>
-    private async Task<int> RunRestorePassAsync(FileInfo csproj, ProjectRunOptions options, DirectoryInfo workingDir, CancellationToken cancellationToken)
-    {
-        var restoreArgs = BuildRestorePassArguments(csproj, options, ResolveRestoreVerbosity(logger, options.Json));
-        logger.LogDebug("{UISymbol} Restoring before SDK-less CsWinRT metadata resolution.", UiSymbols.Note);
-        var exitCode = await RunRestoreCommandAsync(
-            restoreArgs, $"Restoring {csproj.Name} dependencies...", options, workingDir, cancellationToken);
-        if (exitCode != 0)
-        {
-            // Non-fatal: fall through and let the build pass restore + surface any real error itself.
-            WriteRestoreFallbackWarning(
-                options,
-                $"{UiSymbols.Warning} Initial restore failed (exit code {exitCode}); continuing with the build, which will retry restore.");
-        }
-        return exitCode;
-    }
-
-    /// <summary>
-    /// Restores the owning solution's managed sibling projects before the target build so build-dependency
-    /// siblings that aren't <c>ProjectReference</c>s still have a <c>project.assets.json</c> (NETSDK1004
-    /// parity with VS / <c>dotnet build &lt;sln&gt;</c>). Only fires for a solution-resolved run. When every
-    /// listed project is managed, a single <c>dotnet restore &lt;sln&gt;</c> covers the whole graph and this
-    /// returns <see langword="true"/> (caller skips the build pass's restore). When a native project is
-    /// present (<c>dotnet restore</c> can't handle it VS-less) OR the whole-solution restore fails, managed
-    /// siblings are restored individually and this returns <see langword="false"/>. Build-mode restores
-    /// are best-effort; package preparation stops on failed dependency restores.
-    /// </summary>
-    private async Task<bool> RestoreSolutionSiblingsAsync(FileInfo target, ProjectRunOptions options, DirectoryInfo workingDir, CancellationToken cancellationToken, bool publish = false)
-    {
-        if (options.Solution is null)
-        {
-            return false;
-        }
-
-        var (allManaged, siblings) = ComputeSolutionRestorePlan(options.Solution, target);
-        if (siblings.Count == 0)
-        {
-            // Solution lists only the target (or only native siblings) — nothing extra to restore; the
-            // normal target restore is unchanged.
-            return false;
-        }
-
-        // An inferred PublishProfile belongs only to the selected app. Restoring the whole solution would
-        // pass it to unrelated projects, so restore siblings individually and let the target build restore
-        // itself under the inferred profile.
-        if (allManaged && string.IsNullOrWhiteSpace(options.PublishProfile))
-        {
-            // Closest to VS: one restore over the whole solution pulls the target and every sibling.
-            var args = BuildRestorePassArguments(options.Solution, options, ResolveRestoreVerbosity(logger, options.Json));
-            logger.LogDebug("{UISymbol} Restoring solution before build for build-dependency parity.", UiSymbols.Note);
-            var exitCode = await RunRestoreCommandAsync(
-                args, $"Restoring {options.Solution.Name} dependencies...", options, workingDir, cancellationToken);
-            if (exitCode == 0)
-            {
-                return true;
-            }
-
-            // Whole-solution restore failed. Don't defer to the target-only build restore (that leaves
-            // non-ProjectReference managed siblings unrestored — the NETSDK1004 case this prevents); fall
-            // back to per-sibling restore before returning false.
-            WriteRestoreFallbackWarning(
-                options,
-                $"{UiSymbols.Warning} Solution restore failed (exit code {exitCode}); retrying managed dependencies individually.");
-        }
-
-        // Native project present (dotnet restore <sln> errors VS-less) or the solution restore failed:
-        // restore managed siblings individually and skip natives; the target restores in the normal pass.
-        await RestoreSiblingsIndividuallyAsync(siblings, options, workingDir, cancellationToken, publish);
-        return false;
-    }
-
-    /// <summary>
-    /// Best-effort restores each managed sibling project individually (skipping the target, which the normal
-    /// build pass restores). Used both when a native sibling forces a per-project plan and as the fallback
-    /// when a whole-solution restore fails. Package preparation propagates failures immediately.
-    /// </summary>
-    private async Task RestoreSiblingsIndividuallyAsync(
-        IReadOnlyList<FileInfo> siblings,
-        ProjectRunOptions options,
-        DirectoryInfo workingDir,
-        CancellationToken cancellationToken,
-        bool publish = false)
-    {
-        var siblingOptions = options with { PublishProfile = null };
-        foreach (var sibling in siblings)
-        {
-            var args = BuildRestorePassArguments(
-                sibling,
-                siblingOptions,
-                ResolveRestoreVerbosity(logger, siblingOptions.Json));
-            logger.LogDebug("{UISymbol} Restoring solution sibling {Sibling} before build for build-dependency parity.", UiSymbols.Note, sibling.Name);
-            var exitCode = await RunRestoreCommandAsync(
-                args, $"Restoring {sibling.Name} dependencies...", siblingOptions, workingDir, cancellationToken);
-            if (exitCode != 0)
-            {
-                if (publish)
-                {
-                    throw new ProjectRunException($"Publish restore failed for '{sibling.Name}' (exit code {exitCode}).");
-                }
-                WriteRestoreFallbackWarning(
-                    options,
-                    $"{UiSymbols.Warning} Restore of {sibling.Name} failed (exit code {exitCode}); continuing with the build, which will report any unresolved dependency errors.");
-            }
-        }
-    }
-
-    private static bool HasEffectivePlatform(ProjectRunOptions options) =>
-        !string.IsNullOrWhiteSpace(options.Platform)
-        || UserSpecifiesProperty(options.Properties, "Platform");
-
-    private void WriteRestoreFallbackWarning(ProjectRunOptions options, string message)
-    {
-        if (options.Json || !logger.IsEnabled(LogLevel.Warning))
-        {
-            return;
-        }
-
-        if (!logger.IsEnabled(LogLevel.Information))
-        {
-            Console.Error.WriteLine(message);
-            return;
-        }
-
-        logger.LogWarning("{Message}", message);
-    }
-
-    /// <summary>
-    /// Runs a pre-build restore with live output so slow package downloads, feed retries, and NuGet errors
-    /// are visible as they happen. Output is always streamed through winapp so authenticated NuGet source
-    /// URLs can be redacted before they reach the terminal or CI logs.
-    /// </summary>
-    internal async Task<int> RunRestoreCommandAsync(
-        string arguments,
-        string banner,
-        ProjectRunOptions options,
-        DirectoryInfo workingDir,
-        CancellationToken cancellationToken)
-    {
-        if (options.Json || !logger.IsEnabled(LogLevel.Information))
-        {
-            if (options.Json)
-            {
-                Console.Error.WriteLine($"dotnet {RedactSecretsForDisplay(arguments)}");
-            }
-
-            return await dotNetService.RunDotnetStreamingAsync(
-                workingDir, arguments,
-                onOutputLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
-                onErrorLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
-                cancellationToken: cancellationToken);
-        }
-
-        ansiConsole.MarkupLineInterpolated($"{UiSymbols.Sync} {banner}");
-        ansiConsole.MarkupLineInterpolated($"[dim]   dotnet {Markup.Escape(RedactSecretsForDisplay(arguments))}[/]");
-
-        var writeLive = CreateSynchronizedRedactedLineWriter();
-
-        return await dotNetService.RunDotnetStreamingAsync(
-            workingDir, arguments, writeLive, writeLive, cancellationToken: cancellationToken);
-    }
-
-    private static string? ResolveRestoreVerbosity(ILogger logger, bool json) =>
-        !json && !logger.IsEnabled(LogLevel.Information) ? "quiet" : null;
-
     private Action<string> CreateSynchronizedRedactedLineWriter()
     {
         var writeLock = new object();
@@ -991,32 +922,43 @@ internal sealed partial class ProjectRunService(
     /// <list type="bullet">
     ///   <item><c>--json</c>/<c>--quiet</c>: stream all build output to <b>stderr</b> so stdout stays pure
     ///   JSON / clean. Keeps <c>-tl:off</c>.</item>
-    ///   <item>Real interactive terminal with <c>--no-restore</c>: print a <c>🔧 Building…</c> header + dim
-    ///   invocation, then hand the terminal to dotnet with <b>inherited stdio</b> so its native terminal
-    ///   logger renders the live build. Omits <c>-tl:off</c>.</item>
-    ///   <item>Otherwise (agent/CI/redirected): header + dim invocation, then stream output live to stdout.
-    ///   Keeps <c>-tl:off</c>.</item>
+    ///   <item>Real interactive terminal with <c>--no-restore</c> (the pre-build restore normally sets it):
+    ///   print a <c>🔧 Building…</c> header, then hand the terminal to dotnet with <b>inherited stdio</b> so
+    ///   its native terminal logger renders the build exactly like <c>dotnet build</c>. Omits <c>-tl:off</c>.</item>
+    ///   <item>Otherwise (agent/CI/redirected): header, then stream output live to stdout. Keeps <c>-tl:off</c>.</item>
     /// </list>
-    /// Output always streams (never hidden behind a spinner) so success-path warnings stay visible and the
-    /// sanitized injected-arg invocation is self-describing.
+    /// The exact (sanitized) dotnet invocation is printed before the build under <c>--verbose</c>, and after
+    /// it when the build fails, so a failure is always reproducible without cluttering a successful run.
+    /// Output goes through winapp, not inherited stdio, whenever it may quote a secret: when the build may
+    /// restore, when its arguments carry a credential (a target can echo a property), or when
+    /// <paramref name="redactOutput"/> reports that the restore it replays warnings from needed redaction.
+    /// With <paramref name="resultFile"/>, the same build also writes the properties and items winapp reads to that file.
     /// </summary>
     internal async Task<int> RunBuildPassAsync(
         FileInfo csproj,
         ProjectRunOptions options,
         DirectoryInfo workingDir,
         string? csWinRTMetadataFolder,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool redactOutput = false,
+        string? resultFile = null)
     {
         var verbosity = ResolveBuildVerbosity(logger, options.Json);
+        string Arguments(bool nativeTerminal) => resultFile is null
+            ? BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, nativeTerminal)
+            : WindowsCommandLine.JoinArguments([
+                .. BuildPublishArguments(csproj, options, verbosity, csWinRTMetadataFolder, publish: false, nativeTerminal),
+                $"--getResultOutputFile:{resultFile}"]) ?? string.Empty;
 
         var banner = $"Building {csproj.Name} ({options.Configuration} | {options.Architecture})...";
         var stopwatch = Stopwatch.StartNew();
+        var buildEnvironment = WithPackagingReferenceTargets(null);
 
         // --json/--quiet: stdout stays pure JSON, so route the invocation AND build output to stderr
         // (Console.Error is synchronized, so concurrent stdout/stderr callbacks are safe).
         if (options.Json || !logger.IsEnabled(LogLevel.Information))
         {
-            var redirectedArgs = BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder);
+            var redirectedArgs = Arguments(nativeTerminal: false);
             // --json emits the invocation on stderr (the injected args stay discoverable); --quiet suppresses it.
             if (options.Json)
             {
@@ -1026,28 +968,37 @@ internal sealed partial class ProjectRunService(
                 workingDir, redirectedArgs,
                 onOutputLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
                 onErrorLine: static line => Console.Error.WriteLine(NugetErrorMessage.Redact(line)),
+                environmentOverrides: buildEnvironment,
                 cancellationToken: cancellationToken);
         }
 
-        // Info-enabled paths (default interactive / --verbose / agent-CI): print the header and the sanitized
-        // dotnet invocation (winapp injects args the user never typed — RID, shim, -p forwarding) so
-        // failures are self-describing.
-        var nativeTerminal = NativeTerminalGateOverrideForTests?.Invoke()
-            ?? ProgressDisplay.ShouldUseLiveSpinner(ansiConsole, logger);
-        // A build without --no-restore may emit authenticated NuGet source URLs. Keep that path streamed
-        // through winapp so credentials can be redacted; native inherited stdio is safe only for build-only output.
-        nativeTerminal &= options.NoRestore;
-        var buildArgs = BuildBuildPassArguments(csproj, options, verbosity, csWinRTMetadataFolder, nativeTerminal);
+        // Inherited stdio bypasses winapp's redaction, so dotnet gets the console only when nothing NuGet or winapp
+        // adds to the build can quote a secret: no restore (which may emit authenticated NuGet source URLs), no
+        // credential in the arguments, and no redacted text in the restore output the build replays as warnings.
+        // Text a project's own targets choose to print is shown as `dotnet build` would show it.
+        var nativeTerminal = UsesNativeTerminalBuild(options) && options.NoRestore && !redactOutput;
+        if (nativeTerminal)
+        {
+            var nativeArgs = Arguments(nativeTerminal: true);
+            nativeTerminal = string.Equals(RedactSecretsForDisplay(nativeArgs), nativeArgs, StringComparison.Ordinal);
+        }
+
+        var buildArgs = Arguments(nativeTerminal);
+        var command = $"dotnet {RedactSecretsForDisplay(buildArgs)}";
+        var verbose = logger.IsEnabled(LogLevel.Debug);
         ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} {banner}");
-        ansiConsole.MarkupLineInterpolated($"[dim]   dotnet {Markup.Escape(RedactSecretsForDisplay(buildArgs))}[/]");
+        if (verbose)
+        {
+            ansiConsole.MarkupLineInterpolated($"[dim]   {command}[/]");
+        }
 
         int streamedExit;
         if (nativeTerminal)
         {
             // Real interactive terminal: hand the console to dotnet (inherited stdio, no -tl:off) so its
             // native terminal logger renders the live build directly — single warnings, live progress.
-            // winapp never sees the lines; the persistent header/invocation above and ✓ Built below frame it.
-            streamedExit = await dotNetService.RunDotnetInheritedAsync(workingDir, buildArgs, cancellationToken: cancellationToken);
+            // winapp never sees the lines; the header above and ✓ Built below frame it.
+            streamedExit = await dotNetService.RunDotnetInheritedAsync(workingDir, buildArgs, buildEnvironment, cancellationToken);
         }
         else
         {
@@ -1056,12 +1007,16 @@ internal sealed partial class ProjectRunService(
             var writeLive = CreateSynchronizedRedactedLineWriter();
 
             streamedExit = await dotNetService.RunDotnetStreamingAsync(
-                workingDir, buildArgs, writeLive, writeLive, cancellationToken: cancellationToken);
+                workingDir, buildArgs, writeLive, writeLive, buildEnvironment, cancellationToken);
         }
 
         if (streamedExit == 0)
         {
             PrintBuildSucceeded(csproj, options, stopwatch.Elapsed);
+        }
+        else if (!verbose)
+        {
+            PrintFailedCommand(command);
         }
 
         return streamedExit;

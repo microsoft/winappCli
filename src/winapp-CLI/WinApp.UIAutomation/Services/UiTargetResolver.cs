@@ -34,6 +34,13 @@ public sealed class UiTargetResolver(
     /// <exception cref="AppNotFoundException">No running process or window matched the request.</exception>
     /// <exception cref="InvalidOperationException">Neither target argument was supplied, or multiple processes matched ambiguously.</exception>
     public Task<UiTarget> ResolveAsync(string? app, long? hwnd, CancellationToken ct)
+        => ResolveCore(app, hwnd, processOnly: false);
+
+    /// <inheritdoc/>
+    public Task<UiTarget> ResolveProcessAsync(string app, CancellationToken ct)
+        => ResolveCore(app, null, processOnly: true);
+
+    private Task<UiTarget> ResolveCore(string? app, long? hwnd, bool processOnly)
     {
         // Direct HWND targeting — most stable, used after discovery
         if (hwnd is not null and > 0)
@@ -43,7 +50,9 @@ public sealed class UiTargetResolver(
 
         if (string.IsNullOrWhiteSpace(app))
         {
-            throw new InvalidOperationException("Specify --app (process name, title, or PID) or --window (HWND).");
+            throw new InvalidOperationException(processOnly
+                ? "Specify --app (process name, title, or PID)."
+                : "Specify --app (process name, title, or PID) or --window (HWND).");
         }
 
         // Try PID or process name first
@@ -57,13 +66,47 @@ public sealed class UiTargetResolver(
             {
                 throw new AppNotFoundException($"No running app found matching '{app}'.");
             }
+            if (processOnly)
+            {
+                var processes = windows.Select(window => window.Pid).Distinct().ToArray();
+                if (processes.Length != 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Multiple processes have windows matching '{app}' (PIDs {string.Join(", ", processes)}). Use --app with a PID.");
+                }
+                return Task.FromResult(CreateTarget(processes[0], 0, null));
+            }
             return Task.FromResult(SelectTitleMatch(windows, app));
         }
 
         var resolved = process.Value;
+        if (processOnly)
+        {
+            return Task.FromResult(new UiTarget { ProcessId = resolved.Id, ProcessName = resolved.ProcessName });
+        }
 
-        // Process found — check for multiple windows
+        // Process found — check for multiple windows. A packaged (UWP) app such as Calculator draws
+        // inside an ApplicationFrameHost frame, so it owns no top-level window — except while
+        // minimized, when its content window detaches from the frame and becomes an empty top-level
+        // window. In both cases the frame hosting the app is the real target.
         var processWindows = uiAutomation.FindWindowsByPid(resolved.Id);
+        if (processWindows.TrueForAll(w => IsCoreWindow(systemQuery, w.Hwnd)))
+        {
+            var frames = HostedAppFrameWindows(systemQuery, resolved.Id);
+            if (frames.Count > 0)
+            {
+                var target = frames.Count > 1
+                    ? AutoSelectWindow(frames, app)
+                    : CreateTarget(frames[0].Pid, frames[0].Hwnd, frames[0].Title);
+                // The host process owns every packaged app's frame, so stay in this window.
+                target.IsExplicitWindow = true;
+                logger.LogInformation(
+                    "'{ProcessName}' (PID {Pid}) has no top-level window of its own; using the app frame \"{Title}\" (HWND {Hwnd}) that hosts it.",
+                    resolved.ProcessName, resolved.Id, target.WindowTitle, target.WindowHandle);
+                return Task.FromResult(target);
+            }
+        }
+
         if (processWindows.Count > 1)
         {
             return Task.FromResult(AutoSelectWindow(processWindows, app));
@@ -72,22 +115,6 @@ public sealed class UiTargetResolver(
         if (processWindows.Count == 1)
         {
             return Task.FromResult(CreateTarget(resolved.Id, processWindows[0].Hwnd, processWindows[0].Title));
-        }
-
-        // The process owns no top-level window. Packaged (UWP) apps such as Calculator draw inside
-        // an ApplicationFrameHost frame, so use the frame that hosts this process's content.
-        var frames = HostedAppFrameWindows(systemQuery, resolved.Id);
-        if (frames.Count > 0)
-        {
-            var target = frames.Count > 1
-                ? AutoSelectWindow(frames, app)
-                : CreateTarget(frames[0].Pid, frames[0].Hwnd, frames[0].Title);
-            // The host process owns every packaged app's frame, so stay in this window.
-            target.IsExplicitWindow = true;
-            logger.LogInformation(
-                "'{ProcessName}' (PID {Pid}) has no top-level window of its own; using the app frame \"{Title}\" (HWND {Hwnd}) that hosts it.",
-                resolved.ProcessName, resolved.Id, target.WindowTitle, target.WindowHandle);
-            return Task.FromResult(target);
         }
 
         // No window yet (for example, the app is still starting). Keep the process-scoped target so
@@ -129,19 +156,45 @@ public sealed class UiTargetResolver(
     }
 
     private const string ApplicationFrameWindowClass = "ApplicationFrameWindow";
+    private const string CoreWindowClass = "Windows.UI.Core.CoreWindow";
 
     /// <summary>
-    /// The ApplicationFrameHost frames hosting <paramref name="pid"/>'s content, with each frame's
-    /// owning PID and title. Empty for an ordinary process or one with no visible window yet.
+    /// The top-level windows of <paramref name="pid"/> or, for a packaged app hosted by
+    /// ApplicationFrameHost (including one that is minimized), the frame windows hosting it.
     /// </summary>
-    /// <param name="pid">Process whose packaged-app content the frames must host.</param>
-    public static List<(nint Hwnd, int Pid, string Title)> FindHostedAppFrameWindows(int pid)
-        => HostedAppFrameWindows(s_sharedQuery, pid);
+    /// <param name="uiAutomation">Window discovery service used to list the process's own windows.</param>
+    /// <param name="pid">Process whose windows to return.</param>
+    public static List<(nint Hwnd, int Pid, string Title)> FindWindowsOrHostedAppFrames(IUiAutomation uiAutomation, int pid)
+    {
+        ArgumentNullException.ThrowIfNull(uiAutomation);
+        var windows = uiAutomation.FindWindowsByPid(pid);
+        if (!windows.TrueForAll(w => IsCoreWindow(s_sharedQuery, w.Hwnd)))
+        {
+            return windows;
+        }
+
+        List<(nint Hwnd, int Pid, string Title)> frames;
+        try
+        {
+            frames = HostedAppFrameWindows(s_sharedQuery, pid);
+        }
+        catch (AmbiguousHostedAppFrameException ex)
+        {
+            // Listing does not select a window, so show every candidate for the user to pick with -w.
+            frames = ex.Frames.Select(h => ToFrameWindow(s_sharedQuery, h)).ToList();
+        }
+
+        return frames.Count > 0 ? frames : windows;
+    }
+
+    private static bool IsCoreWindow(ISystemUiQuery query, nint hwnd)
+        => string.Equals(query.GetWindowClassName((long)hwnd), CoreWindowClass, StringComparison.Ordinal);
 
     private static List<(nint Hwnd, int Pid, string Title)> HostedAppFrameWindows(ISystemUiQuery query, int pid)
-        => query.FindHostedAppFrames(pid)
-            .Select(h => ((nint)h, (int)query.GetProcessIdForWindow(h), query.GetWindowText(h) ?? ""))
-            .ToList();
+        => query.FindHostedAppFrames(pid).Select(h => ToFrameWindow(query, h)).ToList();
+
+    private static (nint Hwnd, int Pid, string Title) ToFrameWindow(ISystemUiQuery query, long hwnd)
+        => ((nint)hwnd, (int)query.GetProcessIdForWindow(hwnd), query.GetWindowText(hwnd) ?? "");
 
     /// <summary>
     /// Auto-selects the best window from multiple candidates silently.

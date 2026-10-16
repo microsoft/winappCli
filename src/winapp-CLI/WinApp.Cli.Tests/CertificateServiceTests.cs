@@ -429,6 +429,20 @@ public class CertificateServiceTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task SignFileAsync_Sha384Package_SignsWithPackageDigest()
+    {
+        var (svc, bt, _) = NewService();
+        var package = PackageDigestAlgorithmTests.CreatePackage(
+            Path.Join(_tempDirectory.FullName, "sha384.msix"), PackageDigestAlgorithmTests.Sha384);
+        var cert = CreatePfx(_tempDirectory.FullName, "sign384.pfx", "CN=Sign384", "pw");
+
+        await svc.SignFileAsync(package, cert, TestTaskContext, password: "pw",
+            cancellationToken: TestContext.CancellationToken);
+
+        StringAssert.Contains(bt.Invocations[0].Arguments, "/fd SHA384");
+    }
+
+    [TestMethod]
     public async Task SignFileAsync_WrongPfxPassword_ReportsReadableError()
     {
         var (svc, bt, _) = NewService();

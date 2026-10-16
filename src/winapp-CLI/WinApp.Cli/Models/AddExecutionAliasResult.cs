@@ -8,12 +8,20 @@ internal enum AddExecutionAliasStatus
     Added,
     AlreadyExists,
     ConflictingAliasExists,
+    CoexistenceUnsafe,
     NoApplicationElement,
     ApplicationIdNotFound,
     CouldNotInferAlias,
     InvalidAliasName,
     ManifestParseError,
     ManifestEmpty,
+}
+
+internal enum ExecutionAliasConflictPolicy
+{
+    PreserveExisting,
+    Reject,
+    Coexist,
 }
 
 internal sealed record AddExecutionAliasResult(

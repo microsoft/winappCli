@@ -1,47 +1,40 @@
-## Description
+<!-- Write so anyone on the team understands it in one read: simple words, concrete examples, nothing extra. Design reasoning goes in "Notes for reviewers" at the bottom. -->
 
-<!-- Briefly describe what this PR does and why -->
+## What and why
 
-## Usage Example
+<!-- What changes for the user, and why, in simple words. Describe outcomes, not a list of files; the diff shows those. -->
 
-<!-- If this PR adds or changes commands, flags, or APIs, include a short code snippet -->
-<!-- Example:
-```bash
-winapp store app list
-```
+Fixes #
+
+## Before / after
+
+<!-- Run the same command on main and on this branch, and show both as screenshots.
+For CLI output: .\scripts\capture-terminal.ps1 -Command 'winapp ...' -Output after.png
+For multi-step flows or output that changes over time (progress, prompts), record a
+video: add -Video, pass each step to -Command, and use -Output flow.mp4.
+For UI changes, use a screenshot or video of the app. If you can't capture,
+paste the text output instead. Skip this section only when nothing a user runs or sees has changed.
+
+**Before**
+
+**After**
 -->
 
-## Related Issue
+## Not tested / risks
 
-<!-- Link to any related issues: Fixes #123, Closes #456, Related to #789 -->
-
-## Type of Change
-
-<!-- Keep the applicable line(s), delete the rest -->
-
-- 🐛 Bug fix
-- ✨ New feature
-- 💥 Breaking change
-- 📝 Documentation
-- 🔧 Config/build
-- ♻️ Refactoring
-- 🧪 Test update
+<!-- Anything you could not verify, or "None". -->
 
 ## Checklist
-<!-- Delete the ones that do not apply to your changes -->
 
-- [ ] New tests added for new functionality (if applicable)
+<!-- Delete lines that do not apply -->
+
+- [ ] Tests added or updated
 - [ ] Tested locally on Windows
-- [ ] Main [README.md](../README.md) updated (if applicable)
-- [ ] [docs/usage.md](../docs/usage.md) updated (if CLI commands changed)
-- [ ] [Language-specific guides](../docs/guides) updated (if applicable)
-- [ ] [Sample projects updated](../samples) to reflect changes (if applicable)
-- [ ] Shipped skills updated in `plugins/winapp/skills/` (if CLI commands/workflows changed)
+- [ ] Docs, samples, and `plugins/winapp/skills/` updated if user-facing behavior changed
 
-## Screenshots / Demo
+<details><summary>Notes for reviewers</summary>
 
-<!-- If applicable, add screenshots or GIFs demonstrating the changes -->
+<!-- Optional. Design reasoning, rejected alternatives, or anything a reviewer
+might ask about. A few lines. Delete this section if empty. -->
 
-## Additional Notes
-
-<!-- Any additional information that reviewers should know -->
+</details>

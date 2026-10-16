@@ -16,6 +16,14 @@ after launch so the next command can inspect the app; without it, `run` waits fo
 app to exit. The Sandbox stays running between commands and rebuilds until it is ended; see
 [Removing an app and ending the Sandbox](#removing-an-app-and-ending-the-sandbox).
 
+`winapp ui inspect --on sandbox --help` shows command help without starting or
+preparing Windows Sandbox.
+
+For WinUI XAML inspection, managed binding diagnostics and persistent host-backed
+comments, see [DevTools inside Sandbox](guides/devtools-advanced.md#inspect-inside-windows-sandbox).
+This runs the overlay in the guest and uses qualified DevTools app selectors,
+not the UI Automation selectors above.
+
 ## Before you start
 
 - Use Windows 11 24H2 or newer on a supported edition, with hardware virtualization enabled.
@@ -34,6 +42,9 @@ Save your work and restart Windows when ready. Then open Windows Sandbox from th
 menu and finish any client installation or update. winapp does not enable the feature,
 install the client, request elevation, or restart Windows. If prerequisites are missing,
 it stops with setup instructions; an observed pending Windows restart is reported separately.
+
+To check these prerequisites without starting a Sandbox, run
+`winapp target snapshot sandbox`. See [Inspecting the Sandbox](#inspecting-the-sandbox).
 
 A cold connection or reconnect can briefly take focus. Once connected, winapp puts
 the Sandbox window behind the window you were using, without activating it; switch to
@@ -91,9 +102,13 @@ does not launch; retrying rebuilds its guest copy. If build files change while w
 preparing them, finish the build and retry.
 
 
-Warm UI commands report only their result, without repeating a Sandbox preparation
-message. Sandbox startup and connection recovery still report progress. Use `--verbose` for
-connection timings and diagnostic details; `--quiet` and `--json` suppress progress.
+Preparation reports separate steps on stderr: starting Sandbox when needed, copying
+the guest-agent files, configuring its firewall rule, and starting the agent.
+Attaching to a running Sandbox also reports checking sign-in. `target push` and
+`target pull` announce when file transfer starts.
+Warm UI commands report only their result, without repeating preparation messages.
+Connection recovery still reports progress. Use `--verbose` for connection timings
+and diagnostic details; `--quiet` and `--json` suppress progress.
 JSON runs include a guest process ID and target scope:
 
 ```json
@@ -279,6 +294,13 @@ winapp target snapshot sandbox --json
 This reports readiness, current deployments, and guest windows without creating a VM,
 reconnecting the client, or repairing the agent. With no Sandbox running, it reports
 that fact and exits successfully. To start one, use `winapp run . --on sandbox --detach`.
+
+The report begins with host prerequisites: Windows version, the Windows Sandbox
+feature, the Sandbox client, the `wsb` command, and any pending Windows restart. Each
+check is `passed`, `failed`, or `not checked`; a failed check includes the fix to apply.
+These checks never install anything, request elevation, or restart Windows. In
+`--json` output they appear under `host`, which also appears in the error output
+when inspection fails.
 
 The report distinguishes what the guest supports from what the current client can do;
 a minimized client can prevent input or capture even when the guest supports both.

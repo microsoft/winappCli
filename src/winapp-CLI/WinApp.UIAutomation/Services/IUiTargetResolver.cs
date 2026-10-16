@@ -22,4 +22,10 @@ public interface IUiTargetResolver
     /// <exception cref="AppNotFoundException">No running app matched.</exception>
     /// <exception cref="InvalidOperationException">Neither argument was supplied, or several windowed processes matched and the choice is ambiguous.</exception>
     Task<UiTarget> ResolveAsync(string? app, long? hwnd, CancellationToken ct);
+
+    /// <summary>Resolves a process without choosing one of its windows. A title shared by multiple processes is ambiguous.</summary>
+    /// <param name="app">Process name, window title, or PID.</param>
+    /// <param name="ct">Cancellation token for the asynchronous operation.</param>
+    /// <returns>The matching process, with no selected window handle.</returns>
+    Task<UiTarget> ResolveProcessAsync(string app, CancellationToken ct);
 }

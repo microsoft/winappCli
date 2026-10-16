@@ -46,6 +46,10 @@ Video recording is a separate package,
 `Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording`, so that projects which only
 inspect and drive UI do not take a dependency on SkiaSharp.
 
+Use `SlugGenerator.Normalize(text)` when constructing searchable, shell-safe labels with the same
+normalization as UI Automation selectors. It returns the normalized text, not a complete element
+selector; use the selector returned by inspection to address a specific element.
+
 ## Choosing a target framework
 
 The package ships two targets with the same public API:
