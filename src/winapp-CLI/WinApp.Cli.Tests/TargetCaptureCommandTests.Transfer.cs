@@ -13,6 +13,30 @@ namespace WinApp.Cli.Tests;
 public partial class TargetCaptureCommandTests
 {
     [TestMethod]
+    public async Task Push_ReportsTheTransferPhaseAfterPreparation()
+    {
+        await using var harness = new Harness(GuestWindows());
+        using var console = new TestConsole();
+        var progress = new TransferProgress();
+        Directory.CreateDirectory(_root);
+        var source = Path.Combine(_root, "probe.txt");
+        await File.WriteAllTextAsync(source, "probe", TestContext.CancellationToken);
+
+        Assert.AreEqual(0, await new TargetPushCommand.Handler(harness.Orchestrator, console, progress)
+            .InvokeAsync(Parse(new TargetPushCommand(), "sandbox", source, "probe.txt"),
+                TestContext.CancellationToken));
+
+        Assert.HasCount(1, progress.Messages);
+        Assert.AreEqual("Copying files to Windows Sandbox...", progress.Messages[0]);
+    }
+
+    private sealed class TransferProgress : ITargetProgress
+    {
+        public List<string> Messages { get; } = [];
+        public void Report(string message) => Messages.Add(message);
+    }
+
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public async Task Push_NondefaultRootReportsTheActualDestination(bool json)

@@ -278,7 +278,7 @@ internal class TargetPushCommand : Command, IShortDescription
     }
 
     /// <summary>Performs the copy.</summary>
-    public class Handler(ExecutionTargetOrchestrator orchestrator, IAnsiConsole console)
+    public class Handler(ExecutionTargetOrchestrator orchestrator, IAnsiConsole console, ITargetProgress? progress = null)
         : AsynchronousCommandLineAction
     {
         /// <inheritdoc/>
@@ -294,7 +294,8 @@ internal class TargetPushCommand : Command, IShortDescription
                 TargetTransferDirection.ToTarget,
                 hostPath: parseResult.GetValue(SourceArgument),
                 targetPath: parseResult.GetValue(DestinationArgument),
-                cancellationToken);
+                cancellationToken,
+                progress);
         }
     }
 }
@@ -335,7 +336,7 @@ internal class TargetPullCommand : Command, IShortDescription
     }
 
     /// <summary>Performs the copy.</summary>
-    public class Handler(ExecutionTargetOrchestrator orchestrator, IAnsiConsole console)
+    public class Handler(ExecutionTargetOrchestrator orchestrator, IAnsiConsole console, ITargetProgress? progress = null)
         : AsynchronousCommandLineAction
     {
         /// <inheritdoc/>
@@ -351,7 +352,8 @@ internal class TargetPullCommand : Command, IShortDescription
                 TargetTransferDirection.FromTarget,
                 hostPath: parseResult.GetValue(DestinationArgument),
                 targetPath: parseResult.GetValue(SourceArgument),
-                cancellationToken);
+                cancellationToken,
+                progress);
         }
     }
 }
@@ -373,7 +375,8 @@ internal static class TargetTransfer
         TargetTransferDirection direction,
         string? hostPath,
         string? targetPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ITargetProgress? progress = null)
     {
         ArgumentNullException.ThrowIfNull(orchestrator);
         ArgumentNullException.ThrowIfNull(console);
@@ -411,6 +414,9 @@ internal static class TargetTransfer
                     TargetFileTransferService.NormalizeTargetRelative(request.TargetPath))
                 : null;
 
+            progress?.Report(direction == TargetTransferDirection.ToTarget
+                ? "Copying files to Windows Sandbox..."
+                : "Copying files from Windows Sandbox...");
             var result = await TargetFileTransferService
                 .CopyAsync(target.Operations, request, cancellationToken)
                 .ConfigureAwait(false);

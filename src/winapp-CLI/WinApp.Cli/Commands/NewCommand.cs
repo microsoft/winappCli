@@ -1277,9 +1277,36 @@ internal class NewCommand : Command, IShortDescription
             {
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: [blue]cd \"{relative}\"[/] then [blue]winapp run[/] — this packaged MSTest app runs its tests when launched.");
             }
+            else if (IsSingleFileApp(entry, name, outputDir))
+            {
+                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: [blue]cd \"{relative}\"[/] then [blue]winapp run \"{name}.cs\"[/].");
+            }
             else
             {
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: [blue]cd \"{relative}\"[/] then [blue]winapp run[/].");
+            }
+        }
+
+        /// <summary>
+        /// True when the template produced a .NET file-based app (one <c>&lt;name&gt;.cs</c>, no project file),
+        /// which <c>winapp run</c> only runs when given the <c>.cs</c> path. The scaffolded files are checked
+        /// as well as the <c>SingleFile</c> tag because <c>dotnet new list</c> can cut off the Tags column.
+        /// </summary>
+        private static bool IsSingleFileApp(WinUiTemplateEntry entry, string name, DirectoryInfo outputDir)
+        {
+            if (entry.HasTag("SingleFile"))
+            {
+                return true;
+            }
+
+            try
+            {
+                return File.Exists(Path.Join(outputDir.FullName, name + ".cs"))
+                    && !Directory.EnumerateFiles(outputDir.FullName, "*.csproj").Any();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
             }
         }
 
