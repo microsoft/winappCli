@@ -130,6 +130,11 @@ public class UiHelpTests : BaseCommandTests
             var errors = result.Errors.Where(e => !e.Message.Contains("does not exist", StringComparison.Ordinal)).ToList();
             Assert.IsEmpty(errors, $"{step.Command}: {string.Join("; ", errors.Select(e => e.Message))}");
             Assert.AreNotSame(root, result.CommandResult.Command, step.Command);
+            // 'run' absorbs unknown tokens as app arguments instead of reporting a parse error.
+            if (result.CommandResult.Command is RunCommand)
+            {
+                Assert.IsEmpty(result.GetValue(RunCommand.PassthroughArgument) ?? [], step.Command);
+            }
         }
     }
 

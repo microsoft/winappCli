@@ -179,7 +179,7 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
             ("winapp find-ui \"<control>\"", "get working XAML for a control"),
             ("winapp find-api \"<type>\"", "look up Windows APIs you can call"),
             ("winapp devtools --help", "inspect and live-edit the running XAML"),
-            ("winapp run . --profile <folder>", "record startup and rendering timings"),
+            ("winapp run . --profile <folder>", "record layout and rendering timings"),
             ("winapp perf analyze <folder>", "see what was slow"),
         ]),
         ("Add Windows features to an existing app (.NET, C++, Rust, Flutter...)",
