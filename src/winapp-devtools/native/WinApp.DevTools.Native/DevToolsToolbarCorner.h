@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <string>
+
 namespace DevToolsToolbar {
 
 enum Corner {
@@ -54,6 +56,21 @@ inline int NearestCorner(const Client& client, double pillW, double pillH, doubl
         if (bestD < 0.0 || d < bestD) { bestD = d; best = i; }
     }
     return best;
+}
+
+// The collapsed toolbar names a mode only while clicks go to DevTools instead of the app. At rest it says DevTools,
+// or which window it is on when the app has several.
+inline std::wstring ChipLabel(bool picking, bool commentMode, const std::wstring& surface)
+{
+    if (picking) return commentMode ? L"Commenting" : L"Picking";
+    return surface.empty() ? L"DevTools" : surface;
+}
+
+inline std::wstring ChipAutomationName(bool picking, bool commentMode)
+{
+    std::wstring name = L"DevTools (open toolbar)";
+    if (picking) name += commentMode ? L", Commenting" : L", Picking";
+    return name;
 }
 
 } // namespace DevToolsToolbar

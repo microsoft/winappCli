@@ -64,12 +64,6 @@
       <TextBlock x:Name="DevToolsChipLabel" Text="DevTools" FontSize="12" FontWeight="SemiBold"
                  VerticalAlignment="Center" Foreground="$TEXT$"
                  AutomationProperties.AutomationId="DevToolsChipLabel" />
-      <Border x:Name="DevToolsChipCount" Visibility="Collapsed" MinWidth="16" Height="16" CornerRadius="8"
-              Padding="5,0" Background="$ACCENT$" VerticalAlignment="Center"
-              AutomationProperties.AutomationId="DevToolsChipCount">
-        <TextBlock x:Name="DevToolsChipCountText" Text="0" FontSize="10" FontWeight="SemiBold"
-                   Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
-      </Border>
     </StackPanel>
   </Border>
 

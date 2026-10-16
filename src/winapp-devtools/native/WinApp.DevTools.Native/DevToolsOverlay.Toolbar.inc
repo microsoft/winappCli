@@ -417,6 +417,32 @@ static void ProtoSetPartText(const wchar_t* name, const std::wstring& text)
     }
 }
 
+static void ProtoSetPartAutomationName(const wchar_t* name, const std::wstring& text)
+{
+    static void* statics = nullptr;
+    if (!statics) {
+        HSTRING cls = nullptr;
+        const wchar_t* id = L"Microsoft.UI.Xaml.Automation.AutomationProperties";
+        if (SUCCEEDED(WindowsCreateString(id, (UINT32)wcslen(id), &cls))) {
+            RoGetActivationFactory(cls, DevToolsIid<DevToolsXA::IAutomationPropertiesStatics>(), &statics);
+            WindowsDeleteString(cls);
+        }
+    }
+    if (!statics || !g_protoRoot) return;
+    if (IInspectable* el = DevToolsSelFindName(g_protoRoot, name)) {
+        void* dobj = nullptr;
+        if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsX::IDependencyObject>(), &dobj)) && dobj) {
+            HSTRING h = nullptr;
+            if (SUCCEEDED(WindowsCreateString(text.c_str(), (UINT32)text.size(), &h))) {
+                DevToolsSetAutomationName(statics, dobj, h);
+                WindowsDeleteString(h);
+            }
+            reinterpret_cast<IUnknown*>(dobj)->Release();
+        }
+        el->Release();
+    }
+}
+
 static bool CommentsShown();
 static size_t CommentCount();
 // Toolbar menus are canvas parts shown beside the bar, one at a time. They live in the toolbar's layer rather than
@@ -599,22 +625,16 @@ static std::wstring ChipSurfaceLabel()
 static void UpdateChipLabel()
 {
     const bool picking = (g_pickCatcher != nullptr);
-    const bool comments = CommentsShown();
-    const size_t n = CommentCount();
-    const bool active = picking || comments;
+    const bool commentMode = CommentModeOn();
     const std::wstring surface = ChipSurfaceLabel();
-
-    ProtoSetPartText(L"DevToolsChipLabel", picking ? (CommentModeOn() ? L"Commenting" : L"Picking")
-                                             : (comments ? L"Comments"
-                                                         : (surface.empty() ? std::wstring(L"DevTools") : surface)));
-    if (!picking && comments) ProtoSetPartText(L"DevToolsChipCountText", (n > 99) ? std::wstring(L"99+") : std::to_wstring(n));
-    ProtoSetPartVisible(L"DevToolsChipCount", !picking && comments && n > 0);
-    ProtoSetPartVisible(L"DevToolsChipDotOn", active);
-    ProtoSetPartVisible(L"DevToolsGlowHaloOn", active);
-    ProtoSetPartVisible(L"DevToolsChipDot", !active);
-    ProtoSetPartVisible(L"DevToolsGlowHalo", !active);
-    DevToolsOverlayLog(L"overlay.pill label picking=%d comments=%d count=%zu surface='%s'",
-                  (int)picking, (int)comments, n, surface.c_str());
+    ProtoSetPartText(L"DevToolsChipLabel", ChipLabel(picking, commentMode, surface));
+    ProtoSetPartAutomationName(L"DevToolsChip", ChipAutomationName(picking, commentMode));
+    ProtoSetPartVisible(L"DevToolsChipDotOn", picking);
+    ProtoSetPartVisible(L"DevToolsGlowHaloOn", picking);
+    ProtoSetPartVisible(L"DevToolsChipDot", !picking);
+    ProtoSetPartVisible(L"DevToolsGlowHalo", !picking);
+    DevToolsOverlayLog(L"overlay.pill label picking=%d commentMode=%d surface='%s'", (int)picking, (int)commentMode,
+                       surface.c_str());
 }
 
 // Re-anchor from SizeChanged, after ActualWidth reflects the new label. Label assignment alone cannot supply

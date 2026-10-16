@@ -181,6 +181,14 @@ function Inspect-WithChrome {
     $chrome = Invoke-Cli @('ui', 'inspect', 'DevToolsOverlay', '-a', $app, '--depth', '40')
     [pscustomobject]@{ windows = @($tree.windows) + @($chrome.windows | Where-Object { $_.elements -and $_.elements[0].automationId -eq 'DevToolsOverlay' }) }
 }
+# The collapsed toolbar's visible label and its UI Automation name.
+function Chip-State {
+    $nodes = @((Inspect-WithChrome).windows | ForEach-Object { Nodes $_.elements } | Where-Object { -not $_.isOffscreen })
+    [pscustomobject]@{
+        label = @($nodes | Where-Object automationId -eq 'DevToolsChipLabel')[0].name
+        name = @($nodes | Where-Object automationId -eq 'DevToolsProtoRailL')[0].name
+    }
+}
 # Turns on the toolbar's comment mode. A collapsed toolbar opens under the pointer and collapses again once the next
 # click moves the pointer away.
 function Enter-CommentMode {
@@ -250,6 +258,8 @@ try {
         $null = Invoke-Cli @('devtools', 'call', 'Overlay.show', '-a', $app)
         $overlayState = Invoke-Cli @('devtools', 'call', 'Overlay.getState', '-a', $app)
         Check ($overlayState.result.host -eq 'uiLayer') 'overlay chrome is hosted in the XAML diagnostics UI layer'
+        $chip = Chip-State
+        Check ($chip.label -eq 'DevTools' -and $chip.name -eq 'DevTools (open toolbar)') 'with no comments the collapsed toolbar says DevTools'
         $plain = @((Invoke-Cli @('ui', 'inspect', '-a', $app, '--depth', '40')).windows |
             Where-Object { [string]$_.hwnd -eq $window } | ForEach-Object { Nodes $_.elements })
         Check ($plain.Count -gt 0 -and @($plain | Where-Object { $_.automationId -like 'DevTools*' -or $_.className -eq 'Popup' }).Count -eq 0) 'a plain winapp ui inspect shows the app without DevTools chrome or its host popup'
@@ -268,6 +278,8 @@ try {
         $openFocus = Invoke-Cli @('ui', 'get-focused', '-a', $app)
         Check ($openFocus.element.automationId -eq 'DevToolsSelComment') 'an in-app pick puts keyboard focus in the comment box'
         $peek = Inspect-WithChrome
+        $chip = Chip-State
+        Check ($chip.label -eq 'Commenting' -and $chip.name -eq 'DevTools (open toolbar), Commenting') 'comment mode shows Commenting on the collapsed toolbar'
         $peek | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $evidence 'overlay-peek-uia.json')
         $all = @($peek.windows | ForEach-Object { Nodes $_.elements })
         Check (@($all | Where-Object hasMoreChildren -eq $true).Count -eq 0) 'flyout UIA observation is not depth-limited'
@@ -511,6 +523,8 @@ try {
         # Pick mode selects the clicked element in the inspector and opens no comment flyout.
         $null = Invoke-Cli @('devtools', 'call', 'Selection.arm', '-w', $window)
         Check ((Invoke-Cli @('ui', 'get-property', 'DevToolsProtoPick', '-a', $app, '-p', 'ToggleState')).properties.ToggleState -eq 'On') 'Select element reports its On state to UI Automation'
+        $chip = Chip-State
+        Check ($chip.label -eq 'Picking' -and $chip.name -eq 'DevTools (open toolbar), Picking') 'pick mode shows Picking on the collapsed toolbar'
         $null = Invoke-Cli @('ui', 'click', 'WindowHeading', '-w', $window)
         $null = Invoke-Cli @('ui', 'wait-for', 'WinAppDevToolsAddComment', '-a', $app, '-t', '10000')
         $picked = Invoke-Cli @('devtools', 'call', 'Selection.poll', '-a', $app)
@@ -520,6 +534,8 @@ try {
             Where-Object automationId -eq 'DevToolsSelComment').Count -eq 0) 'pick mode opens no comment flyout'
         $null = Invoke-Cli @('devtools', 'call', 'Selection.disarm', '-a', $app)
         Check ((Invoke-Cli @('ui', 'get-property', 'DevToolsProtoPick', '-a', $app, '-p', 'ToggleState')).properties.ToggleState -eq 'Off') 'Select element reports its Off state to UI Automation'
+        $chip = Chip-State
+        Check ($chip.label -eq 'DevTools' -and $chip.name -eq 'DevTools (open toolbar)') 'with saved comments the collapsed toolbar still says DevTools after pick mode'
         $null = Invoke-Cli @('devtools', 'call', 'Window.close', '-a', $app)
 
         $null = Invoke-Cli @('devtools', 'call', 'Window.open', '-a', $app)
