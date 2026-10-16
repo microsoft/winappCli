@@ -117,6 +117,7 @@ WINAPP_DEVTOOLS_PROTOCOL_TYPE(InternalSetCommentsResult, R"devtools({"type":"obj
 WINAPP_DEVTOOLS_PROTOCOL_TYPE(InternalSetSourceRootParams, R"devtools({"type":"object","additionalProperties":false,"required":["path"],"properties":{"path":{"type":"string","minLength":1}}})devtools")
 WINAPP_DEVTOOLS_PROTOCOL_TYPE(InternalOverlayHostParams, R"devtools({"type":"object","additionalProperties":false,"properties":{"force":{"type":"string","enum":["popup","auto"]}}})devtools")
 WINAPP_DEVTOOLS_PROTOCOL_TYPE(InternalOverlayHostResult, R"devtools({"type":"object","additionalProperties":false,"required":["host","forcePopup"],"properties":{"host":{"type":"string","enum":["uiLayer","popup","none"]},"forcePopup":{"type":"boolean"}}})devtools")
+WINAPP_DEVTOOLS_PROTOCOL_TYPE(InternalHideChromeParams, R"devtools({"type":"object","additionalProperties":false,"required":["hidden"],"properties":{"hidden":{"type":"boolean"}}})devtools")
 WINAPP_DEVTOOLS_PROTOCOL_TYPE(InternalPerfParams, R"devtools({"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","enum":["start","stop","reset","report"]}}})devtools")
 WINAPP_DEVTOOLS_PROTOCOL_TYPE(InternalPerfResult, R"devtools({"type":["object","null"],"additionalProperties":true})devtools")
 
@@ -192,6 +193,7 @@ WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalSetComments,       L"Internal.setComment
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalSetSourceRoot,     L"Internal.setSourceRoot",        L"Internal",   DevToolsAccess::Ui,       DevToolsVisibility::Internal, InternalSetSourceRootParams,  NullResult)
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalArmToolbarShortcut, L"Internal.armToolbarShortcut",   L"Internal",   DevToolsAccess::Ui,       DevToolsVisibility::Internal, EmptyParams,                  NullResult)
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalOverlayHost,       L"Internal.overlayHost",          L"Internal",   DevToolsAccess::Ui,       DevToolsVisibility::Internal, InternalOverlayHostParams,    InternalOverlayHostResult)
+WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalHideChrome,        L"Internal.hideChrome",           L"Internal",   DevToolsAccess::Ui,       DevToolsVisibility::Internal, InternalHideChromeParams,     NullResult)
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(InternalPerf,              L"Internal.perf",                 L"Internal",   DevToolsAccess::Mutation, DevToolsVisibility::Internal, InternalPerfParams,           InternalPerfResult)
 
 WINAPP_DEVTOOLS_PROTOCOL_EVENT(VisualTreeChanged,          L"VisualTree.changed",            L"VisualTree", VisualTreeChangedEvent)

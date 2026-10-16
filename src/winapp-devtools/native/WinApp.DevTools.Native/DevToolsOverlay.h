@@ -166,6 +166,8 @@ void DevToolsOverlay_ForcePopupHost(bool force);
 bool DevToolsOverlay_IsPopupHostForced();
 // Chrome covered by an open windowed popup stops taking input until it is uncovered. UI thread; call after tree changes.
 void DevToolsOverlay_YieldToWindowedPopups();
+// Makes every piece of chrome transparent for a screenshot of the app, or puts it back. UI thread.
+HRESULT DevToolsOverlay_HideChromeForCapture(bool hide);
 
 // Captures the last layout rectangles actually drawn; callers must ignore rects when placed is 0.
 struct DevToolsOverlayLayoutRects

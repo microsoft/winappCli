@@ -658,6 +658,13 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                            L",\"y\":" + b[1] + L",\"w\":" + b[2] + L",\"h\":" + b[3] + L"}}";
         return DevToolsRpcResult(id, out);
     }
+    if (m == L"Internal.hideChrome") {
+        // `winapp ui screenshot` hides the chrome around its capture, so the image shows the app alone.
+        const bool hidden = p.GetBool(L"hidden", false);
+        const HRESULT hr = RunOnUiThread([hidden]() { return DevToolsOverlay_HideChromeForCapture(hidden); });
+        if (FAILED(hr)) return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher, L"The app's UI thread did not answer.", L"ui-thread");
+        return DevToolsRpcResult(id, L"null");
+    }
     if (m == L"Internal.overlayHost") {
         // Tests only: {"force":"popup"} places chrome built from now on in the fallback Popup host.
         const std::wstring force = p.GetString(L"force");

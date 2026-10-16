@@ -76,6 +76,7 @@ If the app is already running, `run` closes it so DevTools can start it.
   lists them and hides or shows the markers.
 - **Ctrl+Shift+F12** brings back a hidden toolbar; **⋯** hides it, keeps it open, or
   sets what happens when the app starts.
+- `winapp ui screenshot` leaves the toolbar, markers and comment panel out of the image.
 ## Review comments with an agent
 
 ```powershell

@@ -913,3 +913,48 @@ bool DevToolsOverlay_IsCommentFlyoutOpen() { return DevToolsSelPanelIsOpen(); }
 
 // Shows the toolbar and moves keyboard focus to it, as Ctrl+Shift+F12 does. UI thread only.
 bool DevToolsOverlay_FocusToolbar() { return FocusToolbarFromShortcut(); }
+
+// A screenshot of the app shows the app alone. Hiding makes every piece of chrome transparent (the toolbar, markers,
+// highlight, adorners and the comment flyout); nothing else changes, so the toolbar, selection, pick mode and focus
+// are as they were when it is shown again. A capture that never shows it again is undone after a few seconds.
+struct DevToolsCaptureHidden { winrt::weak_ref<DevToolsX::UIElement> element; double opacity = 1; };
+static std::vector<DevToolsCaptureHidden> g_captureHidden;
+static UINT_PTR g_captureRestoreTimer = 0;
+static constexpr UINT kCaptureRestoreMs = 5000;
+
+static void CALLBACK CaptureRestoreTimerProc(HWND, UINT, UINT_PTR, DWORD) { DevToolsOverlay_HideChromeForCapture(false); }
+
+HRESULT DevToolsOverlay_HideChromeForCapture(bool hide)
+{
+    if (g_captureRestoreTimer) { KillTimer(nullptr, g_captureRestoreTimer); g_captureRestoreTimer = 0; }
+    if (!hide) {
+        for (auto const& hidden : g_captureHidden) {
+            if (auto element = hidden.element.get()) {
+                try { element.Opacity(hidden.opacity); } catch (const winrt::hresult_error&) {}
+            }
+        }
+        DevToolsOverlayLog(L"overlay.capture chrome shown (%zu)", g_captureHidden.size());
+        g_captureHidden.clear();
+        return S_OK;
+    }
+    if (g_captureHidden.empty()) {
+        std::vector<DevToolsX::UIElement> chrome;
+        for (auto const& layer : g_layerRoots) if (layer.root) chrome.push_back(layer.root);
+        for (auto const& slot : g_hostSlots) if (!slot.layerKey && slot.content) chrome.push_back(slot.content);
+        // The flyout is a windowed popup: its content is not under any host root.
+        if (g_selPanel) {
+            winrt::Windows::Foundation::IInspectable panel{ nullptr };
+            winrt::copy_from_abi(panel, g_selPanel);
+            if (auto element = panel.try_as<DevToolsX::UIElement>()) chrome.push_back(element);
+        }
+        for (auto const& element : chrome) {
+            try {
+                g_captureHidden.push_back({ winrt::make_weak(element), element.Opacity() });
+                element.Opacity(0);
+            } catch (const winrt::hresult_error&) {}
+        }
+        DevToolsOverlayLog(L"overlay.capture chrome hidden (%zu)", g_captureHidden.size());
+    }
+    g_captureRestoreTimer = SetTimer(nullptr, 0, kCaptureRestoreMs, &CaptureRestoreTimerProc);
+    return S_OK;
+}

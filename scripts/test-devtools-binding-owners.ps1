@@ -558,6 +558,16 @@ try {
         $null = Invoke-Cli @('ui', 'invoke', 'DevToolsProtoLayout', '-a', $app)
         $null = Invoke-Cli @('ui', 'hover', 'ShortcutReturn', '-a', $app)
 
+        # A screenshot shows the app alone: the toolbar on screen leaves no pixels, and stays on screen afterwards.
+        $shown = Join-Path $evidence 'screenshot-toolbar-shown.png'
+        $hiddenShot = Join-Path $evidence 'screenshot-toolbar-hidden.png'
+        $null = Invoke-Cli @('ui', 'screenshot', '-a', $app, '-o', $shown)
+        Check ((Invoke-Cli @('devtools', 'call', 'Overlay.getState', '-a', $app)).result.toolbarVisible -eq $true) 'a screenshot leaves the toolbar on screen'
+        $null = Invoke-Cli @('devtools', 'call', 'Overlay.hide', '-a', $app)
+        $null = Invoke-Cli @('ui', 'screenshot', '-a', $app, '-o', $hiddenShot)
+        $null = Invoke-Cli @('devtools', 'call', 'Overlay.show', '-a', $app)
+        Check ((Get-FileHash -LiteralPath $shown).Hash -eq (Get-FileHash -LiteralPath $hiddenShot).Hash) 'a screenshot with the toolbar shown matches one with it hidden'
+
         # A centered or margined window content starts away from the window origin; the highlight must still
         # land on the selected element.
         $rootPanel = @(Nodes $tree.elements | Where-Object { @($_.children | Where-Object name -eq 'WindowHeading').Count -eq 1 })
