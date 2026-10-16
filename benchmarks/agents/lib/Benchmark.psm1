@@ -290,7 +290,7 @@ function Compare-PreflightSkills {
 function Get-WinappCommands {
     # Unique 'winapp <command> [<subcommand>]' invocations named in shell commands or answer text.
     param([AllowEmptyCollection()][AllowNull()][string[]]$Text)
-    $groups = 'cert', 'config', 'devtools', 'manifest', 'ui', 'find-api', 'target', 'store', 'node'
+    $groups = 'cert', 'config', 'devtools', 'manifest', 'ui', 'find-api', 'target', 'store', 'node', 'perf'
     # Groups whose second token can be free text record it only when it is a real subcommand:
     # `find-api <query>` is a search. `node` comes from the npm package (`npx winapp node ...`).
     $verbs = @{
@@ -299,7 +299,7 @@ function Get-WinappCommands {
     }
     # Top-level commands only, so prose like "winapp is" or "winapp CLI" is not counted.
     $known = 'az-sign', 'cert', 'config', 'create-debug-identity', 'devtools', 'create-external-catalog', 'embed-identity', 'find-api', 'find-ui',
-    'get-winapp-path', 'init', 'manifest', 'new', 'node', 'package', 'pack', 'restore', 'run', 'sign', 'store', 'target', 'tool',
+    'get-winapp-path', 'init', 'manifest', 'new', 'node', 'package', 'pack', 'perf', 'restore', 'run', 'sign', 'store', 'target', 'tool',
     'ui', 'unregister', 'update'
     $found = [System.Collections.Generic.List[string]]::new()
     foreach ($t in $Text) {
