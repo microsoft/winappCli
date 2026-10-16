@@ -76,7 +76,8 @@ static std::wstring DeriveEditKind(const std::wstring& name, const std::wstring&
     if (hasEnumMembers) return L"enum";
     if (!DevToolsRead_FieldLabels(valueType).empty()) return L"fields";
     if (st == L"Double" || st == L"Single" || st == L"Int32") return L"number";
-    const bool brushTyped = name == L"Foreground" || name == L"Background"
+    const wchar_t* mapped = CardMapType(name);
+    const bool brushTyped = (mapped && wcscmp(mapped, L"SolidColorBrush") == 0)
         || (st.size() >= 5 && st.compare(st.size() - 5, 5, L"Brush") == 0);
     if (brushTyped) {
         return (value.size() == 9 && value[0] == L'#') ? std::wstring(L"color") : std::wstring(L"none");
