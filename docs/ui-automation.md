@@ -629,11 +629,8 @@ recordings and whole-desktop capture.
 
 **Capture modes** (reported in the JSON `mode` field):
 - `wgc` — Windows Graphics Capture (default; works while the window is occluded). See [Menus and flyouts in recordings](#menus-and-flyouts-in-recordings).
-- `printwindow` — GDI PrintWindow (fallback when WGC is unavailable on this system/session or rejects a directly selected menu or tooltip; re-run with `--capture-screen` to use screen DC instead).
+- `printwindow` — GDI PrintWindow (fallback when WGC is unavailable on this system/session; re-run with `--capture-screen` to use screen DC instead).
 - `screen` — Screen DC via `--capture-screen` (includes overlays/popups; brings the window to the foreground).
-
-The mode describes the selected window's capture backend. A WGC window recording remains
-`wgc` when an included menu or tooltip uses PrintWindow.
 
 #### Menus and flyouts in recordings
 
@@ -649,7 +646,8 @@ whenever they are open. No flag is needed.
 - The recording keeps the selected window's size, so the part of a flyout that extends past the
   window's edge is cut off. To record that popup in full, find its HWND with
   `winapp ui list-windows` and record it with `-w <hwnd>`.
-- If a popup can't be captured, the recording continues without it.
+- If a popup can't be captured, the recording continues without it and the result's `warnings`
+  says which popup is missing.
 - Overlays from another process aren't included. Use `--capture-screen -w <hwnd>` for those,
   and keep the window uncovered: screen capture can include other apps.
 

@@ -320,7 +320,7 @@ internal sealed partial class UiRecordingService(
                 cropH = Math.Clamp((int)selectorElement.Height, 1, srcHeight - cropY);
             }
 
-            var mode = useScreen ? "screen" : grabber?.RootCaptureBackend ?? "printwindow";
+            var mode = useScreen ? "screen" : (useWgc ? "wgc" : "printwindow");
             var (encoderW, encoderH, displayW, displayH) = ComputeTargetSize(cropW, cropH, options.MaxEdge);
             var coordinates = desktopBounds is { } sourceBounds
                 ? DescribeCoordinates(sourceBounds, encoderW, encoderH, displayW, displayH)
@@ -715,6 +715,11 @@ internal sealed partial class UiRecordingService(
                     $"Frame artifacts reached the {frameArtifacts.ByteLimit / 1024 / 1024} MiB bundle limit; " +
                     "the MP4 is complete, but only the indexed frame prefix was retained. " +
                     "Retry with a shorter duration, lower fps, or lower max-edge for complete frame evidence.");
+            }
+            if (grabber?.Warnings is { Count: > 0 } captureWarnings)
+            {
+                warnings ??= [];
+                warnings.AddRange(captureWarnings);
             }
             return new RecordCaptureResult
             {

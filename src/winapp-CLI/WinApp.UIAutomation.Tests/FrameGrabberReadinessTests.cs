@@ -89,7 +89,7 @@ public class FrameGrabberReadinessTests
     }
 
     [TestMethod]
-    public async Task GetFrame_CombinedFrameRemainsUsableWhenNewMenuInvalidatesNextRead()
+    public async Task GetFrame_CombinedFrameRemainsUsableWhenNewMenuAppears()
     {
         var discoveries = 0;
         byte[] pixels = [0, 255, 0, 255];
@@ -102,7 +102,7 @@ public class FrameGrabberReadinessTests
         var frame = await grabber.GetFrameAsync(TimeSpan.FromSeconds(1), CancellationToken.None);
 
         Assert.IsNotNull(frame);
-        Assert.IsNull(grabber.TryGetLatest());
+        Assert.IsNotNull(grabber.TryGetLatest(), "A menu without a frame yet doesn't hold back the window.");
         Assert.AreSame(pixels, frame.Value.Pixels);
     }
 
