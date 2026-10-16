@@ -40,10 +40,9 @@
       }
     },
     "winui.build": {
-      "description": "Build, run, and debug a WinUI 3 app: build errors, startup crashes, slow layout or scrolling, and Native AOT publish.",
+      "description": "Build, run, and debug a WinUI 3 app: build errors, startup crashes, and Native AOT publish.",
       "commands": [
-        "^run$",
-        "^perf"
+        "^run$"
       ]
     },
     "msix.package": {
@@ -276,9 +275,7 @@
         "winapp-package": [
           "msix.package"
         ],
-        "winapp-performance": [
-          "winui.build"
-        ],
+        "winapp-performance": [],
         "winapp-sandbox": [
           "sandbox.run",
           "ui.automate"
@@ -377,9 +374,7 @@
         "winapp-package": [
           "msix.package"
         ],
-        "winapp-performance": [
-          "winui.build"
-        ],
+        "winapp-performance": [],
         "winapp-sandbox": [
           "sandbox.run",
           "ui.automate"
