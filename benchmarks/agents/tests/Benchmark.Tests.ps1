@@ -144,6 +144,11 @@ Describe 'Get-WinappCommands' {
         @(Get-WinappCommands -Text @('npx winapp node create-addon --name myAddon; winapp node add-electron-debug-identity', 'winapp node something-else')) |
             Should -Be @('node create-addon', 'node add-electron-debug-identity', 'node')
     }
+
+    It 'records perf subcommands' {
+        @(Get-WinappCommands -Text @('winapp perf start --app 1234 --output .\cap --json', 'winapp perf analyze .\trace --view hotspots')) |
+            Should -Be @('perf start', 'perf analyze')
+    }
 }
 
 Describe 'Format-PassRate' {
