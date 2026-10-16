@@ -49,6 +49,7 @@ public sealed class ApiMetadataServiceTests
         new FakeWinappDirectoryService(new DirectoryInfo(_globalDir)),
         new CurrentDirectoryProvider(_currentDir),
         sdkPackages ?? new FakeSdkPackageSource(),
+        new FakeNugetService { CacheDirectory = new DirectoryInfo(_globalDir) },
         NullLogger<ApiMetadataService>.Instance);
 
     /// <summary>

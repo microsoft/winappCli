@@ -3,7 +3,7 @@
 
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Win32;
+using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Services;
 
@@ -40,7 +40,7 @@ internal sealed partial class CsWinRTMetadataShimService(
     /// can be unit-tested without depending on the host's registry state. Defaults to a check that
     /// mirrors cswinrt's own lookup.
     /// </summary>
-    internal Func<bool> IsWindowsSdkRegistered { get; set; } = DefaultIsWindowsSdkRegistered;
+    internal Func<bool> IsWindowsSdkRegistered { get; set; } = static () => WindowsKitsRoot.GetRegistered() is not null;
 
     /// <inheritdoc />
     public string? ResolveMetadataFolder(string? targetFrameworkMoniker)
@@ -182,29 +182,5 @@ internal sealed partial class CsWinRTMetadataShimService(
         }
 
         return Version.TryParse(name, out version);
-    }
-
-    private static bool DefaultIsWindowsSdkRegistered()
-    {
-        // Mirror cswinrt's own check: HKLM\SOFTWARE\Microsoft\Windows Kits\Installed Roots -> KitsRoot10,
-        // consulting BOTH the 32-bit (KEY_WOW64_32KEY) and native registry views.
-        foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
-        {
-            try
-            {
-                using var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
-                using var key = hklm.OpenSubKey(@"SOFTWARE\Microsoft\Windows Kits\Installed Roots");
-                if (key?.GetValue("KitsRoot10") is string root && !string.IsNullOrWhiteSpace(root))
-                {
-                    return true;
-                }
-            }
-            catch (Exception)
-            {
-                // Registry view unavailable/inaccessible → treat as not registered for this view.
-            }
-        }
-
-        return false;
     }
 }
