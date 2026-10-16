@@ -35,6 +35,9 @@ menu and finish any client installation or update. winapp does not enable the fe
 install the client, request elevation, or restart Windows. If prerequisites are missing,
 it stops with setup instructions; an observed pending Windows restart is reported separately.
 
+To check these prerequisites without starting a Sandbox, run
+`winapp target snapshot sandbox`. See [Inspecting the Sandbox](#inspecting-the-sandbox).
+
 A cold connection or reconnect can briefly take focus. Once connected, winapp puts
 the Sandbox window behind the window you were using, without activating it; switch to
 **Windows Sandbox** in the taskbar to watch the guest. When winapp started the Sandbox,
@@ -279,6 +282,13 @@ winapp target snapshot sandbox --json
 This reports readiness, current deployments, and guest windows without creating a VM,
 reconnecting the client, or repairing the agent. With no Sandbox running, it reports
 that fact and exits successfully. To start one, use `winapp run . --on sandbox --detach`.
+
+The report begins with host prerequisites: Windows version, the Windows Sandbox
+feature, the Sandbox client, the `wsb` command, and any pending Windows restart. Each
+check is `passed`, `failed`, or `not checked`; a failed check includes the fix to apply.
+These checks never install anything, request elevation, or restart Windows. In
+`--json` output they appear under `host`, which also appears in the error output
+when inspection fails.
 
 The report distinguishes what the guest supports from what the current client can do;
 a minimized client can prevent input or capture even when the guest supports both.

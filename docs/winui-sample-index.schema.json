@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/microsoft/winappCli/main/docs/winui-sample-index.schema.json",
   "title": "WinUI sample index",
-  "description": "A machine-readable index of WinUI control samples, published by the repository that owns the samples. One file fully describes a source's controls and their sample code, so consuming tools need a single HTTP request instead of scraping repository layout.\n\nThis schema generalizes the shape already published by microsoft/microsoft-ui-reactor as reactor-search-index.json. Field names from that file are preserved verbatim so an index that validates against the Reactor shape also validates here; the additions ('details', 'xaml', 'xmlnsImports', 'docs') exist to describe XAML-based sources such as microsoft/WinUI-Gallery and CommunityToolkit/Windows.",
+  "description": "A machine-readable index of WinUI control samples, published by the repository that owns the samples. One file fully describes a source's controls and their sample code, so consuming tools need a single HTTP request instead of scraping repository layout.\n\nThis schema generalizes the shape already published by microsoft/microsoft-ui-reactor as reactor-search-index.json. Field names from that file are preserved verbatim so an index that validates against the Reactor shape also validates here; the additions ('details', 'xaml', 'xmlnsImports', 'docs', 'apis') exist to describe XAML-based sources such as microsoft/WinUI-Gallery and CommunityToolkit/Windows.",
   "type": "object",
   "required": ["schemaVersion", "controls"],
   "properties": {
@@ -88,6 +88,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/docLink" }
         },
+        "apis": {
+          "description": "APIs this control's samples call, as the source already knows them. Distinct from 'apiNamespace', which names the single namespace the control itself lives in: this lists the individual types and members a consumer would have to look up to understand the sample, so a tool can answer 'which API does this' and 'show me a sample that calls it' from one index. Acts as the default for samples that do not set their own 'apis'.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/apiRef" }
+        },
         "samples": {
           "description": "The control's samples, in the order the source wants them presented. Consumers assign ids positionally, so appending is safe and reordering is not.",
           "type": "array",
@@ -119,6 +124,27 @@
             }
           },
           "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "apiRef": {
+      "description": "One API a sample calls. 'uri' is spelled the same way as it is on 'docLink' rather than as 'url', so one index does not carry two spellings of the same concept; a producer whose own catalog says 'url' renames it on export.",
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "description": "Fully-qualified API name (e.g. 'Windows.Storage.Pickers.FileOpenPicker'). Consumers match queries against this, so it should be the name as it appears in metadata and documentation rather than a display form.",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "description": "One line on what this API does in the context of this sample. Consumers render it inline next to the API name.",
+          "type": "string"
+        },
+        "uri": {
+          "description": "Absolute URL of the API's reference documentation.",
+          "type": "string"
         }
       },
       "additionalProperties": true
@@ -172,6 +198,11 @@
           "description": "XAML namespace declarations required by this specific sample, when they differ from the control's 'xmlnsImports'. Omit it when the control-level value applies. Needed because sibling samples of one control can pull in different namespaces.",
           "type": "array",
           "items": { "type": "string" }
+        },
+        "apis": {
+          "description": "APIs this specific sample calls, when they differ from the control's 'apis'. Omit it when the control-level value applies — consumers fall back to that. Sources whose samples each demonstrate a different API (for example one scenario per API in a multi-scenario sample project) will normally set it here rather than on the control.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/apiRef" }
         },
         "gallery": {
           "description": "WinUI Gallery-specific extraction metadata. Consumers must not require this object; it is informational and may be ignored by non-Gallery sources.",

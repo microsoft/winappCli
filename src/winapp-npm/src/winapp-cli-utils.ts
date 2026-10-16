@@ -197,6 +197,8 @@ export async function callWinappCli(args: string[], options: CallWinappCliOption
 /**
  * Call the native winapp-cli and capture stdout/stderr instead of inheriting stdio.
  * Use this for programmatic access where you need the output.
+ * JSON perf analyze results marked partial_data resolve with their nonzero exit code.
+ * Other nonzero exits reject with the captured output attached to the error.
  */
 export async function callWinappCliCapture(
   args: string[],
@@ -239,7 +241,10 @@ export async function callWinappCliCapture(
         const stderr = Buffer.concat(stderrChunks).toString('utf8');
         const exitCode = code ?? 1;
 
-        if (exitCode === 0) {
+        if (
+          exitCode === 0 ||
+          (code === 1 && args[0] === 'perf' && args[1] === 'analyze' && isPartialAnalysis(stdout, stderr))
+        ) {
           resolve({ exitCode, stdout, stderr });
         } else {
           const error = new Error(`winapp-cli exited with code ${exitCode}: ${stderr || stdout}`) as Error & {
@@ -262,6 +267,31 @@ export async function callWinappCliCapture(
       });
     });
   });
+}
+
+function isPartialAnalysis(stdout: string, stderr: string): boolean {
+  try {
+    const diagnostic: unknown = JSON.parse(stderr);
+    if (!isJsonObject(diagnostic) || diagnostic.code !== 'partial_data' || diagnostic.partialOutput !== true) {
+      return false;
+    }
+    const evidence: unknown = JSON.parse(stdout);
+    return (
+      isJsonObject(evidence) &&
+      Array.isArray(evidence.rows) &&
+      isJsonObject(evidence.coverage) &&
+      evidence.coverage.complete === false
+    );
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** Whether an error came from an aborted {@link AbortSignal} rather than a real spawn failure. */

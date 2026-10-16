@@ -59,7 +59,8 @@ public class RunCommandTests : BaseCommandTests
     protected override IServiceCollection ConfigureServices(IServiceCollection services)
     {
         _fakeMsixService = new FakeMsixService();
-        _fakeAppLauncherService = new FakeAppLauncherService();
+        // A fake PID must never resolve to an unrelated live process in the foreground wait.
+        _fakeAppLauncherService = new FakeAppLauncherService { FakeProcessId = uint.MaxValue };
         _fakeDebugOutputService = new FakeDebugOutputService();
         _fakePackageRegistrationService = new FakePackageRegistrationService();
         return services
@@ -450,6 +451,32 @@ public class RunCommandTests : BaseCommandTests
     #endregion
 
     #region JSON output tests
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow(" ")]
+    [DataRow("lookup-failed")]
+    public async Task RunCommand_ElevatedProfileWithoutPackageIdentity_FailsBeforeCaptureOrLaunch(string? fullName)
+    {
+        await CreateTestManifestAsync();
+        _fakeAppLauncherService.FakePackageFullName = fullName;
+        if (fullName == "lookup-failed")
+        {
+            _fakeAppLauncherService.GetRegisteredPackageFailure = new UnauthorizedAccessException("Package lookup failed.");
+        }
+        var output = Path.Join(_tempDirectory.FullName, "capture");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(),
+            [_tempDirectory.FullName, "--profile", output, "--profile-mode", "elevated", "--detach", "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        var error = ParseJsonOutput().GetProperty("Error").GetString();
+        StringAssert.Contains(error, fullName == "lookup-failed" ? "Package lookup failed." : "--profile-mode attach");
+        Assert.IsFalse(Directory.Exists(output));
+        Assert.IsEmpty(_fakeAppLauncherService.LaunchCalls);
+        Assert.IsEmpty(_fakeAppLauncherService.LaunchExecutableCalls);
+    }
 
     [TestMethod]
     public async Task RunCommand_WithJsonAndNoLaunch_OutputsJsonWithAumid()
@@ -2731,7 +2758,7 @@ public class RunCommandFolderModeBreadcrumbTests() : BaseCommandTests(logLevel: 
     protected override IServiceCollection ConfigureServices(IServiceCollection services)
         => services
             .AddSingleton<IMsixService>(new FakeMsixService())
-            .AddSingleton<IAppLauncherService>(new FakeAppLauncherService())
+            .AddSingleton<IAppLauncherService>(new FakeAppLauncherService { FakeProcessId = uint.MaxValue })
             .AddSingleton<IDebugOutputService>(new FakeDebugOutputService())
             .AddSingleton<IPackageRegistrationService>(new FakePackageRegistrationService())
             .AddSingleton<INugetService, FakeNugetService>();

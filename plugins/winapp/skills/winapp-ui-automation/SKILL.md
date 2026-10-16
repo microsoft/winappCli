@@ -13,8 +13,12 @@ description: "Inspect, drive, and verify a running Windows app UI with winapp ui
 - Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs
 
 ## Prerequisites
+
+To measure WinUI work while driving a scenario, use the
+[performance skill](../winapp-performance/SKILL.md) to bracket UI actions with capture markers.
+
 - For UIA mode (any app): No setup needed — works with any running Windows app
-- For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
+- For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`/`--wheel-horizontal`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`) are headless/locked-session friendly — prefer them in CI.
 - `screenshot` is **not** in that group: it always takes an exclusive turn, so it queues behind other UI workflows, and capture can need a usable interactive desktop — the engine restores the target if it is minimized, and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used.
 - `--capture-screen` needs **exactly one window**. `-w <hwnd>` gives it one: that window's screen region, including anything visibly on top of it. If `-a` matches several top-level or owned windows the command fails with `invalid_arguments` before capturing; run `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`.
 - **If other UI workflows may run at the same time**, set one workflow id per logical workflow (see below). Nothing breaks without it, but your commands will not be recognized as belonging together.
@@ -68,7 +72,7 @@ queue behind another workflow. Inside your own workflow they overlap with other 
 is how `record` captures the `set-value` calls it is recording — but they still wait behind an
 earlier `DesktopExclusive` command of your own workflow, so a `click` followed by a `set-value` runs
 in the order you wrote it.
-Commands that take the desktop exclusively: `invoke`, `click`, `drag`, `hover`, `scroll --wheel`,
+Commands that take the desktop exclusively: `invoke`, `click`, `drag`, `hover`, `scroll --wheel`/`--wheel-horizontal`,
 `touch`, `pen`, `focus`, `send-keys`, `screenshot`.
 
 ```powershell
@@ -84,12 +88,15 @@ winapp ui yield
 winapp ui search "Welcome to MyApp" -a myapp --root MailRow --type Text --class-name TextBlock
 winapp ui get-value Subject -a myapp --root MailRow --type TextBox
 winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value Ready --timeout 10000
+winapp ui search --class-name CalendarSurface -a myapp   # no text selector needed
 ```
 
 Use `--root`, `--type`, and `--class-name` together or separately on `search`,
 `get-property`, `get-value`, `wait-for`, and the commands that act on one
 selected element (`invoke`, `set-value`, `click`, `focus`, and so on; not `send-keys --target`).
-For `touch` and `pen`, filters need a selector; they can't be combined with `--at` or `--path`. The root must be unique; only its
+`--type` and `--class-name` work without a selector; commands other than `search` then need
+exactly one match, and an ambiguous match lists the first five with their slugs. `--root` alone is not a query. For `set-value`, pass `""` as the selector.
+For `click`, `hover`, `touch`, and `pen`, filters can't be combined with `--at` or `--path`. The root must be unique; only its
 descendants match. `wait-for` re-resolves it every poll, including when it is
 initially absent. Type names and literal whole ClassName values ignore case.
 The only type aliases are `TextBox` → `Edit` and `TextBlock` → `Text`.
@@ -144,19 +151,21 @@ for supported actions, scope, idempotent toggles, and failure recovery, and the
 
 ### Disambiguate duplicate elements
 ```powershell
-# When text search matches multiple elements, the error shows slugs for each — pick the right one
-winapp ui invoke Submit -a myapp
-# → Selector matched 3 elements:
-#   [0] Button "Submit Order" → btn-submitorder-a1b2
-#   [1] Button "Submit" → btn-submit-c3d4
-# Use the slug: winapp ui invoke btn-submit-c3d4 -a myapp
+# Text matches by substring, but an element named exactly the text wins
+winapp ui invoke Submit -a myapp      # acts on Button "Submit", not Button "Submit Order"
+# When several elements share that name, the error shows slugs for each — pick the right one
+winapp ui invoke Save -a myapp
+# → Selector matched 2 elements:
+#   [0] Button "Save" → btn-save-a1b2
+#   [1] Button "Save" → btn-save-c3d4
+# Use the slug: winapp ui invoke btn-save-c3d4 -a myapp
 ```
 
 ## Key concepts
 - **Selector brackets**: `inspect` and `search` output shows selectors in `[brackets]` — use the bracketed value with other `ui` commands. Selectors are either AutomationId (stable, developer-set) or generated slug (e.g., `btn-name-hash`).
 - **AutomationId selectors**: When an element has a unique AutomationId, it becomes the selector directly (e.g., `[MinimizeButton]`). These survive layout changes and localization — preferred for stable targeting.
 - **Slug selectors**: When no unique AutomationId exists, a generated slug is used (e.g., `[btn-close-a2b3]`). Format: `prefix-name-hash`. May go stale after UI changes.
-- **Plain text search**: `search` and `invoke` accept plain text — `search Minimize` finds elements with "Minimize" in their Name or AutomationId (substring, case-insensitive). No special syntax needed.
+- **Plain text search**: `search` and `invoke` accept plain text — `search Minimize` finds elements with "Minimize" in their Name or AutomationId (substring, case-insensitive). No special syntax needed. Commands that act on one element prefer an exact AutomationId match, then the only element whose Name is exactly the text (ignoring case); `search` still lists every match.
 - **`--interactive` flag**: Filters to elements you can invoke, click, or set-value (including text documents) with auto-depth 8 — the fastest way to see what you can act on
 - **Invokable ancestor surfacing**: When a search result isn't invokable, the nearest invokable parent is shown with its selector
 - **`;` chaining**: Chain commands with `;` to run multiple operations in one call, reducing agent round-trips
@@ -243,6 +252,13 @@ winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -w <hwnd> --capture
 winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200; winapp ui screenshot -w <hwnd> --capture-screen
 ```
 
+### Click or hover a screen point
+When the press needs a point rather than an element's center (inside a WebView2 page, or one part of a large control), pass `--at x,y` with screen coordinates from `ui inspect` instead of a selector. `--at` can't be combined with a selector.
+```powershell
+winapp ui click --at 1520,780 -a myapp            # add --right or --double as needed
+winapp ui hover --at 1520,780 -a myapp
+```
+
 ### Send keyboard input
 Synthesize keystrokes — the keyboard counterpart to `click`. Use for arrow/Tab/Enter navigation, shortcuts, and per-keystroke typing (vs `set-value`'s atomic write). Tokens are whitespace-separated: named keys (`enter`, `down`, `tab`, `esc`, `f5`), modifier combos (`ctrl+shift+t`), literal text (`hello`), and raw virtual keys (`vk=0xNN`).
 ```powershell
@@ -306,9 +322,9 @@ winapp ui touch -a myapp --at 320,240
 winapp ui touch tile-photo-7b3c -a myapp --gesture long-press --hold-ms 600
 winapp ui touch -a myapp --at 100,300 --gesture swipe --to-point 400,300
 winapp ui touch img-map-9f8e -a myapp --gesture pinch --distance 200
-winapp ui touch img-map-9f8e -a myapp --gesture stretch --distance 200
+winapp ui touch img-map-9f8e -a myapp --gesture stretch --distance 200 --angle 90
 ```
-- Gestures: `tap` (default), `double-tap`, `long-press`, `swipe`, `pinch`, `stretch`. `--fingers` 1–10 (pinch/stretch always 2). Refuses without a non-zero foregrounded target (`no_target`/`foreground_not_target`/`no_interactive_desktop`); every coordinate is checked against the target window, and a point outside it produces a non-fatal warning (`warnings[]` in `--json`) while injection still proceeds — consistent with the mouse verbs. If injected touch is unsupported on the device, the command surfaces the real Win32 error rather than a false success. In a Remote Desktop/VM session delivery isn't guaranteed even on exit 0 — the command appends a delivery-uncertainty warning (`warnings[]` in `--json`); verify the effect with a screenshot.
+- Gestures: `tap` (default), `double-tap`, `long-press`, `swipe`, `pinch`, `stretch`. `--fingers` 1–10 (pinch/stretch always 2). `--angle` 0–359 sets the pinch/stretch finger axis (0 horizontal, 90 vertical). Refuses without a non-zero foregrounded target (`no_target`/`foreground_not_target`/`no_interactive_desktop`); every coordinate is checked against the target window, and a point outside it produces a non-fatal warning (`warnings[]` in `--json`) while injection still proceeds — consistent with the mouse verbs. If injected touch is unsupported on the device, the command surfaces the real Win32 error rather than a false success. In a Remote Desktop/VM session delivery isn't guaranteed even on exit 0 — the command appends a delivery-uncertainty warning (`warnings[]` in `--json`); verify the effect with a screenshot.
 
 ### Pen / stylus (taps and ink strokes)
 Inject synthetic pen input (Windows 10 1809+). Target an element center, an explicit `--at`, or a full `--path` ink stroke, with pressure/tilt/eraser control.
@@ -361,7 +377,10 @@ for units and state meanings, and `references/ui-json-envelope.md` for the JSON 
 ### Set values
 To prepare a control for keyboard input, use `winapp ui focus <selector> -a <app>`
 (keep `--on sandbox` when working in Sandbox). It activates the control's window
-and verifies both foreground and keyboard focus before success. Do not use a
+and verifies both foreground and keyboard focus before success. It restores a
+minimized window first. If a command reports the target window is minimized (some
+apps, such as Calculator, hide their UI until restored), run
+`winapp ui focus -a <app>` (no selector) to restore and activate it, then retry. Do not use a
 screenshot as a focus workaround. If activation is refused, inspect for a blocking
 dialog and ask the user to activate the intended window; do not retry in a loop
 or switch to the local desktop. See the [focus reference](https://github.com/microsoft/winappcli/blob/main/docs/ui-automation.md#focus)
@@ -395,6 +414,9 @@ winapp ui scroll pn-scrollview-bfef --direction down -a myapp; winapp ui search 
 
 # Synthesize real mouse-wheel input over the element (1 = one notch up, -1 = down) — tests wheel handlers (zoom, custom scroll)
 winapp ui scroll img-map-a1b2 --wheel -1 -a myapp
+
+# Horizontal (tilt) wheel: 1 = one notch right, -1 = left — pans timelines and other horizontal-wheel handlers
+winapp ui scroll pn-timeline-c3d4 --wheel-horizontal 3 -a myapp
 ```
 
 ### Wait for UI state
@@ -408,7 +430,7 @@ winapp ui wait-for itm-status-c3d4 -a myapp --value "Complete" --timeout 5000
 - Chain commands with `;` to reduce round-trips (see note below on why not `&&`)
 - Use slugs from output to target specific elements — they're hash-validated and shell-safe
 - Use plain text search to find elements: `search Minimize`, `invoke Submit`
-- When multiple elements match text search, the error shows slugs for each — pick the right one
+- When text matches several elements, the only element named exactly that text wins; if several still match, the error shows slugs for each — pick the right one
 - Use `get-property --property ToggleState` to verify checkbox/toggle state after invoke
 - `scroll` auto-finds the nearest scrollable parent
 - To capture one item in an open menu, flyout, tooltip, or teaching tip, pass its selector to `screenshot` or `record`; it is captured from its popup window

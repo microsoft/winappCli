@@ -588,11 +588,12 @@ internal static class WinUiTemplateCatalog
     /// <c>null</c> when the template declares no TFM choice (nothing to pin) or every choice is newer
     /// than the SDK. <c>Choices</c> carries every framework the template offers, so a caller that gets
     /// no <c>Tfm</c> can tell "this template has no framework knob" (empty) apart from "the installed
-    /// SDK is too old for every framework it supports" (non-empty).
+    /// SDK is too old for every framework it supports" (non-empty). When <paramref name="packVersion"/>
+    /// is given, only a template mounted from that exact pack version counts as found.
     /// </para>
     /// </summary>
     internal static (bool Found, string? OptionName, string? Tfm, IReadOnlyList<string> Choices) DeriveTfmOption(
-        string cacheJson, string packageId, string shortName, int sdkMajor)
+        string cacheJson, string packageId, string shortName, int sdkMajor, string? packVersion = null)
     {
         if (string.IsNullOrEmpty(cacheJson) || string.IsNullOrEmpty(shortName))
         {
@@ -619,7 +620,7 @@ internal static class WinUiTemplateCatalog
 
             foreach (var template in templates.EnumerateArray())
             {
-                if (!TemplateBelongsToPackage(template, packageId) || !TemplateHasShortName(template, shortName))
+                if (!TemplateBelongsToPackage(template, packageId, packVersion) || !TemplateHasShortName(template, shortName))
                 {
                     continue;
                 }
@@ -659,12 +660,40 @@ internal static class WinUiTemplateCatalog
         return lowest;
     }
 
-    /// <summary>True when the template's mount point is the nupkg of <paramref name="packageId"/>.</summary>
-    private static bool TemplateBelongsToPackage(JsonElement template, string packageId)
-        => !string.IsNullOrEmpty(packageId)
-            && template.TryGetProperty("MountPointUri", out var mount)
-            && mount.ValueKind == JsonValueKind.String
-            && (mount.GetString() ?? string.Empty).Contains(packageId, StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// True when the template's mount point is the nupkg of <paramref name="packageId"/> (and, when
+    /// <paramref name="packVersion"/> is given, of a NuGet-equivalent version, so <c>0.0.6.0-alpha</c>
+    /// matches a mounted <c>0.0.6-alpha</c>).
+    /// </summary>
+    private static bool TemplateBelongsToPackage(JsonElement template, string packageId, string? packVersion)
+    {
+        if (string.IsNullOrEmpty(packageId)
+            || !template.TryGetProperty("MountPointUri", out var mount)
+            || mount.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var mountPoint = mount.GetString() ?? string.Empty;
+        if (string.IsNullOrEmpty(packVersion))
+        {
+            return mountPoint.Contains(packageId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // The mounted nupkg is named "<PackageId>.<version>.nupkg"; compare that version semantically.
+        var fileName = mountPoint[(mountPoint.LastIndexOfAny(['/', '\\']) + 1)..];
+        const string extension = ".nupkg";
+        var prefix = packageId + ".";
+        if (!fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || !fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
+            || fileName.Length <= prefix.Length + extension.Length)
+        {
+            return false;
+        }
+
+        var mountedVersion = fileName[prefix.Length..^extension.Length];
+        return NuGetVersionHelper.NuGetVersionsEquivalent(mountedVersion, packVersion);
+    }
 
     /// <summary>True when <paramref name="shortName"/> is one of the template's short names.</summary>
     private static bool TemplateHasShortName(JsonElement template, string shortName)

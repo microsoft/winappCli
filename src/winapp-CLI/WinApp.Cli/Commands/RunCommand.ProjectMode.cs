@@ -196,6 +196,19 @@ internal partial class RunCommand
                 return Fail($"{(aot ? "--aot" : "--framework")} applies to .NET projects and can't be used with a C++ project ({csproj.Name}).", isJson);
             }
 
+            // For C++, -p Configuration=Release is how Visual Studio users pick the configuration, so treat it
+            // like -c. Both are allowed only when they name the same configuration.
+            if (isCpp && ProjectRunService.CppConfigurationFromProperties(properties) is { } propertyConfiguration)
+            {
+                if (parseResult.GetResult(ConfigurationOption) is { Implicit: false }
+                    && !string.Equals(propertyConfiguration, configuration, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Fail($"-p Configuration={propertyConfiguration} conflicts with -c {configuration}. Pass only one of them.", isJson);
+                }
+
+                configuration = propertyConfiguration;
+            }
+
             // For C++, -p Platform=ARM64 is how Visual Studio users pick the architecture, so honor it when
             // --arch/--runtime weren't given instead of defaulting to the machine's architecture.
             if (isCpp && archOption is null && runtimeOption is null
@@ -451,7 +464,8 @@ internal partial class RunCommand
                             // Report whether the runtime was actually prepared: a plain console/desktop app
                             // with no Windows App SDK reference is skipped inside, so claiming "ready" would
                             // be a lie. Surface the skip honestly instead.
-                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), ct);
+                            var packageDir = resolution.WindowsAppSdkPackageDir is { } dir ? new DirectoryInfo(dir) : null;
+                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), packageDir, ct);
                             return (0, prepared ? "Windows App Runtime ready" : "No Windows App SDK reference — runtime not needed");
                         }
                         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -496,7 +510,11 @@ internal partial class RunCommand
                 // would keep the npm wrapper's captured stdout pipe open (blocking a detached launch) and let
                 // app output corrupt --json stdout. A foreground, non-JSON run streams inline like `dotnet run`.
                 var stdioMode = (detach || isJson) ? LaunchStdioMode.Suppress : LaunchStdioMode.Inherit;
+                await PrepareProfileAsync(new(ExecutableName: Path.GetFileName(exePath)), cancellationToken);
+
+                var launchedAfter = DateTime.UtcNow;
                 launched = appLauncherService.LaunchExecutable(exePath, launchArgs, workingDirectory, stdioMode);
+                await BindProfileAsync(launched.ProcessId, launchedAfter, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -535,7 +553,7 @@ internal partial class RunCommand
                     {
                         ansiConsole.WriteLine(processId.ToString());
                     }
-                    return 0;
+                    return profileRun?.Error is null ? 0 : 1;
                 }
 
                 if (isJson)

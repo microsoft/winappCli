@@ -30,7 +30,16 @@ internal sealed partial class ProjectRunService
         "FinalAppxManifestName",
         "Configuration",
         "Platform",
+        WindowsAppSdkPackageDirProperty,
     ];
+
+    /// <summary>
+    /// Set by the Windows App SDK props (the main package up to 1.7, the <c>Microsoft.WindowsAppSDK.Runtime</c>
+    /// package from 1.8) to the package folder holding the runtime MSIX. Projects that use <c>packages.config</c>
+    /// import those props directly, often from a shared <c>.props</c> file, so this is how winapp sees which
+    /// Windows App SDK the build actually used.
+    /// </summary>
+    internal const string WindowsAppSdkPackageDirProperty = "MicrosoftWindowsAppSDKPackageDir";
 
     /// <summary>True for a C++ project (<c>.vcxproj</c>), which <c>winapp run</c> builds with MSBuild instead of <c>dotnet</c>.</summary>
     internal static bool IsCppProject(FileInfo project) =>
@@ -99,6 +108,13 @@ internal sealed partial class ProjectRunService
     internal static string? CppArchitectureFromProperties(IReadOnlyList<string> properties) =>
         TryGetUserProperty(properties, "Platform", out var platform) ? ArchitectureOfCppPlatform(platform) : null;
 
+    /// <summary>
+    /// The configuration a user <c>-p Configuration</c> names (last non-empty value wins), or null when none
+    /// is set. Lets <c>-p Configuration=Release</c> select the configuration like <c>-c Release</c>.
+    /// </summary>
+    internal static string? CppConfigurationFromProperties(IReadOnlyList<string> properties) =>
+        TryGetUserProperty(properties, "Configuration", out var configuration) ? configuration : null;
+
     private async Task<ProjectBuildOutcome> BuildAndResolveCppAsync(
         FileInfo project,
         ProjectRunOptions options,
@@ -157,7 +173,8 @@ internal sealed partial class ProjectRunService
     /// <summary>
     /// The global properties shared by the build and evaluate passes: the user's <c>-p</c> first, then the
     /// solution context and Configuration/Platform. MSBuild is last-wins, so a user <c>-p:Platform</c> or
-    /// <c>Solution*</c> is honored by not emitting winapp's own; Configuration always follows <c>-c</c>.
+    /// <c>Solution*</c> is honored by not emitting winapp's own; Configuration always follows the resolved
+    /// configuration (<c>-c</c>, or <c>-p Configuration</c> when <c>-c</c> isn't given).
     /// </summary>
     internal static List<string> BuildCppPropertyTokens(ProjectRunOptions options)
     {
@@ -211,16 +228,26 @@ internal sealed partial class ProjectRunService
                 failures.Observe(line);
                 Console.Error.WriteLine(NugetErrorMessage.Redact(line));
             }, cancellationToken);
+            if (options.Json && redirected.ExitCode != 0)
+            {
+                Console.Error.WriteLine($"Command: {fullCommand}");
+            }
+
             return await ExplainBuildFailureAsync(msbuild, project, properties, redirected.ExitCode, failures, cancellationToken);
         }
 
         ansiConsole.MarkupLineInterpolated($"{UiSymbols.Wrench} Building {project.Name} ({options.Configuration} | {ToCppPlatform(options.Architecture)})...");
-        ansiConsole.MarkupLineInterpolated($"[dim]   {BuildCppCommandDisplay(project, options, Directory.GetCurrentDirectory())}[/]");
+        var commandDisplay = BuildCppCommandDisplay(project, options, Directory.GetCurrentDirectory());
+        var verbose = logger.IsEnabled(LogLevel.Debug);
+        if (verbose)
+        {
+            ansiConsole.MarkupLineInterpolated($"[dim]   {commandDisplay}[/]");
+        }
         var writeLine = CreateSynchronizedRedactedLineWriter();
 
         int exitCode;
         var liveSpinner = (NativeTerminalGateOverrideForTests?.Invoke() ?? ProgressDisplay.ShouldUseLiveSpinner(ansiConsole, logger))
-            && !logger.IsEnabled(LogLevel.Debug);
+            && !verbose;
         if (liveSpinner)
         {
             // Real terminal: a spinner with elapsed time instead of a silent minute-long first build. Output is
@@ -260,6 +287,12 @@ internal sealed partial class ProjectRunService
                 failures.Observe(line);
                 writeLine(line);
             }, cancellationToken)).ExitCode;
+        }
+
+        if (exitCode != 0 && !verbose)
+        {
+            // The exact (redacted) invocation, so the failure can be reproduced outside winapp.
+            PrintFailedCommand(fullCommand);
         }
 
         exitCode = await ExplainBuildFailureAsync(msbuild, project, properties, exitCode, failures, cancellationToken);
@@ -411,7 +444,36 @@ internal sealed partial class ProjectRunService
             AppxManifestPath: packaged ? ResolveEvaluatedFileIfPresent(props, "FinalAppxManifestName", projectDirectory) : null,
             AppxRecipePath: packaged ? ResolveEvaluatedFileIfPresent(props, "AppxPackageRecipe", projectDirectory) : null,
             Configuration: GetProp(props, "Configuration") is { Length: > 0 } configuration ? configuration : options.Configuration,
-            Platform: GetProp(props, "Platform") is { Length: > 0 } platform ? platform : ToCppPlatform(options.Architecture));
+            Platform: GetProp(props, "Platform") is { Length: > 0 } platform ? platform : ToCppPlatform(options.Architecture),
+            WindowsAppSdkPackageDir: ResolveLocalEvaluatedDirectory(props, WindowsAppSdkPackageDirProperty, projectDirectory));
+    }
+
+    /// <summary>
+    /// An evaluated directory property as an absolute path, or null when it is unset, invalid, or on the
+    /// network. Like the other evaluated paths, a network location is never probed, because touching it can
+    /// send the user's credentials to the share.
+    /// </summary>
+    internal static string? ResolveLocalEvaluatedDirectory(IReadOnlyDictionary<string, string> props, string name, string projectDirectory)
+    {
+        var value = GetProp(props, name);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        string resolved;
+        try
+        {
+            resolved = Path.GetFullPath(value.Trim(), projectDirectory);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+
+        return PathSafety.IsNetworkPath(resolved) || PathSafety.IsNetworkDriveRoot(resolved) || PathSafety.RedirectsToNetwork(resolved)
+            ? null
+            : resolved;
     }
 
     /// <summary>

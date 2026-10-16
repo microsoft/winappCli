@@ -100,13 +100,13 @@ public class PointerGesturePlannerTests
     public void PlanTouch_Pinch_StartCoordinatesRespectHalfDistance()
     {
         // The initial finger spread is distance/2 from center on each side (clamped to at least
-        // PinchCenterGapPx+1 per finger so fingers don't start inside each other).
+        // PinchCenterGapPx+2 per finger so rounding never collapses a finger's travel).
         var start = new PointerPoint(200, 200);
         int distance = 80; // half = 40
         var (contactPaths, _, _) = PointerGesturePlanner.PlanTouch(
             TouchGesture.Pinch, start, end: null, distance, fingers: 2);
 
-        int expectedHalf = Math.Max(5, distance / 2); // PinchCenterGapPx=4 → +1 = 5
+        int expectedHalf = Math.Max(6, distance / 2); // PinchCenterGapPx=4 → +2 = 6
         Assert.AreEqual(start.X - expectedHalf, contactPaths[0][0].X,
             "Left finger X start must be center.X - half");
         Assert.AreEqual(start.X + expectedHalf, contactPaths[1][0].X,
@@ -171,6 +171,95 @@ public class PointerGesturePlannerTests
             "Right finger: stretch start must equal pinch end");
         Assert.AreEqual(pinchPaths[1][0], stretchPaths[1][^1],
             "Right finger: stretch end must equal pinch start");
+    }
+
+    // -------------------------------------------------------------------------
+    // Pinch/stretch --angle
+    // -------------------------------------------------------------------------
+
+    [TestMethod]
+    public void PlanTouch_Pinch_AngleZero_MatchesDefaultHorizontalPaths()
+    {
+        var start = new PointerPoint(400, 300);
+        var (defaultPaths, _, _) = PointerGesturePlanner.PlanTouch(
+            TouchGesture.Pinch, start, end: null, distance: 100, fingers: 2);
+        var (anglePaths, _, _) = PointerGesturePlanner.PlanTouch(
+            TouchGesture.Pinch, start, end: null, distance: 100, fingers: 2, direction: null, angleDegrees: 0);
+
+        Assert.AreEqual(new PointerPoint(350, 300), defaultPaths[0][0]);
+        Assert.AreEqual(new PointerPoint(396, 300), defaultPaths[0][^1]);
+        for (int f = 0; f < 2; f++)
+        {
+            CollectionAssert.AreEqual(defaultPaths[f].ToList(), anglePaths[f].ToList(), $"Finger {f} must match the default");
+        }
+    }
+
+    [TestMethod]
+    [DataRow(90, 0, 50, 0, 4)]     // vertical: first finger starts below center
+    [DataRow(45, -35, 35, -3, 3)]  // "/" diagonal: first finger starts lower-left
+    [DataRow(135, 35, 35, 3, 3)]   // "\" diagonal: first finger starts lower-right
+    public void PlanTouch_Pinch_Angle_RotatesFingerAxis(
+        int angle, int apartDx, int apartDy, int nearDx, int nearDy)
+    {
+        var start = new PointerPoint(400, 300);
+        var (paths, _, _) = PointerGesturePlanner.PlanTouch(
+            TouchGesture.Pinch, start, end: null, distance: 100, fingers: 2, direction: null, angleDegrees: angle);
+
+        Assert.AreEqual(new PointerPoint(400 + apartDx, 300 + apartDy), paths[0][0]);
+        Assert.AreEqual(new PointerPoint(400 + nearDx, 300 + nearDy), paths[0][^1]);
+        Assert.AreEqual(new PointerPoint(400 - apartDx, 300 - apartDy), paths[1][0]);
+        Assert.AreEqual(new PointerPoint(400 - nearDx, 300 - nearDy), paths[1][^1]);
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(9)]
+    [DataRow(300)]
+    public void PlanTouch_PinchAndStretch_EveryAngle_StaysSymmetricAndMoves(int distance)
+    {
+        // Rounding must never collapse a finger's start onto its end, break symmetry around the
+        // anchor, or make a pinch move outward — even at the smallest spread.
+        var start = new PointerPoint(400, 300);
+        for (int angle = 0; angle < 360; angle++)
+        {
+            var (pinch, _, _) = PointerGesturePlanner.PlanTouch(
+                TouchGesture.Pinch, start, end: null, distance, fingers: 2, direction: null, angleDegrees: angle);
+            var (stretch, _, _) = PointerGesturePlanner.PlanTouch(
+                TouchGesture.Stretch, start, end: null, distance, fingers: 2, direction: null, angleDegrees: angle);
+
+            for (int i = 0; i < 2; i++)
+            {
+                Assert.AreEqual(start.X * 2, pinch[0][i].X + pinch[1][i].X, $"angle {angle}: X not symmetric");
+                Assert.AreEqual(start.Y * 2, pinch[0][i].Y + pinch[1][i].Y, $"angle {angle}: Y not symmetric");
+            }
+
+            foreach (var path in pinch)
+            {
+                Assert.AreNotEqual(path[0], path[^1], $"angle {angle}: finger does not move");
+                Assert.IsTrue(DistanceSquared(path[0], start) > DistanceSquared(path[^1], start),
+                    $"angle {angle}: pinch must move toward the anchor");
+                Assert.IsTrue(DistanceSquared(path[^1], start) > 0, $"angle {angle}: finger ends on the anchor");
+            }
+
+            for (int f = 0; f < 2; f++)
+            {
+                Assert.AreEqual(pinch[f][0], stretch[f][^1], $"angle {angle}: stretch must reverse pinch");
+                Assert.AreEqual(pinch[f][^1], stretch[f][0], $"angle {angle}: stretch must reverse pinch");
+            }
+        }
+
+        static int DistanceSquared(PointerPoint a, PointerPoint b)
+            => (a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y);
+    }
+
+    [TestMethod]
+    public void PlanTouch_Swipe_IgnoresAngle()
+    {
+        var start = new PointerPoint(100, 100);
+        var (paths, _, _) = PointerGesturePlanner.PlanTouch(
+            TouchGesture.Swipe, start, end: null, distance: 50, fingers: 1, direction: "right", angleDegrees: 90);
+
+        Assert.AreEqual(new PointerPoint(150, 100), paths[0][^1]);
     }
 
     // -------------------------------------------------------------------------

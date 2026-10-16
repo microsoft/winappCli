@@ -86,6 +86,7 @@ internal sealed record PackageGraphSource(FileInfo AssetsFile, string? RuntimeId
 /// <param name="ProjectAssetsFile">The evaluated <c>ProjectAssetsFile</c> — restore's output for the inputs this build ran with. Package discovery reads the graph from it because <c>dotnet package list</c> re-evaluates the project and accepts no <c>-c</c>/<c>-r</c>/<c>-p</c>, and MSBuild ranks environment properties below a value the project assigns, so those inputs cannot be reproduced any other way.</param>
 /// <param name="Configuration">The evaluated MSBuild <c>Configuration</c> the output was built for. Set for C++ projects.</param>
 /// <param name="Platform">The evaluated MSBuild <c>Platform</c> (e.g. <c>x64</c>, <c>ARM64</c>, <c>Win32</c>) the output was built for. Set for C++ projects.</param>
+/// <param name="WindowsAppSdkPackageDir">The evaluated <c>MicrosoftWindowsAppSDKPackageDir</c>: the Windows App SDK package folder the build imported, which holds the matching runtime MSIX. Set for C++ projects that import the Windows App SDK props, including <c>packages.config</c> projects that import them from a shared <c>.props</c> file.</param>
 internal sealed record ProjectRunResolution(
     FileInfo Csproj,
     string TargetDir,
@@ -104,7 +105,8 @@ internal sealed record ProjectRunResolution(
     string? AppxManifestPath = null,
     string? AppxRecipePath = null,
     string? Configuration = null,
-    string? Platform = null);
+    string? Platform = null,
+    string? WindowsAppSdkPackageDir = null);
 
 /// <summary>
 /// User-provided build inputs for project mode, forwarded to <c>dotnet build</c> / <c>dotnet msbuild</c>.
