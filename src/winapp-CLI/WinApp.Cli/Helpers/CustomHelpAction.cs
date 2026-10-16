@@ -49,7 +49,7 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
 
         if (CompactHelpRenderer.AppliesTo(command))
         {
-            parseResult.InvocationConfiguration.Output.Write(CompactHelpRenderer.Render(command));
+            parseResult.InvocationConfiguration.Output.Write(CompactHelpRenderer.Render(command, styled: BannerHelper.UseEmoji));
             return 0;
         }
 

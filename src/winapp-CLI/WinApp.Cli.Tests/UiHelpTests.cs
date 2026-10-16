@@ -125,10 +125,13 @@ public class UiHelpTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task OtherCommandGroups_KeepDefaultHelp()
+    public async Task OtherCommandGroups_UseTheSameLayout()
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["cert", "--help"]);
-        Assert.DoesNotContain(CompactHelpRenderer.GlobalOptionsLine, TestAnsiConsole.Output);
+        var output = TestAnsiConsole.Output.Replace("\r\n", "\n");
+        StringAssert.StartsWith(output, "winapp cert - ");
+        StringAssert.Contains(output, "\nCommands:\n  generate ");
+        StringAssert.Contains(output, CompactHelpRenderer.LocalGlobalOptionsLine);
     }
 
     [TestMethod]

@@ -29,18 +29,21 @@ internal interface IHelpExamples
 }
 
 /// <summary>
-/// A top-level command whose <c>--help</c> uses the compact plain-text layout: a typical workflow
-/// (which may use other commands), examples, and options grouped by purpose. Every visible option
-/// must belong to exactly one group.
+/// A top-level command whose help shows described examples (which may use other commands, such as
+/// <c>winapp cert generate</c> before <c>winapp package</c>) and options grouped by purpose. Every
+/// visible option must belong to exactly one group.
 /// </summary>
-internal interface ICompactHelpCommand : IHelpExamples
+internal interface ICompactHelpCommand
 {
-    /// <summary>Steps shown under "Typical workflow:". A step whose command doesn't start with
+    /// <summary>Example command lines with a few words each. A line that doesn't start with
     /// <c>winapp</c> (for example <c>Add-AppxPackage</c>) is shown as written.</summary>
-    IReadOnlyList<(string Command, string Description)> Workflow { get; }
+    IReadOnlyList<(string Command, string Description)> Examples { get; }
 
     /// <summary>Option groups, in display order.</summary>
     IReadOnlyList<(string Heading, Option[] Options)> OptionGroups { get; }
+
+    /// <summary>Usage line override, for commands whose arguments are optional.</summary>
+    string? Usage => null;
 }
 
 /// <summary>

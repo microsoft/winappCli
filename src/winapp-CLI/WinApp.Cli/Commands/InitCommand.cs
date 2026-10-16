@@ -15,22 +15,17 @@ internal class InitCommand : Command, IShortDescription, ICompactHelpCommand
 {
     public string ShortDescription => "Add a manifest and SDK packages to a project";
 
-    string? IHelpExamples.Usage => "winapp init [<base-directory>] [options]";
+    string? ICompactHelpCommand.Usage => "winapp init [<base-directory>] [options]";
 
-    IReadOnlyList<string> IHelpExamples.Examples { get; } =
+    IReadOnlyList<(string Command, string Description)> ICompactHelpCommand.Examples { get; } =
     [
-        "winapp init . --use-defaults",
-        "winapp init --setup-sdks none",
-        "winapp init --exe .\\MyApp.exe --sparse",
-    ];
-
-    IReadOnlyList<(string Command, string Description)> ICompactHelpCommand.Workflow { get; } =
-    [
-        ("winapp init", "add a manifest and SDKs (once)"),
-        ("winapp run <project|folder>", "launch with package identity"),
+        ("winapp init", "set up the project in this folder"),
+        ("winapp init . --use-defaults", "no prompts (scripts, agents)"),
+        ("winapp init --setup-sdks none", "manifest only; bring your own SDK"),
+        ("winapp init --exe .\\MyApp.exe --sparse", "identity for an existing exe"),
+        ("winapp run <project|folder>", "then launch with package identity"),
         ("winapp create-debug-identity <exe>", "or add identity to an exe you launch yourself"),
         ("npx winapp node add-electron-debug-identity", "the same, for Electron"),
-        ("winapp package <.csproj|folder> --cert devcert.pfx", "build an installer"),
         ("winapp restore", "teammates run this after cloning"),
     ];
 
@@ -64,6 +59,7 @@ internal class InitCommand : Command, IShortDescription, ICompactHelpCommand
         BaseDirectoryArgument.AcceptExistingOnly();
         ConfigDirOption = new Option<DirectoryInfo>("--config-dir")
         {
+            HelpName = "dir",
             Description = "Directory to read/store configuration (default: the selected project directory, or current directory if no project is detected)"
         };
         ConfigDirOption.AcceptExistingOnly();
@@ -90,6 +86,7 @@ internal class InitCommand : Command, IShortDescription, ICompactHelpCommand
         };
         ExeOption = new Option<FileInfo>("--exe")
         {
+            HelpName = "path",
             Description = "Path to the application executable. Requires --sparse. Generates an identity-only sparse manifest for the exe instead of a full package/SDK setup."
         };
         ExeOption.AcceptExistingOnly();
@@ -107,6 +104,7 @@ internal class InitCommand : Command, IShortDescription, ICompactHelpCommand
         };
         OutputDirOption = new Option<DirectoryInfo>("--output-dir")
         {
+            HelpName = "dir",
             Description = "Directory to write the sparse manifest and Assets/ (sparse only; default: a 'sparse/' folder in the current directory)"
         };
         ForceOption = new Option<bool>("--force")

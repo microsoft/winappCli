@@ -26,23 +26,18 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 {
     public string ShortDescription => "Run an app from a project, .cs file, or folder";
 
-    string? IHelpExamples.Usage => "winapp run [<input>] [options] [-- <app args>]";
+    string? ICompactHelpCommand.Usage => "winapp run [<input>] [options] [-- <app args>]";
 
-    IReadOnlyList<string> IHelpExamples.Examples { get; } =
-    [
-        "winapp run <build-folder>",
-        "winapp run app.cs",
-        "winapp run . -- --my-flag value",
-    ];
-
-    IReadOnlyList<(string Command, string Description)> ICompactHelpCommand.Workflow { get; } =
+    IReadOnlyList<(string Command, string Description)> ICompactHelpCommand.Examples { get; } =
     [
         ("winapp run .", "build and launch"),
+        ("winapp run <build-folder>", "launch a build output folder"),
+        ("winapp run app.cs", "run a .NET file-based app"),
         ("winapp run . --debug-output", "show debug output and crash details"),
         ("winapp run . --detach", "launch and return to the prompt"),
+        ("winapp run . -- --my-flag value", "pass arguments to the app"),
         ("winapp run . --profile <folder>", "record layout and rendering timings"),
         ("winapp perf analyze <folder>", "see what was slow"),
-        ("winapp package <.csproj|folder> --cert devcert.pfx", "build an installer when you're ready"),
     ];
 
     IReadOnlyList<(string Heading, Option[] Options)> ICompactHelpCommand.OptionGroups =>
@@ -112,11 +107,13 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         ManifestOption = new Option<FileInfo>("--manifest")
         {
+            HelpName = "path",
             Description = "Path to the Package.appxmanifest (default: auto-detect from input folder or current directory)"
         };
 
         OutputAppXDirectoryOption = new Option<DirectoryInfo?>("--output-appx-directory")
         {
+            HelpName = "dir",
             Description = "Output directory for the loose layout package. If not specified, a directory named AppX inside the input directory will be used."
         };
 
@@ -184,12 +181,14 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         ExecutableOption = new Option<string?>("--executable")
         {
+            HelpName = "path",
             Description = "Path to the executable relative to the input folder. Use to disambiguate when the manifest contains a $targetnametoken$ placeholder and multiple .exe files are present in the input folder."
         };
         ExecutableOption.Aliases.Add("--exe");
 
         ConfigurationOption = new Option<string>("--configuration")
         {
+            HelpName = "name",
             Description = "Project and single-file mode: build configuration (e.g., Debug, Release). Ignored in folder mode. Default: Debug.",
             DefaultValueFactory = _ => "Debug",
         };
@@ -202,12 +201,14 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         RuntimeOption = new Option<string?>("--runtime")
         {
+            HelpName = "rid",
             Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Only its architecture is used, and it overrides --arch; non-Windows RIDs are rejected. Ignored in folder mode. Honored for a .cs file-based app too."
         };
         RuntimeOption.Aliases.Add("-r");
 
         FrameworkOption = new Option<string?>("--framework")
         {
+            HelpName = "tfm",
             Description = "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Ignored in folder mode. Rejected for a .cs file-based app, which declares its own with '#:property TargetFramework=...'."
         };
         FrameworkOption.Aliases.Add("-f");
@@ -229,6 +230,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         PropertyOption = new Option<string[]>("--property")
         {
+            HelpName = "Name=Value",
             Description = "Project and single-file mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable. Ignored in folder mode.",
             // ZeroOrMore (not OneOrMore) so a valueless '-p' reaches the handler, which emits a
             // --json-aware error; OneOrMore would raise a plain-text parser error, bypassing --json.
