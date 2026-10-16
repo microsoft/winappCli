@@ -47,7 +47,7 @@ internal static partial class WgcCapture
     /// </remarks>
     public static async Task<(byte[] Pixels, int Width, int Height)> CaptureAsync(HWND hwnd, ILogger logger, CancellationToken ct)
     {
-        using var grabber = s_startGrabber(hwnd, logger, 0);
+        using var grabber = s_startScreenshotGrabber(hwnd, logger, 0);
         var deadline = Environment.TickCount64 + 2000;
         (byte[] Pixels, int Width, int Height, long Version)? frame = null;
         var framesSeen = 0;
@@ -98,11 +98,8 @@ internal static partial class WgcCapture
             Marshal.QueryInterface((IntPtr)d3dDevicePtr, in DxgiDeviceGuid, out dxgiDevicePtr).ThrowIfFailed("ID3D11Device.QueryInterface(IDXGIDevice)");
             CreateDirect3D11DeviceFromDXGIDevice(dxgiDevicePtr, out graphicsDevicePtr).ThrowIfFailed("CreateDirect3D11DeviceFromDXGIDevice");
 
-            // FromAbi takes ownership of the IInspectable* — null the local so the
-            // error-path Release below doesn't double-release.
-            var managed = MarshalInspectable<IDirect3DDevice>.FromAbi(graphicsDevicePtr);
-            graphicsDevicePtr = IntPtr.Zero;
-            return managed;
+            // FromAbi adds its own reference, so the finally below still releases ours.
+            return MarshalInspectable<IDirect3DDevice>.FromAbi(graphicsDevicePtr);
         }
         finally
         {
@@ -137,17 +134,13 @@ internal static partial class WgcCapture
         {
             Marshal.QueryInterface(factory.ThisPtr, in GraphicsCaptureItemInteropGuid, out interopPtr).ThrowIfFailed("GraphicsCaptureItem.QueryInterface(IGraphicsCaptureItemInterop)");
 
-            // ConvertToManaged transfers ownership of interopPtr to the managed wrapper;
-            // null the local so the finally doesn't double-free.
+            // ConvertToManaged adds its own reference, so the finally below still frees ours.
             var interop = ComInterfaceMarshaller<IGraphicsCaptureItemInterop>.ConvertToManaged((void*)interopPtr)!;
-            interopPtr = IntPtr.Zero;
 
             CheckCreateForWindowResult(hwnd, interop.CreateForWindow(hwnd, in GraphicsCaptureItemGuid, out itemPtr));
 
-            // FromAbi takes ownership of itemPtr.
-            var item = MarshalInspectable<GraphicsCaptureItem>.FromAbi(itemPtr);
-            itemPtr = IntPtr.Zero;
-            return item;
+            // FromAbi adds its own reference, so the finally below still releases ours.
+            return MarshalInspectable<GraphicsCaptureItem>.FromAbi(itemPtr);
         }
 
             finally
@@ -264,20 +257,15 @@ internal static partial class WgcCapture
         {
             Marshal.QueryInterface(surfacePtr, in Direct3DDxgiInterfaceAccessGuid, out accessPtr).ThrowIfFailed("IDirect3DSurface.QueryInterface(IDirect3DDxgiInterfaceAccess)");
 
-            // ConvertToManaged transfers ownership of accessPtr to the managed wrapper.
+            // ConvertToManaged adds its own references, so the finally below still frees ours.
             var access = ComInterfaceMarshaller<IDirect3DDxgiInterfaceAccess>.ConvertToManaged((void*)accessPtr)!;
-            accessPtr = IntPtr.Zero;
 
             access.GetInterface(in D3D11Texture2DGuid, out texturePtr).ThrowIfFailed("IDirect3DDxgiInterfaceAccess.GetInterface");
 
-            // ConvertToManaged transfers ownership of texturePtr to the wrapper.
-            var texture = ComInterfaceMarshaller<D3D.ID3D11Texture2D>.ConvertToManaged((void*)texturePtr)!;
-            texturePtr = IntPtr.Zero;
-            return texture;
+            return ComInterfaceMarshaller<D3D.ID3D11Texture2D>.ConvertToManaged((void*)texturePtr)!;
         }
         finally
         {
-            // Only releases on error paths (success paths null the locals above).
             if (texturePtr != IntPtr.Zero)
             {
                 Marshal.Release(texturePtr);

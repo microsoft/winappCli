@@ -30,6 +30,7 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
     private readonly Func<bool> _isCaptureTargetValid;
     private readonly ILogger _logger;
     private readonly Dictionary<nint, SecondaryWindowSession> _secondaryWindowSessions = [];
+    private readonly HashSet<nint> _failedSecondaryWindows = [];
     private readonly Lock _lock = new();
     private bool _disposed;
     private bool _closed;
@@ -56,14 +57,14 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
     }
 
     internal static WindowCaptureSession Start(HWND hwnd, ILogger logger, int fps,
-        Func<HWND, ILogger, int, IFrameGrabber>? startWindow = null)
+        Func<HWND, ILogger, int, IFrameGrabber>? startWindow = null, bool includeSecondaryWindows = true)
     {
         startWindow ??= (window, log, rate) => WgcCapture.StartSingleWindowGrabber(window, log, rate);
         var pid = RealOwnedWindowFinder.s_getWindowProcessId(hwnd);
         var targetWindow = StartWindowCapture(hwnd, logger, fps, startWindow,
             () => IsEligibleSecondaryWindow(hwnd, pid), pid);
         return new(targetWindow,
-            () => GetBounds(hwnd), () => Discover(hwnd, pid, logger),
+            () => GetBounds(hwnd), includeSecondaryWindows ? () => Discover(hwnd, pid, logger) : () => [],
             secondaryHandle => startWindow(new HWND(secondaryHandle), logger, fps),
             isCaptureTargetValid: () => IsWindowFromExpectedProcess(hwnd, pid), logger: logger, expectedPid: pid);
     }
@@ -84,7 +85,8 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
 
     private static bool IsEligibleSecondaryWindow(HWND hwnd, int pid)
     {
-        if (pid == 0 || !IsWindowFromExpectedProcess(hwnd, pid) || !RealOwnedWindowFinder.s_isWindowVisible(hwnd))
+        if (pid == 0 || !IsWindowFromExpectedProcess(hwnd, pid) || !RealOwnedWindowFinder.s_isWindowVisible(hwnd) ||
+            IsHiddenFromScreen(hwnd))
         {
             return false;
         }
@@ -95,6 +97,22 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
         }
         return ((uint)GetWindowLong((nint)hwnd, -16) & 0x80000000) != 0 ||
             ((uint)GetWindowLong((nint)hwnd, -20) & 0x00000080) != 0;
+    }
+
+    // Visible to Win32 but not drawn: cloaked by DWM, or a layered window with zero opacity.
+    private static unsafe bool IsHiddenFromScreen(HWND hwnd)
+    {
+        uint cloaked = 0;
+        if (PInvoke.DwmGetWindowAttribute(hwnd, global::Windows.Win32.Graphics.Dwm.DWMWINDOWATTRIBUTE.DWMWA_CLOAKED,
+                &cloaked, sizeof(uint)).Succeeded && cloaked != 0)
+        {
+            return true;
+        }
+        const uint WS_EX_LAYERED = 0x00080000;
+        const uint LWA_ALPHA = 0x2;
+        return ((uint)GetWindowLong((nint)hwnd, -20) & WS_EX_LAYERED) != 0 &&
+            GetLayeredWindowAttributes((nint)hwnd, out _, out var alpha, out var flags) &&
+            (flags & LWA_ALPHA) != 0 && alpha == 0;
     }
 
     private static (byte[] Pixels, int Width, int Height, long Version)? ReadWindowFrame(
@@ -162,7 +180,10 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
 
     private (byte[] Pixels, int Width, int Height, long Version)? Sample()
     {
-        var secondaryWindows = _discover();
+        var discovered = _discover();
+        // Forget failures for windows that closed, so a reused handle gets a fresh attempt.
+        _failedSecondaryWindows.IntersectWith(discovered.Select(p => p.Handle));
+        var secondaryWindows = discovered.Where(p => !_failedSecondaryWindows.Contains(p.Handle)).ToList();
         var handles = secondaryWindows.Select(p => p.Handle).ToHashSet();
         foreach (var handle in _secondaryWindowSessions.Keys.ToArray())
         {
@@ -191,10 +212,12 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
                 {
                     if (_discover().Any(p => p.Handle == secondaryWindow.Handle))
                     {
-                        _logger.LogError(ex, "Windows graphics capture startup failed for still-visible secondary window {Hwnd}.", secondaryWindow.Handle);
-                        throw new WindowCaptureException(secondaryWindow.Handle, ex);
+                        SkipFailedSecondaryWindow(secondaryWindow.Handle, ex);
                     }
-                    _logger.LogDebug(ex, "Secondary window {Hwnd} disappeared during capture startup.", secondaryWindow.Handle);
+                    else
+                    {
+                        _logger.LogDebug(ex, "Secondary window {Hwnd} disappeared during capture startup.", secondaryWindow.Handle);
+                    }
                     secondaryWindows.RemoveAt(i);
                 }
             }
@@ -225,37 +248,37 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
                     _logger.LogDebug(ex, "Secondary window {Hwnd} disappeared during capture.", secondaryWindows[i].Handle);
                     return null;
                 }
-                _logger.LogError(ex, "Capture failed for still-visible secondary window {Hwnd}.", secondaryWindows[i].Handle);
-                throw;
+                SkipFailedSecondaryWindow(secondaryWindows[i].Handle, ex);
+                grabber.Dispose();
+                _secondaryWindowSessions.Remove(secondaryWindows[i].Handle);
+                return null;
             }
-            if (secondaryFrame is { } captured && CapturedFrame.IsBlank(captured.Pixels))
+            // A newly opened popup can briefly report no frame or a fully transparent one; wait for it to paint.
+            // After that, a transparent popup shows nothing on screen, and one that never produced a frame is
+            // left out. Neither may fail capture of the selected window.
+            var unpainted = secondaryFrame is not { } captured || CapturedFrame.IsBlank(captured.Pixels);
+            if (session.FirstFrameDeadline is { } deadline)
             {
-                if (session.FirstFrameDeadline is null)
+                if (unpainted && _clock() < deadline)
                 {
                     return null;
                 }
-                secondaryFrame = null;
+                if (unpainted)
+                {
+                    _logger.LogDebug("Secondary window {Hwnd} did not paint within 2 seconds; capturing without it.", secondaryWindows[i].Handle);
+                }
+                _secondaryWindowSessions[secondaryWindows[i].Handle] = session with { FirstFrameDeadline = null };
             }
             if (secondaryFrame is null)
             {
-                if (session.FirstFrameDeadline is not { } deadline ||
-                    _clock() >= deadline)
-                {
-                    _logger.LogError("Secondary window {Hwnd} did not produce a capture frame within 2 seconds.", secondaryWindows[i].Handle);
-                    throw new WindowCaptureException(secondaryWindows[i].Handle,
-                        new TimeoutException($"Secondary window HWND {secondaryWindows[i].Handle} did not produce a capture frame within 2 seconds."));
-                }
-                return null;
-            }
-            if (session.FirstFrameDeadline is not null)
-            {
-                _secondaryWindowSessions[secondaryWindows[i].Handle] = session with { FirstFrameDeadline = null };
+                inputs[i] = new(secondaryWindows[i], grabber, -1, 0, 0);
+                continue;
             }
             secondaryWindowFrames[i] = secondaryFrame.Value;
             inputs[i] = new(secondaryWindows[i], grabber, secondaryFrame.Value.Version, secondaryFrame.Value.Width, secondaryFrame.Value.Height);
         }
         // Revalidate ownership, handles, bounds and order before publishing cached or new pixels.
-        if (!secondaryWindows.SequenceEqual(_discover()))
+        if (!secondaryWindows.SequenceEqual(_discover().Where(p => !_failedSecondaryWindows.Contains(p.Handle))))
         {
             return null;
         }
@@ -272,6 +295,10 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
         {
             var secondaryWindow = secondaryWindows[i];
             var secondaryFrame = secondaryWindowFrames[i];
+            if (secondaryFrame.Pixels is null)
+            {
+                continue;
+            }
             IncludeSecondaryWindowInWindowImage(pixels, result.Width, result.Height,
                 secondaryFrame.Pixels, secondaryFrame.Width, secondaryFrame.Height,
                 secondaryWindow.Bounds.Left - bounds.Left, secondaryWindow.Bounds.Top - bounds.Top);
@@ -319,15 +346,13 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
                 throw new WindowCaptureException(targetFallback.WindowHandle,
                     new TimeoutException("The selected capture window did not produce a frame before the capture deadline."));
             }
-            if (!IsClosed && ReadWindowFrame(_targetWindowCapture) is not null)
+            if (!IsClosed && ReadWindowFrame(_targetWindowCapture) is { } targetOnly)
             {
-                var secondaryWindows = _discover();
-                if (secondaryWindows.Count != 0)
-                {
-                    var error = new TimeoutException("The secondary window did not produce a stable combined image before the capture deadline.");
-                    _logger.LogError(error, "Secondary window {Hwnd} prevented the first combined image.", secondaryWindows[0].Handle);
-                    throw new WindowCaptureException(secondaryWindows[0].Handle, error);
-                }
+                // Popups kept moving or appearing until the deadline; the selected window is still worth returning.
+                _logger.LogWarning("Secondary windows did not settle before the capture deadline; capturing the selected window without them.");
+                _lastComposedSecondaryInputs = [];
+                _latestCombinedFrame = (targetOnly.Pixels, targetOnly.Width, targetOnly.Height, ++_combinedFrameVersion);
+                return _latestCombinedFrame;
             }
         }
         return null;
@@ -388,8 +413,8 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
                     logger.LogDebug(ex, "Secondary window {Hwnd} disappeared during its bounds query.", (nint)window);
                     continue;
                 }
-                logger.LogError(ex, "Cannot query bounds for still-visible secondary window {Hwnd}.", (nint)window);
-                throw new WindowCaptureException((nint)window, ex);
+                logger.LogWarning(ex, "Cannot query bounds for secondary window {Hwnd}; capturing the selected window without it.", (nint)window);
+                continue;
             }
             if (bounds.Right > bounds.Left && bounds.Bottom > bounds.Top &&
                 bounds.Left < targetBounds.Right && bounds.Right > targetBounds.Left &&
@@ -452,6 +477,13 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
         }
     }
 
+    // A popup that cannot be captured is left out rather than failing capture of the selected window.
+    private void SkipFailedSecondaryWindow(nint handle, Exception ex)
+    {
+        _logger.LogWarning(ex, "Cannot capture secondary window {Hwnd}; capturing the selected window without it.", handle);
+        _failedSecondaryWindows.Add(handle);
+    }
+
     private void DisposeSecondaryWindowSessions()
     {
         foreach (var session in _secondaryWindowSessions.Values)
@@ -470,6 +502,10 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
 
     [LibraryImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static partial int GetWindowLong(nint hwnd, int index);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetLayeredWindowAttributes(nint hwnd, out uint key, out byte alpha, out uint flags);
 
     public void Dispose()
     {

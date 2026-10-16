@@ -16,6 +16,10 @@ internal static partial class WgcCapture
     internal static Func<HWND, ILogger, int, IFrameGrabber> s_startGrabber =
         (hwnd, logger, fps) => StartGrabber(hwnd, logger, fps);
 
+    // Screenshots show owned popups as separate labeled panels, so they capture the window alone.
+    internal static Func<HWND, ILogger, int, IFrameGrabber> s_startScreenshotGrabber =
+        (hwnd, logger, fps) => WindowCaptureSession.Start(hwnd, logger, fps, includeSecondaryWindows: false);
+
     /// <summary>
     /// Opens a persistent Windows Graphics Capture session for a window and keeps
     /// the most recently arrived frame available on demand. Used by the recorder to

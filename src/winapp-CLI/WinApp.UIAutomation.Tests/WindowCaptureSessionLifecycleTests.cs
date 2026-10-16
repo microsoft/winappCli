@@ -47,10 +47,10 @@ public class WindowCaptureSessionLifecycleTests
         else
         {
             now = 2100;
-            var error = Assert.ThrowsExactly<WindowCaptureException>(() => composite.TryGetLatest());
-            Assert.IsInstanceOfType<TimeoutException>(error.InnerException);
-            StringAssert.Contains(error.Message, "42");
-            Assert.IsTrue(logger.Messages.Any(m => m.Level == LogLevel.Error && m.Text.Contains("42")));
+            var withoutPopup = composite.TryGetLatest()!.Value;
+            CollectionAssert.AreEqual(root.Pixels, withoutPopup.Pixels);
+            Assert.IsTrue(logger.Messages.Any(m => m.Level == LogLevel.Debug && m.Text.Contains("42")));
+            Assert.IsFalse(logger.Messages.Any(m => m.Level >= LogLevel.Warning));
             popups.Clear();
             Assert.AreSame(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
             Assert.IsTrue(secondaryCapture.Disposed);
@@ -62,22 +62,24 @@ public class WindowCaptureSessionLifecycleTests
     }
 
     [TestMethod]
-    public void Sampling_TransientBlankSecondaryFramePreservesHealthyImageUntilPaintedFrameReturns()
+    public void Sampling_PaintedPopupThatTurnsTransparentNoLongerCoversTheWindow()
     {
         var root = new Grabber();
         var secondaryCapture = new Grabber { Pixels = [0, 255, 0, 255] };
         using var composite = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
             () => [new(42, new(0, 0, 1, 1))], _ => secondaryCapture);
         var healthy = composite.TryGetLatest()!.Value;
+        CollectionAssert.AreEqual(new byte[] { 0, 255, 0, 255 }, healthy.Pixels);
         secondaryCapture.Pixels = new byte[4];
         secondaryCapture.Version++;
-        Assert.IsNull(composite.TryGetLatest());
-        CollectionAssert.AreEqual(new byte[] { 0, 255, 0, 255 }, healthy.Pixels);
+        var transparent = composite.TryGetLatest()!.Value;
+        CollectionAssert.AreEqual(root.Pixels, transparent.Pixels);
+        Assert.AreEqual(healthy.Version + 1, transparent.Version);
         secondaryCapture.Pixels = [0, 0, 0, 255];
         secondaryCapture.Version++;
         var painted = composite.TryGetLatest()!.Value;
         CollectionAssert.AreEqual(secondaryCapture.Pixels, painted.Pixels);
-        Assert.AreEqual(healthy.Version + 1, painted.Version);
+        Assert.AreEqual(transparent.Version + 1, painted.Version);
     }
 
     [TestMethod]
@@ -114,14 +116,18 @@ public class WindowCaptureSessionLifecycleTests
     [DataRow(unchecked((int)0x80004005))]
     [DataRow(unchecked((int)0x80070005))]
     [DataRow(unchecked((int)0x80070057))]
-    public void Startup_StillQualifyingPopupFailurePropagatesAndIsLogged(int hresult)
+    public void Startup_StillQualifyingPopupFailureIsSkippedAndLogged(int hresult)
     {
         var failure = new COMException("Non-classified WGC startup failure", hresult);
         var logger = new CaptureLogger();
-        using var composite = new WindowCaptureSession(new Grabber(), () => new(0, 0, 1, 1),
-            () => [new(42, new(0, 0, 1, 1))], _ => throw failure, logger: logger);
-        Assert.AreSame(failure, Assert.ThrowsExactly<WindowCaptureException>(() => composite.TryGetLatest()).InnerException);
-        Assert.IsTrue(logger.Messages.Any(m => m.Level == LogLevel.Error));
+        var starts = 0;
+        var root = new Grabber();
+        using var composite = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
+            () => [new(42, new(0, 0, 1, 1))], _ => { starts++; throw failure; }, logger: logger);
+        Assert.AreSame(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
+        Assert.AreSame(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
+        Assert.AreEqual(1, starts, "A popup that failed to start is not retried every frame.");
+        Assert.IsTrue(logger.Messages.Any(m => m.Level == LogLevel.Warning && m.Text.Contains("42")));
     }
 
     [TestMethod]
@@ -242,29 +248,24 @@ public class WindowCaptureSessionLifecycleTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void Sampling_ChildFailureIsHarmlessOnlyIfChildDisappeared(bool disappears)
+    public void Sampling_ChildFailureLeavesThePopupOutOfLaterFrames(bool disappears)
     {
         var visible = true;
         var failure = new Win32Exception(1400);
+        var popup = new Grabber
+        {
+            OnSample = () =>
+            {
+                visible = !disappears;
+                throw failure;
+            }
+        };
         using var composite = new WindowCaptureSession(new Grabber(), () => new(0, 0, 1, 1),
             () => visible ? [new(42, new(0, 0, 1, 1))] : [],
-            _ => new Grabber
-            {
-                OnSample = () =>
-                {
-                    visible = !disappears;
-                    throw failure;
-                }
-            });
-        if (disappears)
-        {
-            Assert.IsNull(composite.TryGetLatest());
-            CollectionAssert.AreEqual(new byte[] { 0, 0, 255, 255 }, composite.TryGetLatest()!.Value.Pixels);
-        }
-        else
-        {
-            Assert.AreSame(failure, Assert.ThrowsExactly<WindowCaptureException>(() => composite.TryGetLatest()).InnerException);
-        }
+            _ => popup);
+        Assert.IsNull(composite.TryGetLatest());
+        CollectionAssert.AreEqual(new byte[] { 0, 0, 255, 255 }, composite.TryGetLatest()!.Value.Pixels);
+        Assert.IsTrue(popup.Disposed);
     }
 
     [TestMethod]
@@ -435,45 +436,71 @@ public class WindowCaptureSessionLifecycleTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void Discovery_FailedChildBoundsSkipsOnlyWhenChildDisappeared(bool disappears)
+    public void Discovery_FailedChildBoundsLeavesOnlyThatChildOut(bool disappears)
     {
         WithOwnedPopup((root, popup, pid) =>
         {
             var logger = new CaptureLogger();
             var failure = new Win32Exception(1400);
-            var results = new Func<List<WindowCaptureSession.SecondaryWindow>>(() =>
-                WindowCaptureSession.Discover(root, pid, logger, hwnd =>
+            var results = WindowCaptureSession.Discover(root, pid, logger, hwnd =>
+            {
+                if (hwnd == popup)
                 {
-                    if (hwnd == popup)
+                    if (disappears)
                     {
-                        if (disappears)
-                        {
-                            RealOwnedWindowFinder.s_isWindowVisible = _ => false;
-                        }
-                        throw failure;
+                        RealOwnedWindowFinder.s_isWindowVisible = _ => false;
                     }
-                    return new(0, 0, 10, 10);
-                }));
-            if (disappears)
-            {
-                Assert.AreEqual(0, results().Count);
-                Assert.IsTrue(logger.Messages.Any(m => m.Level == LogLevel.Debug));
-            }
-            else
-            {
-                Assert.AreSame(failure, Assert.ThrowsExactly<WindowCaptureException>(() => results()).InnerException);
-            }
+                    throw failure;
+                }
+                return new(0, 0, 10, 10);
+            });
+            Assert.AreEqual(0, results.Count);
+            Assert.IsTrue(logger.Messages.Any(m => m.Level == (disappears ? LogLevel.Debug : LogLevel.Warning)));
         });
     }
 
     [TestMethod]
-    public async Task FirstFrame_OverallDeadlineDistinguishesPendingPopupFromMissingRootFrame()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Discovery_PopupThatIsNotDrawnOnScreenIsLeftOut(bool cloak)
     {
-        using var composite = new WindowCaptureSession(new Grabber(), () => new(0, 0, 1, 1),
+        WithOwnedPopup((root, popup, pid) =>
+        {
+            Assert.HasCount(1, WindowCaptureSession.Discover(root, pid, NullLogger.Instance, _ => new(0, 0, 10, 10)));
+            if (cloak)
+            {
+                var on = 1;
+                Assert.AreEqual(0, DwmSetWindowAttribute(popup, 13 /* DWMWA_CLOAK */, ref on, sizeof(int)));
+            }
+            else
+            {
+                _ = SetWindowLongW(popup, -20, GetWindowLongW(popup, -20) | 0x00080000 /* WS_EX_LAYERED */);
+                Assert.IsTrue(SetLayeredWindowAttributes(popup, 0, 0, 0x2 /* LWA_ALPHA */));
+            }
+            Assert.IsEmpty(WindowCaptureSession.Discover(root, pid, NullLogger.Instance, _ => new(0, 0, 10, 10)));
+        });
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLongW(nint hwnd, int index);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowLongW(nint hwnd, int index, int value);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetLayeredWindowAttributes(nint hwnd, uint key, byte alpha, uint flags);
+
+    [TestMethod]
+    public async Task FirstFrame_OverallDeadlineReturnsWindowAloneButNotAMissingRootFrame()
+    {
+        var root = new Grabber();
+        using var composite = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
             () => [new(42, new(0, 0, 1, 1))], _ => new Grabber { HasFrame = false }, () => 100);
-        var failure = await Assert.ThrowsExactlyAsync<WindowCaptureException>(() =>
-            composite.WaitForFirstFrameAsync(TimeSpan.Zero, CancellationToken.None));
-        Assert.IsInstanceOfType<TimeoutException>(failure.InnerException);
+        var frame = await composite.GetFrameAsync(TimeSpan.Zero, CancellationToken.None);
+        Assert.AreSame(root.Pixels, frame!.Value.Pixels);
 
         using var missingRoot = new WindowCaptureSession(new Grabber { HasFrame = false },
             () => new(0, 0, 1, 1), () => [], _ => throw new AssertFailedException());
@@ -492,6 +519,7 @@ public class WindowCaptureSessionLifecycleTests
         using var fixture = new UiaTestFixture();
         PopupWindow? popup = null;
         var start = WgcCapture.s_startGrabber;
+        var screenshotStart = WgcCapture.s_startScreenshotGrabber;
         var screen = UiAutomationService.s_captureFromScreenScaled;
         var foreground = UiAutomationService.s_foregroundWindowForBlankRetry;
         var blankRetry = UiAutomationService.s_sleepForBlankRetry;
@@ -512,7 +540,7 @@ public class WindowCaptureSessionLifecycleTests
                 handle = popup.Handle;
             });
             var starts = 0;
-            WgcCapture.s_startGrabber = (window, logger, fps) => WindowCaptureSession.Start(window, logger, fps,
+            Func<HWND, ILogger, int, IFrameGrabber> startWithRejection = (window, logger, fps) => WindowCaptureSession.Start(window, logger, fps,
                 (candidate, _, rate) =>
                 {
                     Assert.AreEqual(handle, (nint)candidate);
@@ -520,7 +548,9 @@ public class WindowCaptureSessionLifecycleTests
                     starts++;
                     WgcCapture.CheckCreateForWindowResult(candidate, unchecked((int)0x80070057));
                     throw new AssertFailedException();
-                });
+                }, includeSecondaryWindows: recording);
+            WgcCapture.s_startGrabber = startWithRejection;
+            WgcCapture.s_startScreenshotGrabber = startWithRejection;
             UiAutomationService.s_captureFromScreenScaled = (_, _, _, _, _, _) => throw new AssertFailedException("Screen capture is forbidden.");
             UiAutomationService.s_foregroundWindowForBlankRetry = _ => Assert.Fail("Foreground retry is forbidden.");
             UiAutomationService.s_sleepForBlankRetry = _ => Assert.Fail("Blank retry is forbidden.");
@@ -568,6 +598,7 @@ public class WindowCaptureSessionLifecycleTests
         {
             grabber?.Dispose();
             WgcCapture.s_startGrabber = start;
+            WgcCapture.s_startScreenshotGrabber = screenshotStart;
             UiAutomationService.s_captureFromScreenScaled = screen;
             UiAutomationService.s_foregroundWindowForBlankRetry = foreground;
             UiAutomationService.s_sleepForBlankRetry = blankRetry;

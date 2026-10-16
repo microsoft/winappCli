@@ -217,7 +217,7 @@ winapp ui screenshot -w <hwnd> --capture-screen --output with-popups.png
 winapp ui screenshot -a myapp --focus --output focused.png
 ```
 
-Default capture includes owned windows even with an explicit main HWND; it produces one labeled composite, not separate image files. An element selector for an item in an open menu, flyout, tooltip, or teaching tip crops from that item's popup window, so you don't need `--capture-screen` for it. For scope and on-screen overlay placement, see [Screenshot](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#screenshot). Before switching to screen capture for a missing menu, check [Menus and flyouts in captures](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#menus-and-flyouts-in-captures), which applies to screenshots and recordings. With `--on sandbox`, the reported screenshot path is the delivered host destination. In an app with WinUI DevTools attached, screenshots leave out its toolbar, markers, comment panel and inspector window.
+Default capture includes owned windows even with an explicit main HWND; it produces one labeled composite, not separate image files. An element selector for an item in an open menu, flyout, tooltip, or teaching tip crops from that item's popup window, so you don't need `--capture-screen` for it. For scope and on-screen overlay placement, see [Screenshot](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#screenshot). With `--on sandbox`, the reported screenshot path is the delivered host destination. In an app with WinUI DevTools attached, screenshots leave out its toolbar, markers, comment panel and inspector window.
 
 ### Record video (H.264 MP4)
 Record a window or element region to MP4. Prefer a positive `--duration-sec N` for
@@ -242,6 +242,7 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
   request `--overwrite` to replace them after the new take finishes. Previous frame
   directories are archived, not deleted. On partial failure, keep the reported evidence
   and follow `recoveryHint`.
+- Default recording draws open menus, flyouts and tooltips over the window in place; no flag is needed. They're clipped to the window's bounds, and popups from other processes need `--capture-screen` (see [Menus and flyouts in recordings](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#menus-and-flyouts-in-recordings)).
 - `--capture-screen` captures from the screen DC so overlays and popups are included; the window is brought to the foreground first. When WGC is unavailable and `--capture-screen` is not passed, the CLI returns an error — re-run with `--capture-screen` to consent to screen-DC capture. Because the screen DC captures whatever is genuinely in front, the target's foreground is **verified immediately before capture**; if activation was refused the command fails with `foreground_not_target` and writes nothing rather than returning an image of the wrong window.
 - Providing a selector that doesn't match any element fails immediately with `element_not_found` (rather than silently recording the whole window).
 - A selector for an item in an open menu, flyout, tooltip, or teaching tip records from that item's popup window, not the window behind it.
@@ -441,7 +442,7 @@ winapp ui wait-for itm-status-c3d4 -a myapp --value "Complete" --timeout 5000
 - Use `get-property --property ToggleState` to verify checkbox/toggle state after invoke
 - `scroll` auto-finds the nearest scrollable parent
 - To capture one item in an open menu, flyout, tooltip, or teaching tip, pass its selector to `screenshot` or `record`; it is captured from its popup window
-- Prefer default [Screenshot](#screenshot) capture for dropdown menus and flyouts; check [Menus and flyouts in captures](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#menus-and-flyouts-in-captures) before using `-w <hwnd> --capture-screen` when window capture is unavailable or an overlay is outside the target's owned UI
+- Follow [Screenshot](#screenshot) to select a window with `-w <hwnd> --capture-screen` when you need popups in place over the window, or overlays the app doesn't own
 - Follow [Hover](#hover-for-tooltips-flyouts-hover-states) to capture tooltips and hover-triggered UI in place
 - Use `--focus` to foreground the target window before capture without switching to screen-DC capture (default capture path uses Windows.Graphics.Capture and works while occluded)
 - Use `--hide-disabled` and `--hide-offscreen` to reduce noise

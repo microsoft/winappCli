@@ -13,96 +13,7 @@ public class WgcScreenshotFreshnessTests
 {
     [TestCleanup]
     public void Cleanup()
-        => WgcCapture.s_startGrabber = (hwnd, logger, fps) => WgcCapture.StartGrabber(hwnd, logger, fps);
-
-    [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task Capture_MenuOpeningDuringFrameAcquisitionReturnsCombinedImageOrTypedFailure(bool arrives)
-    {
-        var discoveries = 0;
-        var childReads = 0;
-        byte[] menuPixels = [0, 255, 0, 255];
-        var root = new Grabber(() => (new byte[] { 0, 0, 255, 255 }, 1, 1, 1L));
-        var secondaryCapture = new Grabber(() => arrives && ++childReads >= 3 ? (menuPixels, 1, 1, 1L) : null);
-        var combined = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
-            () => ++discoveries <= 1 ? [] : [new(42, new(0, 0, 1, 1))], _ => secondaryCapture);
-        WgcCapture.s_startGrabber = (_, _, _) => combined;
-        var timer = Stopwatch.StartNew();
-
-        if (arrives)
-        {
-            var result = await WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, CancellationToken.None);
-            CollectionAssert.AreEqual(menuPixels, result.Pixels);
-            Assert.AreEqual(1, result.Width);
-            Assert.AreEqual(1, result.Height);
-        }
-        else
-        {
-            var error = await Assert.ThrowsExactlyAsync<WindowCaptureException>(() =>
-                WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, CancellationToken.None));
-            Assert.IsInstanceOfType<TimeoutException>(error.InnerException);
-            StringAssert.Contains(error.Message, "42");
-        }
-        Assert.IsLessThan(3000L, timer.ElapsedMilliseconds);
-        Assert.IsTrue(root.Disposed);
-        Assert.IsTrue(secondaryCapture.Disposed);
-    }
-
-    [TestMethod]
-    [DataRow(false, false)]
-    [DataRow(true, false)]
-    [DataRow(true, true)]
-    public async Task Capture_BlankSecondaryFrameWaitsForPaintedPixelsOrTypedFailure(bool arrives, bool black)
-    {
-        long now = 100;
-        byte[] painted = black ? [0, 0, 0, 255] : [0, 255, 0, 255];
-        var root = new Grabber(() => (new byte[] { 0, 0, 255, 255 }, 1, 1, 1L));
-        var reads = 0;
-        var secondaryCapture = new Grabber(() =>
-        {
-            reads++;
-            now = reads == 1 ? 100 : reads == 2 ? 2099 : 2100;
-            return (arrives && reads >= 3 ? painted : new byte[4], 1, 1, (long)reads);
-        });
-        var combined = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
-            () => [new(42, new(0, 0, 1, 1))], _ => secondaryCapture, () => now);
-        WgcCapture.s_startGrabber = (_, _, _) => combined;
-
-        if (arrives)
-        {
-            var result = await WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, CancellationToken.None);
-            CollectionAssert.AreEqual(painted, result.Pixels);
-        }
-        else
-        {
-            var error = await Assert.ThrowsExactlyAsync<WindowCaptureException>(() =>
-                WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, CancellationToken.None));
-            Assert.IsInstanceOfType<TimeoutException>(error.InnerException);
-            StringAssert.Contains(error.Message, "42");
-        }
-        Assert.AreEqual(3, reads);
-        Assert.IsTrue(root.Disposed);
-        Assert.IsTrue(secondaryCapture.Disposed);
-    }
-
-    [TestMethod]
-    public async Task Capture_CancellationWhileMenuFrameIsPendingDisposesBothGrabbers()
-    {
-        var discoveries = 0;
-        var root = new Grabber(() => (new byte[] { 0, 0, 255, 255 }, 1, 1, 1L));
-        var secondaryCapture = new Grabber(() => null);
-        var combined = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
-            () => ++discoveries <= 1 ? [] : [new(42, new(0, 0, 1, 1))], _ => secondaryCapture);
-        WgcCapture.s_startGrabber = (_, _, _) => combined;
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
-
-        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() =>
-            WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, cancellation.Token));
-
-        Assert.IsTrue(root.Disposed);
-        Assert.IsTrue(secondaryCapture.Disposed);
-    }
+        => WgcCapture.s_startScreenshotGrabber = (hwnd, logger, fps) => WindowCaptureSession.Start(hwnd, logger, fps, includeSecondaryWindows: false);
 
     [TestMethod]
     public async Task Capture_AvailableFrameDoesNotPerformSeparateReadinessWait()
@@ -112,7 +23,7 @@ public class WgcScreenshotFreshnessTests
         {
             FailOnReadinessWait = true
         };
-        WgcCapture.s_startGrabber = (_, _, _) => grabber;
+        WgcCapture.s_startScreenshotGrabber = (_, _, _) => grabber;
 
         var result = await WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, CancellationToken.None);
 
@@ -127,7 +38,7 @@ public class WgcScreenshotFreshnessTests
         byte[] rendered = [0, 255, 0, 255];
         var grabber = new Grabber(() => ++reads < 7
             ? (new byte[4], 1, 1, 1L) : (rendered, 1, 1, 2L));
-        WgcCapture.s_startGrabber = (_, _, _) => grabber;
+        WgcCapture.s_startScreenshotGrabber = (_, _, _) => grabber;
 
         var result = await WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, CancellationToken.None);
 
@@ -141,7 +52,7 @@ public class WgcScreenshotFreshnessTests
     {
         var timer = Stopwatch.StartNew();
         var grabber = new Grabber(() => (new byte[4], 1, 1, 1L));
-        WgcCapture.s_startGrabber = (_, _, _) => grabber;
+        WgcCapture.s_startScreenshotGrabber = (_, _, _) => grabber;
 
         await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
             WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, CancellationToken.None));
@@ -155,7 +66,7 @@ public class WgcScreenshotFreshnessTests
     {
         var version = 0L;
         var grabber = new Grabber(() => (new byte[4], 1, 1, ++version));
-        WgcCapture.s_startGrabber = (_, _, _) => grabber;
+        WgcCapture.s_startScreenshotGrabber = (_, _, _) => grabber;
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, CancellationToken.None));
@@ -169,7 +80,7 @@ public class WgcScreenshotFreshnessTests
     {
         byte[] black = [0, 0, 0, 255];
         var grabber = new Grabber(() => (black, 1, 1, 1L));
-        WgcCapture.s_startGrabber = (_, _, _) => grabber;
+        WgcCapture.s_startScreenshotGrabber = (_, _, _) => grabber;
 
         var result = await WgcCapture.CaptureAsync(new HWND(1), NullLogger.Instance, CancellationToken.None);
 
@@ -181,7 +92,7 @@ public class WgcScreenshotFreshnessTests
     public async Task Capture_CancellationWhileWaitingDisposesGrabber()
     {
         var grabber = new Grabber(() => (new byte[4], 1, 1, 1L));
-        WgcCapture.s_startGrabber = (_, _, _) => grabber;
+        WgcCapture.s_startScreenshotGrabber = (_, _, _) => grabber;
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
 
         await Assert.ThrowsExactlyAsync<TaskCanceledException>(() =>
