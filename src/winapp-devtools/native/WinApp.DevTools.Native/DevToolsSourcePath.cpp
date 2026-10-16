@@ -180,3 +180,108 @@ bool DevToolsSourcePath_ResolvePri(const std::wstring& root, std::wstring* path)
 {
     return ResolveExisting(root, L"ms-appx:///resources.pri", path, L".pri");
 }
+
+namespace
+{
+bool IsFile(const std::wstring& path)
+{
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+std::wstring ToWindowsSlashes(std::wstring path)
+{
+    for (wchar_t& c : path) if (c == L'/') c = L'\\';
+    return path;
+}
+
+// "rel\File.cs" stays below its root: no rooted, drive or parent segments.
+bool IsSafeRelative(const std::wstring& relative)
+{
+    if (relative.empty() || IsSlash(relative.front()) || relative.find(L':') != std::wstring::npos) return false;
+    size_t start = 0;
+    for (;;) {
+        size_t slash = relative.find_first_of(L"\\/", start);
+        const std::wstring segment = relative.substr(start, slash == std::wstring::npos ? std::wstring::npos : slash - start);
+        if (segment == L"..") return false;
+        if (slash == std::wstring::npos) return true;
+        start = slash + 1;
+    }
+}
+
+// `relative` under the source root, or under the nearest folder above it that has it (a repository root above the
+// project). False when there is no source root or no such file.
+bool UnderSourceRoot(const std::wstring& relative, const std::wstring& sourceRoot, std::wstring* mapped)
+{
+    std::wstring root;
+    if (!IsSafeRelative(relative) || !FullPath(sourceRoot, &root)) return false;
+    root = TrimTrailingSlash(root);
+    for (;;) {
+        const std::wstring candidate = root + (IsSlash(root.back()) ? L"" : L"\\") + relative;
+        if (IsFile(candidate)) { *mapped = candidate; return true; }
+        const size_t slash = root.find_last_of(L"\\/");
+        if (slash == std::wstring::npos) break;
+        std::wstring parent = root.substr(0, slash);
+        if (parent.size() == 2 && parent[1] == L':') parent += L'\\';
+        if (parent.size() < 3 || parent == root) break;
+        root = parent;
+    }
+    return false;
+}
+}
+
+bool DevToolsSourcePath_MapCompiled(const std::wstring& compiledPath, const std::wstring& sourceRoot,
+                                    const std::wstring& pathMap, std::wstring* mapped)
+{
+    if (!mapped) return false;
+    *mapped = compiledPath;
+    if (compiledPath.empty()) return false;
+
+    // MSBuild PathMap: `original=mapped` pairs; a recorded path starting with `mapped` came from `original`.
+    size_t start = 0;
+    while (start < pathMap.size()) {
+        size_t comma = pathMap.find(L',', start);
+        const std::wstring entry = pathMap.substr(start, comma == std::wstring::npos ? std::wstring::npos : comma - start);
+        start = comma == std::wstring::npos ? pathMap.size() : comma + 1;
+        const size_t equals = entry.find(L'=');
+        if (equals == std::wstring::npos || equals == 0 || equals + 1 >= entry.size()) continue;
+        const std::wstring from = entry.substr(0, equals);
+        const std::wstring to = entry.substr(equals + 1);
+        if (!EqualPrefixInsensitive(compiledPath, to)) continue;
+        std::wstring rest = compiledPath.substr(to.size());
+        while (!rest.empty() && IsSlash(rest.front())) rest.erase(0, 1);
+        if (!IsSafeRelative(rest)) continue;
+        const std::wstring candidate = TrimTrailingSlash(ToWindowsSlashes(from)) + L"\\" + ToWindowsSlashes(rest);
+        if (IsFile(candidate)) { *mapped = candidate; return true; }
+    }
+
+    // Deterministic source roots: /_/ for the first, /_1/, /_2/ ... for the others.
+    if (compiledPath.size() > 3 && compiledPath[0] == L'/' && compiledPath[1] == L'_') {
+        size_t i = 2;
+        while (i < compiledPath.size() && iswdigit(compiledPath[i])) ++i;
+        if (i < compiledPath.size() && compiledPath[i] == L'/')
+            return UnderSourceRoot(ToWindowsSlashes(compiledPath.substr(i + 1)), sourceRoot, mapped);
+    }
+
+    // A project-relative path (`Views/App.cs`), as Reactor publishes it: under the project, or under a folder above
+    // it (the repository root) for a file outside the project.
+    const bool rooted = IsSlash(compiledPath[0]) || (compiledPath.size() >= 2 && compiledPath[1] == L':');
+    if (!rooted) return UnderSourceRoot(ToWindowsSlashes(compiledPath), sourceRoot, mapped);
+
+    if (IsFile(compiledPath)) return true;
+
+    // A Windows Sandbox launch's copy of the sources (marked by its inventory): the recorded host path's longest tail
+    // that exists under the copy. Only used when the recorded file is not on this machine.
+    std::wstring root;
+    if (sourceRoot.empty() || !FullPath(sourceRoot, &root)) return false;
+    root = TrimTrailingSlash(root);
+    if (!IsFile(root + L"\\.winapp-source-snapshot.json")) return false;
+    const std::wstring path = ToWindowsSlashes(compiledPath);
+    for (size_t slash = path.find(L'\\'); slash != std::wstring::npos; slash = path.find(L'\\', slash + 1)) {
+        const std::wstring rest = path.substr(slash + 1);
+        if (rest.empty() || !IsSafeRelative(rest)) continue;
+        const std::wstring candidate = root + L"\\" + rest;
+        if (IsFile(candidate)) { *mapped = candidate; return true; }
+    }
+    return false;
+}

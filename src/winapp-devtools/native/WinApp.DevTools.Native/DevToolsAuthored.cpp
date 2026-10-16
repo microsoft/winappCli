@@ -12,11 +12,14 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "DevToolsAuthored.h"
+#include "DevToolsCSharpSource.h"
+#include "DevToolsReactorNames.h"
 #include "DevToolsSourcePath.h"
 #include "DevToolsProtocol.h"
 
@@ -523,6 +526,58 @@ bool DevToolsAuthored_HasSourceRoot()
 bool DevToolsAuthored_IsProjectSource(const std::wstring& fileUri)
 {
     return !UriToDiskPath(fileUri).empty();
+}
+
+bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, unsigned int column, std::wstring* out)
+{
+    if (!out) return false;
+    out->clear();
+    std::vector<std::wstring> lines;
+    std::wstring hash;
+    if (path.empty() || !ReadLines(path, &lines, &hash)) return false;
+    *out = DevToolsCSharpSource::Statement(lines, line, column);
+    DevToolsCSharpSource::Redact(*out);
+    return !out->empty();
+}
+
+std::wstring DevToolsAuthored_CSharpName(const std::wstring& path, unsigned int line, unsigned int column,
+    const std::wstring& kind)
+{
+    if (path.empty() || line == 0) return L"";
+    // Every element of a describe asks, so each file is read once until it changes.
+    struct Cached { FILETIME written{}; std::vector<std::wstring> lines; };
+    static std::mutex lock;
+    static std::map<std::wstring, Cached> files;
+    WIN32_FILE_ATTRIBUTE_DATA attributes{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes)) return L"";
+    std::lock_guard<std::mutex> guard(lock);
+    auto known = files.find(path);
+    if (known == files.end() || CompareFileTime(&known->second.written, &attributes.ftLastWriteTime) != 0) {
+        Cached cached;
+        std::wstring hash;
+        if (!ReadLines(path, &cached.lines, &hash)) return L"";
+        cached.written = attributes.ftLastWriteTime;
+        if (files.size() >= 256) files.clear();
+        known = files.insert_or_assign(path, std::move(cached)).first;
+    }
+    const auto& lines = known->second.lines;
+    if (line > lines.size()) return L"";
+    return DevToolsReactorNames::FromSource(lines[line - 1], column, line >= 2 ? lines[line - 2] : std::wstring(), kind);
+}
+std::wstring DevToolsAuthored_FileHash(const std::wstring& path, const std::wstring& algorithm)
+{
+    const BCRYPT_ALG_HANDLE alg = algorithm == L"SHA256" ? BCRYPT_SHA256_ALG_HANDLE
+                                : algorithm == L"SHA1" ? BCRYPT_SHA1_ALG_HANDLE : nullptr;
+    std::vector<char> bytes;
+    if (!alg || path.empty() || !ReadBytes(path, 64u * 1024 * 1024, &bytes)) return L"";
+    unsigned char hash[32]{};
+    const ULONG size = algorithm == L"SHA256" ? 32 : 20;
+    if (BCryptHash(alg, nullptr, 0, reinterpret_cast<PUCHAR>(bytes.data()), static_cast<ULONG>(bytes.size()), hash, size) < 0)
+        return L"";
+    std::wstring result;
+    constexpr wchar_t hex[] = L"0123456789abcdef";
+    for (ULONG i = 0; i < size; i++) { result += hex[hash[i] >> 4]; result += hex[hash[i] & 15]; }
+    return result;
 }
 
 namespace {

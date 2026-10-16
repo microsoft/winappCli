@@ -164,6 +164,8 @@ static void CALLBACK OnAppForeground(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG
 
 static void OnOverlayTreeChanged()
 {
+    // Keep the Reactor annotations the overlay reads current; skipped once an app is known not to use Reactor.
+    if (TapReactorMaybePresent()) TapReactorRefreshInspectorAsync();
     if (!g_overlayBuilt.load(std::memory_order_acquire) || !g_diag) return;
     OverlayBuildScope scope;
     InstanceHandle panel = 0;
@@ -228,9 +230,10 @@ static const wchar_t* TryBuildOverlayOnUiThread(std::wstring* errorMessage)
     DevToolsOverlay_SetSourceReader(&OverlaySourceBridge);
     DevToolsOverlay_SetDeclaredReader(&IsDeclaredElement);
     DevToolsOverlay_SetSurfaceSwitch(&SwitchActiveSurface_ui);
-    // let the in-app panel ask the injected managed agent why a binding is broken. It goes through the
-    // SAME CmdBindingOp the `Binding.*` DevTools verbs use, so the panel and an external protocol client cannot
-    // disagree -- which is exactly the defect shipped by having two implementations of one capability.
+    // A Reactor element's C# call site, for the comment flyout.
+    DevToolsOverlay_SetCSharpSourceReader(&OverlayCSharpBridge);
+    // The "Highlight updates" toggle asks the managed agent for component renders.
+    DevToolsOverlay_SetHighlightUpdatesBridge(&OverlayHighlightUpdatesBridge);
     // Route 1: register the in-proc Inspect bridge so the Inspect button can open a second WinUI Window on
     // this app's UI thread (default for WinUI targets) instead of launching the external host.
     DevToolsOverlay_SetInprocInspect(&InprocInspect);
@@ -243,6 +246,8 @@ static const wchar_t* TryBuildOverlayOnUiThread(std::wstring* errorMessage)
         return L"build-failed";
     }
     g_overlayBuilt.store(true, std::memory_order_release);
+    // Reactor apps: stream trace events for the pill's error badge (a no-op elsewhere).
+    TapReactorPumpEnsureAsync();
     if (!g_appForegroundHook) {
         g_appForegroundHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
             &OnAppForeground, GetCurrentProcessId(), 0, WINEVENT_OUTOFCONTEXT);

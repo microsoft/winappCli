@@ -161,11 +161,25 @@ static std::wstring HandleCommand(const std::wstring& line,
     if (line == L"surface.list") {
         struct SurfaceList { std::wstring json; };
         auto st = std::make_shared<SurfaceList>();
-        HRESULT hr = RunOnUiThread([st]() {
+        // Each surface names the Reactor roots it shows; the annotation cache is refreshed here, off the UI thread.
+        TapReactorRefreshAuthored();
+        std::vector<std::pair<InstanceHandle, ReactorAnnotation>> reactorHosts;
+        {
+            AcquireSRWLockShared(&g_reactorAuthoredLock);
+            for (const auto& entry : g_reactorAnnotations) if (entry.second.host) reactorHosts.push_back(entry);
+            ReleaseSRWLockShared(&g_reactorAuthoredLock);
+        }
+        HRESULT hr = RunOnUiThread([st, reactorHosts]() {
             DevToolsOverlay_SetSurfaceRootsReader(&TapCensusRoots);
             DevToolsOverlay_RefreshSurfaces(g_diag, 0);
             const DevToolsSurface& active = DevToolsOverlay_ActiveSurface();
             const std::vector<DevToolsSurface>& all = DevToolsOverlay_AllSurfaces();
+            std::vector<std::pair<unsigned long long, std::wstring>> hostsBySurface;
+            for (const auto& [ih, host] : reactorHosts) {
+                DevToolsSurface surface;
+                if (!DevToolsSurface_Resolve(g_diag, ih, &surface)) continue;
+                hostsBySurface.emplace_back(surface.xamlRootKey, TapReactorSurfaceJson(host));
+            }
             std::wstring out = L"{\"surfaces\":[";
             for (size_t i = 0; i < all.size(); ++i) {
                 const DevToolsSurface& s = all[i];
@@ -191,6 +205,13 @@ static std::wstring HandleCommand(const std::wstring& line,
                 // client that sees false is looking at a runtime with no IXamlRoot3, where two islands in one
                 // window cannot be separated -- so the difference is reported rather than hidden.
                 out += L",\"derived\":"; out += s.hasConverter ? L"true" : L"false";
+                std::wstring reactor;
+                for (const auto& [key, json] : hostsBySurface) {
+                    if (key != s.xamlRootKey) continue;
+                    reactor += reactor.empty() ? L"[" : L",";
+                    reactor += json;
+                }
+                if (!reactor.empty()) out += L",\"reactor\":" + reactor + L"]";
                 out += L"}";
             }
             out += L"],\"activeSurface\":\"" + DevToolsJsonEscape(active.displayName) + L"\"}";
@@ -549,6 +570,10 @@ static std::wstring HandleCommand(const std::wstring& line,
     if (line.rfind(L"property.get|", 0) == 0) {
         // property.get|<handle> -> curated live properties as JSON (UI-thread read).
         return CmdElementProps(Split(line, L'|'));
+    }
+    if (line.rfind(L"property.references|", 0) == 0) {
+        // property.references|<handle> -> LabeledBy/DescribedBy/FlowsTo/FlowsFrom/XYFocus* edges from and to the element.
+        return CmdElementReferences(Split(line, L'|'));
     }
     if (line.rfind(L"layout.get|", 0) == 0) {
         // layout.get|<handle> -> the element's measured layout facts as JSON (UI-thread live read).

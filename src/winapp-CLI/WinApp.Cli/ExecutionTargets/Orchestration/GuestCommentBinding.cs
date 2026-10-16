@@ -48,11 +48,16 @@ internal sealed class GuestCommentBinding
             }
             _sourceFiles.Add(relative);
         }
-        if (_sourceFiles.Count == 0)
-        {
-            throw new InvalidOperationException("Host-backed comments require a nonempty, verified XAML source snapshot.");
-        }
     }
+
+    /// <summary>
+    /// Whether this launch can take comments: it needs XAML or (for a Microsoft.UI.Reactor project) C# sources to
+    /// anchor them.
+    /// </summary>
+    internal bool CommentsEnabled => _sourceFiles.Count > 0;
+
+    internal const string CommentsDisabledMessage =
+        "Comments are off for this Sandbox launch: the project has no XAML or C# source to anchor them.";
 
     internal void Validate(string bindingId, string targetId, string epoch, GuestProcessStart process)
     {
@@ -88,6 +93,10 @@ internal sealed class GuestCommentBinding
         {
             throw new InvalidOperationException("The guest comment is incomplete or exceeds the comment limits.");
         }
+        if (!CommentsEnabled)
+        {
+            throw new InvalidOperationException(CommentsDisabledMessage);
+        }
         var relative = ValidateRelativeSource(input.Anchor.SourceFile ?? string.Empty);
         if (!_sourceFiles.TryGetValue(relative, out var canonical))
         {
@@ -102,31 +111,45 @@ internal sealed class GuestCommentBinding
                 throw new InvalidOperationException("The authored identity belongs to a different guest project or source.");
             }
         }
+        if (input.Anchor.CSharp is { } callSite &&
+            (!CommentStoreLocator.SameProject(callSite.ProjectRoot, GuestSourceRoot) ||
+             !ValidateRelativeSource(callSite.SourceFile).Equals(canonical, StringComparison.OrdinalIgnoreCase) ||
+             callSite.LineHash is not { Length: 64 } || callSite.LineText?.Length > 1024))
+        {
+            throw new InvalidOperationException("The C# call site belongs to a different guest project or source.");
+        }
         // Clone before assigning host ownership; never mutate the deserialized request or trust its project path.
         var mapped = JsonSerializer.Deserialize(
             JsonSerializer.Serialize(input, CommentsJsonContext.Default.Comment), CommentsJsonContext.Default.Comment)!;
         mapped.ProjectRoot = ProjectRoot;
         mapped.Author = Environment.UserName;
         mapped.Anchor.SourceFile = canonical;
-        mapped.Anchor.SourceUri = "ms-appx:///" + canonical.Replace('\\', '/');
+        mapped.Anchor.SourceUri = IsCSharp(canonical) ? null : "ms-appx:///" + canonical.Replace('\\', '/');
         if (mapped.Anchor.Authored is { } authored)
         {
             authored.ProjectRoot = ProjectRoot;
             authored.SourceFile = canonical;
         }
+        if (mapped.Anchor.CSharp is { } csharp)
+        {
+            csharp.ProjectRoot = ProjectRoot;
+            csharp.SourceFile = canonical;
+        }
         return mapped;
     }
+
+    internal static bool IsCSharp(string path) => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
 
     internal static string ValidateRelativeSource(string value)
     {
         var relative = value.Replace('/', '\\');
         var parts = relative.Split('\\');
-        if (Path.IsPathRooted(relative) || !relative.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) ||
+        if (Path.IsPathRooted(relative) || !(relative.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) || IsCSharp(relative)) ||
             parts.Any(p => p.Length == 0 || p is "." or ".." || p.StartsWith('.') ||
                 p.Contains(':') || p.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
                 p.Equals("bin", StringComparison.OrdinalIgnoreCase) || p.Equals("obj", StringComparison.OrdinalIgnoreCase)))
         {
-            throw new InvalidOperationException("Comment sources must be project-relative XAML snapshot entries.");
+            throw new InvalidOperationException("Comment sources must be project-relative XAML or C# snapshot entries.");
         }
         return relative;
     }

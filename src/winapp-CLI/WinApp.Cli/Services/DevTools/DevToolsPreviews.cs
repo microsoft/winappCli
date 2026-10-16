@@ -140,13 +140,28 @@ internal static class DevToolsPreviews
         return true;
     }
 
-    public static string Format(IReadOnlyList<DevToolsPreviewValue> values)
+    /// <summary>
+    /// The compact values a tree line ends with. An accessible name that repeats what the element already shows
+    /// (its Text, Content, Header or PlaceholderText) adds nothing, and Reactor copies every caption into it; one
+    /// that differs is kept. <paramref name="defaultAutomationName"/> is Reactor saying the name is its own default
+    /// copy, whichever caption it came from.
+    /// </summary>
+    public static string Format(IReadOnlyList<DevToolsPreviewValue> values, bool defaultAutomationName = false)
     {
         var parts = new List<string>();
         var labels = new HashSet<string>(StringComparer.Ordinal);
+        var shown = values
+            .Where(v => v.ValueState == "value" && !v.Truncated && v.Name is "Text" or "Content" or "Header" or "PlaceholderText")
+            .Select(v => v.Value)
+            .ToHashSet(StringComparer.Ordinal);
         foreach (var value in values)
         {
             if (value.ValueState == "value" && value.Value.Length == 0)
+            {
+                continue;
+            }
+            if (value.Name == "AutomationProperties.Name" && value.ValueState == "value" &&
+                (defaultAutomationName || shown.Contains(value.Value)))
             {
                 continue;
             }

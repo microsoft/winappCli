@@ -75,4 +75,5 @@ struct __declspec(uuid("523A35EE-EB38-4AE6-A3E1-5B7D0D547BD0")) IXamlDiagnostics
 #include "DevToolsOverlay.CommentMode.inc"
 #include "DevToolsOverlay.Tracking.inc"
 #include "DevToolsOverlay.Anchoring.inc"
+#include "DevToolsOverlay.Reactor.inc"
 #include "DevToolsOverlay.Exports.inc"

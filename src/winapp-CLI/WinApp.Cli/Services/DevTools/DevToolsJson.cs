@@ -236,7 +236,7 @@ internal static class DevToolsJson
         writer.WriteEndObject();
     }
 
-    public static void WriteNode(Utf8JsonWriter writer, VisualTreeNode node)
+    public static void WriteNode(Utf8JsonWriter writer, VisualTreeNode node, Action<Utf8JsonWriter, VisualTreeNode>? extras = null)
     {
         writer.WriteStartObject();
         // BOTH identities, always. `selector` is what a human reads and retypes; `handle` is the exact
@@ -280,10 +280,11 @@ internal static class DevToolsJson
             }
             writer.WriteEndArray();
         }
+        extras?.Invoke(writer, node);
         writer.WriteStartArray("children");
         foreach (var child in node.Children)
         {
-            WriteNode(writer, child);
+            WriteNode(writer, child, extras);
         }
 
         writer.WriteEndArray();

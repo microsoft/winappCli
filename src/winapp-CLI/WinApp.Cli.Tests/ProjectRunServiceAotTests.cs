@@ -1028,6 +1028,25 @@ public sealed class ProjectRunServiceAotTests
             new FakeMSBuildService());
     }
 
+    [TestMethod]
+    public void DevToolsPublish_CompilesReactorDiagnosticsIn()
+    {
+        var project = WriteProject();
+
+        var devtools = ProjectRunService.BuildPublishArguments(project, Options() with { CaptureDevToolsSources = true }, "minimal");
+        CollectionAssert.Contains(devtools.ToList(), "-p:ReactorDiagnostics=true",
+            "a Native AOT or trimmed Reactor app keeps its diagnostics only when they are compiled in");
+        CollectionAssert.Contains(devtools.ToList(), "-p:ReactorSourceMap=true");
+
+        var plain = ProjectRunService.BuildPublishArguments(project, Options(), "minimal");
+        Assert.IsFalse(plain.Any(token => token.Contains("ReactorDiagnostics", StringComparison.Ordinal)), "only DevTools launches ask for it");
+
+        var own = ProjectRunService.BuildPublishArguments(project,
+            Options() with { CaptureDevToolsSources = true, Properties = ["ReactorSourceMap=false"] }, "minimal");
+        CollectionAssert.DoesNotContain(own.ToList(), "-p:ReactorSourceMap=true", "the developer's own -p wins");
+        CollectionAssert.Contains(own.ToList(), "-p:ReactorDiagnostics=true");
+    }
+
     private static ProjectRunOptions Options(bool noRestore = false) =>
         new(
             "Debug",

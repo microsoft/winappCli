@@ -27,6 +27,10 @@ and relaunch after changing source. Comments written in the guest are saved in t
 project's store, and the UI reports success only after the host confirms. They survive
 Sandbox, so read them on the host without `--on sandbox`:
 
+A [Reactor](devtools-reactor.md) project can launch with or without XAML files; its `.cs`
+files (outside `bin`, `obj` and hidden folders) are copied with its XAML, so comments
+in the guest anchor to C# call sites.
+
 ```powershell
 winapp devtools comments list --source-root C:\src\MyApp
 ```
@@ -55,10 +59,27 @@ saved until you pass `--source-root <project folder>` (the folder with its proje
 They then go to the same [comment store](#comment-storage-and-advanced-authoring) as with
 `winapp run`, so both show the same comments and markers.
 
-Late attachment can't add the .NET startup hook or source information recorded at
-launch, so binding operations and source locations need an app started by `winapp run`.
-Binding diagnosis needs .NET: in Native AOT (`winapp run . --aot`) and C++ apps it
-reports `unavailable`. Connections are local-only.
+For a .NET 8 or later app, `attach` also loads the managed agent, so binding
+diagnosis and the Reactor component tree, state and handlers work as they do after
+`winapp run`. `attach` prints `Managed agent: loaded` (`"managedAgent": "loaded"`
+with `--json`). It loads the agent only into an app that runs as you at your
+integrity level, so it skips an elevated app. When the agent can't load, `attach`
+still succeeds and says why:
+
+| Message says | What to do |
+|---|---|
+| `turns off .NET startup hooks` | Run a Debug build, or set `<StartupHookSupport>true</StartupHookSupport>`. Trimmed builds turn them off. |
+| `no .NET diagnostics port` | The app sets `DOTNET_EnableDiagnostics=0`. Relaunch it with `winapp run`. |
+| `needs .NET 8 or later` | Relaunch the app with `winapp run`. |
+| `same user and integrity level` | Attach from a terminal that runs as the app's user, at the app's elevation. |
+
+Native AOT and C++ apps have no .NET runtime to load the agent into: `attach` reports
+`"managedAgent": "none"`, binding diagnosis reports `unavailable`, and native tree and
+property inspection still work. A Reactor app launched by `winapp run` still shows its
+components, call sites and C# names without the agent; see
+[Native AOT, trimmed and attached apps](devtools-reactor.md#native-aot-trimmed-and-attached-apps).
+Late attachment can't recover what is recorded only at launch: XAML source locations
+and Reactor C# call sites. Connections are local-only.
 
 ### Visual UI prerequisites
 
@@ -135,7 +156,10 @@ winapp devtools comments add SaveButton -a 12345 --text "Make this label clearer
 - `--from-selection` comments on the element picked in the toolbar.
 - `--file`, `--name` and `--text` work without a running app; a `--name` that matches
   one element in the file anchors to it.
-- `--id <id>` replaces that comment; `delete <id>` removes it.
+- `--file App.cs --line 35` anchors to the one Reactor call site on that line
+  (`--column` picks among several).
+- `--id <id>` replaces that comment; with `--from-selection` or `--from-element` and no
+  `--text`, it re-anchors the comment and keeps its text. `delete <id>` removes it.
 - `--source-root <dir>` picks the project; `list --project` filters a shared store;
   `list -a <pid>` uses that app's project. Comment reads never take `--on`.
 
@@ -148,6 +172,50 @@ Changes refresh markers in running DevTools apps for the same project, Sandbox i
 `update` and `delete` take `--app <pid>` for another app. A failed marker refresh warns
 but doesn't undo the save. A corrupt store is left untouched. In the app, **Saving...**
 isn't confirmation; the **Comment saved** notice is, and a failed save keeps your draft.
+
+## Element references
+
+`get-property` (without a property name) and the DevTools window's **References**
+section list the elements this element points at, and the ones that point at it,
+through `AutomationProperties.LabeledBy`, `DescribedBy`, `FlowsTo`, `FlowsFrom` and
+`XYFocusUp`/`Down`/`Left`/`Right`, whether XAML or Reactor's `.LabeledBy()` and
+`.XYFocusRight()` set them:
+
+```text
+  References:
+    XYFocusRight → Button Clear all  ↺ cycle
+    Button Clear all → this (XYFocusRight)  ↺ cycle
+```
+
+`↺ cycle` means following the same property comes back to this element. `--json`
+returns the edges as `references`, with each target's handle.
+
+In a Reactor app, a reference can name an element that hasn't been created yet, such
+as a button on a tab that isn't open. The line names the element Reactor expects and
+says it isn't shown (`XYFocusRight → Button (not shown)`); in `--json` the edge has
+`pending: true` and no handle. This needs a Reactor version that reports its
+references to DevTools.
+
+## Look up and change resources
+
+```powershell
+winapp devtools get-resource AccentFillColorDefaultBrush
+winapp devtools set-resource AccentFillColorDefaultBrush "#FFC42B1C" --scope app
+```
+
+`get-resource <key> [selector]` shows where a resource key resolves for an element
+(the window's content when you pass no selector) and its value for that element's
+theme: the element's resources, its ancestors', then the application's.
+`set-resource <key> <value> [selector]` changes it live. With `--scope app` (the
+default without a selector) it replaces the key where the application defines it,
+for the current theme; with `--scope element` (the default with a selector) it adds
+or replaces the key in that element's own resources. Brushes and colors take
+`#RRGGBB` or `#AARRGGBB`; other values are parsed to the key's current type.
+
+`{ThemeResource}` references and Reactor `ThemeRef`s pick up the new value;
+`{StaticResource}` references keep the value they loaded. The change is in memory
+only; restart the app to undo it. Both commands work in any WinUI app with DevTools, XAML or
+Reactor.
 
 ## JSON output
 
@@ -175,6 +243,17 @@ winapp devtools call VisualTree.enumerate depth:=4 -a 12345
 as `handle=123`. The protocol is experimental (`protocolVersion` `"0"`); methods may
 change. `Overlay.getState` reports where the toolbar is hosted: `uiLayer` (above the app)
 or `popup`, a fallback that sits under the app's open dialogs.
+
+In a Reactor app, `Reactor.enable` subscribes the connection to `Reactor.changed`
+events: state changes, unmounts, render and swallowed errors, warnings, hot reload
+and windows opening or closing, each with a `kind` and `level`. Pass `renders:=true`
+to also receive each batch of component renders with the elements' handles; this is
+off by default because it is the costly one. `Reactor.logs` returns the warnings and
+errors kept since launch (`since:=<seq>` for newer ones, `level=error|warning|info`).
+
+```powershell
+winapp devtools call Reactor.logs level=error -a 12345
+```
 
 ### Read a binding path natively
 

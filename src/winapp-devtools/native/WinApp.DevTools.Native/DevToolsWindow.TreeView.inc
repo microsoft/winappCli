@@ -39,15 +39,15 @@ static void SetFocusNotice(const std::wstring& text)
     if (g_focusNoticeUi) DevToolsPutVisibility(g_focusNoticeUi, text.empty() ? 1 : 0);
 }
 
-// Keep Just my XAML availability, label and enabled state synchronized with the current tree.
+// Keep Just my code availability, label and enabled state synchronized with the current tree.
 // Distinguish absent source instrumentation from source present with no app-authored matches.
 // Put the unavailable reason in visible text; disabled controls may not show tooltips.
 static void ApplyJmxAvailability()
 {
     SetToggleLabel(g_jmxLbl,
-        g_jmxAvailable       ? (g_jmxActive ? L"Just my XAML: On" : L"Just my XAML: Off")
-        : (g_jmxSrcSeen > 0) ? L"Just my XAML: unavailable (no app-authored XAML in view)"
-                             : L"Just my XAML: unavailable (no XAML source info)");
+        g_jmxAvailable       ? (g_jmxActive ? L"Just my code: On" : L"Just my code: Off")
+        : (g_jmxSrcSeen > 0) ? L"Just my code: unavailable (no app-authored XAML or Reactor elements in view)"
+                             : L"Just my code: unavailable (no XAML source or Reactor information)");
     if (g_jmxBtnCtrl) {
         DevToolsPutIsEnabled(g_jmxBtnCtrl, g_jmxAvailable);
         void* toggle = nullptr;
@@ -121,7 +121,7 @@ static std::vector<DevToolsTreeLayout::Row> SnapshotLayoutRows()
 static constexpr size_t kNoCensusRow = static_cast<size_t>(-1);
 
 // The same shape, but over the FULL census rather than the rendered rows. The rendered set is what the
-// current view shows; with "Just my XAML" on that is app-authored rows only, so a question about a framework
+// current view shows; with "Just my code" on that is app-authored rows only, so a question about a framework
 // element's ancestry can only be answered here.
 static std::vector<DevToolsTreeLayout::Row> SnapshotCensusRows()
 {
@@ -157,7 +157,7 @@ static void ApplyDefaultCollapse()
     for (size_t i = 0; i < collapsed.size() && i < g_treeCollapsed.size(); ++i)
         g_treeCollapsed[i] = collapsed[i];
 
-    // Re-indent for THIS view. Indentation is a property of the view: with "Just my XAML" on - the default -
+    // Re-indent for THIS view. Indentation is a property of the view: with "Just my code" on - the default -
     // the shallowest visible row can be 20+ levels deep, and its absolute census indent would leave every row
     // starting ~45% into the tree pane as dead gutter for almost no nesting information. viewDepth is the
     // depth within the current effective view, so the filtered view starts flush left as the unfiltered one does.
@@ -300,7 +300,7 @@ static void SelectNodeByWire(InstanceHandle wire, SelectCause cause = SelectCaus
         ApplyDefaultCollapse();
         DevToolsOverlayLog(L"route1.select row %zu excluded by Just-my-XAML -> filter turned off to reveal it", si);
     } else if (cause == SelectCause::Comment && RowHiddenByJmx(si)) {
-        SetStatusText(L"Selected it. Just my XAML is hiding its row in the tree view.");
+        SetStatusText(L"Selected it. Just my code is hiding its row in the tree view.");
         DevToolsOverlayLog(L"route1.select row %zu excluded by Just-my-XAML; comment click reported it "
                       L"instead of clearing the filter", si);
     }
@@ -493,7 +493,7 @@ struct FocusSink : DevToolsSinkBase
 
 // Apply the tree filter query (already the raw box text) to the rendered rows. Empty query -> restore the
 // collapse-based visibility. Non-empty -> show only rows whose lowercased "type #name" contains the query
-// (case-insensitive substring), ignoring collapse state so every match is reachable. The "Just my XAML" gate
+// (case-insensitive substring), ignoring collapse state so every match is reachable. The "Just my code" gate
 // still applies so a search stays within the active scope. Operates only on the realized (<=
 // node-budget) rows, so a per-keystroke pass is cheap. UI thread only.
 static void SetTreeNoMatches(const std::wstring& query, bool none)

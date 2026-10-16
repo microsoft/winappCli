@@ -134,7 +134,7 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
             .ConvertAll(c => new TapComment(
                 c.Id,
                 c.Text,
-                c.Anchor.ElementPath,
+                c.Anchor.ElementPath ?? ReactorMarkerAnchor(c.Anchor.CSharp),
                 c.Status,
                 DescribeElement(c.Anchor.Identity),
                 c.Anchor.SourceFile,
@@ -146,5 +146,29 @@ internal sealed class CommentPusher(ICommentStore store, ILogger<CommentPusher>?
     {
         var type = string.IsNullOrWhiteSpace(identity.Type) ? "element" : identity.Type!;
         return string.IsNullOrWhiteSpace(identity.Name) ? type : $"{type} #{identity.Name}";
+    }
+
+    /// <summary>
+    /// The in-app marker anchor of a C# call site captured without the app (<c>comments add --file App.cs --line 35</c>),
+    /// in the format the app gives live captures (DevToolsReactorAnchor.h). The app matches it to the element that
+    /// call site created, ignoring the line and column when the app was built from different source.
+    /// </summary>
+    internal static string? ReactorMarkerAnchor(CommentCSharpAnchor? cs)
+    {
+        if (cs is null || string.IsNullOrEmpty(cs.SourceFile) || cs.Exact is false)
+        {
+            return null;
+        }
+        var anchor = new System.Text.StringBuilder("reactor:");
+        void Field(string value) => anchor.Append(value.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(':').Append(value);
+        Field(cs.SourceFile);
+        Field(cs.Line.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Field(cs.Column.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Field(cs.Element ?? cs.Factory ?? string.Empty);
+        Field(cs.Key ?? string.Empty);
+        Field(cs.Component ?? string.Empty);
+        Field(cs.Ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Field("0");
+        return anchor.ToString();
     }
 }

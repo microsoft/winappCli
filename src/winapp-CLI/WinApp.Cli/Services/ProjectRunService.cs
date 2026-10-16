@@ -70,6 +70,11 @@ internal sealed partial class ProjectRunService(
         "SelfContained",
         "PublishProfile",
         "PublishProfileName",
+        // Microsoft.UI.Reactor source mapping, for `run --devtools` (see DevTools.ReactorBuildFacts).
+        "ReactorSourceMap",
+        "InterceptorsNamespaces",
+        "_MicrosoftUIReactorTargetsLoaded",
+        "PathMap",
         "PublishProfileFullPath",
         "WebPublishProfileFile",
         "PublishProfileImported",
@@ -704,7 +709,9 @@ internal sealed partial class ProjectRunService(
             DevToolsXamlSources: devToolsSources,
             AppxManifestPath: appxManifestPath,
             AppxRecipePath: appxRecipePath,
-            DevToolsCompilerArtifacts: compiler);
+            DevToolsCompilerArtifacts: compiler,
+            DevToolsReactor: options.CaptureDevToolsSources
+                ? DevTools.ReactorBuildFacts.From(props, GetProp(props, "ProjectAssetsFile")) : null);
 
         return new ProjectBuildOutcome(resolution, 0);
     }

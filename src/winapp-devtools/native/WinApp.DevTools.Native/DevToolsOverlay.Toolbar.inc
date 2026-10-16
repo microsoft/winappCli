@@ -132,8 +132,8 @@ static IInspectable* DevToolsSelFindName(IInspectable* root, const wchar_t* name
 static Client ClientGeom() { return Client{ g_protoW, g_protoH, g_titleBarInsetDip }; }
 static double ChipX() { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_chipW, (double)kChipH, &x, &y); return x; }
 static double ChipY() { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), g_chipW, (double)kChipH, &x, &y); return y; }
-static double BarX()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), (double)kBarW, (double)kBarH, &x, &y); return x; }
-static double BarY()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), (double)kBarW, (double)kBarH, &x, &y); return y; }
+static double BarX()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), (double)(kBarW + g_barExtraW), (double)kBarH, &x, &y); return x; }
+static double BarY()  { double x = 0, y = 0; Anchor(g_corner, ClientGeom(), (double)(kBarW + g_barExtraW), (double)kBarH, &x, &y); return y; }
 
 static void SnapTargetPos(int c, double* x, double* y)
 {
@@ -165,7 +165,7 @@ static bool ToolbarRectDip(RECT* out)
 {
     if (!g_toolbarVisible || (!g_railL && !g_aRow)) return false;
     const double left = (std::min)(ChipX(), BarX()), top = (std::min)(ChipY(), BarY());
-    const double right = (std::max)(ChipX() + g_chipW, BarX() + kBarW);
+    const double right = (std::max)(ChipX() + g_chipW, BarX() + kBarW + g_barExtraW);
     const double bottom = (std::max)(ChipY() + kChipH, BarY() + kBarH);
     *out = RECT{ (LONG)std::floor(left), (LONG)std::floor(top), (LONG)std::ceil(right), (LONG)std::ceil(bottom) };
     return true;
@@ -495,6 +495,8 @@ static void ProtoSetPartAutomationName(const wchar_t* name, const std::wstring& 
 
 static bool CommentsShown();
 static size_t CommentCount();
+static void OnHighlightUpdatesClick(void*, void*);
+static void ReapplyReactorToolbarState();
 // Toolbar menus are canvas parts shown beside the bar, one at a time. They live in the toolbar's layer rather than
 // in a popup, so they never mix with the app's own popups.
 static const wchar_t* g_toolbarMenuAnchor = nullptr;
@@ -1118,6 +1120,7 @@ static void WirePrototype(IInspectable* canvas)
         wireNamedClick(L"DevToolsProtoLayout", g_protoSink[5], &ThenReturnFocus<&OnLayoutToggleClick>);
         wireNamedClick(L"DevToolsProtoTheme", g_protoSink[6], &ThenReturnFocus<&OnThemeToggleClick>);
         wireNamedClick(L"DevToolsProtoPin", g_protoSink[7], &OnPinClick);
+        wireNamedClick(L"DevToolsProtoHighlight", g_protoSink[23], &ThenReturnFocus<&OnHighlightUpdatesClick>);
         items->Release();
     }
     try {
@@ -1136,6 +1139,7 @@ static void WirePrototype(IInspectable* canvas)
         barUi->Release();
     }
 
+    ReapplyReactorToolbarState();
     DevToolsOverlayLog(L"overlay.toolbar wired (bar=%p pill=%p snaps=%p,%p,%p,%p,%p,%p position=%d)",
                   g_aRow, g_railL, g_snapUi[0], g_snapUi[1], g_snapUi[2],
                   g_snapUi[3], g_snapUi[4], g_snapUi[5], g_corner);

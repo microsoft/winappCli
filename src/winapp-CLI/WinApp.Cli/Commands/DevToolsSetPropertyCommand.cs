@@ -181,6 +181,10 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                     "Pass --type <XamlType> to attempt the write anyway."));
             }
 
+            // A property the element's Reactor C# sets is written like any other, but Reactor reapplies its own value.
+            var reactor = ReactorElementInfo.Read(tap, handle, cancellationToken);
+            var reactorOwned = reactor?.OwnerOf(beforeRow.Name) is not null;
+
             var writeResponse = tap.RequestSetProperty(handle, beforeRow.Name, writeType, value, cancellationToken);
             if (!writeResponse.Ok)
             {
@@ -236,6 +240,19 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                     if (replacedBinding is not null)
                     {
                         writer.WriteString("replacedBinding", replacedBinding);
+                    }
+                    if (reactorOwned)
+                    {
+                        writer.WriteBoolean("reactorOwned", true);
+                        writer.WriteStartObject("reactor");
+                        if (reactor!.File is not null)
+                        {
+                            writer.WriteString("file", reactor.File);
+                            writer.WriteNumber("line", reactor.Line);
+                        }
+                        if (reactor.RenderedBy is { } component) { writer.WriteString("component", component); }
+                        writer.WriteString("warning", reactor.OwnedWarning(beforeRow.Name));
+                        writer.WriteEndObject();
                     }
                     if (afterRow?.ValueSource is string source)
                     {
@@ -305,6 +322,11 @@ internal class DevToolsSetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                 }
 
                 return Task.FromResult(1);
+            }
+
+            if (reactorOwned)
+            {
+                DevToolsRender.WriteMarkupLine(Console, $"{UiSymbols.Warning} {Markup.Escape(reactor!.OwnedWarning(beforeRow.Name))}");
             }
 
             if (replacedBinding is not null)

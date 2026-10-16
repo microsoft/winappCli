@@ -2,8 +2,18 @@
 // Licensed under the MIT License.
 // Part of DevToolsWindow.cpp; included into that translation unit, not compiled on its own.
 
+static bool IsCSharpPath(const std::wstring& path)
+{
+    return path.size() > 3 && CompareStringOrdinal(path.c_str() + path.size() - 3, 3, L".cs", 3, TRUE) == CSTR_EQUAL;
+}
+
 static std::wstring ResolveSourcePath(const std::wstring& uri)
 {
+    // A Reactor call site is already a file path on this machine (mapped by the tap), not an ms-appx URI.
+    if (IsCSharpPath(uri)) {
+        const DWORD attributes = GetFileAttributesW(uri.c_str());
+        return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY) ? uri : L"";
+    }
     DWORD required = GetEnvironmentVariableW(L"WINAPP_DEVTOOLS_SOURCE_ROOT", nullptr, 0);
     if (required == 0) return L"";
     std::vector<wchar_t> root(required);
@@ -65,15 +75,16 @@ static std::wstring HandOffSource(const std::wstring& uri, unsigned int line, co
 {
     const std::wstring path = ResolveSourcePath(uri);
     const std::wstring display = SourceFileName(uri);
+    const std::wstring extension = IsCSharpPath(uri) ? L".cs" : L".xaml";
     const DevToolsShellOpen::Result r = DevToolsShellOpen::Decide(
-        path, L".xaml",
+        path, extension,
         [](const std::wstring& ext) { return ShellAssocFor(ext); },
         [](const std::wstring& p)   { return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES; },
         [](const std::wstring& p)   {
             HINSTANCE rc = ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             return static_cast<int>(reinterpret_cast<INT_PTR>(rc));
         });
-    SetStatusText(DevToolsShellOpen::Describe(r, display, line, path, offScreenPrefix));
+    SetStatusText(DevToolsShellOpen::Describe(r, display, line, path, offScreenPrefix, extension));
     DevToolsOverlayLog(L"route1.opensource outcome=%d handler='%s' path='%s'",
                   (int)r.outcome, r.handler.c_str(), path.c_str());
     return (r.outcome == DevToolsShellOpen::Outcome::NoPath) ? std::wstring() : path;

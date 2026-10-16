@@ -162,10 +162,10 @@
               ToolTipService.ToolTip="{Binding Text, ElementName=JmxLbl}">
           <ToggleButton x:Name="JmxBtn" Width="32" Height="32" Padding="0"
                         AutomationProperties.Name="{Binding Text, ElementName=JmxLbl}"
-                        AutomationProperties.AutomationId="JustMyXamlToggle">
+                        AutomationProperties.AutomationId="JustMyCodeToggle">
             <FontIcon Glyph="&#xE943;" FontSize="14"/>
           </ToggleButton>
-          <TextBlock x:Name="JmxLbl" Text="Just my XAML" Visibility="Collapsed"
+          <TextBlock x:Name="JmxLbl" Text="Just my code" Visibility="Collapsed"
                      AutomationProperties.AccessibilityView="Raw"/>
         </Grid>
       </Grid>

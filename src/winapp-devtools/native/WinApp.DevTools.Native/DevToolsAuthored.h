@@ -71,3 +71,16 @@ bool DevToolsAuthored_FindAttribute(const std::wstring& element, const std::wstr
 // Convenience wrapper for callers that need only one property.
 DevToolsAuthoredState DevToolsAuthored_Read(const std::wstring& fileUri, unsigned int line,
                                   const std::wstring& prop, std::wstring* out);
+
+// The C# statement at line/column of a file on this machine (a Reactor call site), secrets redacted. Same file limits
+// as XAML reads. False when the file cannot be read or has no such line.
+bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, unsigned int column, std::wstring* out);
+
+// The C# variable or member the call at line/column of a file on this machine is assigned to, read from the line's
+// text (DevToolsReactorNames); empty when it is not assigned or the file cannot be read.
+std::wstring DevToolsAuthored_CSharpName(const std::wstring& path, unsigned int line, unsigned int column,
+    const std::wstring& kind = L"");
+
+// The lowercase hex SHA256 or SHA1 (as a portable PDB records it) of a file on this machine; empty when the file
+// cannot be read or the algorithm is neither.
+std::wstring DevToolsAuthored_FileHash(const std::wstring& path, const std::wstring& algorithm);

@@ -144,7 +144,22 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
                         }
 
                         writer.WriteString("type", candidate.Type);
+                        if (candidate.Label is not null)
+                        {
+                            writer.WriteString("reactor", candidate.Label);
+                        }
+
+                        if (candidate.Detail is not null)
+                        {
+                            writer.WriteString("detail", candidate.Detail);
+                        }
+
                         DevToolsJson.WriteLocation(writer, candidate.ShortFile, candidate.Facts);
+
+                        if (candidate.Window is not null)
+                        {
+                            writer.WriteString("window", candidate.Window);
+                        }
 
                         writer.WriteEndObject();
                     }
@@ -221,7 +236,7 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
         {
             if (string.IsNullOrWhiteSpace(selector))
             {
-                exitCode = Fail(json, target.Pid, $"Provide a selector: the selector printed in brackets, an x:Name, an AutomationId, or a handle. {usage}");
+                exitCode = Fail(json, target.Pid, $"Provide a selector: the selector printed in brackets, an x:Name, an AutomationId, a Reactor <Component>, or a handle. {usage}");
                 return null;
             }
 
@@ -260,6 +275,103 @@ internal abstract class DevToolsLiveCommand : Command, IShortDescription
         }
 
         protected string? LastWarning { get; private set; }
+
+        /// <summary>
+        /// The selector's handle, or with no selector the root of the targeted window (the first window when none is
+        /// chosen), for commands that work from a window as a whole.
+        /// </summary>
+        protected string? RequireHandleOrRoot(DevToolsTarget target, string? selector, bool json, out int exitCode,
+            CancellationToken cancellationToken, bool forMutation = false)
+        {
+            if (selector is not null)
+            {
+                return RequireHandle(target, selector, json, "Run `winapp devtools inspect` to list elements.", out exitCode,
+                    cancellationToken, forMutation);
+            }
+            var response = target.Tap!.RequestEnumerate(null, 2, cancellationToken: cancellationToken);
+            var roots = response.Ok ? VisualTreeNode.ParseForest(response.ResultJson) : null;
+            // A window's top node is its XAML source or island, which is not an element; its content is.
+            var content = DevToolsPreviews.Flatten(roots ?? []).FirstOrDefault(node =>
+                !node.Type.EndsWith("DesktopWindowXamlSource", StringComparison.Ordinal) &&
+                !node.Type.EndsWith(".XamlIsland", StringComparison.Ordinal) &&
+                !node.Type.EndsWith(".PopupRoot", StringComparison.Ordinal));
+            if (content is not null)
+            {
+                exitCode = 0;
+                return content.Handle;
+            }
+            exitCode = response.Ok
+                ? Fail(json, target.Pid, "The app has no XAML window to work from.", "no-tree")
+                : Fail(json, target.Pid, response.Error!);
+            return null;
+        }
+
+        /// <summary>
+        /// Reports an agent answer whose <c>state</c> is <c>ok</c> or a failure (<c>refused</c>, <c>threw</c>,
+        /// <c>absent</c>, <c>unavailable</c>, or <c>indeterminate</c> when a write may or may not have happened), with
+        /// one verdict for both output shapes.
+        /// </summary>
+        protected int ReportAgentAnswer(
+            DevToolsTarget target,
+            string handle,
+            bool json,
+            DevToolsProtocolResponse response,
+            Action<Utf8JsonWriter, JsonElement> writeOk,
+            Func<JsonElement, IEnumerable<string>> describeOk,
+            CancellationToken cancellationToken)
+        {
+            if (!response.Ok)
+            {
+                return Fail(json, target.Pid, response.Error!);
+            }
+            using var doc = response.TryParseResult();
+            if (doc is null || doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return Fail(json, target.Pid, "The DevTools agent returned an unreadable answer.", "invalid-response");
+            }
+            var root = doc.RootElement;
+            var state = root.TryGetProperty("state", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
+            if (state != "ok")
+            {
+                var (token, message) = ReactorWrites.Problem(root, state);
+                if (!json)
+                {
+                    Console.MarkupLineInterpolated($"[red]Error:[/] {message}");
+                    return 1;
+                }
+                WriteJson(DevToolsJson.Serialize(writer =>
+                {
+                    writer.WriteBoolean("ok", false);
+                    writer.WriteNumber("processId", target.Pid);
+                    WriteIdentity(writer, target, handle, cancellationToken);
+                    foreach (var member in root.EnumerateObject())
+                    {
+                        if (member.Name is "indeterminate" or "event" or "method" or "exception" or "message")
+                        {
+                            member.WriteTo(writer);
+                        }
+                    }
+                    DevToolsJson.WriteError(writer, new DevToolsProtocolError(0, token, message));
+                }));
+                return 1;
+            }
+            if (json)
+            {
+                WriteJson(DevToolsJson.Serialize(writer =>
+                {
+                    writer.WriteBoolean("ok", true);
+                    writer.WriteNumber("processId", target.Pid);
+                    WriteIdentity(writer, target, handle, cancellationToken);
+                    writeOk(writer, root);
+                }));
+                return 0;
+            }
+            foreach (var line in describeOk(root))
+            {
+                DevToolsRender.WriteMarkupLine(Console, line);
+            }
+            return 0;
+        }
 
         protected void WriteWarning(Utf8JsonWriter writer)
         {

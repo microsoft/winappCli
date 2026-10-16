@@ -11,7 +11,7 @@ namespace WinApp.Cli.Commands;
 
 internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
 {
-    public override string ShortDescription => "Read the XAML file and line an element was declared at";
+    public override string ShortDescription => "Read the XAML or Reactor C# line an element was declared at";
 
     public IReadOnlyList<string> Examples { get; } =
     [
@@ -25,7 +25,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
     };
 
     public DevToolsGetSourceCommand()
-        : base("get-source", "Find an element's XAML declaration, when source information is available.")
+        : base("get-source", "Find an element's XAML declaration, or the Reactor C# call site that created it, when source information is available.")
     {
         Arguments.Add(SelectorArgument);
     }
@@ -83,6 +83,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             // ONE verdict for both shapes: no source record is a failure in the human path, and `--json` used
             // to report ok:true with fileName:"" and exit 0 for exactly that.
             var hasSource = file.Length > 0;
+            var noSourceToken = "source-unavailable";
             // Without source information for the whole app (DevTools attached after it started) no element has a
             // source, so that is the reason, not this element being framework XAML.
             var noSource = !hasSource &&
@@ -97,6 +98,35 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                 : DevToolsFormat.ShortFileName(file) ?? file;
             var endLine = Math.Max(authoredLine, authoredEndLine);
             var path = hasSource ? DevToolsJson.ProjectPath(DevToolsJson.SourceRoot(target.Tap!, cancellationToken), projectFile) : null;
+
+            if (ReadString(root, "kind") == "csharp" && hasSource)
+            {
+                return Task.FromResult(WriteCSharpSource(target, handle, root, file, line, column, json, cancellationToken));
+            }
+
+            if (!hasSource)
+            {
+                // A Reactor app may hold the answer the agent could not give: say which Reactor fact is missing.
+                var describeResponse = target.Tap!.RequestReactorDescribe(cancellationToken);
+                var described = describeResponse.Ok ? ReactorDescription.Parse(describeResponse.ResultJson) : null;
+                if (described is { Present: true, IsReactor: false })
+                {
+                    noSourceToken = ReactorDescription.UnavailableToken;
+                    noSource = described.ExplainUnavailable();
+                }
+                else if (described?.ExplainMissingSource() is { } missing)
+                {
+                    noSourceToken = ReactorDescription.NoSourceMapToken;
+                    noSource = missing;
+                }
+                else if (described is { IsReactor: true })
+                {
+                    // A Reactor app can have no XAML at all, so missing XAML source information says nothing
+                    // about how it was launched: this element just has no authored declaration.
+                    noSource = "No source is recorded for this element. Framework, template or generated elements " +
+                        "may have no app-authored declaration.";
+                }
+            }
 
             if (json)
             {
@@ -148,7 +178,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     }
                     else
                     {
-                        DevToolsJson.WriteError(writer, "source-unavailable", noSource);
+                        DevToolsJson.WriteError(writer, noSourceToken, noSource);
                     }
                 }));
                 return Task.FromResult(hasSource ? 0 : 1);
@@ -192,8 +222,110 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             return Task.FromResult(0);
         }
 
+        // The C# a Microsoft.UI.Reactor element was created by: its own call site, or the nearest Reactor element's.
+        private int WriteCSharpSource(DevToolsTarget target, string handle, JsonElement root, string file, int line, int column,
+            bool json, CancellationToken cancellationToken)
+        {
+            var reactor = root.TryGetProperty("reactor", out var r) && r.ValueKind == JsonValueKind.Object ? r : default;
+            var element = reactor.ValueKind == JsonValueKind.Object ? ReadString(reactor, "element") : "";
+            var component = reactor.ValueKind == JsonValueKind.Object ? ReadString(reactor, "component") : "";
+            var exact = reactor.ValueKind != JsonValueKind.Object || !reactor.TryGetProperty("exact", out var e) || e.ValueKind != JsonValueKind.False;
+            var code = ReadString(root, "csharp");
+            var onDisk = !root.TryGetProperty("onDisk", out var disk) || disk.ValueKind != JsonValueKind.False;
+            var compiled = ReadString(root, "compiledFileName");
+            if (json)
+            {
+                WriteJson(DevToolsJson.Serialize(writer =>
+                {
+                    writer.WriteBoolean("ok", true);
+                    writer.WriteNumber("processId", target.Pid);
+                    WriteIdentity(writer, target, handle, cancellationToken);
+                    WriteWarning(writer);
+                    writer.WriteString("kind", "csharp");
+                    writer.WriteString("fileName", file);
+                    writer.WriteNumber("lineNumber", line);
+                    writer.WriteNumber("columnNumber", column);
+                    writer.WriteBoolean("onDisk", onDisk);
+                    if (!onDisk && FindRelativeSource(file) is { } found) { writer.WriteString("fileOnDisk", found); }
+                    if (compiled.Length > 0) { writer.WriteString("compiledFileName", compiled); }
+                    if (reactor.ValueKind == JsonValueKind.Object)
+                    {
+                        writer.WritePropertyName("reactor");
+                        reactor.WriteTo(writer);
+                    }
+                    if (code.Length > 0) { writer.WriteString("csharp", code); }
+                }));
+                return 0;
+            }
+
+            DevToolsRender.WriteMarkupLine(Console, DevToolsRender.Header(handle, Describe(target, handle, cancellationToken)));
+            var mounts = reactor.ValueKind == JsonValueKind.Object ? ReadString(reactor, "mounts") : "";
+            var fileName = Path.GetFileName(file.Replace('/', '\\'));
+            var location = column > 0 ? $"{fileName}:{line}:{column}" : $"{fileName}:{line}";
+            var owner = component.Length > 0 ? $"<{component}> · " : "";
+            var what = mounts.Length > 0 ? $"<{mounts}>" : element;
+            DevToolsRender.WriteMarkupLine(Console,
+                $"  {Markup.Escape(owner + location)} [grey](C#{(what.Length > 0 ? ", Reactor " + Markup.Escape(what) : "")})[/]");
+            DevToolsRender.WriteMarkupLine(Console, $"  [grey]{Markup.Escape(file)}[/]");
+            if (!exact)
+            {
+                DevToolsRender.WriteMarkupLine(Console,
+                    "  [grey]This element has no Reactor call site of its own; this is the nearest Reactor element that contains it.[/]");
+            }
+            if (!onDisk)
+            {
+                // Reactor records C# paths relative to the project. A late attach does not know the project, so look
+                // for the file from where the command runs; the line shows where it is.
+                if (FindRelativeSource(file) is { } local)
+                {
+                    DevToolsRender.WriteMarkupLine(Console, $"  [grey]Found here: {Markup.Escape(local)}[/]");
+                    if (code.Length == 0 && line > 0 && File.ReadLines(local).Skip(line - 1).FirstOrDefault() is { } text)
+                    {
+                        code = text.Trim();
+                    }
+                }
+                else
+                {
+                    DevToolsRender.WriteMarkupLine(Console, IsRelative(file)
+                        ? $"  [grey]The build recorded {Markup.Escape(file)} relative to its project. Run this command from the project folder, or launch the app with `winapp run` and DevTools on so DevTools knows where it is.[/]"
+                        : "  [grey]This file is not on this machine at the path the build recorded. Build the app here to read the code.[/]");
+                }
+            }
+            if (code.Length > 0)
+            {
+                Console.WriteLine();
+                foreach (var codeLine in code.Replace("\r\n", "\n").Split('\n'))
+                {
+                    DevToolsRender.WriteMarkupLine(Console, $"  [grey]{Markup.Escape(codeLine)}[/]");
+                }
+            }
+            return 0;
+        }
+
         private static int ReadInt(JsonElement element, string name) =>
             element.TryGetProperty(name, out var value) && value.TryGetInt32(out var number) ? number : 0;
+
+        // A project-relative C# path (`Pages/Main.cs`), as Reactor publishes it; not rooted and not a /_/ deterministic one.
+        internal static bool IsRelative(string file) =>
+            file.Length > 0 && !Path.IsPathRooted(file) && !file.StartsWith("/_", StringComparison.Ordinal);
+
+        // The relative file under the current folder or one above it, without leaving those folders.
+        internal static string? FindRelativeSource(string file, string? start = null)
+        {
+            if (!IsRelative(file) || file.Split('/', '\\').Any(segment => segment == ".."))
+            {
+                return null;
+            }
+            for (var folder = new DirectoryInfo(start ?? Directory.GetCurrentDirectory()); folder is not null; folder = folder.Parent)
+            {
+                var candidate = Path.Combine(folder.FullName, file.Replace('/', Path.DirectorySeparatorChar));
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+            return null;
+        }
 
         private static string DescribeAuthoredState(string state, string file) => state switch
         {

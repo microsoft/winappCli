@@ -384,6 +384,9 @@ static const int kChipH         = 28;
 // dragHandle(24)+margin(2) + Pick(30)+Comments(34)+Inspect(30)+Layout(30)+Theme(30) + sep(1)+margin(6) +
 // Pin(24) + 7*Spacing(3) = 232 DIP; chrome = 2*Border(1) + 2*Padding(6) = 14 DIP.
 static const int kBarW          = 266;
+// The "Highlight updates" toggle widens the bar when the app's Reactor reports component renders.
+static const int kHighlightButtonW = 33;
+static int g_barExtraW = 0;
 static const int kBarH          = 36;
 static const int kSnapW         = 112;
 static const int kSnapH         = 32;
@@ -537,6 +540,7 @@ static DevToolsCardReadInputFn  g_cardReadInput = nullptr;
 static DevToolsCardScopeFn      g_cardScope = nullptr;
 static DevToolsCardFreezeFn     g_cardFreeze = nullptr;
 static DevToolsSourceReadFn     g_srcRead = nullptr;
+static DevToolsCSharpSourceReadFn g_csharpRead = nullptr;
 static DevToolsDeclaredFn       g_isDeclared = nullptr;
 
 static const GUID IID_RoutedEventHandler_Del =

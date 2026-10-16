@@ -165,8 +165,9 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
         // render cap show no chevron (can't collapse what isn't rendered) -- honest.
         const bool hasKids = a.branch;
         const int leftPad = IndentPxForLevel(n.depth - minDepth);
-        std::wstring identity = g_treeShortType[i];
+        std::wstring identity = n.reactorLabel.empty() ? g_treeShortType[i] : n.reactorLabel;
         if (!n.name.empty()) { identity += L" #"; identity += n.name; }
+        if (!n.reactorSource.empty()) { identity += L" "; identity += n.reactorSource; }
 
         IInspectable* rowGrid = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.Grid");
         if (!rowGrid) { DevToolsOverlayLog(L"route1.rows row %zu: Grid did not activate", i); return nullptr; }
@@ -344,7 +345,8 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                         }
                         run->Release();
                     };
-                    addRun(g_treeShortType[i], pal.accent, false);
+                    // A Reactor element reads as its component (`<Counter>`) or element kind, not the WinUI type.
+                    addRun(n.reactorLabel.empty() ? g_treeShortType[i] : n.reactorLabel, pal.accent, false);
                     if (!n.name.empty()) {
                         addRun(L"  #", pal.tertiary, false);
                         addRun(n.name, pal.primary, false);
@@ -354,6 +356,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                         addRun(n.preview, pal.secondary, true);
                         addRun(L"\u201D", pal.tertiary, false);
                     }
+                    if (!n.reactorSource.empty()) addRun(L"  " + n.reactorSource, pal.tertiary, false);
                     inlines->Release();
                 }
                 reinterpret_cast<IUnknown*>(ctb)->Release();
@@ -491,7 +494,7 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
         g_treeShortType[i] = ShortType(n.type);
         g_treeAppAuthored[i] = original < g_allTreeAppAuthored.size() ? g_allTreeAppAuthored[original] : 0;
         g_treeLabel[i] = DevToolsTreeLayout::BuildTreeFilterLabel(n.type, n.name,
-            n.preview + L" " + n.searchText + L" " + n.sourceUri);
+            n.preview + L" " + n.searchText + L" " + n.sourceUri + L" " + n.reactorLabel + L" " + n.reactorSource);
         // Addressable whether or not it gets an element: this map answers "is this element in the tree", and
         // a deferred row is in the tree. Populated here rather than in BuildOneTreeRow so it covers
         // rows that builder never runs for.

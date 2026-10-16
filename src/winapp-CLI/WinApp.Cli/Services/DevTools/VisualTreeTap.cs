@@ -346,7 +346,8 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
         parts.Add(payload[start..]);
         return parts;
     }
-    public DevToolsProtocolResponse RequestEnumerate(string? rootHandle, int? depth, bool authored = false, CancellationToken cancellationToken = default) =>
+    public DevToolsProtocolResponse RequestEnumerate(string? rootHandle, int? depth, bool authored = false, bool annotate = false,
+        CancellationToken cancellationToken = default) =>
         Request("VisualTree.enumerate", w =>
         {
             if (!string.IsNullOrEmpty(rootHandle))
@@ -361,7 +362,11 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
             {
                 w.WriteBoolean("authored", true);
             }
-        }, authored ? DefaultTimeoutMs : CensusReadTimeoutMs, cancellationToken);
+            if (annotate)
+            {
+                w.WriteBoolean("annotate", true);
+            }
+        }, annotate ? ReactorDescribeTimeoutMs : authored ? DefaultTimeoutMs : CensusReadTimeoutMs, cancellationToken);
 
     public DevToolsProtocolResponse RequestFind(string query, bool appAuthoredOnly, CancellationToken cancellationToken = default) => Request("VisualTree.find", w =>
     {
@@ -373,6 +378,58 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
     public DevToolsProtocolResponse RequestProperties(string handle, CancellationToken cancellationToken = default) => Request("Property.get", w => w.WriteString("handle", handle), cancellationToken: cancellationToken);
     public DevToolsProtocolResponse RequestLayout(string handle, CancellationToken cancellationToken = default) => Request("Layout.get", w => w.WriteString("handle", handle), cancellationToken: cancellationToken);
     public DevToolsProtocolResponse RequestSource(string handle, CancellationToken cancellationToken = default) => Request("Source.get", w => w.WriteString("handle", handle), cancellationToken: cancellationToken);
+    public const int ReactorDescribeTimeoutMs = 30000;
+    public DevToolsProtocolResponse RequestReactorDescribe(CancellationToken cancellationToken = default) =>
+        Request("Reactor.describe", timeoutMs: ReactorDescribeTimeoutMs, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestReferences(string handle, CancellationToken cancellationToken = default) =>
+        Request("Property.references", w => w.WriteString("handle", handle), cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestReactorElement(string handle, CancellationToken cancellationToken = default) =>
+        Request("Reactor.element", w => w.WriteString("handle", handle), timeoutMs: ReactorDescribeTimeoutMs, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestReactorComponent(string handle, CancellationToken cancellationToken = default) =>
+        Request("Reactor.component", w => w.WriteString("handle", handle), timeoutMs: ReactorDescribeTimeoutMs, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestReactorSetState(string handle, int hook, string value, CancellationToken cancellationToken = default) =>
+        Request("Reactor.setState", w =>
+        {
+            w.WriteString("handle", handle);
+            w.WriteNumber("hook", hook);
+            w.WriteString("value", value);
+        }, timeoutMs: ReactorDescribeTimeoutMs, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestReactorLogs(long since, string level, CancellationToken cancellationToken = default) =>
+        Request("Reactor.logs", w =>
+        {
+            w.WriteNumber("since", since);
+            w.WriteString("level", level);
+        }, timeoutMs: 8000, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestReactorRerender(string handle, CancellationToken cancellationToken = default) =>
+        Request("Reactor.rerender", w => w.WriteString("handle", handle), timeoutMs: ReactorDescribeTimeoutMs, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestReactorInvokeHandler(string handle, string handlerEvent, string? value, CancellationToken cancellationToken = default) =>
+        Request("Reactor.invokeHandler", w =>
+        {
+            w.WriteString("handle", handle);
+            w.WriteString("event", handlerEvent);
+            if (value is not null)
+            {
+                w.WriteString("value", value);
+            }
+        }, timeoutMs: ReactorDescribeTimeoutMs, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestResourceGet(string handle, string key, bool fromElement, CancellationToken cancellationToken = default) =>
+        Request("Resource.get", w =>
+        {
+            w.WriteString("handle", handle);
+            w.WriteString("key", key);
+            if (fromElement)
+            {
+                w.WriteBoolean("fromElement", true);
+            }
+        }, cancellationToken: cancellationToken);
+    public DevToolsProtocolResponse RequestResourceSet(string handle, string key, string value, string scope, CancellationToken cancellationToken = default) =>
+        Request("Resource.set", w =>
+        {
+            w.WriteString("handle", handle);
+            w.WriteString("key", key);
+            w.WriteString("value", value);
+            w.WriteString("scope", scope);
+        }, cancellationToken: cancellationToken);
     public DevToolsProtocolResponse RequestBindingDiagnosis(string handle, string property, CancellationToken cancellationToken = default) => Request("Binding.diagnose", w =>
     {
         w.WriteString("handle", handle);

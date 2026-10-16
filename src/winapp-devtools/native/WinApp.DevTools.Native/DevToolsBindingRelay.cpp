@@ -106,29 +106,55 @@ bool HostExpected()
     return hooks.find(L"winapp.devtools.managed.dll") != std::wstring::npos;
 }
 
-// Waits for an instance of the host's pipe within the connect budget. A missing pipe is final only when no host
-// was configured; a configured host gets the same budget to (re)create its listener.
-bool WaitForHostPipe(const std::wstring& name, std::wstring* outJson)
+// Opens and authenticates a connection to this process's managed agent. Concurrent callers share the agent's
+// listeners: WaitNamedPipe only reports that SOME instance is free, and another caller can take it before this one's
+// CreateFile (ERROR_PIPE_BUSY), so both are retried until one deadline. A name that never existed fails at once,
+// unless winapp configured the host at launch: then it gets the same deadline to start listening.
+HANDLE OpenAgentPipe(const std::wstring& name, DWORD timeoutMs, std::wstring& error)
 {
-    const ULONGLONG deadline = GetTickCount64() + kConnectTimeoutMs;
+    const ULONGLONG deadline = GetTickCount64() + timeoutMs;
+    bool seen = false;
     for (;;) {
         const ULONGLONG now = GetTickCount64();
-        const DWORD remaining = now < deadline ? static_cast<DWORD>(deadline - now) : 1;
-        if (WaitNamedPipeW(name.c_str(), remaining)) return true;
-        if (GetLastError() != ERROR_FILE_NOT_FOUND) {
-            *outJson = DevToolsBindingRelay_UnavailableJson(L"the managed DevTools agent did not accept a connection");
-            return false;
+        if (now >= deadline) {
+            error = seen || !HostExpected()
+                ? L"the managed DevTools agent did not accept a connection"
+                : L"the managed binding host was configured at launch but is not accepting connections yet. Try again in a moment.";
+            return INVALID_HANDLE_VALUE;
         }
-        if (!HostExpected()) {
-            *outJson = DevToolsBindingRelay_UnavailableJson(DevToolsBindingRelay_NoAgentReason(AppRuntime()));
-            return false;
+        if (!WaitNamedPipeW(name.c_str(), static_cast<DWORD>(deadline - now))) {
+            const DWORD wait = GetLastError();
+            if (wait == ERROR_FILE_NOT_FOUND && !seen) {
+                if (!HostExpected()) {
+                    error = DevToolsBindingRelay_NoAgentReason(AppRuntime());
+                    return INVALID_HANDLE_VALUE;
+                }
+                Sleep(20);
+                continue;
+            }
+            // Between instances the name can briefly vanish; anything else is the deadline or a transient refusal.
+            if (wait != ERROR_SEM_TIMEOUT) Sleep(1);
+            continue;
         }
-        if (GetTickCount64() >= deadline) {
-            *outJson = DevToolsBindingRelay_UnavailableJson(
-                L"the managed binding host was configured at launch but is not accepting connections yet. Try again in a moment.");
-            return false;
+        seen = true;
+        // Identification-level pipe access plus same-process PID verification keeps the managed relay local.
+        HANDLE h = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
+        if (h == INVALID_HANDLE_VALUE) {
+            const DWORD open = GetLastError();
+            if (open == ERROR_PIPE_BUSY || open == ERROR_FILE_NOT_FOUND) continue;
+            error = L"could not open the managed DevTools agent's pipe";
+            return INVALID_HANDLE_VALUE;
         }
-        Sleep(20);
+        ULONG serverProcessId = 0;
+        if (!GetNamedPipeServerProcessId(h, &serverProcessId) || serverProcessId != GetCurrentProcessId()) {
+            error = L"could not authenticate an in-process managed DevTools agent";
+            CloseHandle(h);
+            return INVALID_HANDLE_VALUE;
+        }
+        DWORD mode = PIPE_READMODE_BYTE | PIPE_WAIT;
+        SetNamedPipeHandleState(h, &mode, nullptr, nullptr);
+        return h;
     }
 }
 
@@ -173,8 +199,8 @@ std::wstring DevToolsBindingRelay_UnavailableJson(const std::wstring& reason)
 const wchar_t* DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime runtime)
 {
     if (runtime == DevToolsAppRuntime::Clr)
-        return L"this .NET app was started without the managed binding host. Relaunch it with 'winapp run --devtools on' "
-               L"so the host loads through DOTNET_STARTUP_HOOKS before app startup; attaching to a running app cannot add it.";
+        return L"this .NET app has no loaded managed DevTools agent. `winapp devtools attach` loads it into a running "
+               L".NET 8 or later app, and `winapp run --devtools on` loads it at startup.";
     if (runtime == DevToolsAppRuntime::NativeAot)
         return L"Native AOT apps can't load the managed binding agent, so {Binding}/{x:Bind} can't be diagnosed "
                L"by it. Use get-property to read the property's live value and where it comes from.";
@@ -184,9 +210,18 @@ const wchar_t* DevToolsBindingRelay_NoAgentReason(DevToolsAppRuntime runtime)
 
 bool DevToolsBindingRelay_IsAllowedOp(const std::wstring& op)
 {
-    // Only managed binding operations cross this pipe. Native DevToolsBindingInstall owns grafting.
+    // Only managed binding operations and the Reactor element description cross this pipe.
+    // Native DevToolsBindingInstall owns grafting.
     return op == L"diagnose" || op == L"capture" || op == L"restore" || op == L"restoreconfirmed" || op == L"clear"
-        || op == L"writesource";
+        || op == L"writesource" || op == L"reactor" || op == L"reactorelement" || op == L"reactorcomponent"
+        || op == L"reactorsetstate" || op == L"reactorrerender" || op == L"reactorinvoke" || op == L"resourceget"
+        || op == L"resourceset" || op == L"reactorreferences";
+}
+
+size_t DevToolsBindingRelay_MaxReplyBytes(const std::wstring& op)
+{
+    // A Reactor description covers a whole window; a binding answer is about one property.
+    return op == L"reactor" ? 8u * 1024 * 1024 : op == L"reactorcomponent" ? 256u * 1024 : 64u * 1024;
 }
 
 std::vector<char> DevToolsBindingRelay_BuildBindingFrame(const std::vector<char>& packet, const std::wstring& op,
@@ -230,21 +265,10 @@ bool DevToolsBindingRelay_Binding(const std::wstring& op, IAgileReference* eleme
         return false;
     }
 
-    std::wstring name = PipeName();
-    if (!WaitForHostPipe(name, outJson)) return false;
-
-    // Identification-level pipe access plus same-process PID verification keeps the managed relay local.
-    HANDLE h = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
-        FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
+    std::wstring openError;
+    HANDLE h = OpenAgentPipe(PipeName(), kConnectTimeoutMs, openError);
     if (h == INVALID_HANDLE_VALUE) {
-        *outJson = DevToolsBindingRelay_UnavailableJson(L"could not open the managed DevTools agent's pipe");
-        return false;
-    }
-
-    ULONG serverProcessId = 0;
-    if (!GetNamedPipeServerProcessId(h, &serverProcessId) || serverProcessId != GetCurrentProcessId()) {
-        *outJson = DevToolsBindingRelay_UnavailableJson(L"could not authenticate an in-process managed DevTools agent");
-        CloseHandle(h);
+        *outJson = DevToolsBindingRelay_UnavailableJson(openError);
         return false;
     }
 
@@ -271,13 +295,11 @@ bool DevToolsBindingRelay_Binding(const std::wstring& op, IAgileReference* eleme
     }
 
     // Overlapped I/O enforces the deadline even if the peer goes silent.
-    DWORD mode = PIPE_READMODE_BYTE | PIPE_WAIT;
-    SetNamedPipeHandleState(h, &mode, nullptr, nullptr);
-
     bool ok = false;
     DWORD written = 0;
     const ULONGLONG deadline = GetTickCount64() + kReplyTimeoutMs;
     if (TransferBefore(h, frame.data(), (DWORD)frame.size(), written, true, deadline) && written == frame.size()) {
+        const size_t maxReply = DevToolsBindingRelay_MaxReplyBytes(op);
         std::string line;
         for (;;) {
             char c = 0;
@@ -285,7 +307,7 @@ bool DevToolsBindingRelay_Binding(const std::wstring& op, IAgileReference* eleme
             if (!TransferBefore(h, &c, 1, got, false, deadline) || got != 1) break;
             if (c == '\n') { ok = true; break; }
             if (c != '\r') line.push_back(c);
-            if (line.size() > 64 * 1024) break;              // a reply this large is a protocol fault, not an answer
+            if (line.size() > maxReply) break;               // a reply this large is a protocol fault, not an answer
             if (GetTickCount64() > deadline) break;
         }
         if (ok) {
@@ -309,4 +331,71 @@ bool DevToolsBindingRelay_Binding(const std::wstring& op, IAgileReference* eleme
         ok = false;
     }
     return ok;
+}
+
+DevToolsAppRuntime DevToolsBindingRelay_AppRuntime()
+{
+    return AppRuntime();
+}
+
+HANDLE DevToolsBindingRelay_OpenEvents(int mask, std::wstring* error)
+{
+    std::wstring sink;
+    if (!error) error = &sink;
+    HANDLE h = OpenAgentPipe(PipeName(), kConnectTimeoutMs, *error);
+    if (h == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+    if (!DevToolsBindingRelay_WriteLine(h, "EVENTS1 " + std::to_string(mask & 0xFF))) {
+        *error = L"could not send the request to the managed DevTools agent";
+        CloseHandle(h);
+        return INVALID_HANDLE_VALUE;
+    }
+    return h;
+}
+
+bool DevToolsBindingRelay_WriteLine(HANDLE pipe, const std::string& line)
+{
+    std::string bytes = line + "\n";
+    DWORD written = 0;
+    return TransferBefore(pipe, bytes.data(), (DWORD)bytes.size(), written, true, GetTickCount64() + kConnectTimeoutMs) &&
+           written == bytes.size();
+}
+
+bool DevToolsBindingRelay_Probe(std::wstring* outJson)
+{
+    std::wstring sink;
+    if (!outJson) outJson = &sink;
+    std::wstring openError;
+    HANDLE h = OpenAgentPipe(PipeName(), kConnectTimeoutMs, openError);
+    if (h == INVALID_HANDLE_VALUE) {
+        *outJson = DevToolsBindingRelay_UnavailableJson(openError);
+        return false;
+    }
+    struct ClosePipe { HANDLE value; ~ClosePipe() { CloseHandle(value); } } closePipe{h};
+
+    char request[] = "PROBE1\n";
+    DWORD written = 0;
+    const ULONGLONG deadline = GetTickCount64() + kConnectTimeoutMs;
+    if (!TransferBefore(h, request, sizeof(request) - 1, written, true, deadline) || written != sizeof(request) - 1) {
+        *outJson = DevToolsBindingRelay_UnavailableJson(L"could not send the request to the managed DevTools agent");
+        return false;
+    }
+    std::string line;
+    bool ok = false;
+    for (;;) {
+        char c = 0;
+        DWORD got = 0;
+        if (!TransferBefore(h, &c, 1, got, false, deadline) || got != 1) break;
+        if (c == '\n') { ok = true; break; }
+        if (c != '\r') line.push_back(c);
+        if (line.size() > 4096) break;
+    }
+    const std::string prefix = "PROBE1 ";
+    DevToolsJson answer;
+    if (ok && line.rfind(prefix, 0) == 0) {
+        *outJson = DevToolsFromUtf8(line.data() + prefix.size(), line.size() - prefix.size());
+        if (DevToolsJsonParse(*outJson, answer) && answer.type == DevToolsJsonType::Object) return true;
+    }
+    // An agent that predates the probe answers a different protocol line.
+    *outJson = DevToolsBindingRelay_UnavailableJson(L"the managed DevTools agent does not support Reactor detection");
+    return false;
 }

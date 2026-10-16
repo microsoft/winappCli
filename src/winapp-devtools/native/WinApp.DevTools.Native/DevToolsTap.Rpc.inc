@@ -175,11 +175,13 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         const bool supported = m == L"DevTools.negotiate" || m == L"DevTools.ping" ||
             m == L"VisualTree.enumerate" || m == L"VisualTree.find" || m == L"VisualTree.query" ||
             m == L"VisualTree.getPreviews" || m == L"VisualTree.getAppAuthored" ||
-            m == L"Property.get" || m == L"Property.setQuery" || m == L"Layout.get" ||
+            m == L"Property.get" || m == L"Property.setQuery" || m == L"Layout.get" || m == L"Property.references" ||
             m == L"Source.get" || m == L"Resource.resolve" || m == L"Binding.walk" ||
             m == L"Binding.diagnose" || m == L"HotReload.setProperty" || m == L"HotReload.clearProperty" ||
             m == L"Surface.list" || m == L"Surface.setActive" || m == L"Overlay.highlight" ||
-            m == L"Selection.select" || m == L"Internal.pick" || m == L"Selection.arm";
+            m == L"Selection.select" || m == L"Internal.pick" || m == L"Selection.arm" || m == L"Reactor.describe" ||
+            m == L"Reactor.element" || m == L"Reactor.component" || m == L"Reactor.setState" || m == L"Reactor.rerender" ||
+            m == L"Reactor.invokeHandler" || m == L"Resource.get" || m == L"Resource.set";
         if (!supported) return DevToolsRpcError(id, DevToolsErr::InvalidParams,
             L"This operation cannot be constrained to a window; no process-wide operation was performed.",
             L"window-scope-unsupported");
@@ -213,6 +215,9 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             DevToolsEvents_MarkNegotiated(conn));
         capabilities.pop_back();
         capabilities += L",\"guestComments\":" + DevToolsOverlay_GuestCommentsJson();
+        // Whether this is a Microsoft.UI.Reactor app and whether its components can be read, so a client asks
+        // for Reactor information only when there is some. Cached and UI-thread free.
+        capabilities += L",\"reactor\":" + TapReactorStatusJson(TapReactorStatusNow()) + L"}";
         if (const auto error = g_guestInitializationError.load()) {
             capabilities += L",\"guestInitializationError\":\"" + std::wstring(error) + L"\"";
         }
@@ -255,12 +260,18 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"authored must be a boolean", L"bad-args");
         }
         const bool authored = authoredParam && authoredParam->b;
+        const DevToolsJson* annotateParam = p.Find(L"annotate");
+        if (annotateParam && annotateParam->type != DevToolsJsonType::Bool) {
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"annotate must be a boolean", L"bad-args");
+        }
+        const bool annotate = annotateParam && annotateParam->b;
         std::wstring line = L"visualtree.enumerate";
         // Positional bridge line: every earlier field has to be present once a later one is, so `authored`
         // with no explicit depth still lands in slot 3 rather than being read as the depth.
-        if (!root.empty() || p.HasKey(L"depth") || authored) line += L"|" + root;
-        if (p.HasKey(L"depth") || authored) line += L"|" + std::to_wstring(p.GetInt(L"depth", -1));
-        if (authored) line += L"|1";
+        if (!root.empty() || p.HasKey(L"depth") || authored || annotate) line += L"|" + root;
+        if (p.HasKey(L"depth") || authored || annotate) line += L"|" + std::to_wstring(p.GetInt(L"depth", -1));
+        if (authored || annotate) line += authored ? L"|1" : L"|0";
+        if (annotate) line += L"|1";
         return BridgeJson(id, line);
     }
     if (m == L"VisualTree.find") {
@@ -297,6 +308,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
 
     if (m == L"Property.get")      return BridgeJson(id, L"property.get|" + p.GetString(L"handle"));
     if (m == L"Layout.get")        return BridgeJson(id, L"layout.get|" + p.GetString(L"handle"));
+    if (m == L"Property.references") return BridgeJson(id, L"property.references|" + p.GetString(L"handle"));
     if (m == L"Source.get")        return BridgeJson(id, L"element.source|" + p.GetString(L"handle"));
     if (m == L"Resource.resolve")  return BridgeJson(id, L"resource.resolve|" + p.GetString(L"handle") + L"|" + p.GetString(L"prop"));
 
@@ -327,6 +339,94 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                           : m == L"Binding.restore"  ? (p.GetBool(L"confirmOwnerRebind", false) ? L"restoreconfirmed" : L"restore")
                                                      : L"clear";
         std::wstring reply = CmdBindingOp(wire, op, prop);
+        if (reply.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, reply);
+        return DevToolsRpcResult(id, reply);
+    }
+
+    if (m == L"Reactor.enable" || m == L"Reactor.disable") {
+        const bool enable = m == L"Reactor.enable";
+        bool renders = false;
+        if (const DevToolsJson* value = p.Find(L"renders")) {
+            if (value->type != DevToolsJsonType::Bool)
+                return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"renders must be a boolean", L"bad-args");
+            renders = value->b;
+        }
+        TapReactorSubscribe(conn, enable, renders);
+        return DevToolsRpcResult(id, enable ? L"{\"enabled\":true}" : L"{\"enabled\":false}");
+    }
+    if (m == L"Reactor.logs") {
+        if (const DevToolsJson* since = p.Find(L"since"); since && (since->type != DevToolsJsonType::Number || since->num < 0))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"since must be a non-negative integer", L"bad-args");
+        if (const DevToolsJson* level = p.Find(L"level"); level && (level->type != DevToolsJsonType::String ||
+            (level->str != L"error" && level->str != L"warning" && level->str != L"info")))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"level must be error, warning or info", L"bad-args");
+        return DevToolsRpcResult(id, CmdReactorLogs(p));
+    }
+    if (m == L"Reactor.describe") {
+        InstanceHandle subtree = 0;
+        if (const DevToolsJson* rootParam = p.Find(L"root")) {
+            unsigned long long rootWire = 0;
+            if (rootParam->type != DevToolsJsonType::String || !DevToolsParseWireHandle(rootParam->str, false, &rootWire))
+                return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                                   L"root must be a canonical non-zero decimal handle string", L"bad-args");
+            CensusSharedLock lock;
+            const wchar_t* error = nullptr;
+            if (!ResolveWire_nolock(rootWire, &subtree, &error))
+                return BridgeErrToRpc(id, std::wstring(L"ERR ") + (error ? error : L"stale-handle"));
+        }
+        std::wstring reply = CmdReactorDescribe(subtree);
+        if (reply.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, reply);
+        return DevToolsRpcResult(id, reply);
+    }
+    if (m == L"Reactor.element") {
+        unsigned long long wire = 0;
+        if (!DevToolsParseWireHandle(p.GetString(L"handle"), false, &wire))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"handle must be a canonical non-zero decimal string", L"bad-args");
+        std::wstring reply = CmdReactorElement(wire);
+        if (reply.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, reply);
+        return DevToolsRpcResult(id, reply);
+    }
+    if (m == L"Reactor.component" || m == L"Reactor.rerender" || m == L"Reactor.setState" || m == L"Reactor.invokeHandler" ||
+        m == L"Resource.get" || m == L"Resource.set") {
+        unsigned long long wire = 0;
+        if (!DevToolsParseWireHandle(p.GetString(L"handle"), false, &wire))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"handle must be a canonical non-zero decimal string", L"bad-args");
+        std::wstring reply;
+        if (m == L"Reactor.component") {
+            reply = CmdReactorComponent(wire);
+        } else if (m == L"Reactor.rerender") {
+            reply = CmdReactorAgent(wire, L"reactorrerender");
+        } else if (m == L"Reactor.setState") {
+            const DevToolsJson* hook = p.Find(L"hook");
+            const DevToolsJson* value = p.Find(L"value");
+            if (!hook || hook->type != DevToolsJsonType::Number || hook->num < 0 || hook->num > 100000 ||
+                hook->num != static_cast<double>(static_cast<long long>(hook->num)) ||
+                !value || value->type != DevToolsJsonType::String)
+                return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                                   L"hook must be a non-negative integer index and value a string", L"bad-args");
+            reply = CmdReactorAgent(wire, L"reactorsetstate", std::to_wstring(static_cast<long long>(hook->num)), value->str);
+        } else if (m == L"Reactor.invokeHandler") {
+            const std::wstring event = p.GetString(L"event");
+            if (event.empty())
+                return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"event is required, e.g. OnClick", L"bad-args");
+            reply = CmdReactorAgent(wire, L"reactorinvoke", event, p.GetString(L"value"));
+        } else {
+            const std::wstring key = p.GetString(L"key");
+            if (key.empty())
+                return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"key is required", L"bad-args");
+            if (m == L"Resource.get") {
+                reply = CmdReactorAgent(wire, L"resourceget", key, p.GetBool(L"fromElement", false) ? L"element" : L"", false);
+            } else {
+                const std::wstring scope = p.GetString(L"scope");
+                const DevToolsJson* value = p.Find(L"value");
+                if ((scope != L"element" && scope != L"app") || !value || value->type != DevToolsJsonType::String)
+                    return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                                       L"scope must be element or app and value a string", L"bad-args");
+                reply = CmdReactorAgent(wire, L"resourceset", key, scope + L"\n" + value->str, false);
+            }
+        }
         if (reply.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, reply);
         return DevToolsRpcResult(id, reply);
     }
@@ -738,6 +838,8 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         // One bounded pass; unresolved competing instances remain weak, never presumed absent.
         const auto classification = ClassifyAuthored(census);
         const wchar_t* reason = nullptr;
+        // A Reactor element's anchor is its call site, which only a current description knows.
+        TapReactorRefreshAuthored();
         TapAnchorOf(ih, &anchor, &unique, &reason);
         if (classification.err) { unique = false; reason = classification.err; }
         else if (classification.truncated && unique) { unique = false; reason = L"incomplete-source-census"; }

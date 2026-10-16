@@ -10,20 +10,20 @@ using WinApp.Cli.Services.DevTools;
 
 namespace WinApp.Cli.Commands;
 
-internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
+internal partial class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
 {
-    public override string ShortDescription => "View a running app's XAML visual tree";
+    public override string ShortDescription => "View a running app's live visual tree";
 
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp devtools inspect -a <app>",
-        "winapp devtools inspect <selector> --depth 2 -a <app>",
         "winapp devtools inspect --filter <text> -a <app>",
+        "winapp devtools inspect --all -w <hwnd>",
     ];
 
     public static Option<int> DepthOption { get; } = new("--depth", "-d")
     {
-        Description = "Levels to expand in your XAML (--all counts framework levels too).",
+        Description = "Levels to expand in your code (--all counts framework levels too).",
         DefaultValueFactory = _ => 4,
     };
 
@@ -35,12 +35,12 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
 
     public static Argument<string?> SelectorArgument { get; } = new("selector")
     {
-        Description = "Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, or a handle. Defaults to the whole tree.",
+        Description = "Element to inspect: the selector printed in brackets, an x:Name, an AutomationId, a Reactor <Component>, or a handle. Defaults to the whole tree.",
         Arity = ArgumentArity.ZeroOrOne,
     };
 
     public DevToolsInspectCommand()
-        : base("inspect", "Show the app's live XAML tree and reusable element selectors.")
+        : base("inspect", "Show the app's live visual tree with reusable element selectors: the elements your XAML or Reactor C# created, grouped by window.")
     {
         Arguments.Add(SelectorArgument);
         Options.Add(DepthOption);
@@ -50,7 +50,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
         DevToolsQueryOptions.Add(this, fields: true);
     }
 
-    public class Handler(
+    public partial class Handler(
         IDevToolsTargetResolver resolver,
         IAnsiConsole ansiConsole) : LiveHandler(resolver, ansiConsole)
     {
@@ -108,62 +108,58 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
             // what the depth fetched, and a default depth-4 raw request never reaches an app Button buried
             // under 12 levels of control template.
             var authored = !all;
-            var response = tap.RequestEnumerate(rootHandle, depth, authored, cancellationToken);
+            // `annotate` adds, in the same reply, the window each top-level element lives in and the Microsoft.UI.Reactor
+            // element behind each control. An app without Reactor pays nothing extra for it.
+            var response = tap.RequestEnumerate(rootHandle, depth, authored, annotate: true, cancellationToken);
             if (!response.Ok)
             {
                 return Task.FromResult(Fail(json, target.Pid, response.Error!));
             }
 
-            IReadOnlyList<VisualTreeNode>? roots;
-            string? fallback = null;
-            var classificationTruncated = false;
-
-            if (authored)
-            {
-                // The authored reply is an envelope: the nodes AND the state of the classifier pass that
-                // produced them. Reading that state from a SECOND pass would let a later backfill answer
-                // "complete" about a tree the first pass had already rendered incomplete.
-                var forest = AuthoredForest.Parse(response.ResultJson);
-                if (forest is null)
-                {
-                    return Task.FromResult(Fail(json, target.Pid, "The DevTools agent returned an unreadable visual tree."));
-                }
-
-                classificationTruncated = forest.ClassificationTruncated;
-                roots = forest.Roots;
-
-                // Nothing to show is not one fact but three (no source information, not finished
-                // classifying, or genuinely all-framework), and the envelope tells them apart. Fall back to
-                // the raw tree and say which one it was; an empty view alone reads as "your app has no
-                // elements" and sends someone to debug markup that is fine.
-                if (forest.ExplainIfEmpty() is string why)
-                {
-                    fallback = why;
-                    authored = false;
-                    classificationTruncated = false;
-                    response = tap.RequestEnumerate(rootHandle, depth, authored: false, cancellationToken);
-                    if (!response.Ok)
-                    {
-                        return Task.FromResult(Fail(json, target.Pid, response.Error!));
-                    }
-
-                    roots = VisualTreeNode.ParseForest(response.ResultJson);
-                }
-            }
-            else
-            {
-                roots = VisualTreeNode.ParseForest(response.ResultJson);
-            }
-
-            if (roots is null)
+            // The reply is an envelope: the nodes AND the state of the classifier pass that produced them. Reading
+            // that state from a SECOND pass would let a later backfill answer "complete" about a tree the first
+            // pass had already rendered incomplete.
+            var forest = AuthoredForest.Parse(response.ResultJson);
+            if (forest is null)
             {
                 return Task.FromResult(Fail(json, target.Pid, "The DevTools agent returned an unreadable visual tree."));
             }
 
+            IReadOnlyList<VisualTreeNode> roots = forest.Roots;
+            string? fallback = null;
+            var classificationTruncated = authored && forest.ClassificationTruncated;
+
+            // Nothing to show is not one fact but three (no source information, not finished classifying, or
+            // genuinely all-framework), and the envelope tells them apart. Fall back to the raw tree and say which
+            // one it was; an empty view alone reads as "your app has no elements" and sends someone to debug markup
+            // that is fine.
+            if (authored && forest.ExplainIfEmpty() is string why)
+            {
+                // A Reactor app whose components could not be read has one real reason, and it is not its XAML.
+                fallback = forest.Reactor is { Present: true, IsReactor: false } unreadable
+                    ? unreadable.ExplainUnavailable() + " Showing the raw tree instead."
+                    : why;
+                authored = false;
+                classificationTruncated = false;
+                response = tap.RequestEnumerate(rootHandle, depth, authored: false, annotate: true, cancellationToken);
+                if (!response.Ok)
+                {
+                    return Task.FromResult(Fail(json, target.Pid, response.Error!));
+                }
+
+                forest = AuthoredForest.Parse(response.ResultJson);
+                if (forest is null)
+                {
+                    return Task.FromResult(Fail(json, target.Pid, "The DevTools agent returned an unreadable visual tree."));
+                }
+                roots = forest.Roots;
+            }
+
+            var annotations = new DevToolsTreeAnnotations(forest.Reactor, rootHandle is null ? forest.Windows : [], raw: !authored);
             var normalizedFilter = DevToolsFormat.NormalizeQuery(filter);
             var unfiltered = new VisualTreeSnapshot(roots, depth);
             var returned = unfiltered.Count;
-            var kept = FilterForest(roots, normalizedFilter);
+            var kept = FilterForest(roots, normalizedFilter, annotations);
             var previews = DevToolsPreviews.Read(target.Tap!, kept, cancellationToken);
             kept = previews.Roots;
             var snapshot = new VisualTreeSnapshot(kept, depth);
@@ -173,6 +169,8 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
             var found = kept.Count > 0;
             var emptyReason = found ? null : DescribeEmpty(normalizedFilter, classificationTruncated,
                 unfiltered.DepthLimitedElements > 0 ? depth : null);
+            // The Reactor note is said once, and not again when the fallback already said it.
+            var reactorNote = fallback is not null && annotations.Note?.Token == ReactorDescription.UnavailableToken ? null : annotations.Note;
 
             if (json)
             {
@@ -217,6 +215,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
                     writer.WriteNumber("hiddenByFilter", Math.Max(0, returned - snapshot.Count));
                     writer.WriteBoolean("truncated", snapshot.HardTruncated);
                     writer.WriteNumber("depthLimitedElements", snapshot.DepthLimitedElements);
+                    annotations.WriteEnvelope(writer);
                     if (emptyReason is not null)
                     {
                         DevToolsJson.WriteError(writer, "no-match", emptyReason);
@@ -225,7 +224,15 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
                     writer.WriteStartArray("elements");
                     foreach (var root in kept)
                     {
-                        DevToolsJson.WriteNode(writer, root);
+                        var window = annotations.Grouped ? annotations.WindowOf(root.Handle) : null;
+                        DevToolsJson.WriteNode(writer, root, (w, node) =>
+                        {
+                            if (window is not null && ReferenceEquals(node, root))
+                            {
+                                w.WriteString("window", window);
+                            }
+                            annotations.WriteNodeExtras(w, node);
+                        });
                     }
 
                     writer.WriteEndArray();
@@ -239,12 +246,13 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
                 Console.WriteLine();
             }
 
-            RenderTree(kept);
+            RenderTree(kept, annotations);
             if (previews.Error is not null)
             {
                 Console.MarkupLineInterpolated($"[yellow]{previews.Error}[/]");
             }
-            RenderFooter(snapshot, depth, authored, normalizedFilter, target, returned, emptyReason, classificationTruncated);
+            RenderFooter(snapshot, depth, authored, normalizedFilter, target, returned, emptyReason, classificationTruncated,
+                reactorNote, annotations.Reactor?.StaticOnly == true);
             return Task.FromResult(found ? 0 : 1);
         }
 
@@ -269,17 +277,19 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
 
         private int RenderAncestors(DevToolsTarget target, string handle, bool json, CancellationToken cancellationToken)
         {
-            var response = target.Tap!.RequestEnumerate(null, null, cancellationToken: cancellationToken);
+            var response = target.Tap!.RequestEnumerate(null, null, cancellationToken: cancellationToken, annotate: true);
             if (!response.Ok)
             {
                 return Fail(json, target.Pid, response.Error!);
             }
 
-            var roots = VisualTreeNode.ParseForest(response.ResultJson);
+            var forest = AuthoredForest.Parse(response.ResultJson);
+            var roots = forest?.Roots;
             if (roots is null)
             {
                 return Fail(json, target.Pid, "The DevTools agent returned an unreadable visual tree.");
             }
+            var annotations = new DevToolsTreeAnnotations(forest!.Reactor, [], raw: true);
 
             var path = new List<VisualTreeNode>();
             if (!roots.Any(root => TryFindPath(root, handle, path)))
@@ -314,6 +324,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
                         DevToolsJson.WriteLocation(writer, node.ShortFile, node.Facts);
 
                         writer.WriteNumber("childCount", node.ChildCount);
+                        annotations.WriteNodeExtras(writer, node);
                         writer.WriteEndObject();
                     }
 
@@ -324,7 +335,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
 
             for (var i = 0; i < path.Count; i++)
             {
-                DevToolsRender.WriteMarkupLine(Console, new string(' ', i * 2) + DevToolsRender.Node(path[i]));
+                DevToolsRender.WriteMarkupLine(Console, new string(' ', i * 2) + annotations.Line(path[i]));
             }
 
             Console.WriteLine();
@@ -360,7 +371,8 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
         /// </summary>
         private static IReadOnlyList<VisualTreeNode> FilterForest(
             IReadOnlyList<VisualTreeNode> roots,
-            string normalizedFilter)
+            string normalizedFilter,
+            DevToolsTreeAnnotations annotations)
         {
             if (normalizedFilter.Length == 0)
             {
@@ -370,7 +382,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
             var kept = new List<VisualTreeNode>();
             foreach (var root in roots)
             {
-                if (FilterNode(root, normalizedFilter) is VisualTreeNode filtered)
+                if (FilterNode(root, normalizedFilter, annotations) is VisualTreeNode filtered)
                 {
                     kept.Add(filtered);
                 }
@@ -379,18 +391,18 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
             return kept;
         }
 
-        private static VisualTreeNode? FilterNode(VisualTreeNode node, string normalizedFilter)
+        private static VisualTreeNode? FilterNode(VisualTreeNode node, string normalizedFilter, DevToolsTreeAnnotations annotations)
         {
             var children = new List<VisualTreeNode>();
             foreach (var child in node.Children)
             {
-                if (FilterNode(child, normalizedFilter) is VisualTreeNode filtered)
+                if (FilterNode(child, normalizedFilter, annotations) is VisualTreeNode filtered)
                 {
                     children.Add(filtered);
                 }
             }
 
-            if (!DevToolsFormat.Matches(node, normalizedFilter) && children.Count == 0)
+            if (!annotations.Matches(node, normalizedFilter) && children.Count == 0)
             {
                 return null;
             }
@@ -401,23 +413,39 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
             return node with { Children = children };
         }
 
-        private void RenderTree(IReadOnlyList<VisualTreeNode> roots)
+        private void RenderTree(IReadOnlyList<VisualTreeNode> roots, DevToolsTreeAnnotations annotations)
         {
-            foreach (var root in roots)
+            var groups = annotations.Group(roots);
+            foreach (var (window, members) in groups)
             {
-                RenderNode(root, 0);
+                var indent = 0;
+                if (annotations.Grouped)
+                {
+                    DevToolsRender.WriteMarkupLine(Console, annotations.WindowHeader(window));
+                    indent = 1;
+                }
+                foreach (var root in members)
+                {
+                    RenderNode(root, indent, annotations);
+                }
             }
         }
 
-        private void RenderNode(VisualTreeNode node, int indent)
+        private void RenderNode(VisualTreeNode node, int indent, DevToolsTreeAnnotations annotations)
         {
+            // A Reactor host's root component has no element of its own; it is shown above the control it rendered.
+            if (annotations.RootLine(node) is { } root)
+            {
+                DevToolsRender.WriteMarkupLine(Console, new string(' ', indent * 2) + root);
+                indent++;
+            }
             var pad = new string(' ', indent * 2);
-            var preview = DevToolsPreviews.Format(node.Preview);
-            DevToolsRender.WriteMarkupLine(Console, pad + DevToolsRender.Node(node) +
+            var preview = DevToolsPreviews.Format(node.Preview, annotations.For(node.Handle)?.DefaultAutomationName == true);
+            DevToolsRender.WriteMarkupLine(Console, pad + annotations.Line(node) +
                 (preview.Length == 0 ? "" : " " + Markup.Escape(preview)));
             foreach (var child in node.Children)
             {
-                RenderNode(child, indent + 1);
+                RenderNode(child, indent + 1, annotations);
             }
 
             if (node.HiddenChildren > 0)
@@ -434,9 +462,15 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
             DevToolsTarget target,
             int returnedByAgent,
             string? emptyReason,
-            bool classificationTruncated)
+            bool classificationTruncated,
+            (string Token, string Message)? reactorNote,
+            bool reactorStaticOnly = false)
         {
             Console.WriteLine();
+            if (reactorNote is { } early && emptyReason is not null)
+            {
+                Console.MarkupLineInterpolated($"{UiSymbols.Warning} {early.Message}");
+            }
             if (emptyReason is not null)
             {
                 Console.MarkupLineInterpolated($"[yellow]{emptyReason}[/]");
@@ -444,7 +478,7 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
             }
 
             var flags = new List<string> { $"--depth {depth}" };
-            flags.Add(authored ? "your XAML" : "all elements");
+            flags.Add(authored ? "your code" : "all elements");
             if (filter.Length > 0)
             {
                 flags.Add($"filter \"{filter}\"");
@@ -491,6 +525,16 @@ internal class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
                 Console.MarkupLine(
                     $"{UiSymbols.Warning} The agent's node limit truncated this walk, so the tree above is incomplete. " +
                     "Inspect a subtree by selector to see the rest.");
+            }
+
+            if (reactorNote is { } note)
+            {
+                Console.MarkupLineInterpolated($"{UiSymbols.Warning} {note.Message}");
+            }
+
+            if (reactorStaticOnly)
+            {
+                Console.MarkupLineInterpolated($"[grey]{ReactorDescription.StaticOnlyNote}[/]");
             }
         }
     }

@@ -28,6 +28,14 @@ public class DevToolsQueryCommandTests
         "uiThreadMicroseconds":100,"reasons":{},"matches":[{{rows}}],"context":[]{{(error is null ? "" : ",\"error\":\"" + error + "\"")}}}
         """;
 
+    // The property read is the one query request; the only other requests are the Reactor provenance lookup and the
+    // element's references.
+    private static void AssertOneQueryRead(FakeDevToolsProtocolAgent agent)
+    {
+        Assert.AreEqual(1, agent.Received.Count(method => method == "VisualTree.query"));
+        Assert.IsTrue(agent.Received.All(method => method is "VisualTree.query" or "Reactor.element" or "Property.references"));
+    }
+
     [TestMethod]
     public async Task Search_StructuredCriteriaAreOneRequestWithAndPredicates()
     {
@@ -207,7 +215,7 @@ public class DevToolsQueryCommandTests
         Assert.AreEqual(count, result.RootElement.GetProperty("properties").GetArrayLength());
         Assert.AreEqual(2, result.RootElement.GetProperty("properties")[0].GetProperty("chain").GetArrayLength());
         Assert.AreEqual("{Binding Title}", result.RootElement.GetProperty("properties")[0].GetProperty("binding").GetString());
-        Assert.HasCount(1, agent.Received);
+        AssertOneQueryRead(agent);
         Assert.AreEqual("SearchBox", result.RootElement.GetProperty("selector").GetString());
         Assert.IsTrue(result.RootElement.GetProperty("query").GetProperty("complete").GetBoolean());
     }
@@ -412,7 +420,7 @@ public class DevToolsQueryCommandTests
         var (exit, output) = await Run(new DevToolsGetPropertyCommand(), agent,
             ["--of-type", "TextBox", "--property", property, "--json"]);
         Assert.AreEqual(expected, exit);
-        Assert.HasCount(1, agent.Received);
+        AssertOneQueryRead(agent);
         if (expected == 0)
         {
             using var result = JsonDocument.Parse(output);
@@ -489,11 +497,65 @@ public class DevToolsQueryCommandTests
     }
 
     [TestMethod]
+    public void Preview_FormatDropsAnAccessibleNameThatRepeatsTheShownCaption()
+    {
+        var same = DevToolsPreviews.Format([
+            new("Content", "+1", "value", "String", false),
+            new("AutomationProperties.Name", "+1", "value", "String", false),
+        ]);
+        Assert.AreEqual("Content=\"+1\"", same);
+
+        var text = DevToolsPreviews.Format([
+            new("AutomationProperties.Name", "Count", "value", "String", false),
+            new("Text", "Count", "value", "String", false),
+        ]);
+        Assert.AreEqual("Text=\"Count\"", text);
+
+        var different = DevToolsPreviews.Format([
+            new("Content", "+1", "value", "String", false),
+            new("AutomationProperties.Name", "Increment", "value", "String", false),
+        ]);
+        StringAssert.Contains(different, "AutomationProperties.Name=\"Increment\"");
+    }
+
+    [TestMethod]
+    public void Preview_FormatDropsAnAccessibleNameThatRepeatsThePlaceholder()
+    {
+        // Reactor copies a TextBox's placeholder into its accessible name: `PlaceholderText="New task"` says it once.
+        var text = DevToolsPreviews.Format([
+            new("PlaceholderText", "New task", "value", "String", false),
+            new("AutomationProperties.Name", "New task", "value", "String", false),
+        ]);
+        Assert.AreEqual("PlaceholderText=\"New task\"", text);
+
+        var different = DevToolsPreviews.Format([
+            new("PlaceholderText", "New task", "value", "String", false),
+            new("AutomationProperties.Name", "Task title", "value", "String", false),
+        ]);
+        StringAssert.Contains(different, "AutomationProperties.Name=\"Task title\"", "a name that differs is the app's own");
+    }
+
+    [TestMethod]
+    public void Preview_FormatDropsReactorsDefaultAccessibleNameWhateverItCopied()
+    {
+        // Reactor reports the name as its own default (DefaultAutomationName), even when the caption it came from is
+        // not among the compact values.
+        var values = new DevToolsPreviewValue[]
+        {
+            new("Text", "Done today: 3", "value", "String", false),
+            new("AutomationProperties.Name", "Counter", "value", "String", false),
+        };
+        Assert.AreEqual("Text=\"Done today: 3\"", DevToolsPreviews.Format(values, defaultAutomationName: true));
+        StringAssert.Contains(DevToolsPreviews.Format(values), "AutomationProperties.Name=\"Counter\"",
+            "without Reactor's word for it, only an exact repeat is dropped");
+    }
+
+    [TestMethod]
     public void Preview_FormatKeepsAccessibleNameSeparateAndReportsTruncation()
     {
         var text = DevToolsPreviews.Format([
             new("PlaceholderText", "Search tasks", "value", "String", false),
-            new("AutomationProperties.Name", "Search tasks", "value", "String", false),
+            new("AutomationProperties.Name", "Find a task", "value", "String", false),
             new("Header", "Very long", "value", "String", true),
             new("Content", "", "object", "StackPanel", false),
         ]);

@@ -48,6 +48,9 @@ internal static class DevToolsAccessExtensions
 internal sealed record DevToolsConnection(bool Connected, int NodeCount, string? Error, bool OverlayShown = false,
     string? OverlayError = null)
 {
+    /// <summary>Whether the managed agent runs in the app, and why not when it doesn't. Null when not checked.</summary>
+    public ManagedAgentResult? ManagedAgent { get; init; }
+
     public static DevToolsConnection Ok(int nodeCount, bool overlayShown = false, string? overlayError = null) =>
         new(true, nodeCount, null, overlayShown, overlayError);
 

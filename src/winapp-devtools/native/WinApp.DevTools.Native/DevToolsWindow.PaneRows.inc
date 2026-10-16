@@ -111,7 +111,10 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
                                        const DevToolsWindowLayout* layout)
 {
     std::wstring badge = type.empty() ? label : ShortType(type);
+    if (!g_selReactorLabel.empty()) badge = g_selReactorLabel + L"  \u00B7  " + badge;
     if (!name.empty()) badge += L"  \u00B7  #" + name;
+    else if (!g_selTreeName.empty()) badge += L"  \u00B7  #" + g_selTreeName;
+    const bool csharp = authoredState == L"csharp";
     std::wstring m;
     m += L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
          L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" Spacing=\"10\""
@@ -189,19 +192,22 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAddCommentStatus\"/></StackPanel>";
     }
     if (!authoredXaml.empty()) {
-        const std::wstring note = authoredState == L"likely"
+        const std::wstring note = csharp
+            ? L"C# on disk at the Reactor call site that created this element; the running app may differ after a rebuild or hot reload."
+            : authoredState == L"likely"
             ? L"Likely source: unique line and identity match; compiled identity and line preservation are unverified."
             : L"Source on disk; the running app may differ after a rebuild or hot reload.";
         m += L"<Border Background=\"{ThemeResource ControlFillColorSecondaryBrush}\" CornerRadius=\"4\""
              L" Padding=\"8,6,8,6\" Margin=\"0,8,0,0\">";
         m += L"<StackPanel Spacing=\"0\">";
-        m += L"<TextBlock Text=\"" + std::wstring(authoredState == L"likely" ? L"Likely source (unverified)" : L"Source on disk") +
+        m += L"<TextBlock Text=\"" + std::wstring(csharp ? L"C# source" : authoredState == L"likely" ? L"Likely source (unverified)" : L"Source on disk") +
              L"\" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\""
              L" ToolTipService.ToolTip=\"" + DevToolsXmlEscape(note) + L"\" AutomationProperties.HelpText=\"" + DevToolsXmlEscape(note) + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsSourceNote\""
              DT_FG_SECONDARY L"/>";
         m += L"<HyperlinkButton x:Name=\"AxmlToggle\" Padding=\"0\" HorizontalAlignment=\"Stretch\""
-             L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"Toggle authored XAML\""
+             L" HorizontalContentAlignment=\"Left\" AutomationProperties.Name=\"" +
+             std::wstring(csharp ? L"Toggle C# source" : L"Toggle authored XAML") + L"\""
              L" AutomationProperties.AutomationId=\"WinAppDevToolsAuthoredXamlToggle\">";
         m += L"<Grid ColumnSpacing=\"7\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"10\"/>"
              L"<ColumnDefinition Width=\"*\"/></Grid.ColumnDefinitions>";
@@ -225,15 +231,31 @@ static std::wstring BuildPropsFragment(const std::wstring& type, const std::wstr
     }
     if (rows.empty()) {
         m += L"<TextBlock Text=\"(no curated properties)\" Foreground=\"{ThemeResource TextFillColorTertiaryBrush}\"/>";
+        m += g_selReferencesMarkup;
+        m += L"<StackPanel x:Name=\"PendingReferences\"/>";
         if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset)) m += BuildLayoutDisclosure(*layout, rows);
         m += L"</StackPanel>";
         return m;
     }
 
+    // LabeledBy / DescribedBy / FlowsTo / FlowsFrom / XYFocus* edges from and to this element, above the (long)
+    // Reactor component section so they stay in view.
+    m += g_selReferencesMarkup;
+    m += L"<StackPanel x:Name=\"PendingReferences\"/>";
+
+    // A Reactor element: the component that renders it (props, state, contexts, handlers), filled in after load.
+    if (csharp || !g_selReactorLabel.empty()) {
+        m += L"<StackPanel Spacing=\"4\" Margin=\"0,8,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsReactorSection\">";
+        m += L"<TextBlock Text=\"Reactor component\" Style=\"{StaticResource CaptionTextBlockStyle}\""
+             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/>";
+        m += L"<StackPanel x:Name=\"ReactorSectionBody\" Spacing=\"4\"><TextBlock Text=\"Reading the component\u2026\" FontSize=\"12\""
+             L" Foreground=\"{ThemeResource TextFillColorSecondaryBrush}\"/></StackPanel></StackPanel>";
+    }
+
     const PaneEditMap emap = BuildEditMap(rows);
     const bool anyEditable = !emap.targets.empty();
 
-    if (authoredState != L"available") {
+    if (authoredState != L"available" && !csharp) {
         // Framework source with no readable app declaration is not missing app instrumentation.
             // Do not recommend changing a correct build for that case.
         const bool frameworkDeclared = !sourceUri.empty() && !DevToolsAppXaml_IsAppAuthored(sourceUri);

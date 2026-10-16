@@ -88,6 +88,15 @@
       <TextBlock x:Name="DevToolsChipLabel" Text="DevTools" FontSize="12" FontWeight="SemiBold"
                  VerticalAlignment="Center" Foreground="$TEXT$"
                  AutomationProperties.AutomationId="DevToolsChipLabel" />
+      <!-- Reactor render and swallowed errors and keyed-list warnings since launch; `winapp devtools logs` lists them. -->
+      <Border x:Name="DevToolsChipErrors" Visibility="Collapsed" MinWidth="16" Height="16" CornerRadius="8"
+              Padding="5,0" Background="#FFC42B1C" VerticalAlignment="Center"
+              ToolTipService.ToolTip="Reactor errors and keyed-list warnings since launch (winapp devtools logs)"
+              AutomationProperties.AutomationId="DevToolsChipErrors"
+              AutomationProperties.Name="Reactor problems">
+        <TextBlock x:Name="DevToolsChipErrorsText" Text="0" FontSize="10" FontWeight="SemiBold"
+                   Foreground="#FFFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
     </StackPanel>
   </Button>
 
@@ -115,6 +124,14 @@
           <Ellipse x:Name="DevToolsDragHaloOn" Width="16" Height="16" Fill="$LIVE$" Opacity="0.6" Visibility="Collapsed"
                    HorizontalAlignment="Center" VerticalAlignment="Center" />
           <Ellipse Width="8" Height="8" Fill="$LIVE$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <!-- The pill's Reactor error count, for when the bar is open (pinned) and the pill is hidden. -->
+          <Border x:Name="DevToolsBarErrors" Visibility="Collapsed" MinWidth="14" Height="14" CornerRadius="7" Padding="3,0"
+                  Margin="0,-6,-8,0" Background="#FFC42B1C" HorizontalAlignment="Right" VerticalAlignment="Top"
+                  ToolTipService.ToolTip="Reactor errors since launch (winapp devtools logs)"
+                  AutomationProperties.AutomationId="DevToolsBarErrors" AutomationProperties.Name="Reactor errors">
+            <TextBlock x:Name="DevToolsBarErrorsText" Text="0" FontSize="9" FontWeight="SemiBold"
+                       Foreground="#FFFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
         </Grid>
       </Border>
       <ToggleButton x:Name="DevToolsProtoPick" Style="{x:Null}" AllowFocusOnInteraction="False" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
@@ -195,6 +212,30 @@
                   Foreground="$TEXT$" />
       </Button>
 
+      <!-- Reactor apps whose Reactor reports component renders: flash each component as it re-renders. -->
+      <ToggleButton x:Name="DevToolsProtoHighlight" Visibility="Collapsed" Style="{x:Null}" Width="30" Height="26" Padding="0" BorderThickness="0" CornerRadius="6"
+              Background="#00000000" Foreground="$TEXT$" VerticalAlignment="Center"
+              ToolTipService.ToolTip="Highlight components when they render"
+              AutomationProperties.AutomationId="DevToolsProtoHighlight"
+              AutomationProperties.Name="Highlight updates">
+        <ToggleButton.Resources>
+          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+        </ToggleButton.Resources>
+        <Grid Width="30" Height="26">
+          <FontIcon x:Name="DevToolsHighlightOff" FlowDirection="LeftToRight" Glyph="&#xE7B3;"
+                    FontSize="15" Foreground="$TEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <Grid x:Name="DevToolsHighlightOn" Visibility="Collapsed" AutomationProperties.AutomationId="DevToolsHighlightOn">
+            <Border Width="30" Height="26" CornerRadius="6" Background="$ACCENT$" />
+            <FontIcon FlowDirection="LeftToRight" Glyph="&#xE7B3;" FontSize="15"
+                      Foreground="$ACCENTTEXT$" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Grid>
+        </Grid>
+      </ToggleButton>
       <!-- Separator uses the internal border brush, not the outer rim. -->
       <Border Width="1" Height="18" Background="$BORDER$" Margin="3,0" VerticalAlignment="Center" />
 

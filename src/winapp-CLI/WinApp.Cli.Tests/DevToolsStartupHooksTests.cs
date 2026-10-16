@@ -43,4 +43,27 @@ public class DevToolsStartupHooksTests
         Assert.AreEqual(string.Join(Path.PathSeparator, Developer, Agent), once);
         Assert.AreEqual(once, DevToolsStartupHooks.Compose(once, Agent, Source));
     }
+
+    [TestMethod]
+    [DataRow("""{"runtimeOptions":{"configProperties":{"System.StartupHookProvider.IsSupported":false}}}""", true)]
+    [DataRow("""{"runtimeOptions":{"configProperties":{"System.StartupHookProvider.IsSupported":true}}}""", false)]
+    [DataRow("""{"runtimeOptions":{"tfm":"net10.0"}}""", false)]
+    [DataRow("not json", false)]
+    public void DisabledByRuntimeConfig_ReadsTheTrimmingSwitch(string content, bool disabled)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"winapp-hooks-{Guid.NewGuid():N}.runtimeconfig.json");
+        File.WriteAllText(path, content);
+        try
+        {
+            Assert.AreEqual(disabled, DevToolsStartupHooks.DisabledByRuntimeConfig(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void DisabledByRuntimeConfig_IsFalseWithoutAFile() =>
+        Assert.IsFalse(DevToolsStartupHooks.DisabledByRuntimeConfig(Path.Combine(Path.GetTempPath(), "missing.runtimeconfig.json")));
 }

@@ -102,6 +102,10 @@ internal sealed class GuestJobObject : IDisposable
         }
     }
 
+    /// <summary>Adds an already-running process; false when Windows refuses (for example, a job that forbids nesting).</summary>
+    public bool TryAssign(SafeHandle process) =>
+        !_disposed && PInvoke.AssignProcessToJobObject(_handle, process);
+
     /// <summary>Terminates every process in the job.</summary>
     /// <remarks>
     /// Used only after a graceful stop has been requested and its timeout elapsed, so a

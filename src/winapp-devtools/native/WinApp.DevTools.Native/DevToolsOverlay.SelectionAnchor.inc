@@ -5,6 +5,7 @@
 // ============================ Selection chrome and comment flyout ============================
 static void SetOverlayElementVisible(IInspectable* el, bool visible);
 static bool IsLinkedElement(InstanceHandle handle);
+static bool HasAuthoredSource(InstanceHandle handle);
 static std::vector<std::wstring> SelOtherComments(InstanceHandle handle);
 static void OnInspectClick(void*, void*);
 
@@ -103,16 +104,20 @@ static void ClearSelectionAnchor()
 
 // Build the flyout (selection-panel.xaml); it is substituted into selection.xaml's $PANEL$ slot.
 // A likely source is shown for review next to the checkbox that confirms it.
-static std::wstring LikelySourceConfirmationMarkup(bool likely, const std::wstring& authoredXaml)
+// A Reactor element without a call site of its own offers the nearest Reactor element's C# the same way.
+static std::wstring LikelySourceConfirmationMarkup(bool likely, const std::wstring& authoredXaml, bool csharp = false)
 {
     if (!likely) return L"";
     const DevToolsPalette& pal = DevToolsInverseAcrylicPalette();
-    std::wstring m = L"<TextBlock Text=\"Likely source: unique line and identity match; compiled identity and line preservation are unverified.\""
+    std::wstring m = L"<TextBlock Text=\"" + std::wstring(csharp
+        ? L"Likely source: this element has no call site of its own; this is the nearest Reactor element that contains it."
+        : L"Likely source: unique line and identity match; compiled identity and line preservation are unverified.") + L"\""
         L" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\" Foreground=\"" + pal.textSecondary + L"\"/>";
     if (!authoredXaml.empty())
         m += L"<TextBlock Text=\"" + XmlEscapeLines(authoredXaml) + L"\" FontFamily=\"Consolas\""
             L" Style=\"{StaticResource CaptionTextBlockStyle}\" TextWrapping=\"Wrap\" IsTextSelectionEnabled=\"True\""
-            L" Foreground=\"" + pal.textPrimary + L"\" AutomationProperties.AutomationId=\"DevToolsSelAuthoredXaml\"/>";
+            L" Foreground=\"" + pal.textPrimary + L"\" AutomationProperties.AutomationId=\"" +
+            (csharp ? L"DevToolsSelAuthoredCSharp" : L"DevToolsSelAuthoredXaml") + L"\"/>";
     return m + L"<CheckBox x:Name=\"DevToolsConfirmLikelySource\" IsChecked=\"False\" HorizontalAlignment=\"Stretch\""
         L" AutomationProperties.AutomationId=\"DevToolsConfirmLikelySource\""
         L" AutomationProperties.Name=\"Use this likely source for my comment\">"
@@ -144,12 +149,18 @@ static std::wstring BuildSelectionPanelMarkup(const std::wstring& title, const s
                                               const std::wstring& authoredXaml,
                                               const std::vector<std::wstring>& otherComments,
                                               double originX, double originY,
-                                              bool readOnly)
+                                              bool readOnly,
+                                              const DevToolsCSharpSourceInfo* csharp = nullptr)
 {
     const DevToolsPalette& pal = DevToolsInverseAcrylicPalette();
 
     std::wstring srcText = L"Not linked to source", srcTip, srcFg = pal.textSecondary;
-    if (linked && !srcFile.empty()) {
+    if (linked && csharp) {
+        // A Reactor element: its component and C# call site (`<Counter> \u00B7 App.cs:35`).
+        srcText = csharp->header;
+        srcTip = csharp->path; if (csharp->line > 0) srcTip += L" (line " + std::to_wstring(csharp->line) + L")";
+        srcFg = pal.textPrimary;
+    } else if (linked && !srcFile.empty()) {
         size_t sl = srcFile.find_last_of(L"/\\");
         srcText = (sl == std::wstring::npos) ? srcFile : srcFile.substr(sl + 1);
         if (srcLine > 0) srcText += L":" + std::to_wstring(srcLine);
@@ -180,7 +191,9 @@ static std::wstring BuildSelectionPanelMarkup(const std::wstring& title, const s
         { L"SOURCEFG", srcFg },
         { L"OTHERS",  OtherCommentsMarkup(otherComments) },
         { L"COMMENT", DevToolsXmlEscape(commentText, true) },
-        { L"SOURCECONFIRM", LikelySourceConfirmationMarkup(authoredState == L"likely", authoredXaml) },
+        { L"SOURCECONFIRM", csharp && !csharp->exact
+            ? LikelySourceConfirmationMarkup(linked, csharp->code, true)
+            : LikelySourceConfirmationMarkup(authoredState == L"likely", authoredXaml) },
         { L"CMTREADONLY", readOnly || !GuestCommentCanEdit(g_selHandle) ? std::wstring(L"True") : std::wstring(L"False") },
         { L"CMTSAVEVIS", readOnly || !GuestCommentCanEdit(g_selHandle) ? std::wstring(L"Collapsed") : std::wstring(L"Visible") },
         { L"CMTLIMIT", g_guestCommentAuthority.load() ? std::wstring(L"65536") : std::wstring(L"0") },
@@ -233,6 +246,17 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
     std::wstring title = shortType;
     std::wstring titleTip = type;
     if (!name.empty()) { title += L"  #"; title += name; titleTip += L"  #" + name; }
+// No XAML declaration: a Reactor element shows its component and C# call site instead.
+    DevToolsCSharpSourceInfo csharp;
+    const bool haveCSharp = g_csharpRead && g_selPendingHandle && !HasAuthoredSource(g_selPendingHandle) &&
+        g_csharpRead(g_selPendingHandle, &csharp);
+    if (haveCSharp && !csharp.label.empty() && csharp.label != shortType) {
+        title = csharp.label;
+        if (!name.empty()) title += L"  #" + name;
+    }
+// The tag has no source block, so it carries the call site: "Button \u00B7 <Counter> \u00B7 App.cs:67".
+    std::wstring tagTitle = title;
+    if (haveCSharp && !csharp.header.empty()) tagTitle += L" \u00B7 " + csharp.header;
 
     int w = 0, h = 0; if (!GetClientSizeDips(&w, &h)) { w = 1600; h = 900; }
     const RECT& e = g_selPendingHandle == g_selectedHandle ? g_selectedBounds : g_lastPickBoundsDip;
@@ -260,7 +284,8 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
     // Header, comment box, save row and footer, plus the likely-source review and each other comment. The panel still
     // sizes to its content; this only decides where it fits.
     const std::vector<std::wstring> otherComments = SelOtherComments(g_selPendingHandle);
-    const int estimatedHeight = 300 + (authoredState == L"likely" ? 120 : 0) + 72 * (int)(std::min)(otherComments.size(), size_t(3));
+    const bool likelySource = authoredState == L"likely" || (haveCSharp && !csharp.exact && !csharp.code.empty());
+    const int estimatedHeight = 300 + (likelySource ? 120 : 0) + 72 * (int)(std::min)(otherComments.size(), size_t(3));
     DevToolsSelection::Rect viewport{ 0, 0, w, h };
     DevToolsSelection::Rect workArea{};
     if (GetMonitorWorkAreaDips(&workArea)) viewport = workArea;
@@ -315,10 +340,11 @@ static void ShowSelectionAnchor(IInspectable* el, bool fromUserPick)
     if (fromUserPick)
         panelMarkup = BuildSelectionPanelMarkup(title, titleTip, px, py, panelHeight, leaderX, leaderY, initComment,
                                                 srcFile, srcLine, IsLinkedElement(g_selHandle), authoredState,
-                                                authoredXaml, otherComments, originX, originY, readOnly);
+                                                authoredXaml, otherComments, originX, originY, readOnly,
+                                                haveCSharp ? &csharp : nullptr);
 
     IInspectable* insp = nullptr;
-    const std::wstring selMarkup = BuildSelectionMarkup(w, h, tagX, tagY, title, tagDim, panelMarkup);
+    const std::wstring selMarkup = BuildSelectionMarkup(w, h, tagX, tagY, tagTitle, tagDim, panelMarkup);
     const HRESULT hrSel = LoadMarkup(selMarkup, &insp);
     if (FAILED(hrSel) || !insp) {
         DevToolsOverlayLog(L"overlay.sel load FAILED hr=0x%08X insp=%p markupChars=%zu panelChars=%zu fromUserPick=%d"

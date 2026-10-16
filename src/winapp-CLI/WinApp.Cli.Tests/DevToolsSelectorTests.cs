@@ -95,7 +95,175 @@ public class DevToolsSelectorTests
         {"matches":{{matches}},"query":"q","appAuthoredOnly":false,"searchedNodes":2,"censusNodes":2,"truncated":false}
         """;
 
+    // ---- Reactor: one tree, every window ------------------------------------------------------------------
+
+    /// <summary>A XAML window and a Reactor window: the Reactor root renders a Border wrapper for &lt;Counter&gt;.</summary>
+    private const string TwoWindowEnvelope =
+        """
+        {"nodes":[
+          {"handle":"10","name":"Root","type":"Microsoft.UI.Xaml.Controls.Grid","file":"ms-appx:///MainWindow.xaml","id":"aaaaaaaaaa","uniqueName":true,"childCount":0,"children":[]},
+          {"handle":"20","type":"Microsoft.UI.Xaml.Controls.StackPanel","id":"ffffffffff","childCount":1,"children":[
+            {"handle":"21","type":"Microsoft.UI.Xaml.Controls.Border","id":"1212121212","childCount":0,"children":[]}]}],
+         "authored":true,"sourceInstrumented":true,"classificationTruncated":false,"classifiedNodes":5,"censusNodes":5,"authoredNodes":3,"classifier":"allowlist",
+         "windows":[{"window":"100","title":"Main","surface":"Main","roots":["10"]},{"window":"200","title":"Settings","surface":"Settings","roots":["20"]}],
+         "reactor":{"present":true,"agent":"ok","version":"1.0","sourceMap":true,
+           "nodes":[{"handle":"20","element":"Stack","file":0,"line":7,"host":{"kind":"window","window":"200","windowId":"win-2","windowKey":"Settings","root":{"kind":"class","name":"SettingsPage"}}},
+                    {"handle":"21","parent":"20","element":"Component","file":0,"line":9,"component":{"kind":"class","name":"Counter"}}],
+           "files":["C:\\src\\App.cs"],"unmapped":0,"truncated":false}}
+        """;
+
+    [TestMethod]
+    public async Task Inspect_AsksForAnnotations_AndShowsXamlAndReactorInOneTreePerWindow()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", TwoWindowEnvelope, IsAuthoredRequest);
+
+        var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, []);
+
+        Assert.AreEqual(0, exit, output);
+        Assert.IsTrue(agent.ReceivedRequests.All(request => !request.Contains("VisualTree.enumerate") || request.Contains("\"annotate\":true")),
+            "inspect asks for the window and Reactor annotations in the same request");
+        Assert.IsFalse(agent.ReceivedRequests.Any(request => request.Contains("Reactor.describe")), "no extra round trip");
+        StringAssert.Contains(output, "Window \"Main\" -w 100");
+        StringAssert.Contains(output, "Window \"Settings\" -w 200 Reactor win-2 key=Settings");
+        StringAssert.Contains(output, "<SettingsPage> root");
+        StringAssert.Contains(output, "<Counter> App.cs:9");
+        StringAssert.Contains(output, "MainWindow.xaml");
+        Assert.IsTrue(output.IndexOf("Main", StringComparison.Ordinal) < output.IndexOf("Settings", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task Inspect_Json_CarriesWindowsAndReactorPerElement()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", TwoWindowEnvelope, IsAuthoredRequest);
+
+        var (_, output) = await RunAsync(new DevToolsInspectCommand(), agent, ["--json"]);
+        using var doc = JsonDocument.Parse(output);
+        var root = doc.RootElement;
+
+        Assert.AreEqual(2, root.GetProperty("windows").GetArrayLength());
+        Assert.IsTrue(root.GetProperty("reactor").GetProperty("present").GetBoolean());
+        var reactorRoot = root.GetProperty("elements")[1];
+        Assert.AreEqual("200", reactorRoot.GetProperty("window").GetString());
+        Assert.AreEqual("SettingsPage", reactorRoot.GetProperty("reactor").GetProperty("host").GetProperty("root").GetProperty("name").GetString());
+        Assert.AreEqual("Counter", reactorRoot.GetProperty("children")[0].GetProperty("reactor").GetProperty("component").GetProperty("name").GetString());
+    }
+
+    [TestMethod]
+    public async Task Inspect_ReactorWithoutAgent_FallsBackOnceWithTheReactorReason()
+    {
+        const string noAgent = """
+            {"nodes":[],"authored":true,"sourceInstrumented":false,"classificationTruncated":false,"classifiedNodes":3,"censusNodes":3,"authoredNodes":0,"classifier":"allowlist",
+             "windows":[],"reactor":{"present":true,"agent":"absent","reason":"no managed DevTools agent is loaded in this app"}}
+            """;
+        const string raw = """
+            {"nodes":[{"handle":"10","type":"Microsoft.UI.Xaml.Controls.Grid","childCount":0,"children":[]}],"authored":false,
+             "windows":[],"reactor":{"present":true,"agent":"absent","reason":"no managed DevTools agent is loaded in this app"}}
+            """;
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", noAgent, IsAuthoredRequest)
+            .Answer("VisualTree.enumerate", raw);
+
+        var (exit, output) = await RunAsync(new DevToolsInspectCommand(), agent, []);
+
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "This app uses Microsoft.UI.Reactor, but its components cannot be read");
+        Assert.AreEqual(1, output.Split("cannot be read").Length - 1, "the Reactor note is said once");
+        Assert.IsFalse(output.Contains("XAML source information"), "the reason is Reactor, not missing XAML source info");
+    }
+
     // ---- 1. authored-first inspect ------------------------------------------------------------------------
+
+    private const string CounterNodes = """
+        ,{"handle":"21","parent":"20","element":"Component","file":0,"line":36,"component":{"kind":"class","name":"Counter","type":"TaskBoard.Counter"}},
+         {"handle":"30","element":"Stack","file":0,"line":77,"host":{"kind":"window","window":"200","title":"Settings","root":{"kind":"class","name":"SettingsPage"}}},
+         {"handle":"31","parent":"30","element":"Component","file":0,"line":79,"component":{"kind":"class","name":"Counter","type":"TaskBoard.Counter"}}
+        """;
+
+    /// <summary>Reactor.describe: a &lt;Counter&gt; in the main window and another in Settings.</summary>
+    private static string CounterInTwoWindows(bool complete = true, bool withCounters = true) =>
+        """{"state":"ok","version":"1.0","sourceMap":true,"nodes":[{"handle":"20","element":"Stack","file":0,"line":7,"host":{"kind":"window","window":"100","title":"TaskBoard","root":{"kind":"class","name":"App"}}}"""
+        + (withCounters ? CounterNodes : "")
+        + """],"files":["C:\\src\\App.cs"],"unmapped":0,"truncated":false,"complete":""" + (complete ? "true}" : "false}");
+
+    [TestMethod]
+    [DataRow("Counter")]
+    [DataRow("<Counter>")]
+    [DataRow("TaskBoard.Counter")]
+    public async Task Search_Component_ListsEveryInstanceInEveryWindow(string name)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", CounterInTwoWindows())
+            .Answer("VisualTree.enumerate", """{"nodes":[]}""");
+
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["--component", name]);
+
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "<Counter> App.cs:36 window \"TaskBoard\" (-w 100)");
+        StringAssert.Contains(output, "<Counter> App.cs:79 window \"Settings\" (-w 200)");
+        StringAssert.Contains(output, "Found 2 match(es)");
+    }
+
+    [TestMethod]
+    public async Task Search_Component_IncompleteDescription_SaysToRetryInsteadOfNotRendered()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", CounterInTwoWindows(complete: false, withCounters: false));
+
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["--component", "Counter", "--json"]);
+
+        Assert.AreNotEqual(0, exit);
+        StringAssert.Contains(output, "reactor-incomplete");
+        StringAssert.Contains(output, "Run the command again");
+        Assert.IsFalse(output.Contains("No rendered Reactor component", StringComparison.Ordinal), output);
+    }
+
+    [TestMethod]
+    public async Task Search_Component_CompleteDescriptionWithoutIt_IsANoMatch()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", CounterInTwoWindows(withCounters: false));
+
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["--component", "Counter", "--json"]);
+
+        Assert.AreNotEqual(0, exit);
+        StringAssert.Contains(output, "no-match");
+        StringAssert.Contains(output, "No rendered Reactor component is named <Counter>");
+    }
+
+    [TestMethod]
+    public async Task Search_ReactorPath_ListsWhatItSelectsInEveryWindow()
+    {
+        const string described = """
+            {"state":"ok","nodes":[
+              {"handle":"20","element":"Stack","file":0,"line":7,"host":{"kind":"window","window":"100","title":"TaskBoard","root":{"kind":"class","name":"App"}}},
+              {"handle":"21","parent":"20","element":"Component","file":0,"line":36,"component":{"kind":"class","name":"Counter"}},
+              {"handle":"22","parent":"21","element":"Button","file":0,"line":67},
+              {"handle":"30","element":"Stack","file":0,"line":77,"host":{"kind":"window","window":"200","title":"Settings","root":{"kind":"class","name":"SettingsPage"}}},
+              {"handle":"31","parent":"30","element":"Component","file":0,"line":79,"component":{"kind":"class","name":"Counter"}},
+              {"handle":"32","parent":"31","element":"Button","file":0,"line":67}],
+             "files":["C:\\src\\App.cs"],"unmapped":0,"truncated":false,"complete":true}
+            """;
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", Find("[]"))
+            .Answer("Reactor.describe", described)
+            .Answer("VisualTree.enumerate", """{"nodes":[]}""");
+
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["<Counter>/Button"]);
+
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "App.cs:67 window \"TaskBoard\" (-w 100)");
+        StringAssert.Contains(output, "App.cs:67 window \"Settings\" (-w 200)");
+        StringAssert.Contains(output, "Found 2 match(es)");
+    }
+
+    [TestMethod]
+    public void ReactorDescription_CompleteDefaultsToTrue_AndReadsFalse()
+    {
+        Assert.IsTrue(ReactorDescription.Parse("""{"state":"ok","nodes":[],"files":[]}""")!.Complete);
+        Assert.IsFalse(ReactorDescription.Parse(CounterInTwoWindows(complete: false))!.Complete);
+    }
 
     /// <summary>
     /// The default asks the TAP to project, rather than fetching a raw tree and filtering it here. That
@@ -116,7 +284,7 @@ public class DevToolsSelectorTests
             "The default view must ask the tap for the authored projection, not filter a raw tree afterwards.");
         StringAssert.Contains(output, "SubmitButton",
             "An app-authored Button must be visible at the DEFAULT depth, which is the bug this fixes.");
-        StringAssert.Contains(output, "your XAML", "The footer must say which view this is.");
+        StringAssert.Contains(output, "your code", "The footer must say which view this is.");
     }
 
     /// <summary>
@@ -441,6 +609,59 @@ public class DevToolsSelectorTests
     private static readonly string[] DuplicateRowSelectors =
         ["button-deletebutton-1111111111", "button-deletebutton-2222222222"];
 
+    private const string ReactorNamedMatches =
+        """
+        {"matches":[
+          {"handle":"61","type":"Microsoft.UI.Xaml.Controls.Button","id":"6161616161","depth":4,
+           "reactor":{"element":"Button","owner":"Counter","name":"incrementButton","nameSource":"csharp-variable","file":"C:\\src\\App.cs","line":67}},
+          {"handle":"62","type":"Microsoft.UI.Xaml.Controls.Button","id":"6262626262","depth":4,
+           "reactor":{"element":"Button","owner":"Counter","file":"C:\\src\\App.cs","line":68}}],
+         "query":"incrementbutton","appAuthoredOnly":false,"searchedNodes":2,"censusNodes":2,"truncated":false}
+        """;
+
+    /// <summary>
+    /// A Reactor element assigned to a C# variable is selected by that name, bare or as <c>#name</c>, exactly like
+    /// an x:Name: the tree prints <c>Button #incrementButton</c>, so that is what a reader types back.
+    /// </summary>
+    [TestMethod]
+    public void Resolve_AReactorElementsCSharpNameSelectsIt()
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.find", ReactorNamedMatches);
+        var tap = new VisualTreeTap((uint)agent.Pid);
+
+        Assert.AreEqual("61", DevToolsSelector.Resolve(tap, "incrementButton").Handle);
+        Assert.AreEqual("61", DevToolsSelector.Resolve(tap, "#incrementButton").Handle, "#name reads the way the tree prints it");
+        Assert.AreEqual("61", DevToolsSelector.Resolve(tap, "IncrementButton").Handle, "a unique name matches case-insensitively, like an x:Name");
+        var missing = DevToolsSelector.Resolve(tap, "#resetButton");
+        Assert.IsFalse(missing.Ok);
+        StringAssert.Contains(missing.Error, "C# variable");
+    }
+
+    /// <summary>One C# name reused by several elements (a list row built by one method) is ambiguous, as an x:Name is.</summary>
+    [TestMethod]
+    public void Resolve_ACSharpNameSharedByTwoElementsListsThem()
+    {
+        const string rows =
+            """
+            {"matches":[
+              {"handle":"71","type":"Microsoft.UI.Xaml.Controls.Grid","id":"7171717171","depth":5,
+               "reactor":{"element":"Grid","owner":"TaskList","key":"t1","name":"Row","nameSource":"csharp-source-text","file":"C:\\src\\App.cs","line":90}},
+              {"handle":"72","type":"Microsoft.UI.Xaml.Controls.Grid","id":"7272727272","depth":5,
+               "reactor":{"element":"Grid","owner":"TaskList","key":"t2","name":"Row","nameSource":"csharp-source-text","file":"C:\\src\\App.cs","line":90}}],
+             "query":"row","appAuthoredOnly":false,"searchedNodes":2,"censusNodes":2,"truncated":false}
+            """;
+        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.find", rows);
+        var tap = new VisualTreeTap((uint)agent.Pid);
+
+        var resolved = DevToolsSelector.Resolve(tap, "#Row");
+
+        Assert.IsFalse(resolved.Ok);
+        StringAssert.Contains(resolved.Error, "2 elements are named");
+        Assert.AreEqual(2, resolved.Candidates.Length);
+        StringAssert.Contains(resolved.Candidates[0].Detail, "#Row");
+        StringAssert.Contains(resolved.Candidates[0].Detail, "key=t1", "each candidate says which row it is");
+    }
+
     /// <summary>
     /// The bare NAME of a duplicated element is refused, and the refusal lists selectors that DO work, the
     /// `winapp ui` shape: never guess, always hand back something copy-pasteable.
@@ -700,7 +921,7 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["Phi 3 Medium"]);
         Assert.AreEqual(0, exit, output);
         StringAssert.Contains(output, "NavigationViewItem");
-        StringAssert.Contains(output, "Nothing in your XAML matches");
+        StringAssert.Contains(output, "Nothing in your code matches");
 
         var (_, jsonOut) = await RunAsync(new DevToolsSearchCommand(), agent, ["Phi 3 Medium", "--json"]);
         using var doc = JsonDocument.Parse(jsonOut);

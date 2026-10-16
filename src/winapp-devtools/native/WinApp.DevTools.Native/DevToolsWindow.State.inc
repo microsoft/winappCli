@@ -121,6 +121,9 @@ static WindowContext g_ctx;
 // is what asks, is built long before that point in this file.
 // Path-walk callbacks are declared early because property expansions can ask before comment bridge code.
 static DevToolsWindowWalkFn g_walkFn;
+static DevToolsWindowAuthoredFn g_codeAuthoredFn;
+static std::function<void()> g_codeAuthoredRefreshFn;
+static bool g_reclassifying = false;
 static IUnknown*     g_inspectorXamlRoot = nullptr;
 static IInspectable* g_inspectorContent = nullptr;
 static IUnknown* g_captionTheme = nullptr;
@@ -214,6 +217,16 @@ static std::wstring         g_selLabel;
 static std::wstring         g_selBreadcrumb;
 static std::wstring         g_selSourceFile;
 static unsigned int         g_selSourceLine = 0;
+// The Reactor label of the selected element (`<Counter>`, `VStack`), shown ahead of its WinUI type.
+static std::wstring         g_selReactorLabel;
+static std::wstring         g_selTreeName;      // the row's name: the x:Name, or a Reactor element's C# name
+// The property pane's Reactor section: the component that renders the selected element, asked from a worker.
+static DevToolsWindowReactorAskFn g_reactorAskFn;
+static DevToolsWindowReferencesFn g_referencesFn;
+static DevToolsWindowPendingReferencesFn g_pendingReferencesFn;
+// The selected element's References section markup, read before the pane is built.
+static std::wstring g_selReferencesMarkup;
+static DevToolsComponentSection   g_reactorSection;
 
 // Dirty tracking records what this pane changed because runtime local values cannot recover resource keys.
 static InstanceHandle g_dirtyNode = 0;

@@ -54,4 +54,57 @@ internal static class ParentProcessId
 
         return null;
     }
+
+    /// <summary>
+    /// Every live descendant of <paramref name="processId"/> with its image name, from one snapshot. Children whose
+    /// parent exited keep that parent's ID, so a reused ID can only add processes started after it; callers that act
+    /// on a match check the image name as well.
+    /// </summary>
+    public static unsafe IReadOnlyList<(int ProcessId, string ImageName)> Descendants(int processId)
+    {
+        using var snapshot = PInvoke.CreateToolhelp32Snapshot_SafeHandle(
+            CREATE_TOOLHELP_SNAPSHOT_FLAGS.TH32CS_SNAPPROCESS,
+            th32ProcessID: 0);
+        var result = new List<(int, string)>();
+        if (snapshot.IsInvalid)
+        {
+            return result;
+        }
+
+        var children = new Dictionary<int, List<(int Id, string Name)>>();
+        var entry = new PROCESSENTRY32W { dwSize = (uint)sizeof(PROCESSENTRY32W) };
+        if (!PInvoke.Process32FirstW(snapshot, ref entry))
+        {
+            return result;
+        }
+        do
+        {
+            var parent = (int)entry.th32ParentProcessID;
+            if (!children.TryGetValue(parent, out var list))
+            {
+                children[parent] = list = [];
+            }
+            list.Add(((int)entry.th32ProcessID, entry.szExeFile.ToString()));
+        }
+        while (PInvoke.Process32NextW(snapshot, ref entry));
+
+        var pending = new Queue<int>([processId]);
+        var seen = new HashSet<int> { processId };
+        while (pending.Count > 0)
+        {
+            if (!children.TryGetValue(pending.Dequeue(), out var list))
+            {
+                continue;
+            }
+            foreach (var child in list)
+            {
+                if (seen.Add(child.Id))
+                {
+                    result.Add(child);
+                    pending.Enqueue(child.Id);
+                }
+            }
+        }
+        return result;
+    }
 }

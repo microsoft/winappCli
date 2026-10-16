@@ -83,6 +83,14 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
             var root = doc.RootElement;
             var state = ReadString(root, "state");
 
+            // No binding: a Reactor element's C# may set the property instead. Answer "why does this show X?" from the
+            // element record, its call site and the rendering component's props, state and contexts.
+            if (state is "" or "none" or "unavailable" &&
+                ReactorDiagnosis(target, handle, property, json, cancellationToken) is int reactorExit)
+            {
+                return Task.FromResult(reactorExit);
+            }
+
             // ONE verdict for both shapes. "unavailable" means the question could not be answered, not that
             // the binding is healthy, and `--json` used to report ok:true / exit 0 for exactly that, which is
             // the reading most likely to make an agent conclude a broken binding is fine.
@@ -144,6 +152,134 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
             }
 
             return Task.FromResult(diagnosed ? 0 : 1);
+        }
+
+        /// <summary>
+        /// The Reactor answer to "why does this show X?": the WinUI value, the element record value or modifier (or the
+        /// ThemeRef) that sets it, where the element was created, and the props, state and contexts of the component
+        /// that rendered it, with values the shown value contains marked. Null when Reactor does not set the property.
+        /// </summary>
+        private int? ReactorDiagnosis(DevToolsTarget target, string handle, string property, bool json, CancellationToken cancellationToken)
+        {
+            var tap = target.Tap!;
+            var reactor = ReactorElementInfo.Read(tap, handle, cancellationToken);
+            var owned = reactor?.OwnerOf(property);
+            var themeResource = reactor?.ThemeResourceOf(property);
+            if (reactor is null || (owned is null && themeResource is null))
+            {
+                return null;
+            }
+
+            var properties = tap.RequestProperties(handle, cancellationToken);
+            var row = properties.Ok ? DevToolsPropertyRow.Find(DevToolsPropertyRow.Parse(properties.ResultJson), property) : null;
+            var (component, componentJson, _, _) = ReactorComponentState.Read(tap, handle, cancellationToken);
+            var shown = row?.Value;
+            var name = owned?.Property ?? property;
+
+            if (json)
+            {
+                WriteJson(DevToolsJson.Serialize(writer =>
+                {
+                    writer.WriteBoolean("ok", true);
+                    writer.WriteNumber("processId", target.Pid);
+                    WriteIdentity(writer, target, handle, cancellationToken);
+                    writer.WriteString("property", name);
+                    writer.WriteString("kind", "reactor");
+                    if (shown is not null) { writer.WriteString("value", shown); }
+                    if (row?.ValueSource is { } valueSource) { writer.WriteString("valueSource", valueSource); }
+                    writer.WriteStartObject("reactor");
+                    if (owned is not null)
+                    {
+                        writer.WriteString("from", owned.From);
+                        writer.WriteString("name", owned.Name);
+                        writer.WriteString("value", owned.Value);
+                        if (owned.Redacted) { writer.WriteBoolean("redacted", true); }
+                    }
+                    else
+                    {
+                        writer.WriteString("from", "themeRef");
+                    }
+                    if (themeResource is not null) { writer.WriteString("resourceKey", themeResource); }
+                    if (reactor.Element is not null) { writer.WriteString("element", reactor.Element); }
+                    if (reactor.File is not null)
+                    {
+                        writer.WriteString("file", reactor.File);
+                        writer.WriteNumber("line", reactor.Line);
+                        if (reactor.Column > 0) { writer.WriteNumber("column", reactor.Column); }
+                    }
+                    if (reactor.RenderedBy is { } renderedBy) { writer.WriteString("component", renderedBy); }
+                    writer.WriteEndObject();
+                    if (componentJson is not null && component is not null)
+                    {
+                        writer.WritePropertyName("renderedBy");
+                        using var raw = JsonDocument.Parse(componentJson);
+                        raw.RootElement.WriteTo(writer);
+                        writer.WriteStartArray("likelySources");
+                        foreach (var (kind, label, value) in Sources(component))
+                        {
+                            if (ReactorComponentState.Feeds(value, shown))
+                            {
+                                writer.WriteStartObject();
+                                writer.WriteString("kind", kind);
+                                writer.WriteString("name", label);
+                                writer.WriteString("value", value);
+                                writer.WriteEndObject();
+                            }
+                        }
+                        writer.WriteEndArray();
+                    }
+                }));
+                return 0;
+            }
+
+            DevToolsRender.WriteMarkupLine(Console, DevToolsRender.Header(handle, Describe(target, handle, cancellationToken), name));
+            DevToolsRender.WriteMarkupLine(Console, "  kind: [blue]reactor[/] [grey](set in C#, not a binding)[/]");
+            if (shown is not null)
+            {
+                DevToolsRender.WriteMarkupLine(Console, $"  shows: [green]{Markup.Escape(shown)}[/]" +
+                    (row?.ValueSource is { } source ? $" [grey][[{Markup.Escape(source)}]][/]" : ""));
+            }
+            var element = reactor.Element ?? "element";
+            if (owned is not null)
+            {
+                var how = owned.From == "modifier" ? $".{owned.Name}({owned.Value})" : $"{element} {owned.Name} = {owned.Value}";
+                DevToolsRender.WriteMarkupLine(Console, $"  ← {Markup.Escape(how)} [grey](the element's C#)[/]");
+            }
+            if (themeResource is not null)
+            {
+                DevToolsRender.WriteMarkupLine(Console, $"  ← ThemeRef {Markup.Escape(themeResource)} [grey](follows the theme; see get-resource)[/]");
+            }
+            if (reactor.ShortSource is { } site)
+            {
+                DevToolsRender.WriteMarkupLine(Console, $"  ← created at {Markup.Escape(site)}" +
+                    (reactor.RenderedBy is { } by ? $" in <{Markup.Escape(by)}>" : ""));
+            }
+            if (component is not null)
+            {
+                DevToolsRender.WriteMarkupLine(Console, $"  ← <{Markup.Escape(component.Name)}> as it last rendered" +
+                    (shown is { Length: > 0 } ? " [grey](green: values the shown value contains)[/]:" : ":"));
+                foreach (var line in component.Lines("    ", shown))
+                {
+                    DevToolsRender.WriteMarkupLine(Console, line);
+                }
+            }
+            return 0;
+        }
+
+        private static IEnumerable<(string Kind, string Name, string Value)> Sources(ReactorComponentState component)
+        {
+            foreach (var (name, value, redacted) in component.Props ?? [])
+            {
+                if (!redacted) { yield return ("prop", name, value); }
+            }
+            foreach (var hook in component.ValueHooks)
+            {
+                if (!hook.Redacted && hook.Kind != "context") { yield return ("hook", $"[{hook.Index}] {hook.Kind}", hook.Value!); }
+            }
+            foreach (var context in component.Contexts)
+            {
+                if (!context.Redacted) { yield return ("context", context.Name, context.Value); }
+            }
         }
 
         private static readonly (string Field, string Label)[] Fields =

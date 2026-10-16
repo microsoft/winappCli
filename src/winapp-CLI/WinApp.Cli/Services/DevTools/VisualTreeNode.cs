@@ -130,6 +130,12 @@ internal sealed record AuthoredForest(
     int CensusNodes,
     int AuthoredNodes)
 {
+    /// <summary>The window each top-level element belongs to, when the request asked for annotations.</summary>
+    public IReadOnlyList<VisualTreeWindow> Windows { get; init; } = [];
+
+    /// <summary>Microsoft.UI.Reactor state and elements, when the request asked for annotations.</summary>
+    public ReactorDescription? Reactor { get; init; }
+
     public static AuthoredForest? Parse(string? resultJson)
     {
         if (string.IsNullOrEmpty(resultJson))
@@ -141,6 +147,11 @@ internal sealed record AuthoredForest(
         {
             using var doc = JsonDocument.Parse(resultJson, TapWireJson.DocumentOptions);
             var root = doc.RootElement;
+            // A plain raw enumerate (and an agent that predates annotations) answers with the bare node array.
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                return VisualTreeNode.ParseForest(resultJson) is { } raw ? new AuthoredForest(raw, false, false, 0, 0, 0) : null;
+            }
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("nodes", out var nodes)
                 || nodes.ValueKind != JsonValueKind.Array)
@@ -157,7 +168,11 @@ internal sealed record AuthoredForest(
                     ReadBool(root, "classificationTruncated"),
                     ReadInt(root, "classifiedNodes"),
                     ReadInt(root, "censusNodes"),
-                    ReadInt(root, "authoredNodes"));
+                    ReadInt(root, "authoredNodes"))
+                {
+                    Windows = VisualTreeWindow.ParseList(root),
+                    Reactor = root.TryGetProperty("reactor", out var reactor) ? ReactorDescription.ParseAnnotations(reactor) : null,
+                };
         }
         catch (JsonException)
         {

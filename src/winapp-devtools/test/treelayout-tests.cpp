@@ -82,7 +82,7 @@ static std::vector<char> OldCollapse_AbsoluteDepth(const std::vector<Row>& rows)
 }
 
 // Pre-visibility: hid a row if ANY ancestor by absolute depth was collapsed -- including ancestors the
-// "Just my XAML" filter was not showing. That omission is the entire blank-pane bug.
+// "Just my code" filter was not showing. That omission is the entire blank-pane bug.
 static std::vector<char> OldVisibility_FullTreeAncestry(const std::vector<Row>& rows,
                                                         const std::vector<char>& collapsed, bool jmx)
 {
@@ -624,6 +624,13 @@ int RunBindingRelayTests();
 // Defined in bindingrow-tests.cpp: what a row SHOWS for a binding answer, including the control that
 // a healthy binding shows nothing.
 int RunBindingRowTests();
+int RunComponentPanelTests();
+// Defined in reactoranchor-tests.cpp: comment-marker anchors of Reactor elements.
+int RunReactorAnchorTests();
+// Defined in reactorpublished-tests.cpp: Reactor diagnostics published on each control.
+int RunReactorPublishedTests();
+// Defined in references-tests.cpp: LabeledBy/XYFocus* references and their cycles.
+int RunReferencesTests();
 // Defined in pathwalk-tests.cpp: what a row SHOWS for a binding PATH WALK -- including the control
 // that a fully resolving path shows nothing, and the assertion that "no such property" and "is null" never
 // render as the same thing.
@@ -899,13 +906,25 @@ int main()
     std::printf("\n");
     const int eventsFailures = RunEventsTests();
 
+    std::printf("\n");
+    const int componentPanelFailures = RunComponentPanelTests();
+
+    std::printf("\n");
+    const int reactorAnchorFailures = RunReactorAnchorTests();
+
+    std::printf("\n");
+    const int reactorPublishedFailures = RunReactorPublishedTests();
+
+    std::printf("\n");
+    const int referencesFailures = RunReferencesTests();
+
     const int total = g_testFailures + protocolFailures + trustFailures + crashFailures + sourcePathFailures + sinkFailures +
                       cornerFailures + toolbarFailures + authoredFailures +
                       selectionPlacementFailures + inspectorAcceptanceFailures + selectionTrackingFailures + relayFailures +
                       bindingRowFailures + pathWalkFailures + pathProbeFailures + pathSyntaxFailures + readFailures + pickRouteFailures + perfFailures + uiDispatchFailures +
                       focusSubscriptionFailures + overlayStateFailures + resourceInlineFailures +
                       shellOpenFailures + ownedStateFailures + batchFailures + queryFailures + bindingAnswerFailures +
-                      pipeAcceptFailures + framingFailures + eventsFailures;
+                      pipeAcceptFailures + framingFailures + eventsFailures + componentPanelFailures + reactorAnchorFailures + reactorPublishedFailures + referencesFailures;
     // Unregister BEFORE reading the count, not after: once the handler is gone no further fault can be
     // recorded, so the value read here is final. Reading first would leave a window in which a fault is
     // recorded but not counted, and the suite would exit 0 with a memory fault already on the record.

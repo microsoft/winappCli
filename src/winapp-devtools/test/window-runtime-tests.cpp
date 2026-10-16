@@ -726,6 +726,19 @@ int main()
         check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noFile",L"",&stretched).find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos,
             "the reason says an x:Bind value reads as Local");
+        // A Reactor element: its component badge, the C# source with the statement, and no "authored values
+        // unavailable" note, because the C# is its authored source.
+        g_selReactorLabel=L"<Counter>";
+        const auto csharp=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.Border",L"",L"Border",L"Window > StackPanel",
+            L"C:\\src\\App.cs",36,{text},L"csharp",L"Component<Counter>(),",nullptr);
+        check(csharp.find(L"&lt;Counter&gt;  \u00B7  Border")!=std::wstring::npos,
+            "a component row's properties header names the component before its WinUI type");
+        check(csharp.find(L"Text=\"C# source\"")!=std::wstring::npos && csharp.find(L"Component&lt;Counter&gt;(),")!=std::wstring::npos &&
+            csharp.find(L"Toggle C# source")!=std::wstring::npos,
+            "the properties pane shows the C# statement at the Reactor call site");
+        check(csharp.find(L"x:Bind and resource sources not shown")==std::wstring::npos && csharp.find(L"App.cs : 36")!=std::wstring::npos,
+            "a C# element shows its call site and no missing-XAML note");
+        g_selReactorLabel.clear();
         g_layoutSectionOpen=-1;
     }
     check(!ColorPickerApplies(true,L"#FF102030",L"#FF000000") && ColorPickerApplies(false,L"#FF102030",L"#FF000000") &&

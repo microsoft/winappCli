@@ -11,18 +11,24 @@ namespace WinApp.Cli.Commands;
 
 internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
 {
-    public override string ShortDescription => "Find elements in a running app's XAML visual tree";
+    public override string ShortDescription => "Find elements in a running app's visual tree";
 
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp devtools search <text> -a <app>",
         "winapp devtools search --of-type TextBlock --fields Text,FontSize -a <app>",
+        "winapp devtools search --component Counter -a <app>",
     ];
 
     public static Argument<string?> QueryArgument { get; } = new("query")
     {
-        Description = "Match text content, type, x:Name, or source file (case-insensitive).",
+        Description = "Match text content, type, x:Name, or source file (case-insensitive). In Reactor apps it also matches component names, element kinds, keys and C# call sites such as App.cs:35, and lists what a path such as <Counter>/Button selects.",
         Arity = ArgumentArity.ZeroOrOne,
+    };
+
+    public static Option<string?> ComponentOption { get; } = new("--component")
+    {
+        Description = "List every rendered instance of this Microsoft.UI.Reactor component (for example Counter). With a query, search only inside those instances.",
     };
 
     public static Option<int> MaxOption { get; } = new("--max")
@@ -32,9 +38,10 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
     };
 
     public DevToolsSearchCommand()
-        : base("search", "Find live XAML elements and print their reusable selectors.")
+        : base("search", "Find live elements (XAML or Reactor) and print their reusable selectors.")
     {
         Arguments.Add(QueryArgument);
+        Options.Add(ComponentOption);
         Options.Add(MaxOption);
         Options.Add(SharedDevToolsOptions.AllOption);
         DevToolsQueryOptions.Add(this, fields: true);
@@ -54,7 +61,8 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             var max = parseResult.GetRequiredValue(MaxOption);
             var all = parseResult.GetValue(SharedDevToolsOptions.AllOption);
 
-            if (string.IsNullOrWhiteSpace(query) && !DevToolsQueryOptions.HasCriteria(parseResult))
+            var component = parseResult.GetValue(ComponentOption);
+            if (string.IsNullOrWhiteSpace(query) && !DevToolsQueryOptions.HasCriteria(parseResult) && string.IsNullOrWhiteSpace(component))
             {
                 return Task.FromResult(Fail(json, target.Pid, "Provide a query, e.g. `winapp devtools search Button`."));
             }
@@ -63,6 +71,53 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             {
                 return Task.FromResult(Fail(json, target.Pid, "--max must be 1 or more."));
             }
+            HashSet<string>? inside = null;
+            ReactorDescription? reactor = null;
+            IReadOnlyList<ReactorNode>? instances = null;
+            if (!string.IsNullOrWhiteSpace(component))
+            {
+                if (DevToolsQueryOptions.HasReadQuery(parseResult))
+                {
+                    return Task.FromResult(Fail(json, target.Pid,
+                        "--component cannot be combined with --of-type, --with or --fields. Use a text query, or pass a component's selector to --root.", "bad-args"));
+                }
+                component = component.Trim().TrimStart('<').TrimEnd('>');
+                var described = target.Tap!.RequestReactorDescribe(cancellationToken);
+                if (!described.Ok)
+                {
+                    return Task.FromResult(Fail(json, target.Pid, described.Error!));
+                }
+                reactor = ReactorDescription.Parse(described.ResultJson);
+                if (reactor is not { IsReactor: true })
+                {
+                    return Task.FromResult(Fail(json, target.Pid, new DevToolsProtocolError(0, reactor?.Token ?? ReactorDescription.UnavailableToken,
+                        reactor is { State: "absent" }
+                            ? "--component searches Microsoft.UI.Reactor components, but this app does not use Reactor."
+                            : reactor?.ExplainUnavailable() ?? "The DevTools agent returned an unreadable Reactor description.")));
+                }
+                instances = DevToolsSelector.ComponentMatches(reactor, component, StringComparison.OrdinalIgnoreCase);
+                if (instances.Count == 0)
+                {
+                    return Task.FromResult(Fail(json, target.Pid, new DevToolsProtocolError(0, reactor.Complete ? "no-match" : "reactor-incomplete",
+                        reactor.ExplainNoComponent(component))));
+                }
+                if (string.IsNullOrWhiteSpace(query))
+                {
+                    var listed = DevToolsSelector.ReactorCandidates(target.Tap!, reactor, instances, cancellationToken);
+                    return Task.FromResult(WriteMatches(target, $"<{component}>", listed, max, json, appAuthored: true, fallback: null,
+                        new DevToolsSelector.FindResult(listed, listed.Length, listed.Length, false), cancellationToken));
+                }
+                inside = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var instance in instances)
+                {
+                    var subtree = target.Tap!.RequestEnumerate(instance.Handle, null, cancellationToken: cancellationToken);
+                    if (subtree.Ok && VisualTreeNode.ParseForest(subtree.ResultJson) is { } roots)
+                    {
+                        Collect(roots, inside);
+                    }
+                }
+            }
+
             if (DevToolsQueryOptions.HasReadQuery(parseResult))
             {
                 return Task.FromResult(DevToolsQueryOptions.Run(target, parseResult, Console, json, cancellationToken,
@@ -79,6 +134,18 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             // Nothing of the app's own XAML matched: search the whole tree before giving up. Items created from
             // data or code (a NavigationViewItem added from a model list) have no XAML source of their own.
             string? fallback = null;
+            if (appAuthored && result!.Matches.Count == 0 && inside is null && ReactorSelector.Parse(query) is { } selector)
+            {
+                // A Reactor path such as <Counter>/Button is not text: list what it selects, in every window.
+                var described = target.Tap!.RequestReactorDescribe(cancellationToken);
+                if (described.Ok && ReactorDescription.Parse(described.ResultJson) is { IsReactor: true } description &&
+                    selector.Match(description) is { Count: > 0 } selected)
+                {
+                    var listed = DevToolsSelector.ReactorCandidates(target.Tap!, description, selected, cancellationToken);
+                    return Task.FromResult(WriteMatches(target, query, listed, max, json, appAuthored: true, fallback: null,
+                        new DevToolsSelector.FindResult(listed, listed.Length, listed.Length, false), cancellationToken));
+                }
+            }
             if (appAuthored && result!.Matches.Count == 0)
             {
                 var why = result.ExplainIfNothingAuthored();
@@ -89,11 +156,29 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
                     return Task.FromResult(Fail(json, target.Pid, error));
                 }
                 fallback = why ?? (result!.Matches.Count > 0
-                    ? $"Nothing in your XAML matches \"{query}\"; these are generated or framework elements, such as items created from data."
+                    ? $"Nothing in your code matches \"{query}\"; these are generated or framework elements, such as items created from data."
                     : null);
             }
 
-            var matches = result!.Matches;
+            if (inside is not null)
+            {
+                result = result! with { Matches = [.. result.Matches.Where(match => inside.Contains(match.Handle))] };
+            }
+            return Task.FromResult(WriteMatches(target, query, result!.Matches, max, json, appAuthored, fallback, result, cancellationToken));
+        }
+
+        private static void Collect(IEnumerable<VisualTreeNode> nodes, HashSet<string> handles)
+        {
+            foreach (var node in nodes)
+            {
+                handles.Add(node.Handle);
+                Collect(node.Children, handles);
+            }
+        }
+
+        private int WriteMatches(DevToolsTarget target, string query, IReadOnlyList<DevToolsSelector.VisualTreeMatch> matches,
+            int max, bool json, bool appAuthored, string? fallback, DevToolsSelector.FindResult result, CancellationToken cancellationToken)
+        {
             IReadOnlyList<DevToolsSelector.VisualTreeMatch> shown = matches.Count > max ? matches.Take(max).ToArray() : matches;
             if (shown.Count > 0)
             {
@@ -152,6 +237,16 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
                         }
 
                         writer.WriteString("type", match.Type);
+                        if (match.Label is not null)
+                        {
+                            writer.WriteString("reactor", match.Label);
+                        }
+
+                        if (match.Detail is not null)
+                        {
+                            writer.WriteString("detail", match.Detail);
+                        }
+
                         DevToolsJson.WriteLocation(writer, match.ShortFile, match.Facts);
 
                         writer.WriteNumber("depth", match.Depth);
@@ -160,7 +255,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
 
                     writer.WriteEndArray();
                 }));
-                return Task.FromResult(found ? 0 : 1);
+                return found ? 0 : 1;
             }
 
             if (fallback is not null)
@@ -178,11 +273,11 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             if (!found)
             {
                 Console.MarkupLineInterpolated($"[yellow]{DescribeNoMatches(target, query, appAuthored, result.ClassificationTruncated)}[/]");
-                return Task.FromResult(1);
+                return 1;
             }
 
             var more = matches.Count > shown.Count ? $" (showing the first {shown.Count})" : string.Empty;
-            var scope = appAuthored ? " match(es) in your XAML" : " match(es)";
+            var scope = appAuthored ? " match(es) in your code" : " match(es)";
             Console.MarkupLine($"[grey]Found {matches.Count}{scope}{more}.[/]");
             if (appAuthored)
             {
@@ -208,7 +303,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
                     "own elements may be missing. Run the command again to let it finish, or pass --all.");
             }
 
-            return Task.FromResult(0);
+            return 0;
         }
 
         /// <summary>
@@ -221,10 +316,10 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             DevToolsTarget target, string query, bool appAuthored, bool classificationTruncated)
         {
             var scope = appAuthored
-                ? " in your XAML. Pass --all to search framework and template elements too"
+                ? " in your code. Pass --all to search framework and template elements too"
                 : string.Empty;
             var why = $"No element matches \"{query}\" in {target.Describe()}{scope}. " +
-                      "Matching covers type, x:Name, AutomationId, source file, and displayed text.";
+                      "Matching covers type, x:Name, AutomationId, source file, displayed text and, in Reactor apps, component, key and C# call site.";
             return classificationTruncated
                 ? why + " The agent has also not finished classifying this app's XAML, so run the command " +
                         "again in a moment."
