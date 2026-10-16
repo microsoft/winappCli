@@ -74,7 +74,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_getMainWindowHandleForProcessId = pid => System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle;
         s_getExplicitIdentityWalker = service => service._automation.get_ControlViewWalker();
         s_getCurrentBstr = GetCurrentBstr;
-        s_captureFromWindow = CaptureFromWindow;
+        s_captureFromWindow = PrintWindowCaptureHelper.CapturePixels;
         s_captureFromScreenScaled = CaptureFromScreenScaled;
         s_foregroundWindowForBlankRetry = ForegroundWindowForBlankRetry;
         s_sleepForBlankRetry = Thread.Sleep;

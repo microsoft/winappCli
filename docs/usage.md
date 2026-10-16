@@ -2422,4 +2422,7 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.m
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
 stop reason, optional `frameArtifacts`, and warnings.
 
+Recordings draw open menus, flyouts and tooltips in place; see
+[Menus and flyouts in recordings](ui-automation.md#menus-and-flyouts-in-recordings).
+
 For full documentation, see [docs/ui-automation.md](ui-automation.md).
