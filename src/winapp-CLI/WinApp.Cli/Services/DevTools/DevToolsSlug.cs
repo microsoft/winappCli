@@ -11,8 +11,8 @@ internal static class DevToolsSlug
     /// <summary>
     /// Width of the tap's identity token. A UI Automation slug carries 4 hex digits over a tree of hundreds
     /// of elements; a DevTools census reaches 20,000, where 16 bits collides essentially always. The tap mints 40
-    /// bits (<c>DevToolsTreeLayout::kIdentityHexDigits</c>) and the two widths must agree. A slug the CLI cannot
-    /// parse would silently degrade to a text query and resolve the wrong element.
+    /// bits (<c>DevToolsTreeLayout::kIdentityHexDigits</c>) and the two widths must agree (a test reads that constant).
+    /// A slug the CLI cannot parse would silently degrade to a text query and resolve the wrong element.
     /// </summary>
     public const int IdentityHexDigits = 10;
 

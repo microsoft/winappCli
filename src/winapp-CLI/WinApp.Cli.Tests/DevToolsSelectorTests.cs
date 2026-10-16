@@ -291,6 +291,17 @@ public class DevToolsSelectorTests
     /// drifted constant would actually break.
     /// </para>
     /// </summary>
+    /// <summary>The CLI's slug width is the tap's: read from the C++ constant itself, so changing one alone fails here.</summary>
+    [TestMethod]
+    public void IdentityWidth_IsTheTapsConstant()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", ".."));
+        var header = File.ReadAllText(Path.Combine(root, "src", "winapp-devtools", "native", "WinApp.DevTools.Native", "DevToolsTreeLayout.h"));
+        var match = System.Text.RegularExpressions.Regex.Match(header, @"constexpr int kIdentityHexDigits = (\d+);");
+        Assert.IsTrue(match.Success, "DevToolsTreeLayout.h no longer declares kIdentityHexDigits.");
+        Assert.AreEqual(DevToolsSlug.IdentityHexDigits, int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     [TestMethod]
     public void IdentityWidth_MatchesTheTapAndIsWideEnoughForTheCensus()
     {
