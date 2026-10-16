@@ -141,12 +141,6 @@ static IInspectable* BuildOneTreeRow(size_t i,
         if (o) o->QueryInterface(iid, &p);
         return p;
     };
-    auto appendUi = [&](IInspectable* vec, IInspectable* element) {
-        void* ui = asIface(element, DevToolsIid<DevToolsX::IUIElement>());
-        if (!ui) return;
-        DevToolsVecAppend(vec, reinterpret_cast<IInspectable*>(ui));
-        reinterpret_cast<IUnknown*>(ui)->Release();
-    };
     auto setGridColumn = [&](IInspectable* element, int column) {
         if (!g_gridStatics) return;
         void* fe = asIface(element, DevToolsIid<DevToolsX::IFrameworkElement>());
@@ -158,15 +152,6 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
     auto asDependencyObject = [&](IInspectable* el) -> void* {
         return (g_apStatics && el) ? asIface(el, DevToolsIid<DevToolsX::IDependencyObject>()) : nullptr;
     };
-    auto setAutomationText = [&](IInspectable* el, const std::wstring& name, const std::wstring& id,
-                                 const std::wstring& controlType) {
-        void* dobj = asDependencyObject(el);
-        if (!dobj) return;
-        if (!name.empty())        { HSTRING h = MakeStr(name);        DevToolsSetAutomationName(g_apStatics, dobj, h);            WindowsDeleteString(h); }
-        if (!id.empty())          { HSTRING h = MakeStr(id);          DevToolsSetAutomationId(g_apStatics, dobj, h);              WindowsDeleteString(h); }
-        if (!controlType.empty()) { HSTRING h = MakeStr(controlType); DevToolsSetLocalizedControlType(g_apStatics, dobj, h);      WindowsDeleteString(h); }
-        reinterpret_cast<IUnknown*>(dobj)->Release();
-    };
     auto setTreeItemPosition = [&](IInspectable* el, const DevToolsTreeLayout::A11yRow& a) {
         void* dobj = asDependencyObject(el);
         if (!dobj) return;
@@ -175,22 +160,6 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
         DevToolsSetSizeOfSet(g_apStatics, dobj, (int)(a.sizeOfSet ? a.sizeOfSet : 1));
         reinterpret_cast<IUnknown*>(dobj)->Release();
     };
-
-    // Every activation is checked for a POINTER, never for an HRESULT: an element that failed to construct
-    // reads exactly as fast as one that did.
-    auto newTextBlock = [&](const std::wstring& text) -> IInspectable* {
-        IInspectable* tb = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.TextBlock");
-        if (!tb) return nullptr;
-        void* itb = nullptr;
-        if (SUCCEEDED(tb->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &itb)) && itb) {
-            HSTRING h = MakeStr(text);
-            DevToolsPutText(itb, h);
-            WindowsDeleteString(h);
-            reinterpret_cast<IUnknown*>(itb)->Release();
-        }
-        return tb;
-    };
-
 
         // A node is a branch (gets a chevron) iff the layout says so. Nodes whose children fall beyond the
         // render cap show no chevron (can't collapse what isn't rendered) -- honest.
@@ -252,7 +221,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
 
         if (hasKids) {
             IInspectable* chev  = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.Primitives.ToggleButton");
-            IInspectable* glyph = newTextBlock(L"\uE70D");
+            IInspectable* glyph = NewTextBlock(L"\uE70D");
             if (chev && glyph) {
                 void* gtb = nullptr;
                 if (SUCCEEDED(glyph->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &gtb)) && gtb) {
@@ -301,8 +270,8 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                     chev->QueryInterface(DevToolsIid<DevToolsXCP::IToggleButton>(), &g_treeChevronToggle[i]);
                     reinterpret_cast<IUnknown*>(ctb)->Release();
                 }
-                setAutomationText(chev, L"Expand or collapse " + identity,
-                                  L"TreeToggle" + std::to_wstring(i), L"tree item expander");
+                SetAutomationTextOn(chev, L"Expand or collapse " + identity,
+                                    L"TreeToggle" + std::to_wstring(i), L"tree item expander");
                 setGridColumn(chev, 0);
                 void* cbb = nullptr;
                 if (SUCCEEDED(chev->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &cbb)) && cbb) {
@@ -313,7 +282,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                     reinterpret_cast<IUnknown*>(cbb)->Release();
                 }
                 glyph->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_treeGlyph[i]);
-                appendUi(rowChildren, chev);
+                AppendUiTo(rowChildren, chev);
             } else {
                 DevToolsOverlayLog(L"route1.rows row %zu: chevron did not build (toggle=%p glyph=%p)", i, chev, glyph);
             }
@@ -322,7 +291,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
         }
 
         IInspectable* nodeBtn = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.Button");
-        IInspectable* caption = newTextBlock(std::wstring());
+        IInspectable* caption = NewTextBlock(std::wstring());
         if (!nodeBtn || !caption) {
             DevToolsOverlayLog(L"route1.rows row %zu: node button did not build (button=%p caption=%p)",
                           i, nodeBtn, caption);
@@ -403,7 +372,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
             }
             std::wstring aname = identity;
             if (!n.preview.empty()) { aname += L" "; aname += n.preview; }
-            setAutomationText(nodeBtn, aname, L"TreeNode" + std::to_wstring(i), L"tree item");
+            SetAutomationTextOn(nodeBtn, aname, L"TreeNode" + std::to_wstring(i), L"tree item");
             // The caption ends in an ellipsis when the row is too narrow; the tooltip holds all of it.
             std::wstring full = g_treeShortType[i];
             if (!n.name.empty()) full += L"  #" + n.name;
@@ -451,7 +420,7 @@ DevToolsGridSetColumn(g_gridStatics, reinterpret_cast<IInspectable*>(fe), column
                 reinterpret_cast<IUnknown*>(rowUi)->Release();
             }
         }
-        appendUi(rowChildren, nodeBtn);
+        AppendUiTo(rowChildren, nodeBtn);
         caption->Release();
         nodeBtn->Release();
         rowChildren->Release();
