@@ -28,9 +28,9 @@ winapp ui touch -a myapp --at 320,240
 winapp ui touch tile-photo-7b3c -a myapp --gesture long-press --hold-ms 600
 winapp ui touch -a myapp --at 100,300 --gesture swipe --to-point 400,300
 winapp ui touch img-map-9f8e -a myapp --gesture pinch --distance 200
-winapp ui touch img-map-9f8e -a myapp --gesture stretch --distance 200
+winapp ui touch img-map-9f8e -a myapp --gesture stretch --distance 200 --angle 90
 ```
-- Gestures: `tap` (default), `double-tap`, `long-press`, `swipe`, `pinch`, `stretch`. `--fingers` 1–10 (pinch/stretch always 2). Refuses without a non-zero foregrounded target (`no_target`/`foreground_not_target`/`no_interactive_desktop`); every coordinate is checked against the target window, and a point outside it produces a non-fatal warning (`warnings[]` in `--json`) while injection still proceeds — consistent with the mouse verbs. If injected touch is unsupported on the device, the command surfaces the real Win32 error rather than a false success. In a Remote Desktop/VM session delivery isn't guaranteed even on exit 0 — the command appends a delivery-uncertainty warning (`warnings[]` in `--json`); verify the effect with a screenshot.
+- Gestures: `tap` (default), `double-tap`, `long-press`, `swipe`, `pinch`, `stretch`. `--fingers` 1–10 (pinch/stretch always 2). `--angle` 0–359 sets the pinch/stretch finger axis (0 horizontal, 90 vertical). Refuses without a non-zero foregrounded target (`no_target`/`foreground_not_target`/`no_interactive_desktop`); every coordinate is checked against the target window, and a point outside it produces a non-fatal warning (`warnings[]` in `--json`) while injection still proceeds — consistent with the mouse verbs. If injected touch is unsupported on the device, the command surfaces the real Win32 error rather than a false success. In a Remote Desktop/VM session delivery isn't guaranteed even on exit 0 — the command appends a delivery-uncertainty warning (`warnings[]` in `--json`); verify the effect with a screenshot.
 
 ### Pen / stylus (taps and ink strokes)
 Inject synthetic pen input (Windows 10 1809+). Target an element center, an explicit `--at`, or a full `--path` ink stroke, with pressure/tilt/eraser control.
@@ -64,4 +64,7 @@ winapp ui scroll pn-scrollview-bfef --direction down -a myapp; winapp ui search 
 
 # Synthesize real mouse-wheel input over the element (1 = one notch up, -1 = down) — tests wheel handlers (zoom, custom scroll)
 winapp ui scroll img-map-a1b2 --wheel -1 -a myapp
+
+# Horizontal (tilt) wheel: 1 = one notch right, -1 = left — pans timelines and other horizontal-wheel handlers
+winapp ui scroll pn-timeline-c3d4 --wheel-horizontal 3 -a myapp
 ```

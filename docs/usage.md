@@ -708,6 +708,11 @@ winapp manifest update-assets mylogo.png --verbose
 
 ### run
 
+To record native WinUI performance while launching, add `--profile <empty-directory>`.
+Add `--profile-mode elevated` to record startup (one UAC prompt for the recorder).
+See the [performance guide](guides/winui-performance.md) for duration/size options,
+startup coverage, detached capture, and offline analysis.
+
 Create a loose layout package from a build output folder, register it with Windows using the `Windows.Management.Deployment.PackageManager` API, and launch the application — simulating a full MSIX install for debugging. Returns the process ID for debugger attachment.
 
 `winapp run` operates in one of three modes, chosen automatically from the input:
@@ -901,12 +906,12 @@ For apps that use package identity without a generated MSIX layout, include `Pac
 - `--aot` - Run the project's configured .NET Native AOT publish. Requires effective `PublishAot=true`. Rejected in folder and single-file modes.
 - `-p, --property <Name=Value>` - MSBuild property, forwarded to both the build and the property evaluation. Repeat `-p` for multiple properties; use `%3B` or `%2C` for a literal semicolon or comma in a value. *(Also honored in single-file mode, where it is the only way to set `TargetFramework`.)*
 
-**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. Restore and build output stream live, with credentials from authenticated feed URLs redacted. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
+**Build output & verbosity:** an ordinary project run uses `dotnet build`, then evaluates the built output. In an interactive terminal, restore reports one line and the build looks like `dotnet build`; agents, CI, and redirected output stream plain text. Credentials from authenticated feed URLs are redacted, and a failed restore or build shows its full output and the exact `dotnet` command. With `--aot`, winapp uses `dotnet publish`; `--verbose` shows the publish command and resolved paths. Use the verbosity options below to control what is shown:
 
 | Flag | dotnet verbosity | Adds |
 |------|------------------|------|
 | *(default)* | `minimal` | — |
-| `--verbose` | `minimal` | winapp's build decision traces |
+| `--verbose` | `minimal` | the exact `dotnet` commands and winapp's build decision traces |
 | `--quiet` | `quiet` | — |
 
 Native AOT publish output streams as it arrives. Under `--json`, restore/build invocations and child output go to stderr so stdout stays pure JSON. Under `--quiet`, invocations are suppressed and dotnet's quiet restore/build output is routed to stderr so stdout stays clean. Native AOT publish output also goes to stderr under either option.
@@ -958,8 +963,8 @@ winapp run . --no-build --detach --json
 ```
 
 - A WinUI 3 C++/WinRT app from the Visual Studio **WinUI Blank App (Packaged)** template runs packaged. Other application projects, such as a console app or a WinUI app built with `-p WindowsPackageType=None`, run unpackaged from their built `.exe`.
-- Builds `Debug` for the current architecture by default. `--arch x64|arm64|x86` or `-p Platform=x64|ARM64|Win32` selects the architecture (passing both with different architectures is an error); a custom `-p Platform` name is passed through.
-- Restores the `packages.config` NuGet packages first (skip with `--no-restore`) and installs the Windows App Runtime version they pin. Packaged apps also get the framework packages the build references, such as the Debug VC++ runtime, installed when missing.
+- Builds `Debug` for the current architecture by default. `-c Release` or `-p Configuration=Release` selects the configuration, and `--arch x64|arm64|x86` or `-p Platform=x64|ARM64|Win32` selects the architecture. Passing both forms with different values is an error. A custom `-p Platform` name is passed through.
+- Restores the `packages.config` NuGet packages first (skip with `--no-restore`) and installs the Windows App Runtime version the build uses, including when the Windows App SDK props are imported from a shared `.props` file rather than listed in the project's own `packages.config`. Packaged apps also get the framework packages the build references, such as the Debug VC++ runtime, installed when missing.
 - `--framework` and `--aot` apply only to .NET projects.
 - Build output shows MSBuild's warnings and errors only, with a spinner while it builds; `--verbose` shows MSBuild's full output and exact command.
 - In a folder or solution that also has a runnable C# app, the C# app is selected; use `--project <name>` to run the C++ app. C# libraries and test projects next to a C++ app don't get in the way.
@@ -986,6 +991,7 @@ winapp run counter.cs
 ```
 
 Or run it with plain `dotnet run` — see [Running with `dotnet run`](#running-with-dotnet-run) below.
+For a complete example, see the [.NET file-based app sample](../samples/dotnet-file-app/README.md).
 
 You do not author a manifest. Describe the package with `#:property` directives instead:
 
@@ -1815,7 +1821,8 @@ for directory layout, link handling, and running a copied script.
 
 #### target snapshot
 
-Report readiness, deployments, and guest windows without starting a Sandbox.
+Report host prerequisites, readiness, deployments, and guest windows without starting a
+Sandbox. Failed host checks include the fix to apply.
 
 ```powershell
 winapp target snapshot <target> [--json]
@@ -2277,6 +2284,23 @@ per command must inject the same explicit value into each one. The value is opaq
 as a credential, and is only ever persisted as a SHA-256 hash. See
 [UI Automation → Coordinating concurrent UI workflows](ui-automation.md#coordinating-concurrent-ui-workflows).
 
+### perf
+
+```powershell
+$capture = winapp perf start --app 1234 --output .\traces\scenario --json | ConvertFrom-Json
+winapp perf stop $capture.id
+winapp perf analyze .\traces\scenario --json
+```
+
+Record and query WinUI 3 layout, frame, input and scrolling evidence. Stop the
+capture before analysis. The default analysis reports mutually exclusive observed
+activity on the primary UI thread, the hottest parsed XAML resources, and a
+detailed operation ranking. Process resources are summarized alongside timings;
+use `--view resources` for their timeline. Use `--view calls --family composition`
+for app-side commit and surface-update timings. Use marker or millisecond bounds for before/after
+comparisons. See the [performance guide](guides/winui-performance.md) for the
+complete start/mark/stop/query workflow and interpretation limits.
+
 ### ui
 
 Inspect and interact with running Windows app UIs using UI Automation (UIA). Run `winapp ui --help`
@@ -2295,14 +2319,14 @@ winapp ui [command] [options]
 - `screenshot` - Capture window/element as PNG (multiple windows form one labeled composite PNG; see [capture scope](ui-automation.md#screenshot))
 - `record` - Record a window/element region to an H.264 MP4 video (Windows Graphics Capture + Media Foundation)
 - `invoke` - Activate element (click, toggle, expand); `--action` selects an exact operation (see [invoke](ui-automation.md#invoke))
-- `click` - Click element via mouse simulation (for controls that don't support invoke)
-- `hover` - Move mouse to element to trigger tooltips, flyouts, and hover states (default dwell: 800ms)
+- `click` - Click element via mouse simulation (for controls that don't support invoke), or a screen point with `--at x,y`
+- `hover` - Move mouse to an element, or a screen point with `--at x,y`, to trigger tooltips, flyouts, and hover states (default dwell: 800ms)
 - `drag` - Drag the mouse from one point to another, by element selector or screen `x,y` coordinates (reorder, resize, sliders, drag-and-drop)
 - `touch` - Inject synthetic touch gestures (tap, double-tap, long-press, swipe, pinch, stretch) at an element center or screen `x,y` coordinates
 - `pen` - Inject synthetic pen/stylus input — taps and ink strokes with configurable pressure, tilt, and eraser mode
 - `send-keys` - Send synthetic keyboard input (named keys, combos, raw vk=0xNN, or literal text) to a window
 - `set-value` - Set value on editable element (text, number); falls back to LegacyIAccessible `put_accValue` for TextPattern-only rich-edit controls
-- `focus` - Move keyboard focus
+- `focus` - Move keyboard focus to an element, or restore and activate the window when no selector is given
 - `scroll-into-view` - Scroll element visible
 - `wait-for` - Wait for element state
 - `list-windows` - List all windows for an app
@@ -2313,7 +2337,7 @@ winapp ui [command] [options]
 - `-a, --app <app>` - Target app (name, title, or PID)
 - `-w, --window <hwnd>` - Target window by HWND (stable)
 - `--on <target>` - Run any `ui` verb in `sandbox`; names, PIDs, and window handles refer to the guest. Outputs are delivered to the host. See [Sandbox UI automation](sandbox-execution.md#automating-the-ui) for setup, workflow coordination, and client requirements.
-- `--type`, `--root`, `--class-name` - Narrow a selector on the commands listed in [Scoped and typed queries](ui-automation.md#scoped-and-typed-queries)
+- `--type`, `--root`, `--class-name` - Narrow a selector, or use `--type`/`--class-name` without one, on the commands listed in [Scoped and typed queries](ui-automation.md#scoped-and-typed-queries)
 
 #### ui record
 

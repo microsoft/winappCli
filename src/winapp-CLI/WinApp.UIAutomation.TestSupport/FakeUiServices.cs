@@ -369,7 +369,7 @@ public class FakeMouseInput : IMouseInput
     public record MoveCursorCall(int ScreenX, int ScreenY);
     public record ClickCall(int ScreenX, int ScreenY, bool DoubleClick, bool RightClick, int SettleMs = 0);
     public record DragCall(int FromX, int FromY, int ToX, int ToY, bool RightButton, int HoldMs = 0, int DwellMs = 0, int SettleMs = 50);
-    public record ScrollWheelCall(int ScreenX, int ScreenY, int Delta, int SettleMs = 30);
+    public record ScrollWheelCall(int ScreenX, int ScreenY, int Delta, int SettleMs = 30, bool Horizontal = false);
 
     public List<HoverCall> HoverCalls { get; } = [];
     public List<MoveCursorCall> MoveCursorCalls { get; } = [];
@@ -385,6 +385,8 @@ public class FakeMouseInput : IMouseInput
         => DragCalls.Add(new(fromScreenX, fromScreenY, toScreenX, toScreenY, rightButton, holdMs, dwellMs, settleMs));
     public void ScrollWheel(int screenX, int screenY, int delta, int settleMs = 30)
         => ScrollWheelCalls.Add(new(screenX, screenY, delta, settleMs));
+    public void ScrollWheelHorizontal(int screenX, int screenY, int delta, int settleMs = 30)
+        => ScrollWheelCalls.Add(new(screenX, screenY, delta, settleMs, Horizontal: true));
 }
 
 /// <summary>
@@ -604,8 +606,12 @@ public sealed class FakeSystemUiQuery : ISystemUiQuery
     /// <summary>Per-PID ApplicationFrameHost frames for <see cref="FindHostedAppFrames"/>. Unmapped PIDs host none.</summary>
     public Dictionary<int, List<long>> HostedFramesByPid { get; } = [];
 
+    /// <summary>Per-PID exceptions thrown by <see cref="FindHostedAppFrames"/>, such as an ambiguous minimized frame.</summary>
+    public Dictionary<int, Exception> HostedFramesErrorByPid { get; } = [];
+
     public IReadOnlyList<long> FindHostedAppFrames(int pid)
-        => HostedFramesByPid.TryGetValue(pid, out var frames) ? frames : [];
+        => HostedFramesErrorByPid.TryGetValue(pid, out var error) ? throw error
+            : HostedFramesByPid.TryGetValue(pid, out var frames) ? frames : [];
 }
 
 /// <summary>

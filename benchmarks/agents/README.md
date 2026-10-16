@@ -289,7 +289,7 @@ rows are more reliable.
 that serve it, and maps each plugin's skills to capabilities:
 
 ```json
-{ "id": "winapp-current", "plugin": "winapp", "skillSetHash": "4a4abc8b6541",
+{ "id": "winapp-current", "plugin": "winapp", "skillSetHash": "93d52ca8d877",
   "skills": { "winapp-signing": ["msix.sign"], "winapp-sandbox": ["sandbox.run", "ui.automate"] } }
 ```
 
@@ -326,6 +326,7 @@ forbid `winui.*`. Mapping choices that affect scores:
 - `winui-design` provides `api.lookup` (it documents checking APIs against the project), so it can
   satisfy API-lookup scenarios in WinUI projects.
 - `winapp-sandbox` and `winui-ui-testing` both provide `sandbox.run` and `ui.automate`.
+- `winapp-performance` provides `winui.build`: diagnosing a slow WinUI app is part of running and debugging it. Its scope is WinUI 3, so non-WinUI scenarios that forbid `winui.*` fail when it loads.
 - Only `winui-packaging` provides `store.publish`. In the `winapp` configuration a Store scenario is
   `n/a`; where it is installed, a run that loads only packaging guidance scores `partial`.
 

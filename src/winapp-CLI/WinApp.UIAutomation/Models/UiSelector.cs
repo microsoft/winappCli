@@ -4,7 +4,8 @@
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 
 /// <summary>
-/// A parsed selector expression. Either a semantic slug (btn-minimize-c4b9) or a plain text search query.
+/// A parsed selector expression: a semantic slug (btn-minimize-c4b9), a plain text search query, or neither.
+/// With neither, <see cref="ControlType"/> and <see cref="ClassName"/> are the whole query and match on their own.
 /// </summary>
 public sealed record UiSelector
 {
