@@ -93,8 +93,8 @@ static std::wstring QueryNodeJson(const TapQueryRow& row, const CensusSnapshot& 
         DevToolsReadProp property;
         property.name = value.name; property.type = value.valueType;
         property.valueState = value.valueState == L"value" ? L"" : value.valueState;
-        const bool cut = value.value.size() > 120;
-        property.value = value.value.substr(0, 120);
+        const bool cut = value.value.size() > DevToolsBatch::kValueChars;
+        property.value = value.value.substr(0, DevToolsBatch::kValueChars);
         out += QueryValueJson(&property, property.name, L"", cut);
     }
     return out + L"]}";

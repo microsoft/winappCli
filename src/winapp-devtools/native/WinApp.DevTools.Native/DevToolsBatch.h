@@ -12,6 +12,9 @@
 
 namespace DevToolsBatch {
 
+// A compact value longer than this is cut and marked truncated, in previews and query results alike.
+inline constexpr size_t kValueChars = 120;
+
 struct PreviewValue
 {
     std::wstring name, value, valueState = L"value", valueType = L"String";
@@ -91,9 +94,9 @@ inline std::wstring BuildPreviewJson(const std::vector<unsigned long long>& wire
             for (const auto& value : (*values)[i]) {
                 if (!first) out += L',';
                 first = false;
-                const bool cut = value.value.size() > 120;
+                const bool cut = value.value.size() > kValueChars;
                 out += L"{\"name\":\"" + DevToolsJsonEscape(value.name) +
-                    L"\",\"value\":\"" + DevToolsJsonEscape(value.value.substr(0, 120)) +
+                    L"\",\"value\":\"" + DevToolsJsonEscape(value.value.substr(0, kValueChars)) +
                     L"\",\"valueState\":\"" + DevToolsJsonEscape(value.valueState) +
                     L"\",\"valueType\":\"" + DevToolsJsonEscape(value.valueType) +
                     L"\",\"bindingState\":\"unknown\",\"truncated\":" + (cut ? L"true" : L"false") + L"}";
