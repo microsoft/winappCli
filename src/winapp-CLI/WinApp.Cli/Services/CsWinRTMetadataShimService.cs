@@ -10,18 +10,20 @@ namespace WinApp.Cli.Services;
 /// <summary>
 /// SHIM (temporary) — see <see cref="ICsWinRTMetadataShimService"/>.
 /// <para>
-/// C#/WinRT authoring projects fail to build via <c>winapp run</c> project mode on hosts with no
-/// registered Windows SDK (clean CI, containers, SDK-less dev boxes). Root cause:
-/// <c>Microsoft.Windows.CsWinRT.targets</c> defaults <c>CsWinRTWindowsMetadata</c> to a bare SDK
-/// version (<c>$(WindowsSDKVersion)</c> → <c>$(TargetPlatformVersion)</c>), which <c>cswinrt.exe</c>
-/// resolves via <c>HKLM\SOFTWARE\Microsoft\Windows Kits\Installed Roots\KitsRoot10</c> and fails with
-/// "Could not find the Windows SDK in the registry", cascading into a wall of WMC XAML errors.
+/// C#/WinRT authoring projects fail to build via <c>winapp run</c> project mode on hosts without the
+/// Windows SDK version the project targets (clean CI, containers, SDK-less dev boxes, or a box with only a
+/// newer SDK). Root cause: <c>Microsoft.Windows.CsWinRT.targets</c> defaults <c>CsWinRTWindowsMetadata</c>
+/// to a bare SDK version (<c>$(WindowsSDKVersion)</c> → <c>$(TargetPlatformVersion)</c>), which
+/// <c>cswinrt.exe</c> resolves to <c>&lt;KitsRoot10&gt;\Platforms\UAP\&lt;version&gt;\Platform.xml</c>. It fails
+/// with "Could not find the Windows SDK in the registry" when no SDK is registered, or "Could not read the
+/// Windows SDK's Platform.xml" when that version isn't installed, cascading into a wall of WMC XAML errors.
 /// </para>
 /// <para>
 /// Fix: point <c>CsWinRTWindowsMetadata</c> at a folder of winmds. Those already ship via the
 /// <c>Microsoft.Windows.SDK.NET.Ref</c> ref pack auto-restored for any <c>net*-windows10.0.x</c> TFM,
 /// on disk at <c>&lt;nuget-global&gt;\microsoft.windows.sdk.net.ref\&lt;ver&gt;\winmd\</c>. This service
-/// injects that folder ONLY when no SDK is registered, so SDK-installed builds are untouched.
+/// injects that folder ONLY when the SDK version cswinrt would read is missing, so builds the installed
+/// SDK can serve are untouched.
 /// </para>
 /// <para>
 /// This is a stopgap pending a durable upstream cswinrt targets fix (cswinrt PR in flight); once
@@ -36,19 +38,28 @@ internal sealed partial class CsWinRTMetadataShimService(
     private const string SentinelWinmd = "Windows.Foundation.FoundationContract.winmd";
 
     /// <summary>
-    /// Reports whether a Windows SDK is registered on the machine. Overridable so the resolution logic
-    /// can be unit-tested without depending on the host's registry state. Defaults to a check that
-    /// mirrors cswinrt's own lookup.
+    /// Returns the registered Windows SDK root (<c>KitsRoot10</c>), or <c>null</c> when none is registered.
+    /// Overridable so the resolution logic can be unit-tested without depending on the host's registry
+    /// state. Defaults to a lookup that mirrors cswinrt's own.
     /// </summary>
-    internal Func<bool> IsWindowsSdkRegistered { get; set; } = DefaultIsWindowsSdkRegistered;
+    internal Func<string?> GetWindowsSdkRoot { get; set; } = DefaultGetWindowsSdkRoot;
+
+    /// <summary>
+    /// Returns the <c>WindowsSDKVersion</c> environment variable (set by Visual Studio developer prompts),
+    /// which CsWinRT prefers over the project's <c>TargetPlatformVersion</c>. Overridable for tests.
+    /// </summary>
+    internal Func<string?> GetWindowsSdkVersionVariable { get; set; } =
+        static () => Environment.GetEnvironmentVariable("WindowsSDKVersion");
 
     /// <inheritdoc />
-    public string? ResolveMetadataFolder(string? targetFrameworkMoniker)
+    public string? ResolveMetadataFolder(string? targetFrameworkMoniker, string? projectWindowsMetadata = null)
     {
-        // A registered SDK means cswinrt's default registry resolution works; leave the build untouched.
-        if (IsWindowsSdkRegistered())
+        var request = ResolveCsWinRTMetadataRequest(projectWindowsMetadata, GetWindowsSdkVersionVariable(), targetFrameworkMoniker);
+
+        // An installed SDK that has the version cswinrt will read means its default resolution works.
+        if (!IsWindowsSdkAbsent(request))
         {
-            logger.LogDebug("Windows SDK is registered; not injecting CsWinRTWindowsMetadata.");
+            logger.LogDebug("cswinrt can read the Windows metadata this build asks for; not injecting CsWinRTWindowsMetadata.");
             return null;
         }
 
@@ -72,12 +83,16 @@ internal sealed partial class CsWinRTMetadataShimService(
             return null;
         }
 
-        var tpvPrefix = ExtractPlatformVersionPrefix(targetFrameworkMoniker);
+        // Prefer the ref pack for the SDK version cswinrt was asked for, which a WindowsSDKVersion or a
+        // project value can set apart from the TFM.
+        var preferredPrefix = request.SdkVersion is { } requestedVersion
+            ? requestedVersion[..requestedVersion.LastIndexOf('.')]
+            : ExtractPlatformVersionPrefix(targetFrameworkMoniker);
 
         var versionNames = refPackRoot.GetDirectories().Select(d => d.Name).ToList();
         var chosen = SelectBestRefPackVersionDir(
             versionNames,
-            tpvPrefix,
+            preferredPrefix,
             versionName => File.Exists(Path.Combine(refPackRoot.FullName, versionName, "winmd", SentinelWinmd)));
 
         if (chosen is null)
@@ -100,13 +115,102 @@ internal sealed partial class CsWinRTMetadataShimService(
 
         var winmdFolder = Path.Combine(refPackRoot.FullName, chosen, "winmd");
         logger.LogDebug(
-            "No Windows SDK registered; injecting CsWinRTWindowsMetadata={Folder} (ref pack {Version}) for SDK-less build.",
+            "The targeted Windows SDK is not installed; injecting CsWinRTWindowsMetadata={Folder} (ref pack {Version}).",
             winmdFolder, chosen);
         return winmdFolder;
     }
 
     /// <inheritdoc />
-    public bool IsWindowsSdkAbsent() => !IsWindowsSdkRegistered();
+    public bool IsWindowsSdkAbsent(string? targetFrameworkMoniker, string? projectWindowsMetadata = null) =>
+        IsWindowsSdkAbsent(ResolveCsWinRTMetadataRequest(projectWindowsMetadata, GetWindowsSdkVersionVariable(), targetFrameworkMoniker));
+
+    private bool IsWindowsSdkAbsent(CsWinRTMetadataRequest request)
+    {
+        // 'local' and winmd paths don't touch the Windows SDK: the project's own choice works without one.
+        if (!request.ReadsWindowsSdk)
+        {
+            return false;
+        }
+
+        var sdkRoot = GetWindowsSdkRoot();
+        if (string.IsNullOrWhiteSpace(sdkRoot))
+        {
+            return true;
+        }
+
+        // No specific version ('sdk' or an unresolvable default): cswinrt uses a registered SDK.
+        if (request.SdkVersion is null)
+        {
+            return false;
+        }
+
+        var platformXml = Path.Join(sdkRoot, "Platforms", "UAP", request.SdkVersion, "Platform.xml");
+        if (File.Exists(platformXml))
+        {
+            return false;
+        }
+
+        logger.LogDebug("Windows SDK {Version} is not installed ({Path} is missing).", request.SdkVersion, platformXml);
+        return true;
+    }
+
+    /// <summary>
+    /// What cswinrt will read for <c>CsWinRTWindowsMetadata</c>: whether it reads the Windows SDK at all and,
+    /// if so, which four-part version (<c>null</c> = any registered SDK).
+    /// </summary>
+    internal readonly record struct CsWinRTMetadataRequest(bool ReadsWindowsSdk, string? SdkVersion);
+
+    /// <summary>
+    /// Mirrors cswinrt's handling of <c>CsWinRTWindowsMetadata</c>. The project's evaluated value, when known,
+    /// is exactly what cswinrt receives: a bare version (optionally <c>+</c>-suffixed) is read from that SDK
+    /// version, <c>sdk</c>/<c>sdk+</c> from any registered SDK, and anything else (<c>local</c>, a winmd folder)
+    /// doesn't read the SDK. Otherwise this follows CsWinRT's default: <c>WindowsSDKVersion</c> when set, else
+    /// the TFM's platform version (MSBuild's four-part <c>TargetPlatformVersion</c>).
+    /// </summary>
+    internal static CsWinRTMetadataRequest ResolveCsWinRTMetadataRequest(
+        string? projectWindowsMetadata,
+        string? windowsSdkVersionVariable,
+        string? targetFrameworkMoniker)
+    {
+        if (!string.IsNullOrWhiteSpace(projectWindowsMetadata))
+        {
+            var requested = projectWindowsMetadata.Trim().TrimEnd('\\');
+            var version = requested.TrimEnd('+');
+            if (FourPartVersionRegex().IsMatch(version))
+            {
+                return new(ReadsWindowsSdk: true, version);
+            }
+
+            return new(ReadsWindowsSdk: requested is "sdk" or "sdk+", SdkVersion: null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(windowsSdkVersionVariable))
+        {
+            var fromVariable = windowsSdkVersionVariable.Trim().TrimEnd('\\');
+            return new(ReadsWindowsSdk: true, FourPartVersionRegex().IsMatch(fromVariable) ? fromVariable : null);
+        }
+
+        if (string.IsNullOrWhiteSpace(targetFrameworkMoniker))
+        {
+            return new(ReadsWindowsSdk: true, SdkVersion: null);
+        }
+
+        var match = TfmPlatformVersionRegex().Match(targetFrameworkMoniker);
+        if (!match.Success)
+        {
+            return new(ReadsWindowsSdk: true, SdkVersion: null);
+        }
+
+        return new(
+            ReadsWindowsSdk: true,
+            match.Groups["revision"].Success ? match.Groups["version"].Value : match.Groups["version"].Value + ".0");
+    }
+
+    [GeneratedRegex(@"^\d+\.\d+\.\d+\.\d+$")]
+    private static partial Regex FourPartVersionRegex();
+
+    [GeneratedRegex(@"windows(?<version>\d+\.\d+\.\d+(?<revision>\.\d+)?)$", RegexOptions.IgnoreCase)]
+    private static partial Regex TfmPlatformVersionRegex();
 
     /// <summary>
     /// Extracts the <c>major.minor.build</c> platform-version prefix (e.g. <c>10.0.19041</c>) from a
@@ -184,7 +288,7 @@ internal sealed partial class CsWinRTMetadataShimService(
         return Version.TryParse(name, out version);
     }
 
-    private static bool DefaultIsWindowsSdkRegistered()
+    private static string? DefaultGetWindowsSdkRoot()
     {
         // Mirror cswinrt's own check: HKLM\SOFTWARE\Microsoft\Windows Kits\Installed Roots -> KitsRoot10,
         // consulting BOTH the 32-bit (KEY_WOW64_32KEY) and native registry views.
@@ -196,7 +300,7 @@ internal sealed partial class CsWinRTMetadataShimService(
                 using var key = hklm.OpenSubKey(@"SOFTWARE\Microsoft\Windows Kits\Installed Roots");
                 if (key?.GetValue("KitsRoot10") is string root && !string.IsNullOrWhiteSpace(root))
                 {
-                    return true;
+                    return root;
                 }
             }
             catch (Exception)
@@ -205,6 +309,6 @@ internal sealed partial class CsWinRTMetadataShimService(
             }
         }
 
-        return false;
+        return null;
     }
 }
