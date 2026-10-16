@@ -61,7 +61,13 @@ function Get-ParityVerdict($Run, $Check, [string[]]$Ignore) {
     $verdict.Ignored = @($data.Diffs).Count - $kept.Count
     $verdict.Silent = $kept.Count
     $verdict.Ok = ($kept.Count -eq 0)
-    $verdict.Lines = @($kept | Select-Object -First 6 | ForEach-Object { "[$($_.Phase)] $($_.Page) / $($_.Element) / $($_.Property): hot reload '$($_.HotReload)' vs clean build '$($_.Clean)'" })
+    $verdict.Lines = @($kept | Select-Object -First 6 | ForEach-Object {
+        # The element's own name, or the nearest named ancestor: "ToggleSwitch#SemanticSearchToggleSwitch", "...ListView#Control2/Grid[3]".
+        $segments = @(([string]$_.Element) -split '/')
+        $named = [Array]::FindLastIndex([string[]]$segments, [Predicate[string]] { param($s) $s.Contains('#') })
+        $short = if ($named -lt 0) { $segments[-1] } elseif ($named -eq $segments.Count - 1) { $segments[-1] } else { "$($segments[$named])/.../$($segments[-1])" }
+        "$short / $($_.Property): hot reload '$($_.HotReload)' vs clean build '$($_.Clean)'"
+    })
     if ($verdict.Ok -and $verdict.Ignored) { $verdict.Summary = "hot reload matches a clean build once $($verdict.Ignored) difference(s) are left out: data the page randomizes at launch, or the copy's own package path" }
     return $verdict
 }
