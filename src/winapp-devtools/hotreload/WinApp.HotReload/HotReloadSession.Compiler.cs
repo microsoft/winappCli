@@ -283,7 +283,8 @@ internal sealed partial class HotReloadSession
             var events = new List<string>();
             while (reader.MoveToNextAttribute())
             {
-                if (reader.NamespaceURI.Length == 0 && System.Text.RegularExpressions.Regex.IsMatch(reader.Value, @"^[A-Za-z_]\w*$"))
+                // Every attribute: event handlers (SizeChanged="OnSize") and properties (Tag="x") alike.
+                if (reader.NamespaceURI.Length == 0)
                 {
                     events.Add($"{reader.LocalName}={reader.Value}");
                 }

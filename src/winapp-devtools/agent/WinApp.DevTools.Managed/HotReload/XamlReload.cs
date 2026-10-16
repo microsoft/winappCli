@@ -1782,11 +1782,51 @@ internal static class XamlReload
         }
     }
 
+    /// <summary>
+    /// Before InitializeComponent runs again on the same instance: a property the root element's markup no longer sets
+    /// (Tag="x" removed from &lt;Page&gt;) would keep its old value, since loading markup only sets what it has. It is cleared,
+    /// as a restart would leave it.
+    /// </summary>
+    private static void ClearRemovedRootProperties(object component)
+    {
+        var type = component.GetType();
+        if (!Compiler || component is not DependencyObject element || !s_rootEvents.TryGetValue(type.FullName!, out var before) ||
+            !s_nextRootEvents.TryGetValue(type.FullName!, out var after))
+        {
+            return;
+        }
+        static string Name(string entry) => entry[..entry.IndexOf('=')];
+        foreach (var name in before.Select(Name).Except(after.Select(Name)).Where(n => !n.Contains('.')))
+        {
+            if (type.GetEvent(name) is not null)
+            {
+                continue;
+            }
+            for (var t = type; t is not null; t = t.BaseType)
+            {
+                if (t.GetProperty(name + "Property", BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)?.GetValue(null) is DependencyProperty property)
+                {
+                    try
+                    {
+                        element.ClearValue(property);
+                        HotReloadAgent.Log($"{type.Name}.{name}: cleared (no longer set by the markup)");
+                    }
+                    catch (Exception ex) when (ex is COMException or ArgumentException)
+                    {
+                        HotReloadAgent.Log($"{type.Name}.{name}: clearing failed: {ex.Message}");
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     private static void PrepareForLoad(object component)
     {
         // The tree the load replaces outlives the update briefly (see Retire).
         Retire(component switch { Window w => w.Content, UserControl u => u.Content, ContentControl c => c.Content, _ => null });
         DisconnectRoot(component);
+        ClearRemovedRootProperties(component);
         for (var t = component.GetType(); t is not null; t = t.BaseType)
         {
             t.GetField("_contentLoaded", InstanceMembers | BindingFlags.DeclaredOnly)?.SetValue(component, false);
