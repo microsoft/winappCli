@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <AssemblyName>WinApp.DevTools.BindingOwnersFixture</AssemblyName>
+    <RootNamespace>BindingOwnersFixture</RootNamespace>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7175" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
+    <Content Include="..\winui-crash-app\Assets\Square150x150Logo.scale-200.png" Link="Assets\Square150x150Logo.scale-200.png" />
+    <Content Include="..\winui-crash-app\Assets\Square44x44Logo.scale-200.png" Link="Assets\Square44x44Logo.scale-200.png" />
+    <Content Include="..\winui-crash-app\Assets\StoreLogo.png" Link="Assets\StoreLogo.png" />
+  </ItemGroup>
+</Project>

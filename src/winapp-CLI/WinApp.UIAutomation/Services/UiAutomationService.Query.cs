@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Runtime.InteropServices.Marshalling;
+using Microsoft.Extensions.Logging;
 using Windows.Win32.UI.Accessibility;
 
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
@@ -9,14 +10,14 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 internal sealed partial class UiAutomationService
 {
     private UiElement[] SearchConstrained(UiTarget target, UiSelector selector, int maxResults,
-        bool requireUnique = false, CancellationToken ct = default)
+        bool requireUnique = false, bool preferExactName = false, bool excludeDevToolsChrome = false, CancellationToken ct = default)
     {
         // A window-scoped target whose window has closed has no elements left, so a `--gone`
         // wait succeeds instead of failing on the dead provider. Other failures still surface.
         if (ExplicitWindowClosed(target)) { return []; }
         try
         {
-            return SearchConstrainedCore(target, selector, maxResults, requireUnique, ct);
+            return SearchConstrainedCore(target, selector, maxResults, requireUnique, preferExactName, excludeDevToolsChrome, ct);
         }
         catch (System.Runtime.InteropServices.COMException) when (ExplicitWindowClosed(target))
         {
@@ -29,14 +30,24 @@ internal sealed partial class UiAutomationService
         && SystemUiQuery.s_getProcessIdForWindow(target.WindowHandle) == 0;
 
     private UiElement[] SearchConstrainedCore(UiTarget target, UiSelector selector, int maxResults,
-        bool requireUnique, CancellationToken ct)
+        bool requireUnique, bool preferExactName, bool excludeDevToolsChrome, CancellationToken ct)
     {
-        var matches = QueryConstrained(target, selector, maxResults, requireUnique, ct);
+        var matches = QueryConstrained(target, selector, maxResults, requireUnique, ct, preferExactName: preferExactName);
         var nextId = 0;
         var results = new List<UiElement>();
+        var chromeByWindow = new Dictionary<long, HashSet<string>>();
         foreach (var (element, boundary, sourceHwnd) in matches)
         {
             ct.ThrowIfCancellationRequested();
+            if (excludeDevToolsChrome)
+            {
+                if (!chromeByWindow.TryGetValue(sourceHwnd, out var chrome))
+                {
+                    var windowRoot = sourceHwnd != 0 ? GetRootElementForHwnd((nint)sourceHwnd) : GetRootElement(target);
+                    chromeByWindow[sourceHwnd] = chrome = windowRoot is null ? [] : DevToolsChromeIdentities(windowRoot);
+                }
+                if (chrome.Count > 0 && TryGetElementIdentity(element) is { } id && chrome.Contains(id)) { continue; }
+            }
             var model = ToUiElement(element, "", ref nextId, requireCurrentIdentity: true);
             if (requireUnique) { SetResolvedWindowHandle(model, element, sourceHwnd); }
             else { model.WindowHandle = sourceHwnd; }
@@ -57,7 +68,7 @@ internal sealed partial class UiAutomationService
 
     private List<(IUIAutomationElement Element, IUIAutomationElement Boundary, long Hwnd)> QueryConstrained(
         UiTarget target, UiSelector selector, int maxResults, bool requireUnique, CancellationToken ct,
-        IUIAutomationElement? windowRoot = null)
+        IUIAutomationElement? windowRoot = null, bool preferExactName = false)
     {
         if (selector.Root?.Root is not null)
         {
@@ -126,7 +137,10 @@ internal sealed partial class UiAutomationService
         }
 
         var includeWindow = selector.IsSlug && selector.Root is null;
-        var matches = QueryWindow(queryRoot, selector, maxResults, ct, out var hasExactId,
+        // An exact Name match can be anywhere among the substring matches, so collect them all.
+        var exactName = preferExactName && !selector.IsSlug ? selector.Query : null;
+        var limit = exactName is null ? maxResults : int.MaxValue;
+        var matches = QueryWindow(queryRoot, selector, limit, ct, out var hasExactId,
             includeRoot: includeWindow, requireUnique: requireUnique);
         var results = new List<(IUIAutomationElement Element, IUIAutomationElement Boundary, long Hwnd)>();
         AddMatches(matches, queryRoot, hwnd);
@@ -141,26 +155,32 @@ internal sealed partial class UiAutomationService
                 if (window.Hwnd == (nint)target.WindowHandle) { continue; }
                 var otherRoot = GetWindowRoot(window.Hwnd);
                 if (otherRoot is null) { continue; }
-                var windowMatches = QueryWindow(otherRoot, selector, requireUnique ? maxResults : maxResults - results.Count,
+                var windowMatches = QueryWindow(otherRoot, selector, requireUnique ? limit : limit - results.Count,
                     ct, out var hasExactWindowId, includeRoot: includeWindow, requireUnique: requireUnique);
                 if (requireUnique)
                 {
                     // Substring ambiguity is provisional until every HWND has been checked for an exact ID.
                     if (hasExactId && !hasExactWindowId) { continue; }
                     if (hasExactWindowId && !hasExactId) { results.Clear(); }
-                    hasExactId |= hasExactWindowId;
                 }
+                hasExactId |= hasExactWindowId;
                 AddMatches(windowMatches, otherRoot, (long)window.Hwnd);
-                if (!requireUnique && results.Count >= maxResults) { break; }
+                if (!requireUnique && results.Count >= limit) { break; }
             }
+        }
+        if (exactName is not null && !hasExactId && results.Count > 1)
+        {
+            var exactNameResults = results.Where(result => IsExactNameMatch(
+                GetBstr(() => s_getCurrentBstr(result.Element, UIA_PROPERTY_ID.UIA_NamePropertyId)), exactName)).Take(2).ToList();
+            if (exactNameResults.Count == 1) { results = exactNameResults; }
         }
         if (requireUnique && results.Count > 1)
         {
-            throw new UiAmbiguousSelectorException(
-                $"Selector matched {results.Count} elements. " +
-                "Use a unique slug from 'inspect' or narrow --root, --type, or --class-name.");
+            throw new UiAmbiguousSelectorException(FormatAmbiguousMatches(
+                results.Select(r => r.Element).ToList(),
+                "Use a unique slug from 'inspect' or narrow --root, --type, or --class-name."));
         }
-        return results;
+        return results.Count > maxResults ? results.GetRange(0, maxResults) : results;
 
         IUIAutomationElement? GetWindowRoot(nint hwnd) => requireUnique
             ? s_elementFromHandle(this, hwnd) ?? throw new InvalidOperationException(
@@ -247,4 +267,69 @@ internal sealed partial class UiAutomationService
         (selector.ControlType is null || (int)element.get_CurrentControlType() == UiControlTypes.GetId(selector.ControlType))
         && (selector.ClassName is null || string.Equals(
             GetBstr(() => s_getCurrentBstr(element, UIA_PROPERTY_ID.UIA_ClassNamePropertyId)), selector.ClassName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Every match of an ambiguous read, for the error listing. The read stopped at its second match, so
+    /// this repeats the same lookup without that cap. It runs only after the read has already failed as
+    /// ambiguous, and falls back to the two matches it found if the repeat fails or the UI changed.
+    /// </summary>
+    private List<IUIAutomationElement> ListAmbiguousMatches(
+        UiTarget target, UiSelector selector, UiElement[] found, CancellationToken ct)
+    {
+        try
+        {
+            var all = QueryConstrained(target, selector, int.MaxValue, requireUnique: false, ct)
+                .Select(match => match.Element).ToList();
+            if (all.Count > 1) { return all; }
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException
+            or InvalidOperationException)
+        {
+            _logger.LogDebug(ex, "Could not list every match of an ambiguous selector");
+        }
+        return found.Select(match => match.Context?.AutomationElement).OfType<IUIAutomationElement>().ToList();
+    }
+
+    /// <summary>
+    /// The message for a selector that had to match one element but matched several: the count, the first
+    /// five matches with a selector for each, and <paramref name="advice"/>.
+    /// </summary>
+    private string FormatAmbiguousMatches(List<IUIAutomationElement> matches, string advice)
+    {
+        const int Shown = 5;
+        var listing = new System.Text.StringBuilder();
+        listing.AppendLine($"Selector matched {matches.Count} elements:");
+        foreach (var candidate in matches.Take(Shown))
+        {
+            try
+            {
+                // Identity properties only: describing a candidate must not read its control patterns.
+                var type = GetControlTypeName(candidate.get_CurrentControlType());
+                var name = SafeGetBstr(() => s_getCurrentBstr(candidate, UIA_PROPERTY_ID.UIA_NamePropertyId));
+                var automationId = SafeGetBstr(() => s_getCurrentBstr(candidate, UIA_PROPERTY_ID.UIA_AutomationIdPropertyId));
+                string? slug = null;
+                try
+                {
+                    unsafe { slug = SlugGenerator.GenerateSlugFromSafeArray(type, automationId, name, candidate.GetRuntimeId()); }
+                }
+                catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException)
+                {
+                    // Without a runtime ID the line still names the element; the fallback text says how to get a selector.
+                    _logger.LogDebug(ex, "Could not build a slug for an ambiguous match");
+                }
+                listing.AppendLine($"  {type} \"{name}\"  -> {slug ?? "(run inspect for an exact selector)"}");
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                // A match that went away while listing must not hide the ambiguity itself.
+                listing.AppendLine("  (element is no longer available)");
+            }
+        }
+        if (matches.Count > Shown)
+        {
+            listing.AppendLine($"  ... and {matches.Count - Shown} more");
+        }
+        listing.Append(advice);
+        return listing.ToString();
+    }
 }

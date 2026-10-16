@@ -670,7 +670,7 @@ public partial class UiCommandTests : BaseCommandTests
         // Group -> children -> Button -> invokableAncestor -> Group cycle.
         _fakeUia.InspectResult = [
             new UiElement { Id = "e0", Type = "Window", Name = "App",  Depth = 0 },
-            new UiElement { Id = "e1", Type = "Group",  Name = "Bar",  Depth = 1, IsInvokable = true, Selector = "grp-bar-aaaa" },
+            new UiElement { Id = "e1", Type = "Group",  Name = "Bar",  Depth = 1, IsInvokable = true, Selector = "grp-bar-aaaa", IsEnabled = true, X = 5, Y = 6, Width = 70, Height = 80 },
             new UiElement { Id = "e2", Type = "Button", Name = "OK",   Depth = 2, IsEnabled = true, IsInvokable = false, Selector = "btn-ok-bbbb", ParentSelector = "grp-bar-aaaa" }
         ];
 
@@ -685,6 +685,45 @@ public partial class UiCommandTests : BaseCommandTests
         // (Children still appears in the outer Button node, but the ancestor hint object should not contain a "children" key.)
         // We assert a structural property that proves the projection: the hint copy has no AutomationId on this fixture.
         StringAssert.Contains(output, "\"isInvokable\": true");
+        AssertAncestorHint(output, "grp-bar-aaaa", isEnabled: true, x: 5, y: 6, width: 70, height: 80);
+    }
+
+    /// <summary>Find the first serialized <c>invokableAncestor</c> and check that it carries the
+    /// ancestor's real state and bounds, with no nested tree.</summary>
+    private static void AssertAncestorHint(string json, string selector, bool isEnabled, double x, double y, double width, double height)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var hint = FindProperty(document.RootElement, "invokableAncestor");
+        Assert.IsNotNull(hint, "no invokableAncestor in output");
+        var anc = hint.Value;
+        Assert.AreEqual(selector, anc.GetProperty("selector").GetString());
+        Assert.AreEqual(isEnabled, anc.GetProperty("isEnabled").GetBoolean());
+        Assert.AreEqual(x, anc.GetProperty("x").GetDouble());
+        Assert.AreEqual(y, anc.GetProperty("y").GetDouble());
+        Assert.AreEqual(width, anc.GetProperty("width").GetDouble());
+        Assert.AreEqual(height, anc.GetProperty("height").GetDouble());
+        Assert.IsFalse(anc.TryGetProperty("children", out _));
+        Assert.IsFalse(anc.TryGetProperty("invokableAncestor", out _));
+
+        static System.Text.Json.JsonElement? FindProperty(System.Text.Json.JsonElement e, string name)
+        {
+            if (e.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var p in e.EnumerateObject())
+                {
+                    if (p.NameEquals(name)) { return p.Value; }
+                    if (FindProperty(p.Value, name) is { } found) { return found; }
+                }
+            }
+            else if (e.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var item in e.EnumerateArray())
+                {
+                    if (FindProperty(item, name) is { } found) { return found; }
+                }
+            }
+            return null;
+        }
     }
 
     [TestMethod]
@@ -697,6 +736,7 @@ public partial class UiCommandTests : BaseCommandTests
             Id = "e9", Type = "Group", Selector = "grp-toolbar-1234",
             ParentSelector = "wnd-app-0000", WindowHandle = 99,
             IsInvokable = true,
+            IsEnabled = true, X = 100, Y = 200, Width = 50, Height = 25,
             Children = [new UiElement { Id = "e10", Type = "Button" }]
         };
         _fakeUia.SearchResult = [
@@ -719,6 +759,7 @@ public partial class UiCommandTests : BaseCommandTests
         StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"id\"\\s*:"));
         StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"parentSelector\"\\s*:"));
         StringAssert.DoesNotMatch(output, new System.Text.RegularExpressions.Regex("\"windowHandle\"\\s*:"));
+        AssertAncestorHint(output, "grp-toolbar-1234", isEnabled: true, x: 100, y: 200, width: 50, height: 25);
     }
 
     [TestMethod]

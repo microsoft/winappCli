@@ -160,6 +160,8 @@ internal sealed class FakeGuestProcessHost : IGuestProcessHost
     public Task EmitAsync(GuestStreamId stream, string text) =>
         _onOutput(stream, Encoding.UTF8.GetBytes(text));
 
+    public Task EmitBytesAsync(GuestStreamId stream, ReadOnlyMemory<byte> bytes) => _onOutput(stream, bytes);
+
     public Func<ReadOnlyMemory<byte>, CancellationToken, Task>? OnStandardInput { get; set; }
 
     public Func<CancellationToken, Task>? OnStop { get; set; }

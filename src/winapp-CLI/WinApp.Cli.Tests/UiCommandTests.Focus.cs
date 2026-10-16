@@ -296,12 +296,12 @@ public partial class UiCommandTests
     }
 
     [TestMethod]
-    public async Task Focus_FilterWithoutSelector_IsRejected()
+    public async Task Focus_RootWithoutSelector_IsRejected()
     {
         ConfigureVerifiedFocus();
 
         Assert.AreEqual(1, await ParseAndInvokeWithCaptureAsync(
-            GetRequiredService<UiFocusCommand>(), ["-a", "TestApp", "--type", "Edit", "--json"]));
+            GetRequiredService<UiFocusCommand>(), ["-a", "TestApp", "--root", "MailRow", "--json"]));
         AssertJsonErrorCode("invalid_arguments");
         Assert.IsEmpty(_fakeDesktopForeground.ForegroundRequests);
     }

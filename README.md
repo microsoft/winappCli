@@ -133,6 +133,7 @@ Checkout our getting started guides for step by step instructions of how to setu
 
 Additional guides:
 - [Packaging an EXE/CLI](/docs/guides/packaging-cli.md): step by step guide of packaging an existing exe/cli as MSIX
+- [.NET file-based apps](./docs/guides/dotnet-file-based.md): run a single `.cs` file with package identity, no project file or manifest required
 - [MAUI (Windows)](./docs/guides/maui.md): package and sign .NET MAUI Windows outputs with the generated resizetizer manifest
 - **Electron JS/TypeScript bindings** *(npm only)*: opt into auto-generated WinRT bindings via `winapp init --add-js-bindings`. See task-focused guides:
   - [File picker](/docs/guides/electron/js-file-picker.md) — open native Windows file/folder pickers from the renderer
@@ -255,6 +256,8 @@ See also: [Security guidance](./docs/security.md) — what development certifica
 - [`tool`](./docs/usage.md#tool) - Access Windows SDK tools
 - [`store`](./docs/usage.md#store) - Run Microsoft Store Developer CLI commands
 - [`get-winapp-path`](./docs/usage.md#get-winapp-path) - Get paths to installed SDK components
+- [`config`](./docs/usage.md#config) - Show or change your per-user winapp settings
+- [`devtools`](./docs/usage.md#devtools) - Inspect, comment on and live-edit a running WinUI app ([guide](./docs/guides/devtools.md))
 
 **Discovery** (agent-first — built for AI coding agents to ground generated code in real metadata and real samples, and usable by hand):
 
@@ -279,6 +282,7 @@ This repository includes samples demonstrating how to use the CLI with various f
 | [C++ App](/samples/cpp-app/README.md) | Native C++ Win32 application with CMake |
 | [C++ WinUI App](/samples/cpp-winui-app/README.md) | Packaged C++/WinRT WinUI 3 app (Visual Studio `.vcxproj`, XAML) launched via `winapp run <vcxproj>` |
 | [.NET Console](/samples/dotnet-app/README.md) | .NET console application |
+| [.NET File-Based App](/samples/dotnet-file-app/README.md) | Single `.cs` file app with package identity, run via `winapp run app.cs` — no project or manifest |
 | [WPF App](/samples/wpf-app/README.md) | WPF desktop application |
 | [WinUI App](/samples/winui-app/README.md) | Packaged WinUI 3 app registered and launched via `winapp run <csproj>` |
 | [WinUI Unpackaged App](/samples/winui-unpackaged-app/README.md) | Unpackaged WinUI 3 app launched via `winapp run <csproj>` |
@@ -336,7 +340,12 @@ To build the CLI:
 .\scripts\build-cli.ps1
 ```
 
-The binaries and packages will be placed in the `artifacts` folder
+The binaries and packages will be placed in the `artifacts` folder. The build
+also builds and stages the matching DevTools engines beside each `winapp.exe`.
+Install the Visual Studio C++ x64/x86 and ARM64 build tools before a full build.
+Npm packaging requires PowerShell 7.3 or newer for tarball verification.
+From `src\winapp-npm`, `npm run build-x64` or `npm run build-arm64` builds only
+that architecture and its engines, without running tests.
 
 ### Reviewing your changes before pushing
 

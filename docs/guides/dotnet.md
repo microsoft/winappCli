@@ -2,7 +2,7 @@
 <!-- description: Add Windows App SDK support to a .NET WPF or WinForms project with the winapp CLI, then build, add identity, and package the app as MSIX. -->
 # Using winapp CLI with .NET 
 
-> This guide should work for most .NET project types. The steps have been tested with both console and UI-based projects like WPF. For working examples, check out the [dotnet-app](../../samples/dotnet-app) (console) and [wpf-app](../../samples/wpf-app) (WPF) samples in the samples folder.
+> This guide should work for most .NET project types. The steps have been tested with both console and UI-based projects like WPF. For working examples, check out the [dotnet-app](../../samples/dotnet-app) (console) and [wpf-app](../../samples/wpf-app) (WPF) samples in the samples folder. For a single `.cs` file with no project, see [.NET file-based apps](dotnet-file-based.md).
 
 This guide demonstrates how to use the `winapp` CLI with a .NET application to debug with package identity and package your application as an MSIX.
 
@@ -145,8 +145,8 @@ Arguments you write after `dotnet run` go to **your application**, exactly as th
 project did not reference this package:
 
 ```powershell
-dotnet run --devtools          # your app receives --devtools
-dotnet run -- --devtools       # identical: the SDK consumes the -- before forwarding
+dotnet run --demo-mode          # your app receives --demo-mode
+dotnet run -- --demo-mode       # identical: the SDK consumes the -- before forwarding
 ```
 
 Use `--` when your app's flag is also a `dotnet run` option (`--configuration`, `--framework`,
@@ -161,10 +161,10 @@ Configure the WinApp launcher itself with the `WinAppRun*` MSBuild properties. M
 these, so they never reach your application:
 
 ```powershell
-dotnet run -p:WinAppRunDebugOutput=true --devtools
+dotnet run -p:WinAppRunDebugOutput=true --demo-mode
 ```
 
-Here the property configures WinApp while `--devtools` is passed to your app. See
+Here the property configures WinApp while `--demo-mode` is passed to your app. See
 [`dotnet run` support](../dotnet-run-support.md) for the full property list, including which
 properties cannot be combined.
 

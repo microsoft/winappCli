@@ -1,0 +1,15 @@
+{
+  "name": "sticky-notes",
+  "productName": "Sticky Notes Lite",
+  "version": "1.0.0",
+  "description": "A tiny sticky notes app",
+  "main": "main.js",
+  "author": "Contoso",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^41.0.0"
+  }
+}

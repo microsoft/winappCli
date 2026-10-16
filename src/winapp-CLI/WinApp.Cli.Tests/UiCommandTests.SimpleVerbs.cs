@@ -114,7 +114,7 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiFocusCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["", "-a", "TestApp"]);
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString(), "A selector is required");
+        StringAssert.Contains(ConsoleStdErr.ToString(), "A selector, --type, or --class-name is required");
     }
 
     [TestMethod]

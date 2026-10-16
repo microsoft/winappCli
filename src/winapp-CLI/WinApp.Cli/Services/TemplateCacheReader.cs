@@ -5,21 +5,55 @@ namespace WinApp.Cli.Services;
 
 /// <summary>
 /// Reads <c>templatecache.json</c> files from the template engine's per-user cache root
-/// (<c>~/.templateengine/dotnetcli/&lt;sdk-version&gt;/templatecache.json</c>). All IO failures are
-/// swallowed into an empty result so template-metadata lookups degrade to a heuristic rather than
-/// failing the command.
+/// (<c>&lt;dotnet home&gt;/.templateengine/dotnetcli/&lt;sdk-version&gt;/templatecache.json</c>). All IO
+/// failures are swallowed into an empty result so template-metadata lookups degrade to a heuristic
+/// rather than failing the command.
 /// </summary>
 internal sealed class TemplateCacheReader : ITemplateCacheReader
 {
+    private const string DotnetHomeVariableName = "DOTNET_CLI_HOME";
+
+    // Seams so tests can point the reader at a temporary hive without touching the real environment.
+    internal Func<string, string?> EnvironmentVariableProvider { get; set; } = Environment.GetEnvironmentVariable;
+
+    internal Func<string> UserProfileProvider { get; set; } =
+        () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    /// <summary>
+    /// The home folder the dotnet CLI keeps its <c>.templateengine</c> hive under, resolved the same way
+    /// the CLI does: <c>DOTNET_CLI_HOME</c> when set and non-empty, then <c>USERPROFILE</c>, then the OS
+    /// profile folder. Reading any other location would describe a different set of installed packs
+    /// than the <c>dotnet new</c> processes winapp runs.
+    /// </summary>
+    internal string? GetDotnetHomePath()
+    {
+        var home = EnvironmentVariableProvider(DotnetHomeVariableName);
+        if (string.IsNullOrEmpty(home))
+        {
+            home = EnvironmentVariableProvider("USERPROFILE");
+        }
+
+        if (string.IsNullOrEmpty(home))
+        {
+            home = UserProfileProvider();
+        }
+
+        return string.IsNullOrEmpty(home) ? null : home;
+    }
+
     public IReadOnlyList<string> ReadTemplateCacheDocuments()
     {
         var documents = new List<string>();
         string root;
         try
         {
-            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var templateEngineRoot = Path.Combine(userProfile, ".templateengine");
-            root = Path.Combine(templateEngineRoot, "dotnetcli");
+            var home = GetDotnetHomePath();
+            if (home is null)
+            {
+                return documents;
+            }
+
+            root = Path.Join(home, ".templateengine", "dotnetcli");
         }
         catch (Exception ex) when (ex is ArgumentException or PlatformNotSupportedException)
         {

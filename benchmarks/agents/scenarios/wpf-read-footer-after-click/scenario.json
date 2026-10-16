@@ -1,0 +1,30 @@
+{
+  "id": "wpf-read-footer-after-click",
+  "description": "Drive a running WPF window and read a value back (UI Automation; nothing WinUI-specific applies).",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Ledgerly is open on my second monitor. Press Recalculate and tell me the total that shows up in the footer.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "ui.automate"
+      ],
+      "acceptable": [
+        "ui.test"
+      ],
+      "forbid": [
+        "winui.*",
+        "msix.package",
+        "msix.sign",
+        "ui.samples"
+      ]
+    },
+    "maxSkills": 2
+  }
+}

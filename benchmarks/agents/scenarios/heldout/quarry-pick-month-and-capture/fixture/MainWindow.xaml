@@ -1,0 +1,9 @@
+<Window x:Class="QuarryLedger.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StackPanel Padding="24" Spacing="12">
+    <ComboBox x:Name="MonthPicker" Header="Month" ItemsSource="{x:Bind ViewModel.Months}"
+              SelectedItem="{x:Bind ViewModel.SelectedMonth, Mode=TwoWay}" />
+    <Button x:Name="ExportButton" Content="Export" Click="ExportButton_Click" />
+  </StackPanel>
+</Window>

@@ -1,17 +1,19 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Run one of two complementary CLI test shards from an existing Debug build.
+    Run one of three disjoint CLI test shards from an existing Debug build.
 .DESCRIPTION
-    Run shards in separate workspaces. Shard 1 contains PackageCommandTests and shard 2
-    contains everything else, including new test classes. In run 35270954877 these groups
+    Run shards in separate workspaces. Shard 3 owns NativeIntegration and requires
+    the native dispatcher fixture. Of the remaining tests, shard 1 contains
+    PackageCommandTests and shard 2 contains everything else, including new classes.
+    In run 35270954877 the original two groups
     accounted for 1,781 and 1,719 summed test-seconds respectively (114 and 6,450 tests).
     These weights guide the split, not an assertion about wall-clock savings.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet(1, 2)]
+    [ValidateSet(1, 2, 3)]
     [int]$Shard,
 
     [Parameter(Mandatory)]
@@ -35,9 +37,18 @@ foreach ($path in @($reportPath, $coveragePath, $manifestPath)) {
     if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-# The second predicate is the exact complement, so new tests cannot fall between shards.
+# Native fixtures are built only by the native validation lane, never by artifact consumers.
+if ($Shard -eq 3 -and (-not $env:WINAPP_NATIVE_TEST_FIXTURE -or
+    -not (Test-Path -LiteralPath $env:WINAPP_NATIVE_TEST_FIXTURE -PathType Leaf))) {
+    throw 'Shard 3 requires WINAPP_NATIVE_TEST_FIXTURE pointing to the freshly built native-runtime-tests.exe.'
+}
+# Category and class predicates partition every discovered case exactly once.
 $className = 'WinApp.Cli.Tests.PackageCommandTests.'
-$filters = @("FullyQualifiedName~$className", "FullyQualifiedName!~$className")
+$filters = @(
+    "TestCategory!=NativeIntegration&FullyQualifiedName~$className",
+    "TestCategory!=NativeIntegration&FullyQualifiedName!~$className",
+    'TestCategory=NativeIntegration'
+)
 $runArgs = @('run', '--project', $TestProjectPath, '-c', 'Debug', '--no-build', '--')
 
 function Get-DiscoveryCount([string]$Filter) {
@@ -56,8 +67,9 @@ function Get-DiscoveryCount([string]$Filter) {
 
 $allCount = Get-DiscoveryCount ''
 $counts = @($filters | ForEach-Object { Get-DiscoveryCount $_ })
-if ($counts[0] -le 0 -or $counts[1] -le 0 -or ($counts[0] + $counts[1]) -ne $allCount) {
-    throw "CLI shard discovery is empty or incomplete: All=$allCount, shard 1=$($counts[0]), shard 2=$($counts[1])."
+if (@($counts | Where-Object { $_ -le 0 }).Count -gt 0 -or
+    ($counts | Measure-Object -Sum).Sum -ne $allCount) {
+    throw "CLI shard discovery is empty or incomplete: All=$allCount, shards=$($counts -join ',')."
 }
 $expected = $counts[$Shard - 1]
 $filter = $filters[$Shard - 1]
@@ -100,6 +112,9 @@ $passed = [int]$counters[0].Attribute('passed').Value
 $skipped = [int]$counters[0].Attribute('notExecuted').Value
 if ($executed -lt 1 -or $passed -ne $executed -or ($executed + $skipped) -ne $expected) {
     throw "CLI shard $Shard has incomplete execution accounting: expected $expected, executed $executed, passed $passed, skipped $skipped."
+}
+if ($Shard -eq 3 -and $skipped -ne 0) {
+    throw "Native integration shard must execute every case; $skipped tests were skipped."
 }
 foreach ($state in @('error', 'timeout', 'aborted', 'inconclusive', 'passedButRunAborted', 'notRunnable', 'disconnected', 'inProgress', 'pending')) {
     if ([int]$counters[0].Attribute($state).Value -ne 0) {

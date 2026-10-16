@@ -280,6 +280,10 @@ public partial class UiCommandTests
     [DataRow("long-press", "--duration-ms", "50")]
     [DataRow("pinch", "--fingers", "3")]
     [DataRow("stretch", "--fingers", "3")]
+    [DataRow("tap", "--angle", "90")]
+    [DataRow("double-tap", "--angle", "90")]
+    [DataRow("long-press", "--angle", "90")]
+    [DataRow("swipe", "--angle", "0")]
     public async Task Touch_IncompatibleExplicitGestureOption_RejectedWithInvalidArguments(
         string gesture, string option, string value)
     {
@@ -339,6 +343,41 @@ public partial class UiCommandTests
         Assert.AreEqual(TouchGesture.Pinch, call.Gesture);
         Assert.AreEqual(2, call.ContactPaths.Count);
         Assert.AreEqual(250, call.DurationMs);
+    }
+
+    [TestMethod]
+    public async Task Touch_Stretch_Angle90_MovesFingersVertically()
+    {
+        _fakeTargetResolver.TargetResult.WindowHandle = 5165;
+
+        var command = GetRequiredService<UiTouchCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["-a", "TestApp", "--gesture", "stretch", "--at", "100,100",
+             "--distance", "80", "--angle", "90", "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        var call = _fakePointer.TouchCalls[0];
+        Assert.AreEqual(TouchGesture.Stretch, call.Gesture);
+        Assert.AreEqual(new PointerPoint(100, 104), call.ContactPaths[0][0]);
+        Assert.AreEqual(new PointerPoint(100, 140), call.ContactPaths[0][^1]);
+        Assert.AreEqual(new PointerPoint(100, 96), call.ContactPaths[1][0]);
+        Assert.AreEqual(new PointerPoint(100, 60), call.ContactPaths[1][^1]);
+    }
+
+    [TestMethod]
+    [DataRow("-1")]
+    [DataRow("360")]
+    public async Task Touch_Pinch_AngleOutOfRange_RejectedWithInvalidArguments(string angle)
+    {
+        var command = GetRequiredService<UiTouchCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command,
+            ["-a", "TestApp", "--gesture", "pinch", "--at", "100,100",
+             "--distance", "80", "--angle", angle, "--json"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakePointer.TouchCalls.Count);
+        AssertJsonErrorCode(UiJsonError.CodeInvalidArguments);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "--angle must be between 0 and 359");
     }
 
     [TestMethod]
