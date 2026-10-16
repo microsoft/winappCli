@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.CommandLine;
+
 namespace WinApp.Cli.Commands;
 
 /// <summary>
@@ -24,6 +26,21 @@ internal interface IHelpExamples
 
     /// <summary>Usage line override, for commands whose arguments are optional.</summary>
     string? Usage => null;
+}
+
+/// <summary>
+/// A top-level command whose <c>--help</c> uses the compact plain-text layout: a typical workflow
+/// (which may use other commands), examples, and options grouped by purpose. Every visible option
+/// must belong to exactly one group.
+/// </summary>
+internal interface ICompactHelpCommand : IHelpExamples
+{
+    /// <summary>Steps shown under "Typical workflow:". A step whose command doesn't start with
+    /// <c>winapp</c> (for example <c>Add-AppxPackage</c>) is shown as written.</summary>
+    IReadOnlyList<(string Command, string Description)> Workflow { get; }
+
+    /// <summary>Option groups, in display order.</summary>
+    IReadOnlyList<(string Heading, Option[] Options)> OptionGroups { get; }
 }
 
 /// <summary>

@@ -120,21 +120,7 @@ public class UiHelpTests : BaseCommandTests
         var root = GetRequiredService<WinAppRootCommand>();
         foreach (var step in CustomHelpAction.QuickStart.SelectMany(g => g.Steps))
         {
-            var tokens = Regex.Matches(step.Command, "\"[^\"]*\"|\\S+")
-                .Select(m => m.Value.Trim('"'))
-                .Skip(1)
-                .Select(t => t.StartsWith('<') ? "placeholder" : t)
-                .ToArray();
-            var result = root.Parse(tokens);
-            // Only command and option names matter here; example paths don't exist on the test machine.
-            var errors = result.Errors.Where(e => !e.Message.Contains("does not exist", StringComparison.Ordinal)).ToList();
-            Assert.IsEmpty(errors, $"{step.Command}: {string.Join("; ", errors.Select(e => e.Message))}");
-            Assert.AreNotSame(root, result.CommandResult.Command, step.Command);
-            // 'run' absorbs unknown tokens as app arguments instead of reporting a parse error.
-            if (result.CommandResult.Command is RunCommand)
-            {
-                Assert.IsEmpty(result.GetValue(RunCommand.PassthroughArgument) ?? [], step.Command);
-            }
+            CompactCommandHelpTests.AssertParses(root, step.Command);
         }
     }
 

@@ -24,6 +24,7 @@ internal partial class RunCommand
     };
     public static Option<string> ProfileModeOption { get; } = new Option<string>("--profile-mode")
     {
+        HelpName = "attach|elevated",
         Description = "With --profile: 'attach' (default) records after the app starts, without elevation. 'elevated' asks for administrator approval (UAC) for the recorder only, and starts recording before launch so startup is captured.",
         DefaultValueFactory = _ => PerfProfileModes.Attach,
     }.AcceptOnlyFromAmong(PerfProfileModes.Attach, PerfProfileModes.Elevated);

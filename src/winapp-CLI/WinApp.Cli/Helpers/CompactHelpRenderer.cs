@@ -10,8 +10,9 @@ namespace WinApp.Cli.Helpers;
 
 /// <summary>
 /// Plain-text help for the command groups agents drive (<c>winapp ui</c>, <c>winapp devtools</c>) and
-/// their commands. Agents read this help redirected, so it has no styling, keeps the golden path
-/// first, and collapses the options every command shares into one line.
+/// their commands, and for core commands that opt in with <see cref="ICompactHelpCommand"/>
+/// (<c>run</c>, <c>package</c>, <c>init</c>). Agents read this help redirected, so it has no styling,
+/// keeps the workflow first, and collapses the options every command shares into one line.
 /// </summary>
 internal static class CompactHelpRenderer
 {
@@ -21,9 +22,11 @@ internal static class CompactHelpRenderer
 
     private const int MinNameColumn = 18;
     private const int MaxNameColumn = 24;
+    private const int MaxGroupedNameColumn = 32;
+    private const int MaxWorkflowCommand = 34;
 
     public static bool AppliesTo(Command command) =>
-        command is ICompactHelpGroup || command.Parents.OfType<Command>().Any(AppliesTo);
+        command is ICompactHelpGroup or ICompactHelpCommand || command.Parents.OfType<Command>().Any(AppliesTo);
 
     public static string Render(Command command) =>
         command is ICompactHelpGroup ? RenderGroup(command) : RenderCommand(command);
@@ -73,6 +76,13 @@ internal static class CompactHelpRenderer
             AppendDescription(sb, "", details);
         }
 
+        if (command is ICompactHelpCommand { Workflow.Count: > 0 } workflow)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Typical workflow:");
+            AppendWorkflow(sb, workflow.Workflow);
+        }
+
         sb.AppendLine();
         sb.AppendLine("Usage: " + ((command as IHelpExamples)?.Usage ?? BuildUsage(command, path)));
 
@@ -97,6 +107,24 @@ internal static class CompactHelpRenderer
         var options = command.Options.Where(IsCommandOption)
             .OrderBy(o => o == WinAppRootCommand.JsonOption ? 1 : 0)
             .ToList();
+        if (command is ICompactHelpCommand { OptionGroups.Count: > 0 } grouped)
+        {
+            var groups = grouped.OptionGroups
+                .Select(g => (g.Heading, Options: g.Options.Where(options.Contains).ToList()))
+                .Where(g => g.Options.Count > 0)
+                .ToList();
+            // One column for every group, so descriptions line up down the whole page.
+            var column = Math.Clamp(groups.SelectMany(g => g.Options).Select(o => FormatOption(o).Length + 2)
+                .Where(length => length <= MaxGroupedNameColumn).DefaultIfEmpty(MinNameColumn).Max(),
+                MinNameColumn, MaxGroupedNameColumn);
+            foreach (var (heading, groupOptions) in groups)
+            {
+                sb.AppendLine();
+                sb.AppendLine(heading);
+                AppendRows(sb, groupOptions.Select(o => (FormatOption(o), o.Description ?? "")).ToList(), column);
+            }
+            options = options.Except(groups.SelectMany(g => g.Options)).ToList();
+        }
         if (options.Count > 0)
         {
             sb.AppendLine();
@@ -106,16 +134,39 @@ internal static class CompactHelpRenderer
 
         sb.AppendLine();
         // Saved-comment reads always run locally and reject --on.
-        sb.AppendLine(command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand
+        sb.AppendLine(command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand || !AcceptsOn(command)
             ? LocalGlobalOptionsLine : GlobalOptionsLine);
         return sb.ToString();
     }
+
+    private static bool AcceptsOn(Command command) =>
+        command.Options.Contains(ExecutionTargetSelection.OnOption)
+        || command.Parents.OfType<Command>().Any(AcceptsOn);
 
     private static bool IsCommandOption(Option option) =>
         !option.Hidden
         && option is not HelpOption
         && option != WinAppRootCommand.VerboseOption
-        && option != WinAppRootCommand.QuietOption;
+        && option != WinAppRootCommand.QuietOption
+        && !ExecutionTargetSelection.IsSelectorOption(option);
+
+    private static void AppendWorkflow(StringBuilder sb, IReadOnlyList<(string Command, string Description)> steps)
+    {
+        var column = steps.Select(s => s.Command.Length).Where(length => length <= MaxWorkflowCommand).DefaultIfEmpty(0).Max() + 2;
+        foreach (var (command, description) in steps)
+        {
+            if (command.Length > MaxWorkflowCommand)
+            {
+                sb.Append("  ").AppendLine(command);
+                if (description.Length > 0)
+                {
+                    sb.Append(' ', 2 + column).AppendLine(description);
+                }
+                continue;
+            }
+            sb.Append("  ").Append(command.PadRight(column)).AppendLine(description);
+        }
+    }
 
     private static string BuildUsage(Command command, string path)
     {
@@ -144,9 +195,9 @@ internal static class CompactHelpRenderer
         return takesValue ? $"{label} <{option.HelpName ?? option.Name.TrimStart('-')}>" : label;
     }
 
-    private static void AppendRows(StringBuilder sb, IReadOnlyList<(string Name, string Description)> rows)
+    private static void AppendRows(StringBuilder sb, IReadOnlyList<(string Name, string Description)> rows, int? fixedColumn = null)
     {
-        var column = Math.Clamp(rows.Max(r => r.Name.Length) + 2, MinNameColumn, MaxNameColumn);
+        var column = fixedColumn ?? Math.Clamp(rows.Max(r => r.Name.Length) + 2, MinNameColumn, MaxNameColumn);
         foreach (var (name, description) in rows)
         {
             var lines = Wrap(description, Width - 2 - column);

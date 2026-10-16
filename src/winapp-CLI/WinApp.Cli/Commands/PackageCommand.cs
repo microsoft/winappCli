@@ -13,9 +13,33 @@ using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
 
-internal partial class PackageCommand : Command, IShortDescription
+internal partial class PackageCommand : Command, IShortDescription, ICompactHelpCommand
 {
     public string ShortDescription => "Create MSIX package or bundle";
+
+    string? IHelpExamples.Usage => "winapp package <.csproj | folder>... [options]";
+
+    IReadOnlyList<string> IHelpExamples.Examples { get; } =
+    [
+        "winapp package <build-folder> --cert devcert.pfx",
+        "winapp package .\\MyApp.csproj --arch x64 --arch arm64",
+        "winapp package <x64-folder> <arm64-folder>",
+    ];
+
+    IReadOnlyList<(string Command, string Description)> ICompactHelpCommand.Workflow { get; } =
+    [
+        ("winapp cert generate", "make a test certificate (once)"),
+        ("winapp cert install devcert.pfx", "trust it on this machine (admin, once)"),
+        ("winapp package .\\MyApp.csproj --cert devcert.pfx", "build, package, and sign"),
+        ("Add-AppxPackage <file>.msix", "install it"),
+    ];
+
+    IReadOnlyList<(string Heading, Option[] Options)> ICompactHelpCommand.OptionGroups =>
+    [
+        ("Signing", [CertOption, CertPasswordOption, GenerateCertOption, InstallCertOption, PublisherOption, NoSignOption]),
+        ("Package contents", [OutputOption, ManifestOption, NameOption, ExecutableOption, SelfContainedOption, SkipPriOption]),
+        ("Build (.csproj input only)", [ConfigurationOption, ArchOption, FrameworkOption, PropertyOption, NoBuildOption, NoRestoreOption]),
+    ];
 
     public static Argument<DirectoryInfo[]> InputFolderArgument { get; }
     public static Option<FileInfo> OutputOption { get; }
@@ -132,7 +156,7 @@ internal partial class PackageCommand : Command, IShortDescription
 
         PropertyOption = new Option<string[]>("--property")
         {
-            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
+            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c, -f, and --arch instead of -p for configuration, framework, and architecture. Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false,
         };

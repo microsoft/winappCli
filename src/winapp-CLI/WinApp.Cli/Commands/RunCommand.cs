@@ -22,9 +22,40 @@ using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
 
-internal partial class RunCommand : Command, IShortDescription, ITargetAwareCommand
+internal partial class RunCommand : Command, IShortDescription, ITargetAwareCommand, ICompactHelpCommand
 {
     public string ShortDescription => "Run an app from a project, .cs file, or folder";
+
+    string? IHelpExamples.Usage => "winapp run [<input>] [options] [-- <app args>]";
+
+    IReadOnlyList<string> IHelpExamples.Examples { get; } =
+    [
+        "winapp run <build-folder>",
+        "winapp run app.cs",
+        "winapp run . -- --my-flag value",
+    ];
+
+    IReadOnlyList<(string Command, string Description)> ICompactHelpCommand.Workflow { get; } =
+    [
+        ("winapp run .", "build and launch"),
+        ("winapp run . --debug-output", "show debug output and crash details"),
+        ("winapp run . --detach", "launch and return to the prompt"),
+        ("winapp run . --profile <folder>", "record layout and rendering timings"),
+        ("winapp perf analyze <folder>", "see what was slow"),
+        ("winapp package <.csproj|folder> --cert devcert.pfx", "build an installer when you're ready"),
+    ];
+
+    IReadOnlyList<(string Heading, Option[] Options)> ICompactHelpCommand.OptionGroups =>
+    [
+        ("Build (project and .cs input)",
+            [ConfigurationOption, ArchOption, RuntimeOption, FrameworkOption, ProjectOption, PropertyOption, AotOption, NoBuildOption, NoRestoreOption]),
+        ("Launch",
+            [DetachOption, ArgsOption, WithAliasOption, WithoutAliasOption, NoLaunchOption, CleanOption, UnregisterOnExitOption, UniqueIdentityOption]),
+        ("Package layout",
+            [ManifestOption, ExecutableOption, OutputAppXDirectoryOption]),
+        ("Debug and profile",
+            [DebugOutputOption, SymbolsOption, DevToolsOption, ProfileOption, ProfileModeOption, ProfileDurationOption, ProfileSizeOption, WinAppRootCommand.JsonOption]),
+    ];
 
     public static Argument<FileSystemInfo> InputArgument { get; }
     public static Option<FileInfo> ManifestOption { get; }
@@ -123,7 +154,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         DebugOutputOption = new Option<bool>("--debug-output")
         {
-            Description = "Capture OutputDebugString messages and first-chance exceptions from the launched application. Only one debugger can attach to a process at a time, so other debuggers (Visual Studio, VS Code) cannot be used simultaneously. Use --no-launch instead if you need to attach a different debugger. For WinUI apps, a crash also triggers a stowed-exception triage pass; the first run downloads debugger components (cached under the winapp global directory) and can be pointed at an existing debugger install via the WINAPP_DBGTOOLS_DIR environment variable. Cannot be combined with --no-launch or --json."
+            Description = "Capture OutputDebugString messages and first-chance exceptions from the launched application, and analyze it if it crashes. winapp attaches as the debugger, so Visual Studio or VS Code can't attach at the same time; use --no-launch to attach your own. Cannot be combined with --no-launch or --json."
         };
 
         UnregisterOnExitOption = new Option<bool>("--unregister-on-exit")
@@ -143,7 +174,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         UniqueIdentityOption = new Option<bool>("--unique-identity")
         {
-            Description = "Give this checkout its own package identity and execution aliases, derived from its path, so copies of a packaged app in different worktrees can be registered side by side. Your source manifest is not changed. Not supported for unpackaged apps, sparse packages, bundles, manifests with several applications, or apps that register protocols, file types, COM servers, or other system-wide extensions."
+            Description = "Give this checkout its own package identity and execution aliases, derived from its path, so copies of a packaged app in different worktrees can be registered side by side. Your source manifest is not changed. Not supported for unpackaged, sparse, or bundled apps, or apps that register system-wide extensions such as protocols or file types."
         };
 
         SymbolsOption = new Option<bool>("--symbols")
@@ -166,12 +197,12 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
 
         ArchOption = new Option<string?>("--arch")
         {
-            Description = "Project mode: target architecture (x64, arm64, or x86). Sets the canonical Windows RID and selects a matching platform-dependent publish profile when required by the effective build. Ignored in folder mode. Honored for a .cs file-based app too; when omitted, winapp builds for the current process architecture. Default: the current process architecture."
+            Description = "Project mode: target architecture (x64, arm64, or x86). Ignored in folder mode. Honored for a .cs file-based app too. Default: the current process architecture."
         };
 
         RuntimeOption = new Option<string?>("--runtime")
         {
-            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Project mode uses only the RID's architecture, always builds the canonical win-<arch>, rejects non-Windows RIDs (e.g. linux-x64), and can select a required architecture-dependent publish profile; it overrides --arch. Ignored in folder mode. Honored for a .cs file-based app too."
+            Description = "Project mode: target .NET runtime identifier (RID), e.g. win-x64. Only its architecture is used, and it overrides --arch; non-Windows RIDs are rejected. Ignored in folder mode. Honored for a .cs file-based app too."
         };
         RuntimeOption.Aliases.Add("-r");
 
@@ -243,7 +274,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
         return true;
     }
 
-    public RunCommand() : base("run", "Builds or Native AOT-publishes and runs a Windows app from a .cs file-based app, a .csproj/.vcxproj/.sln, or a build-output folder. In project mode, invokes dotnet build (MSBuild for C++ .vcxproj), or the project's configured Native AOT publish with --aot, then launches the app (packaged or unpackaged); in single-file mode, builds the .cs and launches it, generating a manifest from its #:property directives when the app is packaged; in folder mode, creates a debug-signed layout, registers the package, and launches it.")
+    public RunCommand() : base("run", "Builds and launches a Windows app with package identity from a .csproj, .vcxproj, or .sln (via dotnet build or MSBuild), a .cs file-based app, or a build output folder (default: current directory). With --aot, runs the project's Native AOT publish instead of a build. A .cs app gets a manifest from its #:property directives; folder input is registered as a debug-signed layout.")
     {
         Arguments.Add(InputArgument);
         Arguments.Add(PassthroughArgument);
