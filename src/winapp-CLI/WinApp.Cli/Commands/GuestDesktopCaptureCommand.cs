@@ -164,5 +164,7 @@ internal sealed class GuestDesktopRecordCommand : Command, IShortDescription
         protected override string? ElementSelector(ParseResult parseResult) => null;
         protected override int? ValidateElementFilters(ParseResult parseResult, bool json) => null;
         protected override bool CaptureScreen(ParseResult parseResult) => false;
+
+        protected override (bool Cursor, bool ClickHighlight) PointerOverlay(ParseResult parseResult) => (false, true);
     }
 }
