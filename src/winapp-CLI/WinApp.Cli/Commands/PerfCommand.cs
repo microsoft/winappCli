@@ -12,7 +12,7 @@ namespace WinApp.Cli.Commands;
 
 internal sealed class PerfCommand : Command, IShortDescription
 {
-    public string ShortDescription => "Record WinUI and composition timings, GC context, and process counters";
+    public string ShortDescription => "Record WinUI timings, GC context, and process counters";
 
     public PerfCommand(PerfCaptureService service, IUiTargetResolver targetResolver, IAnsiConsole console)
         : base("perf", "Record PID-scoped WinUI 3 ETW, app-side composition activity, and process resource counters without elevation, then query compact offline performance evidence. Raw ETL can contain app data; elapsed timings are not CPU/GPU measurements or display latency.")

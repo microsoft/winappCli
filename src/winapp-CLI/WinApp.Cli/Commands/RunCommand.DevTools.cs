@@ -58,9 +58,7 @@ internal partial class RunCommand
         HelpName = "on|off|headless",
         Description = "WinUI XAML inspection: on (the in-app toolbar), headless (nothing drawn in the app) or off. " +
             "On by default for WinUI projects outside CI; change the default with 'winapp config set run.devtools'. " +
-            "Packaged apps need App execution aliases enabled. Cannot be combined with --no-launch or --without-alias. " +
-            "With --on sandbox, requires a project with XAML sources and does not support --with-alias, --debug-output " +
-            "or --unregister-on-exit.",
+            "Packaged apps need App execution aliases enabled. Cannot be combined with --no-launch or --without-alias.",
     };
 
     /// <summary>The one-line error for a missing or unknown <c>--devtools</c> value, or null when it parsed.</summary>
