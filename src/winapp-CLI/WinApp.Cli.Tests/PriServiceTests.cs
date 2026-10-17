@@ -355,6 +355,131 @@ public class PriServiceTests
 
     #endregion
 
+    #region MergeAssetsIntoPriAsync
+
+    private void WriteLayoutFile(string relativePath, string content = "x")
+    {
+        var path = Path.Combine(_packageDir.FullName, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+    }
+
+    private static string ExtractPrPath(string arguments)
+    {
+        var match = Regex.Match(arguments, @"/pr\s+""([^""]+)""");
+        Assert.IsTrue(match.Success, $"Expected a quoted /pr argument in: {arguments}");
+        return match.Groups[1].Value;
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_IndexesExistingPriAndAssets_AndReplacesResourcesPri()
+    {
+        WriteLayoutFile("resources.pri", "build-pri");
+        WriteLayoutFile("Assets\\AppList.png");
+        WriteLayoutFile("Assets\\AppList.targetsize-24_altform-unplated.png");
+        string[]? resfiles = null;
+        bool originalCopied = false;
+        bool unplatedCopied = false;
+        _buildTools.Handler = (_, args) =>
+        {
+            var input = ExtractPrPath(args);
+            resfiles = File.ReadAllLines(Path.Combine(input, "assets.resfiles"));
+            originalCopied = File.ReadAllText(Path.Combine(input, "original.pri")) == "build-pri";
+            unplatedCopied = File.Exists(Path.Combine(input, "Assets", "AppList.targetsize-24_altform-unplated.png"));
+            File.WriteAllText(ExtractOfPath(args), "merged-pri");
+            return ("", "");
+        };
+
+        var merged = await _service.MergeAssetsIntoPriAsync(
+            _packageDir, "Contoso.App",
+            ["Assets/AppList.png", "Assets\\AppList.targetsize-24_altform-unplated.png"],
+            _taskContext);
+
+        Assert.IsTrue(merged);
+        Assert.AreEqual(1, _buildTools.Invocations.Count);
+        var (tool, args) = _buildTools.Invocations[0];
+        Assert.AreEqual("makepri.exe", tool);
+        StringAssert.StartsWith(args, "new ");
+        StringAssert.Contains(args, "/in \"Contoso.App\"");
+        Assert.IsTrue(originalCopied, "The existing resources.pri should be indexed as original.pri.");
+        Assert.IsTrue(unplatedCopied, "The unplated asset should be copied next to the resfiles list.");
+        string[] expected = ["Assets\\AppList.png", "Assets\\AppList.targetsize-24_altform-unplated.png"];
+        CollectionAssert.AreEqual(expected, resfiles);
+        Assert.AreEqual("merged-pri", File.ReadAllText(Path.Combine(_packageDir.FullName, "resources.pri")));
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_SkipsNonImagesMissingFilesAndPathsOutsideTheLayout()
+    {
+        WriteLayoutFile("resources.pri");
+        WriteLayoutFile("Assets\\Logo.png");
+        WriteLayoutFile("readme.txt");
+        File.WriteAllText(Path.Combine(_tempDir.FullName, "outside.png"), "x");
+        string[]? resfiles = null;
+        _buildTools.Handler = (_, args) =>
+        {
+            resfiles = File.ReadAllLines(Path.Combine(ExtractPrPath(args), "assets.resfiles"));
+            File.WriteAllText(ExtractOfPath(args), "merged");
+            return ("", "");
+        };
+
+        var merged = await _service.MergeAssetsIntoPriAsync(
+            _packageDir, "Contoso.App",
+            ["Assets\\Logo.png", "readme.txt", "Assets\\Missing.png", "..\\outside.png", Path.Combine(_tempDir.FullName, "outside.png")],
+            _taskContext);
+
+        Assert.IsTrue(merged);
+        string[] expected = ["Assets\\Logo.png"];
+        CollectionAssert.AreEqual(expected, resfiles);
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_NoResourcesPri_ReturnsFalseWithoutRunningMakePri()
+    {
+        WriteLayoutFile("Assets\\Logo.png");
+
+        var merged = await _service.MergeAssetsIntoPriAsync(_packageDir, "Contoso.App", ["Assets\\Logo.png"], _taskContext);
+
+        Assert.IsFalse(merged);
+        Assert.AreEqual(0, _buildTools.Invocations.Count);
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_NoUsableAssets_ReturnsFalseAndLeavesPriUntouched()
+    {
+        WriteLayoutFile("resources.pri", "build-pri");
+
+        var merged = await _service.MergeAssetsIntoPriAsync(_packageDir, "Contoso.App", ["Assets\\Missing.png", "notes.txt"], _taskContext);
+
+        Assert.IsFalse(merged);
+        Assert.AreEqual(0, _buildTools.Invocations.Count);
+        Assert.AreEqual("build-pri", File.ReadAllText(Path.Combine(_packageDir.FullName, "resources.pri")));
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_InvalidPackageName_Throws()
+    {
+        WriteLayoutFile("resources.pri");
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(
+            () => _service.MergeAssetsIntoPriAsync(_packageDir, "bad\" /o", ["Assets\\Logo.png"], _taskContext));
+    }
+
+    [TestMethod]
+    public async Task MergeAssetsIntoPriAsync_NoOutputProduced_ThrowsAndLeavesPriUntouched()
+    {
+        WriteLayoutFile("resources.pri", "build-pri");
+        WriteLayoutFile("Assets\\Logo.png");
+        _buildTools.Handler = (_, _) => ("", "");
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => _service.MergeAssetsIntoPriAsync(_packageDir, "Contoso.App", ["Assets\\Logo.png"], _taskContext));
+
+        Assert.AreEqual("build-pri", File.ReadAllText(Path.Combine(_packageDir.FullName, "resources.pri")));
+    }
+
+    #endregion
+
     private static void WriteDumpFile(string arguments, string content)
     {
         var dumpPath = ExtractOfPath(arguments);

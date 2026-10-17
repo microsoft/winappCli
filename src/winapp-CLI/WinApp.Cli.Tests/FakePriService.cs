@@ -61,4 +61,12 @@ internal sealed class FakePriService : IPriService
         ReindexIdentityCalls.Add((layout.FullName, packageName));
         return Task.CompletedTask;
     }
+
+    public List<(string Layout, string PackageName, List<string> Assets)> MergeAssetsCalls { get; } = [];
+
+    public Task<bool> MergeAssetsIntoPriAsync(DirectoryInfo layout, string packageName, IEnumerable<string> assetRelativePaths, TaskContext taskContext, CancellationToken cancellationToken = default)
+    {
+        MergeAssetsCalls.Add((layout.FullName, packageName, [.. assetRelativePaths]));
+        return Task.FromResult(true);
+    }
 }
