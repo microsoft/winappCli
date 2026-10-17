@@ -981,4 +981,158 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(1, _fakeMsixService.CreatePackageCalls.Count);
         Assert.IsNull(_fakeMsixService.LastCreatePackageArgs!.ProjectFile, "Folder mode must not thread a project file");
     }
+
+    // ---- C++ (.vcxproj) project mode -------------------------------------------
+
+    private FileInfo CreateVcxproj(string name = "App.vcxproj")
+    {
+        var path = Path.Join(_tempDirectory.FullName, name);
+        File.WriteAllText(path, "<Project />");
+        return new FileInfo(path);
+    }
+
+    [TestMethod]
+    public async Task CppMode_Packaged_UsesGeneratedManifestAndRecipe()
+    {
+        var vcxproj = CreateVcxproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        var generatedManifest = Path.Join(targetDir.FullName, "AppxManifest.xml");
+        File.WriteAllText(generatedManifest, TestManifestContent);
+        var recipe = Path.Join(_tempDirectory.FullName, "App.build.appxrecipe");
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(vcxproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "arm64",
+                AppxManifestPath: generatedManifest, AppxRecipePath: recipe), 0);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(1, _fakeProjectRunService.BuildAndResolveCalls.Count, "C++ projects are built with MSBuild, not published");
+        Assert.AreEqual(0, _fakeProjectRunService.PublishAndResolveCalls.Count);
+        Assert.AreEqual(0, _fakeProjectRunService.PreparationOptions.Count, ".NET package preparation must not run for C++");
+        var args = _fakeMsixService.LastCreatePackageArgs!;
+        Assert.AreEqual(targetDir.FullName, args.InputFolder.FullName);
+        Assert.AreEqual(generatedManifest, args.ManifestPath!.FullName);
+        Assert.AreEqual(recipe, args.AppxRecipe!.FullName);
+        Assert.AreEqual("arm64", args.TargetArch);
+        Assert.IsNull(args.ProjectFile, "The vcxproj must not be passed to the .NET package-list probe");
+    }
+
+    [TestMethod]
+    public async Task CppMode_DefaultsToReleaseAndCurrentArch()
+    {
+        var vcxproj = CreateVcxproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(vcxproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "x64"), 0);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        var options = _fakeProjectRunService.BuildOptions.Single();
+        Assert.AreEqual("Release", options.Configuration);
+        Assert.IsNull(options.Framework);
+        Assert.IsFalse(string.IsNullOrEmpty(options.Architecture));
+    }
+
+    [TestMethod]
+    public async Task CppMode_Unpackaged_UsesProjectManifestAndBuiltExe()
+    {
+        var vcxproj = CreateVcxproj();
+        File.WriteAllText(Path.Join(_tempDirectory.FullName, "appxmanifest.xml"), TestManifestContent);
+        var targetDir = CreateTargetDir(withManifest: false);
+        var exe = Path.Join(targetDir.FullName, "App.exe");
+        File.WriteAllText(exe, "");
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(vcxproj, targetDir.FullName, exe, ProjectPackaging.Unpackaged, false, "x64"), 0);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName]);
+
+        Assert.AreEqual(0, exitCode);
+        var args = _fakeMsixService.LastCreatePackageArgs!;
+        Assert.AreEqual(Path.Join(_tempDirectory.FullName, "appxmanifest.xml"), args.ManifestPath!.FullName);
+        Assert.AreEqual("App.exe", args.Executable);
+    }
+
+    [TestMethod]
+    public async Task CppMode_Unpackaged_NoManifest_SuggestsInit()
+    {
+        var project = _tempDirectory.CreateSubdirectory("proj");
+        var vcxproj = new FileInfo(Path.Join(project.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        var targetDir = CreateTargetDir(withManifest: false);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(vcxproj, targetDir.FullName, Path.Join(targetDir.FullName, "App.exe"), ProjectPackaging.Unpackaged, false, "x64"), 0);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "winapp init");
+    }
+
+    [TestMethod]
+    public async Task CppMode_PropertyConfigurationAndPlatform_SelectBuild()
+    {
+        var vcxproj = CreateVcxproj();
+        var targetDir = CreateTargetDir(withManifest: true);
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(vcxproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "arm64"), 0);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(),
+            [vcxproj.FullName, "-p", "Configuration=Debug", "-p", "Platform=ARM64"]);
+
+        Assert.AreEqual(0, exitCode);
+        var options = _fakeProjectRunService.BuildOptions.Single();
+        Assert.AreEqual("Debug", options.Configuration);
+        Assert.AreEqual("arm64", options.Architecture);
+    }
+
+    [TestMethod]
+    public async Task CppMode_ConflictingConfiguration_RejectedBeforeBuilding()
+    {
+        var vcxproj = CreateVcxproj();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(),
+            [vcxproj.FullName, "-c", "Release", "-p", "Configuration=Debug"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
+    }
+
+    [TestMethod]
+    [DataRow("--framework", "net10.0-windows")]
+    [DataRow("--arch", "x64", "--arch", "arm64")]
+    public async Task CppMode_UnsupportedOptions_RejectedBeforeBuilding(params string[] extra)
+    {
+        var vcxproj = CreateVcxproj();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName, .. extra]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task CppMode_BuildFailure_PropagatesExitCode()
+    {
+        var vcxproj = CreateVcxproj();
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(null, 7);
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName]);
+
+        Assert.AreEqual(7, exitCode);
+        Assert.AreEqual(0, _fakeMsixService.CreatePackageCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task Package_UnsupportedFile_ReportsSupportedInputs()
+    {
+        var file = Path.Join(_tempDirectory.FullName, "App.sln");
+        File.WriteAllText(file, "");
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [file]);
+
+        Assert.AreEqual(1, exitCode);
+        StringAssert.Contains(ConsoleStdErr.ToString() + TestAnsiConsole.Output, "is not a supported input");
+    }
 }
