@@ -7,6 +7,8 @@ using Spectre.Console;
 using System.Text;
 using WinApp.Cli.Commands;
 using WinApp.Cli.ExecutionTargets.GuestAgent;
+using WinApp.Cli.ExecutionTargets.Abstractions;
+using WinApp.Cli.ExecutionTargets.WindowsSandbox;
 using WinApp.Cli.Helpers;
 using WinApp.Cli.Models;
 using WinApp.Cli.Services;
@@ -353,7 +355,24 @@ internal static class Program
             // A command that cannot honour --on says so, and a selector that names nothing usable
             // fails here — never silently on this desktop, which is the one outcome the option
             // exists to prevent.
-            if (ExecutionTargetSelection.Validate(parsedArgs) is { } selectionError)
+            var selectionError = ExecutionTargetSelection.Validate(parsedArgs);
+            var targetsSandbox = selectionError is null && parsedArgs.Errors.Count == 0 &&
+                ExecutionTargetSelection.TargetsSandbox(parsedArgs);
+            SandboxExpectation? expectation = null;
+            if (targetsSandbox)
+            {
+                try
+                {
+                    expectation = SandboxExpectation.Resolve(
+                        ExecutionTargetSelection.RawExpectation(parsedArgs), Environment.GetEnvironmentVariable);
+                }
+                catch (ExecutionTargetException ex)
+                {
+                    selectionError = ex.Error;
+                }
+            }
+
+            if (selectionError is not null)
             {
                 if (effectiveJson && TryEmitCommandJsonError(parsedArgs, selectionError.Message))
                 {
@@ -361,6 +380,11 @@ internal static class Program
                 }
                 return Task.FromResult(TargetOutput.RejectSelection(
                     serviceProvider.GetRequiredService<IAnsiConsole>(), effectiveJson, selectionError));
+            }
+
+            if (targetsSandbox)
+            {
+                serviceProvider.GetRequiredService<WindowsSandboxLifecycle>().GetExpectation = () => expectation;
             }
 
             // System.CommandLine binds an unrecognised option to a nearby optional positional rather
