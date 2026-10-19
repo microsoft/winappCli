@@ -1,0 +1,9 @@
+<UserControl x:Class="Lanternfish.Controls.ShellHeader"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid ColumnDefinitions="*,Auto" Padding="12,8">
+    <TextBlock Text="{Binding Title}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+    <ItemsControl Grid.Column="1" ItemsSource="{Binding Badges}"
+                  ItemTemplate="{StaticResource HeaderBadgeTemplate}" />
+  </Grid>
+</UserControl>

@@ -27,7 +27,8 @@ internal static class XamlTriageRunner
     /// Entry point for the isolated child process. Parses <c>--dump</c>, <c>--bin</c>,
     /// <c>--jsprovider</c>, <c>--ext</c> and optional <c>--symbols</c>, runs the extension, and writes
     /// the captured output to stdout. The parent holds the DLLs named by <c>--bin</c> and
-    /// <c>--jsprovider</c> open until this process exits, so they must be loaded from exactly those paths.
+    /// <c>--jsprovider</c> open until this process exits. This process still re-verifies them and the
+    /// script before loading anything, because anyone can start it with arguments of their choosing.
     /// </summary>
     public static int Run(string[] args)
     {
@@ -53,13 +54,69 @@ internal static class XamlTriageRunner
 
         try
         {
-            Console.Out.Write(RunDbgEngExtension(dump, bin, jsProvider, ext, useSymbols));
+            // The DLLs and script named by the arguments are re-verified here, not just by the parent, and
+            // held until the engine is done, so the files checked are the files loaded.
+            using var inputs = VerifyInputs(bin, jsProvider, ext);
+            Console.Out.Write(RunDbgEngExtension(dump, inputs.BinDir, inputs.JsProviderPath, inputs.ExtPath, useSymbols));
             return 0;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"xaml-triage failed: {ex.Message}");
             return 1;
+        }
+    }
+
+    /// <summary>The verified, held inputs the engine loads. Disposing releases the holds.</summary>
+    internal sealed record VerifiedTriageInputs(string BinDir, string JsProviderPath, string ExtPath, IReadOnlyList<IDisposable> Holds) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var hold in Holds)
+            {
+                hold.Dispose();
+            }
+        }
+    }
+
+    /// <summary>Verification seam; tests that drive a real engine with stand-in files replace it.</summary>
+    internal static Func<string, string, string, VerifiedTriageInputs> VerifyInputs { get; set; } =
+        (bin, jsProvider, ext) => VerifyInputsForLoad(bin, jsProvider, ext, XamlTriageBinaries.HoldForLoad);
+
+    /// <summary>
+    /// Refuses unless <c>dbgeng.dll</c>, its supporting DLLs and <c>JsProvider.dll</c> are Microsoft-signed
+    /// matching builds, and the extension script is the pinned <c>winui-dbgext.js</c> (a script can
+    /// <c>.load</c> any DLL). Returns the inputs held with no write or delete sharing until disposed.
+    /// <para>
+    /// This stops the child from being pointed at arbitrary DLLs or scripts. It does not stop a process
+    /// running as the same user from planting default extension DLLs where DbgEng searches for them; that
+    /// user can already run code, so it is not a boundary this process can enforce.
+    /// </para>
+    /// </summary>
+    internal static VerifiedTriageInputs VerifyInputsForLoad(
+        string binDir, string jsProviderPath, string extPath, Func<string, string, ResolvedTriageBinaries?> holdBinaries)
+    {
+        var binaries = holdBinaries(binDir, jsProviderPath)
+            ?? throw new InvalidOperationException(
+                $"refusing to load the debugger from '{binDir}' and '{jsProviderPath}': they must be Microsoft-signed debugger files from the same build.");
+        try
+        {
+            var script = VerifiedTool.Open(
+                new FileInfo(extPath),
+                (path, _) => XamlTriageService.MatchesPinnedExtensionHash(File.ReadAllBytes(path)),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+            return new VerifiedTriageInputs(binaries.BinDir, binaries.JsProviderPath, script.Path, [binaries, script]);
+        }
+        catch (BuildToolSignatureException)
+        {
+            binaries.Dispose();
+            throw new InvalidOperationException($"refusing to run '{extPath}': it is not the pinned WinUI debugger extension.");
+        }
+        catch
+        {
+            // The binaries are handed to the caller on success, so they are released here only on failure.
+            binaries.Dispose();
+            throw;
         }
     }
 

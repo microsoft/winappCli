@@ -66,8 +66,8 @@ without this package. A standalone `--` is optional for arguments that do not co
 `dotnet run` option, because the .NET SDK consumes the separator before forwarding:
 
 ```powershell
-dotnet run --devtools          # your app receives --devtools
-dotnet run -- --devtools       # identical
+dotnet run --demo-mode          # your app receives --demo-mode
+dotnet run -- --demo-mode       # identical
 ```
 
 Use `--` when your app's flag is also a `dotnet run` option (`--configuration`, `--framework`,
@@ -81,8 +81,11 @@ Configure the launcher itself with the MSBuild properties below, which MSBuild c
 reach your application:
 
 ```powershell
-dotnet run -p:WinAppRunDetach=true --devtools
+dotnet run -p:WinAppRunDetach=true --demo-mode
+dotnet run -p:WinAppRunDevTools=off
 ```
+
+For a WinUI app, `dotnet run` starts [WinUI DevTools](https://github.com/microsoft/winappCli/blob/main/docs/guides/devtools.md); `-p:WinAppRunDevTools=off` (or `headless`) changes that for one run. See [Turn DevTools on or off](https://github.com/microsoft/winappCli/blob/main/docs/guides/devtools.md#turn-devtools-on-or-off).
 
 Set these MSBuild properties in your `.csproj` to customize behavior:
 
@@ -97,6 +100,7 @@ Set these MSBuild properties in your `.csproj` to customize behavior:
 | `WinAppRunUnregisterOnExit` | `false` | Unregister the development package after the app exits |
 | `WinAppRunClean` | `false` | Remove the existing package's application data (LocalState, settings) before re-deploying |
 | `WinAppRunSymbols` | `false` | Download symbols from the Microsoft Symbol Server for richer native crash analysis. Only has an effect with `WinAppRunDebugOutput`. |
+| `WinAppRunDevTools` | (unset) | `on`, `off` or `headless`: start [WinUI DevTools](https://github.com/microsoft/winappCli/blob/main/docs/guides/devtools.md) for this run, like `winapp run --devtools`. Left unset, winapp decides. `on` and `headless` can't be combined with `WinAppRunNoLaunch` or `WinAppRunUseExecutionAlias=false`. |
 | `WinAppRunExecutable` | (empty) | Executable path relative to the build-output folder. Use when the manifest contains `$targetnametoken$` and the output folder has more than one `.exe`. |
 | `WinAppRunArgs` | (empty) | Raw arguments appended to the `winapp run` command line, for options with no dedicated property. Appended after every property above. |
 

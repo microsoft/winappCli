@@ -20,6 +20,7 @@ internal partial class RunCommand
 
     public static Option<string?> ProfileOption { get; } = new("--profile")
     {
+        HelpName = "folder",
         Description = "Record WinUI 3 performance ETW to an empty directory. By default it attaches after the app starts, so early startup events may be missed; use --profile-mode elevated to record startup.",
     };
     public static Option<string> ProfileModeOption { get; } = new Option<string>("--profile-mode")
@@ -29,11 +30,13 @@ internal partial class RunCommand
     }.AcceptOnlyFromAmong(PerfProfileModes.Attach, PerfProfileModes.Elevated);
     public static Option<int> ProfileDurationOption { get; } = new("--profile-duration-sec")
     {
+        HelpName = "seconds",
         Description = "With --profile: trace for 1-300 seconds; stopping the trace does not stop the app.",
         DefaultValueFactory = _ => 30,
     };
     public static Option<int> ProfileSizeOption { get; } = new("--profile-max-size-mib")
     {
+        HelpName = "MiB",
         Description = "With --profile: maximum raw ETL size, 1-1024 MiB.",
         DefaultValueFactory = _ => 512,
     };

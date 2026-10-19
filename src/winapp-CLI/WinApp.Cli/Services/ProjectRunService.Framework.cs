@@ -29,10 +29,23 @@ internal sealed partial class ProjectRunService
         ProjectRunOptions options,
         DirectoryInfo workingDir,
         CancellationToken cancellationToken)
+        => (await ResolveFrameworksAsync(csproj, options, workingDir, cancellationToken)).Options;
+
+    /// <summary>
+    /// <see cref="ResolveEffectiveFrameworkAsync"/> plus the single TFM the CsWinRT metadata shim uses to
+    /// check the targeted Windows SDK and steer ref-pack selection. That TFM also covers a single-targeted
+    /// project, whose <c>--framework</c> stays null, and is NEVER used as a build <c>-p:TargetFramework</c>.
+    /// It reuses the effective-framework evaluate, so it never costs an extra MSBuild call.
+    /// </summary>
+    private async Task<(ProjectRunOptions Options, string? ShimFramework)> ResolveFrameworksAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        DirectoryInfo workingDir,
+        CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(options.Framework))
         {
-            return options;
+            return (options, options.Framework);
         }
 
         // No --framework, but the user forwarded an explicit -p:TargetFramework=X. TFM is a
@@ -42,7 +55,7 @@ internal sealed partial class ProjectRunService
         // above already fired; this is a service-level fallback for direct callers/tests.
         if (TryGetUserProperty(options.Properties, "TargetFramework", out var userFramework))
         {
-            return options with { Framework = userFramework };
+            return (options with { Framework = userFramework }, userFramework);
         }
 
         var staticFirst = dotNetService.GetTargetFramework(csproj);
@@ -54,28 +67,30 @@ internal sealed partial class ProjectRunService
             // Inline <TargetFrameworks>: pin the first statically ONLY when concrete AND unconditional. The
             // static read is first-textual-match, so a conditional/per-Configuration declaration could pin
             // the wrong group's TFM; fall through to the authoritative MSBuild evaluate in that case.
-            if (staticFirstIsConcrete && HasUnconditionalInlineTargetFrameworks(csproj))
+            if (staticFirstIsConcrete && HasUnconditionalInlineDeclaration(csproj, "TargetFrameworks"))
             {
                 LogEffectiveFrameworkPinned(csproj, staticFirst!);
-                return options with { Framework = staticFirst };
+                return (options with { Framework = staticFirst }, staticFirst);
             }
         }
-        else if (staticFirstIsConcrete)
+        else if (staticFirstIsConcrete && HasUnconditionalInlineDeclaration(csproj, "TargetFramework"))
         {
-            // Inline single concrete <TargetFramework>: genuinely single-targeted — no pinning needed.
-            return options;
+            // Inline single concrete unconditional <TargetFramework>: genuinely single-targeted — no pinning
+            // needed. A per-Configuration declaration falls through so the evaluate reports the effective one.
+            return (options, staticFirst);
         }
 
-        // The TFM list isn't statically resolvable (imported / conditional / expression). Authoritatively
-        // evaluate the effective TargetFrameworks with MSBuild (same globals) and pin the FIRST.
-        var evaluatedFirst = await ResolveFirstMultiTargetFrameworkAsync(csproj, options, workingDir, cancellationToken);
-        if (string.IsNullOrWhiteSpace(evaluatedFirst))
+        // The TFM isn't statically resolvable (imported / conditional / expression). Authoritatively
+        // evaluate it with MSBuild (same globals) and pin the FIRST of a multi-target list. A non-empty
+        // TargetFramework wins over TargetFrameworks (the SDK builds it, not the list), so never pin then.
+        var (evaluatedSingle, evaluatedFirst) = await ResolveEvaluatedFrameworksAsync(csproj, options, workingDir, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(evaluatedSingle) || string.IsNullOrWhiteSpace(evaluatedFirst))
         {
-            return options;
+            return (options, evaluatedSingle);
         }
 
         LogEffectiveFrameworkPinned(csproj, evaluatedFirst);
-        return options with { Framework = evaluatedFirst };
+        return (options with { Framework = evaluatedFirst }, evaluatedFirst);
     }
 
     private void LogEffectiveFrameworkPinned(FileInfo csproj, string tfm) =>
@@ -84,12 +99,12 @@ internal sealed partial class ProjectRunService
             UiSymbols.Note, csproj.Name, tfm);
 
     /// <summary>
-    /// True when multi-targeting is declared inline in a form the cheap static read can trust: exactly ONE
-    /// <c>&lt;TargetFrameworks&gt;</c> element with no <c>Condition</c> on it or any ancestor. A conditional
-    /// or duplicated declaration makes the first-textual-match read unreliable, forcing the caller to the
-    /// authoritative evaluate. Returns <see langword="false"/> on unreadable/invalid XML.
+    /// True when <paramref name="elementName"/> (<c>TargetFramework</c> or <c>TargetFrameworks</c>) is declared
+    /// inline in a form the cheap static read can trust: exactly ONE such element with no <c>Condition</c> on it
+    /// or any ancestor. A conditional or duplicated declaration makes the first-textual-match read unreliable,
+    /// forcing the caller to the authoritative evaluate. Returns <see langword="false"/> on unreadable/invalid XML.
     /// </summary>
-    private static bool HasUnconditionalInlineTargetFrameworks(FileInfo csproj)
+    private static bool HasUnconditionalInlineDeclaration(FileInfo csproj, string elementName)
     {
         XDocument doc;
         try
@@ -103,7 +118,7 @@ internal sealed partial class ProjectRunService
 
         // SDK-style project files are namespace-less; match on local name to stay namespace-agnostic.
         var declarations = doc.Descendants()
-            .Where(e => e.Name.LocalName == "TargetFrameworks")
+            .Where(e => e.Name.LocalName == elementName)
             .ToList();
 
         if (declarations.Count != 1)
@@ -124,11 +139,12 @@ internal sealed partial class ProjectRunService
     private static readonly string[] FrameworkDiscoveryProperties = ["TargetFramework", "TargetFrameworks"];
 
     /// <summary>
-    /// Authoritatively resolves the FIRST entry of a project's effective <c>TargetFrameworks</c> via an
-    /// evaluate-only MSBuild pass using the same globals as the real passes. Returns <c>null</c> when the
-    /// project is single-targeted or the evaluate can't run (SDK-less / pre-restore / cancelled-start).
+    /// Authoritatively resolves a project's evaluated <c>TargetFramework</c> and the FIRST entry of its
+    /// <c>TargetFrameworks</c> via an evaluate-only MSBuild pass using the same globals as the real passes.
+    /// Either is <c>null</c> when empty or when the evaluate can't run (SDK-less / pre-restore /
+    /// cancelled-start).
     /// </summary>
-    private async Task<string?> ResolveFirstMultiTargetFrameworkAsync(
+    private async Task<(string? TargetFramework, string? FirstOfTargetFrameworks)> ResolveEvaluatedFrameworksAsync(
         FileInfo csproj,
         ProjectRunOptions options,
         DirectoryInfo workingDir,
@@ -150,24 +166,20 @@ internal sealed partial class ProjectRunService
         catch (Exception)
         {
             // Starting/communicating with dotnet failed → indeterminate; let the normal passes surface it.
-            return null;
+            return (null, null);
         }
 
         if (exitCode != 0)
         {
-            return null;
+            return (null, null);
         }
 
         var props = MsBuildPropertyReader.Parse(stdout, FrameworkDiscoveryProperties);
-        var targetFrameworks = GetProp(props, "TargetFrameworks");
-        if (string.IsNullOrWhiteSpace(targetFrameworks))
-        {
-            return null; // Single-targeted — nothing to pin.
-        }
-
-        return targetFrameworks
+        var single = GetProp(props, "TargetFramework");
+        var first = GetProp(props, "TargetFrameworks")?
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .FirstOrDefault();
+        return (string.IsNullOrWhiteSpace(single) ? null : single, string.IsNullOrWhiteSpace(first) ? null : first);
     }
 
     /// <summary>
@@ -205,84 +217,79 @@ internal sealed partial class ProjectRunService
     }
 
     /// <summary>
-    /// Resolves the single effective TFM used ONLY to steer the CsWinRT metadata shim's ref-pack selection
-    /// toward the project's <c>TargetPlatformVersion</c>. Unlike <see cref="ResolveEffectiveFrameworkAsync"/>
-    /// this also covers a single-targeted project (whose <c>--framework</c> stays null) so an SDK-less host
-    /// prefers the matching ref pack. Order: pinned/user <c>--framework</c>, cheap static read, then — only
-    /// when the shim would inject (no registered SDK) and the value isn't static — an MSBuild evaluate. The
-    /// result is NEVER used as a build <c>-p:TargetFramework</c>.
+    /// Properties read by <see cref="BuildCsWinRTMetadataProbeArguments"/>. Two properties force the JSON
+    /// envelope (see <see cref="FrameworkDiscoveryProperties"/>).
     /// </summary>
-    private async Task<string?> ResolveShimFrameworkAsync(
-        FileInfo csproj,
-        ProjectRunOptions options,
-        DirectoryInfo workingDir,
-        CancellationToken cancellationToken)
+    private static readonly string[] CsWinRTMetadataProbeProperties = ["CsWinRTWindowsMetadata", "TargetFramework"];
+
+    /// <summary>
+    /// SHIM (temporary): evaluate-only arguments that read the project's own <c>CsWinRTWindowsMetadata</c>
+    /// under the run's Configuration and effective framework (the CsWinRT targets that default it are
+    /// imported per framework).
+    /// </summary>
+    internal static string BuildCsWinRTMetadataProbeArguments(FileInfo csproj, ProjectRunOptions options)
     {
+        var tokens = new List<string>
+        {
+            "msbuild",
+            csproj.FullName,
+        };
+
+        foreach (var property in ForwardableProperties(options.Properties))
+        {
+            tokens.Add($"-p:{property}");
+        }
+
+        AppendSolutionProperties(tokens, options);
+
+        tokens.Add($"-p:Configuration={options.Configuration}");
         if (!string.IsNullOrWhiteSpace(options.Framework))
         {
-            return options.Framework;
+            tokens.Add($"-p:TargetFramework={options.Framework}");
         }
 
-        var staticTfm = dotNetService.GetTargetFramework(csproj);
-        if (!string.IsNullOrWhiteSpace(staticTfm) && !staticTfm.Contains("$(", StringComparison.Ordinal))
+        foreach (var property in CsWinRTMetadataProbeProperties)
         {
-            return staticTfm;
+            tokens.Add($"--getProperty:{property}");
         }
 
-        // Only the SDK-less path consumes this framework (the shim no-ops when a Windows SDK is registered),
-        // so skip the extra MSBuild evaluate on SDK-installed hosts where the result would be discarded.
-        if (!csWinRTMetadataShimService.IsWindowsSdkAbsent())
-        {
-            return null;
-        }
-
-        return await ResolveEvaluatedTargetFrameworkAsync(csproj, options, workingDir, cancellationToken);
+        return WindowsCommandLine.JoinArguments(tokens) ?? string.Empty;
     }
 
     /// <summary>
-    /// Authoritatively resolves a project's effective SINGLE target framework via an evaluate-only MSBuild
-    /// pass using the same globals as the real passes. Returns <c>TargetFramework</c> when set, else the
-    /// first of <c>TargetFrameworks</c>, else <c>null</c> when the evaluate can't run.
+    /// SHIM (temporary): a cheap text check for whether the project file, or a <c>Directory.Build.props</c> /
+    /// <c>Directory.Build.targets</c> in its directory or any parent, mentions <c>CsWinRTWindowsMetadata</c>.
+    /// That is where a project pins its own value; a pin in some other imported file goes unnoticed.
     /// </summary>
-    private async Task<string?> ResolveEvaluatedTargetFrameworkAsync(
-        FileInfo csproj,
-        ProjectRunOptions options,
-        DirectoryInfo workingDir,
-        CancellationToken cancellationToken)
+    internal static bool ProjectMentionsCsWinRTMetadata(FileInfo csproj)
     {
-        var args = BuildFrameworkDiscoveryArguments(csproj, options, FrameworkDiscoveryProperties);
-        logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(args));
+        if (FileMentionsCsWinRTMetadata(csproj.FullName))
+        {
+            return true;
+        }
 
-        int exitCode;
-        string stdout;
+        for (var directory = csproj.Directory; directory is not null; directory = directory.Parent)
+        {
+            if (FileMentionsCsWinRTMetadata(Path.Join(directory.FullName, "Directory.Build.props"))
+                || FileMentionsCsWinRTMetadata(Path.Join(directory.FullName, "Directory.Build.targets")))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool FileMentionsCsWinRTMetadata(string path)
+    {
         try
         {
-            (exitCode, stdout, _) = await dotNetService.RunDotnetCommandAsync(workingDir, args, cancellationToken);
+            return File.Exists(path)
+                && File.ReadAllText(path).Contains("CsWinRTWindowsMetadata", StringComparison.OrdinalIgnoreCase);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            throw;
+            return false;
         }
-        catch (Exception)
-        {
-            return null;
-        }
-
-        if (exitCode != 0)
-        {
-            return null;
-        }
-
-        var props = MsBuildPropertyReader.Parse(stdout, FrameworkDiscoveryProperties);
-        var single = GetProp(props, "TargetFramework");
-        if (!string.IsNullOrWhiteSpace(single))
-        {
-            return single;
-        }
-
-        var multi = GetProp(props, "TargetFrameworks");
-        return string.IsNullOrWhiteSpace(multi)
-            ? null
-            : multi.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
     }
 }

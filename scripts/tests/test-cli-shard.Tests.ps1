@@ -18,7 +18,7 @@ function dotnet {
     $arguments | ConvertTo-Json -Compress | Add-Content "$PSScriptRoot\calls.jsonl"
     $filterIndex = [array]::IndexOf($arguments, '--filter')
     $filter = if ($filterIndex -ge 0) { $arguments[$filterIndex + 1] } else { '' }
-    $selected = if (-not $filter) { 10 } elseif ($filter -eq 'FullyQualifiedName~WinApp.Cli.Tests.PackageCommandTests.') { 4 } elseif ($filter -eq 'FullyQualifiedName!~WinApp.Cli.Tests.PackageCommandTests.') { 6 } else { throw "Unexpected filter $filter" }
+    $selected = if (-not $filter) { 10 } elseif ($filter -eq 'TestCategory!=NativeIntegration&FullyQualifiedName~WinApp.Cli.Tests.PackageCommandTests.') { 4 } elseif ($filter -eq 'TestCategory!=NativeIntegration&FullyQualifiedName!~WinApp.Cli.Tests.PackageCommandTests.') { 3 } elseif ($filter -eq 'TestCategory=NativeIntegration') { 3 } else { throw "Unexpected filter $filter" }
     $global:LASTEXITCODE = 0
     if ($arguments -contains '--list-tests') {
         if ($inputData.failure -eq 'discovery-exit') { $global:LASTEXITCODE = 4; return }
@@ -56,6 +56,8 @@ function dotnet {
     if ($inputData.failure -eq 'minimum-exit-with-complete-report') { $global:LASTEXITCODE = 9 }
 }
 try {
+    $env:WINAPP_NATIVE_TEST_FIXTURE = "$PSScriptRoot\native-runtime-tests.exe"
+    if ($inputData.failure -ne 'missing-fixture') { Set-Content $env:WINAPP_NATIVE_TEST_FIXTURE 'fixture' }
     & "$PSScriptRoot\test-cli-shard.ps1" -Shard $inputData.shard -TestProjectPath fixture.csproj -ResultsDirectory "$PSScriptRoot\results" -CoverageSettings fixture.runsettings
     exit $LASTEXITCODE
 } catch {
@@ -73,35 +75,48 @@ Describe 'CLI shard partition and reporting' {
     It 'runs shard <Shard> with complementary MTP filters and unique complete reports' -ForEach @(
         @{ Shard = 1 }
         @{ Shard = 2 }
+        @{ Shard = 3 }
     ) {
         $result = Invoke-ShardFixture $Shard
         $result.ExitCode | Should -Be 0 -Because $result.Output
         $manifest = Get-Content "$($result.Root)\results\cli-shard-$Shard.json" -Raw | ConvertFrom-Json
         $manifest.allTests | Should -Be 10
         ($manifest.shardCounts | Measure-Object -Sum).Sum | Should -Be 10
-        $manifest.expectedTests | Should -Be @(4, 6)[$Shard - 1]
+        $manifest.expectedTests | Should -Be @(4, 3, 3)[$Shard - 1]
         "$($result.Root)\results\WinApp.Cli.Tests.shard-$Shard.trx" | Should -Exist
         "$($result.Root)\results\WinApp.Cli.Tests.shard-$Shard.cobertura.xml" | Should -Exist
     }
 
     It 'assigns existing and new test names to exactly one side of the class predicate' {
         $source = Get-Content $shardScript -Raw
-        $source | Should -Match ([regex]::Escape('$filters = @("FullyQualifiedName~$className", "FullyQualifiedName!~$className")'))
+        $source | Should -Match ([regex]::Escape('"TestCategory!=NativeIntegration&FullyQualifiedName~$className"'))
+        $source | Should -Match ([regex]::Escape('"TestCategory!=NativeIntegration&FullyQualifiedName!~$className"'))
+        $source | Should -Match "'TestCategory=NativeIntegration'"
         foreach ($name in @(
             'WinApp.Cli.Tests.PackageCommandTests.Existing',
             'WinApp.Cli.Tests.PackageCommandTests.NewDataRow',
             'WinApp.Cli.Tests.BrandNewTests.NewMethod',
             'WinApp.Cli.Tests.PackageCommandTestsExtra.NotInTheSelectedClass'
         )) {
-            $first = $name.Contains('WinApp.Cli.Tests.PackageCommandTests.')
-            $second = -not $first
-            (@($first, $second) | Where-Object { $_ }).Count | Should -Be 1
+            foreach ($native in @($true, $false)) {
+                $first = -not $native -and $name.Contains('WinApp.Cli.Tests.PackageCommandTests.')
+                $second = -not $native -and -not $first
+                (@($first, $second, $native) | Where-Object { $_ }).Count | Should -Be 1
+            }
         }
     }
 
+    It 'requires an explicit existing fixture only in the native lane' {
+        (Invoke-ShardFixture 3 'missing-fixture').ExitCode | Should -Not -Be 0
+        (Invoke-ShardFixture 2 'missing-fixture').ExitCode | Should -Be 0
+    }
     It 'accepts intentional skips only when every discovered case is accounted for and some tests execute' {
         $result = Invoke-ShardFixture 2 'passing-and-skipped'
         $result.ExitCode | Should -Be 0 -Because $result.Output
+    }
+
+    It 'rejects skipped native integration cases instead of treating missing execution as coverage' {
+        (Invoke-ShardFixture 3 'passing-and-skipped').ExitCode | Should -Not -Be 0
     }
 
     It 'rejects <Failure> instead of silently losing coverage' -ForEach @(

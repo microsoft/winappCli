@@ -58,6 +58,7 @@ public sealed class ProjectRunServiceCppTests : IDisposable
 
     private static readonly string[] ExpectedBuildTokens = ["-restore", "-p:RestorePackagesConfig=true", "-t:Build", "-p:Configuration=Debug", "-p:Platform=x64"];
     private static readonly string[] ExpectedArm64Tokens = ["-p:Foo=Bar", "-p:Configuration=Release", "-p:Platform=ARM64"];
+    private static readonly string[] ExpectedReleaseArm64Tokens = ["-p:Platform=ARM64", "-p:Configuration=Release"];
     private static readonly string[] ExpectedPackageIds = ["Microsoft.WindowsAppSDK", "Microsoft.WindowsAppSDK.Runtime"];
 
     private DirectoryInfo _tempDir = null!;
@@ -401,6 +402,29 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         Assert.AreEqual("x64", resolution.Platform);
     }
 
+    private static readonly string[] ExpectedXamlSources = ["MainWindow.xaml", "App.xaml"];
+
+    [TestMethod]
+    public async Task BuildAndResolve_Vcxproj_CapturesDevToolsXamlSourcesAndSavedState()
+    {
+        var (project, outDir) = WritePackagedBuildOutput();
+        _msbuild.Replies.Add((new ProcessRunResult(0, $$"""
+            { "Properties": {
+              "OutDir": "{{Json(outDir)}}", "TargetPath": "{{Json(outDir)}}App.exe", "ConfigurationType": "Application",
+              "AppxPackage": "true", "WindowsPackageType": "MSIX", "Configuration": "Debug", "Platform": "x64",
+              "XamlCompilerExeInputJson": "", "XamlCompilerExeOutputJson": "",
+              "XamlSavedStateFilePath": "App\\x64\\Debug\\\\XamlSaveStateFile.xml" },
+              "Items": { "Page": [ { "Identity": "MainWindow.xaml" } ], "ApplicationDefinition": [ { "Identity": "App.xaml" } ] } }
+            """, string.Empty), []));
+        var options = new ProjectRunOptions("Debug", "x64", null, NoBuild: true, NoRestore: false, Properties: [], CaptureDevToolsSources: true);
+
+        var resolution = (await _service.BuildAndResolveAsync(project, options, CancellationToken.None)).Resolution!;
+
+        CollectionAssert.Contains(_msbuild.Calls[0].ToArray(), "-getItem:Page,ApplicationDefinition");
+        CollectionAssert.AreEquivalent(ExpectedXamlSources, resolution.DevToolsXamlSources!.ToArray());
+        Assert.AreEqual(Path.Join(_tempDir.FullName, @"App\x64\Debug\XamlSaveStateFile.xml"), resolution.DevToolsCompilerArtifacts!.SavedState);
+    }
+
     [TestMethod]
     public async Task BuildAndResolve_Vcxproj_NoBuild_OnlyEvaluates()
     {
@@ -535,6 +559,24 @@ public sealed class ProjectRunServiceCppTests : IDisposable
         Assert.AreEqual("x86", ProjectRunService.CppArchitectureFromProperties(["Foo=1;Platform=Win32"]));
         Assert.IsNull(ProjectRunService.CppArchitectureFromProperties(["Platform=Custom"]));
         Assert.IsNull(ProjectRunService.CppArchitectureFromProperties([]));
+    }
+
+    [TestMethod]
+    public void CppConfigurationFromProperties_ReadsLastNonEmptyValue()
+    {
+        Assert.AreEqual("Release", ProjectRunService.CppConfigurationFromProperties(["Configuration=Release"]));
+        Assert.AreEqual("Release", ProjectRunService.CppConfigurationFromProperties(["Configuration=Debug", "configuration=Release", "Configuration="]));
+        Assert.IsNull(ProjectRunService.CppConfigurationFromProperties(["Platform=ARM64"]));
+    }
+
+    [TestMethod]
+    public void BuildCppPropertyTokens_UserConfigurationProperty_EmitsOneConfiguration()
+    {
+        var options = new ProjectRunOptions("Release", "arm64", null, false, false, ["Configuration=Release", "Platform=ARM64"]);
+
+        var tokens = ProjectRunService.BuildCppPropertyTokens(options);
+
+        CollectionAssert.AreEqual(ExpectedReleaseArm64Tokens, tokens);
     }
 
     [TestMethod]
@@ -706,6 +748,172 @@ public sealed class ProjectRunServiceCppTests : IDisposable
             () => ProjectRunService.CreateCppResolution(project, new ProjectRunOptions("Debug", "x64", null, NoBuild: true, false, []), props));
 
         StringAssert.Contains(ex.Message, "Remove --no-build");
+    }
+
+    [TestMethod]
+    public void CreateCppResolution_WindowsAppSdkFolderOnTheNetwork_IsIgnored()
+    {
+        var project = WriteFile("App.vcxproj", CppApp);
+        var exe = WriteFile(@"x64\Debug\App.exe", string.Empty);
+        var props = new Dictionary<string, string>
+        {
+            ["OutDir"] = exe.DirectoryName + Path.DirectorySeparatorChar,
+            ["TargetPath"] = exe.FullName,
+            ["ConfigurationType"] = "Application",
+            [ProjectRunService.WindowsAppSdkPackageDirProperty] = @"\\server\share\Microsoft.WindowsAppSDK.Runtime.2.5.1\",
+        };
+
+        var resolution = ProjectRunService.CreateCppResolution(project, new ProjectRunOptions("Debug", "x64", null, false, false, []), props);
+
+        Assert.IsNull(resolution.WindowsAppSdkPackageDir, "a project must not make winapp install from a network share");
+    }
+
+    #endregion
+
+    #region Windows App SDK imported through packages.config
+
+    /// <summary>
+    /// Lays out a <c>packages.config</c>-style solution: the Windows App SDK runtime package restored into
+    /// <c>packages\</c>, with props shaped like the real package's (<c>build\native</c> importing the shared
+    /// props that set <c>MicrosoftWindowsAppSDKPackageDir</c>).
+    /// </summary>
+    private DirectoryInfo WriteRestoredWindowsAppSdkRuntimePackage()
+    {
+        const string packageFolder = @"packages\Microsoft.WindowsAppSDK.Runtime.2.5.1";
+        WriteFile($@"{packageFolder}\build\native\Microsoft.WindowsAppSDK.Runtime.props", """
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <Import Project="$(MSBuildThisFileDirectory)..\Microsoft.WindowsAppSDK.Runtime.props" />
+            </Project>
+            """);
+        WriteFile($@"{packageFolder}\build\Microsoft.WindowsAppSDK.Runtime.props", """
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <PropertyGroup>
+                <MicrosoftWindowsAppSDKPackageDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)','..'))</MicrosoftWindowsAppSDKPackageDir>
+              </PropertyGroup>
+            </Project>
+            """);
+        WriteFile($@"{packageFolder}\tools\MSIX\win10-x64\Microsoft.WindowsAppRuntime.2.msix", string.Empty);
+        return new DirectoryInfo(Path.Join(_tempDir.FullName, packageFolder));
+    }
+
+    private static string CppAppImporting(string import, string exeName) => $$"""
+        <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+          <PropertyGroup Label="Configuration">
+            <ConfigurationType>Application</ConfigurationType>
+          </PropertyGroup>
+          <Import Project="{{import}}" />
+          <PropertyGroup>
+            <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+            <TargetPath>$(OutDir){{exeName}}</TargetPath>
+          </PropertyGroup>
+        </Project>
+        """;
+
+    /// <summary>Evaluates with the real MSBuild engine (<c>dotnet msbuild</c>), so the project's imports are actually followed.</summary>
+    private async Task<ProjectRunResolution> EvaluateWithRealMSBuildAsync(FileInfo project)
+    {
+        var service = new ProjectRunService(
+            _dotnet,
+            new ProjectDetectionService(NullLogger<ProjectDetectionService>.Instance, _dotnet),
+            new FakeCsWinRTMetadataShimService(),
+            _console,
+            NullLogger<ProjectRunService>.Instance,
+            new DotnetMSBuildEvaluator());
+
+        var outcome = await service.BuildAndResolveAsync(
+            project, new ProjectRunOptions("Debug", "x64", null, NoBuild: true, NoRestore: true, Properties: []), CancellationToken.None);
+
+        Assert.AreEqual(0, outcome.ExitCode);
+        return outcome.Resolution!;
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_PackagesConfigProjectImportingWindowsAppSdk_ReportsThePackageFolder()
+    {
+        var packageDir = WriteRestoredWindowsAppSdkRuntimePackage();
+        var project = WriteFile(@"App\App.vcxproj", CppAppImporting(
+            @"..\packages\Microsoft.WindowsAppSDK.Runtime.2.5.1\build\native\Microsoft.WindowsAppSDK.Runtime.props", "App.exe"));
+        WriteFile(@"App\packages.config", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <packages>
+              <package id="Microsoft.WindowsAppSDK.Runtime" version="2.5.1" targetFramework="native" />
+            </packages>
+            """);
+        WriteFile(@"App\x64\Debug\App.exe", string.Empty);
+
+        var resolution = await EvaluateWithRealMSBuildAsync(project);
+
+        Assert.AreEqual(ProjectPackaging.Unpackaged, resolution.Packaging);
+        Assert.AreEqual(
+            Path.TrimEndingDirectorySeparator(packageDir.FullName),
+            Path.TrimEndingDirectorySeparator(resolution.WindowsAppSdkPackageDir!));
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_WindowsAppSdkImportedFromSharedProps_ReportsThePackageFolder()
+    {
+        // The project's own packages.config doesn't list the Windows App SDK; a shared .props imports it.
+        var packageDir = WriteRestoredWindowsAppSdkRuntimePackage();
+        WriteFile(@"src\common.props", """
+            <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <Import Project="$(MSBuildThisFileDirectory)..\packages\Microsoft.WindowsAppSDK.Runtime.2.5.1\build\native\Microsoft.WindowsAppSDK.Runtime.props"
+                      Condition="Exists('$(MSBuildThisFileDirectory)..\packages\Microsoft.WindowsAppSDK.Runtime.2.5.1\build\native\Microsoft.WindowsAppSDK.Runtime.props')" />
+            </Project>
+            """);
+        var project = WriteFile(@"src\host\AppHost.vcxproj", CppAppImporting(@"..\common.props", "AppHost.exe"));
+        WriteFile(@"src\host\packages.config", """
+            <?xml version="1.0" encoding="utf-8"?>
+            <packages>
+              <package id="Microsoft.Windows.CppWinRT" version="2.0.240405.15" targetFramework="native" />
+            </packages>
+            """);
+        WriteFile(@"src\host\x64\Debug\AppHost.exe", string.Empty);
+
+        var resolution = await EvaluateWithRealMSBuildAsync(project);
+
+        Assert.AreEqual(
+            Path.TrimEndingDirectorySeparator(packageDir.FullName),
+            Path.TrimEndingDirectorySeparator(resolution.WindowsAppSdkPackageDir!));
+    }
+
+    [TestMethod]
+    public async Task BuildAndResolve_CppAppWithoutWindowsAppSdk_ReportsNoPackageFolder()
+    {
+        var project = WriteFile(@"App\App.vcxproj", CppAppImporting(@"$(MSBuildThisFileDirectory)none.props", "App.exe"));
+        WriteFile(@"App\none.props", "<Project />");
+        WriteFile(@"App\x64\Debug\App.exe", string.Empty);
+
+        var resolution = await EvaluateWithRealMSBuildAsync(project);
+
+        Assert.IsNull(resolution.WindowsAppSdkPackageDir);
+    }
+
+    /// <summary>Runs the evaluate pass with the .NET SDK's MSBuild, which evaluates a C++ project's imports like Visual Studio's does.</summary>
+    private sealed class DotnetMSBuildEvaluator : IMSBuildService
+    {
+        public Task<string> LocateCppMSBuildAsync(string architecture, bool requiresWindowsStoreAppType, CancellationToken cancellationToken) =>
+            Task.FromResult("dotnet");
+
+        public async Task<ProcessRunResult> RunAsync(string msbuildPath, IReadOnlyList<string> arguments, Action<string>? onLine, CancellationToken cancellationToken)
+        {
+            var start = new System.Diagnostics.ProcessStartInfo("dotnet")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            start.ArgumentList.Add("msbuild");
+            foreach (var argument in arguments)
+            {
+                start.ArgumentList.Add(argument);
+            }
+
+            using var process = System.Diagnostics.Process.Start(start)!;
+            var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            return new ProcessRunResult(process.ExitCode, await stdout, await stderr);
+        }
     }
 
     #endregion

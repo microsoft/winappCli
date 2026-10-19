@@ -86,6 +86,12 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
         DefaultValueFactory = _ => 1
     };
 
+    public static Option<int> AngleOption { get; } = new("--angle")
+    {
+        Description = "Finger axis for pinch/stretch in degrees, 0-359, counter-clockwise: 0 = horizontal (default), 90 = vertical, 45 = lower-left to upper-right.",
+        DefaultValueFactory = _ => 0
+    };
+
     public UiTouchCommand()
         : base("touch", "Inject synthetic touch input using the Windows touch-injection API. " +
                "Supports tap, double-tap, long-press, swipe, pinch and stretch gestures at an element's " +
@@ -103,6 +109,7 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
         Options.Add(HoldOption);
         Options.Add(DurationOption);
         Options.Add(FingersOption);
+        Options.Add(AngleOption);
         Options.Add(WinAppRootCommand.JsonOption);
         UiQueryOptions.AddTo(this);
     }
@@ -143,6 +150,8 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
             bool directionWasSupplied = (parseResult.GetResult(DirectionOption)?.Tokens.Count ?? 0) > 0;
             bool durationWasSupplied = (parseResult.GetResult(DurationOption)?.Tokens.Count ?? 0) > 0;
             bool fingersWasSupplied = (parseResult.GetResult(FingersOption)?.Tokens.Count ?? 0) > 0;
+            var angle = parseResult.GetValue(AngleOption);
+            bool angleWasSupplied = (parseResult.GetResult(AngleOption)?.Tokens.Count ?? 0) > 0;
 
             // All app-independent semantic validation runs BEFORE the missing-app check so that
             // malformed argument values return invalid_arguments, not missing_app (M4 root-cause fix).
@@ -207,6 +216,16 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
                 return RejectInvalidArguments(parseResult, json, $"--duration-ms is only valid with moving gestures: swipe, pinch, or stretch (got {gestureStr}).");
             }
 
+            if (angleWasSupplied && gesture is not (TouchGesture.Pinch or TouchGesture.Stretch))
+            {
+                return RejectInvalidArguments(parseResult, json, $"--angle is only valid with --gesture pinch or stretch (got {gestureStr}).");
+            }
+
+            if (angle is < 0 or > 359)
+            {
+                return RejectInvalidArguments(parseResult, json, $"--angle must be between 0 and 359 degrees. Got '{angle}'.");
+            }
+
             // Long-press with no explicit --hold-ms defaults to 500 ms (a real long-press).
             // An explicit --hold-ms 0 is a degenerate long-press (indistinguishable from a tap)
             // and is rejected clearly rather than silently rewritten to 500.
@@ -266,10 +285,10 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
                 to = toPoint;
             }
 
-            if (at is null && string.IsNullOrWhiteSpace(selectorStr))
+            if (at is null && !UiQueryOptions.HasQuery(parseResult, selectorStr))
             {
-                logger.LogError("{Symbol} Provide a target: a selector, or --at x,y.", UiSymbols.Error);
-                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, "Provide a target: a selector, or --at x,y.");
+                logger.LogError("{Symbol} Provide a target: a selector, --type, --class-name, or --at x,y.", UiSymbols.Error);
+                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, "Provide a target: a selector, --type, --class-name, or --at x,y.");
                 return 1;
             }
 
@@ -289,7 +308,7 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
 
             if (at is not null && UiQueryOptions.HasFilters(parseResult))
             {
-                return RejectInvalidArguments(parseResult, json, "--type, --root, and --class-name narrow a selector and cannot be combined with --at.");
+                return RejectInvalidArguments(parseResult, json, "--type, --root, and --class-name pick an element and cannot be combined with --at.");
             }
 
             // Missing-app check runs after all argument validation so invalid arg values return
@@ -317,6 +336,7 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
             var holdMs = parseResult.GetValue(HoldOption);
             var durationMs = parseResult.GetValue(DurationOption);
             var fingers = parseResult.GetValue(FingersOption);
+            var angle = parseResult.GetValue(AngleOption);
 
             _ = Gestures.TryGetValue(gestureStr, out var gesture);
 
@@ -376,7 +396,7 @@ internal class UiTouchCommand : Command, IShortDescription, IHelpExamples
                     await PointerCommandSupport.SetForegroundAsync(desktopForeground, targetHwnd, cancellationToken);
 
                     (contactPaths, points, effectiveFingers) =
-                        PointerGesturePlanner.PlanTouch(gesture, start, to, distance, fingers, direction);
+                        PointerGesturePlanner.PlanTouch(gesture, start, to, distance, fingers, direction, angle);
 
                     prep = PointerCommandSupport.TryPrepareInjection(
                         uiAutomation, foregroundGuard, targetHwnd, points, "touch", "touch", logger, json);

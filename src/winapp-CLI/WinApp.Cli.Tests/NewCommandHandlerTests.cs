@@ -1116,6 +1116,8 @@ public class NewCommandHandlerTests : BaseCommandTests
             $"App templates should suggest 'winapp run' as the next step (it builds and launches the project). Output:\n{TestAnsiConsole.Output}");
         Assert.IsFalse(TestAnsiConsole.Output.Contains("dotnet run", StringComparison.Ordinal),
             $"App templates must not suggest 'dotnet run' now that 'winapp run' is the documented next step. Output:\n{TestAnsiConsole.Output}");
+        Assert.IsFalse(TestAnsiConsole.Output.Contains("MyApp.cs", StringComparison.Ordinal),
+            $"Project-based apps run from their folder; the single-file hint must not appear. Output:\n{TestAnsiConsole.Output}");
     }
 
     [TestMethod]
@@ -1164,6 +1166,80 @@ public class NewCommandHandlerTests : BaseCommandTests
             "The unittest next step must not recommend 'dotnet run' now that 'winapp run' is the documented step.");
         Assert.IsFalse(TestAnsiConsole.Output.Contains("dotnet test", StringComparison.OrdinalIgnoreCase),
             "The unittest next step must not recommend 'dotnet test' — the packaged MSTest app runs its tests on launch.");
+    }
+
+    /// <summary>
+    /// Scripts a pack holding the Reactor single-file template with <paramref name="tags"/> in the Tags
+    /// column. When <paramref name="createSingleFile"/> is set, the scaffold step writes
+    /// <c>MyApp\MyApp.cs</c> (and no project file), as the real template does.
+    /// </summary>
+    private void ScriptSingleFileTemplate(string tags, bool createSingleFile)
+    {
+        (string Name, string Short, string Lang, string Type, string Author, string Tags)[] templates =
+        [
+            ("Reactor Single-File App (Experimental)", "reactor-singlefile,winui-reactor-singlefile", "[C#]", "project", "Microsoft", tags),
+            ("WinUI Blank App", "winui,winui3,wasdk-single", "[C#]", "project", "Microsoft", "Windows/WinUI/Desktop/XAML"),
+        ];
+        var list = BuildListTable(templates);
+        var uninstall = BuildUninstallOutput("0.0.6-alpha", templates);
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            if (args.Count >= 1 && args[0] == "--version")
+            {
+                return (0, "10.0.100\n", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "uninstall")
+            {
+                return (0, uninstall, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "list")
+            {
+                return (0, list, string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "update")
+            {
+                return (0, "All template packages are up-to-date.", string.Empty);
+            }
+            if (args.Count >= 2 && args[0] == "new" && args[1] == "install")
+            {
+                return (0, "ok", string.Empty);
+            }
+            if (createSingleFile)
+            {
+                var dir = Directory.CreateDirectory(Path.Join(_tempDirectory.FullName, "MyApp"));
+                File.WriteAllText(Path.Join(dir.FullName, "MyApp.cs"), "// file-based app");
+            }
+            return (0, "The template was created successfully.", string.Empty);
+        };
+    }
+
+    [TestMethod]
+    public async Task Handler_SingleFileTemplate_PrintsRunWithCsFileNextStep()
+    {
+        ScriptSingleFileTemplate("Windows/WinUI/Desktop/Reactor/SingleFile/Experimental", createSingleFile: false);
+        TestAnsiConsole.Profile.Width = 500;
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--template", "reactor-singlefile", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.IsTrue(TestAnsiConsole.Output.Contains("winapp run \"MyApp.cs\"", StringComparison.Ordinal),
+            $"A single-file app only runs with its .cs path, so the next step must be 'winapp run \"MyApp.cs\"'. Output:\n{TestAnsiConsole.Output}");
+    }
+
+    [TestMethod]
+    public async Task Handler_SingleFileTemplate_TruncatedTags_DetectsScaffoldedCsFile()
+    {
+        // dotnet new list can cut the Tags column short, dropping the SingleFile segment.
+        ScriptSingleFileTemplate("Windows/WinUI/Desktop/Re...", createSingleFile: true);
+        TestAnsiConsole.Profile.Width = 500;
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--template", "reactor-singlefile", "--name", "MyApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, TestAnsiConsole.Output);
+        Assert.IsTrue(TestAnsiConsole.Output.Contains("winapp run \"MyApp.cs\"", StringComparison.Ordinal),
+            $"A scaffolded MyApp.cs with no project file is a single-file app even when the tag is cut off. Output:\n{TestAnsiConsole.Output}");
     }
 
     [TestMethod]

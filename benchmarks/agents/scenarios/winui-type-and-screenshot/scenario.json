@@ -1,0 +1,31 @@
+{
+  "id": "winui-type-and-screenshot",
+  "description": "Trap: a WinUI project is open, but the task is to type, press a key, and capture the window (UI Automation, not XAML inspection).",
+  "set": "dev",
+  "cohort": "trap",
+  "prompt": "Lanternfish is open. Type invoice 2291 into the search box at the top, press Enter, and send me a screenshot of the results list.",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "ui.automate"
+      ],
+      "acceptable": [
+        "ui.test"
+      ],
+      "forbid": [
+        "winui.inspect",
+        "winui.design",
+        "winui.migrate",
+        "msix.package",
+        "msix.sign"
+      ]
+    },
+    "maxSkills": 2
+  }
+}

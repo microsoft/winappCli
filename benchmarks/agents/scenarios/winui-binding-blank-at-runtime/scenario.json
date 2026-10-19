@@ -1,0 +1,30 @@
+{
+  "id": "winui-binding-blank-at-runtime",
+  "description": "Error-first: a WinUI TextBlock stays blank at runtime with no exception; find what the binding resolves against in the running app.",
+  "set": "dev",
+  "cohort": "error",
+  "prompt": "OrderDetailsPage shows the order number but the customer name stays empty. No exception, nothing useful in Output. The page is open in the app right now. What is that name TextBlock actually bound to at runtime, and why is it empty?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "winui.inspect"
+      ],
+      "acceptable": [
+        "winui.design",
+        "winui.build"
+      ],
+      "forbid": [
+        "ui.test",
+        "msix.package",
+        "msix.sign",
+        "winui.migrate"
+      ]
+    }
+  }
+}
