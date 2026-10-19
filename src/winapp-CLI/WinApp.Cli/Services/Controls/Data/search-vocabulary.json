@@ -61,6 +61,8 @@
     { "phrase": "aria-label", "token": "automationproperties" },
     { "phrase": "live region", "token": "liveregion" },
     { "phrase": "list view", "token": "listview" },
+    { "phrase": "table view", "token": "tableview" },
+    { "phrase": "data table", "token": "datagrid" },
     { "phrase": "grid view", "token": "gridview" },
     { "phrase": "image grid", "token": "photogrid" },
     { "phrase": "image gallery", "token": "photogrid" },
@@ -100,9 +102,10 @@
     { "phrase": "coach mark", "token": "coachmark" }
   ],
   "expansions": [
-    { "term": "datagrid", "to": ["listview", "table", "rows", "columns"] },
-    { "term": "table", "to": ["listview", "datagrid", "rows", "columns"] },
-    { "term": "spreadsheet", "to": ["listview", "datagrid", "rows"] },
+    { "term": "datagrid", "to": ["tableview", "table", "rows", "columns"] },
+    { "term": "table", "to": ["tableview", "datagrid", "rows", "columns"] },
+    { "term": "spreadsheet", "to": ["tableview", "datagrid", "rows", "columns"] },
+    { "term": "tabular", "to": ["tableview", "table"] },
     { "term": "modal", "to": ["contentdialog", "dialog"] },
     { "term": "popup", "to": ["flyout", "dialog", "teachingtip"] },
     { "term": "prompt", "to": ["contentdialog"] },
