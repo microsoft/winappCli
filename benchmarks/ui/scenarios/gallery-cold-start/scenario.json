@@ -1,0 +1,12 @@
+{
+  "id": "gallery-cold-start",
+  "app": "gallery",
+  "description": "Same task as gallery-combobox, but the Gallery is not running and starts slowly.",
+  "prompt": "Open the \"WinUI 3 Gallery (UI Benchmark)\" app (it's installed but not running). Go to its ComboBox sample page and, in the \"Colors\" combo box there, pick Green. Leave the app open.",
+  "allowedLaunches": 1,
+  "timeoutMinutes": 8,
+  "checks": [
+    { "type": "instanceCount", "equals": 1 },
+    { "type": "value", "instance": "only", "key": "colors", "equals": "Green" }
+  ]
+}

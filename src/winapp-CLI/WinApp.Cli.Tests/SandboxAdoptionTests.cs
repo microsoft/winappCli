@@ -25,6 +25,101 @@ public class SandboxAdoptionTests
     private const string ManualInstanceId = "manually-started-sandbox";
 
     [TestMethod]
+    [DataRow("libSkiaSharp.dll")]
+    [DataRow("libHarfBuzzSharp.dll")]
+    public async Task MissingGraphicsCompanionFailsBeforeStartingOrAdoptingSandbox(string name)
+    {
+        using var harness = new AdoptionHarness();
+        File.Delete(Path.Combine(harness.BinaryDirectory, name));
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            harness.Backend.EnsureConnectedAsync(new EnsureTargetOptions(true), TestContext.CancellationToken));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.AgentUpgradeFailed, error.Error.Code);
+        StringAssert.Contains(error.Message, name);
+        Assert.IsEmpty(harness.Cli.Operations);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task MissingGraphicsCompanionCannotReuseWarmAgent(bool readOnly)
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        File.Delete(Path.Combine(harness.BinaryDirectory, "libHarfBuzzSharp.dll"));
+        var reconnects = 0;
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+        {
+            reconnects++;
+            throw new InvalidOperationException("An incomplete host payload must not reconnect.");
+        };
+
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(async () =>
+        {
+            if (readOnly)
+            {
+                await harness.Backend.TryAttachAsync(TestContext.CancellationToken);
+            }
+            else
+            {
+                await harness.Backend.EnsureConnectedAsync(new EnsureTargetOptions(true), TestContext.CancellationToken);
+            }
+        });
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.AgentUpgradeFailed, error.Error.Code);
+        Assert.AreEqual(0, reconnects);
+    }
+
+    [TestMethod]
+    public async Task Bootstrap_StagesBothDevToolsEnginesAndRefreshesChangedBytes()
+    {
+        using var harness = new AdoptionHarness();
+        var destination = Path.Combine(harness.TargetRoot, "bundle-test");
+        Directory.CreateDirectory(destination);
+        foreach (var name in GuestDevTools.EngineFileNames)
+        {
+            File.WriteAllText(Path.Combine(harness.BinaryDirectory, name), name + "-v1");
+        }
+        var binary = new FileInfo(Path.Combine(harness.BinaryDirectory, "winapp.exe"));
+        var first = await WindowsSandboxBackend.StageBootstrapPayloadAsync(binary, destination, TestContext.CancellationToken);
+        foreach (var name in GuestDevTools.EngineFileNames)
+        {
+            Assert.AreEqual(name + "-v1", File.ReadAllText(Path.Combine(destination, first.DirectoryName, name)));
+            File.WriteAllText(Path.Combine(harness.BinaryDirectory, name), name + "-v2");
+        }
+        var second = await WindowsSandboxBackend.StageBootstrapPayloadAsync(binary, destination, TestContext.CancellationToken);
+        Assert.AreNotEqual(first.DirectoryName, second.DirectoryName);
+        foreach (var name in GuestDevTools.EngineFileNames)
+        {
+            Assert.AreEqual(name + "-v2", File.ReadAllText(Path.Combine(destination, second.DirectoryName, name)));
+            Assert.AreEqual(name + "-v1", File.ReadAllText(Path.Combine(destination, first.DirectoryName, name)));
+        }
+        Assert.HasCount(0, harness.Cli.Operations, "Staging must not start a VM or load an engine.");
+    }
+
+    [TestMethod]
+    public async Task Bootstrap_LockedCorruptedPayloadFailsInsteadOfReusingIt()
+    {
+        using var harness = new AdoptionHarness();
+        var destination = Path.Combine(harness.TargetRoot, "bundle-locked");
+        Directory.CreateDirectory(destination);
+        var name = GuestDevTools.NativeFileName;
+        File.WriteAllText(Path.Combine(harness.BinaryDirectory, name), "new");
+        var binary = new FileInfo(Path.Combine(harness.BinaryDirectory, "winapp.exe"));
+        var first = await WindowsSandboxBackend.StageBootstrapPayloadAsync(binary, destination, TestContext.CancellationToken);
+        var oldPath = Path.Combine(destination, first.DirectoryName, name);
+        File.WriteAllText(oldPath, "old");
+        using var locked = new FileStream(oldPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
+            WindowsSandboxBackend.StageBootstrapPayloadAsync(binary, destination, TestContext.CancellationToken));
+        Assert.AreEqual(ExecutionTargetErrorCodes.AgentUpgradeFailed, error.Error.Code);
+        Assert.AreEqual("old", File.ReadAllText(oldPath));
+    }
+
+    [TestMethod]
     public async Task FailedWarmAttachment_IsNotRetriedBeforeRepair()
     {
         using var harness = new AdoptionHarness();
@@ -493,31 +588,97 @@ public class SandboxAdoptionTests
         var bootstrapShare = GuestSharePaths(harness)
             .Single(path => !path.StartsWith(@"C:\WinAppBootstrapResult", StringComparison.Ordinal));
 
-        StringAssert.Contains(rule, $@"{bootstrapShare}\{GuestAgentCommandNames.BinaryName}", StringComparison.Ordinal);
+        var launch = harness.Cli.Operations.Single(op => op.StartsWith("launch-agent:", StringComparison.Ordinal));
+        var executable = launch.Split('"')[1];
+        StringAssert.StartsWith(executable, bootstrapShare + @"\payload-", StringComparison.Ordinal);
+        StringAssert.EndsWith(executable, @"\" + GuestAgentCommandNames.BinaryName, StringComparison.Ordinal);
+        StringAssert.Contains(rule, $"$agent='{executable}'", StringComparison.Ordinal);
     }
 
     [TestMethod]
     public async Task FirewallCleanup_CannotRemoveAnotherManagersRule()
     {
-        // The rule cleanup removes existing rules for the agent program path. When that path was a
-        // fixed name, a second winapp -- one whose state root was redirected, so it could not see
-        // this one's ownership record -- would delete the live agent's rule and cut its connection.
-        // Scoping the path to this generation is what makes that impossible.
         using var harness = new AdoptionHarness();
         harness.Cli.SetRunning(ManualInstanceId);
 
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
 
         var rule = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var material = harness.ReadMaterial();
+        var expectedName = $"WinApp-Sandbox-Agent-{WindowsSandboxBackend.EpochToken(new ExecutionTargetEpoch(material.TargetEpoch))}";
 
-        StringAssert.Contains(
-            rule,
-            ".Program -eq $agent",
-            StringComparison.Ordinal,
-            "Removal must be scoped to this generation's agent path, not to every winapp agent.");
-        Assert.IsFalse(
-            rule.Contains(@"'C:\WinAppBootstrap\", StringComparison.Ordinal),
-            "A fixed agent path would match another generation's rule.");
+        StringAssert.Contains(rule, $"$rule='{expectedName}'");
+        StringAssert.Contains(rule, "Get-NetFirewallApplicationFilter -Program $agent -PolicyStore ActiveStore");
+        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore ActiveStore");
+        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $existingRule.Name -PolicyStore PersistentStore");
+        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore");
+        StringAssert.Contains(rule, "Remove-NetFirewallRule -Name $rule -PolicyStore PersistentStore");
+        StringAssert.Contains(rule, "New-NetFirewallRule -Name $rule");
+        Assert.DoesNotContain("Get-NetFirewallRule -PolicyStore ActiveStore", rule, StringComparison.Ordinal);
+        Assert.DoesNotContain("$_ | Get-NetFirewallApplicationFilter", rule, StringComparison.Ordinal);
+    }
+
+    [TestMethod]
+    public async Task FirewallRepair_ReplacesTheSameGenerationsNamedRule()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        var first = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        harness.Cli.Operations.Clear();
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        var repaired = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var assignment = first[first.IndexOf("$rule=", StringComparison.Ordinal)..];
+        assignment = assignment[..assignment.IndexOf(';')];
+
+        StringAssert.Contains(repaired, assignment);
+        Assert.IsLessThan(
+            repaired.IndexOf("New-NetFirewallRule", StringComparison.Ordinal),
+            repaired.IndexOf("Remove-NetFirewallRule", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task FirewallRepair_NewPayloadPathReplacesTheSameGenerationsNamedRule()
+    {
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        var epoch = harness.ReadMaterial().TargetEpoch;
+        var first = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        File.WriteAllText(Path.Join(harness.BinaryDirectory, GuestAgentCommandNames.BinaryName), "rebuilt winapp");
+        harness.Cli.Operations.Clear();
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        Assert.AreEqual(epoch, harness.ReadMaterial().TargetEpoch, "Agent repair must retain package ownership.");
+        var repaired = harness.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var originalAgent = first[first.IndexOf("$agent=", StringComparison.Ordinal)..first.IndexOf(';')];
+        Assert.DoesNotContain(originalAgent, repaired, StringComparison.Ordinal, "A rebuilt bundle must use its own immutable path.");
+        var expectedName = $"WinApp-Sandbox-Agent-{WindowsSandboxBackend.EpochToken(new ExecutionTargetEpoch(epoch))}";
+        StringAssert.Contains(repaired, $"$rule='{expectedName}'");
+        StringAssert.Contains(repaired, "Remove-NetFirewallRule -Name $rule -PolicyStore ActiveStore");
+        Assert.IsLessThan(repaired.IndexOf("New-NetFirewallRule", StringComparison.Ordinal),
+            repaired.IndexOf("Remove-NetFirewallRule -Name $rule", StringComparison.Ordinal),
+            "The previous bundle's generation rule must be removed before reusing its name.");
+    }
+
+    [TestMethod]
+    public async Task FirewallRule_SeparateManagersUseDifferentNames()
+    {
+        using var first = new AdoptionHarness();
+        using var second = new AdoptionHarness();
+        first.Cli.SetRunning(ManualInstanceId);
+        second.Cli.SetRunning(ManualInstanceId);
+        await first.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        await second.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        Assert.AreNotEqual(first.ReadMaterial().TargetEpoch, second.ReadMaterial().TargetEpoch);
+        var firstRule = first.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var secondRule = second.Cli.Operations.Single(op => op.Contains("New-NetFirewallRule", StringComparison.Ordinal));
+        var assignment = firstRule[firstRule.IndexOf("$rule=", StringComparison.Ordinal)..];
+        assignment = assignment[..assignment.IndexOf(';')];
+        Assert.DoesNotContain(assignment, secondRule, StringComparison.Ordinal);
     }
 
     [TestMethod]
@@ -813,6 +974,8 @@ public class SandboxAdoptionTests
 
             var binary = new FileInfo(Path.Join(_root.FullName, "winapp.exe"));
             File.WriteAllText(binary.FullName, "agent");
+            File.WriteAllText(Path.Join(_root.FullName, "libSkiaSharp.dll"), "skia");
+            File.WriteAllText(Path.Join(_root.FullName, "libHarfBuzzSharp.dll"), "harfbuzz");
 
             Backend = new WindowsSandboxBackend(
                 Cli,
@@ -838,6 +1001,8 @@ public class SandboxAdoptionTests
         public AdoptionSandboxCli Cli { get; }
 
         public WindowsSandboxBackend Backend { get; }
+
+        public string BinaryDirectory => _root.FullName;
 
         /// <summary>Where this target's per-generation bootstrap folders live.</summary>
         public string TargetRoot { get; }

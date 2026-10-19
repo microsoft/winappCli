@@ -1,0 +1,5 @@
+; Copyright (c) Microsoft Corporation.
+; Licensed under the MIT License.
+EXPORTS
+  DllGetClassObject PRIVATE
+  DllCanUnloadNow   PRIVATE

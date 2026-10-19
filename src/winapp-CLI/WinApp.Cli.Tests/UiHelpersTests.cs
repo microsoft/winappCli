@@ -66,6 +66,9 @@ public class UiHelpersTests
                 Id = "e-anc",
                 Selector = "pane-1",
                 IsInvokable = true,
+                IsEnabled = true,
+                IsOffscreen = true,
+                X = 10, Y = 20, Width = 300, Height = 40,
                 Children = [new UiElement { Type = "Leaf" }],
             },
         };
@@ -89,6 +92,13 @@ public class UiHelpersTests
         Assert.AreEqual("Pane", root.InvokableAncestor!.Type);
         Assert.AreEqual("pane-1", root.InvokableAncestor.Selector);
         Assert.IsTrue(root.InvokableAncestor.IsInvokable);
+        // Real state and bounds survive the flattening (not false / 0,0).
+        Assert.IsTrue(root.InvokableAncestor.IsEnabled);
+        Assert.IsTrue(root.InvokableAncestor.IsOffscreen);
+        Assert.AreEqual(10, root.InvokableAncestor.X);
+        Assert.AreEqual(20, root.InvokableAncestor.Y);
+        Assert.AreEqual(300, root.InvokableAncestor.Width);
+        Assert.AreEqual(40, root.InvokableAncestor.Height);
         Assert.IsNull(root.InvokableAncestor.Id);
         Assert.IsNull(root.InvokableAncestor.Children);
     }

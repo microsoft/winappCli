@@ -16,6 +16,14 @@ after launch so the next command can inspect the app; without it, `run` waits fo
 app to exit. The Sandbox stays running between commands and rebuilds until it is ended; see
 [Removing an app and ending the Sandbox](#removing-an-app-and-ending-the-sandbox).
 
+`winapp ui inspect --on sandbox --help` shows command help without starting or
+preparing Windows Sandbox.
+
+For WinUI XAML inspection, managed binding diagnostics and persistent host-backed
+comments, see [DevTools inside Sandbox](guides/devtools-advanced.md#inspect-inside-windows-sandbox).
+This runs the overlay in the guest and uses qualified DevTools app selectors,
+not the UI Automation selectors above.
+
 ## Before you start
 
 - Use Windows 11 24H2 or newer on a supported edition, with hardware virtualization enabled.
@@ -94,9 +102,13 @@ does not launch; retrying rebuilds its guest copy. If build files change while w
 preparing them, finish the build and retry.
 
 
-Warm UI commands report only their result, without repeating a Sandbox preparation
-message. Sandbox startup and connection recovery still report progress. Use `--verbose` for
-connection timings and diagnostic details; `--quiet` and `--json` suppress progress.
+Preparation reports separate steps on stderr: starting Sandbox when needed, copying
+the guest-agent files, configuring its firewall rule, and starting the agent.
+Attaching to a running Sandbox also reports checking sign-in. `target push` and
+`target pull` announce when file transfer starts.
+Warm UI commands report only their result, without repeating preparation messages.
+Connection recovery still reports progress. Use `--verbose` for connection timings
+and diagnostic details; `--quiet` and `--json` suppress progress.
 JSON runs include a guest process ID and target scope:
 
 ```json

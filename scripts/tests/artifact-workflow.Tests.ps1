@@ -32,15 +32,16 @@ BeforeAll {
     }
 
     function Test-MetricsCondition {
-        param([string]$Condition, [string]$Event, [string]$Artifacts, [string]$Validation, [bool]$Cancelled = $false, [string]$Python = 'success')
+        param([string]$Condition, [string]$Event, [string]$Artifacts, [string]$Validation, [bool]$Cancelled = $false, [string]$Python = 'success', [string]$Native = 'success')
         $expression = $Condition.Replace('${{', '').Replace('}}', '').Trim().
             Replace('github.event_name', '$Event').
             Replace('needs.build-artifacts.result', '$Artifacts').
             Replace('needs.validate-tests.result', '$Validation').
             Replace('needs.validate-python.result', '$Python').
+            Replace('needs.validate-devtools.result', '$Native').
             Replace('!cancelled()', '(-not $Cancelled)').
             Replace('==', '-eq').Replace('&&', '-and').Replace('||', '-or')
-        & ([scriptblock]::Create("param(`$Event, `$Artifacts, `$Validation, `$Cancelled, `$Python) ($expression)")) $Event $Artifacts $Validation $Cancelled $Python
+        & ([scriptblock]::Create("param(`$Event, `$Artifacts, `$Validation, `$Cancelled, `$Python, `$Native) ($expression)")) $Event $Artifacts $Validation $Cancelled $Python $Native
     }
 
     $script:buildGate = [scriptblock]::Create((Get-RunScript (Get-JobText $buildWorkflow 'build-and-package') 'Require all build and validation jobs'))
@@ -175,7 +176,7 @@ Describe 'Artifact-first workflow dependencies' {
 
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
-        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-python, validate-docs, e2e-test-ui, samples, metrics\]'
+        $gate | Should -Match 'needs: \[build-artifacts, validate-tests, validate-python, validate-docs, validate-devtools, e2e-test-ui, samples, metrics\]'
     }
 
     It 'builds both architectures in one producer without intermediate publish artifacts' {
@@ -198,7 +199,7 @@ Describe 'Artifact-first workflow dependencies' {
     }
 
     It 'starts validation, docs, UI E2E and samples from early artifacts, not the final gate' {
-        foreach ($job in @('validate-tests', 'validate-python', 'validate-docs', 'e2e-test-ui', 'samples')) {
+        foreach ($job in @('validate-tests', 'validate-python', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples')) {
             $text = Get-JobText $buildWorkflow $job
             $text | Should -Match '(?m)^\s+needs: build-artifacts\r?$'
             $text | Should -Not -Match 'dotnet publish|needs: build-and-package'
@@ -283,9 +284,9 @@ Describe 'Artifact-first workflow dependencies' {
 
     It 'joins package and test artifacts before collecting and reporting metrics' {
         $metrics = Get-JobText $buildWorkflow 'metrics'
-        $metrics | Should -Match 'needs: \[build-artifacts, validate-tests, validate-python\]'
+        $metrics | Should -Match 'needs: \[build-artifacts, validate-tests, validate-python, validate-devtools\]'
         $metrics | Should -Match ([regex]::Escape("needs.validate-tests.result == 'success' || needs.validate-tests.result == 'failure'"))
-        foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'validation-results-Cli-1', 'validation-results-Cli-2', 'validation-results-Auxiliary', 'validation-results-UIAutomation', 'test-results')) {
+        foreach ($artifact in @('cli-binaries', 'npm-package', 'msix-packages', 'nuget-packages', 'validation-results-Cli-1', 'validation-results-Cli-2', 'devtools-validation-results', 'validation-results-Auxiliary', 'validation-results-UIAutomation', 'test-results')) {
             $metrics | Should -Match "(?m)^\s+name: $artifact\r?$"
         }
         $metrics.IndexOf('name: test-results') | Should -BeLessThan $metrics.IndexOf('uses: ./.github/actions/collect-metrics')
@@ -300,7 +301,7 @@ Describe 'Partial reruns replace only owned artifacts' {
             Get-UploadSteps $sampleWorkflow
             Get-UploadSteps $reportAction
         )
-        $uploads.Count | Should -Be 15
+        $uploads.Count | Should -Be 19
         foreach ($upload in $uploads) {
             $upload | Should -Match '(?m)^        overwrite: true\r?$' -Because $upload
         }
@@ -308,7 +309,7 @@ Describe 'Partial reruns replace only owned artifacts' {
 
     It 'gives each concurrent PR producer a distinct name so a retry cannot replace siblings' {
         $names = @(
-            foreach ($job in @('build-artifacts', 'metrics', 'e2e-test-ui', 'validate-python')) {
+            foreach ($job in @('build-artifacts', 'metrics', 'validate-devtools', 'e2e-test-ui', 'validate-python')) {
                 foreach ($step in (Get-UploadSteps (Get-JobText $buildWorkflow $job))) {
                     [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
                 }
@@ -330,7 +331,9 @@ Describe 'Partial reruns replace only owned artifacts' {
                 [regex]::Match($step, '(?m)^        name: (.+?)\r?$').Groups[1].Value
             }
         )
-        $names.Count | Should -Be 32
+        $names.Count | Should -Be 36
+        $names | Should -Contain 'binding-owner-test-results'
+        $names | Should -Contain 'devtools-overlay-observations'
         @($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count | Should -Be 0
         @($names | Group-Object | Where-Object Count -GT 1).Count | Should -Be 0
         (Get-JobText $sampleWorkflow 'build') | Should -Match 'if: \$\{\{ !inputs.use-existing-artifacts \}\}'
@@ -348,8 +351,10 @@ Describe 'Failed validation reports without promoting the main baseline' {
     It 'publishes complete reports for successful or failed validation on PR, main and manual runs' {
         foreach ($event in @('pull_request', 'push', 'workflow_dispatch')) {
             foreach ($validation in @('success', 'failure', 'cancelled', 'skipped')) {
-                $actual = Test-MetricsCondition $metricsCondition $event 'success' $validation
-                $actual | Should -Be ($validation -in @('success', 'failure'))
+                foreach ($native in @('success', 'failure', 'cancelled', 'skipped')) {
+                    $actual = Test-MetricsCondition $metricsCondition $event 'success' $validation -Native $native
+                    $actual | Should -Be ($validation -in @('success', 'failure') -and $native -in @('success', 'failure'))
+                }
                 Test-MetricsCondition $metricsCondition $event 'failure' $validation | Should -BeFalse
                 Test-MetricsCondition $metricsCondition $event 'success' $validation -Cancelled $true | Should -BeFalse
             }
@@ -363,12 +368,12 @@ Describe 'Failed validation reports without promoting the main baseline' {
         $reportCondition | Should -Not -BeNullOrEmpty
         foreach ($event in @('pull_request', 'push', 'workflow_dispatch')) {
             foreach ($validation in @('success', 'failure', 'cancelled', 'skipped')) {
-                $actual = Test-MetricsCondition $reportCondition $event 'success' $validation
-                $actual | Should -Be ($event -eq 'pull_request' -or $validation -eq 'success')
-            }
-            foreach ($python in @('failure', 'cancelled', 'skipped')) {
-                $actual = Test-MetricsCondition $reportCondition $event 'success' 'success' -Python $python
-                $actual | Should -Be ($event -eq 'pull_request')
+                foreach ($native in @('success', 'failure', 'cancelled', 'skipped')) {
+                    foreach ($python in @('success', 'failure', 'cancelled', 'skipped')) {
+                        $actual = Test-MetricsCondition $reportCondition $event 'success' $validation -Native $native -Python $python
+                        $actual | Should -Be ($event -eq 'pull_request' -or ($validation -eq 'success' -and $native -eq 'success' -and $python -eq 'success'))
+                    }
+                }
             }
         }
         $metricsJob | Should -Match 'uses: \./\.github/actions/report-metrics'
@@ -381,7 +386,7 @@ Describe 'Failed validation reports without promoting the main baseline' {
 Describe 'Required build check outcomes' {
     BeforeEach {
         $script:results = @{}
-        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-python', 'validate-docs', 'e2e-test-ui', 'samples', 'metrics')) {
+        foreach ($job in @('build-artifacts', 'validate-tests', 'validate-python', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples', 'metrics')) {
             $results[$job] = @{ result = 'success' }
         }
         $env:IS_PR = 'true'
@@ -476,6 +481,7 @@ Describe 'Metrics consume actual validation reports' {
     BeforeEach {
         $script:metricsRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Path (Join-Path $metricsRoot 'TestResults') -Force
+        $null = New-Item -ItemType Directory -Path (Join-Path $metricsRoot 'TestResults\devtools') -Force
         $source = Get-RunScript $collectAction 'Parse test results'
         $script:parseMetrics = [scriptblock]::Create($source.Replace('${{ inputs.artifacts-path }}', $metricsRoot))
     }
@@ -485,8 +491,8 @@ Describe 'Metrics consume actual validation reports' {
         Join-Path $metricsRoot 'test-summary.json' | Should -Not -Exist
     }
 
-    It 'combines all three reports, including failures, without double-counting' {
-        foreach ($name in @('WinApp.Cli.Tests.shard-1', 'WinApp.Cli.Tests.shard-2', 'WinApp.UIAutomation.Tests')) {
+    It 'combines all four CLI and UI reports, including failures, without double-counting' {
+        foreach ($name in @('WinApp.Cli.Tests.shard-1', 'WinApp.Cli.Tests.shard-2', 'WinApp.UIAutomation.Tests', 'devtools\WinApp.Cli.Tests.shard-3')) {
             @'
 <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
   <Times start="2026-09-17T00:00:00Z" finish="2026-09-17T00:00:01Z" />
@@ -496,11 +502,11 @@ Describe 'Metrics consume actual validation reports' {
         }
         & $parseMetrics
         $summary = Get-Content (Join-Path $metricsRoot 'test-summary.json') -Raw | ConvertFrom-Json
-        $summary.total | Should -Be 15
-        $summary.passed | Should -Be 9
-        $summary.failed | Should -Be 3
-        $summary.skipped | Should -Be 3
-        $summary.durationMs | Should -Be 3000
+        $summary.total | Should -Be 20
+        $summary.passed | Should -Be 12
+        $summary.failed | Should -Be 4
+        $summary.skipped | Should -Be 4
+        $summary.durationMs | Should -Be 4000
     }
 
     It 'rejects partial or malformed reports instead of declaring success' {
@@ -508,12 +514,14 @@ Describe 'Metrics consume actual validation reports' {
         { & $parseMetrics } | Should -Throw -ExpectedMessage '*Missing test report*'
         '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.Cli.Tests.shard-2.trx')
         '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\WinApp.UIAutomation.Tests.trx')
+        { & $parseMetrics } | Should -Throw -ExpectedMessage '*Missing test report: devtools/WinApp.Cli.Tests.shard-3.trx*'
+        '<TestRun />' | Set-Content (Join-Path $metricsRoot 'TestResults\devtools\WinApp.Cli.Tests.shard-3.trx')
         { & $parseMetrics } | Should -Throw -ExpectedMessage '*Missing or empty test counters*'
         Join-Path $metricsRoot 'test-summary.json' | Should -Not -Exist
     }
 
     It 'rejects an extra unsharded report rather than double-counting the CLI suite' {
-        foreach ($name in @('WinApp.Cli.Tests.shard-1', 'WinApp.Cli.Tests.shard-2', 'WinApp.UIAutomation.Tests', 'WinApp.Cli.Tests')) {
+        foreach ($name in @('WinApp.Cli.Tests.shard-1', 'WinApp.Cli.Tests.shard-2', 'WinApp.UIAutomation.Tests', 'WinApp.Cli.Tests', 'devtools\WinApp.Cli.Tests.shard-3')) {
             '<TestRun />' | Set-Content (Join-Path $metricsRoot "TestResults\$name.trx")
         }
         { & $parseMetrics } | Should -Throw -ExpectedMessage '*Expected exactly three test reports*'
@@ -536,6 +544,13 @@ Describe 'Metrics consume actual validation reports' {
 "@ | Set-Content (Join-Path $metricsRoot "TestResults\WinApp.Cli.Tests.shard-$shard.cobertura.xml")
         }
         @'
+<coverage><packages><package name="CLI"><classes><class filename="shared.cs"><lines>
+<line number="1" hits="1" />
+</lines></class><class filename="native-bridge.cs"><lines>
+<line number="1" hits="1" />
+</lines></class></classes></package></packages></coverage>
+'@ | Set-Content (Join-Path $metricsRoot 'TestResults\devtools\WinApp.Cli.Tests.shard-3.cobertura.xml')
+        @'
 <coverage><packages><package name="UI"><classes><class filename="ui.cs"><lines>
 <line number="1" hits="1" />
 <line number="2" hits="0" />
@@ -544,7 +559,7 @@ Describe 'Metrics consume actual validation reports' {
         $source = (Get-RunScript $collectAction 'Parse coverage results').Replace('${{ inputs.artifacts-path }}', $metricsRoot)
         & ([scriptblock]::Create($source))
         $coverage = Get-Content (Join-Path $metricsRoot 'coverage-summary.json') -Raw | ConvertFrom-Json
-        $coverage.lineCoverage | Should -Be 75
+        $coverage.lineCoverage | Should -Be 80
         $coverage.branchCoverage | Should -Be 100
     }
 }

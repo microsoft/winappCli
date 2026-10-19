@@ -206,13 +206,13 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
                 uiTarget = IsDesktop ? null : await ResolveSubjectAsync(parseResult, cancellationToken);
-                if (uiTarget is not null && selector is not null)
+                if (uiTarget is not null && (selector is not null || UiQueryOptions.HasElementFilters(parseResult)))
                 {
                     var exact = await UiQueryOptions.ResolveExactSelectorAsync(
                         parseResult, selectorParser, uiAutomation, uiTarget, selector, searchOtherWindows: true, cancellationToken);
                     if (exact is null)
                     {
-                        UiErrors.ElementNotFound(logger, selector, json, target: uiTarget);
+                        UiErrors.ElementNotFound(logger, UiQueryOptions.Describe(parseResult, selector), json, target: uiTarget);
                         return 1;
                     }
                     selector = exact.Selector!;

@@ -85,6 +85,7 @@ samples/
 | `WinAppRunClean` | `false` | Remove the existing package's application data (LocalState, settings) before re-deploying. Application data is preserved by default. |
 | `WinAppRunSymbols` | `false` | Download symbols from the Microsoft Symbol Server for richer native crash analysis. Only has an effect together with `WinAppRunDebugOutput`. |
 | `WinAppRunExecutable` | (empty) | Executable path relative to the build-output folder. Use to disambiguate when the manifest contains a `$targetnametoken$` placeholder and the output folder contains more than one `.exe`. |
+| `WinAppRunDevTools` | (unset) | `on`, `off` or `headless`, like [`winapp run --devtools`](guides/devtools.md#turn-devtools-on-or-off). Unset, the [default](guides/devtools.md#turn-devtools-on-or-off) applies. `on` and `headless` can't be combined with `WinAppRunNoLaunch` or `WinAppRunUseExecutionAlias=false`. |
 | `WinAppRunArgs` | (empty) | Raw arguments appended to the `winapp run` command line, for options that have no dedicated property. See [Escape hatch](#escape-hatch-winapprunargs). |
 
 #### Mutually exclusive settings
@@ -247,14 +248,14 @@ The main build script now includes NuGet packaging:
 write after `dotnet run` is passed to your application.**
 
 ```powershell
-dotnet run --devtools          # your app receives --devtools
-dotnet run -- --devtools       # identical
+dotnet run --demo-mode          # your app receives --demo-mode
+dotnet run -- --demo-mode       # identical
 dotnet run --detach            # your app receives --detach
 ```
 
 A standalone `--` is optional for arguments that do not collide with a `dotnet run` option: the .NET
 SDK consumes the separator while parsing its own command line and never re-emits it, so
-`dotnet run --devtools` and `dotnet run -- --devtools` reach winapp as exactly the same token list.
+`dotnet run --demo-mode` and `dotnet run -- --demo-mode` reach winapp as exactly the same token list.
 (Mechanically, the targets end `RunArguments` with a separator, so every argument the SDK appends
 lands in winapp's passthrough region.)
 
@@ -270,10 +271,10 @@ dotnet run -- --configuration Release   # your app receives --configuration Rele
 Configure the launcher itself with the `WinAppRun*` MSBuild properties, which MSBuild consumes:
 
 ```powershell
-dotnet run -p:WinAppRunDetach=true --devtools
+dotnet run -p:WinAppRunDetach=true --demo-mode
 ```
 
-Here `-p:WinAppRunDetach=true` detaches the launcher and `--devtools` goes to your app.
+Here `-p:WinAppRunDetach=true` detaches the launcher and `--demo-mode` goes to your app.
 
 > [!IMPORTANT]
 > **This is a breaking change introduced in this release.** Options written directly after

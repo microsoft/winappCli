@@ -250,6 +250,25 @@ public class RunCommandProjectModeTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task ProjectMode_Unpackaged_PassesImportedWindowsAppSdkFolderToRuntimeInstall()
+    {
+        var project = CreateCsproj();
+        var targetDir = CreateTargetDir(withManifest: false);
+        var packageDir = Path.Join(_tempDirectory.FullName, "packages", "Microsoft.WindowsAppSDK.Runtime.2.5.1");
+        _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
+            new ProjectRunResolution(project, targetDir.FullName, Path.Join(targetDir.FullName, "App.exe"), ProjectPackaging.Unpackaged, false, "x64",
+                WindowsAppSdkPackageDir: packageDir), 0);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [project.FullName, "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(packageDir, _fakeMsixService.EnsureRuntimeInstalledPackageDirCalls.Single(),
+            "the runtime must come from the Windows App SDK the C++ build imported");
+        StringAssert.Contains(TestAnsiConsole.Output, "Windows App Runtime ready");
+    }
+
+    [TestMethod]
     public async Task ProjectMode_UnpackagedSelfContained_SkipsRuntimeInstall()
     {
         var csproj = CreateCsproj();
@@ -853,6 +872,42 @@ public class RunCommandProjectModeTests : BaseCommandTests
 
         Assert.AreEqual(1, _fakeProjectRunService.BuildAndResolveCalls.Count);
         Assert.AreEqual("arm64", _fakeProjectRunService.BuildOptions[0].Architecture);
+    }
+
+    [TestMethod]
+    [DataRow(new[] { "-p", "Configuration=Release" }, DisplayName = "-p Configuration alone")]
+    [DataRow(new[] { "-c", "Release", "-p", "Configuration=Release" }, DisplayName = "-c with matching -p Configuration")]
+    public async Task ProjectMode_Cpp_ConfigurationProperty_SelectsConfiguration(string[] configArgs)
+    {
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
+        SetUnpackagedOutcome(vcxproj, CreateTargetDir(withManifest: false), selfContained: false, arch: "arm64");
+        GetRequiredService<RunCommand.Handler>().OsArchitecture = () => System.Runtime.InteropServices.Architecture.Arm64;
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, .. configArgs, "-p", "Platform=ARM64", "--detach"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual("Release", _fakeProjectRunService.BuildOptions[0].Configuration,
+            "-p Configuration=Release must select Release instead of the Debug default");
+        StringAssert.Contains(TestAnsiConsole.Output, "Release | arm64");
+    }
+
+    [TestMethod]
+    public async Task ProjectMode_Cpp_ConfigurationPropertyConflictingWithConfigurationOption_FailsBeforeBuilding()
+    {
+        var vcxproj = new FileInfo(Path.Join(_tempDirectory.FullName, "App.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _fakeProjectRunService.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, _tempDirectory);
+        var command = GetRequiredService<RunCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, [vcxproj.FullName, "-c", "Debug", "-p", "Configuration=Release", "--detach"]);
+
+        Assert.AreEqual(1, exitCode);
+        Assert.AreEqual(0, _fakeProjectRunService.BuildAndResolveCalls.Count, "a conflicting configuration must fail before building");
+        StringAssert.Contains($"{ConsoleStdOut}{ConsoleStdErr}{TestAnsiConsole.Output}",
+            "-p Configuration=Release conflicts with -c Debug. Pass only one of them.");
     }
 
     [TestMethod]

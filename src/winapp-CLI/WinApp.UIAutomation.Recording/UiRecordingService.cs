@@ -165,7 +165,6 @@ internal sealed partial class UiRecordingService(
 
         IFrameGrabber? grabber = null;
         RecordFrameArtifactCoordinator? frameOutput = null;
-        var mode = useScreen ? "screen" : (useWgc ? "wgc" : "printwindow");
 
         try
         {
@@ -179,11 +178,8 @@ internal sealed partial class UiRecordingService(
                 try
                 {
                     grabber = _windowCapture.StartFrameGrabber(rootHwnd, options.Fps);
-                    if (!await grabber.WaitForFirstFrameAsync(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false))
-                    {
-                        throw new InvalidOperationException("Timed out waiting for the first captured frame.");
-                    }
-                    var first = grabber.TryGetLatest()!.Value;
+                    var first = await grabber.GetFrameAsync(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("Timed out waiting for the first captured frame.");
                     srcWidth = first.Width;
                     srcHeight = first.Height;
                     var visibleRect = _uiAutomation.GetVisibleWindowBounds(rootHwnd, ToPointerRect(rect));
@@ -276,11 +272,8 @@ internal sealed partial class UiRecordingService(
                         try
                         {
                             grabber = _windowCapture.StartFrameGrabber(captureTargetHwnd, options.Fps);
-                            if (!await grabber.WaitForFirstFrameAsync(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false))
-                            {
-                                throw new InvalidOperationException("Timed out waiting for the first captured frame.");
-                            }
-                            var retargetFirst = grabber.TryGetLatest()!.Value;
+                            var retargetFirst = await grabber.GetFrameAsync(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false)
+                                ?? throw new InvalidOperationException("Timed out waiting for the first captured frame.");
                             srcWidth = retargetFirst.Width;
                             srcHeight = retargetFirst.Height;
                             global::Windows.Win32.PInvoke.GetWindowRect(popupHwnd, out var popupWinRect);
@@ -301,7 +294,6 @@ internal sealed partial class UiRecordingService(
                             EnsureWgcFallbackConsented(ex, options.CaptureScreen, _logger);
                             useScreen = true;
                             useWgc = false;
-                            mode = "screen";
                         }
                     }
                     else if (!useScreen)
@@ -328,6 +320,7 @@ internal sealed partial class UiRecordingService(
                 cropH = Math.Clamp((int)selectorElement.Height, 1, srcHeight - cropY);
             }
 
+            var mode = useScreen ? "screen" : grabber?.RootCaptureBackend ?? "printwindow";
             var (encoderW, encoderH, displayW, displayH) = ComputeTargetSize(cropW, cropH, options.MaxEdge);
             var coordinates = desktopBounds is { } sourceBounds
                 ? DescribeCoordinates(sourceBounds, encoderW, encoderH, displayW, displayH)
@@ -722,6 +715,11 @@ internal sealed partial class UiRecordingService(
                     $"Frame artifacts reached the {frameArtifacts.ByteLimit / 1024 / 1024} MiB bundle limit; " +
                     "the MP4 is complete, but only the indexed frame prefix was retained. " +
                     "Retry with a shorter duration, lower fps, or lower max-edge for complete frame evidence.");
+            }
+            if (grabber?.Warnings is { Count: > 0 } captureWarnings)
+            {
+                warnings ??= [];
+                warnings.AddRange(captureWarnings);
             }
             return new RecordCaptureResult
             {
