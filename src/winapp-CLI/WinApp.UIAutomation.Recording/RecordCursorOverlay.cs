@@ -53,7 +53,7 @@ internal sealed unsafe class RecordCursorOverlay : IDisposable
     internal static Func<bool, ILogger, IPointerTracker> s_createPointerTracker =
         static (trackClicks, logger) => new MousePointerTracker(trackClicks, logger);
 
-    internal const double RingDurationMs = 250;
+    internal const double RingDurationMs = 320;
 
     // A ring that has not appeared yet is drawn no further along than this, so a click that
     // lands between two slow frames is still visible in the next one.
@@ -177,12 +177,9 @@ internal sealed unsafe class RecordCursorOverlay : IDisposable
 
             using var canvas = new SKCanvas(bitmap);
             canvas.ClipRect(SKRect.Create(mapping.ContentX, mapping.ContentY, mapping.ContentWidth, mapping.ContentHeight));
-            using var halo = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke };
             using var stroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke };
             var scale = mapping.Scale;
-            var strokeWidth = (float)Math.Max(1.5, 2.0 * scale);
-            stroke.StrokeWidth = strokeWidth;
-            halo.StrokeWidth = strokeWidth + 1;
+            stroke.StrokeWidth = (float)Math.Max(1.5, 2.0 * scale);
 
             for (var i = _rings.Count - 1; i >= 0; i--)
             {
@@ -198,9 +195,7 @@ internal sealed unsafe class RecordCursorOverlay : IDisposable
                 var alpha = (byte)Math.Round(190 * (1 - p));
                 var radius = (float)Math.Max(4.0, (8 + (10 * p)) * scale);
                 var (x, y) = mapping.Map(ring.X, ring.Y);
-                halo.Color = new SKColor(0, 0, 0, (byte)(alpha * 0.35));
                 stroke.Color = ButtonColor(ring.Button).WithAlpha(alpha);
-                canvas.DrawCircle(x, y, radius, halo);
                 canvas.DrawCircle(x, y, radius, stroke);
             }
             canvas.Flush();
