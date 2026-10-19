@@ -75,14 +75,15 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
             return;
         }
 
-        using var ready = new ManualResetEventSlim();
+        // Not disposable: a hook thread that starts after the timeout still signals it safely.
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _hookThread = new Thread(() => RunHookThread(ready))
         {
             IsBackground = true,
             Name = "winapp recording mouse hook",
         };
         _hookThread.Start();
-        if (!ready.Wait(TimeSpan.FromSeconds(5)))
+        if (!ready.Task.Wait(TimeSpan.FromSeconds(5)))
         {
             _logger.LogDebug("The mouse hook thread did not start in time; clicks will not be tracked.");
         }
@@ -123,7 +124,7 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
         {
             return;
         }
-        _disposed = true;
+        Volatile.Write(ref _disposed, true);
 
         if (_hookThread is { IsAlive: true })
         {
@@ -139,7 +140,7 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
         }
     }
 
-    private void RunHookThread(ManualResetEventSlim ready)
+    private void RunHookThread(TaskCompletionSource ready)
     {
         UnhookWindowsHookExSafeHandle? hook = null;
         try
@@ -157,6 +158,13 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
                 return;
             }
             Volatile.Write(ref _hookInstalled, true);
+
+            // Dispose may have run before this thread could receive WM_QUIT.
+            if (Volatile.Read(ref _disposed))
+            {
+                Volatile.Write(ref _hookInstalled, false);
+                return;
+            }
         }
         catch (Exception ex)
         {
@@ -165,7 +173,7 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
         }
         finally
         {
-            ready.Set();
+            ready.TrySetResult();
             if (!Volatile.Read(ref _hookInstalled))
             {
                 hook?.Dispose();
@@ -175,9 +183,9 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
 
         try
         {
-            // The hook is called on this thread, so it must keep pumping messages until disposal.
             while (PInvoke.GetMessage(out _, HWND.Null, 0, 0) > 0)
             {
+                // The hook is called on this thread, so it must keep pumping messages until disposal.
             }
         }
         finally

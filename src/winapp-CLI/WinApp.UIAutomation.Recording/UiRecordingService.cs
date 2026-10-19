@@ -423,7 +423,7 @@ internal sealed partial class UiRecordingService(
             cursorOverlay?.Start(Stopwatch.GetTimestamp());
 
             // sharesSourceBuffer: the frame is the capture source's own buffer, which must not be drawn on.
-            async ValueTask CommitFrameAsync(byte[] processedFrame, int contentCropW, int contentCropH, bool sharesSourceBuffer = false)
+            async ValueTask CommitFrameAsync(byte[] processedFrame, (int X, int Y, int Width, int Height) contentCrop, bool sharesSourceBuffer = false)
             {
                 var sampleIndex = frameIndex;
                 var elapsedMs = Math.Max(0, (long)Math.Round(stopwatch.Elapsed.TotalMilliseconds));
@@ -438,7 +438,7 @@ internal sealed partial class UiRecordingService(
                     }
                     var (originLeft, originTop) = CurrentCaptureOrigin();
                     var mapping = CursorFrameMapping.Create(
-                        originLeft + cropX, originTop + cropY, contentCropW, contentCropH,
+                        originLeft + contentCrop.X, originTop + contentCrop.Y, contentCrop.Width, contentCrop.Height,
                         encoderW, encoderH, displayW, displayH);
                     (cursor, clicks) = cursorOverlay.Apply(
                         processedFrame, encoderW, encoderH, mapping, Stopwatch.GetTimestamp());
@@ -503,7 +503,8 @@ internal sealed partial class UiRecordingService(
                                     cropX, cropY, closedCropW, closedCropH,
                                     encoderW, encoderH, displayW, displayH);
                                 await CommitFrameAsync(
-                                    closedFrame, closedCropW, closedCropH,
+                                    closedFrame,
+                                    ClampCropRect(cropX, cropY, closedCropW, closedCropH, closedSw, closedSh),
                                     sharesSourceBuffer: ReferenceEquals(closedFrame, closedSrc)).ConfigureAwait(false);
                             }
                         }
@@ -516,8 +517,7 @@ internal sealed partial class UiRecordingService(
 
                     byte[] frame;
                     long sourceVersion = -1;
-                    var frameCropW = cropW;
-                    var frameCropH = cropH;
+                    var frameCrop = (X: cropX, Y: cropY, Width: cropW, Height: cropH);
                     var sharesSourceBuffer = false;
                     if (useWgc)
                     {
@@ -530,15 +530,15 @@ internal sealed partial class UiRecordingService(
                         var (source, sw, sh, version) = latest.Value;
 
                         sourceVersion = version;
-                        if (isWholeWindowWgc)
-                        {
-                            frameCropW = sw;
-                            frameCropH = sh;
-                        }
+                        frameCrop = ClampCropRect(
+                            cropX, cropY,
+                            isWholeWindowWgc ? sw : cropW,
+                            isWholeWindowWgc ? sh : cropH,
+                            sw, sh);
                         frame = ProcessFrame(
-                            source, sw, sh, cropX, cropY,
-                            frameCropW,
-                            frameCropH,
+                            source, sw, sh, frameCrop.X, frameCrop.Y,
+                            frameCrop.Width,
+                            frameCrop.Height,
                             encoderW, encoderH, displayW, displayH);
                         sharesSourceBuffer = ReferenceEquals(frame, source);
                     }
@@ -598,14 +598,15 @@ internal sealed partial class UiRecordingService(
                     else
                     {
                         var source = _windowCapture.CaptureWindowPixels((nint)hwnd, srcWidth, srcHeight);
+                        frameCrop = ClampCropRect(cropX, cropY, cropW, cropH, srcWidth, srcHeight);
                         frame = ProcessFrame(
                             source, srcWidth, srcHeight,
-                            cropX, cropY, cropW, cropH,
+                            frameCrop.X, frameCrop.Y, frameCrop.Width, frameCrop.Height,
                             encoderW, encoderH, displayW, displayH);
                         sharesSourceBuffer = ReferenceEquals(frame, source);
                     }
 
-                    await CommitFrameAsync(frame, frameCropW, frameCropH, sharesSourceBuffer).ConfigureAwait(false);
+                    await CommitFrameAsync(frame, frameCrop, sharesSourceBuffer).ConfigureAwait(false);
                     if (useWgc)
                     {
                         lastEncodedVersion = sourceVersion;

@@ -124,6 +124,22 @@ public sealed class RecordCursorTests
     }
 
     [TestMethod]
+    public async Task Record_WithOverwrite_KeepsCursorAndClickHighlight()
+    {
+        var tracker = InstallTracker(tracksClicks: true);
+        tracker.State = new PointerState(-50, -40, Visible: true, Cursor: 0);
+        tracker.QueuedEvents.Add(("left", true, -50, -40));
+
+        var result = await RecordDesktopAsync(cursor: true, clickHighlight: true, overwrite: true);
+
+        var entry = await ReadFirstIndexEntryAsync(result);
+        Assert.IsTrue(entry.TryGetProperty("cursor", out _), "--overwrite must keep the pointer in the frame index");
+        Assert.AreEqual("left", entry.GetProperty("clicks")[0].GetProperty("button").GetString());
+        Assert.IsTrue((await ReadRequestedAsync(result)).GetProperty("clickHighlight").GetBoolean());
+        Assert.IsTrue(_frames[0].Any(value => value != 127), "--overwrite must keep the click ring");
+    }
+
+    [TestMethod]
     public async Task Record_WithoutClickHighlight_LogsClicksButDrawsNoRing()
     {
         var tracker = InstallTracker(tracksClicks: true);
@@ -186,7 +202,7 @@ public sealed class RecordCursorTests
         return tracker;
     }
 
-    private Task<RecordCaptureResult> RecordDesktopAsync(bool cursor, bool clickHighlight, bool frames = true)
+    private Task<RecordCaptureResult> RecordDesktopAsync(bool cursor, bool clickHighlight, bool frames = true, bool overwrite = false)
     {
         var capture = new FakeWindowCapture
         {
@@ -209,6 +225,7 @@ public sealed class RecordCursorTests
             Fps = 1,
             Cursor = cursor,
             ClickHighlight = clickHighlight,
+            Overwrite = overwrite,
         }, TestContext.CancellationToken);
     }
 
