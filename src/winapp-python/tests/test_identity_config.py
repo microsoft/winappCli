@@ -3,8 +3,8 @@
 
 import tomllib
 
-from winapp_cli.config import load_identity_catalog_version, record_identity_catalog_version
-from winapp_cli.errors import WinappError
+from winapp.config import load_identity_catalog_version, record_identity_catalog_version
+from winapp.errors import WinappError
 
 from helpers import ProjectTest
 

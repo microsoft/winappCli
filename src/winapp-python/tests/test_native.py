@@ -1,17 +1,27 @@
 # Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 # Licensed under the MIT License.
 
+from importlib.metadata import distribution
 from pathlib import Path
 import struct
 from unittest.mock import Mock, patch
 
-from winapp_cli.errors import WinappError
-from winapp_cli.native import bundled_cli, native_platform
+from winapp.errors import WinappError
+from winapp.native import bundled_cli, native_platform
 
 from helpers import ProjectTest
 
 
 class NativePayloadTests(ProjectTest):
+    def test_installed_distribution_exports_the_expected_module_and_command(self):
+        package = distribution("microsoft-winappcli")
+        self.assertEqual(package.metadata["Name"], "microsoft-winappcli")
+        self.assertEqual(package.read_text("top_level.txt").strip(), "winapp")
+        self.assertEqual(
+            {entry.name: entry.value for entry in package.entry_points if entry.group == "console_scripts"},
+            {"winapp": "winapp.cli:main"},
+        )
+
     def executable(self, machine=0x8664):
         path = self.project / "_native" / "winapp.exe"
         path.parent.mkdir(exist_ok=True)
@@ -40,16 +50,16 @@ class NativePayloadTests(ProjectTest):
     def test_bundled_path_is_absolute_and_matches_python_platform(self):
         path = self.executable()
         with (
-            patch("winapp_cli.native.__file__", str(self.project / "native.py")),
-            patch("winapp_cli.native.sysconfig.get_platform", return_value="win-amd64"),
+            patch("winapp.native.__file__", str(self.project / "native.py")),
+            patch("winapp.native.sysconfig.get_platform", return_value="win-amd64"),
         ):
             self.assertEqual(bundled_cli(), path.resolve())
 
     def test_wrong_architecture_is_not_silently_used(self):
         self.executable(0xAA64)
         with (
-            patch("winapp_cli.native.__file__", str(self.project / "native.py")),
-            patch("winapp_cli.native.sysconfig.get_platform", return_value="win-amd64"),
+            patch("winapp.native.__file__", str(self.project / "native.py")),
+            patch("winapp.native.sysconfig.get_platform", return_value="win-amd64"),
             self.assertRaisesRegex(WinappError, "matching wheel"),
         ):
             bundled_cli()
@@ -58,7 +68,7 @@ class NativePayloadTests(ProjectTest):
         path = self.executable()
         path.unlink()
         with (
-            patch("winapp_cli.native.__file__", str(self.project / "native.py")),
+            patch("winapp.native.__file__", str(self.project / "native.py")),
             self.assertRaisesRegex(WinappError, "reinstall"),
         ):
             bundled_cli()
@@ -67,17 +77,19 @@ class NativePayloadTests(ProjectTest):
         metadata = Mock()
         metadata.read_text.return_value = "Tag: py3-none-win_amd64\n"
         with (
-            patch("winapp_cli.native.__file__", str(self.project / "native.py")),
-            patch("winapp_cli.native.distribution", return_value=metadata),
+            patch("winapp.native.__file__", str(self.project / "native.py")),
+            patch("winapp.native.distribution", return_value=metadata) as lookup,
             self.assertRaisesRegex(WinappError, "Bundled native CLI is missing"),
         ):
             bundled_cli()
+        lookup.assert_called_once_with("microsoft-winappcli")
 
     def test_editable_source_can_use_external_cli(self):
         metadata = Mock()
         metadata.read_text.return_value = "Tag: py3-none-any\n"
         with (
-            patch("winapp_cli.native.__file__", str(self.project / "native.py")),
-            patch("winapp_cli.native.distribution", return_value=metadata),
+            patch("winapp.native.__file__", str(self.project / "native.py")),
+            patch("winapp.native.distribution", return_value=metadata) as lookup,
         ):
             self.assertIsNone(bundled_cli())
+        lookup.assert_called_once_with("microsoft-winappcli")

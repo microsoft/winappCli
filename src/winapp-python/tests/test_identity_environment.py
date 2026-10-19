@@ -7,11 +7,11 @@ from unittest.mock import patch
 
 from packaging.version import Version
 
-from winapp_cli.config import record_identity_catalog_version, set_codegen_version
-from winapp_cli import identity_environment as environment
-from winapp_cli.errors import WinappError
-from winapp_cli.generate import generate
-from winapp_cli.python_runtime import Interpreter
+from winapp.config import record_identity_catalog_version, set_codegen_version
+from winapp import identity_environment as environment
+from winapp.errors import WinappError
+from winapp.generate import generate
+from winapp.python_runtime import Interpreter
 
 from helpers import ProjectTest
 
@@ -92,7 +92,7 @@ class IdentityEnvironmentTests(ProjectTest):
 
     def test_current_generated_bindings_are_installed_as_editable_input(self):
         self.write_config()
-        with patch("winapp_cli.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
             generated = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         _, bindings, before = environment.dependency_inputs(self.project, None, self.info)
         self.assertEqual(bindings, generated)
@@ -101,7 +101,7 @@ class IdentityEnvironmentTests(ProjectTest):
 
     def test_project_dynwinrt_upgrade_rebuilds_private_dependencies(self):
         self.write_config()
-        with patch("winapp_cli.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
             before = environment.dependency_inputs(self.project, None, self.info)[2]
             self.codegen_version = Version("0.1.0rc23")

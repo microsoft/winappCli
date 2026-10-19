@@ -36,7 +36,7 @@ def dependency_inputs(
     if dependencies.kind == "uv":
         lock = local_path(project / "uv.lock", boundary=project)
         if not lock.is_file():
-            raise WinappError("Identity execution needs this uv project's lockfile. Run 'winapp-py restore' first.")
+            raise WinappError("Identity execution needs this uv project's lockfile. Run 'winapp restore' first.")
         files.append(lock)
     pyproject = local_path(project / "pyproject.toml", boundary=project)
     if pyproject.is_file():

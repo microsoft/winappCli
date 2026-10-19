@@ -149,7 +149,7 @@ steps:
       $ErrorActionPreference = 'Stop'
       python -m pip install --disable-pip-version-check --no-input twine
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      $wheels = @(Get-ChildItem -LiteralPath '$(System.DefaultWorkingDirectory)\artifacts\python' -Filter 'winapp_cli-*.whl' -File)
+      $wheels = @(Get-ChildItem -LiteralPath '$(System.DefaultWorkingDirectory)\artifacts\python' -Filter 'microsoft_winappcli-*.whl' -File)
       if ($wheels.Count -ne 2) { throw "Expected two Python platform wheels, found $($wheels.Count)." }
       python -m twine check --strict @($wheels.FullName)
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -160,7 +160,7 @@ steps:
     targetType: inline
     script: |
       $ErrorActionPreference = 'Stop'
-      $wheels = @(Get-ChildItem -LiteralPath '$(System.DefaultWorkingDirectory)\artifacts\python' -Filter 'winapp_cli-*-py3-none-win_amd64.whl' -File)
+      $wheels = @(Get-ChildItem -LiteralPath '$(System.DefaultWorkingDirectory)\artifacts\python' -Filter 'microsoft_winappcli-*-py3-none-win_amd64.whl' -File)
       if ($wheels.Count -ne 1) { throw "Expected one x64 Python platform wheel." }
       & '$(System.DefaultWorkingDirectory)\scripts\test-python.ps1' -WheelPath $wheels[0].FullName -OutputDirectory '$(System.DefaultWorkingDirectory)\artifacts\python-validation'
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -301,7 +301,7 @@ steps:
   displayName: Copy Artifacts - Python Wheels
   inputs:
     sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/python/'
-    contents: 'winapp_cli-*.whl'
+    contents: 'microsoft_winappcli-*.whl'
     targetFolder: '$(Build.ArtifactStagingDirectory)/python-package'
 - task: 1ES.PublishPipelineArtifact@1
   displayName: Upload Artifact - Python Wheels

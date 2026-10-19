@@ -2,8 +2,8 @@
 
 ```powershell
 cd .\samples\python-winui
-winapp-py init --use-defaults --add-python-bindings
-winapp-py run .\app.py
+winapp init --use-defaults --add-python-bindings
+winapp run .\app.py
 ```
 
 This sample runs code-only WinUI 3 windows in ordinary Python without package identity, a C# host or XAML. Windows App Runtime is initialized with its Bootstrap DLL. For identity and MSIX packaging, use the separate [Python identity sample](../python-identity).
@@ -26,7 +26,7 @@ cd .\winappCli\samples\python-winui
 Prepare SDKs, the Windows App Runtime, generated bindings and the ordinary project `.venv`:
 
 ```powershell
-winapp-py init --use-defaults --add-python-bindings
+winapp init --use-defaults --add-python-bindings
 ```
 
 Continue when it reports **Python bindings ready**. The sample's type selections are already in `pyproject.toml`; initialization preserves them.
@@ -34,7 +34,7 @@ Continue when it reports **Python bindings ready**. The sample's type selections
 ## 2. Run the counter
 
 ```powershell
-winapp-py run .\app.py
+winapp run .\app.py
 ```
 
 The window shows **Bootstrap - memory only** and starts at **0**. Click **+** to increment and **-** to decrement. The minus button is disabled at zero. The count has a fixed-width area, so changing the number of digits does not move the buttons.
@@ -46,7 +46,7 @@ Close the window and run again: the count returns to **0**. No counter data is s
 Close the counter, then run:
 
 ```powershell
-winapp-py run .\picker.py
+winapp run .\picker.py
 ```
 
 Click **Pick an image** and select a PNG or JPEG. Its path appears in the window and terminal; cancelling displays **Cancelled**. The picker is associated with the WinUI window and does not require package identity.
@@ -58,10 +58,10 @@ Both entry points use the same Bootstrap initialization. Neither creates a priva
 After cloning an initialized project, restore its recorded versions:
 
 ```powershell
-winapp-py restore
+winapp restore
 ```
 
-Edit the existing `types` list in `pyproject.toml`, then run `winapp-py generate` to change the API surface. Use `winapp-py update` to advance SDK and generator versions. See [bindings configuration](../../docs/guides/python.md#configure-bindings).
+Edit the existing `types` list in `pyproject.toml`, then run `winapp generate` to change the API surface. Use `winapp update` to advance SDK and generator versions. See [bindings configuration](../../docs/guides/python.md#configure-bindings).
 
 | File | Purpose |
 |---|---|
@@ -74,7 +74,7 @@ Edit the existing `types` list in `pyproject.toml`, then run `winapp-py generate
 
 | Problem | Action |
 |---|---|
-| Bootstrap DLL or SDK metadata is missing | Run `winapp-py restore`. |
+| Bootstrap DLL or SDK metadata is missing | Run `winapp restore`. |
 | WinUI or an import fails | Read the terminal error, verify Windows/Python prerequisites, then restore and regenerate. |
 | File selection fails | Read the picker error in the terminal and retry with an accessible image file. |
 | You need identity or an installable MSIX | Follow the [Python identity sample](../python-identity); this sample only demonstrates unpackaged GUI execution. |

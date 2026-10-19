@@ -106,30 +106,6 @@ public class UiHelpTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task PythonUiHelp_UsesTheWrapperNameInUsageExamplesAndHints()
-    {
-        var root = GetRequiredService<WinAppRootCommand>();
-        Assert.AreEqual(0, await ParseAndInvokeWithCaptureAsync(root, ["ui", "--caller", "python", "--help"]));
-        StringAssert.StartsWith(TestAnsiConsole.Output, "winapp-py ui - ");
-        StringAssert.Contains(TestAnsiConsole.Output, "winapp-py ui inspect -a <app> --interactive");
-        Assert.DoesNotContain("winapp ui", TestAnsiConsole.Output);
-
-        foreach (var command in UiGroup.Subcommands)
-        {
-            var output = UiHelpRenderer.Render(command, "winapp-py");
-            StringAssert.StartsWith(output, $"winapp-py ui {command.Name} - ");
-            StringAssert.Contains(output, $"Usage: winapp-py ui {command.Name}");
-            StringAssert.Contains(output, "see winapp-py --help");
-            Assert.DoesNotContain("winapp ui", output);
-            Assert.DoesNotContain("see winapp --help", output);
-            foreach (var example in ((IHelpExamples)command).Examples)
-            {
-                StringAssert.StartsWith(example, "winapp ui");
-            }
-        }
-    }
-
-    [TestMethod]
     public async Task OtherCommandGroups_KeepDefaultHelp()
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["cert", "--help"]);

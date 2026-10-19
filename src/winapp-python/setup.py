@@ -9,9 +9,9 @@ from setuptools.command.bdist_wheel import bdist_wheel
 from setuptools.command.install import install
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from winapp_cli.native import native_platform
+from winapp.native import native_platform
 
-NATIVE = Path(__file__).parent / "src" / "winapp_cli" / "_native" / "winapp.exe"
+NATIVE = Path(__file__).parent / "src" / "winapp" / "_native" / "winapp.exe"
 
 
 class NativeInstall(install):
@@ -36,7 +36,7 @@ class NativeWheel(bdist_wheel):
     def run(self):
         if not NATIVE.is_file():
             raise RuntimeError(
-                "A distributable winapp-cli wheel requires the native CLI publish directory. "
+                "A distributable microsoft-winappcli wheel requires the native CLI publish directory. "
                 "Run scripts\\package-python.ps1 after building the CLI. "
                 "For source development, use pip install -e src\\winapp-python instead."
             )

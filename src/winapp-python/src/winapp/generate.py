@@ -145,28 +145,28 @@ def require_current_package(config: BindingsConfig) -> Path:
     output = local_path(config.output, boundary=config.project)
     marker = local_path(output / MARKER, boundary=config.project)
     if not marker.is_file():
-        raise WinappError("Configured Python bindings have not been generated. Run 'winapp-py restore' first.")
+        raise WinappError("Configured Python bindings have not been generated. Run 'winapp restore' first.")
     try:
         owner = json.loads(marker.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
-        raise WinappError("Invalid generated bindings marker; run 'winapp-py generate --force'.") from error
+        raise WinappError("Invalid generated bindings marker; run 'winapp generate --force'.") from error
     if (
         not isinstance(owner, dict) or owner.get("schema") != 1 or owner.get("package") != config.package
         or not isinstance(owner.get("codegen_version"), str)
     ):
-        raise WinappError("Invalid generated bindings marker; run 'winapp-py generate --force'.")
+        raise WinappError("Invalid generated bindings marker; run 'winapp generate --force'.")
     try:
         selected = Version(owner["codegen_version"])
     except InvalidVersion as error:
-        raise WinappError("Invalid generated codegen version; run 'winapp-py generate --force'.") from error
+        raise WinappError("Invalid generated codegen version; run 'winapp generate --force'.") from error
     if config.codegen_version is None or selected != config.codegen_version:
-        raise WinappError("Generated bindings do not match the project's codegen-version. Run 'winapp-py restore'.")
+        raise WinappError("Generated bindings do not match the project's codegen-version. Run 'winapp restore'.")
     roots, refs = select_metadata(config)
     if (
         owner.get("inputs_digest") != _inputs_digest(config, roots, refs, selected)
         or owner.get("files_stamp") != _output_stamp(output)
     ):
-        raise WinappError("Generated Python bindings are stale or changed. Run 'winapp-py restore' before identity execution.")
+        raise WinappError("Generated Python bindings are stale or changed. Run 'winapp restore' before identity execution.")
     validate_generated_package(output, config, selected, check_tree=False)
     return output
 

@@ -20,16 +20,18 @@ Follow the [Python guide](https://github.com/microsoft/WinAppCli/blob/main/docs/
 Use Windows CPython 3.11-3.14, x64 or ARM64. Install the tool from PyPI:
 
 ```powershell
-python -m pip install --upgrade winapp-cli
-winapp-py --help
+python -m pip install --upgrade microsoft-winappcli
+winapp --help
 ```
 
-pip selects the package matching your Python architecture. It includes the native CLI; no separate winapp or Node.js installation is needed. You can also use `uv tool install winapp-cli` or `pipx install winapp-cli` for an isolated tool environment.
+pip selects the package matching your Python architecture. It includes the native CLI; no separate winapp or Node.js installation is needed. You can also use `uv tool install microsoft-winappcli` or `pipx install microsoft-winappcli` for an isolated tool environment.
+
+The package provides both the `winapp` command and `python -m winapp`. See the guide's [prerequisites](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#prerequisites) to select the Python entry point when winget or npm is installed alongside it.
 
 From your Python project directory, initialize SDKs and enable bindings:
 
 ```powershell
-winapp-py init --use-defaults --add-python-bindings
+winapp init --use-defaults --add-python-bindings
 ```
 
 The command creates or reuses a normal project `.venv`, records the generator version in project configuration, generates bindings and installs declared dependencies there. `--use-defaults` preserves existing binding selections and recorded versions; resetting API selections requires interactive confirmation. Application dependencies are separate from the tool's installation environment. See the guide's [DynWinRT and application dependency handling](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#dependency-declarations) for version upgrades.
@@ -55,7 +57,7 @@ Pass a project directory to target it explicitly. Interactive init without a dir
 | [`run --identity`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#5-run-with-identity) | Run a script in a private Python environment with the project's package identity. |
 | [`identity clear`](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#6-clean-up-development-identity) | Remove the development registration and private environment while preserving application data. |
 
-For Python scripts, interpreter selection and identity-preparation status go to stderr. The script's stdout, stderr and exit code pass through unchanged, so `winapp-py run .\app.py > output.json` keeps wrapper status out of the output file.
+For Python scripts, interpreter selection and identity-preparation status go to stderr. The script's stdout, stderr and exit code pass through unchanged, so `winapp run .\app.py > output.json` keeps wrapper status out of the output file.
 
 See [runtime catalog pinning](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#runtime-catalog-pinning) for the project setting that controls identity runtime selection and updates.
 
@@ -73,11 +75,11 @@ See [runtime catalog pinning](https://github.com/microsoft/WinAppCli/blob/main/d
 These shared commands forward to the native CLI. For example:
 
 ```powershell
-winapp-py manifest --help
-winapp-py tool --help
+winapp manifest --help
+winapp tool --help
 ```
 
-Help examples use the `winapp-py` command name. `restore --help` and `update --help` show Python workflow options; `run --help` separates Python scripts from native inputs such as executables and .NET projects.
+`restore --help` and `update --help` show Python workflow options; `run --help` separates Python scripts from native inputs such as executables and .NET projects.
 
 See the guide's [output options](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#output-options) for quiet and verbose modes and passing arguments to scripts.
 

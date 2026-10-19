@@ -495,7 +495,7 @@ def synchronize_project(
         environment.pop("VIRTUAL_ENV", None)
         if private:
             if not (project / "uv.lock").is_file():
-                raise WinappError("Identity execution needs this uv project's lockfile. Run 'winapp-py restore' first.")
+                raise WinappError("Identity execution needs this uv project's lockfile. Run 'winapp restore' first.")
             arguments.extend(("--locked", "--no-default-groups", "--no-install-project"))
         elif development_requirements(project):
             arguments.extend(("--group", "dev"))

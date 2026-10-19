@@ -109,7 +109,7 @@ Describe 'ADO Python build and ESRP release' {
         $adoBuild.IndexOf('displayName: Test installed Python wheel') | Should -BeLessThan $artifact
         $adoBuild.IndexOf('displayName: Verify shipped binaries are signed') | Should -BeLessThan $artifact
         $adoBuild | Should -Match 'arguments: .*artifacts/python'
-        $adoBuild | Should -Match "(?m)^    contents: 'winapp_cli-\*\.whl'\r?$"
+        $adoBuild | Should -Match "(?m)^    contents: 'microsoft_winappcli-\*\.whl'\r?$"
         $adoBuild | Should -Match '(?m)^    artifactName: python-package\r?$'
     }
 
@@ -133,6 +133,7 @@ Describe 'ADO Python build and ESRP release' {
         $python | Should -Match 'artifactName: python-package'
         $python | Should -Match 'task: EsrpRelease@10'
         $python | Should -Match "contenttype: 'PyPI'"
+        $python | Should -Match "releasetitle: 'microsoft-winappcli "
         $python | Should -Match 'waitforreleasecompletion: true'
         $python | Should -Not -Match 'checkout:|filePath:|condition: always|twine upload|PYPI.*TOKEN'
     }
@@ -143,16 +144,19 @@ Describe 'ADO Python build and ESRP release' {
         $script = $pythonReleasePreflight.Replace('$(Pipeline.Workspace)', $directory).
             Replace('$(version)', '0.7.2')
         $gate = [scriptblock]::Create($script)
-        $x64 = Join-Path $directory 'python-package\winapp_cli-0.7.2-py3-none-win_amd64.whl'
-        $arm64 = Join-Path $directory 'python-package\winapp_cli-0.7.2-py3-none-win_arm64.whl'
+        $x64 = Join-Path $directory 'python-package\microsoft_winappcli-0.7.2-py3-none-win_amd64.whl'
+        $arm64 = Join-Path $directory 'python-package\microsoft_winappcli-0.7.2-py3-none-win_arm64.whl'
         { & $gate } | Should -Throw '*Expected two Python platform wheels*'
         Set-Content -LiteralPath $x64 -Value 'verified x64 fixture'
         { & $gate } | Should -Throw '*Expected two Python platform wheels*'
         Set-Content -LiteralPath $arm64 -Value 'verified arm64 fixture'
         { & $gate } | Should -Not -Throw
-        Rename-Item -LiteralPath $arm64 -NewName 'winapp_cli-0.7.1-py3-none-win_arm64.whl'
+        Rename-Item -LiteralPath $x64 -NewName 'winapp_cli-0.7.2-py3-none-win_amd64.whl'
+        { & $gate } | Should -Throw '*Expected exactly one*microsoft_winappcli*'
+        Rename-Item -LiteralPath (Join-Path $directory 'python-package\winapp_cli-0.7.2-py3-none-win_amd64.whl') -NewName (Split-Path $x64 -Leaf)
+        Rename-Item -LiteralPath $arm64 -NewName 'microsoft_winappcli-0.7.1-py3-none-win_arm64.whl'
         { & $gate } | Should -Throw '*Expected exactly one*win_arm64.whl*'
-        Rename-Item -LiteralPath (Join-Path $directory 'python-package\winapp_cli-0.7.1-py3-none-win_arm64.whl') -NewName (Split-Path $arm64 -Leaf)
+        Rename-Item -LiteralPath (Join-Path $directory 'python-package\microsoft_winappcli-0.7.1-py3-none-win_arm64.whl') -NewName (Split-Path $arm64 -Leaf)
         Set-Content -LiteralPath (Join-Path $directory 'python-package\unrelated-1.0-py3-none-any.whl') -Value 'not a release package'
         { & $gate } | Should -Throw '*Expected two Python platform wheels*'
     }
@@ -205,6 +209,7 @@ Describe 'Artifact-first workflow dependencies' {
         (Get-JobText $buildWorkflow 'e2e-test-ui') | Should -Match 'test-ui-coordination\.ps1'
         (Get-JobText $buildWorkflow 'validate-python') | Should -Match 'test-python\.ps1'
         (Get-JobText $buildWorkflow 'validate-python') | Should -Match 'name: python-package'
+        (Get-JobText $buildWorkflow 'validate-python') | Should -Match 'microsoft_winappcli-\*-py3-none-win_amd64\.whl'
         (Get-JobText $buildWorkflow 'validate-python') | Should -Match '-WheelPath'
         (Get-JobText $buildWorkflow 'validate-python') | Should -Match '-IncludeUv'
         (Get-JobText $buildWorkflow 'validate-python') | Should -Match 'uv==0\.12\.1'
@@ -243,6 +248,7 @@ Describe 'Artifact-first workflow dependencies' {
         $producer = Get-JobText $sampleWorkflow 'build'
         $producer | Should -Match 'package-python\.ps1'
         $producer | Should -Match 'name: python-package'
+        $producer | Should -Match 'path: artifacts/python/microsoft_winappcli-\*\.whl'
         $consumer = Get-JobText $sampleWorkflow 'test-sample'
         $consumer | Should -Match ([regex]::Escape("startsWith(matrix.sample, 'python-')"))
         $consumer | Should -Match ([regex]::Escape("!startsWith(matrix.sample, 'python-')"))
@@ -250,7 +256,7 @@ Describe 'Artifact-first workflow dependencies' {
         $consumer | Should -Match 'name: python-package'
         $consumer | Should -Match 'path: artifacts/python'
         $consumer | Should -Match 'Enable Developer Mode for Python identity testing'
-        $consumer | Should -Not -Match 'package-python\.ps1|pip install.*winapp-cli'
+        $consumer | Should -Not -Match 'package-python\.ps1|pip install.*microsoft-winappcli'
         $run = Get-RunScript $consumer 'Run ${{ matrix.sample }} test'
         $run | Should -Match ([regex]::Escape("if ('`${{ matrix.sample }}'.StartsWith('python-'))"))
         $run | Should -Match ([regex]::Escape('WinappPath = $packagePath'))

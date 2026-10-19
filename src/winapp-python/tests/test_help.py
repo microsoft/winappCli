@@ -6,8 +6,8 @@ import io
 from pathlib import Path
 from unittest.mock import patch
 
-from winapp_cli.cli import main
-from winapp_cli.errors import WinappError
+from winapp.cli import main
+from winapp.errors import WinappError
 
 from helpers import ProjectTest
 
@@ -20,8 +20,8 @@ class HelpTests(ProjectTest):
         self.native = Path("winapp.exe")
         (self.project / "pyproject.toml").write_text("invalid project metadata", encoding="utf-8")
         for patcher in (
-            patch("winapp_cli.cli.Path.cwd", return_value=self.project),
-            patch("winapp_cli.cli.find_native_cli", return_value=self.native),
+            patch("winapp.cli.Path.cwd", return_value=self.project),
+            patch("winapp.cli.find_native_cli", return_value=self.native),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -43,14 +43,14 @@ class HelpTests(ProjectTest):
         for flag in ("--help", "-h", "help"):
             with self.subTest(flag=flag):
                 with (
-                    patch("winapp_cli.cli.forward_native", side_effect=self.forward_help) as forward,
-                    patch("winapp_cli.cli._prepare_codegen") as codegen,
-                    patch("winapp_cli.cli.clear_identity") as clear,
+                    patch("winapp.cli.forward_native", side_effect=self.forward_help) as forward,
+                    patch("winapp.cli._prepare_codegen") as codegen,
+                    patch("winapp.cli.clear_identity") as clear,
                 ):
                     text = self.invoke_help([flag])
                 forward.assert_called_once_with(self.native, ["--help"], self.project)
                 self.assertLess(text.index("native help:"), text.index("Python extensions:"))
-                self.assertIn("winapp-py", text)
+                self.assertIn("winapp", text)
                 for name in ("generate", "identity", "restore", "update", "run"):
                     self.assertIn(name, text)
                 codegen.assert_not_called()
@@ -59,7 +59,7 @@ class HelpTests(ProjectTest):
 
     def test_no_arguments_show_combined_help_with_existing_usage_error_code(self):
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=self.forward_help),
+            patch("winapp.cli.forward_native", side_effect=self.forward_help),
             redirect_stdout(self.stdout), redirect_stderr(self.stderr),
         ):
             self.assertEqual(main([]), 2)
@@ -69,7 +69,7 @@ class HelpTests(ProjectTest):
     def test_workflow_help_uses_only_the_effective_python_syntax(self):
         for command, option in (("restore", "--python"), ("update", "--channel"), ("run", "--identity")):
             with self.subTest(command=command):
-                with patch("winapp_cli.cli.forward_native", side_effect=self.forward_help) as forward:
+                with patch("winapp.cli.forward_native", side_effect=self.forward_help) as forward:
                     text = self.invoke_help([command, "--help"])
                 if command == "run":
                     forward.assert_called_once_with(self.native, [command, "--help"], self.project)
@@ -80,7 +80,7 @@ class HelpTests(ProjectTest):
                     self.assertNotIn("native help:", text)
                     self.assertNotIn("<base-directory>", text)
                     self.assertNotIn("--setup-sdks", text)
-                self.assertIn(f"winapp-py {command}", text)
+                self.assertIn(f"winapp {command}", text)
                 self.assertIn(option, text)
                 self.assertIn("--project", text)
                 self.assertIn("--quiet", text)
@@ -92,11 +92,11 @@ class HelpTests(ProjectTest):
         for command in ("restore", "update", "generate", "identity"):
             with (
                 self.subTest(command=command),
-                patch("winapp_cli.cli.forward_native") as forward,
-                patch("winapp_cli.cli._prepare_codegen") as codegen,
+                patch("winapp.cli.forward_native") as forward,
+                patch("winapp.cli._prepare_codegen") as codegen,
             ):
                 text = self.invoke_help(["--quiet", command, "--help"])
-            self.assertIn(f"winapp-py {command}", text)
+            self.assertIn(f"winapp {command}", text)
             self.assertIn("--quiet", text)
             forward.assert_not_called()
             codegen.assert_not_called()
@@ -110,15 +110,15 @@ class HelpTests(ProjectTest):
         ):
             with self.subTest(arguments=arguments):
                 with (
-                    patch("winapp_cli.cli.find_native_cli", return_value=self.native) as locate,
-                    patch("winapp_cli.cli.forward_native", side_effect=self.forward_help),
+                    patch("winapp.cli.find_native_cli", return_value=self.native) as locate,
+                    patch("winapp.cli.forward_native", side_effect=self.forward_help),
                 ):
                     self.invoke_help(arguments)
                 self.assertEqual(locate.call_args.args[0], "chosen.exe")
                 locate.assert_called_once_with("chosen.exe")
 
     def test_run_help_distinguishes_existing_venv_identity_and_native_inputs(self):
-        with patch("winapp_cli.cli.forward_native", side_effect=self.forward_help):
+        with patch("winapp.cli.forward_native", side_effect=self.forward_help):
             text = self.invoke_help(["run", "--help"])
         self.assertIn("project .venv", text)
         self.assertIn("private development environment", text)
@@ -128,7 +128,7 @@ class HelpTests(ProjectTest):
     def test_native_help_failure_is_not_hidden_by_python_help(self):
         for command in ([], ["run"]):
             with self.subTest(command=command):
-                with patch("winapp_cli.cli.forward_native", return_value=37):
+                with patch("winapp.cli.forward_native", return_value=37):
                     text = self.invoke_help([*command, "--help"], expected_code=37)
                 self.assertNotIn("Python extensions:", text)
                 self.assertNotIn("Python restore workflow:", text)
@@ -136,7 +136,7 @@ class HelpTests(ProjectTest):
 
     def test_missing_native_cli_reports_an_error_instead_of_combined_success(self):
         with (
-            patch("winapp_cli.cli.find_native_cli", side_effect=WinappError("Native CLI is missing")),
+            patch("winapp.cli.find_native_cli", side_effect=WinappError("Native CLI is missing")),
             redirect_stdout(self.stdout), redirect_stderr(self.stderr),
         ):
             self.assertEqual(main(["--help"]), 1)
@@ -149,14 +149,14 @@ class HelpTests(ProjectTest):
             ["identity", "--help"], ["identity", "clear", "--help"],
         ):
             with self.subTest(arguments=arguments):
-                with patch("winapp_cli.cli.find_native_cli") as locate:
+                with patch("winapp.cli.find_native_cli") as locate:
                     text = self.invoke_help(arguments)
                 locate.assert_not_called()
-                self.assertIn(f"winapp-py {' '.join(arguments[:-1])}", text)
+                self.assertIn(f"winapp {' '.join(arguments[:-1])}", text)
                 self.assertNotIn("native help:", text)
 
     def test_generic_native_help_is_forwarded_without_python_supplement(self):
-        with patch("winapp_cli.cli.forward_native", side_effect=self.forward_help) as forward:
+        with patch("winapp.cli.forward_native", side_effect=self.forward_help) as forward:
             with redirect_stdout(self.stdout), redirect_stderr(self.stderr):
                 self.assertEqual(main(["manifest", "--help"]), 0)
         forward.assert_called_once_with(self.native, ["manifest", "--help"], self.project)
@@ -166,9 +166,9 @@ class HelpTests(ProjectTest):
         for suffix in (["--help"], ["--", "--help"]):
             with self.subTest(suffix=suffix):
                 with (
-                    patch("winapp_cli.cli._require_supported_python"),
-                    patch("winapp_cli.cli.run_with_identity", return_value=37) as launch,
-                    patch("winapp_cli.cli.forward_native") as forward,
+                    patch("winapp.cli._require_supported_python"),
+                    patch("winapp.cli.run_with_identity", return_value=37) as launch,
+                    patch("winapp.cli.forward_native") as forward,
                     redirect_stdout(self.stdout), redirect_stderr(self.stderr),
                 ):
                     self.assertEqual(main(["run", "--identity", "app.py", *suffix]), 37)
@@ -177,38 +177,39 @@ class HelpTests(ProjectTest):
 
     def test_version_displays_package_and_native_versions_without_project_setup(self):
         with (
-            patch("winapp_cli.cli.version", return_value="0.7.2.dev37"),
-            patch("winapp_cli.cli.forward_native", side_effect=lambda *a: print("0.7.2-prerelease.37") or 0) as forward,
-            patch("winapp_cli.cli._prepare_codegen") as codegen,
+            patch("winapp.cli.version", return_value="0.7.2.dev37") as package_version,
+            patch("winapp.cli.forward_native", side_effect=lambda *a: print("0.7.2-prerelease.37") or 0) as forward,
+            patch("winapp.cli._prepare_codegen") as codegen,
         ):
             text = self.invoke_help(["--version"])
         self.assertEqual(text.strip().splitlines(), [
-            "Python Package: winapp-cli v0.7.2.dev37", "Native CLI:", "0.7.2-prerelease.37",
+            "Python Package: microsoft-winappcli v0.7.2.dev37", "Native CLI:", "0.7.2-prerelease.37",
         ])
+        package_version.assert_called_once_with("microsoft-winappcli")
         forward.assert_called_once_with(self.native, ["--version"], self.project)
         codegen.assert_not_called()
         self.assertFalse((self.project / ".venv").exists())
 
     def test_version_respects_native_override_and_propagates_failure(self):
         with (
-            patch("winapp_cli.cli.find_native_cli", return_value=self.native) as locate,
-            patch("winapp_cli.cli.forward_native", return_value=37),
+            patch("winapp.cli.find_native_cli", return_value=self.native) as locate,
+            patch("winapp.cli.forward_native", return_value=37),
         ):
             self.invoke_help(["--winapp", "chosen.exe", "--version"], expected_code=37)
         locate.assert_called_once_with("chosen.exe")
 
     def test_missing_native_version_is_reported_as_an_error(self):
         with (
-            patch("winapp_cli.cli.find_native_cli", side_effect=WinappError("Native CLI is missing")),
+            patch("winapp.cli.find_native_cli", side_effect=WinappError("Native CLI is missing")),
             redirect_stdout(self.stdout), redirect_stderr(self.stderr),
         ):
             self.assertEqual(main(["--version"]), 1)
-        self.assertIn("Python Package: winapp-cli", self.stdout.getvalue())
+        self.assertIn("Python Package: microsoft-winappcli", self.stdout.getvalue())
         self.assertIn("Native CLI is missing", self.stderr.getvalue())
 
     def test_completion_remains_native_forwarding(self):
-        with patch("winapp_cli.cli.forward_native", return_value=0) as forward:
-            arguments = ["complete", "--commandline", "winapp-py ge", "--position", "12"]
+        with patch("winapp.cli.forward_native", return_value=0) as forward:
+            arguments = ["complete", "--commandline", "winapp ge", "--position", "12"]
             self.assertEqual(main(arguments), 0)
         self.assertEqual(forward.call_args.args[1], arguments)
 
@@ -233,9 +234,9 @@ class HelpTests(ProjectTest):
                         return exit_code
 
                     with (
-                        patch("winapp_cli.cli.find_native_cli", return_value=self.native) as locate,
-                        patch("winapp_cli.cli.forward_native", side_effect=forward_schema) as forward,
-                        patch("winapp_cli.cli.build_parser") as parser,
+                        patch("winapp.cli.find_native_cli", return_value=self.native) as locate,
+                        patch("winapp.cli.forward_native", side_effect=forward_schema) as forward,
+                        patch("winapp.cli.build_parser") as parser,
                         redirect_stdout(self.stdout), redirect_stderr(self.stderr),
                     ):
                         self.assertEqual(main([*prefix, *arguments]), exit_code)

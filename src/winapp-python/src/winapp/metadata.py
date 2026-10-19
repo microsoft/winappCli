@@ -12,7 +12,7 @@ from .errors import WinappError
 from .paths import local_path, unique_paths, winmd_path
 from .config import BindingsConfig
 
-RESTORE_HINT = "Run 'python -m winapp_cli restore' to refresh the SDK metadata."
+RESTORE_HINT = "Run 'python -m winapp restore' to refresh the SDK metadata."
 REFERENCE_ONLY = frozenset({
     "microsoft.windows.sdk.cpp",
     "microsoft.windows.sdk.contracts",

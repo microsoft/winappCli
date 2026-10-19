@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from winapp_cli.init_workspace import find_init_workspaces, resolve_init_workspace
+from winapp.init_workspace import find_init_workspaces, resolve_init_workspace
 
 from helpers import ProjectTest
 
@@ -86,7 +86,7 @@ class InitWorkspaceTests(ProjectTest):
     def test_unreadable_directory_is_reported(self):
         output = io.StringIO()
         with (
-            patch("winapp_cli.init_workspace.os.scandir", side_effect=PermissionError("denied")),
+            patch("winapp.init_workspace.os.scandir", side_effect=PermissionError("denied")),
             redirect_stderr(output),
         ):
             self.assertEqual(find_init_workspaces(self.project, config_only=False), [self.project])

@@ -87,7 +87,7 @@ class _VersionAction(argparse.Action):
         self.override = override
 
     def __call__(self, parser, namespace, values, option_string=None):
-        print(f"Python Package: winapp-cli v{version('winapp-cli')}", flush=True)
+        print(f"Python Package: microsoft-winappcli v{version('microsoft-winappcli')}", flush=True)
         native = find_native_cli(self.override)
         print("Native CLI:", flush=True)
         parser.exit(forward_native(native, ["--version"], Path.cwd()))
@@ -111,7 +111,7 @@ def _add_output_options(parser: argparse.ArgumentParser) -> None:
 
 def build_parser(override: str | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="winapp-py",
+        prog="winapp",
         add_help=False,
         description=(
             "Manage Python WinRT bindings and opt-in development identity. "
@@ -285,7 +285,7 @@ def _bindings_after_sdk(
     if config.codegen_version is None and not upgrade_codegen:
         raise WinappError(
             "The project has no codegen-version recorded. "
-            "Run 'winapp-py init . --use-defaults --add-python-bindings' or 'winapp-py update' to record it."
+            "Run 'winapp init . --use-defaults --add-python-bindings' or 'winapp update' to record it."
         )
     with nullcontext(progress) if progress is not None else Workflow("Preparing Python bindings", verbose=verbose) as workflow:
         codegen, python, selected = _prepare_codegen(
@@ -323,7 +323,7 @@ def _configure_after_init(project: Path, *, reset: bool, config_only: bool, verb
             _prepare_codegen(project, load_config(project).codegen_version, verbose=verbose, progress=workflow)
             with workflow.step("Register bindings dependency", "Bindings dependency registered"):
                 register_dependencies(project, package)
-            workflow.succeed("Bindings configured; run 'winapp-py restore' to generate and install them.")
+            workflow.succeed("Bindings configured; run 'winapp restore' to generate and install them.")
             return
         load_inventory(project)
         _bindings_after_sdk(
@@ -441,7 +441,7 @@ def _initialize(native_args: list[str], override: str | None) -> int:
         if not candidates:
             raise WinappError(
                 "Native init completed, but no usable project-local SDK configuration was found. "
-                "Run 'winapp-py init <project-directory> --use-defaults --add-python-bindings'."
+                "Run 'winapp init <project-directory> --use-defaults --add-python-bindings'."
             )
         print("SDK artifacts identify possible bindings targets, not the project selected by native.", flush=True)
         if len(candidates) == 1:

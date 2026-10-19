@@ -59,12 +59,12 @@ def _validate_package(package: object) -> str:
         or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", package)
         or keyword.iskeyword(package)
         or package in sys.stdlib_module_names
-        or package in {"dynwinrt", "winapp_cli"}
+        or package in {"dynwinrt", "winapp"}
     ):
         raise WinappError(
             f"[{CONFIG_TABLE}].package must be a lowercase Python package name "
             "(letters, digits and underscores), not a keyword, standard library module, "
-            "dynwinrt or winapp_cli."
+            "dynwinrt or winapp."
         )
     return package
 

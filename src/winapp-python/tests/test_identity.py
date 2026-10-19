@@ -11,12 +11,12 @@ import sys
 import time
 from unittest.mock import patch
 
-from winapp_cli import identity
-from winapp_cli.config import load_identity_catalog_version, record_identity_catalog_version
-from winapp_cli.errors import WinappError
-from winapp_cli.generate import generate
-from winapp_cli.identity_environment import dependency_inputs
-from winapp_cli.python_runtime import Distribution, Interpreter
+from winapp import identity
+from winapp.config import load_identity_catalog_version, record_identity_catalog_version
+from winapp.errors import WinappError
+from winapp.generate import generate
+from winapp.identity_environment import dependency_inputs
+from winapp.python_runtime import Distribution, Interpreter
 
 from helpers import ProjectTest
 
@@ -493,7 +493,7 @@ class PythonIdentityTests(ProjectTest):
 
     def test_changed_binding_dependencies_rebuilds_and_keeps_generated_sources(self):
         self.write_config()
-        with patch("winapp_cli.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
             bindings = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         record = self.record()
         metadata = bindings / "pyproject.toml"
@@ -508,7 +508,7 @@ class PythonIdentityTests(ProjectTest):
             )
             return ""
 
-        with patch("winapp_cli.generate.run_tool", side_effect=changed_codegen):
+        with patch("winapp.generate.run_tool", side_effect=changed_codegen):
             generate(self.config(), Path("codegen.exe"), self.codegen_version, force=True)
         updated = metadata.read_text(encoding="utf-8")
         self.assert_rebuild(record)
@@ -787,9 +787,9 @@ class PythonIdentityTests(ProjectTest):
 from pathlib import Path
 import json, subprocess, sys, time
 from unittest.mock import patch
-from winapp_cli import identity
-from winapp_cli.errors import WinappError
-from winapp_cli.python_runtime import Distribution, Interpreter
+from winapp import identity
+from winapp.errors import WinappError
+from winapp.python_runtime import Distribution, Interpreter
 
 project, shared = Path(sys.argv[1]), Path(sys.argv[2])
 label = sys.argv[3]

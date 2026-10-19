@@ -57,11 +57,11 @@ Describe 'Python identity guide and console sample' {
             $packagePath = Join-Path $packagePath 'python'
         }
         $wheels = if (Test-Path -LiteralPath $packagePath -PathType Container) {
-            @(Get-ChildItem -LiteralPath $packagePath -Filter "winapp_cli-*-py3-none-$platform.whl" -File)
+            @(Get-ChildItem -LiteralPath $packagePath -Filter "microsoft_winappcli-*-py3-none-$platform.whl" -File)
         } else {
-            @(Get-Item -LiteralPath $packagePath | Where-Object Name -Like "winapp_cli-*-py3-none-$platform.whl")
+            @(Get-Item -LiteralPath $packagePath | Where-Object Name -Like "microsoft_winappcli-*-py3-none-$platform.whl")
         }
-        if ($wheels.Count -ne 1) { throw "Expected one winapp-cli $platform wheel." }
+        if ($wheels.Count -ne 1) { throw "Expected one microsoft-winappcli $platform wheel." }
         $script:tempDir = New-TempTestDirectory -Prefix 'python-identity'
         $script:guideDir = Join-Path $tempDir 'guide project with spaces'
         $script:existingDir = Join-Path $tempDir 'existing sample'
@@ -82,7 +82,7 @@ dependencies = []
         $script:toolPython = Join-Path $tool 'Scripts\python.exe'
         Invoke-SampleCommand $toolPython @('-I', '-m', 'pip', 'install', '--disable-pip-version-check',
             '--no-input', $wheels[0].FullName) | Out-Null
-        $script:cli = Join-Path $tool 'Scripts\winapp-py.exe'
+        $script:cli = Join-Path $tool 'Scripts\winapp.exe'
         $script:identityName = "Winapp.PythonIdentitySample.$([guid]::NewGuid().ToString('N').Substring(0, 16)).debug"
         if (@(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count) {
             throw 'The unique test identity already exists; refusing to replace it.'

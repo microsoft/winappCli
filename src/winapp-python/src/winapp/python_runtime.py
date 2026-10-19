@@ -156,7 +156,7 @@ def validate_catalog_version(value: object) -> str:
 
 def _read_document(url: str, limit: int, description: str) -> dict:
     try:
-        request = Request(url, headers={"User-Agent": "winapp-cli", "Accept": "application/json"})
+        request = Request(url, headers={"User-Agent": "microsoft-winappcli", "Accept": "application/json"})
         with urlopen(request, timeout=60) as response:
             payload = response.read(limit + 1)
         if len(payload) > limit:

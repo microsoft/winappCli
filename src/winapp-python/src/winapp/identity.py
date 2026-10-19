@@ -312,7 +312,7 @@ def _runtime_hashes(record: dict) -> dict[str, str]:
     files = [Path(record["base"]), Path(record["entry"]), root / "venv" / "pyvenv.cfg",
              *sorted(runtime.glob("*.dll"))]
     if any(not file.is_file() for file in files):
-        raise WinappError("The private runtime or identity venv is missing. Run 'winapp-py identity clear' and prepare it again.")
+        raise WinappError("The private runtime or identity venv is missing. Run 'winapp identity clear' and prepare it again.")
     return {str(file.relative_to(root)): _digest(local_path(file, boundary=root)) for file in files}
 
 
@@ -368,7 +368,7 @@ def _manifest_path(project: Path, selected: Path | None) -> Path:
             return path
     raise WinappError(
         "Package.appxmanifest or appxmanifest.xml is required for --identity. "
-        "Create an app manifest first with 'winapp-py manifest generate'."
+        "Create an app manifest first with 'winapp manifest generate'."
     )
 
 
@@ -405,11 +405,11 @@ def run_with_identity(
         interpreter_changed = False
         if record is not None:
             if record["state"] != "ready":
-                raise WinappError("Identity preparation is incomplete. Run 'winapp-py identity clear' and retry.")
+                raise WinappError("Identity preparation is incomplete. Run 'winapp identity clear' and retry.")
             if _runtime_hashes(record) != record["runtime_hashes"]:
-                raise WinappError("The owned PBS runtime or identity venv changed. Run 'winapp-py identity clear' and prepare it again.")
+                raise WinappError("The owned PBS runtime or identity venv changed. Run 'winapp identity clear' and prepare it again.")
             if _owned_package(record, _packages(record["package"])) is None:
-                raise WinappError("The recorded development package is missing. Run 'winapp-py identity clear' and prepare it again.")
+                raise WinappError("The recorded development package is missing. Run 'winapp identity clear' and prepare it again.")
             interpreter_changed = record["interpreter"] != interpreter.document()
             if interpreter_changed:
                 changes.append("project Python")
@@ -529,7 +529,7 @@ def run_with_identity(
                     except (WinappError, OSError) as cleanup_error:
                         raise WinappError(
                             f"Identity preparation failed: {error}. Cleanup could not finish: {cleanup_error}. "
-                            "The ownership record was preserved; run 'winapp-py identity clear' before retrying."
+                            "The ownership record was preserved; run 'winapp identity clear' before retrying."
                         ) from error
                     raise
             else:

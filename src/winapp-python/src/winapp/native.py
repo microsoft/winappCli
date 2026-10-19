@@ -33,15 +33,15 @@ def bundled_cli() -> Path | None:
     root = Path(__file__).resolve().parent / "_native"
     executable = root / "winapp.exe"
     if not root.exists():
-        metadata = distribution("winapp-cli").read_text("WHEEL")
+        metadata = distribution("microsoft-winappcli").read_text("WHEEL")
         if metadata is None:
-            raise WinappError("Python package wheel metadata is missing; reinstall winapp-cli.")
+            raise WinappError("Python package wheel metadata is missing; reinstall microsoft-winappcli.")
         if any(line in metadata.splitlines() for line in
                ("Tag: py3-none-win_amd64", "Tag: py3-none-win_arm64")):
-            raise WinappError("Bundled native CLI is missing; reinstall the winapp-cli wheel.")
+            raise WinappError("Bundled native CLI is missing; reinstall the microsoft-winappcli wheel.")
         return None
     if not executable.is_file():
-        raise WinappError(f"Bundled native CLI is missing at {executable}; reinstall winapp-cli.")
+        raise WinappError(f"Bundled native CLI is missing at {executable}; reinstall microsoft-winappcli.")
     actual = native_platform(executable)
     expected = sysconfig.get_platform().replace("-", "_")
     if actual != expected:

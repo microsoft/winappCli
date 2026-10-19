@@ -16,17 +16,17 @@ def bootstrap_dll_path(project: Path, python_platform: str) -> Path:
         raise RuntimeError("Use Windows x64 or ARM64 CPython.")
     dll = project / ".winapp" / "bin" / architecture / "Microsoft.WindowsAppRuntime.Bootstrap.dll"
     if not dll.is_file():
-        raise FileNotFoundError(f"Bootstrap DLL is missing: {dll}. Run winapp-py restore.")
+        raise FileNotFoundError(f"Bootstrap DLL is missing: {dll}. Run winapp restore.")
     return dll
 
 
 def windows_appsdk_version(project: Path) -> tuple[int, int]:
     inventory = json.loads((project / ".winapp" / "winmds.lock.json").read_text(encoding="utf-8-sig"))
     if not isinstance(inventory, dict) or inventory.get("schema") != 3:
-        raise ValueError("Invalid SDK inventory. Run winapp-py restore.")
+        raise ValueError("Invalid SDK inventory. Run winapp restore.")
     packages = inventory.get("packages")
     if not isinstance(packages, list):
-        raise ValueError("SDK inventory has no package list. Run winapp-py restore.")
+        raise ValueError("SDK inventory has no package list. Run winapp restore.")
     versions = [
         package.get("version") for package in packages
         if isinstance(package, dict) and str(package.get("name", "")).lower() == "microsoft.windowsappsdk"

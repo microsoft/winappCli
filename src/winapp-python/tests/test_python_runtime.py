@@ -9,8 +9,8 @@ import subprocess
 import tarfile
 from unittest.mock import patch
 
-from winapp_cli import python_runtime as runtime
-from winapp_cli.errors import WinappError
+from winapp import python_runtime as runtime
+from winapp.errors import WinappError
 
 from helpers import ProjectTest
 

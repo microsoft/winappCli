@@ -18,14 +18,14 @@ dotnet build .\src\winapp-CLI\WinApp.Cli\WinApp.Cli.csproj -c Debug -r win-x64 `
 $env:WINAPP_CLI_PATH = (Resolve-Path `
   .\src\winapp-CLI\WinApp.Cli\bin\Debug\net10.0-windows10.0.19041.0\win-x64\winapp.exe).Path
 
-winapp-py --help
+winapp --help
 ```
 
 For ARM64 Python, use `win-arm64` and `-p:PlatformTarget=ARM64`. Editable installations have no bundled native CLI. Lookup order is an explicit `--winapp <path>`, `WINAPP_CLI_PATH`, the installed bundle, then `winapp.exe` on `PATH` for a source installation. A damaged platform-wheel bundle fails rather than silently selecting another binary.
 
 ## Build and install a local wheel
 
-To build a local `winapp-cli` wheel, run one command from the repository root:
+To build a local `microsoft-winappcli` wheel, run one command from the repository root:
 
 ```powershell
 .\scripts\package-python.ps1 -BuildCli
@@ -35,7 +35,7 @@ Windows CPython 3.11-3.14, PowerShell 7, the .NET 10 SDK and Visual Studio C++ b
 
 The script selects the architecture of `python` by default, publishes a fresh Release native CLI, then packages it with the Python wrapper. It includes the license, omits PDBs and checks the executable architecture. Native publishing uses a temporary directory that is removed afterward; existing native publishes and unrelated artifacts are not deleted.
 
-The wheel is written to `artifacts\python`. Its version uses the same repository `version.json`, build number and prerelease label as native and npm packages. For example, shared version `0.7.2-prerelease.37` produces Python version `0.7.2.dev37` and an x64 wheel named `winapp_cli-0.7.2.dev37-py3-none-win_amd64.whl`; ARM64 uses the corresponding `win_arm64` tag. Source `pyproject.toml` keeps its editable-development version; only the staged copy receives the build version. The script does not upload to PyPI, install or replace your tool, or package the counter application.
+The wheel is written to `artifacts\python`. Its version uses the same repository `version.json`, build number and prerelease label as native and npm packages. For example, shared version `0.7.2-prerelease.37` produces Python version `0.7.2.dev37` and an x64 wheel named `microsoft_winappcli-0.7.2.dev37-py3-none-win_amd64.whl`; ARM64 uses the corresponding `win_arm64` tag. Source `pyproject.toml` keeps its editable-development version; only the staged copy receives the build version. The script does not upload to PyPI, install or replace your tool, or package the counter application.
 
 Use `-Stable` for the base release version, or `-Version <shared-build-version>` to consume a version already selected by the build. Existing native publishes must match that shared version; rebuild them or provide their correct `-Version` if packaging reports a mismatch.
 
@@ -55,15 +55,15 @@ Use a separate test environment so the local build does not replace your install
 
 ```powershell
 python -m venv .\artifacts\python-local-test
-$wheel = Get-ChildItem .\artifacts\python\winapp_cli-*-py3-none-win_amd64.whl |
+$wheel = Get-ChildItem .\artifacts\python\microsoft_winappcli-*-py3-none-win_amd64.whl |
   Sort-Object LastWriteTime -Descending | Select-Object -First 1
 .\artifacts\python-local-test\Scripts\python.exe -m pip install --force-reinstall `
   $wheel.FullName
-.\artifacts\python-local-test\Scripts\winapp-py.exe --help
-.\artifacts\python-local-test\Scripts\winapp-py.exe --version
+.\artifacts\python-local-test\Scripts\winapp.exe --help
+.\artifacts\python-local-test\Scripts\winapp.exe --version
 ```
 
-Use `win_arm64` instead of `win_amd64` when selecting an ARM64 wheel. After rebuilding the same version, rerun the install command: `--force-reinstall` replaces the earlier local build. Invoke this environment's `winapp-py.exe` when testing commands against a throwaway application project.
+Use `win_arm64` instead of `win_amd64` when selecting an ARM64 wheel. After rebuilding the same version, rerun the install command: `--force-reinstall` replaces the earlier local build. Invoke this environment's `winapp.exe` when testing commands against a throwaway application project.
 
 ### Package an existing native publish
 
@@ -87,7 +87,7 @@ python -m unittest discover -s .\src\winapp-python\tests -v
 The script builds and installs a wrapper wheel, then validates SDK workflows, generated packages and fresh-clone dependency restoration in temporary projects copied from `tests\fixtures`. To consume an existing wheel without rebuilding it:
 
 ```powershell
-$wheel = Get-ChildItem .\artifacts\python\winapp_cli-*-py3-none-win_amd64.whl |
+$wheel = Get-ChildItem .\artifacts\python\microsoft_winappcli-*-py3-none-win_amd64.whl |
   Sort-Object LastWriteTime -Descending | Select-Object -First 1
 .\scripts\test-python.ps1 `
   -WheelPath $wheel.FullName `

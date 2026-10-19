@@ -9,10 +9,10 @@ import unittest
 from packaging.version import Version
 from unittest.mock import patch
 
-from winapp_cli.config import DEFAULT_PACKAGE, add_config, load_config, set_codegen_version, try_load_config
-from winapp_cli.errors import WinappError
-from winapp_cli.metadata import packages_hash, read_inventory, select_metadata
-from winapp_cli.paths import local_path
+from winapp.config import DEFAULT_PACKAGE, add_config, load_config, set_codegen_version, try_load_config
+from winapp.errors import WinappError
+from winapp.metadata import packages_hash, read_inventory, select_metadata
+from winapp.paths import local_path
 
 from helpers import ProjectTest
 
@@ -86,7 +86,7 @@ class ConfigTests(ProjectTest):
         self.assertEqual(add_config(self.project, DEFAULT_PACKAGE).package, "winapp_bindings")
 
     def test_package_name_validation(self):
-        for name in ("../outside", "while", "dynwinrt", "winapp_cli", "sys", "json", "MyApp", "_private", "a-b"):
+        for name in ("../outside", "while", "dynwinrt", "winapp", "sys", "json", "MyApp", "_private", "a-b"):
             with self.subTest(name=name):
                 self.write_config(package=name)
                 with self.assertRaises(WinappError):

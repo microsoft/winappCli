@@ -8,9 +8,9 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from winapp_cli.cli import main
-from winapp_cli.dependencies import detect_dependencies, register_dependencies
-from winapp_cli.errors import WinappError
+from winapp.cli import main
+from winapp.dependencies import detect_dependencies, register_dependencies
+from winapp.errors import WinappError
 
 from helpers import ProjectTest
 
@@ -21,12 +21,12 @@ class NativeInitTests(ProjectTest):
         self.stdout = io.StringIO()
         self.stderr = io.StringIO()
         for patcher in (
-            patch("winapp_cli.cli.Path.cwd", return_value=self.project),
-            patch("winapp_cli.cli.find_native_cli", return_value=Path("winapp.exe")),
-            patch("winapp_cli.cli.sys.platform", "win32"),
-            patch("winapp_cli.cli.platform.python_implementation", return_value="CPython"),
-            patch("winapp_cli.cli.platform.machine", return_value="AMD64"),
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=False),
+            patch("winapp.cli.Path.cwd", return_value=self.project),
+            patch("winapp.cli.find_native_cli", return_value=Path("winapp.exe")),
+            patch("winapp.cli.sys.platform", "win32"),
+            patch("winapp.cli.platform.python_implementation", return_value="CPython"),
+            patch("winapp.cli.platform.machine", return_value="AMD64"),
+            patch("winapp.cli.sys.stdin.isatty", return_value=False),
             patch.dict(os.environ, {"CI": ""}),
         ):
             patcher.start()
@@ -44,8 +44,8 @@ class NativeInitTests(ProjectTest):
 
     def test_bare_init_preserves_native_argv_and_existing_config_without_prompt(self):
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=self.native) as native,
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli.forward_native", side_effect=self.native) as native,
+            patch("winapp.cli._configure_after_init") as setup,
             patch("builtins.input") as prompt,
         ):
             self.assertEqual(self.invoke(), 0)
@@ -59,8 +59,8 @@ class NativeInitTests(ProjectTest):
                 self.unconfigured()
                 before = (self.project / "pyproject.toml").read_bytes()
                 with (
-                    patch("winapp_cli.cli.forward_native", side_effect=self.native),
-                    patch("winapp_cli.cli._configure_after_init") as setup,
+                    patch("winapp.cli.forward_native", side_effect=self.native),
+                    patch("winapp.cli._configure_after_init") as setup,
                 ):
                     self.assertEqual(self.invoke(*flags), 0)
                 setup.assert_not_called()
@@ -69,10 +69,10 @@ class NativeInitTests(ProjectTest):
     def test_interactive_new_project_confirmation_defaults_to_yes_and_retries_invalid_answers(self):
         self.unconfigured()
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.forward_native", side_effect=self.native),
             patch("builtins.input", side_effect=["invalid", ""]) as prompt,
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke(str(self.project)), 0)
         self.assertEqual(prompt.call_count, 2)
@@ -81,10 +81,10 @@ class NativeInitTests(ProjectTest):
     def test_interactive_no_makes_no_bindings_changes(self):
         self.unconfigured()
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.forward_native", side_effect=self.native),
             patch("builtins.input", return_value="no"),
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke(), 0)
         setup.assert_not_called()
@@ -95,8 +95,8 @@ class NativeInitTests(ProjectTest):
             "--config-dir=" + str(self.project), "--no-gitignore", "--verbose",
         ]
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=self.native) as native,
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli.forward_native", side_effect=self.native) as native,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke(*arguments, "--add-python-bindings"), 0)
         self.assertEqual(native.call_args.args[1], ["init", *arguments])
@@ -109,8 +109,8 @@ class NativeInitTests(ProjectTest):
         ):
             with (
                 self.subTest(flags=flags),
-                patch("winapp_cli.cli.forward_native", side_effect=self.native) as native,
-                patch("winapp_cli.cli._configure_after_init") as setup,
+                patch("winapp.cli.forward_native", side_effect=self.native) as native,
+                patch("winapp.cli._configure_after_init") as setup,
                 redirect_stdout(self.stdout), redirect_stderr(self.stderr),
             ):
                 self.assertEqual(main([*flags, "init", "--use-defaults"]), 0)
@@ -121,8 +121,8 @@ class NativeInitTests(ProjectTest):
         for arguments in (["--sparse"], ["--setup-sdks", "none"], ["--setup-sdks=none"], []):
             with self.subTest(arguments=arguments):
                 with (
-                    patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-                    patch("winapp_cli.cli.forward_native") as native,
+                    patch("winapp.cli.sys.stdin.isatty", return_value=True),
+                    patch("winapp.cli.forward_native") as native,
                 ):
                     self.assertEqual(self.invoke(*arguments, "--add-python-bindings"), 1)
                 native.assert_not_called()
@@ -131,8 +131,8 @@ class NativeInitTests(ProjectTest):
         for flags in (["--use-defaults"], ["--no-prompt"], ["--use-defaults", "--add-python-bindings"]):
             with self.subTest(flags=flags):
                 with (
-                    patch("winapp_cli.cli.forward_native", side_effect=self.native),
-                    patch("winapp_cli.cli._configure_after_init") as setup,
+                    patch("winapp.cli.forward_native", side_effect=self.native),
+                    patch("winapp.cli._configure_after_init") as setup,
                 ):
                     self.assertEqual(self.invoke(*flags), 0)
                 self.assertFalse(setup.call_args.kwargs["reset"])
@@ -147,8 +147,8 @@ class NativeInitTests(ProjectTest):
             return 0
 
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=native),
-            patch("winapp_cli.cli._prepare_codegen"),
+            patch("winapp.cli.forward_native", side_effect=native),
+            patch("winapp.cli._prepare_codegen"),
         ):
             self.assertEqual(self.invoke("--use-defaults", "--config-only"), 0)
         self.assertEqual(source.read_bytes(), before)
@@ -156,10 +156,10 @@ class NativeInitTests(ProjectTest):
 
     def test_existing_metadata_can_still_be_reset_with_explicit_confirmation(self):
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.forward_native", side_effect=self.native),
             patch("builtins.input", return_value="yes") as prompt,
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke(str(self.project)), 0)
         prompt.assert_called_once()
@@ -172,10 +172,10 @@ class NativeInitTests(ProjectTest):
         ):
             with self.subTest(flags=flags):
                 with (
-                    patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-                    patch("winapp_cli.cli.forward_native", side_effect=self.native) as native,
+                    patch("winapp.cli.sys.stdin.isatty", return_value=True),
+                    patch("winapp.cli.forward_native", side_effect=self.native) as native,
                     patch("builtins.input", return_value="n") as prompt,
-                    patch("winapp_cli.cli._configure_after_init") as setup,
+                    patch("winapp.cli._configure_after_init") as setup,
                 ):
                     self.assertEqual(self.invoke(str(self.project), *flags), 0)
                 prompt.assert_called_once()
@@ -186,10 +186,10 @@ class NativeInitTests(ProjectTest):
         for flag in ("--use-defaults=true", "--no-prompt=TRUE"):
             with self.subTest(flag=flag):
                 with (
-                    patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-                    patch("winapp_cli.cli.forward_native", side_effect=self.native),
+                    patch("winapp.cli.sys.stdin.isatty", return_value=True),
+                    patch("winapp.cli.forward_native", side_effect=self.native),
                     patch("builtins.input", return_value="n") as prompt,
-                    patch("winapp_cli.cli._configure_after_init") as setup,
+                    patch("winapp.cli._configure_after_init") as setup,
                 ):
                     self.assertEqual(self.invoke(flag), 0)
                 prompt.assert_not_called()
@@ -197,8 +197,8 @@ class NativeInitTests(ProjectTest):
 
     def test_explicit_false_quiet_and_verbose_do_not_override_python_output(self):
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
-            patch("winapp_cli.cli._configure_after_init", side_effect=lambda *a, **kw: print("Python output")) as setup,
+            patch("winapp.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli._configure_after_init", side_effect=lambda *a, **kw: print("Python output")) as setup,
         ):
             self.assertEqual(self.invoke("--quiet", "false", "--verbose", "false"), 0)
         self.assertIn("Python output", self.stdout.getvalue())
@@ -206,8 +206,8 @@ class NativeInitTests(ProjectTest):
 
     def test_explicit_false_sparse_does_not_block_bindings(self):
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=self.native) as native,
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli.forward_native", side_effect=self.native) as native,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke("--sparse", "false", "--add-python-bindings"), 0)
         setup.assert_called_once()
@@ -215,11 +215,11 @@ class NativeInitTests(ProjectTest):
 
     def test_ci_never_prompts_even_for_existing_config(self):
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
             patch.dict(os.environ, {"CI": "true"}),
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli.forward_native", side_effect=self.native),
             patch("builtins.input") as prompt,
-            patch("winapp_cli.cli._configure_after_init"),
+            patch("winapp.cli._configure_after_init"),
         ):
             self.assertEqual(self.invoke(), 0)
         prompt.assert_not_called()
@@ -227,8 +227,8 @@ class NativeInitTests(ProjectTest):
     def test_python_flags_other_than_opt_in_are_forwarded_to_native_validation(self):
         arguments = ["--install", "--python", "other.exe", "--package", "other_winrt", "--type", "Uri"]
         with (
-            patch("winapp_cli.cli.forward_native", return_value=2) as native,
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli.forward_native", return_value=2) as native,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke(*arguments), 2)
         self.assertEqual(native.call_args.args[1], ["init", *arguments])
@@ -238,8 +238,8 @@ class NativeInitTests(ProjectTest):
         source = self.project / "pyproject.toml"
         source.write_text("not valid TOML", encoding="utf-8")
         with (
-            patch("winapp_cli.cli.forward_native", return_value=37),
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli.forward_native", return_value=37),
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke("--new-native-option"), 37)
         self.assertEqual(source.read_text(), "not valid TOML")
@@ -257,10 +257,10 @@ class NativeInitTests(ProjectTest):
             return 0
 
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-            patch("winapp_cli.cli.forward_native", side_effect=native),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.forward_native", side_effect=native),
             patch("builtins.input", side_effect=["2", "yes"]),
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke(), 0)
         self.assertEqual(setup.call_args.args[0], selected)
@@ -269,10 +269,10 @@ class NativeInitTests(ProjectTest):
         for answer, expected_calls in (("no", 0), ("yes", 1)):
             with (
                 self.subTest(answer=answer),
-                patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-                patch("winapp_cli.cli.forward_native", side_effect=self.native),
+                patch("winapp.cli.sys.stdin.isatty", return_value=True),
+                patch("winapp.cli.forward_native", side_effect=self.native),
                 patch("builtins.input", return_value=answer) as prompt,
-                patch("winapp_cli.cli._configure_after_init") as setup,
+                patch("winapp.cli._configure_after_init") as setup,
             ):
                 self.assertEqual(self.invoke(), 0)
                 prompt.assert_called_once()
@@ -286,10 +286,10 @@ class NativeInitTests(ProjectTest):
         (child / ".winapp").mkdir()
         (child / ".winapp" / "winmds.lock.json").write_text(json.dumps(self.inventory), encoding="utf-8")
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.forward_native", side_effect=self.native),
             patch("builtins.input", side_effect=["invalid", "0"]),
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke(), 0)
         setup.assert_not_called()
@@ -297,10 +297,10 @@ class NativeInitTests(ProjectTest):
 
     def test_eof_during_artifact_confirmation_is_an_explicit_error(self):
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.forward_native", side_effect=self.native),
             patch("builtins.input", side_effect=EOFError),
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke(), 1)
         setup.assert_not_called()
@@ -309,10 +309,10 @@ class NativeInitTests(ProjectTest):
     def test_no_ready_artifacts_do_not_enable_bindings_from_a_stale_configuration(self):
         (self.project / ".winapp" / "winmds.lock.json").unlink()
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.forward_native", side_effect=self.native),
             patch("builtins.input") as prompt,
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke(), 1)
         prompt.assert_not_called()
@@ -322,10 +322,10 @@ class NativeInitTests(ProjectTest):
     def test_config_only_interactive_target_requires_confirmation_even_without_new_files(self):
         (self.project / ".winapp" / "winmds.lock.json").unlink()
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.forward_native", side_effect=self.native),
             patch("builtins.input", return_value="yes") as prompt,
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke("--config-only"), 0)
         prompt.assert_called_once()
@@ -333,10 +333,10 @@ class NativeInitTests(ProjectTest):
 
     def test_quiet_ambiguous_target_does_not_guess_or_prompt(self):
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.forward_native", side_effect=self.native),
             patch("builtins.input") as prompt,
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke("--quiet"), 1)
         prompt.assert_not_called()
@@ -345,10 +345,10 @@ class NativeInitTests(ProjectTest):
 
     def test_explicit_directory_with_colon_defaults_does_not_prompt_or_reset(self):
         with (
-            patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli.sys.stdin.isatty", return_value=True),
+            patch("winapp.cli.forward_native", side_effect=self.native),
             patch("builtins.input") as prompt,
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke(str(self.project), "--use-defaults:true"), 0)
         prompt.assert_not_called()
@@ -358,8 +358,8 @@ class NativeInitTests(ProjectTest):
         for flag in ("--help", "-h", "-?", "/?", "--cli-schema", "--version"):
             with self.subTest(flag=flag):
                 with (
-                    patch("winapp_cli.cli.forward_native", return_value=0) as native,
-                    patch("winapp_cli.cli._configure_after_init") as setup,
+                    patch("winapp.cli.forward_native", return_value=0) as native,
+                    patch("winapp.cli._configure_after_init") as setup,
                 ):
                     self.assertEqual(self.invoke(flag), 0)
                 self.assertEqual(native.call_args.args[1], ["init", flag])
@@ -372,9 +372,9 @@ class NativeInitTests(ProjectTest):
                 self.stdout.seek(0)
                 self.stdout.truncate()
                 with (
-                    patch("winapp_cli.cli.sys.stdin.isatty", return_value=True),
-                    patch("winapp_cli.cli.forward_native", return_value=0) as native,
-                    patch("winapp_cli.cli._configure_after_init") as setup,
+                    patch("winapp.cli.sys.stdin.isatty", return_value=True),
+                    patch("winapp.cli.forward_native", return_value=0) as native,
+                    patch("winapp.cli._configure_after_init") as setup,
                 ):
                     self.assertEqual(self.invoke("--add-python-bindings", flag), 0)
                 self.assertEqual(native.call_args.args[1], ["init", flag])
@@ -385,8 +385,8 @@ class NativeInitTests(ProjectTest):
         for flags in (["--setup-sdks", "none"], ["--sparse"], ["--ignore-config"]):
             with self.subTest(flags=flags):
                 with (
-                    patch("winapp_cli.cli.forward_native", side_effect=self.native),
-                    patch("winapp_cli.cli._configure_after_init") as setup,
+                    patch("winapp.cli.forward_native", side_effect=self.native),
+                    patch("winapp.cli._configure_after_init") as setup,
                 ):
                     self.assertEqual(self.invoke(*flags), 0)
                     self.assertEqual(self.invoke(*flags, "--add-python-bindings"), 1)
@@ -396,8 +396,8 @@ class NativeInitTests(ProjectTest):
         def native(executable, arguments, working_directory):
             return 0
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=native),
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli.forward_native", side_effect=native),
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke("--config-only", "--add-python-bindings"), 0)
         self.assertTrue(setup.call_args.kwargs["config_only"])
@@ -406,8 +406,8 @@ class NativeInitTests(ProjectTest):
         def native(executable, arguments, working_directory):
             return 0
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=native),
-            patch("winapp_cli.cli._configure_after_init") as setup,
+            patch("winapp.cli.forward_native", side_effect=native),
+            patch("winapp.cli._configure_after_init") as setup,
         ):
             self.assertEqual(self.invoke("--config-dir", str(self.root / "external")), 0)
             self.assertEqual(self.invoke("--config-dir", str(self.root / "external"), "--add-python-bindings"), 1)
@@ -420,8 +420,8 @@ class NativeInitTests(ProjectTest):
                     (self.project / ".winapp" / "winmds.lock.json").write_text(data, encoding="utf-8")
                     return 0
                 with (
-                    patch("winapp_cli.cli.forward_native", side_effect=native),
-                    patch("winapp_cli.cli._configure_after_init") as setup,
+                    patch("winapp.cli.forward_native", side_effect=native),
+                    patch("winapp.cli._configure_after_init") as setup,
                 ):
                     self.assertEqual(self.invoke(), 1)
                 setup.assert_not_called()
@@ -432,11 +432,11 @@ class NativeInitTests(ProjectTest):
             order.append("native")
             return self.native(*args, **kwargs)
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=native),
-            patch("winapp_cli.cli._prepare_codegen", return_value=(Path("codegen.exe"), Path("python.exe"), self.codegen_version)),
-            patch("winapp_cli.cli.generate", side_effect=lambda *a, **kw: order.append("generate") or self.config().output),
-            patch("winapp_cli.cli.register_dependencies", side_effect=lambda *a, **kw: order.append("dependencies")),
-            patch("winapp_cli.cli.synchronize_project", side_effect=lambda *a, **kw: order.append("install")),
+            patch("winapp.cli.forward_native", side_effect=native),
+            patch("winapp.cli._prepare_codegen", return_value=(Path("codegen.exe"), Path("python.exe"), self.codegen_version)),
+            patch("winapp.cli.generate", side_effect=lambda *a, **kw: order.append("generate") or self.config().output),
+            patch("winapp.cli.register_dependencies", side_effect=lambda *a, **kw: order.append("dependencies")),
+            patch("winapp.cli.synchronize_project", side_effect=lambda *a, **kw: order.append("install")),
         ):
             self.assertEqual(self.invoke("--add-python-bindings"), 0)
         self.assertEqual(order, ["native", "generate", "dependencies", "install"])
@@ -458,13 +458,13 @@ class NativeInitTests(ProjectTest):
             for phase in ("prepare", "generate"):
                 with (
                     self.subTest(manager=manager, phase=phase),
-                    patch("winapp_cli.cli.forward_native", side_effect=self.native),
-                    patch("winapp_cli.cli._prepare_codegen",
+                    patch("winapp.cli.forward_native", side_effect=self.native),
+                    patch("winapp.cli._prepare_codegen",
                           side_effect=WinappError("codegen unavailable") if phase == "prepare" else None,
                           return_value=(Path("codegen.exe"), Path("python.exe"), self.codegen_version)),
-                    patch("winapp_cli.cli.generate", side_effect=WinappError("generation failed")) as generate,
-                    patch("winapp_cli.cli.register_dependencies", wraps=register_dependencies) as register,
-                    patch("winapp_cli.cli.synchronize_project") as install,
+                    patch("winapp.cli.generate", side_effect=WinappError("generation failed")) as generate,
+                    patch("winapp.cli.register_dependencies", wraps=register_dependencies) as register,
+                    patch("winapp.cli.synchronize_project") as install,
                 ):
                     self.assertEqual(self.invoke("--add-python-bindings"), 1)
                     self.assertEqual({path: path.read_bytes() for path in paths}, before)
@@ -506,11 +506,11 @@ class NativeInitTests(ProjectTest):
 
             with (
                 self.subTest(manager=manager),
-                patch("winapp_cli.cli.forward_native", side_effect=self.native),
-                patch("winapp_cli.cli._prepare_codegen",
+                patch("winapp.cli.forward_native", side_effect=self.native),
+                patch("winapp.cli._prepare_codegen",
                       return_value=(Path("codegen.exe"), Path("python.exe"), self.codegen_version)),
-                patch("winapp_cli.cli.generate", side_effect=generate),
-                patch("winapp_cli.cli.synchronize_project", side_effect=synchronize) as install,
+                patch("winapp.cli.generate", side_effect=generate),
+                patch("winapp.cli.synchronize_project", side_effect=synchronize) as install,
             ):
                 self.assertEqual(self.invoke("--add-python-bindings"), 0)
                 install.assert_called_once()
@@ -525,10 +525,10 @@ class NativeInitTests(ProjectTest):
             return 0
 
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=native),
-            patch("winapp_cli.cli._prepare_codegen", side_effect=WinappError("codegen unavailable")),
-            patch("winapp_cli.cli.register_dependencies", wraps=register_dependencies) as register,
-            patch("winapp_cli.cli.generate") as generate,
+            patch("winapp.cli.forward_native", side_effect=native),
+            patch("winapp.cli._prepare_codegen", side_effect=WinappError("codegen unavailable")),
+            patch("winapp.cli.register_dependencies", wraps=register_dependencies) as register,
+            patch("winapp.cli.generate") as generate,
         ):
             self.assertEqual(self.invoke("--config-only", "--add-python-bindings"), 1)
         self.assertEqual({path: path.read_bytes() for path in before}, before)
@@ -542,11 +542,11 @@ class NativeInitTests(ProjectTest):
             return 0
 
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=native),
-            patch("winapp_cli.cli._prepare_codegen", side_effect=lambda *a, **kw: order.append("prepare")),
-            patch("winapp_cli.cli.register_dependencies", side_effect=lambda *a, **kw: order.append("dependencies")),
-            patch("winapp_cli.cli.generate") as generate,
-            patch("winapp_cli.cli.synchronize_project") as install,
+            patch("winapp.cli.forward_native", side_effect=native),
+            patch("winapp.cli._prepare_codegen", side_effect=lambda *a, **kw: order.append("prepare")),
+            patch("winapp.cli.register_dependencies", side_effect=lambda *a, **kw: order.append("dependencies")),
+            patch("winapp.cli.generate") as generate,
+            patch("winapp.cli.synchronize_project") as install,
         ):
             self.assertEqual(self.invoke("--config-only", "--add-python-bindings"), 0)
         self.assertEqual(order, ["prepare", "dependencies"])
@@ -556,23 +556,23 @@ class NativeInitTests(ProjectTest):
     def test_new_init_records_the_short_default_name_without_resetting_custom_packages(self):
         self.unconfigured()
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
-            patch("winapp_cli.cli._bindings_after_sdk"),
+            patch("winapp.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli._bindings_after_sdk"),
         ):
             self.assertEqual(self.invoke("--add-python-bindings"), 0)
         self.assertEqual(self.config().package, "winapp_bindings")
         self.write_config(package="custom_winrt")
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
-            patch("winapp_cli.cli._bindings_after_sdk"),
+            patch("winapp.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli._bindings_after_sdk"),
         ):
             self.assertEqual(self.invoke("--add-python-bindings"), 0)
         self.assertEqual(self.config().package, "custom_winrt")
 
     def test_existing_init_uses_the_recorded_generator_without_advancing_it(self):
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
-            patch("winapp_cli.cli._bindings_after_sdk") as bindings,
+            patch("winapp.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli._bindings_after_sdk") as bindings,
         ):
             self.assertEqual(self.invoke("--use-defaults"), 0)
         self.assertFalse(bindings.call_args.kwargs["upgrade_codegen"])
@@ -581,8 +581,8 @@ class NativeInitTests(ProjectTest):
     def test_init_does_not_add_dynwinrt_or_codegen_project_dependencies(self):
         self.unconfigured()
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
-            patch("winapp_cli.cli._bindings_after_sdk"),
+            patch("winapp.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli._bindings_after_sdk"),
         ):
             self.assertEqual(self.invoke("--add-python-bindings"), 0)
         text = (self.project / "pyproject.toml").read_text()
@@ -591,8 +591,8 @@ class NativeInitTests(ProjectTest):
 
     def test_setup_failure_returns_nonzero_after_native_success(self):
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=self.native),
-            patch("winapp_cli.cli._configure_after_init", side_effect=WinappError("setup failed")),
+            patch("winapp.cli.forward_native", side_effect=self.native),
+            patch("winapp.cli._configure_after_init", side_effect=WinappError("setup failed")),
         ):
             self.assertEqual(self.invoke(), 1)
         self.assertIn("setup failed", self.stderr.getvalue())
@@ -602,8 +602,8 @@ class NativeInitTests(ProjectTest):
             print("native output")
             return self.native(*args, **kwargs)
         with (
-            patch("winapp_cli.cli.forward_native", side_effect=native),
-            patch("winapp_cli.cli._configure_after_init", side_effect=lambda *a, **kw: print("Python output")),
+            patch("winapp.cli.forward_native", side_effect=native),
+            patch("winapp.cli._configure_after_init", side_effect=lambda *a, **kw: print("Python output")),
         ):
             self.assertEqual(self.invoke("--quiet"), 0)
         self.assertIn("native output", self.stdout.getvalue())

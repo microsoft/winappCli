@@ -144,11 +144,11 @@ Describe 'Unpackaged Python WinUI sample' {
             $packagePath = Join-Path $packagePath 'python'
         }
         $wheels = if (Test-Path -LiteralPath $packagePath -PathType Container) {
-            @(Get-ChildItem -LiteralPath $packagePath -Filter "winapp_cli-*-py3-none-$platform.whl" -File)
+            @(Get-ChildItem -LiteralPath $packagePath -Filter "microsoft_winappcli-*-py3-none-$platform.whl" -File)
         } else {
-            @(Get-Item -LiteralPath $packagePath | Where-Object Name -Like "winapp_cli-*-py3-none-$platform.whl")
+            @(Get-Item -LiteralPath $packagePath | Where-Object Name -Like "microsoft_winappcli-*-py3-none-$platform.whl")
         }
-        if ($wheels.Count -ne 1) { throw "Expected one winapp-cli $platform wheel." }
+        if ($wheels.Count -ne 1) { throw "Expected one microsoft-winappcli $platform wheel." }
         $script:tempDir = New-TempTestDirectory -Prefix 'python-winui'
         $script:appDir = Join-Path $tempDir 'project with spaces'
         $script:cloneDir = Join-Path $tempDir 'restored copy'
@@ -163,7 +163,7 @@ Describe 'Unpackaged Python WinUI sample' {
         $toolPython = Join-Path $tool 'Scripts\python.exe'
         Invoke-SampleCommand $toolPython @('-I', '-m', 'pip', 'install', '--disable-pip-version-check',
             '--no-input', $wheels[0].FullName) | Out-Null
-        $script:cli = Join-Path $tool 'Scripts\winapp-py.exe'
+        $script:cli = Join-Path $tool 'Scripts\winapp.exe'
     }
 
     AfterAll {

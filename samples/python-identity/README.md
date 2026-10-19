@@ -2,9 +2,9 @@
 
 ```powershell
 cd .\samples\python-identity
-winapp-py init --use-defaults --add-python-bindings
-winapp-py run .\app.py
-winapp-py run --identity .\app.py
+winapp init --use-defaults --add-python-bindings
+winapp run .\app.py
+winapp run --identity .\app.py
 ```
 
 The first run prints **Not packaged**. The identity run prints **Package Family Name:** followed by the registered package's family name. This console sample uses the generated `Windows.ApplicationModel.Package` API, without WinUI or Windows App Runtime Bootstrap code.
@@ -18,8 +18,8 @@ Use the guide's [Windows, Python and tool prerequisites](../../docs/guides/pytho
 ## 1. Initialize and run normally
 
 ```powershell
-winapp-py init --use-defaults --add-python-bindings
-winapp-py run .\app.py
+winapp init --use-defaults --add-python-bindings
+winapp run .\app.py
 ```
 
 Initialization creates the project `.venv`, restores SDKs, generates the type selected in `pyproject.toml` and installs its matching DynWinRT runtime. It also creates the manifest and assets. The sample has a recorded generator version; initialization preserves it.
@@ -33,7 +33,7 @@ Not packaged
 ## 2. Run with development identity
 
 ```powershell
-winapp-py run --identity .\app.py
+winapp run --identity .\app.py
 ```
 
 Expected application stdout has this shape:
@@ -49,7 +49,7 @@ Unexpected API failures are reported as errors, not converted to **Not packaged*
 ## 3. Clear development identity
 
 ```powershell
-winapp-py identity clear
+winapp identity clear
 ```
 
 This unregisters the development package and removes the private environment. It preserves the ordinary `.venv`, bindings, project files and application data.
@@ -61,7 +61,7 @@ Build a console executable with PyInstaller, then package its complete output di
 ### Restore build dependencies
 
 ```powershell
-winapp-py restore
+winapp restore
 ```
 
 PyInstaller is declared in this sample's `dev` dependency group and restored into `.venv`.
@@ -84,9 +84,9 @@ The output is `dist\PythonIdentity\PythonIdentity.exe` plus its Python runtime a
 Add the installed command name to the manifest:
 
 ```powershell
-winapp-py manifest add-alias --name PythonIdentity.exe
-winapp-py cert generate --manifest .\Package.appxmanifest --output .\devcert.pfx
-winapp-py package .\dist\PythonIdentity `
+winapp manifest add-alias --name PythonIdentity.exe
+winapp cert generate --manifest .\Package.appxmanifest --output .\devcert.pfx
+winapp package .\dist\PythonIdentity `
   --manifest .\Package.appxmanifest `
   --executable PythonIdentity.exe `
   --cert .\devcert.pfx `
@@ -102,7 +102,7 @@ The MSIX includes Python and the application dependencies; it does not copy `.ve
 Trust the development certificate from **Administrator PowerShell** in this sample directory:
 
 ```powershell
-winapp-py cert install .\devcert.pfx
+winapp cert install .\devcert.pfx
 ```
 
 In normal PowerShell:
@@ -118,7 +118,7 @@ Uninstall through Windows Settings when finished. `identity clear` only removes 
 
 ## Restore and troubleshoot
 
-Use `winapp-py restore` after cloning. It restores recorded SDK and generator versions. For API selections, version updates and errors, see the [Python guide](../../docs/guides/python.md#troubleshooting).
+Use `winapp restore` after cloning. It restores recorded SDK and generator versions. For API selections, version updates and errors, see the [Python guide](../../docs/guides/python.md#troubleshooting).
 
 If MSIX installation reports `0x800B0109`, trust the matching certificate as described above. A missing framework dependency requires installing the manifest's requested Windows App Runtime version and architecture on the target machine.
 

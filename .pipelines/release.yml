@@ -626,13 +626,13 @@ extends:
                   $wheels = @(Get-ChildItem -LiteralPath $directory -Filter '*.whl' -File -Recurse)
                   if ($wheels.Count -ne 2) { throw "Expected two Python platform wheels, found $($wheels.Count)." }
                   foreach ($platform in @('win_amd64', 'win_arm64')) {
-                    $expected = "winapp_cli-$(version)-py3-none-$platform.whl"
+                    $expected = "microsoft_winappcli-$(version)-py3-none-$platform.whl"
                     if (@($wheels | Where-Object Name -EQ $expected).Count -ne 1) {
                       throw "Expected exactly one $expected in the release artifact."
                     }
                   }
             - task: EsrpRelease@10
-              displayName: Publish winapp-cli to PyPI via ESRP
+              displayName: Publish microsoft-winappcli to PyPI via ESRP
               inputs:
                 ConnectedServiceName: ${{ parameters.signingIdentity.serviceName }}
                 usemanagedidentity: false
@@ -650,7 +650,7 @@ extends:
                 serviceendpointurl: 'https://api.esrp.microsoft.com'
                 mainpublisher: 'ESRPRELPACMAN'
                 domaintenantid: ${{ parameters.signingIdentity.tenantId }}
-                releasetitle: 'winapp-cli $(version)'
+                releasetitle: 'microsoft-winappcli $(version)'
 
     - ${{ if and(eq(parameters.DoEsrp, 'true'), startsWith(variables['Build.SourceBranch'], 'refs/heads/rel/v')) }}:
       - stage: Release_NuGet

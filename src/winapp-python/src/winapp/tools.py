@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import zipfile
 
 from packaging.version import InvalidVersion, Version
 
@@ -66,7 +67,7 @@ def installed_codegen_version(project: Path, python: Path) -> Version | None:
 def find_codegen(project: Path, expected_version: Version, python: Path) -> Path:
     executable = python.parent / "dynwinrt-codegen.exe"
     install = subprocess.list2cmdline([
-        "winapp-py", "restore", "--project", str(project), "--python", str(python),
+        "winapp", "restore", "--project", str(project), "--python", str(python),
     ])
     required = f"dynwinrt-codegen=={expected_version}"
     if not executable.is_file():
@@ -100,8 +101,13 @@ def find_native_cli(override: str | None) -> Path:
     executable = Path(name).expanduser().absolute()
     if not executable.is_file() or executable.suffix.lower() != ".exe":
         raise WinappError(f"--winapp must point to a native winapp.exe file: {executable}")
-    if executable.name.lower() == "winapp-py.exe":
-        raise WinappError(f"Refusing to use the Python wrapper as its own native CLI: {executable}")
+    if zipfile.is_zipfile(executable):
+        with zipfile.ZipFile(executable) as launcher:
+            if "__main__.py" in launcher.namelist():
+                raise WinappError(
+                    f"Refusing to use a Python wrapper as the native CLI: {executable}. "
+                    "Use --winapp <native-exe> or set WINAPP_CLI_PATH to the native build."
+                )
     return executable
 
 

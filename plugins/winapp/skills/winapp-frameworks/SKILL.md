@@ -25,7 +25,7 @@ Each framework has a detailed guide — refer to the links below rather than try
 | **Rust** | `winget install Microsoft.winappcli` | [Rust guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/rust.md) |
 | **Flutter** | `winget install Microsoft.winappcli` | [Flutter guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/flutter.md) |
 | **Tauri** | `winget install Microsoft.winappcli` | [Tauri guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/tauri.md) |
-| **Python** | `python -m pip install winapp-cli` | [Python guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md) |
+| **Python** | `python -m pip install microsoft-winappcli` | [Python guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md) |
 
 ## Key differences by framework
 
@@ -116,25 +116,25 @@ C++ projects use winapp primarily for SDK projections (CppWinRT headers) and pac
 - winapp adds capabilities beyond what Tauri's built-in bundler provides (identity, sparse packages, Windows API access)
 
 ### Python
-Use the **Python package** (`winapp-cli`) and the `winapp-py` command. The package includes:
+Use the **Python package** (`microsoft-winappcli`) and the `winapp` command. The package includes:
 - The native winapp CLI binary
 - Python WinRT binding generation with DynWinRT
 - A development identity runner for Python scripts
 
 Quick start (existing Python project):
 ```powershell
-python -m pip install winapp-cli
-winapp-py init . --use-defaults --add-python-bindings
-winapp-py run --identity .\app.py
+python -m pip install microsoft-winappcli
+winapp init . --use-defaults --add-python-bindings
+winapp run --identity .\app.py
 ```
 
 Windows integration guidance:
 
 - Use generated bindings to call Windows SDK and Windows App SDK APIs from Python.
-- Use `winapp-py restore` after cloning or changing SDK configuration, and `winapp-py generate` after changing API selections.
-- Use `winapp-py update` to upgrade SDK and DynWinRT versions; `restore` and `generate` use the generator version recorded in the project's `pyproject.toml`.
-- Use `winapp-py run .\app.py` for the existing project `.venv`, or add `--identity` for development package identity.
-- Prepare an application directory before creating an MSIX with `winapp-py package`.
+- Use `winapp restore` after cloning or changing SDK configuration, and `winapp generate` after changing API selections.
+- Use `winapp update` to upgrade SDK and DynWinRT versions; `restore` and `generate` use the generator version recorded in the project's `pyproject.toml`.
+- Use `winapp run .\app.py` for the existing project `.venv`, or add `--identity` for development package identity.
+- Prepare an application directory before creating an MSIX with `winapp package`.
 
 Python guide:
 - [Setup, Windows API bindings, identity and packaging](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md)
@@ -151,7 +151,7 @@ Python guide:
 | **Flutter** | `winapp run .\build\windows\x64\runner\Debug` | GUI app — plain `winapp run` works |
 | **Tauri** | `winapp run .\dist` | Stage exe to `dist/` first (avoids copying entire `target/` tree); GUI app |
 | **Electron** | `npx winapp node add-electron-debug-identity` | Uses Electron-specific identity registration; `winapp run` is **not** recommended for Electron |
-| **Python** | `winapp-py run --identity .\app.py` | Uses project-private PBS and declared dependencies; see the Python guide. IDE breakpoint integration is not provided. |
+| **Python** | `winapp run --identity .\app.py` | Uses project-private PBS and declared dependencies; see the Python guide. IDE breakpoint integration is not provided. |
 
 **Key rules:**
 - **GUI apps** (Flutter, Tauri, WPF): use `winapp run <build-output>` — launches via AUMID activation

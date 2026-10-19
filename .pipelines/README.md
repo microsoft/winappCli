@@ -120,7 +120,7 @@ Publishing and signing are gated as follows:
 | WinGet fork sync + `--submit` | `WINGET_SUBMIT` env, `'false'` unless `rel/v*` |
 | MS Learn push + PR | `MSLEARN_PUBLISH` env, `'false'` unless `rel/v*` |
 
-Before the first PyPI release, confirm that ESRP authorizes npm's existing signing identity to publish `winapp-cli`.
+Before the first PyPI release, confirm that ESRP authorizes npm's existing signing identity to publish `microsoft-winappcli`.
 
 Where a step is a shell script rather than a task, the gate is a **YAML-conditional environment
 variable** that the script branches on. The condition stays at compile time, and the variable is

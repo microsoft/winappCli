@@ -55,38 +55,63 @@ try {
         $cliRoot = Split-Path (Split-Path $publishedExe -Parent) -Parent
         & (Join-Path $PSScriptRoot 'package-python.ps1') -CliPath $cliRoot `
             -Architecture $architectures[$platform] -Python $interpreter -OutputDirectory $output
-        $wheels = @(Get-ChildItem -LiteralPath $output -Filter "winapp_cli-*-py3-none-$platform.whl" -File)
+        $wheels = @(Get-ChildItem -LiteralPath $output -Filter "microsoft_winappcli-*-py3-none-$platform.whl" -File)
     } else {
         $wheels = @(Get-Item -LiteralPath (Resolve-Path -LiteralPath $WheelPath).Path)
     }
     if ($wheels.Count -ne 1) {
-        throw "Expected one $platform winapp_cli wheel. Remove older wrapper wheels and retry."
+        throw "Expected one $platform microsoft-winappcli wheel. Remove older wrapper wheels and retry."
     }
     $verifyWheel = @'
+from email.parser import Parser
 from pathlib import Path
 import sys, zipfile
 wheel = Path(sys.argv[1])
+assert wheel.name.startswith("microsoft_winappcli-"), wheel
 assert wheel.name.endswith(f"-py3-none-{sys.argv[2]}.whl"), wheel
 with zipfile.ZipFile(wheel) as archive:
     names = archive.namelist()
-    assert "winapp_cli/_native/winapp.exe" in names
-    assert "winapp_cli/_native/LICENSE" in names
+    assert "winapp/_native/winapp.exe" in names
+    assert "winapp/_native/LICENSE" in names
+    assert not any(name.startswith(("winapp_cli/", "winappcli/")) for name in names)
     assert not any(name.lower().endswith(".pdb") for name in names)
     metadata = archive.read(next(name for name in names if name.endswith(".dist-info/WHEEL"))).decode()
     assert "Root-Is-Purelib: false" in metadata
     assert f"Tag: py3-none-{sys.argv[2]}" in metadata
+    package_metadata = archive.read(next(name for name in names if name.endswith(".dist-info/METADATA"))).decode()
+    assert Parser().parsestr(package_metadata)["Name"] == "microsoft-winappcli"
 '@
     Invoke-Checked $interpreter @('-c', $verifyWheel, $wheels[0].FullName, $platform)
     Invoke-Checked $interpreter @('-m', 'pip', 'install', '--disable-pip-version-check', '--no-input', $wheels[0].FullName)
-    $cli = (& $interpreter -c 'from winapp_cli.tools import find_native_cli; print(find_native_cli(None))').Trim()
+    $cli = (& $interpreter -c 'from winapp.tools import find_native_cli; print(find_native_cli(None))').Trim()
     if ($LASTEXITCODE -ne 0 -or -not $cli.StartsWith($environment, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Installed Python wheel did not resolve its own bundled native CLI: $cli"
     }
     Invoke-Checked $interpreter @('-m', 'unittest', 'discover', '-s', (Join-Path $package 'tests'), '-v')
-    Invoke-Checked (Join-Path $environment 'Scripts\winapp-py.exe') @('--help')
-    Invoke-Checked (Join-Path $environment 'Scripts\winapp-py.exe') @('manifest', '--help')
-    Invoke-Checked (Join-Path $environment 'Scripts\winapp-py.exe') @('tool', '--help')
-    Invoke-Checked (Join-Path $environment 'Scripts\winapp-py.exe') @('--winapp', $cli, 'manifest', '--help')
+    $scriptVersion = & (Join-Path $environment 'Scripts\winapp.exe') --version
+    if ($LASTEXITCODE -ne 0 -or ($scriptVersion -join "`n") -notlike '*Python Package: microsoft-winappcli v*') {
+        throw "The console entry did not report the renamed distribution: $scriptVersion"
+    }
+    $moduleVersion = & $interpreter -m winapp --version
+    if ($LASTEXITCODE -ne 0 -or ($moduleVersion -join "`n") -ne ($scriptVersion -join "`n")) {
+        throw "The module entry did not match the console entry: $moduleVersion"
+    }
+    Invoke-Checked $interpreter @('-I', '-c',
+        'import importlib.util as u; assert u.find_spec("winapp") is not None; assert u.find_spec("winapp_cli") is None; assert u.find_spec("winappcli") is None')
+    $nativeHelp = & $cli --help
+    if ($LASTEXITCODE -ne 0) { throw "Native root help failed." }
+    $pythonCallerHelp = & $cli --caller python --help
+    if ($LASTEXITCODE -ne 0 -or ($pythonCallerHelp -join "`n") -ne ($nativeHelp -join "`n")) {
+        throw "The native CLI still changes its help for the Python caller."
+    }
+    $selfReference = & $interpreter -m winapp --winapp (Join-Path $environment 'Scripts\winapp.exe') --help 2>&1
+    if ($LASTEXITCODE -eq 0 -or ($selfReference -join "`n") -notlike '*Refusing to use a Python wrapper*') {
+        throw "The Python command was not rejected as its own native CLI: $selfReference"
+    }
+    Invoke-Checked (Join-Path $environment 'Scripts\winapp.exe') @('--help')
+    Invoke-Checked (Join-Path $environment 'Scripts\winapp.exe') @('manifest', '--help')
+    Invoke-Checked (Join-Path $environment 'Scripts\winapp.exe') @('tool', '--help')
+    Invoke-Checked (Join-Path $environment 'Scripts\winapp.exe') @('--winapp', $cli, 'manifest', '--help')
 
     $detectionProject = Join-Path $temporary 'python-detection-project'
     New-Item -ItemType Directory -Path $detectionProject | Out-Null
@@ -105,8 +130,8 @@ with zipfile.ZipFile(wheel) as archive:
     if ($NuGetConfigPath) {
         Copy-Item -LiteralPath $NuGetConfigPath -Destination (Join-Path $sdkProject 'nuget.config')
     }
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'restore', '--project', $sdkProject)
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'update', '--project', $sdkProject)
+    Invoke-Checked $interpreter @('-m', 'winapp', 'restore', '--project', $sdkProject)
+    Invoke-Checked $interpreter @('-m', 'winapp', 'update', '--project', $sdkProject)
     Invoke-Checked $interpreter @('-c',
         'import importlib.metadata as m, sys; sys.exit(int(any(d.metadata["Name"].lower() == "dynwinrt-codegen" for d in m.distributions())))')
     if (Test-Path -LiteralPath (Join-Path $sdkProject '.winapp\python')) {
@@ -124,13 +149,13 @@ with zipfile.ZipFile(wheel) as archive:
     $appEnvironment = Join-Path $project '.venv'
     Invoke-Checked $Python @('-m', 'venv', '--without-pip', $appEnvironment)
     $appPython = Join-Path $appEnvironment 'Scripts\python.exe'
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'init', $project, '--config-only', '--use-defaults', '--add-python-bindings')
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'restore', '--project', $project)
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'generate', '--project', $project)
+    Invoke-Checked $interpreter @('-m', 'winapp', 'init', $project, '--config-only', '--use-defaults', '--add-python-bindings')
+    Invoke-Checked $interpreter @('-m', 'winapp', 'restore', '--project', $project)
+    Invoke-Checked $interpreter @('-m', 'winapp', 'generate', '--project', $project)
     Invoke-Checked $interpreter @('-c',
         'import importlib.util as u; assert u.find_spec("dynwinrt") is None; assert u.find_spec("myapp_winrt") is None')
     Invoke-Checked $appPython @('-c',
-        'import importlib.util as u; assert u.find_spec("pip") is None; assert u.find_spec("winapp_cli") is None')
+        'import importlib.util as u; assert u.find_spec("pip") is None; assert u.find_spec("winapp") is None')
     foreach ($directory in @('include', 'lib')) {
         if (-not (Test-Path -LiteralPath (Join-Path $project ".winapp\$directory") -PathType Container)) {
             throw "Full native restore did not create the C++ $directory directory."
@@ -163,9 +188,9 @@ with zipfile.ZipFile(wheel) as archive:
 
     $previousPins = Get-Content -LiteralPath (Join-Path $project 'winapp.yaml') -Raw
     $previousMarker = Get-Content -LiteralPath (Join-Path $bindings '.winapp-python.json') -Raw | ConvertFrom-Json
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'update', '--project', $project)
+    Invoke-Checked $interpreter @('-m', 'winapp', 'update', '--project', $project)
     Invoke-Checked $interpreter @('-c',
-        'from pathlib import Path; from winapp_cli.metadata import load_inventory; import sys; load_inventory(Path(sys.argv[1]))',
+        'from pathlib import Path; from winapp.metadata import load_inventory; import sys; load_inventory(Path(sys.argv[1]))',
         $project)
     $currentPins = Get-Content -LiteralPath (Join-Path $project 'winapp.yaml') -Raw
     $currentMarker = Get-Content -LiteralPath (Join-Path $bindings '.winapp-python.json') -Raw | ConvertFrom-Json
@@ -190,13 +215,13 @@ with zipfile.ZipFile(wheel) as archive:
     [IO.File]::AppendAllText((Join-Path $clone 'requirements.txt'),
         "packaging==26.3 \`n    ; python_version >= '3.11'`n")
     $jsonStderr = Join-Path $temporary 'unsupported-json.stderr.log'
-    $rejectedJson = & $interpreter -m winapp_cli --json restore --project $clone 2> $jsonStderr
+    $rejectedJson = & $interpreter -m winapp --json restore --project $clone 2> $jsonStderr
     if ($LASTEXITCODE -ne 2 -or @($rejectedJson).Count -ne 0 -or
         (Get-Content -LiteralPath $jsonStderr -Raw) -notlike '*--json is not supported for Python workflows*' -or
         (Test-Path -LiteralPath (Join-Path $clone '.winapp'))) {
         throw "Python JSON mode did not fail before restoring the project: $rejectedJson"
     }
-    $quietOutput = & $interpreter -m winapp_cli --quiet restore --project $clone
+    $quietOutput = & $interpreter -m winapp --quiet restore --project $clone
     if ($LASTEXITCODE -ne 0 -or @($quietOutput).Count -ne 0) {
         throw "Leading quiet mode did not restore Python bindings without status output: $quietOutput"
     }
@@ -208,7 +233,7 @@ with zipfile.ZipFile(wheel) as archive:
         throw "Fresh requirements clone was not usable after restore: $actual"
     }
     $runStderr = Join-Path $temporary 'quiet-run.stderr.log'
-    $actual = & $interpreter -m winapp_cli run -q --project $clone app.py 2> $runStderr
+    $actual = & $interpreter -m winapp run -q --project $clone app.py 2> $runStderr
     if ($LASTEXITCODE -ne 0 -or ($actual -join "`n").Trim() -ne 'Host: example.com' -or
         -not [string]::IsNullOrEmpty((Get-Content -LiteralPath $runStderr -Raw))) {
         throw "Quiet Python run changed application output or printed wrapper status: $actual"
@@ -225,8 +250,8 @@ with zipfile.ZipFile(wheel) as archive:
     }
     Invoke-Checked $Python @('-m', 'venv', '--without-pip', (Join-Path $nonUiProject '.venv'))
     $nonUiPython = Join-Path $nonUiProject '.venv\Scripts\python.exe'
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'init', $nonUiProject, '--config-only', '--use-defaults', '--add-python-bindings')
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'restore', '--project', $nonUiProject)
+    Invoke-Checked $interpreter @('-m', 'winapp', 'init', $nonUiProject, '--config-only', '--use-defaults', '--add-python-bindings')
+    Invoke-Checked $interpreter @('-m', 'winapp', 'restore', '--project', $nonUiProject)
     $nonUiPackage = Join-Path $nonUiProject '.winapp\python\winapp_bindings'
     if (-not (Test-Path -LiteralPath (Join-Path $nonUiPackage 'pyproject.toml'))) {
         throw "Default init did not create an installable Python bindings package."
@@ -239,10 +264,10 @@ with zipfile.ZipFile(wheel) as archive:
     $configured = [IO.File]::ReadAllText($configuration).Replace('additional-winmds = []',
         'additional-winmds = [{namespace = "Windows.Storage", classes = ["ApplicationData"]}]')
     [IO.File]::WriteAllText($configuration, $configured)
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'generate', '--project', $nonUiProject)
+    Invoke-Checked $interpreter @('-m', 'winapp', 'generate', '--project', $nonUiProject)
     Invoke-Checked $nonUiPython @('-c',
         'from winapp_bindings.windows.storage import ApplicationData; from winapp_bindings.microsoft.windows.app_notifications import AppNotification')
-    $again = & $interpreter -m winapp_cli restore --project $nonUiProject
+    $again = & $interpreter -m winapp restore --project $nonUiProject
     if ($LASTEXITCODE -ne 0 -or @($again | Where-Object { $_ -like '*Bindings current:*' }).Count -ne 1) {
         throw "Unchanged non-UI AppSDK metadata should skip code generation on restore: $again"
     }
@@ -271,12 +296,12 @@ types = ["Windows.Foundation.Uri"]
     if ($NuGetConfigPath) {
         Copy-Item -LiteralPath $NuGetConfigPath -Destination (Join-Path $standardProject 'nuget.config')
     }
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'init', $standardProject,
+    Invoke-Checked $interpreter @('-m', 'winapp', 'init', $standardProject,
         '--use-defaults', '--config-only', '--add-python-bindings')
     if (Test-Path -LiteralPath (Join-Path $standardProject '.winapp\python')) {
         throw "Config-only initialization generated bindings before restore."
     }
-    Invoke-Checked $interpreter @('-m', 'winapp_cli', 'restore', '--project', $standardProject)
+    Invoke-Checked $interpreter @('-m', 'winapp', 'restore', '--project', $standardProject)
     Invoke-Checked (Join-Path $standardProject '.venv\Scripts\python.exe') @('-c',
         'from myapp_winrt.windows.foundation import Uri; import dynwinrt, packaging')
     if (Test-Path -LiteralPath (Join-Path $standardProject 'requirements.txt')) {
@@ -310,8 +335,8 @@ types = ["Windows.Foundation.Uri"]
         }
         Invoke-Checked $Python @('-m', 'venv', '--without-pip', (Join-Path $uvProject '.venv'))
         $uvPython = Join-Path $uvProject '.venv\Scripts\python.exe'
-        Invoke-Checked $interpreter @('-m', 'winapp_cli', 'init', $uvProject, '--config-only', '--use-defaults', '--add-python-bindings')
-        Invoke-Checked $interpreter @('-m', 'winapp_cli', 'restore', '--project', $uvProject)
+        Invoke-Checked $interpreter @('-m', 'winapp', 'init', $uvProject, '--config-only', '--use-defaults', '--add-python-bindings')
+        Invoke-Checked $interpreter @('-m', 'winapp', 'restore', '--project', $uvProject)
         Push-Location $uvProject
         try {
             Invoke-Checked $uv @('sync', '--locked')
@@ -327,7 +352,7 @@ types = ["Windows.Foundation.Uri"]
         if ($NuGetConfigPath) {
             Copy-Item -LiteralPath $NuGetConfigPath -Destination (Join-Path $uvClone 'nuget.config')
         }
-        $quietOutput = & $interpreter -m winapp_cli restore --quiet --project $uvClone
+        $quietOutput = & $interpreter -m winapp restore --quiet --project $uvClone
         if ($LASTEXITCODE -ne 0 -or @($quietOutput).Count -ne 0) {
             throw "Trailing quiet mode did not restore uv Python bindings without status output: $quietOutput"
         }
@@ -353,7 +378,7 @@ types = ["Windows.Foundation.Uri"]
         foreach ($name in @('pyproject.toml', 'winapp.yaml', 'requirements.txt', 'requirements-dev.txt')) {
             Copy-Item -LiteralPath (Join-Path $project $name) -Destination $identityProject
         }
-        Invoke-Checked $interpreter @('-m', 'winapp_cli', 'restore',
+        Invoke-Checked $interpreter @('-m', 'winapp', 'restore',
             '--project', $identityProject)
         [IO.File]::AppendAllText((Join-Path $identityProject 'requirements.txt'),
             "packaging==26.3`n")
@@ -365,7 +390,7 @@ types = ["Windows.Foundation.Uri"]
         [xml]$placeholderDocument = Get-Content -LiteralPath (Join-Path $identityProject 'Package.appxmanifest') -Raw
         $placeholderDocument.Package.Identity.Name = $originalName + '.$targetnametoken$'
         $placeholderDocument.Save($placeholderManifest)
-        $rejectedIdentity = & $interpreter -m winapp_cli run --identity --project $identityProject `
+        $rejectedIdentity = & $interpreter -m winapp run --identity --project $identityProject `
             --manifest $placeholderManifest identity_probe.py 2>&1
         if ($LASTEXITCODE -eq 0 -or ($rejectedIdentity -join "`n") -notlike '*literal Identity Name*' -or
             (Test-Path -LiteralPath (Join-Path $identityProject '.winapp\python-identity.json'))) {
@@ -383,7 +408,7 @@ types = ["Windows.Foundation.Uri"]
         }
 
         $identityStderr = Join-Path $temporary 'identity.stderr.log'
-        $identifiedOutput = & $identityPython -m winapp_cli run --identity --project $identityProject `
+        $identifiedOutput = & $identityPython -m winapp run --identity --project $identityProject `
             identity_probe.py -- --children from-ci 2> $identityStderr
         if ($LASTEXITCODE -ne 0) {
             throw "Private Python identity registration or launch failed: $identifiedOutput`n$(Get-Content -LiteralPath $identityStderr -Raw)"
@@ -424,7 +449,7 @@ print(document["tool"]["winapp"]["python-identity"]["uv-catalog-version"])
             $record.catalog_version -ne $catalogVersion) {
             throw "Identity preparation did not persist its concrete uv catalog version in project configuration."
         }
-        $again = & $identityPython -m winapp_cli run --identity --project $identityProject `
+        $again = & $identityPython -m winapp run --identity --project $identityProject `
             identity_probe.py -- from-ci 2> $identityStderr
         $reuseDiagnostics = @(Get-Content -LiteralPath $identityStderr)
         if ($LASTEXITCODE -ne 0 -or
@@ -444,7 +469,7 @@ print(document["tool"]["winapp"]["python-identity"]["uv-catalog-version"])
             $reusedRecord.catalog_version -ne $catalogVersion) {
             throw "Reused PBS identity changed ownership or did not preserve script output: $again"
         }
-        $quietIdentity = & $identityPython -m winapp_cli -q run --identity --project $identityProject `
+        $quietIdentity = & $identityPython -m winapp -q run --identity --project $identityProject `
             identity_probe.py -- from-ci 2> $identityStderr
         $quietRecord = Get-Content -LiteralPath (Join-Path $identityProject '.winapp\python-identity.json') -Raw | ConvertFrom-Json
         if ($LASTEXITCODE -ne 0 -or ($quietIdentity -join "`n") -ne ($again -join "`n") -or
@@ -453,7 +478,7 @@ print(document["tool"]["winapp"]["python-identity"]["uv-catalog-version"])
             throw "Quiet identity execution changed application output or printed wrapper status: $quietIdentity"
         }
         [IO.File]::AppendAllText((Join-Path $identityProject 'requirements.txt'), "# changed input`n")
-        $rebuiltOutput = & $identityPython -m winapp_cli run --identity --project $identityProject `
+        $rebuiltOutput = & $identityPython -m winapp run --identity --project $identityProject `
             identity_probe.py -- --children 2> $identityStderr
         $rebuildDiagnostics = @(Get-Content -LiteralPath $identityStderr)
         if ($LASTEXITCODE -ne 0 -or
@@ -476,7 +501,7 @@ print(document["tool"]["winapp"]["python-identity"]["uv-catalog-version"])
                 throw "Automatically rebuilt PBS child lost identity or dependencies: $($child | ConvertTo-Json -Compress)"
             }
         }
-        Invoke-Checked $identityPython @('-m', 'winapp_cli', 'identity', 'clear',
+        Invoke-Checked $identityPython @('-m', 'winapp', 'identity', 'clear',
             '--project', $identityProject)
         if (@(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count -ne 0) {
             throw "The Python identity test package remained registered after cleanup."
@@ -498,7 +523,7 @@ print(document["tool"]["winapp"]["python-identity"]["uv-catalog-version"])
             Copy-Item -LiteralPath (Join-Path $package 'tests\fixtures\uri\identity_probe.py') -Destination $uvProject
             Invoke-Checked $cli @('manifest', 'generate', $uvProject,
                 '--package-name', $originalName, '--publisher-name', 'CN=WinappPythonPreview')
-            $uvIdentity = & $interpreter -m winapp_cli run --identity --project $uvProject identity_probe.py -- --children
+            $uvIdentity = & $interpreter -m winapp run --identity --project $uvProject identity_probe.py -- --children
             if ($LASTEXITCODE -ne 0) {
                 throw "uv identity dependency synchronization failed: $uvIdentity"
             }
@@ -507,7 +532,7 @@ print(document["tool"]["winapp"]["python-identity"]["uv-catalog-version"])
             if ($identified.Count -ne 1 -or $identified[0].code -ne 0 -or $identified[0].host -ne 'example.com') {
                 throw "uv identity did not have package identity and generated bindings: $uvIdentity"
             }
-            Invoke-Checked $interpreter @('-m', 'winapp_cli', 'identity', 'clear', '--project', $uvProject)
+            Invoke-Checked $interpreter @('-m', 'winapp', 'identity', 'clear', '--project', $uvProject)
             if (@(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count -ne 0) {
                 throw "uv identity remained registered after cleanup."
             }
@@ -523,7 +548,7 @@ print(document["tool"]["winapp"]["python-identity"]["uv-catalog-version"])
         if ($remaining.Count -gt 0) {
             $owned = Join-Path $identityProject '.winapp\python-identity.json'
             if ((Test-Path -LiteralPath $owned) -and (Test-Path -LiteralPath $interpreter)) {
-                & $interpreter -m winapp_cli identity clear --project $identityProject
+                & $interpreter -m winapp identity clear --project $identityProject
             }
             if (@(Get-AppxPackage -Name $identityName | Where-Object Name -EQ $identityName).Count -gt 0) {
                 throw "Could not unregister the Python test identity. The test files were preserved at '$identityProject' for recovery."
