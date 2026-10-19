@@ -49,7 +49,7 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
 
         if (CompactHelpRenderer.AppliesTo(command))
         {
-            parseResult.InvocationConfiguration.Output.Write(CompactHelpRenderer.Render(command));
+            parseResult.InvocationConfiguration.Output.Write(CompactHelpRenderer.Render(command, styled: BannerHelper.UseEmoji));
             return 0;
         }
 
@@ -78,11 +78,9 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
         _ansiConsole.MarkupLine($" Use '[white]{commandPath} <command> --help[/]' to get detailed help for any command.");
         if (command is RootCommand)
         {
+            WriteQuickStart();
             _ansiConsole.WriteLine();
-            _ansiConsole.MarkupLine(" Start here:");
-            _ansiConsole.MarkupLine("   Drive any app's UI (click, type, read)              [white]winapp ui --help[/]");
-            _ansiConsole.MarkupLine("   Inspect or change a running WinUI app's XAML live   [white]winapp devtools --help[/]");
-            _ansiConsole.MarkupLine("   (tree, properties, bindings; no source edits)");
+            _ansiConsole.MarkupLine(" All commands:");
         }
 
         // Build a lookup from command type -> Command object
@@ -166,6 +164,62 @@ internal sealed class CustomHelpAction : SynchronousCommandLineAction
         _ansiConsole.WriteLine();
 
         return 0;
+    }
+
+    /// <summary>
+    /// Common workflows shown at the top of root help. A step without a description is
+    /// too long to share the column and is printed on its own.
+    /// </summary>
+    internal static readonly (string Title, (string Command, string Description)[] Steps)[] QuickStart =
+    [
+        ("Build a WinUI app",
+        [
+            ("winapp new", "create a project, then cd into its folder"),
+            ("winapp run .", "build and launch it"),
+            ("winapp find-ui \"<control>\"", "get working XAML for a control"),
+            ("winapp find-api \"<type>\"", "look up Windows APIs you can call"),
+            ("winapp devtools --help", "inspect and live-edit the running XAML"),
+            ("winapp run . --profile <folder>", "record layout and rendering timings"),
+            ("winapp perf analyze <folder>", "see what was slow"),
+        ]),
+        ("Add Windows features to an existing app (.NET, C++, Rust, Flutter...)",
+        [
+            ("winapp init", "add a manifest and Windows SDKs"),
+            ("winapp run <project|folder>", "launch with package identity"),
+        ]),
+        ("Package for install",
+        [
+            ("winapp cert generate", "make a test signing certificate"),
+            ("winapp cert install devcert.pfx", "trust it on this machine (admin)"),
+            ("winapp package <.csproj|folder> --cert devcert.pfx", ""),
+        ]),
+        ("Automate any app's UI",
+        [
+            ("winapp ui --help", "click, type, and read any app's UI"),
+        ]),
+    ];
+
+    private void WriteQuickStart()
+    {
+        var width = QuickStart
+            .SelectMany(g => g.Steps)
+            .Where(s => s.Description.Length > 0)
+            .Max(s => s.Command.Length) + 2;
+
+        _ansiConsole.WriteLine();
+        _ansiConsole.MarkupLine(" Quick start:");
+        foreach (var (title, steps) in QuickStart)
+        {
+            _ansiConsole.WriteLine();
+            _ansiConsole.MarkupLine($"   {Markup.Escape(title)}");
+            foreach (var (stepCommand, description) in steps)
+            {
+                var commandText = $"[white]{Markup.Escape(stepCommand)}[/]";
+                _ansiConsole.MarkupLine(description.Length == 0
+                    ? $"     {commandText}"
+                    : $"     {commandText}{new string(' ', width - stepCommand.Length)}{Markup.Escape(description)}");
+            }
+        }
     }
 
     /// <summary>

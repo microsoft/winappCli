@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
@@ -165,18 +166,94 @@ internal sealed partial class ProjectRunService(
     }
 
     /// <summary>
-    /// SHIM (temporary): resolves the <c>CsWinRTWindowsMetadata</c> folder to inject for SDK-less builds,
-    /// or <c>null</c> when the user already set the property (their value wins) or no injection is
-    /// needed/possible. See <see cref="CsWinRTMetadataShimService"/>.
+    /// SHIM (temporary): what the CsWinRT metadata shim decides from: the project's effective single TFM and,
+    /// only on a host that has a Windows SDK but not the targeted version, the project's own evaluated
+    /// <c>CsWinRTWindowsMetadata</c>.
     /// </summary>
-    private string? ResolveCsWinRTMetadataShim(ProjectRunOptions options, string? framework)
+    private readonly record struct CsWinRTShimInput(string? Framework, string? ProjectWindowsMetadata);
+
+    /// <summary>
+    /// SHIM (temporary): resolves the <c>CsWinRTWindowsMetadata</c> folder to inject when the targeted
+    /// Windows SDK isn't installed, or <c>null</c> when the user already set the property (their value wins)
+    /// or no injection is needed/possible. See <see cref="CsWinRTMetadataShimService"/>.
+    /// </summary>
+    private string? ResolveCsWinRTMetadataShim(ProjectRunOptions options, CsWinRTShimInput shim)
     {
         if (UserSetCsWinRTMetadata(options))
         {
             return null;
         }
 
-        return csWinRTMetadataShimService.ResolveMetadataFolder(framework);
+        return csWinRTMetadataShimService.ResolveMetadataFolder(shim.Framework, shim.ProjectWindowsMetadata);
+    }
+
+    /// <summary>
+    /// Pins the effective framework (see <see cref="ResolveFrameworksAsync"/>) and gathers the CsWinRT shim's
+    /// inputs. The project's <c>CsWinRTWindowsMetadata</c> is read with an extra evaluate only when it can change
+    /// the decision: when the shim would otherwise inject (the Windows SDK CsWinRT's default reads is missing),
+    /// so a project that chose its own metadata (<c>local</c>, a winmd folder, an installed SDK version) keeps
+    /// it; or when the project's files mention the property or the user passed <c>-p WindowsSDKVersion</c>,
+    /// since either can request a missing SDK even though the TFM's is installed. Other runs pay nothing.
+    /// </summary>
+    private async Task<(ProjectRunOptions Options, CsWinRTShimInput Shim)> ResolveFrameworksAndShimInputAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        DirectoryInfo workingDir,
+        CancellationToken cancellationToken)
+    {
+        (options, var framework) = await ResolveFrameworksAsync(csproj, options, workingDir, cancellationToken);
+        var userSdkVersion = TryGetUserProperty(options.Properties, "WindowsSDKVersion", out var sdkVersion) ? sdkVersion : null;
+        if (UserSetCsWinRTMetadata(options)
+            || (!csWinRTMetadataShimService.IsWindowsSdkAbsent(framework)
+                && userSdkVersion is null
+                && !ProjectMentionsCsWinRTMetadata(csproj)))
+        {
+            return (options, new CsWinRTShimInput(framework, null));
+        }
+
+        var args = BuildCsWinRTMetadataProbeArguments(csproj, options);
+        string? projectMetadata;
+        if (!_csWinRTMetadataProbeCache.TryGetValue(args, out projectMetadata))
+        {
+            projectMetadata = await ProbeCsWinRTMetadataAsync(csproj, args, workingDir, cancellationToken);
+        }
+
+        // Before restore the CsWinRT targets that default the property from WindowsSDKVersion aren't imported yet,
+        // so apply that default for a user-passed WindowsSDKVersion here.
+        if (string.IsNullOrWhiteSpace(projectMetadata))
+        {
+            projectMetadata = userSdkVersion;
+        }
+
+        return (options, new CsWinRTShimInput(framework, string.IsNullOrWhiteSpace(projectMetadata) ? null : projectMetadata));
+    }
+
+    /// <summary>
+    /// Completed <c>CsWinRTWindowsMetadata</c> probes keyed by their exact arguments. A <c>winapp run</c>
+    /// prepares the same project more than once (packaging check, then build), and each probe is a full
+    /// MSBuild evaluate, so identical probes are answered once per command.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, string?> _csWinRTMetadataProbeCache = new(StringComparer.Ordinal);
+
+    private async Task<string?> ProbeCsWinRTMetadataAsync(
+        FileInfo csproj, string args, DirectoryInfo workingDir, CancellationToken cancellationToken)
+    {
+        logger.LogDebug("{UISymbol} dotnet {Arguments}", UiSymbols.Note, RedactSecretsForDisplay(args));
+        try
+        {
+            var (exitCode, stdout, _) = await dotNetService.RunDotnetCommandAsync(workingDir, args, cancellationToken);
+            var value = exitCode == 0
+                ? GetProp(MsBuildPropertyReader.Parse(stdout, CsWinRTMetadataProbeProperties), "CsWinRTWindowsMetadata")
+                : null;
+            _csWinRTMetadataProbeCache[args] = value;
+            return value;
+        }
+        catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or InvalidOperationException)
+        {
+            // Indeterminate: fall back to CsWinRT's default, which is what the build uses when the project sets nothing.
+            logger.LogDebug(ex, "Could not read CsWinRTWindowsMetadata for {Project}.", csproj.Name);
+            return null;
+        }
     }
 
     /// <summary>
@@ -211,16 +288,14 @@ internal sealed partial class ProjectRunService(
 
         // Pin an effective single TFM for a multi-targeted project (default = first declared) BEFORE any
         // pass so build/evaluate/packaging/provisioning all agree. No-op when single-targeted / --framework set.
-        options = await ResolveEffectiveFrameworkAsync(csproj, options, workingDir, cancellationToken);
+        // The shim needs the effective single TFM to check the targeted Windows SDK and steer ref-pack
+        // selection; it's resolved alongside since options.Framework stays null for a normal single-targeted
+        // project, and is never used as a build -p:TargetFramework.
+        (options, var shimInput) = await ResolveFrameworksAndShimInputAsync(csproj, options, workingDir, cancellationToken);
 
-        // The shim needs the effective single TFM to steer ref-pack selection on SDK-less hosts. Resolved
-        // separately since options.Framework stays null for a normal single-targeted project; never used as
-        // a build -p:TargetFramework.
-        var shimFramework = await ResolveShimFrameworkAsync(csproj, options, workingDir, cancellationToken);
-
-        // SHIM (temporary): on hosts with no registered Windows SDK, resolve ref-pack winmds to inject as
+        // SHIM (temporary): on hosts without the targeted Windows SDK, resolve ref-pack winmds to inject as
         // -p:CsWinRTWindowsMetadata. Skipped when the user set the property. null = no injection.
-        var csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimFramework);
+        var csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimInput);
 
         // Decide whether to inject an explicit -p:Platform (else arch is conveyed by the RID alone). Injected
         // only when the target AND its whole ProjectReference closure declare a <Platforms> including the
@@ -247,12 +322,12 @@ internal sealed partial class ProjectRunService(
         // (else NETSDK1004) — matching VS / `dotnet build <sln>`. Gated on actually building + restore not opted out.
         if (!options.NoBuild && !options.NoRestore)
         {
-            // SHIM (temporary): on a clean SDK-less host the ref pack may not be on disk when the shim
+            // SHIM (temporary): on a clean host the ref pack may not be on disk when the shim
             // first resolves, so it no-ops and the first build fails even though it restores the ref pack.
             // Pre-populate it with an explicit restore, then re-resolve. Only when the shim would inject.
             var shimNeedsRestore = csWinRTMetadata is null
                 && !UserSetCsWinRTMetadata(options)
-                && csWinRTMetadataShimService.IsWindowsSdkAbsent();
+                && csWinRTMetadataShimService.IsWindowsSdkAbsent(shimInput.Framework, shimInput.ProjectWindowsMetadata);
 
             // On an interactive terminal the build hands the console to dotnet's terminal logger, which
             // can't redact authenticated NuGet source URLs. Restore separately (through winapp, which
@@ -333,7 +408,7 @@ internal sealed partial class ProjectRunService(
 
                 if (publish)
                 {
-                    csWinRTMetadata ??= ResolveCsWinRTMetadataShim(options, shimFramework);
+                    csWinRTMetadata ??= ResolveCsWinRTMetadataShim(options, shimInput);
                     return (options, options with { NoRestore = true }, csWinRTMetadata, redactBuildOutput);
                 }
 
@@ -341,7 +416,7 @@ internal sealed partial class ProjectRunService(
                 {
                     if (shimNeedsRestore)
                     {
-                        csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimFramework);
+                        csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimInput);
                     }
 
                     buildOptions = options with { NoRestore = true };
@@ -813,9 +888,8 @@ internal sealed partial class ProjectRunService(
 
         // Pin the same effective TFM the real build/evaluate passes use, so a multi-targeted project
         // is probed against a single-TFM inner build, not the empty cross-targeting outer node.
-        options = await ResolveEffectiveFrameworkAsync(csproj, options, workingDir, cancellationToken);
-        var shimFramework = await ResolveShimFrameworkAsync(csproj, options, workingDir, cancellationToken);
-        var csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimFramework);
+        (options, var shimInput) = await ResolveFrameworksAndShimInputAsync(csproj, options, workingDir, cancellationToken);
+        var csWinRTMetadata = ResolveCsWinRTMetadataShim(options, shimInput);
         options = ResolvePlatformInjection(csproj, options);
         options = await ResolveRequiredPublishProfileAsync(
             csproj,

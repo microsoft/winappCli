@@ -77,6 +77,70 @@ public sealed class XamlTriageRunnerTests
         }
     }
 
+    /// <summary>
+    /// Runs with input verification bypassed, for tests that drive the real engine from system32 with a
+    /// stand-in provider and script, which the child would otherwise (correctly) refuse.
+    /// </summary>
+    private static (int ExitCode, string StdOut, string StdErr) RunTrustingInputs(string[] args)
+    {
+        var saved = XamlTriageRunner.VerifyInputs;
+        XamlTriageRunner.VerifyInputs = (bin, jsProvider, ext) => new XamlTriageRunner.VerifiedTriageInputs(bin, jsProvider, ext, []);
+        try
+        {
+            return RunCaptured(args);
+        }
+        finally
+        {
+            XamlTriageRunner.VerifyInputs = saved;
+        }
+    }
+
+    /// <summary>
+    /// The child must not trust its arguments: started directly, a signed winapp would otherwise load any
+    /// DLL it is pointed at. A stand-in dbgeng.dll is refused before anything is loaded.
+    /// </summary>
+    [TestMethod]
+    public void Run_UnsignedEngine_IsRefusedBeforeLoading()
+    {
+        var bin = Path.Join(_tempDir, "bin");
+        Directory.CreateDirectory(bin);
+        File.WriteAllText(Path.Join(bin, "dbgeng.dll"), "not a Microsoft-signed engine");
+        var jsProvider = Path.Join(bin, "JsProvider.dll");
+        File.WriteAllText(jsProvider, "not a Microsoft-signed provider");
+        var ext = Path.Join(_tempDir, "ext.js");
+        File.WriteAllText(ext, "// ext");
+        var dump = Path.Join(_tempDir, "x.dmp");
+        File.WriteAllText(dump, "not a dump");
+
+        var (exit, _, stderr) = RunCaptured(
+            [XamlTriageRunner.InternalVerb, "--dump", dump, "--bin", bin, "--ext", ext, "--jsprovider", jsProvider]);
+
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(stderr, "must be Microsoft-signed debugger files");
+    }
+
+    [TestMethod]
+    public void VerifyInputsForLoad_ScriptOtherThanThePinnedExtension_IsRefusedAndReleasesTheBinaries()
+    {
+        var ext = Path.Join(_tempDir, "evil.js");
+        File.WriteAllText(ext, "host.namespace.Debugger.Utility.Control.ExecuteCommand('.load C:\\\\evil.dll');");
+        var binariesHold = new TrackingDisposable();
+        var binaries = new ResolvedTriageBinaries(_tempDir, Path.Join(_tempDir, "JsProvider.dll"), false, "test") { Holds = [binariesHold] };
+
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+            () => XamlTriageRunner.VerifyInputsForLoad(_tempDir, binaries.JsProviderPath, ext, (_, _) => binaries));
+
+        StringAssert.Contains(ex.Message, "not the pinned WinUI debugger extension");
+        Assert.IsTrue(binariesHold.Disposed, "the refused run must not keep the debugger files held");
+    }
+
+    private sealed class TrackingDisposable : IDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public void Dispose() => Disposed = true;
+    }
+
     [TestMethod]
     public void Run_NoArgsBeyondVerb_ReturnsTwoAndExplains()
     {
@@ -127,9 +191,9 @@ public sealed class XamlTriageRunnerTests
     [TestMethod]
     public void Run_AllArgsButUnusableBin_ReturnsOne()
     {
-        // With all required args supplied but a bin directory that has no dbgeng.dll, the engine cannot
-        // be created, RunDbgEngExtension throws, and Run's catch maps it to exit code 1. This also
-        // exercises the --jsprovider and --symbols switch arms.
+        // With all required args supplied but a bin directory that has no dbgeng.dll, input verification
+        // refuses it and Run's catch maps that to exit code 1. This also exercises the --jsprovider and
+        // --symbols switch arms.
         var dump = Path.Combine(_tempDir, "garbage.dmp");
         File.WriteAllText(dump, "not a dump");
         var emptyBin = Path.Combine(_tempDir, "empty-bin");
@@ -249,7 +313,7 @@ public sealed class XamlTriageRunnerTests
             File.WriteAllText(ext, "// ext");
             var bogusJsProvider = Path.Combine(_tempDir, "NoSuchJsProvider.dll");
 
-            var (exit, stdout, _) = RunCaptured(
+            var (exit, stdout, _) = RunTrustingInputs(
                 [XamlTriageRunner.InternalVerb, "--dump", dump, "--bin", system32, "--ext", ext, "--jsprovider", bogusJsProvider]);
 
             if (exit != 0)
