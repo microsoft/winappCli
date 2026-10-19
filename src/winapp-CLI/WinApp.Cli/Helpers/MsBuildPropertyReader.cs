@@ -5,6 +5,12 @@ using System.Text.Json;
 
 namespace WinApp.Cli.Helpers;
 
+internal sealed record MsBuildItemFact(
+    string Identity,
+    string FullPath,
+    string DefiningProjectFullPath,
+    IReadOnlyDictionary<string, string> Metadata);
+
 /// <summary>
 /// Parses the stdout of <c>dotnet build/msbuild --getProperty:...</c> into a property dictionary.
 /// </summary>
@@ -105,6 +111,103 @@ internal static class MsBuildPropertyReader
 
         TryReadItemsObject(stdout.Trim(), result);
         return result;
+    }
+
+    /// <summary>
+    /// Parses authoritative file identity and evaluated metadata from
+    /// <c>dotnet msbuild --getItem</c>.
+    /// Returns <see langword="false"/> when the item envelope or any item fact is malformed.
+    /// </summary>
+    public static bool TryParseItemFacts(
+        string stdout,
+        out IReadOnlyDictionary<string, IReadOnlyList<MsBuildItemFact>> facts)
+    {
+        var result = new Dictionary<string, IReadOnlyList<MsBuildItemFact>>(
+            StringComparer.OrdinalIgnoreCase);
+        facts = result;
+        if (string.IsNullOrWhiteSpace(stdout))
+        {
+            return false;
+        }
+
+        return TryScanJsonObject(stdout.Trim(), root =>
+        {
+            if (!root.TryGetProperty("Items", out var items)
+                || items.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var candidate = new Dictionary<string, IReadOnlyList<MsBuildItemFact>>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var group in items.EnumerateObject())
+            {
+                if (group.Value.ValueKind != JsonValueKind.Array)
+                {
+                    return false;
+                }
+
+                var groupFacts = new List<MsBuildItemFact>();
+                foreach (var item in group.Value.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object
+                        || !TryReadRequiredString(item, "Identity", out var identity)
+                        || !TryReadRequiredString(item, "FullPath", out var fullPath)
+                        || !TryReadRequiredString(
+                            item,
+                            "DefiningProjectFullPath",
+                            out var definingProjectFullPath))
+                    {
+                        return false;
+                    }
+
+                    var metadata = new Dictionary<string, string>(
+                        StringComparer.OrdinalIgnoreCase);
+                    foreach (var property in item.EnumerateObject())
+                    {
+                        if (property.Value.ValueKind != JsonValueKind.String)
+                        {
+                            return false;
+                        }
+                        if (!property.NameEquals("Identity"))
+                        {
+                            metadata[property.Name] =
+                                property.Value.GetString()!;
+                        }
+                    }
+                    groupFacts.Add(new MsBuildItemFact(
+                        identity,
+                        fullPath,
+                        definingProjectFullPath,
+                        metadata));
+                }
+
+                candidate[group.Name] = groupFacts;
+            }
+
+            foreach (var group in candidate)
+            {
+                result[group.Key] = group.Value;
+            }
+
+            return true;
+        });
+    }
+
+    private static bool TryReadRequiredString(
+        JsonElement element,
+        string propertyName,
+        out string value)
+    {
+        value = string.Empty;
+        if (!element.TryGetProperty(propertyName, out var property)
+            || property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = property.GetString() ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(value);
     }
 
     /// <summary>

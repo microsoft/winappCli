@@ -24,8 +24,14 @@ public abstract class MigrateCommandTestBase : BaseCommandTests
 
     private protected FakeDotNetService FakeDotNet { get; } = new();
 
+    private protected FakeMsBuildProjectItemEvaluator FakeMsBuildEvaluator
+        { get; } = new();
+
     protected override IServiceCollection ConfigureServices(IServiceCollection services)
-        => services.AddSingleton<IDotNetService>(FakeDotNet);
+        => services
+            .AddSingleton<IDotNetService>(FakeDotNet)
+            .AddSingleton<IMsBuildProjectItemEvaluator>(
+                FakeMsBuildEvaluator);
 
     private protected async Task<(int ExitCode, string Output)> InvokeCapturingConsoleAsync(Command command, params string[] args)
     {

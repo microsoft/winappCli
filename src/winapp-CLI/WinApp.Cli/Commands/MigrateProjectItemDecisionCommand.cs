@@ -4,6 +4,7 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using WinApp.Cli.Models;
+using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
 
@@ -48,7 +49,7 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
 
     public static Option<string[]> EvidenceFileOption { get; } = new("--evidence-file")
     {
-        Description = "Target-relative project/props/targets file that participates in the target build and contains matching item evidence. Repeat for multiple files.",
+        Description = "Target/build-context-relative project/props/targets file reported by evaluated MSBuild facts as the matched item's defining project. Repeat for multiple files.",
         Arity = ArgumentArity.ZeroOrMore,
         AllowMultipleArgumentsPerToken = false
     };
@@ -74,7 +75,9 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
         Options.Add(ReasonCodeOption);
     }
 
-    internal sealed class Handler : AsynchronousCommandLineAction
+    internal sealed class Handler(
+        IMsBuildProjectItemEvaluator msBuildProjectItemEvaluator)
+        : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(
             ParseResult parseResult,
@@ -170,12 +173,19 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
                 return 1;
             }
 
+            var projectItemEvaluation =
+                await MigrateCommand.Handler.EvaluateProjectItemFactsAsync(
+                    targetRoot,
+                    targetProject,
+                    msBuildProjectItemEvaluator,
+                    cancellationToken);
             var projectItems = MigrateCommand.Handler.MigrateSourceProjectItems(
                 sourceRoot,
                 sourceProject,
                 targetRoot,
                 targetProject,
-                applyChanges: false);
+                applyChanges: false,
+                projectItemEvaluation);
             var selector = parseResult.GetValue(ItemArgument)?.Trim();
             var exactMatches = string.IsNullOrWhiteSpace(selector)
                 ? []
@@ -288,7 +298,9 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
                     targetRoot,
                     targetProject,
                     sourceItem,
-                    decision);
+                    decision,
+                    projectItemEvaluation,
+                    validateSuppliedEvidenceFiles: true);
             if (decision.Verification.Status == "invalid")
             {
                 Console.Out.WriteLine(
@@ -308,12 +320,15 @@ internal sealed class MigrateProjectItemDecisionCommand : Command, IShortDescrip
                     applyChanges: false,
                     report.ActivationAnalysis).Analysis;
             report.MechanicalVerification =
-                MigrateCommand.Handler.VerifyExistingMigration(
+                await MigrateCommand.Handler.VerifyExistingMigrationAsync(
                     sourceRoot,
                     sourceProject,
                     targetRoot,
                     targetProject,
-                    report);
+                    report,
+                    msBuildProjectItemEvaluator,
+                    cancellationToken,
+                    projectItemEvaluation);
             report.Status = report.MechanicalVerification.Status == "passed"
                 ? "mechanical-migration-complete"
                 : "mechanical-verification-failed";

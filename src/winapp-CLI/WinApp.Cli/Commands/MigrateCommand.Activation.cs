@@ -18,10 +18,6 @@ internal partial class MigrateCommand
             "http://schemas.microsoft.com/appx/manifest/uap/windows10";
         private const string Uap3ManifestNamespace =
             "http://schemas.microsoft.com/appx/manifest/uap/windows10/3";
-        private const string RestrictedCapabilitiesNamespace =
-            "http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities";
-        private const string Desktop11ManifestNamespace =
-            "http://schemas.microsoft.com/appx/manifest/desktop/windows10/11";
 
         private static readonly XNamespace FoundationManifest =
             FoundationManifestNamespace;
@@ -29,21 +25,15 @@ internal partial class MigrateCommand
             UapManifestNamespace;
         private static readonly XNamespace Uap3Manifest =
             Uap3ManifestNamespace;
-        private static readonly XNamespace RestrictedCapabilitiesManifest =
-            RestrictedCapabilitiesNamespace;
-        private static readonly XNamespace Desktop11Manifest =
-            Desktop11ManifestNamespace;
 
+        private static readonly XName FoundationPackage =
+            FoundationManifest + "Package";
         private static readonly XName FoundationApplications =
             FoundationManifest + "Applications";
         private static readonly XName FoundationApplication =
             FoundationManifest + "Application";
         private static readonly XName FoundationExtensions =
             FoundationManifest + "Extensions";
-        private static readonly XName FoundationTargetDeviceFamily =
-            FoundationManifest + "TargetDeviceFamily";
-        private static readonly XName RestrictedCapability =
-            RestrictedCapabilitiesManifest + "Capability";
         private static readonly XName UapExtension =
             UapManifest + "Extension";
         private static readonly XName UapProtocol =
@@ -64,8 +54,6 @@ internal partial class MigrateCommand
             Uap3Manifest + "Protocol";
         private static readonly XName Uap3FileTypeAssociation =
             Uap3Manifest + "FileTypeAssociation";
-        private static readonly XName Desktop11AppLifecycleBehavior =
-            Desktop11Manifest + "AppLifecycleBehavior";
 
         private static readonly HashSet<string> SupportedActivationCategories =
             new(StringComparer.OrdinalIgnoreCase)
@@ -109,13 +97,6 @@ internal partial class MigrateCommand
                 UapDisplayName,
                 UapLogo,
                 UapSupportedFileTypes
-            };
-
-        private static readonly HashSet<XName> SafeTargetExtensionAttributes =
-            new()
-            {
-                XName.Get("Category"),
-                Desktop11AppLifecycleBehavior
             };
 
         private sealed record SourceActivationSchema(
@@ -260,7 +241,35 @@ internal partial class MigrateCommand
                 sourceManifest,
                 sourceApplications[0],
                 analysis.Issues);
-            foreach (var extension in FindApplicationExtensionCandidates(sourceApplications[0]))
+            var sourceExtensionGroups = sourceApplications[0]
+                .Elements(FoundationExtensions)
+                .ToList();
+            if (sourceExtensionGroups.Count > 1)
+            {
+                if (hasPriorAnalysis)
+                {
+                    return AnalyzeUnavailablePriorActivation(
+                        targetRoot,
+                        previousAnalysis!,
+                        "source-extension-container-ambiguous-after-analysis",
+                        "The previously analyzed source Application now contains multiple foundation Extensions containers.");
+                }
+                analysis.Status = "review-required";
+                analysis.Issues.Add(new MigrationActivationIssue
+                {
+                    Kind = "ambiguous-source-extension-container",
+                    Reason =
+                        "The source Application contains multiple foundation Extensions containers, so activation declarations were not transformed.",
+                    Location = new MigrationLocation
+                    {
+                        Path = analysis.SourceManifest
+                    }
+                });
+                return new ActivationMigrationResult(analysis, 0);
+            }
+
+            foreach (var extension in sourceExtensionGroups
+                .SelectMany(group => group.Elements()))
             {
                 var categoryAttribute = extension.Attribute("Category");
                 var category = categoryAttribute?.Value.Trim();
@@ -496,10 +505,21 @@ internal partial class MigrateCommand
                 return new ActivationMigrationResult(analysis, 0);
             }
 
-            RecordMismatchedTargetActivationNamespaces(
-                targetApplications[0],
-                analysis);
-            ValidateTargetActivationPrerequisites(targetDocument, analysis);
+            if (applyChanges
+                && analysis.Contracts.Any(contract =>
+                    contract.MigrationStatus == "migrated"))
+            {
+                ValidateNamespacePrefix(
+                    targetDocument.Root!,
+                    "uap",
+                    UapManifestNamespace,
+                    analysis);
+                ValidateNamespacePrefix(
+                    targetDocument.Root!,
+                    "uap3",
+                    Uap3ManifestNamespace,
+                    analysis);
+            }
             var changedFiles = 0;
             if (applyChanges && !analysis.Issues.Any(issue => issue.Severity == "error"))
             {
@@ -723,9 +743,7 @@ internal partial class MigrateCommand
                 Id = ActivationContractId("windows.protocol", name),
                 Category = "windows.protocol",
                 SourceLocation = location,
-                SourceSchema = SourceActivationSchemaName(
-                    extension,
-                    protocol),
+                SourceSchema = SourceActivationSchemaName(extension),
                 ProtocolName = name,
                 DisplayName = ReadSingleChildValue(protocol, UapDisplayName),
                 Logo = ReadSingleChildValue(protocol, UapLogo),
@@ -825,9 +843,7 @@ internal partial class MigrateCommand
                 Id = ActivationContractId("windows.fileTypeAssociation", name),
                 Category = "windows.fileTypeAssociation",
                 SourceLocation = location,
-                SourceSchema = SourceActivationSchemaName(
-                    extension,
-                    association),
+                SourceSchema = SourceActivationSchemaName(extension),
                 AssociationName = name,
                 DisplayName = ReadSingleChildValue(association, UapDisplayName),
                 Logo = ReadSingleChildValue(association, UapLogo),
@@ -903,10 +919,7 @@ internal partial class MigrateCommand
                 }
 
                 var extensionValue = fileType.Value.Trim();
-                if (string.IsNullOrWhiteSpace(extensionValue)
-                    || !extensionValue.StartsWith('.')
-                    || extensionValue.IndexOfAny(['*', '?']) >= 0
-                    || extensionValue.Contains("$(", StringComparison.Ordinal))
+                if (!IsLiteralFileExtension(extensionValue))
                 {
                     MarkContractReviewRequired(
                         contract,
@@ -934,6 +947,13 @@ internal partial class MigrateCommand
             }
             return contract;
         }
+
+        private static bool IsLiteralFileExtension(string value) =>
+            value.Length > 1
+            && value[0] == '.'
+            && !value.Any(char.IsWhiteSpace)
+            && value.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
+            && !value.Contains("$(", StringComparison.Ordinal);
 
         private static void ValidateSafeAttributes(
             XElement element,
@@ -1047,249 +1067,6 @@ internal partial class MigrateCommand
             }
         }
 
-        private static void ValidateTargetActivationPrerequisites(
-            XDocument targetDocument,
-            MigrationActivationAnalysis analysis)
-        {
-            if (!analysis.Contracts.Any(contract => contract.MigrationStatus == "migrated"))
-            {
-                return;
-            }
-
-            var root = targetDocument.Root!;
-            ValidateNamespacePrefix(root, "uap", UapManifestNamespace, analysis);
-            ValidateNamespacePrefix(root, "uap3", Uap3ManifestNamespace, analysis);
-
-            var extensionGroups = FindApplications(targetDocument)
-                .SelectMany(application => application.Elements())
-                .Where(element => element.Name == FoundationExtensions)
-                .ToList();
-            if (extensionGroups.Count > 1)
-            {
-                analysis.Issues.Add(new MigrationActivationIssue
-                {
-                    Kind = "duplicate-target-extension-groups",
-                    Severity = "error",
-                    Reason = "The target Application contains multiple Extensions elements.",
-                    Location = analysis.TargetManifest is null
-                        ? null
-                        : new MigrationLocation { Path = analysis.TargetManifest }
-                });
-            }
-
-            var hasDesktopFamily = targetDocument.Descendants().Any(element =>
-                element.Name == FoundationTargetDeviceFamily
-                && string.Equals(
-                    element.Attribute("Name")?.Value,
-                    "Windows.Desktop",
-                    StringComparison.OrdinalIgnoreCase));
-            if (!hasDesktopFamily)
-            {
-                analysis.Issues.Add(new MigrationActivationIssue
-                {
-                    Kind = "desktop-target-family-missing",
-                    Severity = "error",
-                    Reason = "Migrated desktop activation contracts require a Windows.Desktop target device family.",
-                    Location = analysis.TargetManifest is null
-                        ? null
-                        : new MigrationLocation { Path = analysis.TargetManifest }
-                });
-            }
-
-            var hasRunFullTrust = targetDocument.Descendants().Any(element =>
-                element.Name == RestrictedCapability
-                && string.Equals(
-                    element.Attribute("Name")?.Value,
-                    "runFullTrust",
-                    StringComparison.OrdinalIgnoreCase));
-            if (!hasRunFullTrust)
-            {
-                analysis.Issues.Add(new MigrationActivationIssue
-                {
-                    Kind = "run-full-trust-capability-missing",
-                    Severity = "error",
-                    Reason = "The CLI-created WinUI desktop target must retain rescap:Capability Name=\"runFullTrust\" for packaged classic activation.",
-                    Location = analysis.TargetManifest is null
-                        ? null
-                        : new MigrationLocation { Path = analysis.TargetManifest }
-                });
-            }
-
-            var usesSystemManagedLifecycle = targetDocument.Descendants().Any(element =>
-                element.Name == Uap3Extension
-                && element.Attributes().Any(attribute =>
-                    attribute.Name == Desktop11AppLifecycleBehavior
-                    && string.Equals(
-                        attribute.Value,
-                        "systemManaged",
-                        StringComparison.OrdinalIgnoreCase)));
-            var hasShellExperience = targetDocument.Descendants().Any(element =>
-                element.Name == RestrictedCapability
-                && string.Equals(
-                    element.Attribute("Name")?.Value,
-                    "shellExperience",
-                    StringComparison.OrdinalIgnoreCase));
-            if (usesSystemManagedLifecycle && !hasShellExperience)
-            {
-                analysis.Issues.Add(new MigrationActivationIssue
-                {
-                    Kind = "shell-experience-capability-required",
-                    Severity = "error",
-                    Reason = "AppLifecycleBehavior=\"systemManaged\" requires the restricted shellExperience capability and cannot be added safely.",
-                    Location = analysis.TargetManifest is null
-                        ? null
-                        : new MigrationLocation { Path = analysis.TargetManifest }
-                });
-            }
-        }
-
-        private static void RecordMismatchedTargetActivationNamespaces(
-            XElement targetApplication,
-            MigrationActivationAnalysis analysis)
-        {
-            foreach (var container in targetApplication.Elements().Where(element =>
-                element.Name.LocalName == "Extensions"
-                && element.Name != FoundationExtensions))
-            {
-                if (container.DescendantsAndSelf().Any(element =>
-                    SupportedActivationCategories.Contains(
-                        element.Attribute("Category")?.Value ?? string.Empty)))
-                {
-                    AddTargetNamespaceIssue(
-                        analysis,
-                        "target-extension-container-namespace-unsupported",
-                        $"Target Extensions container '{container.Name}' must use the foundation manifest namespace.",
-                        container);
-                }
-            }
-
-            foreach (var extension in targetApplication
-                .Elements(FoundationExtensions)
-                .SelectMany(container => container.Elements()))
-            {
-                var category = extension.Attribute("Category")?.Value;
-                if (category is null
-                    || !SupportedActivationCategories.Contains(category))
-                {
-                    continue;
-                }
-                if (extension.Name != Uap3Extension)
-                {
-                    AddTargetNamespaceIssue(
-                        analysis,
-                        "target-activation-extension-namespace-unsupported",
-                        $"Target activation extension '{extension.Name}' must use the uap3 namespace.",
-                        extension);
-                    continue;
-                }
-                RecordMismatchedTargetAttributes(
-                    extension,
-                    SafeTargetExtensionAttributes,
-                    analysis);
-
-                var expectedDeclaration = category.Equals(
-                    "windows.protocol",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? Uap3Protocol
-                    : Uap3FileTypeAssociation;
-                foreach (var declaration in extension.Elements().Where(element =>
-                    element.Name.LocalName == expectedDeclaration.LocalName
-                    && element.Name != expectedDeclaration))
-                {
-                    AddTargetNamespaceIssue(
-                        analysis,
-                        "target-activation-declaration-namespace-unsupported",
-                        $"Target declaration '{declaration.Name}' must use the uap3 namespace.",
-                        declaration);
-                }
-
-                foreach (var declaration in extension.Elements(expectedDeclaration))
-                {
-                    var allowedDeclarationAttributes = category.Equals(
-                        "windows.protocol",
-                        StringComparison.OrdinalIgnoreCase)
-                        ? SafeProtocolAttributes
-                        : SafeFileAssociationAttributes;
-                    RecordMismatchedTargetAttributes(
-                        declaration,
-                        allowedDeclarationAttributes,
-                        analysis);
-                    var allowedFacts = category.Equals(
-                        "windows.protocol",
-                        StringComparison.OrdinalIgnoreCase)
-                        ? SafeProtocolChildren
-                        : SafeFileAssociationChildren;
-                    foreach (var fact in declaration.Elements().Where(element =>
-                        allowedFacts.Any(allowed =>
-                            allowed.LocalName == element.Name.LocalName)
-                        && !allowedFacts.Contains(element.Name)))
-                    {
-                        AddTargetNamespaceIssue(
-                            analysis,
-                            "target-activation-fact-namespace-unsupported",
-                            $"Target activation fact '{fact.Name}' must use the base uap namespace.",
-                            fact);
-                    }
-                    foreach (var fileType in declaration
-                        .Elements(UapSupportedFileTypes)
-                        .SelectMany(group => group.Elements()))
-                    {
-                        if (fileType.Name.LocalName == UapFileType.LocalName
-                            && fileType.Name != UapFileType)
-                        {
-                            AddTargetNamespaceIssue(
-                                analysis,
-                                "target-file-type-namespace-unsupported",
-                                $"Target FileType '{fileType.Name}' must use the base uap namespace.",
-                                fileType);
-                        }
-                        if (fileType.Name == UapFileType)
-                        {
-                            RecordMismatchedTargetAttributes(
-                                fileType,
-                                [XName.Get("ContentType")],
-                                analysis);
-                        }
-                    }
-                }
-            }
-        }
-
-        private static void RecordMismatchedTargetAttributes(
-            XElement element,
-            HashSet<XName> allowedAttributes,
-            MigrationActivationAnalysis analysis)
-        {
-            foreach (var attribute in element.Attributes().Where(attribute =>
-                !attribute.IsNamespaceDeclaration
-                && attribute.Name.Namespace != XNamespace.None
-                && !allowedAttributes.Contains(attribute.Name)))
-            {
-                AddTargetNamespaceIssue(
-                    analysis,
-                    "target-activation-attribute-namespace-unsupported",
-                    $"Target activation attribute '{attribute.Name}' is not valid on '{element.Name}'.",
-                    attribute);
-            }
-        }
-
-        private static void AddTargetNamespaceIssue(
-            MigrationActivationAnalysis analysis,
-            string kind,
-            string reason,
-            XObject location)
-        {
-            analysis.Issues.Add(new MigrationActivationIssue
-            {
-                Kind = kind,
-                Severity = "error",
-                Reason = reason,
-                Location = analysis.TargetManifest is null
-                    ? null
-                    : ManifestLocation(analysis.TargetManifest, location)
-            });
-        }
-
         private static bool MergeSafeActivationContracts(
             XDocument targetDocument,
             XElement targetApplication,
@@ -1303,6 +1080,24 @@ internal partial class MigrateCommand
                 return false;
             }
 
+            var extensionGroups = targetApplication
+                .Elements(FoundationExtensions)
+                .ToList();
+            if (extensionGroups.Count > 1)
+            {
+                analysis.Issues.Add(new MigrationActivationIssue
+                {
+                    Kind = "ambiguous-target-extension-container",
+                    Severity = "error",
+                    Reason =
+                        "The target Application contains multiple foundation Extensions containers, so no insertion point is unambiguous.",
+                    Location = analysis.TargetManifest is null
+                        ? null
+                        : new MigrationLocation { Path = analysis.TargetManifest }
+                });
+                return false;
+            }
+
             var changed = EnsureManifestNamespace(
                 targetDocument,
                 "uap",
@@ -1313,8 +1108,7 @@ internal partial class MigrateCommand
                 Uap3ManifestNamespace);
             changed |= EnsureIgnorableNamespace(targetDocument, "uap3");
 
-            var extensions = targetApplication.Elements()
-                .FirstOrDefault(element => element.Name == FoundationExtensions);
+            var extensions = extensionGroups.SingleOrDefault();
             if (extensions is null)
             {
                 extensions = new XElement(
@@ -1402,8 +1196,9 @@ internal partial class MigrateCommand
             XElement targetApplication,
             string targetManifest)
         {
-            var extensions = targetApplication.Elements()
-                .FirstOrDefault(element => element.Name == FoundationExtensions);
+            var extensions = targetApplication
+                .Elements(FoundationExtensions)
+                .ToList();
             foreach (var contract in analysis.Contracts)
             {
                 if (contract.MigrationStatus != "migrated")
@@ -1414,9 +1209,10 @@ internal partial class MigrateCommand
                     continue;
                 }
 
-                var matches = extensions is null
-                    ? []
-                    : FindTargetContractExtensions(extensions, contract).ToList();
+                var matches = extensions
+                    .SelectMany(group =>
+                        FindTargetContractExtensions(group, contract))
+                    .ToList();
                 if (matches.Count == 0)
                 {
                     contract.VerificationStatus = "missing";
@@ -1450,19 +1246,20 @@ internal partial class MigrateCommand
             XElement extensions,
             MigrationActivationContract contract) =>
             extensions.Elements().Where(extension =>
-                extension.Name == Uap3Extension
+                extension.Name.LocalName == Uap3Extension.LocalName
                 && string.Equals(
                     extension.Attribute("Category")?.Value,
                     contract.Category,
                     StringComparison.OrdinalIgnoreCase)
                 && extension.Elements().Any(child =>
                     contract.Category == "windows.protocol"
-                        ? child.Name == Uap3Protocol
+                        ? child.Name.LocalName == Uap3Protocol.LocalName
                             && string.Equals(
                                 child.Attribute("Name")?.Value,
                                 contract.ProtocolName,
                                 StringComparison.OrdinalIgnoreCase)
-                        : child.Name == Uap3FileTypeAssociation
+                        : child.Name.LocalName ==
+                            Uap3FileTypeAssociation.LocalName
                             && string.Equals(
                                 child.Attribute("Name")?.Value,
                                 contract.AssociationName,
@@ -1470,134 +1267,42 @@ internal partial class MigrateCommand
 
         private static bool TargetContractMatches(
             XElement targetExtension,
-            MigrationActivationContract contract)
-        {
-            if (targetExtension.Name != Uap3Extension
-                || !HasOnlySafeAttributes(
-                    targetExtension,
-                    SafeTargetExtensionAttributes))
+            MigrationActivationContract contract) =>
+            XNode.DeepEquals(
+                CanonicalizeActivationFragment(targetExtension),
+                CanonicalizeActivationFragment(
+                    CreateTargetContract(contract)));
+
+        private static XElement CanonicalizeActivationFragment(
+            XElement element) =>
+            new(
+                element.Name,
+                element.Attributes()
+                    .Where(attribute => !attribute.IsNamespaceDeclaration)
+                    .OrderBy(attribute => attribute.Name.NamespaceName, StringComparer.Ordinal)
+                    .ThenBy(attribute => attribute.Name.LocalName, StringComparer.Ordinal)
+                    .Select(attribute =>
+                        new XAttribute(attribute.Name, attribute.Value)),
+                element.Nodes()
+                    .Where(node =>
+                        node is not XText text
+                        || !string.IsNullOrWhiteSpace(text.Value))
+                    .Select(node => node is XElement child
+                        ? CanonicalizeActivationFragment(child)
+                        : CloneActivationNode(node)));
+
+        private static XNode CloneActivationNode(XNode node) =>
+            node switch
             {
-                return false;
-            }
-
-            var declarations = targetExtension.Elements().ToList();
-            if (declarations.Count != 1
-                || declarations[0] is not { } declaration)
-            {
-                return false;
-            }
-
-            if (contract.Category == "windows.protocol")
-            {
-                return declaration.Name == Uap3Protocol
-                    && HasOnlySafeAttributes(
-                        declaration,
-                        SafeProtocolAttributes)
-                    && declaration.Elements().All(element =>
-                        SafeProtocolChildren.Contains(element.Name))
-                    && HasNoDuplicateChildren(declaration, SafeProtocolChildren)
-                    && string.Equals(
-                        declaration.Attribute("Name")?.Value,
-                        contract.ProtocolName,
-                        StringComparison.OrdinalIgnoreCase)
-                    && SameOptionalFact(
-                        declaration.Attribute("DesiredView")?.Value,
-                        contract.DesiredView)
-                    && SameOptionalFact(
-                        declaration.Attribute("ReturnResults")?.Value,
-                        contract.ReturnResults)
-                    && SameOptionalFact(
-                        ReadTargetChildValue(declaration, UapDisplayName),
-                        contract.DisplayName)
-                    && SameOptionalFact(
-                        ReadTargetChildValue(declaration, UapLogo),
-                        contract.Logo);
-            }
-
-            if (declaration.Name != Uap3FileTypeAssociation
-                || !HasOnlySafeAttributes(
-                    declaration,
-                    SafeFileAssociationAttributes)
-                || declaration.Elements().Any(element =>
-                    !SafeFileAssociationChildren.Contains(element.Name))
-                || !HasNoDuplicateChildren(
-                    declaration,
-                    SafeFileAssociationChildren)
-                || !string.Equals(
-                    declaration.Attribute("Name")?.Value,
-                    contract.AssociationName,
-                    StringComparison.OrdinalIgnoreCase)
-                || !SameOptionalFact(
-                    declaration.Attribute("DesiredView")?.Value,
-                    contract.DesiredView)
-                || !SameOptionalFact(
-                    declaration.Attribute("MultiSelectModel")?.Value,
-                    contract.MultiSelectModel)
-                || !SameOptionalFact(
-                    ReadTargetChildValue(declaration, UapDisplayName),
-                    contract.DisplayName)
-                || !SameOptionalFact(
-                    ReadTargetChildValue(declaration, UapLogo),
-                    contract.Logo))
-            {
-                return false;
-            }
-
-            var supportedGroups = declaration.Elements(UapSupportedFileTypes).ToList();
-            if (supportedGroups.Count != 1
-                || supportedGroups[0].Elements().Any(element =>
-                    element.Name != UapFileType
-                    || element.HasElements
-                    || element.Attributes().Any(attribute =>
-                        !attribute.IsNamespaceDeclaration
-                        && attribute.Name != XName.Get("ContentType"))))
-            {
-                return false;
-            }
-
-            var targetFileTypes = supportedGroups[0].Elements(UapFileType)
-                .Select(element => (
-                    Extension: element.Value.Trim(),
-                    ContentType: element.Attribute("ContentType")?.Value))
-                .OrderBy(value => value.Extension, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(value => value.ContentType, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            var sourceFileTypes = contract.SupportedFileTypes
-                .Select(fileType => (
-                    fileType.Extension,
-                    fileType.ContentType))
-                .OrderBy(value => value.Extension, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(value => value.ContentType, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            return targetFileTypes.SequenceEqual(
-                sourceFileTypes,
-                ActivationFileTypeComparer.OrdinalIgnoreCase);
-        }
-
-        private static string? ReadTargetChildValue(
-            XElement parent,
-            XName name)
-        {
-            var matches = parent.Elements()
-                .Where(element => element.Name == name)
-                .ToList();
-            return matches.Count == 1 ? matches[0].Value.Trim() : null;
-        }
-
-        private static bool HasNoDuplicateChildren(
-            XElement parent,
-            HashSet<XName> allowedChildren) =>
-            parent.Elements()
-                .Where(element => allowedChildren.Contains(element.Name))
-                .GroupBy(element => element.Name)
-                .All(group => group.Count() == 1);
-
-        private static bool HasOnlySafeAttributes(
-            XElement element,
-            HashSet<XName> allowedAttributes) =>
-            element.Attributes().All(attribute =>
-                attribute.IsNamespaceDeclaration
-                || allowedAttributes.Contains(attribute.Name));
+                XCData cdata => new XCData(cdata.Value),
+                XText text => new XText(text.Value),
+                XComment comment => new XComment(comment.Value),
+                XProcessingInstruction instruction =>
+                    new XProcessingInstruction(
+                        instruction.Target,
+                        instruction.Data),
+                _ => new XText(node.ToString(SaveOptions.DisableFormatting))
+            };
 
         private static string GetActivationAnalysisStatus(
             MigrationActivationAnalysis analysis)
@@ -1633,21 +1338,18 @@ internal partial class MigrateCommand
         private static IEnumerable<XElement> FindApplications(XDocument document)
         {
             var root = document.Root;
-            if (root is null)
+            if (root is null || root.Name != FoundationPackage)
             {
                 return [];
             }
-            return root.Elements()
-                .Where(element => element.Name == FoundationApplications)
-                .SelectMany(element => element.Elements())
+            var applications = root.Elements(FoundationApplications).ToList();
+            if (applications.Count != 1)
+            {
+                return [];
+            }
+            return applications[0].Elements()
                 .Where(element => element.Name == FoundationApplication);
         }
-
-        private static IEnumerable<XElement> FindApplicationExtensionCandidates(
-            XElement application) =>
-            application.Elements()
-                .Where(element => element.Name == FoundationExtensions)
-                .SelectMany(element => element.Elements());
 
         private static bool TryGetSourceActivationSchema(
             XElement extension,
@@ -1656,8 +1358,8 @@ internal partial class MigrateCommand
             if (extension.Name == UapExtension)
             {
                 schema = new SourceActivationSchema(
-                    [UapProtocol, Uap3Protocol],
-                    [UapFileTypeAssociation, Uap3FileTypeAssociation]);
+                    [UapProtocol],
+                    [UapFileTypeAssociation]);
                 return true;
             }
             if (extension.Name == Uap3Extension)
@@ -1673,20 +1375,10 @@ internal partial class MigrateCommand
         }
 
         private static string SourceActivationSchemaName(
-            XElement extension,
-            XElement declaration)
-        {
-            var extensionSchema = extension.Name == UapExtension
+            XElement extension) =>
+            extension.Name == UapExtension
                 ? "uap"
                 : "uap3";
-            var declarationSchema =
-                declaration.Name.Namespace == UapManifest
-                    ? "uap"
-                    : "uap3";
-            return extensionSchema == declarationSchema
-                ? declarationSchema
-                : $"{extensionSchema}-extension/{declarationSchema}-declaration";
-        }
 
         private static void RecordMismatchedSourceExtensionContainers(
             string sourceRoot,
@@ -1806,7 +1498,7 @@ internal partial class MigrateCommand
             string name,
             string? value)
         {
-            if (!string.IsNullOrWhiteSpace(value))
+            if (value is not null)
             {
                 element.Add(new XAttribute(name, value));
             }
@@ -1817,44 +1509,11 @@ internal partial class MigrateCommand
             XName name,
             string? value)
         {
-            if (!string.IsNullOrWhiteSpace(value))
+            if (value is not null)
             {
                 parent.Add(new XElement(name, value));
             }
         }
 
-        private static bool SameOptionalFact(
-            string? target,
-            string? source) =>
-            string.Equals(
-                string.IsNullOrWhiteSpace(target) ? null : target.Trim(),
-                string.IsNullOrWhiteSpace(source) ? null : source.Trim(),
-                StringComparison.Ordinal);
-
-        private sealed class ActivationFileTypeComparer :
-            IEqualityComparer<(string Extension, string? ContentType)>
-        {
-            internal static readonly ActivationFileTypeComparer OrdinalIgnoreCase = new();
-
-            public bool Equals(
-                (string Extension, string? ContentType) x,
-                (string Extension, string? ContentType) y) =>
-                string.Equals(
-                    x.Extension,
-                    y.Extension,
-                    StringComparison.OrdinalIgnoreCase)
-                && string.Equals(
-                    x.ContentType,
-                    y.ContentType,
-                    StringComparison.OrdinalIgnoreCase);
-
-            public int GetHashCode(
-                (string Extension, string? ContentType) value) =>
-                HashCode.Combine(
-                    StringComparer.OrdinalIgnoreCase.GetHashCode(value.Extension),
-                    value.ContentType is null
-                        ? 0
-                        : StringComparer.OrdinalIgnoreCase.GetHashCode(value.ContentType));
-        }
     }
 }

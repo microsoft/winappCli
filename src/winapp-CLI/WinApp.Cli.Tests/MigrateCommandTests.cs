@@ -123,6 +123,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_CreatesWinuiProjectAndWritesReport()
     {
         var source = await CreateUwpSourceAsync("SensorApp");
@@ -180,6 +181,80 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    public async Task Migrate_KnownUwpImportsDoNotOpenProjectItemTodo()
+    {
+        var source = await CreateUwpSourceAsync("KnownImportsApp");
+        await WriteAsync(
+            source,
+            "KnownImportsApp.csproj",
+            """
+            <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props"
+                      Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+              <Import Project="$(MSBuildExtensionsPath)\Microsoft\WindowsXaml\v$(VisualStudioVersion)\Microsoft.Windows.UI.Xaml.CSharp.targets" />
+            </Project>
+            """);
+        var target = new DirectoryInfo(Path.Combine(
+            _tempDirectory.FullName,
+            "known-imports-output"));
+        ArrangeTemplateCreation(target, "KnownImportsApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        Assert.IsFalse(report.RootElement
+            .GetProperty("todos")
+            .EnumerateArray()
+            .Any(todo => todo.GetProperty("id").GetString() == "UWMIG012"));
+        Assert.AreEqual(
+            0,
+            report.RootElement
+                .GetProperty("mechanicalVerification")
+                .GetProperty("projectItems")
+                .GetProperty("unresolvedItems")
+                .GetArrayLength());
+    }
+
+    [TestMethod]
+    public async Task Migrate_CustomImportRemainsReviewRequired()
+    {
+        var source = await CreateUwpSourceAsync("CustomImportApp");
+        await WriteAsync(
+            source,
+            "CustomImportApp.csproj",
+            """
+            <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <Import Project="Build\Custom.targets" />
+            </Project>
+            """);
+        var target = new DirectoryInfo(Path.Combine(
+            _tempDirectory.FullName,
+            "custom-import-output"));
+        ArrangeTemplateCreation(target, "CustomImportApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        Assert.IsTrue(report.RootElement
+            .GetProperty("todos")
+            .EnumerateArray()
+            .Any(todo => todo.GetProperty("id").GetString() == "UWMIG012"));
+        Assert.AreEqual(
+            1,
+            report.RootElement
+                .GetProperty("mechanicalVerification")
+                .GetProperty("projectItems")
+                .GetProperty("unresolvedItems")
+                .GetArrayLength());
+    }
+
+    [TestMethod]
     public async Task Migrate_LegacyAssemblyInfoDisablesGeneratedAssemblyAttributes()
     {
         var source = await CreateUwpSourceAsync("AssemblyInfoApp");
@@ -214,6 +289,8 @@ public class MigrateCommandTests : MigrateCommandTestBase
     {
         var source = await CreateUwpSourceAsync("DependencyApp");
         var sibling = _tempDirectory.CreateSubdirectory("SharedDependency");
+        var conditionedSibling =
+            _tempDirectory.CreateSubdirectory("ConditionedDependency");
         await WriteAsync(source, "DependencyApp.csproj", """
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup><TargetFramework>uap10.0</TargetFramework></PropertyGroup>
@@ -222,7 +299,15 @@ public class MigrateCommandTests : MigrateCommandTestBase
                 <PackageReference Include="$(ConditionalPackage)" Version="$(ConditionalVersion)" Condition="'$(UseConditionalPackage)' == 'true'" />
                 <PackageReference Include="Conditional.Concrete" Version="7.8.9" Condition="'$(UseConditionalPackage)' == 'true'" />
                 <ProjectReference Include="..\SharedDependency\SharedDependency.csproj" />
+                <ProjectReference Include="..\ConditionedDependency\ConditionedDependency.csproj" Condition="false" />
                 <ProjectReference Include="$(OptionalProject)" Condition="'$(UseOptionalProject)' == 'true'" />
+              </ItemGroup>
+            </Project>
+            """);
+        await WriteAsync(conditionedSibling, "ConditionedDependency.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <PackageReference Include="Must.Not.Be.Traversed" Version="9.9.9" />
               </ItemGroup>
             </Project>
             """);
@@ -269,7 +354,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
                 .GetProperty("resolutionStatus")
                 .GetString());
         var projectReferences = dependencies.GetProperty("projectReferences").EnumerateArray().ToList();
-        Assert.AreEqual(2, projectReferences.Count);
+        Assert.AreEqual(3, projectReferences.Count);
         var projectReference = projectReferences.Single(reference =>
             reference.GetProperty("resolutionStatus").GetString() == "resolved");
         Assert.AreEqual(
@@ -283,6 +368,18 @@ public class MigrateCommandTests : MigrateCommandTestBase
         Assert.IsTrue(projectReferences.Any(reference =>
             reference.GetProperty("include").GetString() == "$(OptionalProject)"
             && reference.GetProperty("resolutionStatus").GetString() == "unresolved"));
+        var conditionedReference = projectReferences.Single(reference =>
+            reference.GetProperty("include").GetString()
+                == @"..\ConditionedDependency\ConditionedDependency.csproj");
+        Assert.AreEqual(
+            "unresolved-condition",
+            conditionedReference.GetProperty("resolutionStatus").GetString());
+        Assert.AreEqual(
+            "false",
+            conditionedReference.GetProperty("condition").GetString());
+        Assert.IsFalse(packages.Any(package =>
+            package.GetProperty("id").GetString()
+                == "Must.Not.Be.Traversed"));
         Assert.AreEqual(0, dependencies.GetProperty("issues").GetArrayLength());
         Assert.DoesNotContain("replacement", dependencies.ToString().ToLowerInvariant());
     }
@@ -363,6 +460,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_MigratesLocalContentAndPriResourceProjectItems()
     {
         var source = await CreateUwpSourceAsync("ProjectItemsApp");
@@ -410,7 +508,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
-    public async Task Migrate_ReportsProjectItemsThatRequireMsbuildEvaluation()
+    public async Task Migrate_ReportsConditionalWildcardItemAsRawReviewRequired()
     {
         var source = await CreateUwpSourceAsync("ConditionalItemsApp");
         await WriteAsync(source, "ConditionalItemsApp.csproj", """
@@ -436,8 +534,90 @@ public class MigrateCommandTests : MigrateCommandTestBase
         Assert.AreEqual(1, projectItems.GetProperty("sourceItems").GetInt32());
         Assert.AreEqual(0, projectItems.GetProperty("migratedItems").GetInt32());
         Assert.AreEqual(1, projectItems.GetProperty("unresolvedItems").GetArrayLength());
+        var reviewItem = projectItems
+            .GetProperty("decisionRequiredItems")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual(
+            "conditional",
+            reviewItem.GetProperty("reviewReason").GetString());
+        StringAssert.Contains(
+            reviewItem.GetProperty("condition").GetString(),
+            "$(Configuration)");
         Assert.IsTrue(report.RootElement.GetProperty("todos").EnumerateArray().Any(todo =>
             todo.GetProperty("category").GetString() == "project-items"));
+    }
+
+    [TestMethod]
+    public async Task Migrate_ConditionFalseItemRemainsReviewRequired()
+    {
+        var source = await CreateUwpSourceAsync("FalseConditionItemApp");
+        await WriteAsync(source, "FalseConditionItemApp.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <Content Include="Data\Model.json" Condition="false" />
+              </ItemGroup>
+            </Project>
+            """);
+        await WriteAsync(source, @"Data\Model.json", """{"name":"lamp"}""");
+        var target = new DirectoryInfo(Path.Combine(
+            _tempDirectory.FullName,
+            "false-condition-item-output"));
+        ArrangeTemplateCreation(target, "FalseConditionItemAppApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        var item = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("projectItems")
+            .GetProperty("decisionRequiredItems")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual("conditional", item.GetProperty("reviewReason").GetString());
+        Assert.AreEqual("false", item.GetProperty("condition").GetString());
+    }
+
+    [TestMethod]
+    public async Task Migrate_ChooseItemRemainsReviewRequired()
+    {
+        var source = await CreateUwpSourceAsync("ChooseItemApp");
+        await WriteAsync(source, "ChooseItemApp.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <Choose>
+                <Otherwise>
+                  <ItemGroup>
+                    <Content Include="Data\Model.json" />
+                  </ItemGroup>
+                </Otherwise>
+              </Choose>
+            </Project>
+            """);
+        await WriteAsync(source, @"Data\Model.json", """{"name":"lamp"}""");
+        var target = new DirectoryInfo(Path.Combine(
+            _tempDirectory.FullName,
+            "choose-item-output"));
+        ArrangeTemplateCreation(target, "ChooseItemAppApp");
+
+        var (exit, output) = await InvokeAsync(source, target);
+
+        Assert.AreEqual(0, exit, output);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(target.FullName, "migration-report.json"),
+            TestContext.CancellationToken));
+        var item = report.RootElement
+            .GetProperty("mechanicalVerification")
+            .GetProperty("projectItems")
+            .GetProperty("decisionRequiredItems")
+            .EnumerateArray()
+            .Single();
+        Assert.AreEqual("choose-branch", item.GetProperty("reviewReason").GetString());
+        Assert.AreEqual(
+            @"Data\Model.json",
+            item.GetProperty("include").GetString());
     }
 
     [TestMethod]
@@ -493,6 +673,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_AccountsForEveryEligibleSourceFile()
     {
         var source = await CreateUwpSourceAsync("InventoryApp");
@@ -520,6 +701,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Verify_RefreshesMechanicalStateWithoutChangingBehavioralValidation()
     {
         var source = await CreateUwpSourceAsync("VerifyApp");
@@ -598,6 +780,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_LeavesSemanticAndExternalLayoutDecisionsForLater()
     {
         var source = await CreateUwpSourceAsync("BoundaryApp");
@@ -652,6 +835,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_RewritesSafeVirtualizingStackPanelAndPreservesCompatibleAttributes()
     {
         var source = await CreateUwpSourceAsync("ItemsPanelApp");
@@ -700,6 +884,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_PreservesAndReportsUnsafeVirtualizingStackPanelOccurrences()
     {
         var source = await CreateUwpSourceAsync("UnsafeItemsPanelApp");
@@ -1108,6 +1293,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_TemplateFailureRemovesNewPartialOutput()
     {
         var source = await CreateUwpSourceAsync("FailedTemplateApp");
@@ -1177,6 +1363,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_NonEmptyOutputFailsBeforeTemplateCreation()
     {
         var source = await CreateUwpSourceAsync("ExistingOutputApp");
@@ -1274,6 +1461,7 @@ public class MigrateCommandTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_SourceWithoutProjectFails()
     {
         var source = _tempDirectory.CreateSubdirectory("not-uwp");

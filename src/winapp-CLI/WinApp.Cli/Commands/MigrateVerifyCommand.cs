@@ -6,6 +6,7 @@ using System.CommandLine.Invocation;
 using System.Xml;
 using System.Xml.Linq;
 using WinApp.Cli.Models;
+using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
 
@@ -31,7 +32,9 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
         Options.Add(TargetProjectOption);
     }
 
-    internal sealed class Handler : AsynchronousCommandLineAction
+    internal sealed class Handler(
+        IMsBuildProjectItemEvaluator msBuildProjectItemEvaluator)
+        : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(
             ParseResult parseResult,
@@ -183,12 +186,15 @@ internal sealed class MigrateVerifyCommand : Command, IShortDescription
                 targetRoot,
                 applyChanges: false,
                 report.ActivationAnalysis).Analysis;
-            report.MechanicalVerification = MigrateCommand.Handler.VerifyExistingMigration(
+            report.MechanicalVerification =
+                await MigrateCommand.Handler.VerifyExistingMigrationAsync(
                 sourceRoot,
                 sourceProject,
                 targetRoot,
                 targetProject,
-                report);
+                report,
+                msBuildProjectItemEvaluator,
+                cancellationToken);
             report.Status = report.MechanicalVerification.Status == "passed"
                 ? "mechanical-migration-complete"
                 : "mechanical-verification-failed";

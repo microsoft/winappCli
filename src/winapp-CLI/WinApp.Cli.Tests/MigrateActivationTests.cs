@@ -14,6 +14,7 @@ namespace WinApp.Cli.Tests;
 public sealed class MigrateActivationTests : MigrateCommandTestBase
 {
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_ReportsAndMigratesProtocolAndFileAssociationContracts()
     {
         var source = await CreateSourceAsync(
@@ -124,6 +125,7 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Verify_IsIdempotentDetectsActivationDriftAndPreservesSemanticState()
     {
         var source = await CreateSourceAsync(
@@ -254,6 +256,7 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
     }
 
     [TestMethod]
+    [TestCategory("MigrationAcceptance")]
     public async Task Migrate_UnsupportedActivationDeclaration_RemainsReviewRequired()
     {
         var source = await CreateSourceAsync(
@@ -448,261 +451,90 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
     }
 
     [TestMethod]
-    public async Task Migrate_UapExtensionAcceptsUap3ProtocolDeclaration()
+    public async Task AnalyzeActivation_MalformedSourceManifestReportsInspectionFailure()
     {
-        var source = await CreateSourceAsync(
-            "MixedProtocolSchemaApp",
-            """
-            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-                     xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-                     xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3">
-              <Applications>
-                <Application Id="App">
-                  <Extensions>
-                    <uap:Extension Category="windows.protocol">
-                      <uap3:Protocol Name="mixed-protocol">
-                        <uap:DisplayName>Mixed Protocol</uap:DisplayName>
-                      </uap3:Protocol>
-                    </uap:Extension>
-                  </Extensions>
-                </Application>
-              </Applications>
-            </Package>
-            """);
-        var target = NewTarget("mixed-protocol-schema-output");
-        ArrangeTemplateCreation(target, "MixedProtocolSchemaAppApp");
+        var source = _tempDirectory.CreateSubdirectory(
+            "MalformedSourceManifestApp");
+        await WriteAsync(
+            source,
+            "Package.appxmanifest",
+            "<Package><Applications>");
+        var target = NewTarget("malformed-source-manifest-output");
+        target.Create();
+        await WriteAsync(target, "Package.appxmanifest", TargetManifest);
 
-        var (exit, output) = await InvokeMigrateAsync(source, target);
+        var result = MigrateCommand.Handler.AnalyzeActivationContracts(
+            source.FullName,
+            target.FullName,
+            applyChanges: true);
 
-        Assert.AreEqual(0, exit, output);
-        using var report = await ReadReportAsync(target);
-        var contract = report.RootElement
-            .GetProperty("activationAnalysis")
-            .GetProperty("contracts")
-            .EnumerateArray()
-            .Single();
-        Assert.AreEqual(
-            "uap-extension/uap3-declaration",
-            contract.GetProperty("sourceSchema").GetString());
-        Assert.AreEqual(
-            "verified",
-            contract.GetProperty("verificationStatus").GetString());
+        Assert.AreEqual("incomplete", result.Analysis.Status);
+        Assert.AreEqual(0, result.ChangedFiles);
+        Assert.IsTrue(result.Analysis.Issues.Any(issue =>
+            issue.Kind == "source-manifest-inspection-failed"
+            && issue.Severity == "error"));
     }
 
     [TestMethod]
-    public async Task Migrate_UapExtensionAcceptsUap3FileAssociationDeclaration()
+    public async Task AnalyzeActivation_AmbiguousSourceManifestReportsError()
     {
-        var source = await CreateSourceAsync(
-            "MixedFileSchemaApp",
-            """
-            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-                     xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-                     xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3">
-              <Applications>
-                <Application Id="App">
-                  <Extensions>
-                    <uap:Extension Category="windows.fileTypeAssociation">
-                      <uap3:FileTypeAssociation Name="mixed-files">
-                        <uap:DisplayName>Mixed File</uap:DisplayName>
-                        <uap:SupportedFileTypes>
-                          <uap:FileType>.mixed</uap:FileType>
-                        </uap:SupportedFileTypes>
-                      </uap3:FileTypeAssociation>
-                    </uap:Extension>
-                  </Extensions>
-                </Application>
-              </Applications>
-            </Package>
-            """);
-        var target = NewTarget("mixed-file-schema-output");
-        ArrangeTemplateCreation(target, "MixedFileSchemaAppApp");
+        var source = _tempDirectory.CreateSubdirectory(
+            "AmbiguousSourceManifestApp");
+        await WriteAsync(
+            source,
+            "Package.appxmanifest",
+            SourceManifest(string.Empty));
+        await WriteAsync(
+            source,
+            "Second.appxmanifest",
+            SourceManifest(string.Empty));
+        var target = NewTarget("ambiguous-source-manifest-output");
+        target.Create();
+        await WriteAsync(target, "Package.appxmanifest", TargetManifest);
 
-        var (exit, output) = await InvokeMigrateAsync(source, target);
+        var result = MigrateCommand.Handler.AnalyzeActivationContracts(
+            source.FullName,
+            target.FullName,
+            applyChanges: true);
 
-        Assert.AreEqual(0, exit, output);
-        using var report = await ReadReportAsync(target);
-        var contract = report.RootElement
-            .GetProperty("activationAnalysis")
-            .GetProperty("contracts")
-            .EnumerateArray()
-            .Single();
-        Assert.AreEqual(
-            "uap-extension/uap3-declaration",
-            contract.GetProperty("sourceSchema").GetString());
-        Assert.AreEqual(
-            "verified",
-            contract.GetProperty("verificationStatus").GetString());
-        Assert.AreEqual(
-            ".mixed",
-            contract.GetProperty("supportedFileTypes")[0]
-                .GetProperty("extension")
-                .GetString());
+        Assert.AreEqual("incomplete", result.Analysis.Status);
+        Assert.AreEqual(0, result.ChangedFiles);
+        Assert.IsTrue(result.Analysis.Issues.Any(issue =>
+            issue.Kind == "ambiguous-source-manifest"
+            && issue.Severity == "error"));
     }
 
     [TestMethod]
-    public async Task Migrate_ValidAndVendorSiblingDeclarationsRemainReviewRequired()
+    public async Task AnalyzeActivation_MalformedTargetManifestReportsFailure()
     {
         var source = await CreateSourceAsync(
-            "SiblingDeclarationNamespaceApp",
-            """
-            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-                     xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-                     xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
-                     xmlns:vendor="urn:vendor">
-              <Applications>
-                <Application Id="App">
-                  <Extensions>
-                    <uap:Extension Category="windows.protocol">
-                      <uap3:Protocol Name="valid-protocol" />
-                      <vendor:Protocol Name="vendor-protocol" />
-                    </uap:Extension>
-                    <uap:Extension Category="windows.fileTypeAssociation">
-                      <uap3:FileTypeAssociation Name="valid-files">
-                        <uap:SupportedFileTypes>
-                          <uap:FileType>.valid</uap:FileType>
-                        </uap:SupportedFileTypes>
-                      </uap3:FileTypeAssociation>
-                      <vendor:FileTypeAssociation Name="vendor-files" />
-                    </uap:Extension>
-                  </Extensions>
-                </Application>
-              </Applications>
-            </Package>
-            """);
-        var target = NewTarget("sibling-declaration-namespace-output");
-        ArrangeTemplateCreation(target, "SiblingDeclarationNamespaceAppApp");
-
-        var (exit, output) = await InvokeMigrateAsync(source, target);
-
-        Assert.AreEqual(0, exit, output);
-        using var report = await ReadReportAsync(target);
-        var activation = report.RootElement.GetProperty("activationAnalysis");
-        Assert.AreEqual("review-required", activation.GetProperty("status").GetString());
-        Assert.IsTrue(activation.GetProperty("contracts").EnumerateArray().All(contract =>
-            contract.GetProperty("migrationStatus").GetString() == "review-required"));
-        var issueKinds = activation.GetProperty("issues")
-            .EnumerateArray()
-            .Select(issue => issue.GetProperty("kind").GetString())
-            .ToList();
-        Assert.IsTrue(issueKinds.Contains(
-            "protocol-extension-child-review-required"));
-        Assert.IsTrue(issueKinds.Contains(
-            "file-association-extension-child-review-required"));
-        var targetManifest = XDocument.Load(
-            Path.Combine(target.FullName, "Package.appxmanifest"));
-        Assert.IsFalse(targetManifest.Descendants().Any(element =>
-            element.Name.NamespaceName ==
-            "http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
-            && element.Name.LocalName == "Extension"));
-    }
-
-    [TestMethod]
-    public async Task Verify_WrongNamespaceTargetFactsAreNeverVerified()
-    {
-        var source = await CreateSourceAsync(
-            "WrongTargetNamespaceApp",
+            "MalformedTargetManifestApp",
             SourceManifest(
                 """
                 <uap:Extension Category="windows.protocol">
-                  <uap:Protocol Name="target-protocol">
-                    <uap:Logo>Assets\Protocol.png</uap:Logo>
-                  </uap:Protocol>
-                </uap:Extension>
-                <uap:Extension Category="windows.fileTypeAssociation">
-                  <uap:FileTypeAssociation Name="target-files">
-                    <uap:SupportedFileTypes>
-                      <uap:FileType>.target</uap:FileType>
-                    </uap:SupportedFileTypes>
-                  </uap:FileTypeAssociation>
+                  <uap:Protocol Name="malformed-target" />
                 </uap:Extension>
                 """));
-        var target = NewTarget("wrong-target-namespace-output");
-        ArrangeTemplateCreation(target, "WrongTargetNamespaceAppApp");
-        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
-        Assert.AreEqual(0, migrateExit, migrateOutput);
+        var target = NewTarget("malformed-target-manifest-output");
+        target.Create();
+        await WriteAsync(
+            target,
+            "Package.appxmanifest",
+            "<Package><Applications>");
 
-        var manifestPath = Path.Combine(target.FullName, "Package.appxmanifest");
-        var manifest = XDocument.Load(manifestPath);
-        XNamespace vendor = "urn:vendor";
-        manifest.Descendants()
-            .Single(element => element.Name.LocalName == "Logo")
-            .Name = vendor + "Logo";
-        manifest.Descendants()
-            .Single(element => element.Name.LocalName == "FileType")
-            .Name = vendor + "FileType";
-        manifest.Save(manifestPath);
+        var result = MigrateCommand.Handler.AnalyzeActivationContracts(
+            source.FullName,
+            target.FullName,
+            applyChanges: true);
 
-        var (exit, output) = await InvokeVerifyAsync(target);
-
-        Assert.AreEqual(1, exit, output);
-        using var report = await ReadReportAsync(target);
-        var contracts = report.RootElement
-            .GetProperty("activationAnalysis")
-            .GetProperty("contracts")
-            .EnumerateArray()
-            .ToList();
-        Assert.IsTrue(contracts.All(contract =>
-            contract.GetProperty("verificationStatus").GetString() == "drifted"));
-        var issues = report.RootElement
-            .GetProperty("activationAnalysis")
-            .GetProperty("issues")
-            .EnumerateArray()
-            .Select(issue => issue.GetProperty("kind").GetString())
-            .ToList();
-        Assert.IsTrue(issues.Contains(
-            "target-activation-fact-namespace-unsupported"));
-        Assert.IsTrue(issues.Contains(
-            "target-file-type-namespace-unsupported"));
-    }
-
-    [TestMethod]
-    public async Task Verify_WrongNamespaceTargetAttributesAreNeverVerified()
-    {
-        var source = await CreateSourceAsync(
-            "WrongTargetAttributeNamespaceApp",
-            SourceManifest(
-                """
-                <uap:Extension Category="windows.protocol">
-                  <uap:Protocol Name="attribute-protocol" />
-                </uap:Extension>
-                <uap:Extension Category="windows.fileTypeAssociation">
-                  <uap:FileTypeAssociation Name="attribute-files">
-                    <uap:SupportedFileTypes>
-                      <uap:FileType>.attribute</uap:FileType>
-                    </uap:SupportedFileTypes>
-                  </uap:FileTypeAssociation>
-                </uap:Extension>
-                """));
-        var target = NewTarget("wrong-target-attribute-namespace-output");
-        ArrangeTemplateCreation(target, "WrongTargetAttributeNamespaceAppApp");
-        var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
-        Assert.AreEqual(0, migrateExit, migrateOutput);
-
-        var manifestPath = Path.Combine(target.FullName, "Package.appxmanifest");
-        var manifest = XDocument.Load(manifestPath);
-        XNamespace vendor = "urn:vendor";
-        var protocolExtension = manifest.Descendants()
-            .Single(element =>
-                element.Name.LocalName == "Extension"
-                && element.Attribute("Category")?.Value == "windows.protocol");
-        protocolExtension.SetAttributeValue(vendor + "Category", "windows.protocol");
-        protocolExtension.Elements().Single()
-            .SetAttributeValue(vendor + "DesiredView", "useMore");
-        manifest.Descendants()
-            .Single(element => element.Name.LocalName == "FileType")
-            .SetAttributeValue(vendor + "ContentType", "application/x-vendor");
-        manifest.Save(manifestPath);
-
-        var (exit, output) = await InvokeVerifyAsync(target);
-
-        Assert.AreEqual(1, exit, output);
-        using var report = await ReadReportAsync(target);
-        var activation = report.RootElement.GetProperty("activationAnalysis");
-        Assert.IsTrue(activation.GetProperty("contracts").EnumerateArray().All(contract =>
-            contract.GetProperty("verificationStatus").GetString() == "drifted"));
-        Assert.IsTrue(activation.GetProperty("issues").EnumerateArray().Any(issue =>
-            issue.GetProperty("kind").GetString() ==
-            "target-activation-attribute-namespace-unsupported"));
+        Assert.AreEqual("failed", result.Analysis.Status);
+        Assert.AreEqual(0, result.ChangedFiles);
+        Assert.IsTrue(result.Analysis.Issues.Any(issue =>
+            issue.Kind == "target-manifest-inspection-failed"
+            && issue.Severity == "error"));
+        Assert.AreEqual(
+            "missing",
+            result.Analysis.Contracts.Single().VerificationStatus);
     }
 
     [TestMethod]
@@ -795,49 +627,47 @@ public sealed class MigrateActivationTests : MigrateCommandTestBase
     }
 
     [TestMethod]
-    public async Task Verify_RejectsSystemManagedLifecycleWithoutRequiredCapability()
+    public async Task Verify_IgnoresPackagingPrerequisitesOutsideMechanicalFragments()
     {
         var source = await CreateSourceAsync(
-            "InvalidCapabilityApp",
+            "ExternalPackagingValidationApp",
             SourceManifest(
                 """
                 <uap:Extension Category="windows.protocol">
-                  <uap:Protocol Name="invalid-capability" />
+                  <uap:Protocol Name="external-package-validation" />
                 </uap:Extension>
                 """));
-        var target = NewTarget("invalid-capability-output");
-        ArrangeTemplateCreation(target, "InvalidCapabilityAppApp");
+        var target = NewTarget("external-package-validation-output");
+        ArrangeTemplateCreation(target, "ExternalPackagingValidationAppApp");
         var (migrateExit, migrateOutput) = await InvokeMigrateAsync(source, target);
         Assert.AreEqual(0, migrateExit, migrateOutput);
 
         var manifestPath = Path.Combine(target.FullName, "Package.appxmanifest");
         var manifest = XDocument.Load(manifestPath);
-        XNamespace desktop11 =
-            "http://schemas.microsoft.com/appx/manifest/desktop/windows10/11";
-        manifest.Root!.Add(new XAttribute(XNamespace.Xmlns + "desktop11", desktop11));
-        var ignorable = manifest.Root.Attribute("IgnorableNamespaces")!.Value;
-        manifest.Root.SetAttributeValue(
-            "IgnorableNamespaces",
-            $"{ignorable} desktop11");
         manifest.Descendants()
             .Single(element =>
-                element.Name.LocalName == "Extension"
-                && element.Attribute("Category")?.Value == "windows.protocol")
-            .SetAttributeValue(
-                desktop11 + "AppLifecycleBehavior",
-                "systemManaged");
+                element.Name.LocalName == "TargetDeviceFamily")
+            .SetAttributeValue("Name", "Windows.Universal");
+        manifest.Descendants()
+            .Single(element =>
+                element.Name.LocalName == "Capability"
+                && element.Attribute("Name")?.Value == "runFullTrust")
+            .Remove();
         manifest.Save(manifestPath);
 
         var (exit, output) = await InvokeVerifyAsync(target);
 
-        Assert.AreEqual(1, exit, output);
+        Assert.AreEqual(0, exit, output);
         using var report = await ReadReportAsync(target);
         var activation = report.RootElement.GetProperty("activationAnalysis");
-        Assert.AreEqual("failed", activation.GetProperty("status").GetString());
-        Assert.IsTrue(activation.GetProperty("issues").EnumerateArray().Any(issue =>
-            issue.GetProperty("kind").GetString() ==
-            "shell-experience-capability-required"
-            && issue.GetProperty("severity").GetString() == "error"));
+        Assert.AreEqual("passed", activation.GetProperty("status").GetString());
+        Assert.AreEqual(
+            "verified",
+            activation.GetProperty("contracts")
+                .EnumerateArray()
+                .Single()
+                .GetProperty("verificationStatus")
+                .GetString());
     }
 
     [TestMethod]

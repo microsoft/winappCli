@@ -76,6 +76,8 @@ internal partial class MigrateCommand
                     var include = package.Attribute("Include")!.Value.Trim();
                     var version = ReadItemVersion(package);
                     var condition = ReadItemCondition(package);
+                    var hasConditionalContext =
+                        HasConditionalOrChooseContext(package);
                     analysis.PackageReferences.Add(new MigrationPackageReference
                     {
                         Id = include,
@@ -85,7 +87,7 @@ internal partial class MigrateCommand
                         Condition = condition,
                         ResolutionStatus = ContainsMsBuildExpression(include, version)
                                 ? "unresolved-properties"
-                                : condition is not null
+                                : hasConditionalContext
                                     ? "unresolved-condition"
                                     : include.IndexOfAny(['*', '?']) >= 0
                                         ? "unresolved-wildcard"
@@ -103,6 +105,8 @@ internal partial class MigrateCommand
                         ? null
                         : NormalizePath(Path.GetRelativePath(sourceRoot, resolvedPath));
                     var condition = ReadItemCondition(reference);
+                    var hasConditionalContext =
+                        HasConditionalOrChooseContext(reference);
                     analysis.ProjectReferences.Add(new MigrationProjectReference
                     {
                         Include = include,
@@ -112,7 +116,7 @@ internal partial class MigrateCommand
                         Condition = condition,
                         ResolutionStatus = resolvedPath is null
                             ? "unresolved"
-                            : condition is not null
+                            : hasConditionalContext
                                 ? "unresolved-condition"
                             : File.Exists(resolvedPath)
                                 ? "resolved"
@@ -121,7 +125,9 @@ internal partial class MigrateCommand
                             && IsOutsideRoot(relativeResolvedPath)
                     });
 
-                    if (resolvedPath is not null && File.Exists(resolvedPath))
+                    if (!hasConditionalContext
+                        && resolvedPath is not null
+                        && File.Exists(resolvedPath))
                     {
                         pending.Enqueue(resolvedPath);
                     }
@@ -185,22 +191,36 @@ internal partial class MigrateCommand
         private static string? ReadItemCondition(XElement item)
         {
             return item.Attribute("Condition")?.Value.Trim()
-                ?? item.Parent?.Attribute("Condition")?.Value.Trim();
+                ?? item.Ancestors()
+                    .Select(ancestor =>
+                        ancestor.Attribute("Condition")?.Value.Trim())
+                    .FirstOrDefault(value =>
+                        !string.IsNullOrWhiteSpace(value));
         }
+
+        private static bool HasConditionalOrChooseContext(
+            XElement item) =>
+            item.AncestorsAndSelf().Any(element =>
+                element.Attribute("Condition") is not null
+                || element.Name.LocalName is
+                    "Choose" or "When" or "Otherwise");
 
         private static bool ContainsMsBuildExpression(params string?[] values)
         {
             return values.Any(value =>
                 value?.Contains("$(", StringComparison.Ordinal) == true
-                || value?.Contains("@(", StringComparison.Ordinal) == true);
+                || value?.Contains("@(", StringComparison.Ordinal) == true
+                || value?.Contains("%(", StringComparison.Ordinal) == true);
         }
 
         private static string? ResolveProjectReference(string projectPath, string include)
         {
             if (string.IsNullOrWhiteSpace(include)
+                || include.Contains(';')
                 || include.IndexOfAny(['*', '?']) >= 0
                 || include.Contains("$(", StringComparison.Ordinal)
-                || include.Contains("@(", StringComparison.Ordinal))
+                || include.Contains("@(", StringComparison.Ordinal)
+                || include.Contains("%(", StringComparison.Ordinal))
             {
                 return null;
             }

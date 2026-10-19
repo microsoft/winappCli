@@ -272,4 +272,92 @@ public class MsBuildPropertyReaderTests
         Assert.IsTrue(result.ContainsKey("ProjectReference"));
         Assert.AreEqual(0, result["ProjectReference"].Count);
     }
+
+    [TestMethod]
+    public void TryParseItemFacts_RejectedEnvelopeDoesNotLeakIntoLaterCandidate()
+    {
+        var stdout = """
+            {
+              "Items": {
+                "Compile": [
+                  {
+                    "Identity": "Model.cs",
+                    "FullPath": "C:\\repo\\Model.cs",
+                    "DefiningProjectFullPath": "C:\\repo\\App.csproj"
+                  }
+                ],
+                "Content": "malformed"
+              }
+            }
+            {
+              "Items": {
+                "Content": []
+              }
+            }
+            """;
+
+        var parsed = MsBuildPropertyReader.TryParseItemFacts(
+            stdout,
+            out var facts);
+
+        Assert.IsTrue(parsed);
+        Assert.IsFalse(facts.ContainsKey("Compile"));
+        Assert.IsTrue(facts.ContainsKey("Content"));
+    }
+
+    [TestMethod]
+    public void TryParseItemFacts_ReadsAuthoritativeMsBuildMetadata()
+    {
+        var stdout = """
+            diagnostic preamble
+            {
+              "Items": {
+                "Compile": [
+                  {
+                    "Identity": "Nested\\Model.cs",
+                    "FullPath": "C:\\repo\\Nested\\Model.cs",
+                    "DefiningProjectFullPath": "C:\\Program Files\\dotnet\\sdk\\Microsoft.NET.Sdk.DefaultItems.props",
+                    "Link": "Shared\\Model.cs",
+                    "Generator": "MSBuild:Compile"
+                  }
+                ]
+              }
+            }
+            """;
+
+        var parsed = MsBuildPropertyReader.TryParseItemFacts(
+            stdout,
+            out var result);
+
+        Assert.IsTrue(parsed);
+        var item = result["Compile"].Single();
+        Assert.AreEqual(@"Nested\Model.cs", item.Identity);
+        Assert.AreEqual(@"C:\repo\Nested\Model.cs", item.FullPath);
+        Assert.AreEqual(
+            @"C:\Program Files\dotnet\sdk\Microsoft.NET.Sdk.DefaultItems.props",
+            item.DefiningProjectFullPath);
+        Assert.AreEqual(@"Shared\Model.cs", item.Metadata["Link"]);
+        Assert.AreEqual("MSBuild:Compile", item.Metadata["Generator"]);
+    }
+
+    [TestMethod]
+    public void TryParseItemFacts_MissingFullPathFails()
+    {
+        var parsed = MsBuildPropertyReader.TryParseItemFacts(
+            """
+            {
+              "Items": {
+                "Compile": [
+                  {
+                    "Identity": "Nested\\Model.cs",
+                    "DefiningProjectFullPath": "C:\\sdk\\DefaultItems.props"
+                  }
+                ]
+              }
+            }
+            """,
+            out _);
+
+        Assert.IsFalse(parsed);
+    }
 }

@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Xml;
 using System.Xml.Linq;
 using WinApp.Cli.Models;
+using WinApp.Cli.Services;
 
 namespace WinApp.Cli.Commands;
 
@@ -125,7 +126,8 @@ internal partial class MigrateCommand
             string? sourceProject,
             string targetRoot,
             string targetProject,
-            bool applyChanges)
+            bool applyChanges,
+            ProjectItemEvaluationContext? targetEvaluation = null)
         {
             if (sourceProject is null)
             {
@@ -158,16 +160,13 @@ internal partial class MigrateCommand
                     0);
             }
 
-            var sourceConditionContext = new ProjectConditionContext(
-                Path.GetFileNameWithoutExtension(sourceProject));
             var sourceProjectItems = sourceDocument
                 .Descendants()
-                .Where(element => MigratedProjectItemKinds.Contains(element.Name.LocalName))
-                .Where(HasClosureRelevantItemOperation)
                 .Where(element =>
-                    EvaluateElementCondition(
-                        element,
-                        sourceConditionContext) != DeterministicCondition.False)
+                    IsProjectElement(element, element.Name.LocalName)
+                    && MigratedProjectItemKinds.Contains(
+                        element.Name.LocalName))
+                .Where(HasInventoriedItemOperation)
                 .ToList();
             var sourceItems = sourceProjectItems
                 .Where(element => element.Attribute("Include") is not null)
@@ -181,10 +180,7 @@ internal partial class MigrateCommand
             var decisionRequiredItems = new List<MigrationReviewRequiredProjectItem>();
             foreach (var sourceImport in sourceDocument.Descendants().Where(element =>
                 IsProjectElement(element, "Import")
-                && !IsEvaluationImport(element)
-                && EvaluateElementCondition(
-                    element,
-                    sourceConditionContext) != DeterministicCondition.False))
+                && !IsKnownUwpInfrastructureImport(element)))
             {
                 unresolved.Add(ProjectItemLocation(
                     sourceRoot,
@@ -193,11 +189,8 @@ internal partial class MigrateCommand
             }
             foreach (var sourceProperty in sourceDocument.Descendants().Where(element =>
                 IsProjectElement(element, element.Name.LocalName)
-                && ClosureRelevantProperties.Contains(element.Name.LocalName)
-                && !IsEvaluationProperty(element)
-                && EvaluateElementCondition(
-                    element,
-                    sourceConditionContext) != DeterministicCondition.False))
+                && ClosureRelevantProperties.Contains(
+                    element.Name.LocalName)))
             {
                 unresolved.Add(ProjectItemLocation(
                     sourceRoot,
@@ -208,10 +201,7 @@ internal partial class MigrateCommand
                 IsProjectElement(element, element.Name.LocalName)
                 && MigratedProjectItemKinds.Contains(element.Name.LocalName)
                 && element.Attribute("Include") is null
-                && HasClosureRelevantItemOperation(element)
-                && EvaluateElementCondition(
-                    element,
-                    sourceConditionContext) != DeterministicCondition.False))
+                && HasInventoriedItemOperation(element)))
             {
                 _ = TryCanonicalizeMigratedProjectItemKind(
                     sourceItemOperation.Name.LocalName,
@@ -241,21 +231,7 @@ internal partial class MigrateCommand
                 {
                     continue;
                 }
-                if (!IsEvaluationItem(item))
-                {
-                    AddReviewRequiredItem(
-                        sourceRoot,
-                        sourceProject,
-                        item,
-                        stableItemIds[item],
-                        itemKind,
-                        "unmodeled-ancestor",
-                        unresolved,
-                        decisionRequiredItems);
-                    continue;
-                }
-                if (item.AncestorsAndSelf().Any(element =>
-                    element.Attribute("Condition") is not null))
+                if (HasRawCondition(item))
                 {
                     AddReviewRequiredItem(
                         sourceRoot,
@@ -264,6 +240,32 @@ internal partial class MigrateCommand
                         stableItemIds[item],
                         itemKind,
                         "conditional",
+                        unresolved,
+                        decisionRequiredItems);
+                    continue;
+                }
+                if (HasChooseAncestry(item))
+                {
+                    AddReviewRequiredItem(
+                        sourceRoot,
+                        sourceProject,
+                        item,
+                        stableItemIds[item],
+                        itemKind,
+                        "choose-branch",
+                        unresolved,
+                        decisionRequiredItems);
+                    continue;
+                }
+                if (!IsDirectProjectItemDeclaration(item))
+                {
+                    AddReviewRequiredItem(
+                        sourceRoot,
+                        sourceProject,
+                        item,
+                        stableItemIds[item],
+                        itemKind,
+                        "unmodeled-ancestor",
                         unresolved,
                         decisionRequiredItems);
                     continue;
@@ -281,8 +283,20 @@ internal partial class MigrateCommand
                         decisionRequiredItems);
                     continue;
                 }
-                if (include.Contains("$(", StringComparison.Ordinal)
-                    || include.Contains("@(", StringComparison.Ordinal))
+                if (include.Contains(';'))
+                {
+                    AddReviewRequiredItem(
+                        sourceRoot,
+                        sourceProject,
+                        item,
+                        stableItemIds[item],
+                        itemKind,
+                        "item-list",
+                        unresolved,
+                        decisionRequiredItems);
+                    continue;
+                }
+                if (HasRawProjectExpression(item))
                 {
                     AddReviewRequiredItem(
                         sourceRoot,
@@ -309,29 +323,39 @@ internal partial class MigrateCommand
                     continue;
                 }
 
-                string sourcePath;
-                try
+                var sourceProjectDirectory =
+                    Path.GetDirectoryName(sourceProject)!;
+                if (!MigrationPathResolver.TryResolveContainedRelativePath(
+                        sourceProjectDirectory,
+                        include,
+                        out var sourcePath,
+                        out _,
+                        out _))
                 {
-                    sourcePath = Path.GetFullPath(Path.Combine(sourceRoot, include));
-                }
-                catch (Exception exception) when (
-                    exception is ArgumentException
-                    or NotSupportedException
-                    or PathTooLongException)
-                {
+                    var candidate = Path.Combine(
+                        sourceProjectDirectory,
+                        include);
+                    var reviewReason =
+                        MigrationPathResolver.TryCanonicalizeRoot(
+                            candidate,
+                            out _,
+                            out _)
+                            ? "external-or-missing-source"
+                            : "invalid-path";
                     AddReviewRequiredItem(
                         sourceRoot,
                         sourceProject,
                         item,
                         stableItemIds[item],
                         itemKind,
-                        "invalid-path",
+                        reviewReason,
                         unresolved,
                         decisionRequiredItems);
                     continue;
                 }
                 var relativePath = Path.GetRelativePath(sourceRoot, sourcePath);
-                if (relativePath == ".."
+                if (Path.IsPathRooted(relativePath)
+                    || relativePath == ".."
                     || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
                     || !File.Exists(sourcePath))
                 {
@@ -405,42 +429,55 @@ internal partial class MigrateCommand
                 .ToList();
             if (!applyChanges)
             {
-                var targetEntries = targetDocument
-                    .Descendants()
-                    .Where(element =>
-                        element.Attribute("Include") is not null
-                        && MigratedProjectItemKinds.Contains(element.Name.LocalName))
-                    .SelectMany(element => element.Attribute("Include")!.Value
-                        .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                        .Select(path => (
-                            Kind: element.Name.LocalName,
-                            Path: path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar))))
-                    .ToHashSet(StringTupleComparer.OrdinalIgnoreCase);
+                var targetEntries = targetEvaluation?.Succeeded == true
+                    ? targetEvaluation.Items
+                        .Select(item => (item.Kind, item.FullPath))
+                        .ToHashSet(StringTupleComparer.OrdinalIgnoreCase)
+                    : [];
+                var unavailableTargetEvaluation =
+                    targetEvaluation?.Succeeded != true;
+                var unverifiedTargetEntries = 0;
                 foreach (var item in explicitItems)
                 {
-                    if (!targetEntries.Contains((item.Kind, item.RelativePath)))
-                    {
-                        AddDecisionRequiredItem(
-                            sourceRoot,
-                            sourceProject,
-                            item.SourceElement,
-                            stableItemIds[item.SourceElement],
+                    var hasExpectedTargetPath =
+                        MigrationPathResolver.TryResolveContainedRelativePath(
+                            targetRoot,
+                            item.RelativePath,
+                            out var expectedTargetPath,
+                            out _,
+                            out _);
+                    if (hasExpectedTargetPath
+                        && targetEntries.Contains((
                             item.Kind,
-                            "missing-target-item-entry",
-                            NormalizePath(item.RelativePath),
-                            unresolved,
-                            decisionRequiredItems);
-                        missingTargetItems.Add(new MigrationLocation
-                        {
-                            Path = NormalizePath(item.RelativePath)
-                        });
+                            expectedTargetPath)))
+                    {
+                        continue;
                     }
+
+                    AddDecisionRequiredItem(
+                        sourceRoot,
+                        sourceProject,
+                        item.SourceElement,
+                        stableItemIds[item.SourceElement],
+                        item.Kind,
+                        !hasExpectedTargetPath
+                            ? "target-item-path-unavailable"
+                            : unavailableTargetEvaluation
+                            ? "target-item-evaluation-unavailable"
+                            : "missing-target-item-entry",
+                        NormalizePath(item.RelativePath),
+                        unresolved,
+                        decisionRequiredItems);
+                    missingTargetItems.Add(new MigrationLocation
+                    {
+                        Path = NormalizePath(item.RelativePath)
+                    });
+                    unverifiedTargetEntries++;
                 }
 
                 return new ProjectItemMigrationResult(
                     sourceProjectItems.Count,
-                    migratable.Count - decisionRequiredItems.Count(item =>
-                        item.ReviewReason == "missing-target-item-entry"),
+                    migratable.Count - unverifiedTargetEntries,
                     accountedItems,
                     unresolved,
                     missingTargetItems,
@@ -687,7 +724,9 @@ internal partial class MigrateCommand
                 ?.Value
                 .Trim();
             var condition = item.Attribute("Condition")?.Value;
-            var parentCondition = item.Parent?.Attribute("Condition")?.Value;
+            var parentCondition = item.Ancestors()
+                .Select(ancestor => ancestor.Attribute("Condition")?.Value)
+                .FirstOrDefault(value => value is not null);
             var metadata = item.Elements()
                 .Where(element => element.Name.LocalName != "Link")
                 .Select(element => new MigrationProjectItemMetadata
@@ -707,8 +746,9 @@ internal partial class MigrateCommand
                         or "wildcard"
                         or "msbuild-expression"
                         ? null
-                        : TryNormalizeDeterministicTargetPath(
+                        : TryNormalizeSourceItemTargetPath(
                             sourceRoot,
+                            sourceProject,
                             item.Attribute("Include")?.Value,
                             out var normalizedInclude)
                             ? normalizedInclude
@@ -750,6 +790,38 @@ internal partial class MigrateCommand
                 out _);
         }
 
+        private static bool TryNormalizeSourceItemTargetPath(
+            string sourceRoot,
+            string sourceProject,
+            string? value,
+            out string normalizedPath)
+        {
+            normalizedPath = string.Empty;
+            if (string.IsNullOrWhiteSpace(value)
+                || value.Contains(';')
+                || Path.IsPathRooted(value))
+            {
+                return false;
+            }
+
+            var projectDirectory = Path.GetDirectoryName(sourceProject)!;
+            if (!MigrationPathResolver.TryResolveContainedRelativePath(
+                    projectDirectory,
+                    value.Trim(),
+                    out var sourcePath,
+                    out _,
+                    out _))
+            {
+                return false;
+            }
+            return MigrationPathResolver.TryResolveContainedAbsolutePath(
+                sourceRoot,
+                sourcePath,
+                out _,
+                out normalizedPath,
+                out _);
+        }
+
         private static IEnumerable<string> RemovalKinds(string itemKind) =>
             itemKind.Equals(
                 "Content",
@@ -774,7 +846,8 @@ internal partial class MigrateCommand
             };
         }
 
-        internal static MigrationMechanicalVerification VerifyMechanicalMigration(
+        internal static async Task<MigrationMechanicalVerification>
+            VerifyMechanicalMigrationAsync(
             string sourceRoot,
             IReadOnlyCollection<string> sourceFiles,
             IReadOnlyCollection<string> copied,
@@ -783,7 +856,9 @@ internal partial class MigrateCommand
             string targetRoot,
             string targetProject,
             ProjectItemMigrationResult projectItems,
-            MigrationReport report)
+            MigrationReport report,
+            IMsBuildProjectItemEvaluator evaluator,
+            CancellationToken cancellationToken)
         {
             var copiedSet = copied
                 .Select(NormalizePath)
@@ -805,13 +880,11 @@ internal partial class MigrateCommand
                 .ToList();
 
             var (residuals, uninspectedFiles) = FindLegacyNamespaceResiduals(targetRoot);
-            var targetProjectGraph = AnalyzeTargetProjectGraph(
-                targetRoot,
-                targetProject);
-            AddTargetPortabilityIssues(
+            var targetProjectGraph = await AnalyzeTargetProjectGraphAsync(
                 targetRoot,
                 targetProject,
-                targetProjectGraph);
+                evaluator,
+                cancellationToken);
             RefreshMechanicalTodos(
                 report,
                 residuals,
@@ -859,33 +932,46 @@ internal partial class MigrateCommand
             };
         }
 
-        internal static MigrationMechanicalVerification VerifyExistingMigration(
+        internal static async Task<MigrationMechanicalVerification>
+            VerifyExistingMigrationAsync(
             string sourceRoot,
             string? sourceProject,
             string targetRoot,
             string targetProject,
-            MigrationReport report)
+            MigrationReport report,
+            IMsBuildProjectItemEvaluator evaluator,
+            CancellationToken cancellationToken,
+            ProjectItemEvaluationContext? projectItemEvaluation = null)
         {
+            projectItemEvaluation ??=
+                await EvaluateProjectItemFactsAsync(
+                    targetRoot,
+                    targetProject,
+                    evaluator,
+                    cancellationToken);
             var projectItems = MigrateSourceProjectItems(
                 sourceRoot,
                 sourceProject,
                 targetRoot,
                 targetProject,
-                applyChanges: false);
-            projectItems = ReconcileProjectItemDecisions(
+                applyChanges: false,
+                projectItemEvaluation);
+            projectItems = await ReconcileProjectItemDecisionsAsync(
                 sourceRoot,
                 targetRoot,
                 targetProject,
                 projectItems,
-                report);
+                report,
+                evaluator,
+                cancellationToken,
+                projectItemEvaluation);
             var (residuals, uninspectedFiles) = FindLegacyNamespaceResiduals(targetRoot);
-            var targetProjectGraph = AnalyzeTargetProjectGraph(
-                targetRoot,
-                targetProject);
-            AddTargetPortabilityIssues(
+            var targetProjectGraph = await AnalyzeTargetProjectGraphAsync(
                 targetRoot,
                 targetProject,
-                targetProjectGraph);
+                evaluator,
+                cancellationToken,
+                projectItemEvaluation?.RawEvaluation);
             RefreshMechanicalTodos(
                 report,
                 residuals,

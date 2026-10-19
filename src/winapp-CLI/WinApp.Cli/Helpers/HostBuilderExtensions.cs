@@ -26,6 +26,7 @@ internal static class StoreHostBuilderExtensions
             .AddSingleton<ICppWinrtService, CppWinrtService>()
             .AddSingleton<IDotNetService, DotNetService>()
             .AddSingleton<IDotNetProjectRestoreService, DotNetProjectRestoreService>()
+            .AddSingleton<IMsBuildProjectItemEvaluator, MsBuildProjectItemEvaluator>()
             .AddSingleton<IDevModeService, DevModeService>()
             .AddSingleton<IDirectoryPackagesService, DirectoryPackagesService>()
             .AddSingleton<IManifestTemplateService, ManifestTemplateService>()

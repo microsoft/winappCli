@@ -138,7 +138,10 @@ internal partial class MigrateCommand : Command, IShortDescription
         Subcommands.Add(projectItemDecisionCommand);
     }
 
-    public partial class Handler(IDotNetService dotNetService, ILogger<MigrateCommand> logger) : AsynchronousCommandLineAction
+    public partial class Handler(
+        IDotNetService dotNetService,
+        IMsBuildProjectItemEvaluator msBuildProjectItemEvaluator,
+        ILogger<MigrateCommand> logger) : AsynchronousCommandLineAction
     {
         public override async Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
@@ -418,7 +421,7 @@ internal partial class MigrateCommand : Command, IShortDescription
             AddDispatcherResidualTodo(targetRoot, report);
             AddWindowingResidualTodo(targetRoot, report);
             AddDisplayInformationResidualTodo(targetRoot, report);
-            report.MechanicalVerification = VerifyMechanicalMigration(
+            report.MechanicalVerification = await VerifyMechanicalMigrationAsync(
                 sourceRoot,
                 sourceFiles,
                 copied,
@@ -427,7 +430,9 @@ internal partial class MigrateCommand : Command, IShortDescription
                 targetRoot,
                 targetProject,
                 projectItemResult,
-                report);
+                report,
+                msBuildProjectItemEvaluator,
+                cancellationToken);
             report.Status = report.MechanicalVerification.Status == "passed"
                 ? "mechanical-migration-complete"
                 : "mechanical-verification-failed";
