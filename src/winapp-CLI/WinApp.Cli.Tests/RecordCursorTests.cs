@@ -66,7 +66,7 @@ public sealed class RecordCursorTests
     public void RingProgress_ShowsEveryClickAtLeastOnceThenFades()
     {
         Assert.AreEqual(0.0, RecordCursorOverlay.RingProgress(0, shownBefore: false));
-        Assert.AreEqual(0.5, RecordCursorOverlay.RingProgress(200, shownBefore: true));
+        Assert.AreEqual(0.5, RecordCursorOverlay.RingProgress(RecordCursorOverlay.RingDurationMs / 2, shownBefore: true));
 
         // A click older than the fade that has not been drawn yet is still drawn once.
         Assert.AreEqual(RecordCursorOverlay.MaxFirstShownProgress, RecordCursorOverlay.RingProgress(2_000, shownBefore: false));
