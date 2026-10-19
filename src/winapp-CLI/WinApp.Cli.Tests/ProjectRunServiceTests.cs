@@ -3793,6 +3793,30 @@ public class ProjectRunServiceTests
     }
 
     [TestMethod]
+    public void ComputeSolutionRestorePlan_SiblingsThatReferenceTarget_Excluded()
+    {
+        // Restoring a project that references the app also restores the app, with the solution restore's
+        // settings rather than the build's, so the two restores keep rewriting the app's restore output.
+        var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
+        WriteProjectsAt("src/Lib/Lib.csproj", "src/Server/Server.csproj");
+        WriteFileAt(@"tests\App.Tests\App.Tests.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"..\\..\\src\\App\\App.csproj\" /></ItemGroup></Project>");
+        WriteFileAt(@"tests\Integration\Integration.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"..\\App.Tests\\App.Tests.csproj\" /><ProjectReference Include=\"..\\..\\src\\Lib\\Lib.csproj\" /></ItemGroup></Project>");
+        var solution = WriteFile("App.slnx", SlnxListing(
+            "src/App/App.csproj", "src/Lib/Lib.csproj", "src/Server/Server.csproj",
+            "tests/App.Tests/App.Tests.csproj", "tests/Integration/Integration.csproj"));
+
+        var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
+
+        CollectionAssert.AreEqual(
+            new[] { "Lib.csproj", "Server.csproj" },
+            plan.ManagedSiblings.Select(s => s.Name).ToArray(),
+            "direct and transitive referrers of the app are left out; other siblings stay");
+        CollectionAssert.AreEqual(new[] { "src/Lib/Lib.csproj", "src/Server/Server.csproj" }, plan.ManagedSiblingEntries.ToArray());
+    }
+
+    [TestMethod]
     public void ComputeSolutionRestorePlan_ClassicSlnListedSibling_Included()
     {
         var target = WriteFileAt(@"src\App\App.csproj", ExecutableCsproj);
