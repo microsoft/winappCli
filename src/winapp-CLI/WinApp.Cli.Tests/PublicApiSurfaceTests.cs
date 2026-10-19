@@ -81,6 +81,8 @@ public class PublicApiSurfaceTests
         "RecordCaptureResult",
         "RecordFrameArtifactResult",
         "RecordFrameBundleManifest",
+        "RecordFrameClick",
+        "RecordFrameCursor",
         "RecordFrameImagesManifest",
         "RecordFrameIndexEntry",
         "RecordFrameOutputException",

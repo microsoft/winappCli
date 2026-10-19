@@ -622,6 +622,7 @@ With `--cursor`, each line also has the pointer position in image pixels, and th
 ```
 
 `button` is `left`, `right`, `middle`, `x1`, or `x2`, and `kind` is `down` or `up`. `inFrame` is false when the pointer is outside the recorded area. `visible` is false when Windows hides the pointer, for example during touch or pen input. Clicks are logged even with `--no-click-highlight`.
+
 `manifest.json` records the request, timing, MP4 status, image dimensions, and status (`complete`, `partial`, or `truncated`). Truncated timing covers the retained prefix, while `video` describes the complete MP4.
 
 Choose a new output path unless you intend to replace a recording with `--overwrite`.

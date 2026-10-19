@@ -51,8 +51,10 @@ internal interface IPointerTracker : IDisposable
 /// </remarks>
 internal sealed unsafe class MousePointerTracker : IPointerTracker
 {
-    private static readonly Lock s_trackersLock = new();
-    private static MousePointerTracker[] s_trackers = [];
+    // Windows calls a low-level hook on the thread that installed it, so each hook delivers
+    // events only to the tracker that owns that thread.
+    [ThreadStatic]
+    private static MousePointerTracker? t_current;
 
     private readonly ConcurrentQueue<PointerButtonEvent> _events = new();
     private readonly ILogger _logger;
@@ -135,7 +137,6 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
                 _logger.LogDebug("The mouse hook thread did not stop in time.");
             }
         }
-        Unregister(this);
     }
 
     private void RunHookThread(ManualResetEventSlim ready)
@@ -144,7 +145,7 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
         try
         {
             Volatile.Write(ref _hookThreadId, PInvoke.GetCurrentThreadId());
-            Register(this);
+            t_current = this;
             hook = PInvoke.SetWindowsHookEx(
                 WINDOWS_HOOK_ID.WH_MOUSE_LL,
                 &HookProc,
@@ -168,7 +169,7 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
             if (!Volatile.Read(ref _hookInstalled))
             {
                 hook?.Dispose();
-                Unregister(this);
+                t_current = null;
             }
         }
 
@@ -182,23 +183,8 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
         finally
         {
             hook.Dispose();
+            t_current = null;
             Volatile.Write(ref _hookInstalled, false);
-        }
-    }
-
-    private static void Register(MousePointerTracker tracker)
-    {
-        lock (s_trackersLock)
-        {
-            s_trackers = [.. s_trackers, tracker];
-        }
-    }
-
-    private static void Unregister(MousePointerTracker tracker)
-    {
-        lock (s_trackersLock)
-        {
-            s_trackers = [.. s_trackers.Where(existing => !ReferenceEquals(existing, tracker))];
         }
     }
 
@@ -212,14 +198,11 @@ internal sealed unsafe class MousePointerTracker : IPointerTracker
         if (nCode >= 0 && lParam.Value != 0)
         {
             var data = (MSLLHOOKSTRUCT*)lParam.Value;
-            if (ClassifyButtonMessage((uint)wParam.Value, data->mouseData) is { } button)
+            if (t_current is { } tracker
+                && ClassifyButtonMessage((uint)wParam.Value, data->mouseData) is { } button)
             {
-                var item = new PointerButtonEvent(
-                    Stopwatch.GetTimestamp(), button.Button, button.Down, data->pt.X, data->pt.Y);
-                foreach (var tracker in Volatile.Read(ref s_trackers))
-                {
-                    tracker._events.Enqueue(item);
-                }
+                tracker._events.Enqueue(new PointerButtonEvent(
+                    Stopwatch.GetTimestamp(), button.Button, button.Down, data->pt.X, data->pt.Y));
             }
         }
 
