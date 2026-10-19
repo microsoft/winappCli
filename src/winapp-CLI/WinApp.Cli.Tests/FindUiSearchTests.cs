@@ -611,6 +611,49 @@ public class FindUiSearchTests
             $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
     }
 
+    /// <summary>TableView is the control built for tabular data, so table, grid and
+    /// spreadsheet wording must reach it ahead of ListView.</summary>
+    [TestMethod]
+    [DataRow("table")]
+    [DataRow("tables")]
+    [DataRow("data table")]
+    [DataRow("data grid")]
+    [DataRow("datagrid")]
+    [DataRow("spreadsheet")]
+    [DataRow("sortable table")]
+    [DataRow("editable table")]
+    [DataRow("table with sorting")]
+    [DataRow("table grouping")]
+    [DataRow("sortable columns")]
+    [DataRow("sort by column")]
+    [DataRow("resize columns")]
+    [DataRow("edit cells")]
+    [DataRow("table sort group resize edit")]
+    [DataRow("datagrid sort group resize columns edit cells")]
+    [DataRow("table view")]
+    [DataRow("tabular data")]
+    [DataRow("grid with sorting and grouping")]
+    public void SearchGrouped_EmbeddedVocabulary_RanksTableViewFirstForTabularData(string query)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual("TableView", groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    [TestMethod]
+    [DataRow("list view")]
+    [DataRow("reorder items")]
+    public void SearchGrouped_EmbeddedVocabulary_KeepsListViewFirstForLists(string query)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual("ListView", groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
     [TestMethod]
     [DataRow("picture grid", "GridView")]
     [DataRow("camera", "CameraHelper")]
