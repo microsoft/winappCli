@@ -99,21 +99,39 @@ public class UiHelpTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task RootHelp_PointsToUiAndDevToolsHelp()
+    public async Task RootHelp_ShowsQuickStartBeforeAllCommands()
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["--help"]);
         var output = TestAnsiConsole.Output;
-        StringAssert.Contains(output, "Start here:");
-        Assert.IsLessThan(output.IndexOf("winapp devtools --help", StringComparison.Ordinal),
-            output.IndexOf("winapp ui --help", StringComparison.Ordinal));
-        StringAssert.Contains(output, "Inspect or change a running WinUI app's XAML live");
+        var quickStart = output.IndexOf("Quick start:", StringComparison.Ordinal);
+        var allCommands = output.IndexOf("All commands:", StringComparison.Ordinal);
+        Assert.IsGreaterThanOrEqualTo(0, quickStart, output);
+        Assert.IsLessThan(allCommands, quickStart);
+        Assert.IsLessThan(output.IndexOf("Set Up & Run", StringComparison.Ordinal), allCommands);
+        foreach (var step in CustomHelpAction.QuickStart.SelectMany(g => g.Steps))
+        {
+            StringAssert.Contains(output, step.Command);
+        }
     }
 
     [TestMethod]
-    public async Task OtherCommandGroups_KeepDefaultHelp()
+    public void RootHelp_QuickStartCommandsParse()
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        foreach (var step in CustomHelpAction.QuickStart.SelectMany(g => g.Steps))
+        {
+            CompactCommandHelpTests.AssertParses(root, step.Command);
+        }
+    }
+
+    [TestMethod]
+    public async Task OtherCommandGroups_UseTheSameLayout()
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["cert", "--help"]);
-        Assert.DoesNotContain(CompactHelpRenderer.GlobalOptionsLine, TestAnsiConsole.Output);
+        var output = TestAnsiConsole.Output.Replace("\r\n", "\n");
+        StringAssert.StartsWith(output, "winapp cert - ");
+        StringAssert.Contains(output, "\nCommands:\n  generate ");
+        StringAssert.Contains(output, CompactHelpRenderer.LocalGlobalOptionsLine);
     }
 
     [TestMethod]

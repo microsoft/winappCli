@@ -516,7 +516,7 @@ public class TargetSelectionParserTests : BaseCommandTests
     [DoNotParallelize]
     [DataRow("winapp ui invoke", "ui", "invoke", "--on=sandbox", "--help")]
     [DataRow("\"name\": \"invoke\"", "ui", "invoke", "--on=sandbox", "--cli-schema")]
-    [DataRow("Description:", "init", "--on=sandbox", "--help")]
+    [DataRow("winapp init - ", "init", "--on=sandbox", "--help")]
     public async Task HelpWithASelector_PrintsLocally(string expected, params string[] args)
     {
         var (stdout, stderr, exitCode) = await InvokeProgramAsync(args);

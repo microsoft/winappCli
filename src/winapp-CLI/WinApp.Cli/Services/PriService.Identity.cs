@@ -72,5 +72,107 @@ internal partial class PriService
         }
     }
 
+    // Keeps everything the existing PRI indexes and adds the listed files, parsing MRT qualifiers
+    // (scale-200, targetsize-24_altform-unplated) from their names.
+    private const string MergeAssetsConfig = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <resources targetOsVersion="10.0.0" majorVersion="1">
+          <index root="\" startIndexAt="original.pri">
+            <default>
+              <qualifier name="Language" value="en-US" />
+              <qualifier name="Scale" value="200" />
+            </default>
+            <indexer-config type="PRI" />
+          </index>
+          <index root="\" startIndexAt="assets.resfiles">
+            <default>
+              <qualifier name="Language" value="en-US" />
+              <qualifier name="Scale" value="200" />
+            </default>
+            <indexer-config type="resfiles" qualifierDelimiter="." />
+          </index>
+        </resources>
+        """;
+
+    public async Task<bool> MergeAssetsIntoPriAsync(
+        DirectoryInfo layout,
+        string packageName,
+        IEnumerable<string> assetRelativePaths,
+        TaskContext taskContext,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assetRelativePaths);
+        if (!DevelopmentIdentityHelper.IsValidPackageName(packageName))
+        {
+            throw new ArgumentException($"'{packageName}' is not a valid package name.", nameof(packageName));
+        }
+
+        var priPath = Path.Join(layout.FullName, "resources.pri");
+        if (!File.Exists(priPath))
+        {
+            return false;
+        }
+
+        var layoutRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(layout.FullName)) + Path.DirectorySeparatorChar;
+        var assets = assetRelativePaths
+            .Where(path => MrtAssetHelper.PriIncludedExtensions.Contains(Path.GetExtension(path)))
+            .Select(path => path.Replace('/', Path.DirectorySeparatorChar))
+            .Where(path => !Path.IsPathRooted(path))
+            .Where(path =>
+            {
+                var full = Path.GetFullPath(Path.Join(layoutRoot, path));
+                return full.StartsWith(layoutRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(full);
+            })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (assets.Count == 0)
+        {
+            return false;
+        }
+
+        // Outside the layout so nothing here is registered as app payload. The assets are copied in so
+        // the resfiles paths and the merged PRI's file references stay relative to the layout root.
+        var work = Directory.CreateTempSubdirectory("winapp-pri-");
+        try
+        {
+            var input = work.CreateSubdirectory("input");
+            File.Copy(priPath, Path.Join(input.FullName, "original.pri"));
+            foreach (var asset in assets)
+            {
+                var target = Path.Join(input.FullName, asset);
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(Path.Join(layoutRoot, asset), target);
+            }
+
+            await File.WriteAllLinesAsync(Path.Join(input.FullName, "assets.resfiles"), assets, cancellationToken);
+            var config = Path.Join(work.FullName, "merge.xml");
+            await File.WriteAllTextAsync(config, MergeAssetsConfig, cancellationToken);
+            var output = Path.Join(work.FullName, "resources.pri");
+
+            var arguments = $@"new /pr ""{ToolPath(input.FullName)}"" /cf ""{ToolPath(config)}"" /in ""{packageName}"" /of ""{ToolPath(output)}"" /o";
+            await buildToolsService.RunBuildToolAsync(new MakePriTool(), arguments, taskContext, cancellationToken: cancellationToken);
+            if (!File.Exists(output) || new FileInfo(output).Length == 0)
+            {
+                throw new InvalidOperationException("MakePri did not produce a merged resources.pri.");
+            }
+
+            AtomicFile.Copy(output, priPath);
+            taskContext.AddDebugMessage($"{UiSymbols.Files} Added {assets.Count} manifest asset(s) to resources.pri");
+            return true;
+        }
+        finally
+        {
+            try
+            {
+                work.Delete(recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                taskContext.AddDebugMessage($"Could not remove '{work.FullName}': {ex.Message}");
+            }
+        }
+    }
+
     private static string ToolPath(string path) => LongPathHelper.EnsureExtendedLengthPrefix(path);
 }

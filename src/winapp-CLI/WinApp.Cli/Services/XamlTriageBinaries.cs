@@ -199,6 +199,15 @@ internal static class XamlTriageBinaries
     }
 
     /// <summary>
+    /// Holds and verifies, in the triage child, the exact engine directory and <c>JsProvider.dll</c> it was
+    /// told to load, with the same checks the parent applied. The child must not trust its arguments: a
+    /// signed winapp started with <c>__xaml-triage</c> would otherwise load whatever DLLs it is pointed at.
+    /// Returns <c>null</c> when any file is missing, not validly Microsoft-signed, or a mismatched build.
+    /// </summary>
+    internal static ResolvedTriageBinaries? HoldForLoad(string binDir, string jsProviderPath) =>
+        TryHold(binDir, jsProviderPath, "the triage child's arguments", SignatureVerifier, IsProviderCompatibleWithEngine, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+    /// <summary>
     /// Holds and verifies every DLL the triage child will load from <paramref name="dir"/>. Returns
     /// <c>null</c>, with nothing left held, when any of them cannot be held, is not validly signed, or
     /// does not match the engine build.

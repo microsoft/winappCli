@@ -289,7 +289,7 @@ rows are more reliable.
 that serve it, and maps each plugin's skills to capabilities:
 
 ```json
-{ "id": "winapp-current", "plugin": "winapp", "skillSetHash": "ea21288d7949",
+{ "id": "winapp-current", "plugin": "winapp", "skillSetHash": "e20195ae2f87",
   "skills": { "winapp-signing": ["msix.sign"], "winapp-sandbox": ["sandbox.run", "ui.automate"] } }
 ```
 
@@ -331,6 +331,9 @@ forbid `winui.*`. Mapping choices that affect scores:
   elements). It does not provide `ui.automate`, so loading it for a click, type, read-text, or
   screenshot task earns no routing credit, and scenarios where it is the wrong tool forbid
   `winui.inspect`. Loading it in a non-WinUI scenario fails the `winui.*` forbid.
+- `winapp-performance` provides no capability yet: no scenario measures runtime performance, and
+  crediting it as `winui.build` would let it pass unrelated build and crash scenarios. Loading it
+  earns no routing credit, and `winapp perf` commands are recorded but count toward no capability.
 - Only `winui-packaging` provides `store.publish`. In the `winapp` configuration a Store scenario is
   `n/a`; where it is installed, a run that loads only packaging guidance scores `partial`.
 

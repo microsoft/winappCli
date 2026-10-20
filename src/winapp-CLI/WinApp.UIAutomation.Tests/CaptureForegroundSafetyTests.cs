@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording;
 using Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.TestSupport;
 using Windows.Win32.Foundation;
+using System.Runtime.InteropServices;
 
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Tests;
 
@@ -19,6 +20,42 @@ public class CaptureForegroundSafetyTests
     {
         ForegroundGuard.ResetNativeSeams();
         UiAutomationService.ResetNativeSeams();
+        WgcCapture.s_isSupported = global::Windows.Graphics.Capture.GraphicsCaptureSession.IsSupported;
+        WgcCapture.s_startScreenshotGrabber = (hwnd, logger, fps) => WindowCaptureSession.Start(hwnd, logger, fps, includeSecondaryWindows: false);
+    }
+
+    [TestMethod]
+    public async Task ScreenshotAsync_RootWgcFailureRetainsGdiFallbackAndBlankRetry()
+    {
+        using var fixture = new UiaTestFixture();
+        var service = NewAutomationService();
+        WgcCapture.s_isSupported = () => true;
+        WgcCapture.s_startScreenshotGrabber = (_, _, _) => throw new COMException("Root WGC initialization failed");
+        var rootCaptures = 0;
+        var foregrounds = 0;
+        byte[]? expected = null;
+        UiAutomationService.s_captureFromWindow = (_, width, height) =>
+        {
+            var pixels = new byte[width * height * 4];
+            if (++rootCaptures == 2)
+            {
+                for (var i = 0; i < pixels.Length; i += 4)
+                {
+                    pixels[i + 2] = 255;
+                    pixels[i + 3] = 255;
+                }
+                expected = pixels;
+            }
+            return pixels;
+        };
+        UiAutomationService.s_foregroundWindowForBlankRetry = _ => foregrounds++;
+        UiAutomationService.s_sleepForBlankRetry = _ => { };
+
+        var result = await service.ScreenshotAsync(TargetFor(fixture), null, false, false, CancellationToken.None);
+        Assert.AreSame(expected, result.Pixels);
+        Assert.AreEqual(result.Width * result.Height * 4, result.Pixels.Length);
+        Assert.AreEqual(2, rootCaptures);
+        Assert.AreEqual(1, foregrounds);
     }
 
     [TestMethod]

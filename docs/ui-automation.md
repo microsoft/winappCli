@@ -628,9 +628,35 @@ including default outputs when `--output` is omitted. See
 recordings and whole-desktop capture.
 
 **Capture modes** (reported in the JSON `mode` field):
-- `wgc` — Windows Graphics Capture (default; works while the window is occluded).
-- `printwindow` — GDI PrintWindow (fallback when WGC is unavailable on this system/session; re-run with `--capture-screen` to use screen DC instead).
+- `wgc` — Windows Graphics Capture (default; works while the window is occluded). See [Menus and flyouts in recordings](#menus-and-flyouts-in-recordings).
+- `printwindow` — GDI PrintWindow (fallback when WGC is unavailable on this system/session or rejects a directly selected menu or tooltip; re-run with `--capture-screen` to use screen DC instead).
 - `screen` — Screen DC via `--capture-screen` (includes overlays/popups; brings the window to the foreground).
+
+The mode describes the selected window's capture backend. A WGC window recording remains
+`wgc` when an included menu or tooltip uses PrintWindow.
+
+#### Menus and flyouts in recordings
+
+```powershell
+winapp ui record --app myapp --duration-sec 10 --output menu.mp4
+```
+
+WinUI menus, dropdowns, flyouts and tooltips often have their own native window, even when they
+look like part of the app. Recordings draw these popups over the selected window, in place,
+whenever they are open. No flag is needed.
+
+- Only visible popups that belong to the selected window and its process are included.
+- The recording keeps the selected window's size, so the part of a flyout that extends past the
+  window's edge is cut off. To record that popup in full, find its HWND with
+  `winapp ui list-windows` and record it with `-w <hwnd>`.
+- If Windows refuses to capture a popup directly, winapp renders it with PrintWindow instead. It then
+  appears as a plain rectangle, without rounded corners or transparency.
+- If a popup can't be captured, the recording continues without it and the result's `warnings`
+  says which popup is missing.
+- Overlays from another process aren't included. Use `--capture-screen -w <hwnd>` for those,
+  and keep the window uncovered: screen capture can include other apps.
+
+Screenshots show the same popups as separate labeled panels instead; see [screenshot](#screenshot).
 
 **JSON output (`--json`):**
 - **stdout:** Final recording result, including cadence, stop reason, optional `frameArtifacts`, and warnings.

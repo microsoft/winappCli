@@ -187,6 +187,25 @@ Describe 'Test-ScenarioExpectations' {
         (Test-ScenarioExpectations -Expect $e -LoadedSkills @() -InstalledSkills $installed -WinappCommands $null -Map $map).CommandHit | Should -BeNullOrEmpty
     }
 
+    It 'gives winapp-performance and perf commands no routing credit, in every map that has the skill' {
+        # No scenario measures runtime performance yet, so loading the skill must score like loading nothing.
+        $real = Read-CapabilityMap -Path (Join-Path $PSScriptRoot '..\capabilities.json')
+        $winui = @(Get-PluginSkillNames -PluginPath (Join-Path $repoRoot 'plugins\winui\agent-plugin'))
+        $commands = @(Get-WinappCommands -Text 'Run winapp perf analyze .\trace --json')
+        $scenarios = @(Get-ScenarioDefinitions -ScenariosRoot (Join-Path $PSScriptRoot '..\scenarios') | Where-Object { $_.Variant -eq 'base' -and $_.Expect.Capabilities.Primary.Count })
+        $maps = @($real.Maps | Where-Object { $_.Skills.ContainsKey('winapp-performance') })
+        $maps.Count | Should -BeGreaterThan 0
+        foreach ($m in $maps) {
+            $installed = @(@($m.Skills.Keys) + $winui)
+            foreach ($s in $scenarios) {
+                $none = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills @() -InstalledSkills $installed -Map $real
+                $r = Test-ScenarioExpectations -Expect $s.Expect -LoadedSkills 'winapp-performance' -InstalledSkills $installed -WinappCommands $commands -Map $real
+                $r.Status | Should -Be $none.Status -Because "$($s.Id) [$($m.Id)]"
+                $r.CommandHit | Should -Not -BeTrue -Because "$($s.Id) [$($m.Id)]"
+            }
+        }
+    }
+
     It 'flags skill context over budget' {
         $r = Test-ScenarioExpectations -Expect (New-CapExpect -primary 'msix.sign' -budget 1000) -LoadedSkills 'winapp-signing' -InstalledSkills $installed -SkillContextTokens 2500 -Map $map
         $r.OverBudget | Should -BeTrue
