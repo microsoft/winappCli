@@ -1351,6 +1351,7 @@ public class MsixServiceTests
             null,
             CreateTestTaskContext(),
             CancellationToken.None,
+            null,
             null
         ]) as dynamic;
 
