@@ -37,4 +37,16 @@ internal interface IPriService
         string packageName,
         TaskContext taskContext,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds the given image assets to the layout's existing <c>resources.pri</c>, keeping every resource
+    /// it already indexes, and names the resource map after <paramref name="packageName"/>.
+    /// Returns false when there is no <c>resources.pri</c> or no asset to add.
+    /// </summary>
+    Task<bool> MergeAssetsIntoPriAsync(
+        DirectoryInfo layout,
+        string packageName,
+        IEnumerable<string> assetRelativePaths,
+        TaskContext taskContext,
+        CancellationToken cancellationToken = default);
 }
