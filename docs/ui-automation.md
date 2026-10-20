@@ -586,6 +586,9 @@ winapp ui record -a myapp --frames --duration-sec 10 --fps 10 --output evidence.
 
 # Include screen overlays and popups
 winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups.mp4
+
+# Show the mouse pointer and a ring at each click
+winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
 ```
 
 **Options:**
@@ -596,6 +599,8 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 - `--output <path>` — Output MP4 path. Defaults to `recording-<timestamp>-<guid>.mp4`.
 - `--overwrite` — Replace existing recording outputs after the new take finishes. Without it, existing outputs are rejected.
 - `--frames` — Write timestamped JPEG evidence to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280). Frame data is capped at 1 GiB; the MP4 continues if the cap is reached.
+- `--cursor` — Draw the mouse pointer into the video, as the user sees it, with a short colored ring where each click happens (yellow for left, blue for right, purple for other buttons). Off by default.
+- `--no-click-highlight` — With `--cursor`, draw the pointer but no click rings.
 
 **Agent-readable frame artifacts:**
 
@@ -609,6 +614,14 @@ evidence.frames/
 ```
 
 `frames.ndjson` has one line per sample with `sampleIndex`, monotonic `elapsedMs`, MP4-relative `mediaTimeMs`, `imageIndex`, `file`, and `changed`. Consecutive pixel-identical samples reuse the preceding quality-85 JPEG.
+
+With `--cursor`, each line also has the pointer position in image pixels, and the clicks since the previous line:
+
+```json
+{"sampleIndex":4,"elapsedMs":412,...,"cursor":{"x":560,"y":709,"visible":true,"inFrame":true},"clicks":[{"button":"left","kind":"down","elapsedMs":398,"x":560,"y":709}]}
+```
+
+`button` is `left`, `right`, `middle`, `x1`, or `x2`, and `kind` is `down` or `up`. `inFrame` is false when the pointer is outside the recorded area. `visible` is false when Windows hides the pointer, for example during touch or pen input. Clicks are logged even with `--no-click-highlight`.
 
 `manifest.json` records the request, timing, MP4 status, image dimensions, and status (`complete`, `partial`, or `truncated`). Truncated timing covers the retained prefix, while `video` describes the complete MP4.
 
