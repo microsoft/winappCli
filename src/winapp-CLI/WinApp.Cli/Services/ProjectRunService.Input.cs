@@ -628,7 +628,8 @@ internal sealed partial class ProjectRunService
     /// <summary>
     /// True when <paramref name="target"/> is in <paramref name="start"/>'s <c>ProjectReference</c> closure,
     /// as declared in the project files. Build-only references count, since restore follows them too.
-    /// References spelled with MSBuild properties or globs can't be followed and are ignored.
+    /// References spelled with MSBuild properties or globs, under a <c>Condition</c>, or inside a
+    /// <c>Target</c> are ignored, since they can't be followed or may not apply.
     /// <paramref name="cache"/> holds results per project and may be shared across calls for one target.
     /// </summary>
     private static bool ReachesProject(FileInfo start, FileInfo target, Dictionary<string, bool> cache)
@@ -650,13 +651,16 @@ internal sealed partial class ProjectRunService
             {
                 doc = XDocument.Load(current.FullName);
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
             {
                 continue;
             }
 
+            // A conditional reference, or one inside a target, may not apply to this build, so it doesn't
+            // count. Keeping such a sibling in the restore is the safe choice.
             var includes = doc.Descendants()
-                .Where(e => e.Name.LocalName == "ProjectReference")
+                .Where(e => e.Name.LocalName == "ProjectReference"
+                    && !e.AncestorsAndSelf().Any(a => a.Attribute("Condition") is not null || a.Name.LocalName == "Target"))
                 .Select(e => e.Attribute("Include")?.Value)
                 .Where(include => !string.IsNullOrWhiteSpace(include))
                 .SelectMany(include => include!.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));

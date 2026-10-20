@@ -3803,17 +3803,25 @@ public class ProjectRunServiceTests
             "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"..\\..\\src\\App\\App.csproj\" /></ItemGroup></Project>");
         WriteFileAt(@"tests\Integration\Integration.csproj",
             "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"..\\App.Tests\\App.Tests.csproj\" /><ProjectReference Include=\"..\\..\\src\\Lib\\Lib.csproj\" /></ItemGroup></Project>");
+        // References that may not apply to this build don't count, so these siblings stay in the restore.
+        WriteFileAt(@"src\Conditional\Conditional.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup Condition=\"'$(Configuration)' == 'Release'\"><ProjectReference Include=\"..\\App\\App.csproj\" /></ItemGroup></Project>");
+        WriteFileAt(@"src\InTarget\InTarget.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><Target Name=\"AddApp\"><ItemGroup><ProjectReference Include=\"..\\App\\App.csproj\" /></ItemGroup></Target></Project>");
         var solution = WriteFile("App.slnx", SlnxListing(
             "src/App/App.csproj", "src/Lib/Lib.csproj", "src/Server/Server.csproj",
-            "tests/App.Tests/App.Tests.csproj", "tests/Integration/Integration.csproj"));
+            "tests/App.Tests/App.Tests.csproj", "tests/Integration/Integration.csproj",
+            "src/Conditional/Conditional.csproj", "src/InTarget/InTarget.csproj"));
 
         var plan = ProjectRunService.ComputeSolutionRestorePlan(solution, target);
 
-        CollectionAssert.AreEqual(
-            new[] { "Lib.csproj", "Server.csproj" },
-            plan.ManagedSiblings.Select(s => s.Name).ToArray(),
-            "direct and transitive referrers of the app are left out; other siblings stay");
-        CollectionAssert.AreEqual(new[] { "src/Lib/Lib.csproj", "src/Server/Server.csproj" }, plan.ManagedSiblingEntries.ToArray());
+        Assert.AreEqual(
+            "Lib.csproj;Server.csproj;Conditional.csproj;InTarget.csproj",
+            string.Join(';', plan.ManagedSiblings.Select(s => s.Name)),
+            "only unconditional direct and transitive referrers of the app are left out");
+        Assert.AreEqual(
+            "src/Lib/Lib.csproj;src/Server/Server.csproj;src/Conditional/Conditional.csproj;src/InTarget/InTarget.csproj",
+            string.Join(';', plan.ManagedSiblingEntries));
     }
 
     [TestMethod]
