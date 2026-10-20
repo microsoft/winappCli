@@ -341,7 +341,7 @@ public class ProjectDetectionServiceTests
         Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
         CreateFile("app.py", "print('hello')\n");
         Assert.AreEqual(DetectedProjectType.Python, ProjectDetectionService.DetectProject(Root, Root)?.Type);
-        File.Delete(Path.Combine(_tempDir, "requirements.txt"));
+        File.Delete(Path.Join(_tempDir, "requirements.txt"));
         Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
     }
 
@@ -377,10 +377,10 @@ public class ProjectDetectionServiceTests
     [TestMethod]
     public async Task DetectProjects_PythonHintsDoNotPruneAndSkipCustomNamedVirtualEnvironments()
     {
-        CreateFile(Path.Combine("environment", "pyvenv.cfg"), "home = Python\n");
-        CreateFile(Path.Combine("environment", "Lib", "site-packages", "library", "setup.py"), "raise Exception()\n");
-        CreateFile(Path.Combine("python-app", "pyproject.toml"), "[project]\nname=\"python-app\"\n");
-        CreateFile(Path.Combine("python-app", "nested", "setup.py"), "raise Exception()\n");
+        CreateFile(Path.Join("environment", "pyvenv.cfg"), "home = Python\n");
+        CreateFile(Path.Join("environment", "Lib", "site-packages", "library", "setup.py"), "raise Exception()\n");
+        CreateFile(Path.Join("python-app", "pyproject.toml"), "[project]\nname=\"python-app\"\n");
+        CreateFile(Path.Join("python-app", "nested", "setup.py"), "raise Exception()\n");
         var results = await _sut.DetectProjectsAsync(Root, 5, null, CancellationToken.None);
         Assert.HasCount(2, results);
         Assert.AreEqual(DetectedProjectType.Python, results[0].Type);
@@ -414,11 +414,11 @@ public class ProjectDetectionServiceTests
     [TestMethod]
     public void DetectProject_Python_RejectsLinkedMetadata()
     {
-        var external = Path.Combine(_tempDir, "external.toml");
+        var external = Path.Join(_tempDir, "external.toml");
         File.WriteAllText(external, "[project]\nname=\"external\"\n");
         try
         {
-            File.CreateSymbolicLink(Path.Combine(_tempDir, "pyproject.toml"), external);
+            File.CreateSymbolicLink(Path.Join(_tempDir, "pyproject.toml"), external);
         }
         catch (UnauthorizedAccessException)
         {
