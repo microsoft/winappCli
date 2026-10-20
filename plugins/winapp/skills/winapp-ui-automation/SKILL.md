@@ -233,11 +233,15 @@ winapp ui record -a myapp --frames --duration-sec 10 --fps 10 --output evidence.
 # Include overlays/popups (captures from screen DC; may include occluding windows)
 winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups.mp4
 
+# Show the mouse pointer and click rings (for demos of click-driven flows)
+winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
+
 # Programmatic stop: pipe a newline to stop and finalize the MP4 (for agent/script callers)
 "" | winapp ui record -a myapp --json --output capture.mp4
 ```
 - Default `--duration-sec 0` records until Ctrl+C, a newline, or EOF on redirected stdin.
 - `--frames` writes `<output-name>.frames` with a manifest, NDJSON index, and changed JPEGs. It supports 1-30 fps and `--max-edge` 64-4096 (default 1280), with a 1 GiB cap. Use `elapsedMs` to bound transitions.
+- `--cursor` draws the pointer and a ring at each click; add `--no-click-highlight` to keep the pointer without rings. With `--frames`, each `frames.ndjson` line gains `cursor` (`x`, `y`, `visible`, `inFrame`) and `clicks` (`button`, `kind`, `elapsedMs`, `x`, `y`) in image pixels.
 - Existing recording outputs are rejected by default. Use a fresh path, or explicitly
   request `--overwrite` to replace them after the new take finishes. Previous frame
   directories are archived, not deleted. On partial failure, keep the reported evidence
