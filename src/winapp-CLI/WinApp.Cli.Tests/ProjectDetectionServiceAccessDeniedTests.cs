@@ -182,11 +182,11 @@ public class ProjectDetectionServiceAccessDeniedTests
     [TestMethod]
     public void DetectProjectAt_PythonRequirementsDirectoryListingDenied_ReturnsNullWithoutThrowing()
     {
-        var denied = Path.Combine(_tempDir, "restricted-python");
+        var denied = Path.Join(_tempDir, "restricted-python");
         Directory.CreateDirectory(denied);
-        var requirements = Path.Combine(denied, "requirements.txt");
+        var requirements = Path.Join(denied, "requirements.txt");
         File.WriteAllText(requirements, "");
-        File.WriteAllText(Path.Combine(denied, "app.py"), "print('hello')");
+        File.WriteAllText(Path.Join(denied, "app.py"), "print('hello')");
         Assert.AreEqual(DetectedProjectType.Python, _sut.DetectProjectAt(new DirectoryInfo(denied))?.Type);
 
         if (!TryDenyDirectory(denied, FileSystemRights.ListDirectory))
@@ -228,7 +228,7 @@ public class ProjectDetectionServiceAccessDeniedTests
         Assert.IsFalse(Path.IsPathRooted(filename));
         var projectDir = Path.Join(_tempDir, "python-app");
         Directory.CreateDirectory(projectDir);
-        var marker = Path.Combine(projectDir, filename);
+        var marker = Path.Join(projectDir, filename);
         File.WriteAllText(marker, contents);
         if (!TryDenyFileRead(marker))
         {
@@ -266,15 +266,15 @@ public class ProjectDetectionServiceAccessDeniedTests
     [TestMethod]
     public async Task DetectProjectsAsync_PythonRequirementsDirectoryListingDenied_StillFindsSibling()
     {
-        var denied = Path.Combine(_tempDir, "restricted-python");
+        var denied = Path.Join(_tempDir, "restricted-python");
         Directory.CreateDirectory(denied);
-        var requirements = Path.Combine(denied, "requirements.txt");
+        var requirements = Path.Join(denied, "requirements.txt");
         File.WriteAllText(requirements, "");
-        File.WriteAllText(Path.Combine(denied, "app.py"), "print('hello')");
+        File.WriteAllText(Path.Join(denied, "app.py"), "print('hello')");
 
-        var visible = Path.Combine(_tempDir, "visible");
+        var visible = Path.Join(_tempDir, "visible");
         Directory.CreateDirectory(visible);
-        File.WriteAllText(Path.Combine(visible, "Cargo.toml"), "[package]");
+        File.WriteAllText(Path.Join(visible, "Cargo.toml"), "[package]");
 
         if (!TryDenyDirectory(denied, FileSystemRights.ListDirectory))
         {

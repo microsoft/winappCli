@@ -26,7 +26,7 @@ internal static class IncrementalCopyHelper
                 throw new ArgumentException($"The file path '{relativePath}' must be relative to the target directory.", nameof(files));
             }
 
-            var destinationPath = Path.GetFullPath(Path.Combine(targetDir.FullName, relativePath));
+            var destinationPath = Path.GetFullPath(Path.Join(targetDir.FullName, relativePath));
             if (!MsixService.IsPathInsideDirectory(destinationPath, targetDir.FullName))
             {
                 throw new ArgumentException($"The file path '{relativePath}' resolves outside the target directory.", nameof(files));
