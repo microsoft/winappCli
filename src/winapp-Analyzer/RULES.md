@@ -19,7 +19,7 @@ Removed rules stay listed below with a "removed in vX.Y" note and the reason.
 
 Subgroups (informal, used to keep adjacent rules clustered):
 
-* `WUI200x` layout/control content · `WUI201x` x:Bind · `WUI202x` accessibility · `WUI203x` code-behind syntax
+* `WUI200x` layout/control content/lifecycle/virtualization · `WUI201x` x:Bind · `WUI202x` accessibility · `WUI203x` code-behind syntax
 * `WUI400x` WebView2 · `WUI410x` ONNX Runtime GenAI
 
 ## Severity policy
@@ -138,6 +138,24 @@ Informational only. When code uses any namespace listed in the [Microsoft Learn 
 * **Fires when:** A XAML file (`AdditionalFiles`, excluding `App.xaml`) declares a control with no direct WinUI 3 equivalent: `Pivot`, `PivotItem`, `Hub`, `HubSection`, or `VirtualizingStackPanel`.
 * **Why:** These controls were removed in WinUI 3; XAML that references them will not load. The diagnostic names the replacement path (`Pivot`→`NavigationView`/`TabView`/`SelectorBar`, `Hub`→`NavigationView`/custom layout, `VirtualizingStackPanel`→`ItemsStackPanel`/`ItemsRepeater`).
 * **False-positive guards:** Matches by local element name only, so a same-named custom control in a non-UWP namespace is a possible (rare) false positive — suppress per-file via `.editorconfig`. Reported at compilation-end with `WellKnownDiagnosticTags.CompilationEnd`.
+
+<a id="wui2004"></a>
+### WUI2004 — Non-event async method returns `void`
+* **Category:** `WinUI.Runtime` · **Severity:** `Warning`
+* **Fires when:** A private, parameterless method is declared `async void` and is not used as a delegate.
+* **Why:** Unlike an event handler, this method can return `Task`. Exceptions after an `await` in `async void` are posted to the WinUI synchronization context and can terminate the process. Return `Task`, then await it or explicitly discard the returned task at a synchronous call site.
+* **False-positive guards:** Parameterized callbacks, public contract methods, explicit interface implementations, and methods used as delegates are not reported.
+* **Microsoft Learn:** [`async` return types — `void` return type](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-return-types#void-return-type)
+* **Suppression:** `#pragma warning disable WUI2004` or `dotnet_diagnostic.WUI2004.severity = none`.
+
+<a id="wui2005"></a>
+### WUI2005 — Virtualized reset drops the rebuilt range cache
+* **Category:** `WinUI.Runtime` · **Severity:** `Warning`
+* **Fires when:** An `IItemsRangeInfo` implementation replaces the `UpdateRanges` receiver used by `RangesChanged`, raises an inline `NotifyCollectionChangedAction.Reset` later in the same sequential block, and does not replay retained ranges afterward.
+* **Why:** When the item count and visible range remain unchanged, WinUI 3 may not invoke `RangesChanged` again after `Reset`. A replacement cache therefore remains empty and the list loses all rendered items. Retain the last tracked ranges and replay them into the new cache after raising the reset.
+* **False-positive guards:** Ordinary observable collections, resets that preserve the existing range cache, mutually exclusive rebuild/reset paths, and reset paths that unconditionally replay retained ranges are not reported.
+* **Microsoft Learn:** [`IItemsRangeInfo`](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.data.iitemsrangeinfo)
+* **Suppression:** `#pragma warning disable WUI2005` or `dotnet_diagnostic.WUI2005.severity = none`.
 
 <a id="wui2010"></a>
 ### WUI2010 — Nested `x:Bind` without `FallbackValue`

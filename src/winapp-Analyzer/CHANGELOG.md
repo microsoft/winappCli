@@ -31,7 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Now covers `GetForCurrentView`, `Window.Current`, UWP-XAML namespace false friends,
   and the WebView2 containing-type guard.
 - **`SuppressionTests.cs`** — pragma-suppression regression test for every shipping rule
-  (11 tests). A rule that doesn't honor `#pragma warning disable` will turn this red.
+  (13 tests). A rule that doesn't honor `#pragma warning disable` will turn this red.
+- **`WUI2004` — non-event `async void` methods** flags private parameterless
+  methods whose unhandled exceptions can terminate a WinUI process, including
+  legacy methods that do not follow the `Async` naming convention.
+- **`WUI2005` — virtualized reset drops rebuilt range cache** flags
+  `IItemsRangeInfo` implementations that replace the cache consumed by
+  `RangesChanged` before `NotifyCollectionChangedAction.Reset` without replaying
+  the retained ranges. WinUI 3 may not call `RangesChanged` again when the count
+  and visible range are unchanged, leaving the list empty.
 
 ### Changed
 - Analyzer references the oldest supported Roslyn (`Microsoft.CodeAnalysis.CSharp` 4.8.0,
