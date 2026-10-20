@@ -1,19 +1,59 @@
 ---
 name: winapp-ui-automation
-description: Inspect and interact with running Windows app UIs from the command line using UI Automation (UIA). Use when an AI agent or developer needs to inspect a UI element tree, find controls, take screenshots, click buttons, read or set text, or verify UI state in a running Windows app. Works with any framework WinUI 3, WPF, WinForms, Win32, Electron.
+description: Inspect and interact with running Windows app UIs from the command line using UI Automation (UIA). Use when an AI agent or developer needs to inspect a UI element tree, collect scoped audit evidence and text attributes, observe events or an approved keyboard path, find controls, take screenshots, record or replay reviewed single-window action flows, or verify UI state. Works with WinUI 3, WPF, WinForms, Win32, and Electron.
 ---
 ## When to use
 - Inspecting a running Windows app's UI from the command line
 - AI agents interacting with Windows applications (clicking buttons, reading text, taking screenshots)
 - Verifying UI state during development or testing
 - Automating UI workflows without Playwright or Selenium
+- Recording and replaying explicitly approved, single-window action drafts
+- Collecting read-only UIA audit evidence without requiring AutomationIds
 - Debugging WinUI 3, WPF, WinForms, Win32, or Electron app UIs
 
 ## Prerequisites
 - For UIA mode (any app): No setup needed — works with any running Windows app
-- For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, `send-keys --via send-input`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`, `screenshot`) are headless/locked-session friendly — prefer them in CI.
+- For input-injecting verbs (`click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, `send-keys --via send-input`, `replay`): an **unlocked, interactive desktop** with the target window foregroundable. On a locked/secure desktop they fail fast with `no_interactive_desktop`. The UIA-pattern verbs (`inspect`, `search`, `get-*`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to`, `screenshot`) are headless/locked-session friendly — prefer them in CI.
+- `audit-observe --tab-steps` also requires that interactive desktop and explicit `--accept-input`. Passive `audit-observe` and `audit-snapshot` require no input desktop; unavailable provider data remains explicit. `audit-screenshot` may fail when no WGC frame is available and never falls back to activation or desktop capture.
 
 ## Common patterns
+
+### Run accessibility rules and reports
+
+```powershell
+winapp ui audit -a MyApp --output .\audit-report
+```
+
+This selects supported standard tab pages by default. Use `--current-page`
+when a read-only check is required. Follow the
+[winapp-accessloop skill](../winapp-accessloop/SKILL.md) for the required local
+bundle, per-page reports, coverage limits and restoration outcomes.
+
+### Collect accessibility evidence without inventing a verdict
+```powershell
+winapp ui audit-snapshot -w 123456 --depth 20 --max-elements 2000 --json
+winapp ui audit-screenshot -w 123456 --output audit-page.png --json
+winapp ui audit-observe -w 123456 --duration-sec 5 --json
+```
+
+These collect bounded evidence, not an Axe or WCAG pass/fail decision.
+Mixed/unsupported text attributes, scope changes and capture failures must stay
+visible. Missing AutomationIds describe testability, not an automatic
+accessibility violation. `audit-screenshot` uses WGC without restoring or
+activating the window or expanding to other windows.
+
+Only after explicit approval for real input in a safe test state:
+
+```powershell
+winapp ui audit-observe -w 123456 --duration-sec 12 --tab-steps 8 --accept-input --json
+```
+
+Tab steps are bounded per direction and require an interactive desktop.
+Do not infer a keyboard trap from repeats, unreachability from unvisited
+controls, or actual screen-reader speech from UIA events. This is separate from
+record-actions/replay; it does not require a recorded flow or an AutomationId.
+See [the CLI audit reference](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#audit-snapshot)
+for output and failure semantics.
 
 ### Discover and interact
 ```powershell
@@ -124,6 +164,28 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 - `--capture-screen` captures from the screen DC so overlays and popups are included; the window is brought to the foreground first. When WGC is unavailable and `--capture-screen` is not passed, the CLI returns an error — re-run with `--capture-screen` to consent to screen-DC capture.
 - Providing a selector that doesn't match any element fails immediately with `element_not_found` (rather than silently recording the whole window).
 - `--json` writes the final result to stdout and one JSON event per line to stderr.
+
+### Record and replay action drafts
+
+```powershell
+# Record the user's interactions in one selected window.
+winapp ui record-actions -a myapp --output draft.json
+
+# Only after reviewing the file, obtaining approval, and restoring the app's starting state:
+winapp ui replay draft.json -a myapp --accept-recording --parameter 'text1=Hello'
+```
+
+- `record-actions` is separate from `ui record`, which remains video capture. Action capture also needs an unlocked, interactive desktop.
+- Use only the explicitly selected window. Do not expand to other windows or add global-input bypasses when a step fails.
+- Text is parameterized by default. Use the names reported in the result; only add `--capture-text` if the user explicitly approves storing full non-password field values. Password input and unsupported actions produce a non-replayable incomplete draft.
+- Treat the file as a **draft**, not an oracle. Review its complete action list, locators, literal values, and parameters with the user before `--accept-recording`; never change an incomplete status to force replay. Do not auto-share a parameterized draft; follow the recording privacy guidance linked below.
+- Text steps replace the whole field, not individual typing history. For unsupported editing or multi-window workflows, use explicit supported commands and verification instead of claiming an equivalent replay.
+- On `text_not_applied`, stop and review the app's validation and requested replacement text. Do not mask failed delivery with UIA value-setting or automatic refocus.
+- For an input-profile failure, follow the recording limitations linked below. Do not switch keyboard profiles or relax composition safeguards automatically.
+- Success means input steps completed and any manually authored assertions matched. It does not mean business correctness or accessibility passed. Add deliberate `assert` steps or independent verification appropriate to the scenario.
+- When recording through a CLI subprocess, wait for stderr's `recording-actions-started` event before interacting. `--duration-sec 0` stops on Ctrl+C in the recording terminal or redirected-stdin newline/EOF; a positive duration ignores stdin. Add `--include-injected` only for a controlled automation recording requested by the user.
+
+See [Record actions](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#record-actions) and [Replay actions](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#replay) for options, privacy limits, the file format, and recovery.
 
 ### Hover (for tooltips, flyouts, hover states)
 `--dwell-time <ms>` sets how long to wait after hovering (default: 800, range: 0–10000).

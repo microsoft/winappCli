@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "name": "document-workflows",
+  "scenarios": [
+    "scenario.json",
+    "export.scenario.json"
+  ]
+}

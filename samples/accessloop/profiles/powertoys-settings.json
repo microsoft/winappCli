@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "name": "PowerToys Settings",
+  "processName": "PowerToys.Settings",
+  "navigationPaneId": "PaneRoot",
+  "menuRootId": "MenuItemsHost",
+  "itemClassName": "Microsoft.UI.Xaml.Controls.NavigationViewItem",
+  "headingAutomationId": "Header",
+  "headingWithoutIdPageIds": ["DashboardNavItem", "CmdPalNavItem"],
+  "headingWithoutIdTopFraction": 0.25,
+  "groupIds": [
+    "SystemToolsNavItem",
+    "WindowingAndLayoutsNavItem",
+    "InputOutputNavItem",
+    "FileManagementNavItem",
+    "AdvancedNavItem"
+  ],
+  "excludedIds": [
+    "OOBENavItem",
+    "WhatIsNewNavItem",
+    "FeedbackNavItem"
+  ],
+  "headingAliases": {
+    "AwakeNavItem": ["唤醒"],
+    "ColorPickerNavItem": ["颜色选取器"],
+    "AlwaysOnTopNavItem": ["前端显示"],
+    "GrabAndMoveNavItem": ["Grab And Move"]
+  },
+  "maxPages": 60,
+  "treeDepth": 30,
+  "timeoutSeconds": 30
+}

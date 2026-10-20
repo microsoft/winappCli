@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="AccessLoop.JourneyDemo.Pages.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AccessLoop.JourneyDemo"
+    AutomationProperties.AccessibilityView="Raw"
+    IsTabStop="False">
+    <local:AutomationStackPanel
+        AutomationProperties.AutomationId="HomePageRoot"
+        AutomationProperties.Name="Home page"
+        Spacing="24"
+        VerticalAlignment="Top">
+        <TextBlock
+            AutomationProperties.AutomationId="HomeHeading"
+            AutomationProperties.Name="AccessLoop workbench"
+            Style="{StaticResource TitleTextBlockStyle}"
+            Text="AccessLoop workbench" />
+        <TextBlock
+            AutomationProperties.AutomationId="HomeDescription"
+            Text="Use Documents to save a title or Export to export a title. The navigation buttons stay available on every page."
+            TextWrapping="Wrap" />
+        <TextBlock
+            AutomationProperties.AutomationId="HomeNotice"
+            Text="This in-memory demo does not write files or connect to a network. Each page visit starts fresh."
+            TextWrapping="Wrap" />
+    </local:AutomationStackPanel>
+</UserControl>

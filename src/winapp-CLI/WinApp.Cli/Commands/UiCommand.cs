@@ -17,7 +17,16 @@ internal class UiCommand : Command, IShortDescription
         UiGetValueCommand getValueCommand,
         UiScreenshotCommand screenshotCommand,
         UiRecordCommand recordCommand,
+        UiRecordActionsCommand recordActionsCommand,
+        UiReplayCommand replayCommand,
+        UiAuditCommand auditCommand,
+        UiAuditSnapshotCommand auditSnapshotCommand,
+        UiAuditTabsCommand auditTabsCommand,
+        UiAuditObserveCommand auditObserveCommand,
+        UiAuditScreenshotCommand auditScreenshotCommand,
+        UiAccessibilityCommand accessibilityCommand,
         UiInvokeCommand invokeCommand,
+        UiExpandCollapseCommand expandCollapseCommand,
         UiClickCommand clickCommand,
         UiDragCommand dragCommand,
         UiTouchCommand touchCommand,
@@ -41,7 +50,16 @@ internal class UiCommand : Command, IShortDescription
         Subcommands.Add(getValueCommand);
         Subcommands.Add(screenshotCommand);
         Subcommands.Add(recordCommand);
+        Subcommands.Add(recordActionsCommand);
+        Subcommands.Add(replayCommand);
+        Subcommands.Add(auditCommand);
+        Subcommands.Add(auditSnapshotCommand);
+        Subcommands.Add(auditTabsCommand);
+        Subcommands.Add(auditObserveCommand);
+        Subcommands.Add(auditScreenshotCommand);
+        Subcommands.Add(accessibilityCommand);
         Subcommands.Add(invokeCommand);
+        Subcommands.Add(expandCollapseCommand);
         Subcommands.Add(clickCommand);
         Subcommands.Add(dragCommand);
         Subcommands.Add(touchCommand);

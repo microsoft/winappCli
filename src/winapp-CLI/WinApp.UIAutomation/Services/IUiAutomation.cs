@@ -87,6 +87,20 @@ public interface IUiAutomation
     /// <returns>The pattern that was used, such as "Invoke" or "Toggle".</returns>
     Task<string> InvokeAsync(UiTarget uiTarget, UiElement element, CancellationToken ct);
 
+    /// <summary>
+    /// Sets the exact element's ExpandCollapsePattern state without invoking, toggling, injecting
+    /// input, or trying an ancestor. An already matching state is not changed.
+    /// </summary>
+    /// <param name="uiTarget">The app or window that owns the element.</param>
+    /// <param name="element">The element to expand or collapse.</param>
+    /// <param name="state">The requested expanded or collapsed state.</param>
+    /// <param name="ct">Cancels the call and readback polling.</param>
+    /// <returns>The requested state, confirmed by consecutive UIA readbacks.</returns>
+    /// <exception cref="NotSupportedException">The element does not expose ExpandCollapsePattern.</exception>
+    /// <exception cref="InvalidOperationException">The element is stale, disabled, a leaf, or has an unknown state.</exception>
+    /// <exception cref="TimeoutException">The provider did not confirm the requested state within the settling budget.</exception>
+    Task<UiExpandCollapseState> SetExpandCollapseStateAsync(UiTarget uiTarget, UiElement element, UiExpandCollapseState state, CancellationToken ct);
+
     /// <summary>Replaces an editable element's text through its ValuePattern.</summary>
     /// <param name="uiTarget">The app or window that owns the element.</param>
     /// <param name="element">The element to write to.</param>
@@ -113,6 +127,21 @@ public interface IUiAutomation
     /// <param name="destination">"top" or "bottom" to jump to either extreme instead of stepping.</param>
     /// <param name="ct">Cancels the call.</param>
     Task ScrollContainerAsync(UiTarget uiTarget, UiElement element, string? direction, string? destination, CancellationToken ct);
+
+    /// <summary>
+    /// Sets the exact element's vertical ScrollPattern percentage, leaving the horizontal position
+    /// unchanged. Does not try ancestors or inject input. Requires a vertically scrollable element.
+    /// </summary>
+    /// <param name="uiTarget">The app or window that owns the element.</param>
+    /// <param name="element">The scroll container itself.</param>
+    /// <param name="verticalPercent">A finite percentage from 0 to 100 inclusive.</param>
+    /// <param name="ct">Cancels the call and readback polling.</param>
+    /// <returns>The actual vertical percentage, confirmed within 0.01 percentage points of the request.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The requested percentage is not finite or is outside 0–100.</exception>
+    /// <exception cref="NotSupportedException">The element does not expose ScrollPattern.</exception>
+    /// <exception cref="InvalidOperationException">The element is stale, disabled, or not vertically scrollable, or returns invalid percentages.</exception>
+    /// <exception cref="TimeoutException">The provider did not confirm the requested position within the settling budget.</exception>
+    Task<double> SetVerticalScrollPercentAsync(UiTarget uiTarget, UiElement element, double verticalPercent, CancellationToken ct);
 
     /// <summary>Reads whichever element currently has keyboard focus.</summary>
     /// <param name="uiTarget">The app or window to look in.</param>

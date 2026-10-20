@@ -4,6 +4,7 @@ import { addMsixIdentityToExe, addElectronDebugIdentity, clearElectronDebugIdent
 import { getGlobalWinappPath, getLocalWinappPath } from './winapp-path-utils';
 import * as winappCommands from './winapp-commands';
 import { uiRecord } from './ui-record-guard';
+import { uiRecordActions } from './ui-record-actions-guard';
 
 // Re-export types from child_process for convenience
 export type { ExecSyncOptions } from 'child_process';
@@ -34,6 +35,7 @@ export * from './winapp-commands';
 // Also re-export the stricter UiRecordOptions type (durationSec: number, required),
 // which shadows the generated optional durationSec version from winapp-commands.
 export { uiRecord, type UiRecordOptions } from './ui-record-guard';
+export { uiRecordActions, type UiRecordActionsOptions } from './ui-record-actions-guard';
 
 // Re-export functions
 export {
@@ -60,4 +62,5 @@ export default {
   getLocalWinappPath,
   ...winappCommands,
   uiRecord, // guarded wrapper — overrides any uiRecord from the spread (none expected)
+  uiRecordActions,
 };

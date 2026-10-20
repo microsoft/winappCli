@@ -4,6 +4,7 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
@@ -22,6 +23,7 @@ internal class UiScrollCommand : Command, IShortDescription
     public static Option<string?> DirectionOption { get; }
     public static Option<string?> ToOption { get; }
     public static Option<int?> WheelOption { get; }
+    public static Option<double?> VerticalPercentOption { get; }
 
     static UiScrollCommand()
     {
@@ -40,11 +42,22 @@ internal class UiScrollCommand : Command, IShortDescription
             Description = "Rotate the mouse wheel over the element by this many notches (1 = one notch up, -1 = one notch down). " +
                           "Synthesizes real wheel input instead of using ScrollPattern."
         };
+
+        VerticalPercentOption = new Option<double?>("--vertical-percent")
+        {
+            Description = "Set this element's vertical ScrollPattern position to a percentage from 0 to 100. " +
+                          "Use a decimal point; no ancestor or input fallback. Horizontal position is unchanged.",
+            Arity = ArgumentArity.ZeroOrOne,
+            CustomParser = result => result.Tokens.Count == 1
+                && double.TryParse(result.Tokens[0].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                    ? value : double.NaN,
+        };
     }
 
     public UiScrollCommand()
         : base("scroll", "Scroll a container element using ScrollPattern. " +
-               "Use --direction to scroll incrementally, --to to jump to top/bottom, or --wheel to synthesize mouse-wheel input.")
+               "Use --direction to scroll incrementally, --to to jump to top/bottom, --vertical-percent for a confirmed " +
+               "position on the exact container, or --wheel to synthesize mouse-wheel input.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -53,6 +66,7 @@ internal class UiScrollCommand : Command, IShortDescription
         Options.Add(DirectionOption);
         Options.Add(ToOption);
         Options.Add(WheelOption);
+        Options.Add(VerticalPercentOption);
     }
 
     public class Handler(
@@ -83,6 +97,7 @@ internal class UiScrollCommand : Command, IShortDescription
             var direction = parseResult.GetValue(DirectionOption);
             var to = parseResult.GetValue(ToOption);
             var wheel = parseResult.GetValue(WheelOption);
+            var verticalPercent = parseResult.GetValue(VerticalPercentOption);
 
             if (string.IsNullOrWhiteSpace(selectorStr))
             {
@@ -90,20 +105,32 @@ internal class UiScrollCommand : Command, IShortDescription
                 return 1;
             }
 
-            if (direction is null && to is null && wheel is null)
+            if (direction is null && to is null && wheel is null && verticalPercent is null)
             {
-                logger.LogError("{Symbol} Specify --direction (up/down/left/right), --to (top/bottom), or --wheel (delta).", UiSymbols.Error);
+                logger.LogError("{Symbol} Specify --direction (up/down/left/right), --to (top/bottom), --vertical-percent (0..100), or --wheel (delta).", UiSymbols.Error);
                 UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments,
-                    "Specify --direction (up/down/left/right), --to (top/bottom), or --wheel (delta).");
+                    "Specify --direction (up/down/left/right), --to (top/bottom), --vertical-percent (0..100), or --wheel (delta).",
+                    errorOut: parseResult.InvocationConfiguration.Error);
                 return 1;
             }
 
-            int modeCount = (direction is not null ? 1 : 0) + (to is not null ? 1 : 0) + (wheel is not null ? 1 : 0);
+            int modeCount = (direction is not null ? 1 : 0) + (to is not null ? 1 : 0) + (wheel is not null ? 1 : 0)
+                + (verticalPercent is not null ? 1 : 0);
             if (modeCount > 1)
             {
-                logger.LogError("{Symbol} Specify only one of --direction, --to, or --wheel.", UiSymbols.Error);
+                logger.LogError("{Symbol} Specify only one of --direction, --to, --vertical-percent, or --wheel.", UiSymbols.Error);
                 UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments,
-                    "Specify only one of --direction, --to, or --wheel — they are mutually exclusive.");
+                    "Specify only one of --direction, --to, --vertical-percent, or --wheel — they are mutually exclusive.",
+                    errorOut: parseResult.InvocationConfiguration.Error);
+                return 1;
+            }
+
+            if (verticalPercent is double percent && (!double.IsFinite(percent) || percent is < 0 or > 100))
+            {
+                const string message = "--vertical-percent must be a finite percentage from 0 to 100, using a decimal point.";
+                logger.LogError("{Symbol} {Message}", UiSymbols.Error, message);
+                UiJsonError.Emit(json, UiJsonError.CodeInvalidArguments, message,
+                    errorOut: parseResult.InvocationConfiguration.Error);
                 return 1;
             }
 
@@ -120,8 +147,14 @@ internal class UiScrollCommand : Command, IShortDescription
                 }
 
                 var targetHwnd = element.WindowHandle ?? uiTarget.WindowHandle;
+                double? actualVerticalPercent = null;
 
-                if (wheel is int notches)
+                if (verticalPercent is double requested)
+                {
+                    actualVerticalPercent = await uiAutomation.SetVerticalScrollPercentAsync(uiTarget, element, requested, cancellationToken);
+                    targetHwnd = uiTarget.WindowHandle;
+                }
+                else if (wheel is int notches)
                 {
                     int centerX = (int)(element.X + element.Width / 2.0);
                     int centerY = (int)(element.Y + element.Height / 2.0);
@@ -204,6 +237,8 @@ internal class UiScrollCommand : Command, IShortDescription
                         Direction = direction,
                         To = to,
                         Wheel = wheel,
+                        VerticalPercent = verticalPercent,
+                        ActualVerticalPercent = actualVerticalPercent,
                         Hwnd = targetHwnd
                     };
                     ansiConsole.Profile.Out.Writer.WriteLine(
@@ -216,7 +251,14 @@ internal class UiScrollCommand : Command, IShortDescription
 
                 return 0;
             }
-            catch (System.Runtime.InteropServices.COMException comEx)
+            catch (NotSupportedException ex) when (verticalPercent is not null)
+            {
+                logger.LogError("{Symbol} {Message}", UiSymbols.Error, ex.Message);
+                UiJsonError.Emit(json, UiJsonError.CodePatternUnsupported, ex.Message, selectorStr,
+                    errorOut: parseResult.InvocationConfiguration.Error);
+                return 1;
+            }
+            catch (System.Runtime.InteropServices.COMException comEx) when (verticalPercent is null)
             {
                 logger.LogDebug("COM error: {HResult} {StackTrace}", comEx.HResult, comEx.StackTrace);
                 UiErrors.StaleElement(logger, json);
@@ -224,7 +266,7 @@ internal class UiScrollCommand : Command, IShortDescription
             }
             catch (Exception ex)
             {
-                UiErrors.GenericError(logger, ex, json);
+                UiErrors.GenericError(logger, ex, json, errorOut: parseResult.InvocationConfiguration.Error);
                 return 1;
             }
         }

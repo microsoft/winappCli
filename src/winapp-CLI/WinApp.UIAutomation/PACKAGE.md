@@ -34,10 +34,60 @@ await ui.InvokeAsync(target, button!, CancellationToken.None);
   text.
 - **Input injection** — keyboard, mouse, touch and pen, including gestures.
 - **Window capture** — screenshots as raw BGRA pixels.
+- **Action recording and replay** — `IUiActionService` records an explicitly selected
+  window into a reviewed `UiActionFlow`; `UiActionFlowDocument` reads and writes
+  bounded JSON files. Text is parameterized by default. Replay requires explicit
+  approval, and never replays incomplete recordings.
+- **Scoped audit evidence** — bounded UIA snapshots with typed text attributes
+  and explicit collection gaps; UIA event observation and optional, approved
+  keyboard focus probes. Missing AutomationIds do not prevent these observations.
+- **Standard tab navigation** — name-free `IUiAuditTabsService` discovery with
+  exact, explicitly approved SelectionItem operations and selected-state readbacks.
+  See [audit-tabs](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#audit-tabs)
+  for runtime identities, unsupported controls and scope limits.
+
+Audit data is not an automatic accessibility or business-correctness verdict.
+Repeated focus targets are observations, not keyboard-trap findings; provider
+text attributes can be mixed or unsupported. See the
+[audit reference](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#audit-snapshot)
+for the native commands and their evidence semantics.
+
+Resolve the audit interfaces from `AddWinAppUiAutomation()`:
+
+```csharp
+var snapshotReader = services.GetRequiredService<IUiAuditSnapshotService>();
+var snapshot = await snapshotReader.CaptureAsync(target, new UiAuditSnapshotOptions
+{
+    MaxDepth = 20,
+    MaxElements = 2000,
+}, CancellationToken.None);
+
+var observer = services.GetRequiredService<IUiAuditObservationService>();
+var observed = await observer.ObserveAsync(target, new UiAuditObservationOptions
+{
+    DurationSec = 5,
+}, CancellationToken.None);
+
+var tabReader = services.GetRequiredService<IUiAuditTabsService>();
+var tabs = await tabReader.CaptureAsync(target.WindowHandle, new UiAuditTabsOptions(),
+    CancellationToken.None);
+```
+
+`UiAuditSnapshotResult` contains `UiAuditNode` entries, bounds, typed
+`UiAuditField` values in `UiAuditNodeTextRun`, and `UiAuditSnapshotIssue`
+records. `UiAuditObservationResult` separates `UiAuditFocusPoint` samples from
+native `UiAuditEvent` records and `UiAuditObservationIssue` limitations.
+The corresponding snapshot/observation exception types expose failures that
+prevent a result. Implementation classes are not part of the public contract.
 
 Video recording is a separate package,
 `Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation.Recording`, so that projects which only
 inspect and drive UI do not take a dependency on SkiaSharp.
+
+For the recording workflow, supported actions, text handling, and safety limits,
+see [Action recording and replay](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#record-actions).
+Recording inputs does not generate a correctness test: add reviewed assertions
+for the behavior that must succeed.
 
 ## Choosing a target framework
 

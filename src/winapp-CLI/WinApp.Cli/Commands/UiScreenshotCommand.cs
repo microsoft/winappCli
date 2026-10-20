@@ -368,7 +368,7 @@ internal class UiScreenshotCommand : Command, IShortDescription
             return appWindows.Count > 1 ? appWindows : null;
         }
 
-        private static byte[] EncodePng(byte[] bgraPixels, int width, int height)
+        internal static byte[] EncodePng(byte[] bgraPixels, int width, int height)
         {
             using var bitmap = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
             unsafe

@@ -25,6 +25,7 @@ internal static class UiJsonError
     public const string CodeTargetMoved = "target_moved";
     public const string CodeNoTarget = "no_target";
     public const string CodeInjectionUnsupported = "injection_unsupported";
+    public const string CodePatternUnsupported = "pattern_unsupported";
     public const string CodeAmbiguousSelector = "ambiguous_selector";
     public const string CodeOutputExists = "output_exists";
     public const string CodeFrameOutputFailed = "frame_output_failed";

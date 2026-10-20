@@ -44,6 +44,7 @@ DBG_CONTINUE
 DBG_EXCEPTION_NOT_HANDLED
 GetShortPathName
 GetForegroundWindow
+DwmGetWindowAttribute
 SetForegroundWindow
 MiniDumpWriteDump
 MINIDUMP_TYPE

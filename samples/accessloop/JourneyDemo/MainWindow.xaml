@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="AccessLoop.JourneyDemo.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AccessLoop.JourneyDemo"
+    Title="AccessLoop - document journey demo">
+    <Grid
+        x:Name="WindowRoot"
+        Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+        Loaded="WindowRoot_Loaded">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <local:AutomationStackPanel
+            AutomationProperties.AutomationId="MainNavigation"
+            AutomationProperties.Name="Main navigation"
+            Margin="32,24,32,0"
+            Orientation="Horizontal"
+            Spacing="12">
+            <Button
+                AutomationProperties.AutomationId="NavHome"
+                AutomationProperties.Name="Home"
+                Click="NavHome_Click"
+                Content="Home" />
+            <Button
+                AutomationProperties.AutomationId="NavDocuments"
+                AutomationProperties.Name="Documents"
+                Click="NavDocuments_Click"
+                Content="Documents" />
+            <Button
+                AutomationProperties.AutomationId="NavExport"
+                AutomationProperties.Name="Export"
+                Click="NavExport_Click"
+                Content="Export" />
+        </local:AutomationStackPanel>
+
+        <ContentControl
+            x:Name="PageHost"
+            AutomationProperties.AccessibilityView="Raw"
+            AutomationProperties.AutomationId="PageHost"
+            Grid.Row="1"
+            HorizontalContentAlignment="Stretch"
+            IsTabStop="False"
+            Margin="32,24,32,32"
+            VerticalContentAlignment="Stretch" />
+    </Grid>
+</Window>

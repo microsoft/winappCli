@@ -27,6 +27,9 @@ export type SdkInstallMode = 'stable' | 'preview' | 'experimental' | 'none';
 /** ManifestTemplates values. */
 export type ManifestTemplates = 'packaged' | 'sparse';
 
+/** String values. */
+export type String = 'human' | 'ai';
+
 /** Base options shared by most commands. */
 export interface CommonOptions {
   /** Suppress progress messages. */
@@ -754,6 +757,498 @@ export async function tool(options: ToolOptions = {}): Promise<WinappResult> {
 }
 
 // ---------------------------------------------------------------------------
+// ui accessibility assess
+// ---------------------------------------------------------------------------
+
+export interface UiAccessibilityAssessOptions extends CommonOptions {
+  /** Original scan.json file. */
+  scan: string;
+  /** Reviewed assessment JSON file. */
+  assessment?: string;
+  /** New evidence directory; existing evidence is never overwritten. */
+  output?: string;
+}
+
+/**
+ * Attach an evidence-based supplementary assessment and write a combined report. The original automatic scan results and artifacts remain unchanged.
+ */
+export async function uiAccessibilityAssess(options: UiAccessibilityAssessOptions): Promise<WinappResult> {
+  const args: string[] = ['ui', 'accessibility', 'assess'];
+  args.push(options.scan);
+  if (options.assessment) args.push('--assessment', options.assessment);
+  if (options.output) args.push('--output', options.output);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui accessibility assessment-template
+// ---------------------------------------------------------------------------
+
+export interface UiAccessibilityAssessmentTemplateOptions extends CommonOptions {
+  /** Original scan.json file. */
+  scan: string;
+  /** Explicit assessment author name (maximum 256 characters). */
+  author?: string;
+  /** Model name, required for --source ai (maximum 256 characters). */
+  model?: string;
+  /** New assessment JSON file; existing files are never overwritten. */
+  output?: string;
+  /** Assessment author kind: human or ai. */
+  source?: String;
+}
+
+/**
+ * Create a supplementary assessment template for an existing scan. Fill evidence-based entries before attaching; no assessment or automatic verdict is inferred.
+ */
+export async function uiAccessibilityAssessmentTemplate(options: UiAccessibilityAssessmentTemplateOptions): Promise<WinappResult> {
+  const args: string[] = ['ui', 'accessibility', 'assessment-template'];
+  args.push(options.scan);
+  if (options.author) args.push('--author', options.author);
+  if (options.model) args.push('--model', options.model);
+  if (options.output) args.push('--output', options.output);
+  if (options.source) args.push('--source', options.source);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui accessibility check
+// ---------------------------------------------------------------------------
+
+export interface UiAccessibilityCheckOptions extends CommonOptions {
+  /** Reviewed suite.json or scenario.json declaring the source app and checks. */
+  input: string;
+  /** Explicitly approve building, launching and performing the declared real keyboard checks in the source-owned app. */
+  acceptActions?: boolean;
+  /** New evidence directory; existing evidence is never overwritten. */
+  output?: string;
+}
+
+/**
+ * Build and run a declared source-owned suite or scenario and retain accessibility evidence. This is an active workflow requiring --accept-actions, not a passive scan. Exit codes: 0 passed, 1 failed, 2 inconclusive or error.
+ */
+export async function uiAccessibilityCheck(options: UiAccessibilityCheckOptions): Promise<WinappResult> {
+  const args: string[] = ['ui', 'accessibility', 'check'];
+  args.push(options.input);
+  if (options.acceptActions) args.push('--accept-actions');
+  if (options.output) args.push('--output', options.output);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui accessibility explore
+// ---------------------------------------------------------------------------
+
+export interface UiAccessibilityExploreOptions extends CommonOptions {
+  /** Reviewed exploration profile JSON; required even when attaching to an existing app. */
+  profile: string;
+  /** Explicitly approve declared navigation, scrolling, disclosure and safe dialog dismissal. */
+  acceptInteractions?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Build, launch and close the local source demo declared in the profile instead of attaching. */
+  launchOwned?: boolean;
+  /** Do not capture screenshots. */
+  noScreenshot?: boolean;
+  /** New evidence directory; existing evidence is never overwritten. */
+  output?: string;
+  /** Process ID of the already-running target app. */
+  pid?: number;
+  /** Owned-demo-only safety exercise: open the auxiliary test window declared in the profile. */
+  probeScopeGuard?: boolean;
+  /** Positive decimal HWND from 'winapp ui list-windows'. */
+  window?: number;
+}
+
+/**
+ * Audit declared pages, finite scroll positions, dropdown disclosure and known dialogs from a reviewed profile. --accept-interactions does not approve option selection, feature-setting changes or source repairs. --launch-owned additionally builds, launches and closes the profile's local source demo; attaching never owns an existing app. Exit codes: 0 finished without failures, 1 complete with failures, 2 partial, 3 paused. Start a fresh run after interruption.
+ */
+export async function uiAccessibilityExplore(options: UiAccessibilityExploreOptions): Promise<WinappResult> {
+  const args: string[] = ['ui', 'accessibility', 'explore'];
+  args.push(options.profile);
+  if (options.acceptInteractions) args.push('--accept-interactions');
+  if (options.json) args.push('--json');
+  if (options.launchOwned) args.push('--launch-owned');
+  if (options.noScreenshot) args.push('--no-screenshot');
+  if (options.output) args.push('--output', options.output);
+  if (options.pid !== undefined) args.push('--pid', options.pid.toString());
+  if (options.probeScopeGuard) args.push('--probe-scope-guard');
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui accessibility journey
+// ---------------------------------------------------------------------------
+
+export interface UiAccessibilityJourneyOptions extends CommonOptions {
+  /** Reviewed journey JSON declaring the source project, pages and keyboard exercises. */
+  journey: string;
+  /** Explicitly approve building, launching, navigating and performing the declared keyboard exercises. */
+  acceptNavigation?: boolean;
+  /** Approve supported Name-only source repairs and full frozen-route regression after each edit. */
+  apply?: boolean;
+  /** Copilot executable for requested planning or repairs (default: copilot). */
+  copilot?: string;
+  /** Ask Copilot to order approved navigation candidates; otherwise use the declared order or --plan. */
+  copilotPlan?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Do not capture screenshots. */
+  noScreenshot?: boolean;
+  /** New evidence directory; existing evidence is never overwritten. */
+  output?: string;
+  /** Reviewed plan JSON to use instead of --copilot-plan. */
+  plan?: string;
+  /** Reviewed <TargetAutomationId>.json proposal directory instead of Copilot repair requests; requires --apply. */
+  proposals?: string;
+}
+
+/**
+ * Build a source-owned demo, navigate approved pages and run declared keyboard checks. --accept-navigation approves launch and those interactions; --apply separately approves supported XAML Name edits and frozen-route regression. Without --copilot-plan or --plan, the declared visit order is used. This is bounded planning over declared navigation, not an autonomous observed-AI plan.
+ */
+export async function uiAccessibilityJourney(options: UiAccessibilityJourneyOptions): Promise<WinappResult> {
+  const args: string[] = ['ui', 'accessibility', 'journey'];
+  args.push(options.journey);
+  if (options.acceptNavigation) args.push('--accept-navigation');
+  if (options.apply) args.push('--apply');
+  if (options.copilot) args.push('--copilot', options.copilot);
+  if (options.copilotPlan) args.push('--copilot-plan');
+  if (options.json) args.push('--json');
+  if (options.noScreenshot) args.push('--no-screenshot');
+  if (options.output) args.push('--output', options.output);
+  if (options.plan) args.push('--plan', options.plan);
+  if (options.proposals) args.push('--proposals', options.proposals);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui accessibility loop
+// ---------------------------------------------------------------------------
+
+export interface UiAccessibilityLoopOptions extends CommonOptions {
+  /** Reviewed loop preset JSON; omit with --replay. */
+  preset?: string;
+  /** Explicitly approve building and launching the owned copy, preset state changes and real input. */
+  acceptActions?: boolean;
+  /** Approve bounded reviewed-name repairs in the owned source copy, followed by same-route rebuild and retest. */
+  apply?: boolean;
+  /** Copilot executable for repair proposals; requires --apply (default: copilot). */
+  copilot?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Do not capture screenshots in a new loop; replay inherits the saved capture policy. */
+  noScreenshot?: boolean;
+  /** New evidence directory; existing evidence is never overwritten. */
+  output?: string;
+  /** Reviewed proposal directory instead of Copilot; requires --apply. */
+  proposals?: string;
+  /** Previous run directory containing archived source rounds and frozen evidence. */
+  replay?: string;
+  /** Replay round ID (default: baseline); only valid with --replay. */
+  round?: string;
+}
+
+/**
+ * Copy a source demo into an owned workspace, execute a reviewed preset route, and reproduce it in a new owned process. --accept-actions approves preset test-state changes and real keyboard input; --apply separately approves bounded Name repairs. The original source is never edited. --replay uses an archived source round (baseline by default). Route planning is preset, not autonomous AI; capture completeness and repair verification are separate.
+ */
+export async function uiAccessibilityLoop(options: UiAccessibilityLoopOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'accessibility', 'loop'];
+  if (options.preset) args.push(options.preset);
+  if (options.acceptActions) args.push('--accept-actions');
+  if (options.apply) args.push('--apply');
+  if (options.copilot) args.push('--copilot', options.copilot);
+  if (options.json) args.push('--json');
+  if (options.noScreenshot) args.push('--no-screenshot');
+  if (options.output) args.push('--output', options.output);
+  if (options.proposals) args.push('--proposals', options.proposals);
+  if (options.replay) args.push('--replay', options.replay);
+  if (options.round) args.push('--round', options.round);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui accessibility repair
+// ---------------------------------------------------------------------------
+
+export interface UiAccessibilityRepairOptions extends CommonOptions {
+  /** Reviewed suite.json or scenario.json declaring the source app and frozen acceptance checks. */
+  input: string;
+  /** Explicitly approve building, launching and performing the declared real keyboard checks in the source-owned app. */
+  acceptActions?: boolean;
+  /** Explicitly approve one constrained XAML Name source edit and rerunning all scenarios. */
+  apply?: boolean;
+  /** Copilot executable used when a proposal is needed (default: copilot). */
+  copilot?: string;
+  /** Finding ID to repair; required when several findings are available. */
+  finding?: string;
+  /** New evidence directory; existing evidence is never overwritten. */
+  output?: string;
+  /** Reviewed proposal JSON instead of asking Copilot for a proposal. */
+  proposal?: string;
+}
+
+/**
+ * Run a source-owned suite and propose one constrained XAML Name repair by default. Multiple findings require --finding. --apply authorizes editing the source and rerunning every scenario; new regressions reject the patch. A fixed finding does not mean the whole suite is clean. Exit codes: 0 fixed, 1 failed or regression, 2 inconclusive, 3 approval, selection or review required.
+ */
+export async function uiAccessibilityRepair(options: UiAccessibilityRepairOptions): Promise<WinappResult> {
+  const args: string[] = ['ui', 'accessibility', 'repair'];
+  args.push(options.input);
+  if (options.acceptActions) args.push('--accept-actions');
+  if (options.apply) args.push('--apply');
+  if (options.copilot) args.push('--copilot', options.copilot);
+  if (options.finding) args.push('--finding', options.finding);
+  if (options.output) args.push('--output', options.output);
+  if (options.proposal) args.push('--proposal', options.proposal);
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui accessibility survey
+// ---------------------------------------------------------------------------
+
+export interface UiAccessibilitySurveyOptions extends CommonOptions {
+  /** Reviewed navigation profile JSON for a new survey; omit with --resume. */
+  profile?: string;
+  /** Explicitly approve profiled navigation and keyboard focus changes in the selected app. */
+  acceptNavigation?: boolean;
+  /** Required for resume: confirm app settings and test data have not changed while paused. */
+  confirmUnchanged?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Do not capture screenshots in a new survey; resume inherits the saved capture policy. */
+  noScreenshot?: boolean;
+  /** New evidence directory; existing evidence is never overwritten. */
+  output?: string;
+  /** Process ID of the already-running target app. */
+  pid?: number;
+  /** Existing survey run directory to resume. */
+  resume?: string;
+  /** Resume-only page ID to retry; repeat for each ID. Previous evidence is retained. */
+  retryPage?: string | string[];
+  /** Pause after this many pages (1-100). */
+  stopAfter?: number;
+  /** Positive decimal HWND from 'winapp ui list-windows'. */
+  window?: number;
+}
+
+/**
+ * Audit profiled navigation pages in an existing app without source, build, restart or settings-value changes. A reviewed navigation profile and --accept-navigation are required. Resume checks the frozen target and environment; --confirm-unchanged declares that settings and test data have not changed. Exit codes: 0 finished without failures, 1 finished with failures, 2 partial or blocked, 3 paused.
+ */
+export async function uiAccessibilitySurvey(options: UiAccessibilitySurveyOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'accessibility', 'survey'];
+  if (options.profile) args.push(options.profile);
+  if (options.acceptNavigation) args.push('--accept-navigation');
+  if (options.confirmUnchanged) args.push('--confirm-unchanged');
+  if (options.json) args.push('--json');
+  if (options.noScreenshot) args.push('--no-screenshot');
+  if (options.output) args.push('--output', options.output);
+  if (options.pid !== undefined) args.push('--pid', options.pid.toString());
+  if (options.resume) args.push('--resume', options.resume);
+  if (options.retryPage) {
+    const retryPageArr = Array.isArray(options.retryPage) ? options.retryPage : [options.retryPage];
+    for (const v of retryPageArr) args.push('--retry-page', v);
+  }
+  if (options.stopAfter !== undefined) args.push('--stop-after', options.stopAfter.toString());
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui audit
+// ---------------------------------------------------------------------------
+
+export interface UiAuditOptions extends CommonOptions {
+  /** Explicitly approve the requested Tab and Shift+Tab keyboard probe; even Tab may cause app side effects. */
+  acceptInput?: boolean;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Audit only the current page without selecting tabs. Read-only unless a keyboard probe is separately requested and approved. */
+  currentPage?: boolean;
+  /** Maximum descendant depth (1-50). */
+  depth?: number;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Maximum elements examined (1-10000). */
+  maxElements?: number;
+  /** Maximum page captures for automatic standard-tab navigation (1-100). Not used with --current-page. */
+  maxPages?: number;
+  /** Do not capture screenshots. */
+  noScreenshot?: boolean;
+  /** Passive observation budget per page (0-60 seconds). Defaults to 0, or 10 with a keyboard probe. */
+  observeSeconds?: number;
+  /** New evidence directory; existing evidence is never overwritten. */
+  output?: string;
+  /** Keyboard focus probe steps (0-30); requires --current-page and --accept-input when positive. */
+  tabSteps?: number;
+  /** Per-capture timeout in milliseconds (1000-120000). */
+  timeoutMs?: number;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+/**
+ * Audit accessibility in an already-running Windows app. By default, discover and select supported standard Tab pages, capture each page and write a combined report; no agent or route profile is needed. Tab selection can cause application side effects. If no standard tabs are found, audit the current page. Use --current-page for a read-only single-page audit. Never builds, restarts or closes the app. Attempts to restore tab selection only while the original target remains eligible. Exit codes: 0 complete without rule failures, 1 complete with failures, 2 blocked or partial; not a WCAG compliance verdict.
+ */
+export async function uiAudit(options: UiAuditOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'audit'];
+  if (options.acceptInput) args.push('--accept-input');
+  if (options.app) args.push('--app', options.app);
+  if (options.currentPage) args.push('--current-page');
+  if (options.depth !== undefined) args.push('--depth', options.depth.toString());
+  if (options.json) args.push('--json');
+  if (options.maxElements !== undefined) args.push('--max-elements', options.maxElements.toString());
+  if (options.maxPages !== undefined) args.push('--max-pages', options.maxPages.toString());
+  if (options.noScreenshot) args.push('--no-screenshot');
+  if (options.observeSeconds !== undefined) args.push('--observe-seconds', options.observeSeconds.toString());
+  if (options.output) args.push('--output', options.output);
+  if (options.tabSteps !== undefined) args.push('--tab-steps', options.tabSteps.toString());
+  if (options.timeoutMs !== undefined) args.push('--timeout-ms', options.timeoutMs.toString());
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui audit-observe
+// ---------------------------------------------------------------------------
+
+export interface UiAuditObserveOptions extends CommonOptions {
+  /** Authorize initial target activation and real Tab/Shift+Tab input. Even Tab can change business state; no state is restored. */
+  acceptInput?: boolean;
+  /** Target running process by numeric PID. Use --window instead to choose a particular top-level window. */
+  app?: string;
+  /** Total observation and keyboard-probe budget in seconds (1-60), including setup. */
+  durationSec?: number;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Maximum retained native events (1-5000). Reaching this limit returns a partial result. */
+  maxEvents?: number;
+  /** Maximum Tab presses per direction (0-30). Zero observes without activation or input. */
+  tabSteps?: number;
+  /** Target one top-level window by positive numeric HWND. Use --app or --window, not both. */
+  window?: number;
+}
+
+/**
+ * Observe native focus, selected non-text property, structure, live-region, and notification events in one running window. Default: read-only for 5 seconds, with no activation or input. --tab-steps requires --accept-input and sends up to N Tab then N Shift+Tab chords, with no control invocation, value changes, or focus-setting between steps. Tab itself can change business state. Keyboard probing requires an unlocked interactive desktop; read-only event observation does not require input focus. Review the target state after keyboard probing; nothing is restored. Focus samples are separate from native events. Repeats are observations, not keyboard-trap or accessibility verdicts. Input values and notification text are not captured; password, text-bearing, and privacy-unknown names are withheld. Cancellation, event limits, environment failures, or incomplete coverage return partial JSON with a nonzero exit code.
+ */
+export async function uiAuditObserve(options: UiAuditObserveOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'audit-observe'];
+  if (options.acceptInput) args.push('--accept-input');
+  if (options.app) args.push('--app', options.app);
+  if (options.durationSec !== undefined) args.push('--duration-sec', options.durationSec.toString());
+  if (options.json) args.push('--json');
+  if (options.maxEvents !== undefined) args.push('--max-events', options.maxEvents.toString());
+  if (options.tabSteps !== undefined) args.push('--tab-steps', options.tabSteps.toString());
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui audit-screenshot
+// ---------------------------------------------------------------------------
+
+export interface UiAuditScreenshotOptions extends CommonOptions {
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Save output to this file path. */
+  output?: string;
+  /** Timeout in milliseconds */
+  timeout?: number;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+/**
+ * Capture exactly the selected window through Windows Graphics Capture. Never activates or restores a window, captures the desktop, or enumerates additional owned windows. Requires an explicit --app or --window and a new --output PNG path. Unavailable capture is an error, not a foreground-changing fallback. JSON records physical screen bounds before and after capture; coordinate mapping is available only when the bounds stay unchanged and exactly match the captured pixel dimensions.
+ */
+export async function uiAuditScreenshot(options: UiAuditScreenshotOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'audit-screenshot'];
+  if (options.app) args.push('--app', options.app);
+  if (options.json) args.push('--json');
+  if (options.output) args.push('--output', options.output);
+  if (options.timeout !== undefined) args.push('--timeout', options.timeout.toString());
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui audit-snapshot
+// ---------------------------------------------------------------------------
+
+export interface UiAuditSnapshotOptions extends CommonOptions {
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Maximum raw-tree descendant depth, inclusive (1-50). The selected root has depth 0. */
+  depth?: number;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Maximum elements examined, including rejected elements (1-10000). Limits produce a partial snapshot. */
+  maxElements?: number;
+  /** Cooperative timeout in milliseconds (1-120000). A blocking UIA provider requires an external process timeout. */
+  timeout?: number;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+/**
+ * Read the raw UI Automation tree for one explicitly selected top-level window without focusing it or sending input. Child HWNDs inside that window are included; other top-level windows, including owned dialogs, are excluded and reported as window boundaries. Use --json to obtain the complete typed snapshot, including unsupported/mixed text formatting attributes and partial-result issues. Accessible names can contain user data; password or indeterminate-privacy names and text details are withheld. Text content and Value properties are never collected. Formatting is limited to 16 visible runs per node and 32 rectangles per run. A partial snapshot is still written to stdout with --json, but exits nonzero.
+ */
+export async function uiAuditSnapshot(options: UiAuditSnapshotOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'audit-snapshot'];
+  if (options.app) args.push('--app', options.app);
+  if (options.depth !== undefined) args.push('--depth', options.depth.toString());
+  if (options.json) args.push('--json');
+  if (options.maxElements !== undefined) args.push('--max-elements', options.maxElements.toString());
+  if (options.timeout !== undefined) args.push('--timeout', options.timeout.toString());
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui audit-tabs
+// ---------------------------------------------------------------------------
+
+export interface UiAuditTabsOptions extends CommonOptions {
+  /** Explicitly approve SelectionItem.Select on the exact requested item; requires all three runtime IDs. */
+  acceptNavigation?: boolean;
+  /** Exact nearest standard Tab group's runtime ID, not an inner ListView's ID. */
+  container?: string;
+  /** Inclusive raw-tree depth (1-50); root depth is zero. */
+  depth?: number;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Maximum examined elements (1-10000). Truncated or unreadable discovery cannot authorize selection. */
+  maxElements?: number;
+  /** Exact expected root runtime ID from the same window's discovery. */
+  rootRuntimeId?: string;
+  /** Exact TabItem runtime ID from audit-tabs; never a selector or accessible name. */
+  select?: string;
+  /** Cooperative timeout in milliseconds (1000-120000). A blocking provider requires an external process deadline. */
+  timeout?: number;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+/**
+ * Read standard Tab/TabItem structure in one exact top-level --window without reading names, values or text. Read-only by default. Selection requires --select, --container, --root-runtime-id and --accept-navigation together. Only enabled, visible, realized, single-selection standard tabs with verified selection-container ownership are supported. Modal/pop-up and visible owned windows block selection. There is no focus, click, keyboard, scroll or ancestor fallback. Successful selection requires two readbacks at least 50 ms apart. Discover again after selection before using nested groups. treeSignature hashes observed structural UIA state for comparing fresh read-only snapshots; it is not semantic or content-loaded readiness. Exit 0 means captured; partial/blocked results exit nonzero and retain the typed --json result.
+ */
+export async function uiAuditTabs(options: UiAuditTabsOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'audit-tabs'];
+  if (options.acceptNavigation) args.push('--accept-navigation');
+  if (options.container) args.push('--container', options.container);
+  if (options.depth !== undefined) args.push('--depth', options.depth.toString());
+  if (options.json) args.push('--json');
+  if (options.maxElements !== undefined) args.push('--max-elements', options.maxElements.toString());
+  if (options.rootRuntimeId) args.push('--root-runtime-id', options.rootRuntimeId);
+  if (options.select) args.push('--select', options.select);
+  if (options.timeout !== undefined) args.push('--timeout', options.timeout.toString());
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
 // ui click
 // ---------------------------------------------------------------------------
 
@@ -821,6 +1316,36 @@ export async function uiDrag(options: UiDragOptions = {}): Promise<WinappResult>
   if (options.holdMs !== undefined) args.push('--hold-ms', options.holdMs.toString());
   if (options.json) args.push('--json');
   if (options.right) args.push('--right');
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
+// ui expand-collapse
+// ---------------------------------------------------------------------------
+
+export interface UiExpandCollapseOptions extends CommonOptions {
+  /** Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId */
+  selector?: string;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Required state: expanded or collapsed. An already matching state is left unchanged. */
+  state?: string;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+/**
+ * Set an element's explicit expanded or collapsed state using only its own ExpandCollapsePattern. Confirms the state by readback; never invokes, toggles, injects input, or tries an ancestor.
+ */
+export async function uiExpandCollapse(options: UiExpandCollapseOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'expand-collapse'];
+  if (options.selector) args.push(options.selector);
+  if (options.app) args.push('--app', options.app);
+  if (options.json) args.push('--json');
+  if (options.state) args.push('--state', options.state);
   if (options.window !== undefined) args.push('--window', options.window.toString());
   return execCommand(args, options);
 }
@@ -1135,6 +1660,71 @@ export interface UiRecordOptions extends CommonOptions {
 //   public guarded wrapper (e.g. uiRecord from ui-record-guard.ts) instead.
 
 // ---------------------------------------------------------------------------
+// ui record-actions
+// ---------------------------------------------------------------------------
+
+export interface UiRecordActionsOptions extends CommonOptions {
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Opt in to storing full non-password edit-field values. By default text becomes named replay parameters. Password fields always stop recording as incomplete. */
+  captureText?: boolean;
+  /** Recording duration in seconds. 0 records until Ctrl+C or redirected-stdin newline/EOF. */
+  durationSec?: number;
+  /** Also record OS-injected input, for controlled automation tests. By default only hardware input is recorded. */
+  includeInjected?: boolean;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Maximum retained actions (1-10000). Reaching the limit stops recording as incomplete. */
+  maxSteps?: number;
+  /** Save output to this file path. */
+  output?: string;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+// _uiRecordActionsGenerated: options interface exported above; function body omitted — use the
+//   public guarded wrapper (e.g. uiRecord from ui-record-guard.ts) instead.
+
+// ---------------------------------------------------------------------------
+// ui replay
+// ---------------------------------------------------------------------------
+
+export interface UiReplayOptions extends CommonOptions {
+  /** Path to a reviewed schema-1 action JSON file. Incomplete recordings cannot be replayed. */
+  flow?: string;
+  /** Required: confirm you reviewed the draft and approve injecting its inputs into the explicitly selected window. */
+  acceptRecording?: boolean;
+  /** Target app (process name, window title, or PID). Lists windows if ambiguous. */
+  app?: string;
+  /** Format output as JSON */
+  json?: boolean;
+  /** Supply a reviewed text parameter as NAME=VALUE. Repeat for each name; NAME= clears a field. Values are literal, never shell commands or environment-variable substitutions. */
+  parameter?: string | string[];
+  /** Timeout in milliseconds */
+  timeout?: number;
+  /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
+  window?: number;
+}
+
+/**
+ * Validate and replay a reviewed action-file draft using real mouse and keyboard input. --accept-recording and an explicit --app or --window are required. The selected process name must match the recording (case-insensitive); a new PID is allowed. Supply every text parameter with --parameter NAME=VALUE. Success means inputs completed and any manually authored assertions matched, not that the app or its accessibility passed.
+ */
+export async function uiReplay(options: UiReplayOptions = {}): Promise<WinappResult> {
+  const args: string[] = ['ui', 'replay'];
+  if (options.flow) args.push(options.flow);
+  if (options.acceptRecording) args.push('--accept-recording');
+  if (options.app) args.push('--app', options.app);
+  if (options.json) args.push('--json');
+  if (options.parameter) {
+    const parameterArr = Array.isArray(options.parameter) ? options.parameter : [options.parameter];
+    for (const v of parameterArr) args.push('--parameter', v);
+  }
+  if (options.timeout !== undefined) args.push('--timeout', options.timeout.toString());
+  if (options.window !== undefined) args.push('--window', options.window.toString());
+  return execCommand(args, options);
+}
+
+// ---------------------------------------------------------------------------
 // ui screenshot
 // ---------------------------------------------------------------------------
 
@@ -1185,6 +1775,8 @@ export interface UiScrollOptions extends CommonOptions {
   json?: boolean;
   /** Scroll to position: top, bottom */
   to?: string;
+  /** Set this element's vertical ScrollPattern position to a percentage from 0 to 100. Use a decimal point; no ancestor or input fallback. Horizontal position is unchanged. */
+  verticalPercent?: number;
   /** Rotate the mouse wheel over the element by this many notches (1 = one notch up, -1 = one notch down). Synthesizes real wheel input instead of using ScrollPattern. */
   wheel?: number;
   /** Target window by HWND (stable handle from list output). Takes precedence over --app. */
@@ -1192,7 +1784,7 @@ export interface UiScrollOptions extends CommonOptions {
 }
 
 /**
- * Scroll a container element using ScrollPattern. Use --direction to scroll incrementally, --to to jump to top/bottom, or --wheel to synthesize mouse-wheel input.
+ * Scroll a container element using ScrollPattern. Use --direction to scroll incrementally, --to to jump to top/bottom, --vertical-percent for a confirmed position on the exact container, or --wheel to synthesize mouse-wheel input.
  */
 export async function uiScroll(options: UiScrollOptions = {}): Promise<WinappResult> {
   const args: string[] = ['ui', 'scroll'];
@@ -1201,6 +1793,7 @@ export async function uiScroll(options: UiScrollOptions = {}): Promise<WinappRes
   if (options.direction) args.push('--direction', options.direction);
   if (options.json) args.push('--json');
   if (options.to) args.push('--to', options.to);
+  if (options.verticalPercent !== undefined) args.push('--vertical-percent', options.verticalPercent.toString());
   if (options.wheel !== undefined) args.push('--wheel', options.wheel.toString());
   if (options.window !== undefined) args.push('--window', options.window.toString());
   return execCommand(args, options);

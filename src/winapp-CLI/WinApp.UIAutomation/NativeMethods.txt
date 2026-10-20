@@ -1,5 +1,8 @@
 // UI Automation (UIA) COM client
 IUIAutomation
+IUIAutomation2
+IUIAutomation5
+IUIAutomationNotificationEventHandler
 CUIAutomation8
 IUIAutomationElement
 IUIAutomationCondition
@@ -15,6 +18,19 @@ IUIAutomationScrollPattern
 IUIAutomationRangeValuePattern
 IUIAutomationLegacyIAccessiblePattern
 IUIAutomationTextPattern
+IUIAutomationTextEditPattern
+
+// Scoped audit COM lifetime and call cancellation
+CoInitializeEx
+CoUninitialize
+CoEnableCallCancellation
+CoDisableCallCancellation
+CoCancelCall
+SafeArrayDestroy
+VARENUM
+SafeArrayAccessData
+SafeArrayUnaccessData
+SafeArrayGetVartype
 
 // Window discovery and metadata
 GetForegroundWindow
@@ -28,6 +44,8 @@ GetClassName
 GetWindow
 FindWindowEx
 IsWindowVisible
+IsWindowEnabled
+IsWindow
 IsIconic
 ShowWindow
 SetForegroundWindow
@@ -59,6 +77,29 @@ POINTER_FLAGS
 POINTER_INPUT_TYPE
 POINTER_FEEDBACK_MODE
 TOUCH_FEEDBACK_MODE
+
+// Opt-in, single-window action recording
+WindowFromPoint
+GetCursorPos
+GetAsyncKeyState
+SetWindowsHookEx
+UnhookWindowsHookEx
+CallNextHookEx
+KBDLLHOOKSTRUCT
+MSLLHOOKSTRUCT
+GetCurrentThreadId
+GetModuleHandle
+PeekMessage
+GetMessage
+PostThreadMessage
+SetTimer
+KillTimer
+WaitForSingleObject
+OpenInputDesktop
+CloseDesktop
+GetThreadDesktop
+GetUserObjectInformation
+GetKeyboardLayout
 
 // GDI screenshot capture
 PrintWindow

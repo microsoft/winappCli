@@ -2325,6 +2325,1788 @@
       "description": "Inspect and interact with any running Windows app using UI Automation (UIA). Works with WPF, WinForms, Win32, Electron, and WinUI 3 apps.",
       "hidden": false,
       "subcommands": {
+        "accessibility": {
+          "description": "Run configured accessibility workflows and attach assessments using the local accessibility bundle. Use 'winapp ui audit' to scan an existing app and its standard tab pages without a profile. These active workflows require reviewed profiles, journeys or presets and separate action approval; none provides autonomous AI route planning. Results are not a whole-app compliance verdict. Worker results, stderr diagnostics and exit codes are preserved, including with --quiet; --verbose adds native launcher diagnostics only.",
+          "hidden": false,
+          "subcommands": {
+            "assess": {
+              "description": "Attach an evidence-based supplementary assessment and write a combined report. The original automatic scan results and artifacts remain unchanged.",
+              "hidden": false,
+              "arguments": {
+                "scan": {
+                  "description": "Original scan.json file.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--assessment": {
+                  "description": "Reviewed assessment JSON file.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": true,
+                  "recursive": false
+                },
+                "--output": {
+                  "description": "New evidence directory; existing evidence is never overwritten.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": true,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "assessment-template": {
+              "description": "Create a supplementary assessment template for an existing scan. Fill evidence-based entries before attaching; no assessment or automatic verdict is inferred.",
+              "hidden": false,
+              "arguments": {
+                "scan": {
+                  "description": "Original scan.json file.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--author": {
+                  "description": "Explicit assessment author name (maximum 256 characters).",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": true,
+                  "recursive": false
+                },
+                "--model": {
+                  "description": "Model name, required for --source ai (maximum 256 characters).",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--output": {
+                  "description": "New assessment JSON file; existing files are never overwritten.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": true,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--source": {
+                  "description": "Assessment author kind: human or ai.",
+                  "hidden": false,
+                  "helpName": "human|ai",
+                  "valueType": "System.String",
+                  "hasDefaultValue": true,
+                  "defaultValue": "human",
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "check": {
+              "description": "Build and run a declared source-owned suite or scenario and retain accessibility evidence. This is an active workflow requiring --accept-actions, not a passive scan. Exit codes: 0 passed, 1 failed, 2 inconclusive or error.",
+              "hidden": false,
+              "arguments": {
+                "input": {
+                  "description": "Reviewed suite.json or scenario.json declaring the source app and checks.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--accept-actions": {
+                  "description": "Explicitly approve building, launching and performing the declared real keyboard checks in the source-owned app.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--output": {
+                  "description": "New evidence directory; existing evidence is never overwritten.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "explore": {
+              "description": "Audit declared pages, finite scroll positions, dropdown disclosure and known dialogs from a reviewed profile. --accept-interactions does not approve option selection, feature-setting changes or source repairs. --launch-owned additionally builds, launches and closes the profile's local source demo; attaching never owns an existing app. Exit codes: 0 finished without failures, 1 complete with failures, 2 partial, 3 paused. Start a fresh run after interruption.",
+              "hidden": false,
+              "arguments": {
+                "profile": {
+                  "description": "Reviewed exploration profile JSON; required even when attaching to an existing app.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--accept-interactions": {
+                  "description": "Explicitly approve declared navigation, scrolling, disclosure and safe dialog dismissal.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--json": {
+                  "description": "Format output as JSON",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--launch-owned": {
+                  "description": "Build, launch and close the local source demo declared in the profile instead of attaching.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--no-screenshot": {
+                  "description": "Do not capture screenshots.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--output": {
+                  "description": "New evidence directory; existing evidence is never overwritten.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": true,
+                  "recursive": false
+                },
+                "--pid": {
+                  "description": "Process ID of the already-running target app.",
+                  "hidden": false,
+                  "valueType": "System.Nullable<System.Int32>",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--probe-scope-guard": {
+                  "description": "Owned-demo-only safety exercise: open the auxiliary test window declared in the profile.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--window": {
+                  "description": "Positive decimal HWND from 'winapp ui list-windows'.",
+                  "hidden": false,
+                  "valueType": "System.Nullable<System.Int64>",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "journey": {
+              "description": "Build a source-owned demo, navigate approved pages and run declared keyboard checks. --accept-navigation approves launch and those interactions; --apply separately approves supported XAML Name edits and frozen-route regression. Without --copilot-plan or --plan, the declared visit order is used. This is bounded planning over declared navigation, not an autonomous observed-AI plan.",
+              "hidden": false,
+              "arguments": {
+                "journey": {
+                  "description": "Reviewed journey JSON declaring the source project, pages and keyboard exercises.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--accept-navigation": {
+                  "description": "Explicitly approve building, launching, navigating and performing the declared keyboard exercises.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--apply": {
+                  "description": "Approve supported Name-only source repairs and full frozen-route regression after each edit.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--copilot": {
+                  "description": "Copilot executable for requested planning or repairs (default: copilot).",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--copilot-plan": {
+                  "description": "Ask Copilot to order approved navigation candidates; otherwise use the declared order or --plan.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--json": {
+                  "description": "Format output as JSON",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--no-screenshot": {
+                  "description": "Do not capture screenshots.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--output": {
+                  "description": "New evidence directory; existing evidence is never overwritten.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--plan": {
+                  "description": "Reviewed plan JSON to use instead of --copilot-plan.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--proposals": {
+                  "description": "Reviewed <TargetAutomationId>.json proposal directory instead of Copilot repair requests; requires --apply.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "loop": {
+              "description": "Copy a source demo into an owned workspace, execute a reviewed preset route, and reproduce it in a new owned process. --accept-actions approves preset test-state changes and real keyboard input; --apply separately approves bounded Name repairs. The original source is never edited. --replay uses an archived source round (baseline by default). Route planning is preset, not autonomous AI; capture completeness and repair verification are separate.",
+              "hidden": false,
+              "arguments": {
+                "preset": {
+                  "description": "Reviewed loop preset JSON; omit with --replay.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--accept-actions": {
+                  "description": "Explicitly approve building and launching the owned copy, preset state changes and real input.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--apply": {
+                  "description": "Approve bounded reviewed-name repairs in the owned source copy, followed by same-route rebuild and retest.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--copilot": {
+                  "description": "Copilot executable for repair proposals; requires --apply (default: copilot).",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--json": {
+                  "description": "Format output as JSON",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--no-screenshot": {
+                  "description": "Do not capture screenshots in a new loop; replay inherits the saved capture policy.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--output": {
+                  "description": "New evidence directory; existing evidence is never overwritten.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": true,
+                  "recursive": false
+                },
+                "--proposals": {
+                  "description": "Reviewed proposal directory instead of Copilot; requires --apply.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--replay": {
+                  "description": "Previous run directory containing archived source rounds and frozen evidence.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--round": {
+                  "description": "Replay round ID (default: baseline); only valid with --replay.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "repair": {
+              "description": "Run a source-owned suite and propose one constrained XAML Name repair by default. Multiple findings require --finding. --apply authorizes editing the source and rerunning every scenario; new regressions reject the patch. A fixed finding does not mean the whole suite is clean. Exit codes: 0 fixed, 1 failed or regression, 2 inconclusive, 3 approval, selection or review required.",
+              "hidden": false,
+              "arguments": {
+                "input": {
+                  "description": "Reviewed suite.json or scenario.json declaring the source app and frozen acceptance checks.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--accept-actions": {
+                  "description": "Explicitly approve building, launching and performing the declared real keyboard checks in the source-owned app.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--apply": {
+                  "description": "Explicitly approve one constrained XAML Name source edit and rerunning all scenarios.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--copilot": {
+                  "description": "Copilot executable used when a proposal is needed (default: copilot).",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--finding": {
+                  "description": "Finding ID to repair; required when several findings are available.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--output": {
+                  "description": "New evidence directory; existing evidence is never overwritten.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--proposal": {
+                  "description": "Reviewed proposal JSON instead of asking Copilot for a proposal.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            },
+            "survey": {
+              "description": "Audit profiled navigation pages in an existing app without source, build, restart or settings-value changes. A reviewed navigation profile and --accept-navigation are required. Resume checks the frozen target and environment; --confirm-unchanged declares that settings and test data have not changed. Exit codes: 0 finished without failures, 1 finished with failures, 2 partial or blocked, 3 paused.",
+              "hidden": false,
+              "arguments": {
+                "profile": {
+                  "description": "Reviewed navigation profile JSON for a new survey; omit with --resume.",
+                  "order": 0,
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              },
+              "options": {
+                "--accept-navigation": {
+                  "description": "Explicitly approve profiled navigation and keyboard focus changes in the selected app.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--confirm-unchanged": {
+                  "description": "Required for resume: confirm app settings and test data have not changed while paused.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--json": {
+                  "description": "Format output as JSON",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--no-screenshot": {
+                  "description": "Do not capture screenshots in a new survey; resume inherits the saved capture policy.",
+                  "hidden": false,
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--output": {
+                  "description": "New evidence directory; existing evidence is never overwritten.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--pid": {
+                  "description": "Process ID of the already-running target app.",
+                  "hidden": false,
+                  "valueType": "System.Nullable<System.Int32>",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--quiet": {
+                  "description": "Suppress progress messages",
+                  "hidden": false,
+                  "aliases": [
+                    "-q"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--resume": {
+                  "description": "Existing survey run directory to resume.",
+                  "hidden": false,
+                  "valueType": "System.String",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--retry-page": {
+                  "description": "Resume-only page ID to retry; repeat for each ID. Previous evidence is retained.",
+                  "hidden": false,
+                  "valueType": "System.String[]",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--stop-after": {
+                  "description": "Pause after this many pages (1-100).",
+                  "hidden": false,
+                  "valueType": "System.Nullable<System.Int32>",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--verbose": {
+                  "description": "Enable verbose output",
+                  "hidden": false,
+                  "aliases": [
+                    "-v"
+                  ],
+                  "valueType": "System.Boolean",
+                  "hasDefaultValue": true,
+                  "defaultValue": false,
+                  "arity": {
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                },
+                "--window": {
+                  "description": "Positive decimal HWND from 'winapp ui list-windows'.",
+                  "hidden": false,
+                  "valueType": "System.Nullable<System.Int64>",
+                  "hasDefaultValue": false,
+                  "arity": {
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "required": false,
+                  "recursive": false
+                }
+              }
+            }
+          }
+        },
+        "audit": {
+          "description": "Audit accessibility in an already-running Windows app. By default, discover and select supported standard Tab pages, capture each page and write a combined report; no agent or route profile is needed. Tab selection can cause application side effects. If no standard tabs are found, audit the current page. Use --current-page for a read-only single-page audit. Never builds, restarts or closes the app. Attempts to restore tab selection only while the original target remains eligible. Exit codes: 0 complete without rule failures, 1 complete with failures, 2 blocked or partial; not a WCAG compliance verdict.",
+          "hidden": false,
+          "options": {
+            "--accept-input": {
+              "description": "Explicitly approve the requested Tab and Shift+Tab keyboard probe; even Tab may cause app side effects.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--current-page": {
+              "description": "Audit only the current page without selecting tabs. Read-only unless a keyboard probe is separately requested and approved.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--depth": {
+              "description": "Maximum descendant depth (1-50).",
+              "hidden": false,
+              "aliases": [
+                "-d"
+              ],
+              "valueType": "System.Nullable<System.Int32>",
+              "hasDefaultValue": true,
+              "defaultValue": 20,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--max-elements": {
+              "description": "Maximum elements examined (1-10000).",
+              "hidden": false,
+              "valueType": "System.Nullable<System.Int32>",
+              "hasDefaultValue": true,
+              "defaultValue": 2000,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--max-pages": {
+              "description": "Maximum page captures for automatic standard-tab navigation (1-100). Not used with --current-page.",
+              "hidden": false,
+              "valueType": "System.Nullable<System.Int32>",
+              "hasDefaultValue": true,
+              "defaultValue": 20,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--no-screenshot": {
+              "description": "Do not capture screenshots.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--observe-seconds": {
+              "description": "Passive observation budget per page (0-60 seconds). Defaults to 0, or 10 with a keyboard probe.",
+              "hidden": false,
+              "valueType": "System.Nullable<System.Int32>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--output": {
+              "description": "New evidence directory; existing evidence is never overwritten.",
+              "hidden": false,
+              "aliases": [
+                "-o"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--tab-steps": {
+              "description": "Keyboard focus probe steps (0-30); requires --current-page and --accept-input when positive.",
+              "hidden": false,
+              "valueType": "System.Nullable<System.Int32>",
+              "hasDefaultValue": true,
+              "defaultValue": 0,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--timeout-ms": {
+              "description": "Per-capture timeout in milliseconds (1000-120000).",
+              "hidden": false,
+              "valueType": "System.Nullable<System.Int32>",
+              "hasDefaultValue": true,
+              "defaultValue": 15000,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "audit-observe": {
+          "description": "Observe native focus, selected non-text property, structure, live-region, and notification events in one running window. Default: read-only for 5 seconds, with no activation or input. --tab-steps requires --accept-input and sends up to N Tab then N Shift+Tab chords, with no control invocation, value changes, or focus-setting between steps. Tab itself can change business state. Keyboard probing requires an unlocked interactive desktop; read-only event observation does not require input focus. Review the target state after keyboard probing; nothing is restored. Focus samples are separate from native events. Repeats are observations, not keyboard-trap or accessibility verdicts. Input values and notification text are not captured; password, text-bearing, and privacy-unknown names are withheld. Cancellation, event limits, environment failures, or incomplete coverage return partial JSON with a nonzero exit code.",
+          "hidden": false,
+          "options": {
+            "--accept-input": {
+              "description": "Authorize initial target activation and real Tab/Shift+Tab input. Even Tab can change business state; no state is restored.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--app": {
+              "description": "Target running process by numeric PID. Use --window instead to choose a particular top-level window.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--duration-sec": {
+              "description": "Total observation and keyboard-probe budget in seconds (1-60), including setup.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 5,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--max-events": {
+              "description": "Maximum retained native events (1-5000). Reaching this limit returns a partial result.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 500,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--tab-steps": {
+              "description": "Maximum Tab presses per direction (0-30). Zero observes without activation or input.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 0,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target one top-level window by positive numeric HWND. Use --app or --window, not both.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "audit-screenshot": {
+          "description": "Capture exactly the selected window through Windows Graphics Capture. Never activates or restores a window, captures the desktop, or enumerates additional owned windows. Requires an explicit --app or --window and a new --output PNG path. Unavailable capture is an error, not a foreground-changing fallback. JSON records physical screen bounds before and after capture; coordinate mapping is available only when the bounds stay unchanged and exactly match the captured pixel dimensions.",
+          "hidden": false,
+          "options": {
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--output": {
+              "description": "Save output to this file path.",
+              "hidden": false,
+              "aliases": [
+                "-o"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--timeout": {
+              "description": "Timeout in milliseconds",
+              "hidden": false,
+              "aliases": [
+                "-t"
+              ],
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 5000,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "audit-snapshot": {
+          "description": "Read the raw UI Automation tree for one explicitly selected top-level window without focusing it or sending input. Child HWNDs inside that window are included; other top-level windows, including owned dialogs, are excluded and reported as window boundaries. Use --json to obtain the complete typed snapshot, including unsupported/mixed text formatting attributes and partial-result issues. Accessible names can contain user data; password or indeterminate-privacy names and text details are withheld. Text content and Value properties are never collected. Formatting is limited to 16 visible runs per node and 32 rectangles per run. A partial snapshot is still written to stdout with --json, but exits nonzero.",
+          "hidden": false,
+          "options": {
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--depth": {
+              "description": "Maximum raw-tree descendant depth, inclusive (1-50). The selected root has depth 0.",
+              "hidden": false,
+              "aliases": [
+                "-d"
+              ],
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 20,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--max-elements": {
+              "description": "Maximum elements examined, including rejected elements (1-10000). Limits produce a partial snapshot.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 2000,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--timeout": {
+              "description": "Cooperative timeout in milliseconds (1-120000). A blocking UIA provider requires an external process timeout.",
+              "hidden": false,
+              "aliases": [
+                "-t"
+              ],
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 5000,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "audit-tabs": {
+          "description": "Read standard Tab/TabItem structure in one exact top-level --window without reading names, values or text. Read-only by default. Selection requires --select, --container, --root-runtime-id and --accept-navigation together. Only enabled, visible, realized, single-selection standard tabs with verified selection-container ownership are supported. Modal/pop-up and visible owned windows block selection. There is no focus, click, keyboard, scroll or ancestor fallback. Successful selection requires two readbacks at least 50 ms apart. Discover again after selection before using nested groups. treeSignature hashes observed structural UIA state for comparing fresh read-only snapshots; it is not semantic or content-loaded readiness. Exit 0 means captured; partial/blocked results exit nonzero and retain the typed --json result.",
+          "hidden": false,
+          "options": {
+            "--accept-navigation": {
+              "description": "Explicitly approve SelectionItem.Select on the exact requested item; requires all three runtime IDs.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--container": {
+              "description": "Exact nearest standard Tab group's runtime ID, not an inner ListView's ID.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--depth": {
+              "description": "Inclusive raw-tree depth (1-50); root depth is zero.",
+              "hidden": false,
+              "aliases": [
+                "-d"
+              ],
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 20,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--max-elements": {
+              "description": "Maximum examined elements (1-10000). Truncated or unreadable discovery cannot authorize selection.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 2000,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--root-runtime-id": {
+              "description": "Exact expected root runtime ID from the same window's discovery.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--select": {
+              "description": "Exact TabItem runtime ID from audit-tabs; never a selector or accessible name.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--timeout": {
+              "description": "Cooperative timeout in milliseconds (1000-120000). A blocking provider requires an external process deadline.",
+              "hidden": false,
+              "aliases": [
+                "-t"
+              ],
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 15000,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
         "click": {
           "description": "Click an element by slug or text search using mouse simulation. Works on elements that don't support InvokePattern (e.g., column headers, list items). Use --double for double-click, --right for right-click.",
           "hidden": false,
@@ -2549,6 +4331,112 @@
               "valueType": "System.Boolean",
               "hasDefaultValue": true,
               "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "expand-collapse": {
+          "description": "Set an element's explicit expanded or collapsed state using only its own ExpandCollapsePattern. Confirms the state by readback; never invokes, toggles, injects input, or tries an ancestor.",
+          "hidden": false,
+          "arguments": {
+            "selector": {
+              "description": "Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--state": {
+              "description": "Required state: expanded or collapsed. An already matching state is left unchanged.",
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
               "arity": {
                 "minimum": 0,
                 "maximum": 1
@@ -3769,6 +5657,288 @@
             }
           }
         },
+        "record-actions": {
+          "description": "Record clicks, keys, full-field text replacements, and wheel input in one explicitly selected window. Text becomes named parameters unless --capture-text is supplied. Review the JSON draft before using ui replay. Default duration 0 stops on Ctrl+C or redirected-stdin newline/EOF; timed recordings support 1-3600 seconds. Use ui record instead for MP4 video.",
+          "hidden": false,
+          "options": {
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--capture-text": {
+              "description": "Opt in to storing full non-password edit-field values. By default text becomes named replay parameters. Password fields always stop recording as incomplete.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--duration-sec": {
+              "description": "Recording duration in seconds. 0 records until Ctrl+C or redirected-stdin newline/EOF.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 0,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--include-injected": {
+              "description": "Also record OS-injected input, for controlled automation tests. By default only hardware input is recorded.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--max-steps": {
+              "description": "Maximum retained actions (1-10000). Reaching the limit stops recording as incomplete.",
+              "hidden": false,
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 1000,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--output": {
+              "description": "Save output to this file path.",
+              "hidden": false,
+              "aliases": [
+                "-o"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
+        "replay": {
+          "description": "Validate and replay a reviewed action-file draft using real mouse and keyboard input. --accept-recording and an explicit --app or --window are required. The selected process name must match the recording (case-insensitive); a new PID is allowed. Supply every text parameter with --parameter NAME=VALUE. Success means inputs completed and any manually authored assertions matched, not that the app or its accessibility passed.",
+          "hidden": false,
+          "arguments": {
+            "flow": {
+              "description": "Path to a reviewed schema-1 action JSON file. Incomplete recordings cannot be replayed.",
+              "order": 0,
+              "hidden": false,
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "options": {
+            "--accept-recording": {
+              "description": "Required: confirm you reviewed the draft and approve injecting its inputs into the explicitly selected window.",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--app": {
+              "description": "Target app (process name, window title, or PID). Lists windows if ambiguous.",
+              "hidden": false,
+              "aliases": [
+                "-a"
+              ],
+              "valueType": "System.String",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--json": {
+              "description": "Format output as JSON",
+              "hidden": false,
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--parameter": {
+              "description": "Supply a reviewed text parameter as NAME=VALUE. Repeat for each name; NAME= clears a field. Values are literal, never shell commands or environment-variable substitutions.",
+              "hidden": false,
+              "valueType": "System.String[]",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 0
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--quiet": {
+              "description": "Suppress progress messages",
+              "hidden": false,
+              "aliases": [
+                "-q"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--timeout": {
+              "description": "Timeout in milliseconds",
+              "hidden": false,
+              "aliases": [
+                "-t"
+              ],
+              "valueType": "System.Int32",
+              "hasDefaultValue": true,
+              "defaultValue": 5000,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--verbose": {
+              "description": "Enable verbose output",
+              "hidden": false,
+              "aliases": [
+                "-v"
+              ],
+              "valueType": "System.Boolean",
+              "hasDefaultValue": true,
+              "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--window": {
+              "description": "Target window by HWND (stable handle from list output). Takes precedence over --app.",
+              "hidden": false,
+              "aliases": [
+                "-w"
+              ],
+              "valueType": "System.Nullable<System.Int64>",
+              "hasDefaultValue": false,
+              "arity": {
+                "minimum": 1,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            }
+          }
+        },
         "screenshot": {
           "description": "Capture the target window or element as a PNG image. When multiple windows exist (e.g., dialogs), captures each to a separate file. With --json, returns file path and dimensions. Use --capture-screen for popup overlays.",
           "hidden": false,
@@ -3905,7 +6075,7 @@
           }
         },
         "scroll": {
-          "description": "Scroll a container element using ScrollPattern. Use --direction to scroll incrementally, --to to jump to top/bottom, or --wheel to synthesize mouse-wheel input.",
+          "description": "Scroll a container element using ScrollPattern. Use --direction to scroll incrementally, --to to jump to top/bottom, --vertical-percent for a confirmed position on the exact container, or --wheel to synthesize mouse-wheel input.",
           "hidden": false,
           "arguments": {
             "selector": {
@@ -3998,6 +6168,18 @@
               "valueType": "System.Boolean",
               "hasDefaultValue": true,
               "defaultValue": false,
+              "arity": {
+                "minimum": 0,
+                "maximum": 1
+              },
+              "required": false,
+              "recursive": false
+            },
+            "--vertical-percent": {
+              "description": "Set this element's vertical ScrollPattern position to a percentage from 0 to 100. Use a decimal point; no ancestor or input fallback. Horizontal position is unchanged.",
+              "hidden": false,
+              "valueType": "System.Nullable<System.Double>",
+              "hasDefaultValue": false,
               "arity": {
                 "minimum": 0,
                 "maximum": 1

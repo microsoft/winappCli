@@ -24,6 +24,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
     private readonly ILogger<UiAutomationService> _logger;
     private readonly IUIAutomation _automation;
     private readonly IUiSelectorParser _selectorParser;
+    private readonly IPollDelay _pollDelay;
 
     internal static Func<UiAutomationService, UiTarget, IUIAutomationElement?> s_getRootElement = (service, uiTarget) => service.GetRootElementCore(uiTarget);
     internal static Func<UiAutomationService, nint, IUIAutomationElement?> s_getRootElementForHwnd = (service, hwnd) => service.GetRootElementForHwndCore(hwnd);
@@ -56,10 +57,11 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_sleepForBlankRetry = Thread.Sleep;
     }
 
-    public UiAutomationService(ILogger<UiAutomationService> logger, IUiSelectorParser selectorParser)
+    public UiAutomationService(ILogger<UiAutomationService> logger, IUiSelectorParser selectorParser, IPollDelay? pollDelay = null)
     {
         _logger = logger;
         _selectorParser = selectorParser;
+        _pollDelay = pollDelay ?? new RealPollDelay();
         _automation = CUIAutomation8.CreateInstance<IUIAutomation>();
     }
 
@@ -791,6 +793,16 @@ return Task.FromResult<UiElement?>(null);
             }
             catch { }
 
+            if (propertyName is null or "SelectionAutomationIds")
+            {
+                try
+                {
+                    var pattern = (IUIAutomationSelectionPattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_SelectionPatternId);
+                    props["SelectionAutomationIds"] = ReadSelectionAutomationIds(pattern);
+                }
+                catch { }
+            }
+
             try
             {
                 var pattern = (IUIAutomationExpandCollapsePattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_ExpandCollapsePatternId);
@@ -810,8 +822,10 @@ return Task.FromResult<UiElement?>(null);
                 var pattern = (IUIAutomationScrollPattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_ScrollPatternId);
                 props["ScrollHorizontalPercent"] = pattern.get_CurrentHorizontalScrollPercent();
                 props["ScrollVerticalPercent"] = pattern.get_CurrentVerticalScrollPercent();
-                props["HorizontallyScrollable"] = pattern.get_CurrentHorizontallyScrollable();
-                props["VerticallyScrollable"] = pattern.get_CurrentVerticallyScrollable();
+                props["HorizontallyScrollable"] = (bool)pattern.get_CurrentHorizontallyScrollable();
+                props["VerticallyScrollable"] = (bool)pattern.get_CurrentVerticallyScrollable();
+                props["ScrollHorizontalViewSize"] = pattern.get_CurrentHorizontalViewSize();
+                props["ScrollVerticalViewSize"] = pattern.get_CurrentVerticalViewSize();
             }
             catch { }
         }
@@ -1362,7 +1376,7 @@ return Task.FromResult<UiElement?>(null);
     /// Uses slug-based resolution first (most precise), then falls back to
     /// AutomationId or Name+Type property matching.
     /// </summary>
-    private IUIAutomationElement? ResolveComElement(UiTarget uiTarget, UiElement element)
+    private IUIAutomationElement? ResolveComElement(UiTarget uiTarget, UiElement element, bool exactTarget = false)
     {
         // Use the element's source HWND if it came from a different window (popup/dialog)
         IUIAutomationElement? root;
@@ -1389,6 +1403,10 @@ return Task.FromResult<UiElement?>(null);
             {
                 return comElement;
             }
+            if (exactTarget && SlugGenerator.ParseSlug(element.Selector) is not null)
+            {
+                return null;
+            }
         }
 
         // Fall back to AutomationId (stable but not unique across duplicates)
@@ -1397,6 +1415,10 @@ return Task.FromResult<UiElement?>(null);
             var condition = _automation.CreatePropertyCondition(
                 UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
                 ComVariant.Create(element.AutomationId));
+            if (exactTarget)
+            {
+                return FindUniqueComElement(root, condition, element);
+            }
             var found = root.FindFirst(TreeScope.TreeScope_Descendants, condition);
             if (found is not null)
             {
@@ -1425,6 +1447,10 @@ return Task.FromResult<UiElement?>(null);
                 condition = nameCondition;
             }
 
+            if (exactTarget)
+            {
+                return FindUniqueComElement(root, condition, element);
+            }
             var found = root.FindFirst(TreeScope.TreeScope_Descendants, condition);
             if (found is not null)
             {

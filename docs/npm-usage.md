@@ -519,6 +519,325 @@ function tool(options?: ToolOptions): Promise<WinappResult>
 
 ---
 
+### `uiAccessibilityAssess()`
+
+Attach an evidence-based supplementary assessment and write a combined report. The original automatic scan results and artifacts remain unchanged.
+
+```typescript
+function uiAccessibilityAssess(options: UiAccessibilityAssessOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `scan` | `string` | Yes | Original scan.json file. |
+| `assessment` | `string \| undefined` | No | Reviewed assessment JSON file. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAccessibilityAssessmentTemplate()`
+
+Create a supplementary assessment template for an existing scan. Fill evidence-based entries before attaching; no assessment or automatic verdict is inferred.
+
+```typescript
+function uiAccessibilityAssessmentTemplate(options: UiAccessibilityAssessmentTemplateOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `scan` | `string` | Yes | Original scan.json file. |
+| `author` | `string \| undefined` | No | Explicit assessment author name (maximum 256 characters). |
+| `model` | `string \| undefined` | No | Model name, required for --source ai (maximum 256 characters). |
+| `output` | `string \| undefined` | No | New assessment JSON file; existing files are never overwritten. |
+| `source` | `String \| undefined` | No | Assessment author kind: human or ai. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAccessibilityCheck()`
+
+Build and run a declared source-owned suite or scenario and retain accessibility evidence. This is an active workflow requiring --accept-actions, not a passive scan. Exit codes: 0 passed, 1 failed, 2 inconclusive or error.
+
+```typescript
+function uiAccessibilityCheck(options: UiAccessibilityCheckOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `input` | `string` | Yes | Reviewed suite.json or scenario.json declaring the source app and checks. |
+| `acceptActions` | `boolean \| undefined` | No | Explicitly approve building, launching and performing the declared real keyboard checks in the source-owned app. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAccessibilityExplore()`
+
+Audit declared pages, finite scroll positions, dropdown disclosure and known dialogs from a reviewed profile. --accept-interactions does not approve option selection, feature-setting changes or source repairs. --launch-owned additionally builds, launches and closes the profile's local source demo; attaching never owns an existing app. Exit codes: 0 finished without failures, 1 complete with failures, 2 partial, 3 paused. Start a fresh run after interruption.
+
+```typescript
+function uiAccessibilityExplore(options: UiAccessibilityExploreOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `profile` | `string` | Yes | Reviewed exploration profile JSON; required even when attaching to an existing app. |
+| `acceptInteractions` | `boolean \| undefined` | No | Explicitly approve declared navigation, scrolling, disclosure and safe dialog dismissal. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `launchOwned` | `boolean \| undefined` | No | Build, launch and close the local source demo declared in the profile instead of attaching. |
+| `noScreenshot` | `boolean \| undefined` | No | Do not capture screenshots. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `pid` | `number \| undefined` | No | Process ID of the already-running target app. |
+| `probeScopeGuard` | `boolean \| undefined` | No | Owned-demo-only safety exercise: open the auxiliary test window declared in the profile. |
+| `window` | `number \| undefined` | No | Positive decimal HWND from 'winapp ui list-windows'. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAccessibilityJourney()`
+
+Build a source-owned demo, navigate approved pages and run declared keyboard checks. --accept-navigation approves launch and those interactions; --apply separately approves supported XAML Name edits and frozen-route regression. Without --copilot-plan or --plan, the declared visit order is used. This is bounded planning over declared navigation, not an autonomous observed-AI plan.
+
+```typescript
+function uiAccessibilityJourney(options: UiAccessibilityJourneyOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `journey` | `string` | Yes | Reviewed journey JSON declaring the source project, pages and keyboard exercises. |
+| `acceptNavigation` | `boolean \| undefined` | No | Explicitly approve building, launching, navigating and performing the declared keyboard exercises. |
+| `apply` | `boolean \| undefined` | No | Approve supported Name-only source repairs and full frozen-route regression after each edit. |
+| `copilot` | `string \| undefined` | No | Copilot executable for requested planning or repairs (default: copilot). |
+| `copilotPlan` | `boolean \| undefined` | No | Ask Copilot to order approved navigation candidates; otherwise use the declared order or --plan. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `noScreenshot` | `boolean \| undefined` | No | Do not capture screenshots. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `plan` | `string \| undefined` | No | Reviewed plan JSON to use instead of --copilot-plan. |
+| `proposals` | `string \| undefined` | No | Reviewed <TargetAutomationId>.json proposal directory instead of Copilot repair requests; requires --apply. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAccessibilityLoop()`
+
+Copy a source demo into an owned workspace, execute a reviewed preset route, and reproduce it in a new owned process. --accept-actions approves preset test-state changes and real keyboard input; --apply separately approves bounded Name repairs. The original source is never edited. --replay uses an archived source round (baseline by default). Route planning is preset, not autonomous AI; capture completeness and repair verification are separate.
+
+```typescript
+function uiAccessibilityLoop(options?: UiAccessibilityLoopOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `preset` | `string \| undefined` | No | Reviewed loop preset JSON; omit with --replay. |
+| `acceptActions` | `boolean \| undefined` | No | Explicitly approve building and launching the owned copy, preset state changes and real input. |
+| `apply` | `boolean \| undefined` | No | Approve bounded reviewed-name repairs in the owned source copy, followed by same-route rebuild and retest. |
+| `copilot` | `string \| undefined` | No | Copilot executable for repair proposals; requires --apply (default: copilot). |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `noScreenshot` | `boolean \| undefined` | No | Do not capture screenshots in a new loop; replay inherits the saved capture policy. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `proposals` | `string \| undefined` | No | Reviewed proposal directory instead of Copilot; requires --apply. |
+| `replay` | `string \| undefined` | No | Previous run directory containing archived source rounds and frozen evidence. |
+| `round` | `string \| undefined` | No | Replay round ID (default: baseline); only valid with --replay. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAccessibilityRepair()`
+
+Run a source-owned suite and propose one constrained XAML Name repair by default. Multiple findings require --finding. --apply authorizes editing the source and rerunning every scenario; new regressions reject the patch. A fixed finding does not mean the whole suite is clean. Exit codes: 0 fixed, 1 failed or regression, 2 inconclusive, 3 approval, selection or review required.
+
+```typescript
+function uiAccessibilityRepair(options: UiAccessibilityRepairOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `input` | `string` | Yes | Reviewed suite.json or scenario.json declaring the source app and frozen acceptance checks. |
+| `acceptActions` | `boolean \| undefined` | No | Explicitly approve building, launching and performing the declared real keyboard checks in the source-owned app. |
+| `apply` | `boolean \| undefined` | No | Explicitly approve one constrained XAML Name source edit and rerunning all scenarios. |
+| `copilot` | `string \| undefined` | No | Copilot executable used when a proposal is needed (default: copilot). |
+| `finding` | `string \| undefined` | No | Finding ID to repair; required when several findings are available. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `proposal` | `string \| undefined` | No | Reviewed proposal JSON instead of asking Copilot for a proposal. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAccessibilitySurvey()`
+
+Audit profiled navigation pages in an existing app without source, build, restart or settings-value changes. A reviewed navigation profile and --accept-navigation are required. Resume checks the frozen target and environment; --confirm-unchanged declares that settings and test data have not changed. Exit codes: 0 finished without failures, 1 finished with failures, 2 partial or blocked, 3 paused.
+
+```typescript
+function uiAccessibilitySurvey(options?: UiAccessibilitySurveyOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `profile` | `string \| undefined` | No | Reviewed navigation profile JSON for a new survey; omit with --resume. |
+| `acceptNavigation` | `boolean \| undefined` | No | Explicitly approve profiled navigation and keyboard focus changes in the selected app. |
+| `confirmUnchanged` | `boolean \| undefined` | No | Required for resume: confirm app settings and test data have not changed while paused. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `noScreenshot` | `boolean \| undefined` | No | Do not capture screenshots in a new survey; resume inherits the saved capture policy. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `pid` | `number \| undefined` | No | Process ID of the already-running target app. |
+| `resume` | `string \| undefined` | No | Existing survey run directory to resume. |
+| `retryPage` | `string \| string[] \| undefined` | No | Resume-only page ID to retry; repeat for each ID. Previous evidence is retained. |
+| `stopAfter` | `number \| undefined` | No | Pause after this many pages (1-100). |
+| `window` | `number \| undefined` | No | Positive decimal HWND from 'winapp ui list-windows'. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAudit()`
+
+Audit accessibility in an already-running Windows app. By default, discover and select supported standard Tab pages, capture each page and write a combined report; no agent or route profile is needed. Tab selection can cause application side effects. If no standard tabs are found, audit the current page. Use --current-page for a read-only single-page audit. Never builds, restarts or closes the app. Attempts to restore tab selection only while the original target remains eligible. Exit codes: 0 complete without rule failures, 1 complete with failures, 2 blocked or partial; not a WCAG compliance verdict.
+
+```typescript
+function uiAudit(options?: UiAuditOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `acceptInput` | `boolean \| undefined` | No | Explicitly approve the requested Tab and Shift+Tab keyboard probe; even Tab may cause app side effects. |
+| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `currentPage` | `boolean \| undefined` | No | Audit only the current page without selecting tabs. Read-only unless a keyboard probe is separately requested and approved. |
+| `depth` | `number \| undefined` | No | Maximum descendant depth (1-50). |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `maxElements` | `number \| undefined` | No | Maximum elements examined (1-10000). |
+| `maxPages` | `number \| undefined` | No | Maximum page captures for automatic standard-tab navigation (1-100). Not used with --current-page. |
+| `noScreenshot` | `boolean \| undefined` | No | Do not capture screenshots. |
+| `observeSeconds` | `number \| undefined` | No | Passive observation budget per page (0-60 seconds). Defaults to 0, or 10 with a keyboard probe. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `tabSteps` | `number \| undefined` | No | Keyboard focus probe steps (0-30); requires --current-page and --accept-input when positive. |
+| `timeoutMs` | `number \| undefined` | No | Per-capture timeout in milliseconds (1000-120000). |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAuditObserve()`
+
+Observe native focus, selected non-text property, structure, live-region, and notification events in one running window. Default: read-only for 5 seconds, with no activation or input. --tab-steps requires --accept-input and sends up to N Tab then N Shift+Tab chords, with no control invocation, value changes, or focus-setting between steps. Tab itself can change business state. Keyboard probing requires an unlocked interactive desktop; read-only event observation does not require input focus. Review the target state after keyboard probing; nothing is restored. Focus samples are separate from native events. Repeats are observations, not keyboard-trap or accessibility verdicts. Input values and notification text are not captured; password, text-bearing, and privacy-unknown names are withheld. Cancellation, event limits, environment failures, or incomplete coverage return partial JSON with a nonzero exit code.
+
+```typescript
+function uiAuditObserve(options?: UiAuditObserveOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `acceptInput` | `boolean \| undefined` | No | Authorize initial target activation and real Tab/Shift+Tab input. Even Tab can change business state; no state is restored. |
+| `app` | `string \| undefined` | No | Target running process by numeric PID. Use --window instead to choose a particular top-level window. |
+| `durationSec` | `number \| undefined` | No | Total observation and keyboard-probe budget in seconds (1-60), including setup. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `maxEvents` | `number \| undefined` | No | Maximum retained native events (1-5000). Reaching this limit returns a partial result. |
+| `tabSteps` | `number \| undefined` | No | Maximum Tab presses per direction (0-30). Zero observes without activation or input. |
+| `window` | `number \| undefined` | No | Target one top-level window by positive numeric HWND. Use --app or --window, not both. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAuditScreenshot()`
+
+Capture exactly the selected window through Windows Graphics Capture. Never activates or restores a window, captures the desktop, or enumerates additional owned windows. Requires an explicit --app or --window and a new --output PNG path. Unavailable capture is an error, not a foreground-changing fallback. JSON records physical screen bounds before and after capture; coordinate mapping is available only when the bounds stay unchanged and exactly match the captured pixel dimensions.
+
+```typescript
+function uiAuditScreenshot(options?: UiAuditScreenshotOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `output` | `string \| undefined` | No | Save output to this file path. |
+| `timeout` | `number \| undefined` | No | Timeout in milliseconds |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAuditSnapshot()`
+
+Read the raw UI Automation tree for one explicitly selected top-level window without focusing it or sending input. Child HWNDs inside that window are included; other top-level windows, including owned dialogs, are excluded and reported as window boundaries. Use --json to obtain the complete typed snapshot, including unsupported/mixed text formatting attributes and partial-result issues. Accessible names can contain user data; password or indeterminate-privacy names and text details are withheld. Text content and Value properties are never collected. Formatting is limited to 16 visible runs per node and 32 rectangles per run. A partial snapshot is still written to stdout with --json, but exits nonzero.
+
+```typescript
+function uiAuditSnapshot(options?: UiAuditSnapshotOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `depth` | `number \| undefined` | No | Maximum raw-tree descendant depth, inclusive (1-50). The selected root has depth 0. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `maxElements` | `number \| undefined` | No | Maximum elements examined, including rejected elements (1-10000). Limits produce a partial snapshot. |
+| `timeout` | `number \| undefined` | No | Cooperative timeout in milliseconds (1-120000). A blocking UIA provider requires an external process timeout. |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiAuditTabs()`
+
+Read standard Tab/TabItem structure in one exact top-level --window without reading names, values or text. Read-only by default. Selection requires --select, --container, --root-runtime-id and --accept-navigation together. Only enabled, visible, realized, single-selection standard tabs with verified selection-container ownership are supported. Modal/pop-up and visible owned windows block selection. There is no focus, click, keyboard, scroll or ancestor fallback. Successful selection requires two readbacks at least 50 ms apart. Discover again after selection before using nested groups. treeSignature hashes observed structural UIA state for comparing fresh read-only snapshots; it is not semantic or content-loaded readiness. Exit 0 means captured; partial/blocked results exit nonzero and retain the typed --json result.
+
+```typescript
+function uiAuditTabs(options?: UiAuditTabsOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `acceptNavigation` | `boolean \| undefined` | No | Explicitly approve SelectionItem.Select on the exact requested item; requires all three runtime IDs. |
+| `container` | `string \| undefined` | No | Exact nearest standard Tab group's runtime ID, not an inner ListView's ID. |
+| `depth` | `number \| undefined` | No | Inclusive raw-tree depth (1-50); root depth is zero. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `maxElements` | `number \| undefined` | No | Maximum examined elements (1-10000). Truncated or unreadable discovery cannot authorize selection. |
+| `rootRuntimeId` | `string \| undefined` | No | Exact expected root runtime ID from the same window's discovery. |
+| `select` | `string \| undefined` | No | Exact TabItem runtime ID from audit-tabs; never a selector or accessible name. |
+| `timeout` | `number \| undefined` | No | Cooperative timeout in milliseconds (1000-120000). A blocking provider requires an external process deadline. |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
 ### `uiClick()`
 
 Click an element by slug or text search using mouse simulation. Works on elements that don't support InvokePattern (e.g., column headers, list items). Use --double for double-click, --right for right-click.
@@ -561,6 +880,28 @@ function uiDrag(options?: UiDragOptions): Promise<WinappResult>
 | `holdMs` | `number \| undefined` | No | Milliseconds to hold the button down at the start before moving (default: 0). With <from> == <to> (no movement) this performs a press-and-hold / long-press gesture. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `right` | `boolean \| undefined` | No | Drag with the right mouse button instead of the left button |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
+### `uiExpandCollapse()`
+
+Set an element's explicit expanded or collapsed state using only its own ExpandCollapsePattern. Confirms the state by readback; never invokes, toggles, injects input, or tries an ancestor.
+
+```typescript
+function uiExpandCollapse(options?: UiExpandCollapseOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `state` | `string \| undefined` | No | Required state: expanded or collapsed. An already matching state is left unchanged. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 
 *Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
@@ -768,6 +1109,30 @@ function uiPen(options?: UiPenOptions): Promise<WinappResult>
 
 ---
 
+### `uiReplay()`
+
+Validate and replay a reviewed action-file draft using real mouse and keyboard input. --accept-recording and an explicit --app or --window are required. The selected process name must match the recording (case-insensitive); a new PID is allowed. Supply every text parameter with --parameter NAME=VALUE. Success means inputs completed and any manually authored assertions matched, not that the app or its accessibility passed.
+
+```typescript
+function uiReplay(options?: UiReplayOptions): Promise<WinappResult>
+```
+
+**Options:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `flow` | `string \| undefined` | No | Path to a reviewed schema-1 action JSON file. Incomplete recordings cannot be replayed. |
+| `acceptRecording` | `boolean \| undefined` | No | Required: confirm you reviewed the draft and approve injecting its inputs into the explicitly selected window. |
+| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `parameter` | `string \| string[] \| undefined` | No | Supply a reviewed text parameter as NAME=VALUE. Repeat for each name; NAME= clears a field. Values are literal, never shell commands or environment-variable substitutions. |
+| `timeout` | `number \| undefined` | No | Timeout in milliseconds |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+
+*Also accepts [CommonOptions](#commonoptions) (`quiet`, `verbose`, `cwd`).*
+
+---
+
 ### `uiScreenshot()`
 
 Capture the target window or element as a PNG image. When multiple windows exist (e.g., dialogs), captures each to a separate file. With --json, returns file path and dimensions. Use --capture-screen for popup overlays.
@@ -794,7 +1159,7 @@ function uiScreenshot(options?: UiScreenshotOptions): Promise<WinappResult>
 
 ### `uiScroll()`
 
-Scroll a container element using ScrollPattern. Use --direction to scroll incrementally, --to to jump to top/bottom, or --wheel to synthesize mouse-wheel input.
+Scroll a container element using ScrollPattern. Use --direction to scroll incrementally, --to to jump to top/bottom, --vertical-percent for a confirmed position on the exact container, or --wheel to synthesize mouse-wheel input.
 
 ```typescript
 function uiScroll(options?: UiScrollOptions): Promise<WinappResult>
@@ -809,6 +1174,7 @@ function uiScroll(options?: UiScrollOptions): Promise<WinappResult>
 | `direction` | `string \| undefined` | No | Scroll direction: up, down, left, right |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `to` | `string \| undefined` | No | Scroll to position: top, bottom |
+| `verticalPercent` | `number \| undefined` | No | Set this element's vertical ScrollPattern position to a percentage from 0 to 100. Use a decimal point; no ancestor or input fallback. Horizontal position is unchanged. |
 | `wheel` | `number \| undefined` | No | Rotate the mouse wheel over the element by this many notches (1 = one notch up, -1 = one notch down). Synthesizes real wheel input instead of using ScrollPattern. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 
@@ -1039,6 +1405,22 @@ function uiRecord(options: UiRecordOptions): Promise<WinappResult>
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `options` | `UiRecordOptions` | Yes |  |
+
+---
+
+### `uiRecordActions()`
+
+Record reviewed UI action data for a fixed duration. Text is parameterized by default.
+
+```typescript
+function uiRecordActions(options: UiRecordActionsOptions): Promise<WinappResult>
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `options` | `UiRecordActionsOptions` | Yes |  |
 
 ---
 
@@ -1330,6 +1712,14 @@ Survives regeneration because it is defined here in the hand-written guard modul
 type UiRecordOptions = Omit<GeneratedUiRecordOptions, "durationSec"> & { durationSec: number; }
 ```
 
+### `UiRecordActionsOptions`
+
+Captured npm calls cannot send a stop signal, so action recording must be time-bounded.
+
+```typescript
+type UiRecordActionsOptions = Omit<GeneratedOptions, "durationSec"> & { durationSec: number; }
+```
+
 ### `IfExists`
 
 IfExists values.
@@ -1352,6 +1742,14 @@ ManifestTemplates values.
 
 ```typescript
 type ManifestTemplates = "packaged" | "sparse"
+```
+
+### `String`
+
+String values.
+
+```typescript
+type String = "human" | "ai"
 ```
 
 ### `AzSignOptions`
@@ -1634,6 +2032,208 @@ type ManifestTemplates = "packaged" | "sparse"
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
 
+### `UiAccessibilityAssessOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `scan` | `string` | Yes | Original scan.json file. |
+| `assessment` | `string \| undefined` | No | Reviewed assessment JSON file. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAccessibilityAssessmentTemplateOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `scan` | `string` | Yes | Original scan.json file. |
+| `author` | `string \| undefined` | No | Explicit assessment author name (maximum 256 characters). |
+| `model` | `string \| undefined` | No | Model name, required for --source ai (maximum 256 characters). |
+| `output` | `string \| undefined` | No | New assessment JSON file; existing files are never overwritten. |
+| `source` | `String \| undefined` | No | Assessment author kind: human or ai. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAccessibilityCheckOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `input` | `string` | Yes | Reviewed suite.json or scenario.json declaring the source app and checks. |
+| `acceptActions` | `boolean \| undefined` | No | Explicitly approve building, launching and performing the declared real keyboard checks in the source-owned app. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAccessibilityExploreOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `profile` | `string` | Yes | Reviewed exploration profile JSON; required even when attaching to an existing app. |
+| `acceptInteractions` | `boolean \| undefined` | No | Explicitly approve declared navigation, scrolling, disclosure and safe dialog dismissal. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `launchOwned` | `boolean \| undefined` | No | Build, launch and close the local source demo declared in the profile instead of attaching. |
+| `noScreenshot` | `boolean \| undefined` | No | Do not capture screenshots. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `pid` | `number \| undefined` | No | Process ID of the already-running target app. |
+| `probeScopeGuard` | `boolean \| undefined` | No | Owned-demo-only safety exercise: open the auxiliary test window declared in the profile. |
+| `window` | `number \| undefined` | No | Positive decimal HWND from 'winapp ui list-windows'. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAccessibilityJourneyOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `journey` | `string` | Yes | Reviewed journey JSON declaring the source project, pages and keyboard exercises. |
+| `acceptNavigation` | `boolean \| undefined` | No | Explicitly approve building, launching, navigating and performing the declared keyboard exercises. |
+| `apply` | `boolean \| undefined` | No | Approve supported Name-only source repairs and full frozen-route regression after each edit. |
+| `copilot` | `string \| undefined` | No | Copilot executable for requested planning or repairs (default: copilot). |
+| `copilotPlan` | `boolean \| undefined` | No | Ask Copilot to order approved navigation candidates; otherwise use the declared order or --plan. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `noScreenshot` | `boolean \| undefined` | No | Do not capture screenshots. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `plan` | `string \| undefined` | No | Reviewed plan JSON to use instead of --copilot-plan. |
+| `proposals` | `string \| undefined` | No | Reviewed <TargetAutomationId>.json proposal directory instead of Copilot repair requests; requires --apply. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAccessibilityLoopOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `preset` | `string \| undefined` | No | Reviewed loop preset JSON; omit with --replay. |
+| `acceptActions` | `boolean \| undefined` | No | Explicitly approve building and launching the owned copy, preset state changes and real input. |
+| `apply` | `boolean \| undefined` | No | Approve bounded reviewed-name repairs in the owned source copy, followed by same-route rebuild and retest. |
+| `copilot` | `string \| undefined` | No | Copilot executable for repair proposals; requires --apply (default: copilot). |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `noScreenshot` | `boolean \| undefined` | No | Do not capture screenshots in a new loop; replay inherits the saved capture policy. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `proposals` | `string \| undefined` | No | Reviewed proposal directory instead of Copilot; requires --apply. |
+| `replay` | `string \| undefined` | No | Previous run directory containing archived source rounds and frozen evidence. |
+| `round` | `string \| undefined` | No | Replay round ID (default: baseline); only valid with --replay. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAccessibilityRepairOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `input` | `string` | Yes | Reviewed suite.json or scenario.json declaring the source app and frozen acceptance checks. |
+| `acceptActions` | `boolean \| undefined` | No | Explicitly approve building, launching and performing the declared real keyboard checks in the source-owned app. |
+| `apply` | `boolean \| undefined` | No | Explicitly approve one constrained XAML Name source edit and rerunning all scenarios. |
+| `copilot` | `string \| undefined` | No | Copilot executable used when a proposal is needed (default: copilot). |
+| `finding` | `string \| undefined` | No | Finding ID to repair; required when several findings are available. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `proposal` | `string \| undefined` | No | Reviewed proposal JSON instead of asking Copilot for a proposal. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAccessibilitySurveyOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `profile` | `string \| undefined` | No | Reviewed navigation profile JSON for a new survey; omit with --resume. |
+| `acceptNavigation` | `boolean \| undefined` | No | Explicitly approve profiled navigation and keyboard focus changes in the selected app. |
+| `confirmUnchanged` | `boolean \| undefined` | No | Required for resume: confirm app settings and test data have not changed while paused. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `noScreenshot` | `boolean \| undefined` | No | Do not capture screenshots in a new survey; resume inherits the saved capture policy. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `pid` | `number \| undefined` | No | Process ID of the already-running target app. |
+| `resume` | `string \| undefined` | No | Existing survey run directory to resume. |
+| `retryPage` | `string \| string[] \| undefined` | No | Resume-only page ID to retry; repeat for each ID. Previous evidence is retained. |
+| `stopAfter` | `number \| undefined` | No | Pause after this many pages (1-100). |
+| `window` | `number \| undefined` | No | Positive decimal HWND from 'winapp ui list-windows'. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAuditOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `acceptInput` | `boolean \| undefined` | No | Explicitly approve the requested Tab and Shift+Tab keyboard probe; even Tab may cause app side effects. |
+| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `currentPage` | `boolean \| undefined` | No | Audit only the current page without selecting tabs. Read-only unless a keyboard probe is separately requested and approved. |
+| `depth` | `number \| undefined` | No | Maximum descendant depth (1-50). |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `maxElements` | `number \| undefined` | No | Maximum elements examined (1-10000). |
+| `maxPages` | `number \| undefined` | No | Maximum page captures for automatic standard-tab navigation (1-100). Not used with --current-page. |
+| `noScreenshot` | `boolean \| undefined` | No | Do not capture screenshots. |
+| `observeSeconds` | `number \| undefined` | No | Passive observation budget per page (0-60 seconds). Defaults to 0, or 10 with a keyboard probe. |
+| `output` | `string \| undefined` | No | New evidence directory; existing evidence is never overwritten. |
+| `tabSteps` | `number \| undefined` | No | Keyboard focus probe steps (0-30); requires --current-page and --accept-input when positive. |
+| `timeoutMs` | `number \| undefined` | No | Per-capture timeout in milliseconds (1000-120000). |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAuditObserveOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `acceptInput` | `boolean \| undefined` | No | Authorize initial target activation and real Tab/Shift+Tab input. Even Tab can change business state; no state is restored. |
+| `app` | `string \| undefined` | No | Target running process by numeric PID. Use --window instead to choose a particular top-level window. |
+| `durationSec` | `number \| undefined` | No | Total observation and keyboard-probe budget in seconds (1-60), including setup. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `maxEvents` | `number \| undefined` | No | Maximum retained native events (1-5000). Reaching this limit returns a partial result. |
+| `tabSteps` | `number \| undefined` | No | Maximum Tab presses per direction (0-30). Zero observes without activation or input. |
+| `window` | `number \| undefined` | No | Target one top-level window by positive numeric HWND. Use --app or --window, not both. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAuditScreenshotOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `output` | `string \| undefined` | No | Save output to this file path. |
+| `timeout` | `number \| undefined` | No | Timeout in milliseconds |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAuditSnapshotOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `depth` | `number \| undefined` | No | Maximum raw-tree descendant depth, inclusive (1-50). The selected root has depth 0. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `maxElements` | `number \| undefined` | No | Maximum elements examined, including rejected elements (1-10000). Limits produce a partial snapshot. |
+| `timeout` | `number \| undefined` | No | Cooperative timeout in milliseconds (1-120000). A blocking UIA provider requires an external process timeout. |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiAuditTabsOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `acceptNavigation` | `boolean \| undefined` | No | Explicitly approve SelectionItem.Select on the exact requested item; requires all three runtime IDs. |
+| `container` | `string \| undefined` | No | Exact nearest standard Tab group's runtime ID, not an inner ListView's ID. |
+| `depth` | `number \| undefined` | No | Inclusive raw-tree depth (1-50); root depth is zero. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `maxElements` | `number \| undefined` | No | Maximum examined elements (1-10000). Truncated or unreadable discovery cannot authorize selection. |
+| `rootRuntimeId` | `string \| undefined` | No | Exact expected root runtime ID from the same window's discovery. |
+| `select` | `string \| undefined` | No | Exact TabItem runtime ID from audit-tabs; never a selector or accessible name. |
+| `timeout` | `number \| undefined` | No | Cooperative timeout in milliseconds (1000-120000). A blocking provider requires an external process deadline. |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
 ### `UiClickOptions`
 
 | Property | Type | Required | Description |
@@ -1659,6 +2259,19 @@ type ManifestTemplates = "packaged" | "sparse"
 | `holdMs` | `number \| undefined` | No | Milliseconds to hold the button down at the start before moving (default: 0). With <from> == <to> (no movement) this performs a press-and-hold / long-press gesture. |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `right` | `boolean \| undefined` | No | Drag with the right mouse button instead of the left button |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
+### `UiExpandCollapseOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `selector` | `string \| undefined` | No | Semantic slug (e.g., btn-minimize-d1a0) or text to search by name/automationId |
+| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `state` | `string \| undefined` | No | Required state: expanded or collapsed. An already matching state is left unchanged. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
@@ -1784,6 +2397,21 @@ type ManifestTemplates = "packaged" | "sparse"
 | `verbose` | `boolean \| undefined` | No | Enable verbose output. |
 | `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
 
+### `UiReplayOptions`
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `flow` | `string \| undefined` | No | Path to a reviewed schema-1 action JSON file. Incomplete recordings cannot be replayed. |
+| `acceptRecording` | `boolean \| undefined` | No | Required: confirm you reviewed the draft and approve injecting its inputs into the explicitly selected window. |
+| `app` | `string \| undefined` | No | Target app (process name, window title, or PID). Lists windows if ambiguous. |
+| `json` | `boolean \| undefined` | No | Format output as JSON |
+| `parameter` | `string \| string[] \| undefined` | No | Supply a reviewed text parameter as NAME=VALUE. Repeat for each name; NAME= clears a field. Values are literal, never shell commands or environment-variable substitutions. |
+| `timeout` | `number \| undefined` | No | Timeout in milliseconds |
+| `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
+| `quiet` | `boolean \| undefined` | No | Suppress progress messages. |
+| `verbose` | `boolean \| undefined` | No | Enable verbose output. |
+| `cwd` | `string \| undefined` | No | Working directory for the CLI process (defaults to process.cwd()). |
+
 ### `UiScreenshotOptions`
 
 | Property | Type | Required | Description |
@@ -1808,6 +2436,7 @@ type ManifestTemplates = "packaged" | "sparse"
 | `direction` | `string \| undefined` | No | Scroll direction: up, down, left, right |
 | `json` | `boolean \| undefined` | No | Format output as JSON |
 | `to` | `string \| undefined` | No | Scroll to position: top, bottom |
+| `verticalPercent` | `number \| undefined` | No | Set this element's vertical ScrollPattern position to a percentage from 0 to 100. Use a decimal point; no ancestor or input fallback. Horizontal position is unchanged. |
 | `wheel` | `number \| undefined` | No | Rotate the mouse wheel over the element by this many notches (1 = one notch up, -1 = one notch down). Synthesizes real wheel input instead of using ScrollPattern. |
 | `window` | `number \| undefined` | No | Target window by HWND (stable handle from list output). Takes precedence over --app. |
 | `quiet` | `boolean \| undefined` | No | Suppress progress messages. |

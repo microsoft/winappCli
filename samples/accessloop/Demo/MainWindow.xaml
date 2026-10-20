@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="AccessLoop.Demo.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="AccessLoop - accessibility repair demo">
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <StackPanel
+            MaxWidth="560"
+            Margin="32"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Center"
+            Spacing="24">
+            <StackPanel Spacing="8">
+                <TextBlock
+                    Style="{StaticResource TitleTextBlockStyle}"
+                    Text="Document actions" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Enter a title, then use Tab and Enter to save or export."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+
+            <TextBox
+                x:Name="DocumentTitleInput"
+                AutomationProperties.AutomationId="DocumentTitleInput"
+                AutomationProperties.Name="Document title"
+                Header="Document title"
+                Loaded="DocumentTitleInput_Loaded"
+                TabIndex="0"
+                Text="Untitled" />
+
+            <StackPanel Orientation="Horizontal" Spacing="32">
+                <!-- Intentional defects: both icon-only buttons lack accessible names.
+                     The adjacent visible labels must stay outside their buttons. -->
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Button
+                        AutomationProperties.AutomationId="SaveDocumentButton"
+                        Click="SaveDocument_Click"
+                        MinWidth="44"
+                        MinHeight="44"
+                        TabIndex="1">
+                        <Path
+                            Width="20"
+                            Height="20"
+                            Data="M 3,1 L 16,1 21,6 21,21 1,21 1,1 Z M 6,1 L 6,8 16,8 16,1 M 6,21 L 6,13 16,13 16,21"
+                            IsHitTestVisible="False"
+                            Stretch="Uniform"
+                            Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                            StrokeThickness="1.5" />
+                    </Button>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Text="Save document" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Button
+                        AutomationProperties.AutomationId="ExportDocumentButton"
+                        Click="ExportDocument_Click"
+                        MinWidth="44"
+                        MinHeight="44"
+                        TabIndex="2">
+                        <Path
+                            Width="20"
+                            Height="20"
+                            Data="M 3,11 L 3,21 21,21 21,11 M 12,16 L 12,1 M 6,7 L 12,1 18,7"
+                            IsHitTestVisible="False"
+                            Stretch="Uniform"
+                            Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                            StrokeThickness="1.5" />
+                    </Button>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Text="Export document" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock
+                    x:Name="SaveStatus"
+                    AutomationProperties.AutomationId="SaveStatus"
+                    AutomationProperties.LiveSetting="Polite"
+                    Text="Not saved yet"
+                    TextWrapping="Wrap" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Demo only. Nothing is written to disk."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

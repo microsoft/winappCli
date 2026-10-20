@@ -1485,7 +1485,16 @@ winapp ui [command] [options]
 - `get-text` / `get-value` - Read value/text from element (TextPattern, ValuePattern, or Name)
 - `screenshot` - Capture window/element as PNG (auto-captures dialogs separately)
 - `record` - Record a window/element region to an H.264 MP4 video (Windows Graphics Capture + Media Foundation)
+- `record-actions` - Record a single window's inputs as a reviewable JSON action draft
+- `replay` - Replay an explicitly approved action draft in a running window
+- `audit` - Audit an app and its standard tab pages by default; use `--current-page` to omit navigation. See the [local accessibility bundle](../samples/accessloop/local-bundle.md)
+- `accessibility` - Run configured accessibility workflows and attach assessments with the [local accessibility bundle](../samples/accessloop/local-bundle.md)
+- `audit-snapshot` - Collect bounded, read-only UIA and typed text-attribute evidence
+- `audit-tabs` - Discover standard tabs and their selected states, with explicitly approved exact selection
+- `audit-observe` - Observe scoped UIA events and optionally probe an explicitly approved keyboard path
+- `audit-screenshot` - Capture exactly one window without activation or additional-window discovery
 - `invoke` - Activate element (click, toggle, expand)
+- `expand-collapse` - Set and confirm an explicit expanded or collapsed state on the exact control
 - `click` - Click element via mouse simulation (for controls that don't support invoke)
 - `hover` - Move mouse to element to trigger tooltips, flyouts, and hover states (default dwell: 800ms)
 - `drag` - Drag the mouse from one point to another, by element selector or screen `x,y` coordinates (reorder, resize, sliders, drag-and-drop)
@@ -1495,6 +1504,7 @@ winapp ui [command] [options]
 - `set-value` - Set value on editable element (text, number); falls back to LegacyIAccessible `put_accValue` for TextPattern-only rich-edit controls
 - `focus` - Move keyboard focus
 - `scroll-into-view` - Scroll element visible
+- `scroll` - Scroll a container by direction, endpoint, confirmed vertical percentage, or mouse wheel
 - `wait-for` - Wait for element state
 - `list-windows` - List all windows for an app
 - `get-focused` - Report the currently focused element
@@ -1536,5 +1546,33 @@ stop reason, optional `frameArtifacts`, and warnings.
 > top-level window (WinUI/XAML flyout, teaching tip, tooltip) may capture the underlying main
 > window instead. Record the whole window, or use `ui screenshot --capture-screen` for popup
 > stills. Tracked in [#646](https://github.com/microsoft/winappCli/issues/646).
+
+#### ui record-actions
+
+```powershell
+winapp ui record-actions -a myapp --output draft.json
+```
+
+Interact with the selected window, then stop with Ctrl+C. This creates an action draft, not the video produced by `ui record`.
+
+For recording limits, parameterized text, the `--capture-text` privacy opt-in, and JSON output, see [Record actions](ui-automation.md#record-actions).
+
+#### ui replay
+
+```powershell
+# Review the draft and restore the running app's starting state before replay.
+winapp ui replay draft.json -a myapp --accept-recording --parameter 'text1=Hello'
+```
+
+Use the parameter names reported for your draft. For approval requirements, literal parameters, supported assertions, and failure recovery, see [Replay actions](ui-automation.md#replay).
+
+For read-only snapshot evidence, bounded event/keyboard observation and passive
+window capture, see [Audit snapshot](ui-automation.md#audit-snapshot),
+[Audit observation](ui-automation.md#audit-observe) and
+[Audit screenshot](ui-automation.md#audit-screenshot). These native commands
+do not by themselves issue accessibility or business-correctness verdicts.
+
+To collect an accessibility report with `winapp ui audit`, see
+[Automatic standard-tab scans](../samples/accessloop/local-bundle.md#automatically-scan-standard-tab-pages).
 
 For full documentation, see [docs/ui-automation.md](ui-automation.md).

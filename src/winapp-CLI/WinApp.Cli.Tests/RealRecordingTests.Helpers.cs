@@ -38,10 +38,12 @@ public partial class RealRecordingTests
         public Task<Dictionary<string, object?>> GetPropertiesAsync(UiTarget s, UiElement e, string? p, CancellationToken ct) => inner.GetPropertiesAsync(s, e, p, ct);
         public Task<(byte[] Pixels, int Width, int Height)> ScreenshotAsync(UiTarget s, string? id, bool screen, bool focus, CancellationToken ct) => inner.ScreenshotAsync(s, id, screen, focus, ct);
         public Task<string> InvokeAsync(UiTarget s, UiElement e, CancellationToken ct) => inner.InvokeAsync(s, e, ct);
+        public Task<UiExpandCollapseState> SetExpandCollapseStateAsync(UiTarget s, UiElement e, UiExpandCollapseState state, CancellationToken ct) => inner.SetExpandCollapseStateAsync(s, e, state, ct);
         public Task SetValueAsync(UiTarget s, UiElement e, string text, CancellationToken ct) => inner.SetValueAsync(s, e, text, ct);
         public Task FocusAsync(UiTarget s, UiElement e, CancellationToken ct) => inner.FocusAsync(s, e, ct);
         public Task ScrollIntoViewAsync(UiTarget s, UiElement e, CancellationToken ct) => inner.ScrollIntoViewAsync(s, e, ct);
         public Task ScrollContainerAsync(UiTarget s, UiElement e, string? dir, string? dest, CancellationToken ct) => inner.ScrollContainerAsync(s, e, dir, dest, ct);
+        public Task<double> SetVerticalScrollPercentAsync(UiTarget s, UiElement e, double percent, CancellationToken ct) => inner.SetVerticalScrollPercentAsync(s, e, percent, ct);
         public Task<UiElement?> GetFocusedElementAsync(UiTarget s, CancellationToken ct) => inner.GetFocusedElementAsync(s, ct);
         public Task<string?> GetTextAsync(UiTarget s, UiElement e, CancellationToken ct) => inner.GetTextAsync(s, e, ct);
         public bool TryResolveRootWindow(UiTarget t, out nint hwnd, out string? title) => inner.TryResolveRootWindow(t, out hwnd, out title);
