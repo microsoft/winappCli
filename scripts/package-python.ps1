@@ -126,7 +126,7 @@ try {
         if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
             throw "Native CLI publish is missing: $executable. Use -BuildCli or build it before packaging Python wheels."
         }
-        $probe = 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); from winapp.native import native_platform; actual=native_platform(Path(sys.argv[2])); assert actual==sys.argv[3], f"Expected {sys.argv[3]}, found {actual}"'
+        $probe = 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); from winappcli.native import native_platform; actual=native_platform(Path(sys.argv[2])); assert actual==sys.argv[3], f"Expected {sys.argv[3]}, found {actual}"'
         & $Python -I -c $probe (Join-Path $package 'src') $executable $platforms[$arch]
         if ($LASTEXITCODE -ne 0) {
             throw "Native CLI publish has the wrong architecture or an invalid executable: $executable"
@@ -167,13 +167,13 @@ path.write_text(text, encoding="utf-8")
         if ($LASTEXITCODE -ne 0) {
             throw 'Failed to set the Python version in staged package metadata.'
         }
-        $packageSource = Join-Path $source 'winapp'
+        $packageSource = Join-Path $source 'winappcli'
         New-Item -ItemType Directory -Path $packageSource -Force | Out-Null
-        foreach ($entry in Get-ChildItem -LiteralPath (Join-Path $package 'src\winapp') -Force) {
+        foreach ($entry in Get-ChildItem -LiteralPath (Join-Path $package 'src\winappcli') -Force) {
             if ($entry.Name -in @('_native', '__pycache__')) { continue }
             Copy-Item -LiteralPath $entry.FullName -Destination $packageSource -Recurse
         }
-        $native = Join-Path $source 'winapp\_native'
+        $native = Join-Path $source 'winappcli\_native'
         New-Item -ItemType Directory -Path $native -Force | Out-Null
         $published = Join-Path $cli "win-$arch"
         foreach ($file in Get-ChildItem -LiteralPath $published -Recurse -File) {

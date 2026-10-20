@@ -26,7 +26,7 @@ winapp --help
 
 pip selects the package matching your Python architecture. It includes the native CLI; no separate winapp or Node.js installation is needed. You can also use `uv tool install microsoft-winappcli` or `pipx install microsoft-winappcli` for an isolated tool environment.
 
-The package provides both the `winapp` command and `python -m winapp`. See the guide's [prerequisites](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#prerequisites) to select the Python entry point when winget or npm is installed alongside it.
+The package provides both the `winapp` command and `python -m winappcli`. See the guide's [prerequisites](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#prerequisites) to select the Python entry point when winget or npm is installed alongside it.
 
 From your Python project directory, initialize SDKs and enable bindings:
 
@@ -59,7 +59,7 @@ Pass a project directory to target it explicitly. Interactive init without a dir
 
 For Python scripts, interpreter selection and identity-preparation status go to stderr. The script's stdout, stderr and exit code pass through unchanged, so `winapp run .\app.py > output.json` keeps wrapper status out of the output file.
 
-See [runtime catalog pinning](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#runtime-catalog-pinning) for the project setting that controls identity runtime selection and updates.
+See [runtime catalog pinning](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/python.md#runtime-catalog-pinning) for identity runtime availability and tool upgrades.
 
 **Shared Windows tools:**
 

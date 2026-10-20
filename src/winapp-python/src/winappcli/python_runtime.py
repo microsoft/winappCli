@@ -23,12 +23,13 @@ from .errors import WinappError
 from .paths import local_path
 from .tools import run_tool
 
+# Catalog from uv 0.13.1. Update the commit and raw-file digest together.
+CATALOG_COMMIT = "62faed3351cfee2121b3c28b937b1f4b93233a93"
+CATALOG_SHA256 = "929d88b43f30bc657b480cdba1aa67dc413a446721e29c795320e2ecf24ea093"
 CATALOG_URL = (
-    "https://raw.githubusercontent.com/astral-sh/uv/{version}/"
+    f"https://raw.githubusercontent.com/astral-sh/uv/{CATALOG_COMMIT}/"
     "crates/uv-python-managed/download-metadata.json"
 )
-UV_RELEASES_URL = "https://api.github.com/repos/astral-sh/uv/releases"
-MAX_RELEASE_BYTES = 1024 * 1024
 MAX_CATALOG_BYTES = 8 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
@@ -146,51 +147,24 @@ def probe_interpreter(
     return Interpreter(str(parsed), architectures[data["platform"]], data["free_threaded"], data["debug"])
 
 
-def validate_catalog_version(value: object) -> str:
-    if not isinstance(value, str) or not re.fullmatch(
-        r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value,
-    ):
-        raise WinappError("uv-catalog-version must be an exact uv release version, for example '0.13.1'.")
-    return value
-
-
-def _read_document(url: str, limit: int, description: str) -> dict:
+def _read_catalog() -> dict:
     try:
-        request = Request(url, headers={"User-Agent": "microsoft-winappcli", "Accept": "application/json"})
+        request = Request(CATALOG_URL, headers={"User-Agent": "microsoft-winappcli", "Accept": "application/json"})
         with urlopen(request, timeout=60) as response:
-            payload = response.read(limit + 1)
-        if len(payload) > limit:
-            raise WinappError(f"The {description} exceeds the supported size.")
+            payload = response.read(MAX_CATALOG_BYTES + 1)
+    except (URLError, OSError, HTTPException) as error:
+        raise WinappError(f"Could not read the PBS download catalog: {error}. Check network access and retry.") from error
+    if len(payload) > MAX_CATALOG_BYTES:
+        raise WinappError("The PBS download catalog exceeds the supported size.")
+    if hashlib.sha256(payload).hexdigest() != CATALOG_SHA256:
+        raise WinappError("PBS catalog SHA-256 mismatch; no runtime will be downloaded.")
+    try:
         document = json.loads(payload)
-    except (URLError, OSError, HTTPException, UnicodeError, json.JSONDecodeError) as error:
-        raise WinappError(f"Could not read the {description}: {error}. Check network access and retry.") from error
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise WinappError(f"Invalid PBS download catalog: {error}.") from error
     if not isinstance(document, dict):
-        raise WinappError(f"The {description} is not an object.")
+        raise WinappError("The PBS download catalog is not an object.")
     return document
-
-
-def resolve_catalog_version(version: str | None = None) -> str:
-    suffix = "latest" if version is None else f"tags/{validate_catalog_version(version)}"
-    release = _read_document(f"{UV_RELEASES_URL}/{suffix}", MAX_RELEASE_BYTES, "uv release metadata")
-    selected = validate_catalog_version(release.get("tag_name"))
-    if (
-        release.get("immutable") is not True
-        or release.get("draft") is not False or release.get("prerelease") is not False
-        or (version is not None and selected != version)
-    ):
-        raise WinappError(
-            "The selected uv catalog must belong to the requested immutable, non-prerelease release. "
-            "Set [tool.winapp.python-identity].uv-catalog-version in pyproject.toml "
-            "to an immutable official uv release; no other release will be substituted."
-        )
-    return selected
-
-
-def _read_catalog(version: str) -> dict:
-    return _read_document(
-        CATALOG_URL.format(version=validate_catalog_version(version)),
-        MAX_CATALOG_BYTES, "PBS download catalog",
-    )
 
 
 def validate_distribution(distribution: Distribution) -> None:
@@ -209,13 +183,9 @@ def validate_distribution(distribution: Distribution) -> None:
         raise WinappError("PBS metadata does not identify a checksum-verified publisher release archive.")
 
 
-def resolve_distribution(
-    interpreter: Interpreter, catalog: dict | None = None, *, catalog_version: str | None = None,
-) -> Distribution:
+def resolve_distribution(interpreter: Interpreter, catalog: dict | None = None) -> Distribution:
     if catalog is None:
-        if catalog_version is None:
-            raise WinappError("Select an immutable uv catalog release before resolving the PBS runtime.")
-        catalog = _read_catalog(catalog_version)
+        catalog = _read_catalog()
     version = Version(interpreter.version)
     prerelease = "" if version.pre is None else f"{version.pre[0]}{version.pre[1]}"
     matches = []
@@ -242,8 +212,8 @@ def resolve_distribution(
             f"No unique PBS distribution matches CPython {interpreter.version} "
             f"{interpreter.architecture} {interpreter.variant or 'standard ABI'}. "
             "No other Python version or ABI will be substituted. "
-            "To choose a newer catalog, update [tool.winapp.python-identity].uv-catalog-version "
-            "in pyproject.toml."
+            "Upgrade microsoft-winappcli for a newer catalog, or use a project interpreter "
+            "covered by this release."
         )
     return matches[0]
 

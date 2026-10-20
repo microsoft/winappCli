@@ -9,8 +9,8 @@ import time
 from unittest.mock import patch
 import unittest
 
-from winapp.errors import WinappError
-from winapp.progress import CHECK, ERROR, FRAMES, Workflow
+from winappcli.errors import WinappError
+from winappcli.progress import CHECK, ERROR, FRAMES, Workflow
 
 
 class TerminalOutput(io.StringIO):
@@ -62,7 +62,7 @@ class ProgressTests(unittest.TestCase):
         output = TerminalOutput()
         with (
             patch.dict(os.environ, {"TERM": "xterm"}),
-            patch("winapp.progress.shutil.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch("winappcli.progress.shutil.get_terminal_size", return_value=os.terminal_size((80, 24))),
             redirect_stdout(output),
         ):
             os.environ.pop("NO_COLOR", None)
@@ -84,7 +84,7 @@ class ProgressTests(unittest.TestCase):
                 output = TerminalOutput()
                 with (
                     patch.dict(os.environ, {"TERM": "xterm"}),
-                    patch("winapp.progress.shutil.get_terminal_size", return_value=os.terminal_size((80, 24))),
+                    patch("winappcli.progress.shutil.get_terminal_size", return_value=os.terminal_size((80, 24))),
                     redirect_stdout(output),
                     self.assertRaises(type(failure)),
                 ):
@@ -107,7 +107,7 @@ class ProgressTests(unittest.TestCase):
                 with (
                     patch.object(output, "isatty", return_value=True),
                     patch.dict(os.environ, settings),
-                    patch("winapp.progress.shutil.get_terminal_size", return_value=os.terminal_size((columns, 24))),
+                    patch("winappcli.progress.shutil.get_terminal_size", return_value=os.terminal_size((columns, 24))),
                     redirect_stdout(output),
                 ):
                     with Workflow("Preparing Python bindings", verbose=verbose) as progress:
@@ -122,7 +122,7 @@ class ProgressTests(unittest.TestCase):
         columns = 30
         with (
             patch.dict(os.environ, {"TERM": "xterm"}),
-            patch("winapp.progress.shutil.get_terminal_size",
+            patch("winappcli.progress.shutil.get_terminal_size",
                   side_effect=lambda: os.terminal_size((columns, 24))),
             redirect_stdout(output),
         ):
@@ -146,7 +146,7 @@ class ProgressTests(unittest.TestCase):
         output = FailingTerminal()
         with (
             patch.dict(os.environ, {"TERM": "xterm"}),
-            patch("winapp.progress.shutil.get_terminal_size", return_value=os.terminal_size((80, 24))),
+            patch("winappcli.progress.shutil.get_terminal_size", return_value=os.terminal_size((80, 24))),
             redirect_stdout(output),
             self.assertRaisesRegex(OSError, "Terminal output failed"),
         ):

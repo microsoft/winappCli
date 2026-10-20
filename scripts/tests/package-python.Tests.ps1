@@ -30,7 +30,7 @@ BeforeAll {
         }
         if ($arguments[0] -eq '-m' -and $arguments[1] -eq 'pip' -and $arguments[2] -eq 'wheel') {
             $stage = $arguments[[array]::IndexOf($arguments, '-w') - 1]
-            $native = Join-Path $stage 'src\winapp\_native'
+            $native = Join-Path $stage 'src\winappcli\_native'
             $state.Wheels.Add([pscustomobject]@{
                 Stage = $stage
                 Executable = Get-Content -LiteralPath (Join-Path $native 'winapp.exe') -Raw
@@ -74,7 +74,7 @@ Describe 'Local Python wheel builds' {
         $script:copiedScript = Join-Path $fixture 'scripts\package-python.ps1'
         $package = Join-Path $fixture 'src\winapp-python'
         New-Item -ItemType Directory -Path (Split-Path $copiedScript -Parent),
-            (Join-Path $package 'src\winapp'), (Join-Path $fixture 'artifacts') -Force | Out-Null
+            (Join-Path $package 'src\winappcli'), (Join-Path $fixture 'artifacts') -Force | Out-Null
         Copy-Item -LiteralPath $script:packageScript -Destination $copiedScript
         Set-Content -LiteralPath (Join-Path $fixture 'version.json') -Value '{"version":"0.7.2"}'
         Set-Content -LiteralPath (Join-Path $fixture 'scripts\get-build-number.ps1') -Value '$global:LASTEXITCODE = 0; 37'
@@ -87,7 +87,7 @@ Describe 'Local Python wheel builds' {
 name = "microsoft-winappcli"
 version = "0.1.0.dev0"
 '@
-        Set-Content -LiteralPath (Join-Path $package 'src\winapp\__init__.py') -Value ''
+        Set-Content -LiteralPath (Join-Path $package 'src\winappcli\__init__.py') -Value ''
         Set-Content -LiteralPath (Join-Path $fixture 'LICENSE') -Value 'fixture license'
         Set-Content -LiteralPath (Join-Path $fixture 'artifacts\keep.txt') -Value 'unrelated artifact'
         foreach ($arch in @('x64', 'arm64')) {

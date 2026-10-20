@@ -46,14 +46,8 @@ internal sealed class ProjectDetectionService(
         ".pub-cache",
         ".nuget",
         ".cargo",
-        ".venv",
         "venv",
         "site-packages",
-        ".tox",
-        ".nox",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
     };
 
     /// <summary>
@@ -169,11 +163,22 @@ internal sealed class ProjectDetectionService(
                 return new DetectedProject(DetectedProjectType.Python, directory, displayPath, marker);
             }
         }
-        if (File.Exists(Path.Join(directory.FullName, "requirements.txt"))
-            && directory.EnumerateFiles("*.py", SearchOption.TopDirectoryOnly)
-                .Any(file => !file.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+        try
         {
-            return new DetectedProject(DetectedProjectType.Python, directory, displayPath, "requirements.txt");
+            if (File.Exists(Path.Join(directory.FullName, "requirements.txt"))
+                && directory.EnumerateFiles("*.py", SearchOption.TopDirectoryOnly)
+                    .Any(file => !file.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+            {
+                return new DetectedProject(DetectedProjectType.Python, directory, displayPath, "requirements.txt");
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
         }
 
         return null;

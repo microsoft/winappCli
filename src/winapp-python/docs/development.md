@@ -101,3 +101,13 @@ To validate the user-facing WinUI workflow with Pester 5:
 ```powershell
 .\scripts\test-samples.ps1 -Samples python-winui,python-identity -WinappPath .\artifacts\python
 ```
+
+## Update the identity runtime catalog
+
+The wheel pins its catalog in [`python_runtime.py`](../src/winappcli/python_runtime.py). To refresh it, choose an official stable uv release, resolve its tag to a full commit, and download `crates/uv-python-managed/download-metadata.json` at that commit. Compute the SHA-256 of the original file, without reformatting or filtering it:
+
+```powershell
+Get-FileHash .\download-metadata.json -Algorithm SHA256
+```
+
+Update `CATALOG_COMMIT`, `CATALOG_SHA256` and the release comment together. Check the exact Python versions and x64/ARM64 entries needed by the samples, then run the Python unit tests and installed-wheel identity workflow above. Catalog updates are deliberate source changes; wheel builds do not select the latest uv release automatically.

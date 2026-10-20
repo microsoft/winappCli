@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 from packaging.version import Version
 
-from winapp.config import set_codegen_version
-from winapp.errors import WinappError
-from winapp.generate import MARKER, generate, require_current_package, validate_output
+from winappcli.config import set_codegen_version
+from winappcli.errors import WinappError
+from winappcli.generate import MARKER, generate, require_current_package, validate_output
 
 from helpers import ProjectTest
 
@@ -28,7 +28,7 @@ class GenerationTests(ProjectTest):
             self.assertEqual(Path(arguments[arguments.index("--output") + 1]).name, "myapp_winrt")
             return self.fake_codegen(arguments, project, **kwargs)
 
-        with patch("winapp.generate.run_tool", side_effect=verify) as tool:
+        with patch("winappcli.generate.run_tool", side_effect=verify) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         self.assertEqual(tool.call_count, 1)
         self.assertTrue((output / "pyproject.toml").is_file())
@@ -40,14 +40,14 @@ class GenerationTests(ProjectTest):
         output.mkdir(parents=True)
         note = output / "handwritten.py"
         note.write_text("keep me", encoding="utf-8")
-        with patch("winapp.generate.run_tool") as tool:
+        with patch("winappcli.generate.run_tool") as tool:
             with self.assertRaisesRegex(WinappError, "not a winapp-managed"):
                 generate(self.config(), Path("codegen.exe"), self.codegen_version)
         tool.assert_not_called()
         self.assertEqual(note.read_text(), "keep me")
 
     def test_failed_codegen_preserves_previous_output(self):
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         before = (output / "Uri.py").read_bytes()
 
@@ -55,14 +55,14 @@ class GenerationTests(ProjectTest):
             self.fake_codegen(arguments, project, **kwargs)
             raise WinappError("intentional tool failure")
 
-        with patch("winapp.generate.run_tool", side_effect=fail):
+        with patch("winappcli.generate.run_tool", side_effect=fail):
             with self.assertRaisesRegex(WinappError, "intentional"):
                 generate(self.config(), Path("codegen.exe"), self.codegen_version, force=True)
         self.assertEqual((output / "Uri.py").read_bytes(), before)
         self.assertEqual(list(output.parent.iterdir()), [output])
 
     def test_regeneration_removes_deselected_types(self):
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
             self.write_config(types=["Windows.Storage.StorageFile"])
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
@@ -70,7 +70,7 @@ class GenerationTests(ProjectTest):
         self.assertTrue((output / "StorageFile.py").exists())
 
     def test_bad_generated_runtime_pin_preserves_previous_output(self):
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
 
         def mismatch(arguments, project, **kwargs):
@@ -81,19 +81,19 @@ class GenerationTests(ProjectTest):
             )
             return ""
 
-        with patch("winapp.generate.run_tool", side_effect=mismatch):
+        with patch("winappcli.generate.run_tool", side_effect=mismatch):
             with self.assertRaisesRegex(WinappError, "runtime pin"):
                 generate(self.config(), Path("codegen.exe"), self.codegen_version, force=True)
         self.assertIn("0.1.0-preview.21", (output / "pyproject.toml").read_text())
 
     def test_missing_generated_package_is_not_success(self):
-        with patch("winapp.generate.run_tool", return_value=""):
+        with patch("winappcli.generate.run_tool", return_value=""):
             with self.assertRaisesRegex(WinappError, "installable"):
                 generate(self.config(), Path("codegen.exe"), self.codegen_version)
         self.assertFalse(self.config().output.exists())
 
     def test_swap_failure_restores_previous_directory(self):
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         rename = Path.rename
 
@@ -102,7 +102,7 @@ class GenerationTests(ProjectTest):
                 raise OSError("locked")
             return rename(source, target)
 
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             with patch.object(Path, "rename", failing_rename):
                 with self.assertRaisesRegex(OSError, "locked"):
                     generate(self.config(), Path("codegen.exe"), self.codegen_version, force=True)
@@ -110,7 +110,7 @@ class GenerationTests(ProjectTest):
         self.assertEqual(list(output.parent.iterdir()), [output])
 
     def test_unchanged_inputs_skip_codegen_but_changed_metadata_regenerates(self):
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen) as tool:
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
             self.assertEqual(tool.call_count, 1)
@@ -120,7 +120,7 @@ class GenerationTests(ProjectTest):
         self.assertTrue((output / "Uri.py").is_file())
 
     def test_modifying_a_generated_file_invalidates_the_cache(self):
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen) as tool:
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
             (output / "Uri.py").write_text("# user changed generated code", encoding="utf-8")
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
@@ -142,7 +142,7 @@ class GenerationTests(ProjectTest):
             self.assertNotIn("WebView2.winmd", roots + refs)
             return self.fake_codegen(arguments, project, **kwargs)
 
-        with patch("winapp.generate.run_tool", side_effect=check) as tool:
+        with patch("winappcli.generate.run_tool", side_effect=check) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
         self.assertEqual(tool.call_count, 1)
@@ -160,7 +160,7 @@ class GenerationTests(ProjectTest):
         self.write_config(scope="default", types=["Windows.Foundation.Uri"], extra=(
             'additional-winmds = [{namespace = "Windows.Storage", classes = ["ApplicationData"]}]\n'
         ))
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen) as tool:
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         self.assertEqual(tool.call_count, 3)
         self.assertTrue((output / "AppNotification.py").exists())
@@ -188,7 +188,7 @@ class GenerationTests(ProjectTest):
             self.assertNotIn(str(custom), refs)
             return self.fake_codegen(arguments, project, **kwargs)
 
-        with patch("winapp.generate.run_tool", side_effect=verify):
+        with patch("winappcli.generate.run_tool", side_effect=verify):
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
 
     def test_extra_selector_change_invalidates_generation_without_metadata_change(self):
@@ -196,7 +196,7 @@ class GenerationTests(ProjectTest):
         self.write_config(scope="default", extra=(
             'additional-winmds = [{namespace = "Windows.Foundation", classes = ["Uri"]}]\n'
         ))
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen) as tool:
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
             before = tool.call_count
             self.write_config(scope="default", extra=(
@@ -209,7 +209,7 @@ class GenerationTests(ProjectTest):
 
     def test_project_codegen_version_update_regenerates_matching_runtime(self):
         source = self.project / "pyproject.toml"
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen) as tool:
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
             self.codegen_version = Version("0.1.0rc23")
             set_codegen_version(self.project, self.codegen_version)
@@ -227,19 +227,19 @@ class GenerationTests(ProjectTest):
     def test_generated_version_is_not_limited_to_the_winapp_release(self):
         self.codegen_version = Version("0.2.0")
         set_codegen_version(self.project, self.codegen_version)
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         self.assertEqual(require_current_package(self.config()), output)
 
     def test_project_version_change_requires_regeneration_before_identity_reuse(self):
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         before = (output / "pyproject.toml").read_bytes()
         set_codegen_version(self.project, Version("0.1.0rc23"))
         with self.assertRaisesRegex(WinappError, "project's codegen-version"):
             require_current_package(self.config())
         with (
-            patch("winapp.generate.run_tool") as tool,
+            patch("winappcli.generate.run_tool") as tool,
             self.assertRaisesRegex(WinappError, "Codegen does not match"),
         ):
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
@@ -247,7 +247,7 @@ class GenerationTests(ProjectTest):
         self.assertEqual((output / "pyproject.toml").read_bytes(), before)
 
     def test_missing_codegen_marker_version_cannot_reuse_the_cache(self):
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen) as tool:
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen) as tool:
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
             marker = output / MARKER
             state = json.loads(marker.read_text())
@@ -257,14 +257,14 @@ class GenerationTests(ProjectTest):
         self.assertEqual(tool.call_count, 2)
 
     def test_identity_uses_generated_version_without_looking_up_latest(self):
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
-        with patch("winapp.generate.run_tool") as tool:
+        with patch("winappcli.generate.run_tool") as tool:
             self.assertEqual(require_current_package(self.config()), output)
         tool.assert_not_called()
 
     def test_invalid_generated_version_is_an_explicit_identity_error(self):
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             output = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         marker = output / MARKER
         original = json.loads(marker.read_text())

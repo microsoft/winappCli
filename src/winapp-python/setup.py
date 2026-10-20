@@ -9,9 +9,9 @@ from setuptools.command.bdist_wheel import bdist_wheel
 from setuptools.command.install import install
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from winapp.native import native_platform
+from winappcli.native import native_platform
 
-NATIVE = Path(__file__).parent / "src" / "winapp" / "_native" / "winapp.exe"
+NATIVE = Path(__file__).parent / "src" / "winappcli" / "_native" / "winapp.exe"
 
 
 class NativeInstall(install):

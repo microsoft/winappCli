@@ -8,8 +8,8 @@ import unittest
 
 from packaging.version import Version
 
-from winapp.config import load_config
-from winapp.metadata import packages_hash
+from winappcli.config import load_config
+from winappcli.metadata import packages_hash
 
 
 class ProjectTest(unittest.TestCase):

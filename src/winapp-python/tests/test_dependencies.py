@@ -9,9 +9,9 @@ import tomllib
 from packaging.version import Version
 from unittest.mock import patch
 
-from winapp import dependencies as deps
-from winapp.errors import WinappError
-from winapp.python_runtime import Interpreter
+from winappcli import dependencies as deps
+from winappcli.errors import WinappError
+from winappcli.python_runtime import Interpreter
 
 from helpers import ProjectTest
 

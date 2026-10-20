@@ -121,7 +121,7 @@ public class IncrementalCopyHelperTests
             IncrementalCopyHelper.CopyFiles([(payload, "icon.png"), (payload, @"..\victim.png")], dest));
 
         Assert.AreEqual("keep", File.ReadAllText(sentinel.FullName));
-        Assert.IsFalse(File.Exists(Path.Combine(dest.FullName, "icon.png")));
+        Assert.IsFalse(File.Exists(Path.Join(dest.FullName, "icon.png")));
     }
 
     [TestMethod]
@@ -136,6 +136,21 @@ public class IncrementalCopyHelperTests
             IncrementalCopyHelper.CopyFiles([(payload, sentinel.FullName)], dest));
 
         Assert.AreEqual("keep", File.ReadAllText(sentinel.FullName));
+    }
+
+    [TestMethod]
+    public void CopyFiles_AbsolutePathInsideTarget_IsRejectedBeforeAnyWrite()
+    {
+        var source = CreateSubDir("source");
+        var dest = CreateSubDir("dest");
+        var payload = WriteFile(source, "payload.png", "replacement-content");
+        var sentinel = WriteFile(dest, "victim.png", "keep");
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            IncrementalCopyHelper.CopyFiles([(payload, "icon.png"), (payload, sentinel.FullName)], dest));
+
+        Assert.AreEqual("keep", File.ReadAllText(sentinel.FullName));
+        Assert.IsFalse(File.Exists(Path.Join(dest.FullName, "icon.png")));
     }
 
     #endregion

@@ -233,7 +233,7 @@ Describe 'verify-signatures.ps1' -Skip:$script:NoSignedBinary {
         It 'rejects an unsigned native CLI inside a Python wheel' {
             $script:root = New-FixtureRoot
             $layout = Join-Path $script:root 'layout'
-            Add-UnsignedBinary -Directory (Join-Path $layout 'winapp\_native') -Name 'winapp.exe'
+            Add-UnsignedBinary -Directory (Join-Path $layout 'winappcli\_native') -Name 'winapp.exe'
             New-ZipContainer -SourceDirectory $layout -Destination (Join-Path $script:root 'python\microsoft_winappcli-0.7.2-py3-none-win_amd64.whl')
 
             { & $script:VerifyScript -Path (Join-Path $script:root 'python') } |
@@ -243,7 +243,7 @@ Describe 'verify-signatures.ps1' -Skip:$script:NoSignedBinary {
         It 'accepts embedded signed native binaries inside a Python wheel' {
             $script:root = New-FixtureRoot
             $layout = Join-Path $script:root 'layout'
-            Add-SignedBinary -Directory (Join-Path $layout 'winapp\_native') -Name 'winapp.exe'
+            Add-SignedBinary -Directory (Join-Path $layout 'winappcli\_native') -Name 'winapp.exe'
             New-ZipContainer -SourceDirectory $layout -Destination (Join-Path $script:root 'python\microsoft_winappcli-0.7.2-py3-none-win_amd64.whl')
 
             { & $script:VerifyScript -Path (Join-Path $script:root 'python') } | Should -Not -Throw
@@ -256,7 +256,7 @@ Describe 'verify-signatures.ps1' -Skip:$script:NoSignedBinary {
             $outerLayout = Join-Path $script:root 'outer'
             New-Item -ItemType Directory -Path $outerLayout -Force | Out-Null
             New-ZipContainer -SourceDirectory $inner -Destination (Join-Path $outerLayout 'winappcli_x64.msix')
-            New-ZipContainer -SourceDirectory $outerLayout -Destination (Join-Path $script:root 'dist\winapp.msixbundle')
+            New-ZipContainer -SourceDirectory $outerLayout -Destination (Join-Path $script:root 'dist\winappcli.msixbundle')
 
             { & $script:VerifyScript -Path (Join-Path $script:root 'dist') } |
                 Should -Throw -ExpectedMessage '*Signature verification failed*'

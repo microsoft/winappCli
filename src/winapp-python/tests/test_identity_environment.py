@@ -7,11 +7,11 @@ from unittest.mock import patch
 
 from packaging.version import Version
 
-from winapp.config import record_identity_catalog_version, set_codegen_version
-from winapp import identity_environment as environment
-from winapp.errors import WinappError
-from winapp.generate import generate
-from winapp.python_runtime import Interpreter
+from winappcli.config import set_codegen_version
+from winappcli import identity_environment as environment
+from winappcli.errors import WinappError
+from winappcli.generate import generate
+from winappcli.python_runtime import Interpreter
 
 from helpers import ProjectTest
 
@@ -53,16 +53,16 @@ class IdentityEnvironmentTests(ProjectTest):
         configuration.write_text(configuration.read_text().replace("1.8.260416003", "2.5.1"), encoding="utf-8")
         self.assertNotEqual(before, environment.dependency_inputs(self.project, None, self.info)[2])
 
-    def test_catalog_pin_changes_do_not_masquerade_as_dependency_changes(self):
-        record_identity_catalog_version(self.project, "0.13.1")
+    def test_project_metadata_changes_invalidate_inputs_without_rewriting_the_file(self):
         source = self.project / "pyproject.toml"
+        source.write_bytes(b'\xef\xbb\xbf[tool.other]\r\nsetting = "original"\r\n')
+        original = source.read_bytes()
         before = environment.dependency_inputs(self.project, None, self.info)[2]
-        source.write_text(source.read_text().replace("0.13.1", "0.13.2"), encoding="utf-8")
-        self.assertEqual(before, environment.dependency_inputs(self.project, None, self.info)[2])
-        source.write_text(
-            source.read_text() + '\n[tool.other]\nsetting = "changed"\n', encoding="utf-8",
-        )
+        self.assertEqual(source.read_bytes(), original)
+        changed = original.replace(b"original", b"changed")
+        source.write_bytes(changed)
         self.assertNotEqual(before, environment.dependency_inputs(self.project, None, self.info)[2])
+        self.assertEqual(source.read_bytes(), changed)
 
     def test_project_metadata_dates_remain_valid_fingerprint_inputs(self):
         source = self.project / "pyproject.toml"
@@ -92,7 +92,7 @@ class IdentityEnvironmentTests(ProjectTest):
 
     def test_current_generated_bindings_are_installed_as_editable_input(self):
         self.write_config()
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             generated = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         _, bindings, before = environment.dependency_inputs(self.project, None, self.info)
         self.assertEqual(bindings, generated)
@@ -101,7 +101,7 @@ class IdentityEnvironmentTests(ProjectTest):
 
     def test_project_dynwinrt_upgrade_rebuilds_private_dependencies(self):
         self.write_config()
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             generate(self.config(), Path("codegen.exe"), self.codegen_version)
             before = environment.dependency_inputs(self.project, None, self.info)[2]
             self.codegen_version = Version("0.1.0rc23")

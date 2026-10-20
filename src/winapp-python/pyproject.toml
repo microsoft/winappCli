@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
-winapp = "winapp.cli:main"
+winapp = "winappcli.cli:main"
 
 [project.urls]
 Repository = "https://github.com/microsoft/winappCli"
@@ -36,4 +36,4 @@ where = ["src"]
 namespaces = false
 
 [tool.setuptools.package-data]
-winapp = ["_native/*", "_native/**/*"]
+winappcli = ["_native/*", "_native/**/*"]

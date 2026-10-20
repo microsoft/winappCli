@@ -16,14 +16,13 @@ import tempfile
 import uuid
 import xml.etree.ElementTree as ET
 
-from .config import load_identity_catalog_version, record_identity_catalog_version
 from .errors import WinappError
 from .identity_environment import application_environment, dependency_inputs, synchronize_dependencies
 from .paths import check_output_tree, local_path
 from .progress import Workflow
 from .python_runtime import (
-    Distribution, distribution_from_document, prepare_runtime, probe_interpreter,
-    resolve_catalog_version, resolve_distribution, select_project_python, validate_catalog_version,
+    distribution_from_document, prepare_runtime, probe_interpreter,
+    resolve_distribution, select_project_python,
 )
 from .tools import run_tool
 
@@ -95,9 +94,8 @@ def _load_record(project: Path) -> dict | None:
         raise WinappError(f"Invalid Python identity ownership record at {source}: {error}") from error
     required = {"schema", "project", "root", "owner", "state", "entry", "base",
                 "package", "publisher", "full_name", "interpreter", "distribution",
-                "manifest_hash", "dependency_hash", "runtime_hashes", "registration_attempted",
-                "catalog_version"}
-    if not isinstance(record, dict) or not required <= record.keys() or record.get("schema") != 3:
+                "manifest_hash", "dependency_hash", "runtime_hashes", "registration_attempted"}
+    if not isinstance(record, dict) or not required <= record.keys() or record.get("schema") != 2:
         raise WinappError(
             f"Unrecognized Python identity ownership record at {source}; refusing to modify it."
         )
@@ -119,7 +117,6 @@ def _load_record(project: Path) -> dict | None:
         raise WinappError(f"The Python identity record has invalid runtime or preparation state: {source}")
     if record["project"].lower() != str(project).lower():
         raise WinappError(f"{source} belongs to a different project; refusing to modify it.")
-    validate_catalog_version(record["catalog_version"])
     _owned_directory(project, record)
     return record
 
@@ -211,7 +208,7 @@ def _owned_directory(project: Path, record: dict) -> Path:
             owner = json.loads(marker.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError, UnicodeError) as error:
             raise WinappError(f"Cannot verify the private interpreter's ownership: {private}") from error
-        if owner != {"schema": 3, "project": str(project), "owner": record["owner"]}:
+        if owner != {"schema": 2, "project": str(project), "owner": record["owner"]}:
             raise WinappError(f"The private PBS environment belongs to another project: {private}")
     return private
 
@@ -399,7 +396,6 @@ def run_with_identity(
     requirements, bindings, dependency_hash = dependency_inputs(project, requirements_option, interpreter)
     manifest_hash = _digest(manifest)
     with _operation_lock(project):
-        catalog_version = load_identity_catalog_version(project)
         record = _load_record(project)
         changes: list[str] = []
         interpreter_changed = False
@@ -428,26 +424,10 @@ def run_with_identity(
                 raise WinappError(f"{package_name} is already registered without this project's ownership record; refusing to replace it.")
             _require_developer_mode()
 
-        if record is None or interpreter_changed or record["catalog_version"] != catalog_version:
-            selected_version = resolve_catalog_version(catalog_version)
-            distribution = resolve_distribution(interpreter, catalog_version=selected_version)
-            if catalog_version is None:
-                record_identity_catalog_version(project, selected_version)
-                if not quiet:
-                    print(
-                        f"Pinned uv PBS catalog {selected_version} in pyproject.toml.",
-                        file=sys.stderr, flush=True,
-                    )
-                requirements, bindings, dependency_hash = dependency_inputs(project, requirements_option, interpreter)
-            catalog_version = selected_version
-            if record is not None and not interpreter_changed:
-                previous = distribution_from_document(record["distribution"], interpreter)
-                if (previous.build, previous.sha256) != (distribution.build, distribution.sha256):
-                    changes.append("PBS runtime")
+        if record is None or interpreter_changed:
+            distribution = resolve_distribution(interpreter)
         else:
             distribution = distribution_from_document(record["distribution"], interpreter)
-        if load_identity_catalog_version(project) != catalog_version:
-            raise WinappError("The Python identity catalog configuration changed during selection; retry.")
         if record is not None and record["dependency_hash"] != dependency_hash:
             changes.append("dependencies or project metadata")
         action = "Rebuilding" if changes else "Reusing" if record is not None else "Preparing"
@@ -469,19 +449,18 @@ def run_with_identity(
                 if changes and _packages(package_name):
                     raise WinappError(f"{package_name} is already registered without this project's ownership record; refusing to replace it.")
                 record = {
-                    "schema": 3, "project": str(project), "root": str(root), "owner": uuid.uuid4().hex,
+                    "schema": 2, "project": str(project), "root": str(root), "owner": uuid.uuid4().hex,
                     "state": "preparing", "entry": str(root / "venv" / "Scripts" / "python.exe"),
                     "base": str(root / "venv" / "runtime" / "python.exe"),
                     "package": package_name, "publisher": publisher, "full_name": None,
                     "interpreter": interpreter.document(), "distribution": distribution.document(),
                     "manifest_hash": manifest_hash, "dependency_hash": dependency_hash, "runtime_hashes": {},
                     "registration_attempted": False,
-                    "catalog_version": catalog_version,
                 }
                 root.mkdir()
                 try:
                     (root / PRIVATE_MARKER).write_text(json.dumps({
-                        "schema": 3, "project": str(project), "owner": record["owner"],
+                        "schema": 2, "project": str(project), "owner": record["owner"],
                     }) + "\n", encoding="utf-8")
                 except OSError:
                     (root / PRIVATE_MARKER).unlink(missing_ok=True)
@@ -499,7 +478,6 @@ def run_with_identity(
                         if (
                             _digest(manifest) != manifest_hash
                             or dependency_inputs(project, requirements_option, interpreter)[2] != dependency_hash
-                            or load_identity_catalog_version(project) != catalog_version
                         ):
                             raise WinappError("Project inputs changed during identity preparation; retry with unchanged inputs.")
                     with _registration_lock(package_name):
@@ -535,10 +513,6 @@ def run_with_identity(
             else:
                 with workflow.step("Verify identity", "Existing runtime verified"):
                     _verify_interpreter(project, record)
-                if record["catalog_version"] != catalog_version:
-                    record["catalog_version"] = catalog_version
-                    record["distribution"] = distribution.document()
-                    _write_record(project, record)
             workflow.succeed("Identity ready.")
         if not quiet:
             print(f"Running {script.name}...", file=sys.stderr, flush=True)

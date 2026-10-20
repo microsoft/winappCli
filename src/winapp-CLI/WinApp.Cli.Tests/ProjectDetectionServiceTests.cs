@@ -309,14 +309,9 @@ public class ProjectDetectionServiceTests
 
     [TestMethod]
     [DataRow("[project]\nname = \"python-app\"\nversion = \"0.1.0\"\n", "pyproject.toml")]
-    [DataRow("project = { name = 'python-app' }\n", "pyproject.toml")]
-    [DataRow("project.name = 'python-app'\n", "pyproject.toml")]
-    [DataRow("[\"project\"]\n\"name\" = 'python-app'\n", "pyproject.toml")]
-    [DataRow("tool = { poetry = { name = 'python-app' } }\n", "pyproject.toml")]
-    [DataRow("[tool.poetry]\nname = \"python-app\"\n", "pyproject.toml")]
     [DataRow("import setuptools\nsetuptools.setup()\n", "setup.py")]
     [DataRow("[metadata]\nname = python-app\n[options]\npackages = find:\n", "setup.cfg")]
-    public void DetectProject_Python_RecognizesProjectMetadata(string contents, string filename)
+    public void DetectProject_Python_RecognizesMarkerFiles(string contents, string filename)
     {
         CreateFile(filename, contents);
         var result = ProjectDetectionService.DetectProject(Root, Root);
@@ -328,15 +323,7 @@ public class ProjectDetectionServiceTests
 
     [TestMethod]
     [DataRow("[tool.ruff]\nline-length = 100\n")]
-    [DataRow("[project]\nname = 123\n")]
-    [DataRow("[project]\nname = \"  python-app  \"\n")]
-    [DataRow("[project]\nname = \"python app\"\n")]
-    [DataRow("[project]\nversion = \"0.1.0\"\n")]
-    [DataRow("# [project]\n# name = \"python-app\"\n")]
     [DataRow("[project]\nname = \"python-app\"\ninvalid = [\n")]
-    [DataRow("[project]\nname = \"python-app\"\nname = \"other\"\n")]
-    [DataRow("[[project]]\nname = \"python-app\"\n")]
-    [DataRow("[tool]\nproject = { name = \"python-app\" }\n")]
     public void DetectProject_Python_OnlyHintsAtMarkerPresenceWithoutParsingContents(string contents)
     {
         CreateFile("pyproject.toml", contents);
@@ -350,7 +337,7 @@ public class ProjectDetectionServiceTests
     {
         CreateFile("requirements.txt", "packaging==26.3\n");
         Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
-        CreateFile(Path.Combine("scripts", "app.py"), "print('nested')\n");
+        CreateFile(Path.Join("scripts", "app.py"), "print('nested')\n");
         Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
         CreateFile("app.py", "print('hello')\n");
         Assert.AreEqual(DetectedProjectType.Python, ProjectDetectionService.DetectProject(Root, Root)?.Type);

@@ -11,12 +11,12 @@ import sys
 import time
 from unittest.mock import patch
 
-from winapp import identity
-from winapp.config import load_identity_catalog_version, record_identity_catalog_version
-from winapp.errors import WinappError
-from winapp.generate import generate
-from winapp.identity_environment import dependency_inputs
-from winapp.python_runtime import Distribution, Interpreter
+from winappcli import identity
+from winappcli import python_runtime as runtime
+from winappcli.errors import WinappError
+from winappcli.generate import generate
+from winappcli.identity_environment import dependency_inputs
+from winappcli.python_runtime import Distribution, Interpreter
 
 from helpers import ProjectTest
 
@@ -44,7 +44,6 @@ class PythonIdentityTests(ProjectTest):
             patch.object(identity, "select_project_python", return_value=self.project / ".venv" / "Scripts" / "python.exe"),
             patch.object(identity, "probe_interpreter", return_value=self.info),
             patch.object(identity, "_require_developer_mode"),
-            patch.object(identity, "resolve_catalog_version", side_effect=lambda version: version or "0.13.1"),
             patch.object(identity.Path, "home", return_value=self.root),
         ):
             patcher.start()
@@ -62,17 +61,15 @@ class PythonIdentityTests(ProjectTest):
         return venv, runtime, venv / "Scripts" / "python.exe"
 
     def record(self):
-        if load_identity_catalog_version(self.project) is None:
-            record_identity_catalog_version(self.project, "0.13.1")
         root = self.project / ".winapp" / identity.ROOT_NAME
         root.mkdir()
         owner = "a" * 32
         (root / identity.PRIVATE_MARKER).write_text(json.dumps({
-            "schema": 3, "project": str(self.project), "owner": owner,
+            "schema": 2, "project": str(self.project), "owner": owner,
         }), encoding="utf-8")
         venv, runtime, entry = self.prepare_files(self.project, root, self.distribution)
         record = {
-            "schema": 3, "project": str(self.project), "root": str(root), "owner": owner,
+            "schema": 2, "project": str(self.project), "root": str(root), "owner": owner,
             "state": "ready", "entry": str(entry), "base": str(runtime / "python.exe"),
             "package": "LocalPythonProbe.debug", "publisher": "CN=LocalPythonProbe",
             "full_name": "LocalPythonProbe.debug_1.0.0.0_x64__abc", "registration_attempted": True,
@@ -80,7 +77,6 @@ class PythonIdentityTests(ProjectTest):
             "manifest_hash": identity._digest(self.project / "Package.appxmanifest"),
             "dependency_hash": dependency_inputs(self.project, None, self.info)[2],
             "runtime_hashes": {},
-            "catalog_version": load_identity_catalog_version(self.project),
         }
         record["runtime_hashes"] = identity._runtime_hashes(record)
         identity._write_record(self.project, record)
@@ -98,16 +94,6 @@ class PythonIdentityTests(ProjectTest):
     def run_app(self, *args):
         return identity.run_with_identity(self.project, Path("app.py"), list(args),
                                          Path("winapp.exe"), None)
-
-    def change_catalog_version(self, version):
-        source = self.project / "pyproject.toml"
-        current = load_identity_catalog_version(self.project)
-        source.write_text(
-            source.read_text(encoding="utf-8").replace(
-                f'uv-catalog-version = "{current}"', f'uv-catalog-version = "{version}"',
-            ), encoding="utf-8",
-        )
-        self.assertEqual(load_identity_catalog_version(self.project), version)
 
     def assert_rebuild(self, record, *, info=None, distribution=None):
         info = self.info if info is None else info
@@ -140,13 +126,10 @@ class PythonIdentityTests(ProjectTest):
             redirect_stderr(output),
         ):
             self.assertEqual(self.run_app(), 0)
-        if (
-            record["interpreter"] == info.document()
-            and record["catalog_version"] == load_identity_catalog_version(self.project)
-        ):
+        if record["interpreter"] == info.document():
             resolve.assert_not_called()
         else:
-            resolve.assert_called_once_with(info, catalog_version=load_identity_catalog_version(self.project))
+            resolve.assert_called_once_with(info)
         prepare.assert_called_once()
         install.assert_called_once()
         native.assert_called_once()
@@ -177,8 +160,8 @@ class PythonIdentityTests(ProjectTest):
             self.assertEqual(self.run_app("--value", "two words"), 37)
         record = identity._load_record(self.project)
         self.assertEqual(record["state"], "ready")
-        self.assertEqual(record["catalog_version"], "0.13.1")
-        self.assertEqual(load_identity_catalog_version(self.project), "0.13.1")
+        self.assertNotIn("catalog_version", record)
+        self.assertFalse((self.project / "pyproject.toml").exists())
         self.assertEqual(record["interpreter"]["version"], "3.12.10")
         self.assertIn("runtime", native.call_args.args[0][2])
         install.assert_called_once()
@@ -188,12 +171,14 @@ class PythonIdentityTests(ProjectTest):
         self.assertEqual(app.call_args.kwargs["env"]["VIRTUAL_ENV"],
                          str(Path(record["root"]) / "venv"))
 
-    def test_reuse_does_not_resolve_catalog_download_or_resynchronize(self):
+    def test_reuse_stays_offline_even_after_the_wheel_catalog_changes(self):
         record = self.record()
         (self.project / "app.py").write_text("print('source edit')\n", encoding="utf-8")
         with (
             patch.object(identity, "_packages", return_value=[self.package()]),
-            patch.object(identity, "resolve_catalog_version") as release,
+            patch.object(runtime, "CATALOG_URL", "https://raw.githubusercontent.com/astral-sh/uv/new-snapshot"),
+            patch.object(runtime, "CATALOG_SHA256", "b" * 64),
+            patch.object(runtime, "urlopen", side_effect=AssertionError("Reuse must stay offline")) as fetch,
             patch.object(identity, "resolve_distribution") as resolve,
             patch.object(identity, "prepare_runtime") as prepare,
             patch.object(identity, "synchronize_dependencies") as install,
@@ -202,16 +187,19 @@ class PythonIdentityTests(ProjectTest):
         ):
             self.assertEqual(self.run_app(), 0)
         resolve.assert_not_called()
-        release.assert_not_called()
+        fetch.assert_not_called()
         prepare.assert_not_called()
         install.assert_not_called()
         self.assertEqual(identity._load_record(self.project), record)
 
-    def test_explicit_project_pin_controls_preparation_without_rewriting_configuration(self):
-        record_identity_catalog_version(self.project, "0.13.0")
-        before = (self.project / "pyproject.toml").read_bytes()
+    def test_preparation_and_clear_preserve_pyproject_bytes(self):
+        source = self.project / "pyproject.toml"
+        before = (
+            b'\xef\xbb\xbf# application\r\n[project]\r\nname = "example"\r\n'
+            b'version = "1.0"\r\ndependencies = []\r\n[tool.other]\r\nkeep = true\r\n'
+        )
+        source.write_bytes(before)
         with (
-            patch.object(identity, "resolve_catalog_version", return_value="0.13.0") as release,
             patch.object(identity, "resolve_distribution", return_value=self.distribution) as resolve,
             patch.object(identity, "_packages", side_effect=[[], [], [self.package()]]),
             patch.object(identity, "prepare_runtime", side_effect=self.prepare_files),
@@ -221,72 +209,45 @@ class PythonIdentityTests(ProjectTest):
             patch.object(identity.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)),
         ):
             self.assertEqual(self.run_app(), 0)
-        release.assert_called_once_with("0.13.0")
-        resolve.assert_called_once_with(self.info, catalog_version="0.13.0")
-        self.assertEqual((self.project / "pyproject.toml").read_bytes(), before)
-        self.assertEqual(identity._load_record(self.project)["catalog_version"], "0.13.0")
-
-    def test_new_catalog_with_the_same_pbs_artifact_reuses_the_environment(self):
-        record = self.record()
-        self.change_catalog_version("0.13.2")
+        resolve.assert_called_once_with(self.info)
+        self.assertEqual(source.read_bytes(), before)
         with (
-            patch.object(identity, "resolve_catalog_version", return_value="0.13.2") as release,
-            patch.object(identity, "resolve_distribution", return_value=self.distribution) as resolve,
-            patch.object(identity, "_packages", return_value=[self.package()]),
-            patch.object(identity, "prepare_runtime") as prepare,
-            patch.object(identity, "synchronize_dependencies") as install,
-            patch.object(identity, "_powershell") as remove,
-            patch.object(identity, "run_tool") as native,
-            patch.object(identity, "_verify_interpreter"),
-            patch.object(identity.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)),
+            patch.object(identity, "_packages", side_effect=[[self.package()], []]),
+            patch.object(identity, "_powershell", return_value=""),
         ):
-            self.assertEqual(self.run_app(), 0)
-        release.assert_called_once_with("0.13.2")
-        resolve.assert_called_once_with(self.info, catalog_version="0.13.2")
-        for operation in (prepare, install, remove, native):
-            operation.assert_not_called()
-        current = identity._load_record(self.project)
-        self.assertEqual(current["owner"], record["owner"])
-        self.assertEqual(current["dependency_hash"], record["dependency_hash"])
-        self.assertEqual(current["catalog_version"], "0.13.2")
-
-    def test_new_catalog_with_a_different_pbs_artifact_rebuilds_owned_runtime(self):
-        record = self.record()
-        self.change_catalog_version("0.13.2")
-        distribution = Distribution(self.info, self.distribution.build, self.distribution.url, "b" * 64)
-        current = self.assert_rebuild(record, distribution=distribution)
-        self.assertEqual(current["catalog_version"], "0.13.2")
-        self.assertEqual(current["distribution"]["sha256"], "b" * 64)
-
-    def test_invalid_configured_pin_is_not_replaced_by_a_latest_lookup(self):
-        record_identity_catalog_version(self.project, "0.13.1")
-        source = self.project / "pyproject.toml"
-        source.write_text(source.read_text().replace("0.13.1", "latest"), encoding="utf-8")
-        before = source.read_bytes()
-        with (
-            patch.object(identity, "resolve_catalog_version") as release,
-            patch.object(identity, "resolve_distribution") as resolve,
-            self.assertRaisesRegex(WinappError, "exact uv release"),
-        ):
-            self.run_app()
-        release.assert_not_called()
-        resolve.assert_not_called()
+            self.assertEqual(identity.clear_identity(self.project), 0)
         self.assertEqual(source.read_bytes(), before)
 
-    def test_failed_latest_discovery_does_not_create_a_pin_or_runtime(self):
+    def test_catalog_checksum_failure_prevents_runtime_preparation_and_registration(self):
         with (
             patch.object(identity, "_packages", return_value=[]),
-            patch.object(identity, "resolve_catalog_version", side_effect=WinappError("network offline")) as release,
+            patch.object(runtime, "urlopen", return_value=io.BytesIO(b"modified catalog")) as fetch,
+            patch.object(identity, "prepare_runtime") as prepare,
+            patch.object(identity, "run_tool") as native,
+            self.assertRaisesRegex(WinappError, "catalog SHA-256 mismatch"),
+        ):
+            self.run_app()
+        fetch.assert_called_once()
+        prepare.assert_not_called()
+        native.assert_not_called()
+        self.assertFalse((self.project / "pyproject.toml").exists())
+        self.assertFalse(identity._record_path(self.project).exists())
+        self.assertFalse((self.project / ".winapp" / identity.ROOT_NAME).exists())
+
+    def test_failed_catalog_download_does_not_create_project_configuration_or_runtime(self):
+        with (
+            patch.object(identity, "_packages", return_value=[]),
+            patch.object(runtime, "urlopen", side_effect=OSError("network offline")) as fetch,
             patch.object(identity, "prepare_runtime") as prepare,
             self.assertRaisesRegex(WinappError, "network offline"),
         ):
             self.run_app()
-        release.assert_called_once_with(None)
+        fetch.assert_called_once()
         prepare.assert_not_called()
         self.assertFalse((self.project / "pyproject.toml").exists())
         self.assertFalse(identity._record_path(self.project).exists())
 
-    def test_catalog_without_an_exact_python_match_is_not_persisted(self):
+    def test_missing_exact_python_does_not_create_project_configuration(self):
         with (
             patch.object(identity, "_packages", return_value=[]),
             patch.object(identity, "resolve_distribution", side_effect=WinappError("No exact PBS")),
@@ -297,52 +258,25 @@ class PythonIdentityTests(ProjectTest):
         prepare.assert_not_called()
         self.assertFalse((self.project / "pyproject.toml").exists())
 
-    def test_unavailable_configured_release_preserves_the_previous_identity_and_pin(self):
-        record = self.record()
-        self.change_catalog_version("0.13.2")
-        with (
-            patch.object(identity, "_packages", return_value=[self.package()]),
-            patch.object(identity, "resolve_catalog_version", side_effect=WinappError("release unavailable")) as release,
-            patch.object(identity, "_powershell") as remove,
-            patch.object(identity.subprocess, "run") as app,
-            self.assertRaisesRegex(WinappError, "release unavailable"),
-        ):
-            self.run_app()
-        release.assert_called_once_with("0.13.2")
-        remove.assert_not_called()
-        app.assert_not_called()
-        self.assertEqual(identity._load_record(self.project), record)
-        self.assertEqual(load_identity_catalog_version(self.project), "0.13.2")
+    def test_pyproject_changed_during_dependency_setup_aborts_before_registration(self):
+        source = self.project / "pyproject.toml"
+        source.write_text('[project]\nname="example"\nversion="1.0"\n', encoding="utf-8")
 
-    def test_pin_added_during_release_lookup_is_not_overwritten(self):
-        def select(version):
-            record_identity_catalog_version(self.project, "0.13.0")
-            return "0.13.1"
+        def change_metadata(*args, **kwargs):
+            source.write_text('[project]\nname="changed"\nversion="2.0"\n', encoding="utf-8")
 
-        with (
-            patch.object(identity, "_packages", return_value=[]),
-            patch.object(identity, "resolve_catalog_version", side_effect=select),
-            patch.object(identity, "resolve_distribution", return_value=self.distribution),
-            patch.object(identity, "prepare_runtime") as prepare,
-            self.assertRaisesRegex(WinappError, "changed during selection"),
-        ):
-            self.run_app()
-        prepare.assert_not_called()
-        self.assertEqual(load_identity_catalog_version(self.project), "0.13.0")
-
-    def test_pin_changed_during_dependency_setup_aborts_before_registration(self):
         with (
             patch.object(identity, "_packages", return_value=[]),
             patch.object(identity, "resolve_distribution", return_value=self.distribution),
             patch.object(identity, "prepare_runtime", side_effect=self.prepare_files),
-            patch.object(identity, "synchronize_dependencies", side_effect=lambda *a, **kw: self.change_catalog_version("0.13.2")),
+            patch.object(identity, "synchronize_dependencies", side_effect=change_metadata),
             patch.object(identity, "run_tool") as native,
             self.assertRaisesRegex(WinappError, "inputs changed"),
         ):
             self.run_app()
         native.assert_not_called()
         self.assertFalse(identity._record_path(self.project).exists())
-        self.assertEqual(load_identity_catalog_version(self.project), "0.13.2")
+        self.assertIn('name="changed"', source.read_text(encoding="utf-8"))
 
     def test_identity_setup_progress_and_verbose_tools_do_not_pollute_script_stdout(self):
         output = io.StringIO()
@@ -457,8 +391,7 @@ class PythonIdentityTests(ProjectTest):
         record = self.record()
         source = self.project / "pyproject.toml"
         source.write_text(
-            '[project]\nname = "identity-test"\nversion = "1.0"\nrequires-python = ">=3.11"\n'
-            + source.read_text(encoding="utf-8"),
+            '[project]\nname = "identity-test"\nversion = "1.0"\nrequires-python = ">=3.11"\n',
             encoding="utf-8",
         )
         self.assert_rebuild(record)
@@ -493,7 +426,7 @@ class PythonIdentityTests(ProjectTest):
 
     def test_changed_binding_dependencies_rebuilds_and_keeps_generated_sources(self):
         self.write_config()
-        with patch("winapp.generate.run_tool", side_effect=self.fake_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=self.fake_codegen):
             bindings = generate(self.config(), Path("codegen.exe"), self.codegen_version)
         record = self.record()
         metadata = bindings / "pyproject.toml"
@@ -508,7 +441,7 @@ class PythonIdentityTests(ProjectTest):
             )
             return ""
 
-        with patch("winapp.generate.run_tool", side_effect=changed_codegen):
+        with patch("winappcli.generate.run_tool", side_effect=changed_codegen):
             generate(self.config(), Path("codegen.exe"), self.codegen_version, force=True)
         updated = metadata.read_text(encoding="utf-8")
         self.assert_rebuild(record)
@@ -627,7 +560,7 @@ class PythonIdentityTests(ProjectTest):
         app.assert_not_called()
         self.assertFalse(identity._record_path(self.project).exists())
         self.assertFalse(Path(record["root"]).exists())
-        self.assertEqual(load_identity_catalog_version(self.project), "0.13.1")
+        self.assertFalse((self.project / "pyproject.toml").exists())
 
     def test_private_dll_or_venv_cfg_tampering_is_detected(self):
         record = self.record()
@@ -733,6 +666,7 @@ class PythonIdentityTests(ProjectTest):
         self.assertIn("-PreserveApplicationData", remove.call_args.args[0])
         self.assertEqual(development.read_text(), "keep")
         self.assertFalse(Path(record["root"]).exists())
+        self.assertFalse((self.project / "pyproject.toml").exists())
 
     def test_clear_can_unregister_after_private_environment_was_deleted(self):
         record = self.record()
@@ -787,9 +721,9 @@ class PythonIdentityTests(ProjectTest):
 from pathlib import Path
 import json, subprocess, sys, time
 from unittest.mock import patch
-from winapp import identity
-from winapp.errors import WinappError
-from winapp.python_runtime import Distribution, Interpreter
+from winappcli import identity
+from winappcli.errors import WinappError
+from winappcli.python_runtime import Distribution, Interpreter
 
 project, shared = Path(sys.argv[1]), Path(sys.argv[2])
 label = sys.argv[3]
@@ -839,7 +773,6 @@ with (
     patch.object(identity, "select_project_python", return_value=Path(sys.executable)),
     patch.object(identity, "probe_interpreter", return_value=info),
     patch.object(identity, "_require_developer_mode"),
-    patch.object(identity, "resolve_catalog_version", return_value="0.13.1"),
     patch.object(identity, "resolve_distribution", return_value=distribution),
     patch.object(identity, "prepare_runtime", side_effect=prepare),
     patch.object(identity, "synchronize_dependencies", side_effect=install),
