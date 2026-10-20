@@ -999,9 +999,10 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var generatedManifest = Path.Join(targetDir.FullName, "AppxManifest.xml");
         File.WriteAllText(generatedManifest, TestManifestContent);
         var recipe = Path.Join(_tempDirectory.FullName, "App.build.appxrecipe");
+        var sdkDir = _tempDirectory.CreateSubdirectory("Microsoft.WindowsAppSDK.1.8.0");
         _fakeProjectRunService.BuildOutcome = new ProjectBuildOutcome(
             new ProjectRunResolution(vcxproj, targetDir.FullName, null, ProjectPackaging.Packaged, false, "arm64",
-                AppxManifestPath: generatedManifest, AppxRecipePath: recipe), 0);
+                AppxManifestPath: generatedManifest, AppxRecipePath: recipe, WindowsAppSdkPackageDir: sdkDir.FullName), 0);
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [vcxproj.FullName]);
 
@@ -1015,6 +1016,7 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         Assert.AreEqual(recipe, args.AppxRecipe!.FullName);
         Assert.AreEqual("arm64", args.TargetArch);
         Assert.IsNull(args.ProjectFile, "The vcxproj must not be passed to the .NET package-list probe");
+        Assert.AreEqual(sdkDir.FullName, args.WindowsAppSdkPackageDirectory!.FullName, "Packaging must use the Windows App SDK the build imported");
     }
 
     [TestMethod]
@@ -1133,6 +1135,6 @@ public class PackageCommandProjectModeTests : BaseCommandTests
         var exitCode = await ParseAndInvokeWithCaptureAsync(GetRequiredService<PackageCommand>(), [file]);
 
         Assert.AreEqual(1, exitCode);
-        StringAssert.Contains(ConsoleStdErr.ToString() + TestAnsiConsole.Output, "is not a supported input");
+        StringAssert.Contains(ConsoleStdErr + TestAnsiConsole.Output, "is not a supported input");
     }
 }

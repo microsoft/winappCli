@@ -197,6 +197,7 @@ internal partial class PackageCommand
                         targetArch: resolution.Architecture,
                         runtimeAlreadyBundled: resolution.SelfContained,
                         appxRecipe: appxRecipe,
+                        windowsAppSdkPackageDirectory: resolution.WindowsAppSdkPackageDir is { } sdkDir ? new DirectoryInfo(sdkDir) : null,
                         cancellationToken: ct);
 
                     taskContext.AddStatusMessage($"{UiSymbols.Package} Package: {result.MsixPath}");
