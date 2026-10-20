@@ -1,0 +1,24 @@
+{
+  "id": "c11-package-appinstaller-template-settings",
+  "description": "Visual Studio generated an App Installer file that ignored the desired update settings until a Package.appinstaller template was added, based on https://stackoverflow.com/questions/67285329/how-do-i-get-the-msix-appinstaller-to-output-the-correct-settings-during-each-bu.",
+  "set": "demand",
+  "cohort": "implicit",
+  "prompt": "Every publish regenerates my MSIX `.appinstaller` file with the wrong update settings. I want launch checks to prompt, block activation, run the background task, and allow forced upgrades/downgrades without hand-editing the output after each build.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  },
+  "leakAllow": [
+    "background task"
+  ]
+}

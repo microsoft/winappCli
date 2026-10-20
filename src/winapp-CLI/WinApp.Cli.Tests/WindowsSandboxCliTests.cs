@@ -337,6 +337,50 @@ public class WindowsSandboxCliTests
             captured.ArgumentList.ToArray());
     }
 
+    /// <summary>
+    /// A new Sandbox is opened the way Start opens one: the client alias beside <c>wsb.exe</c>, with
+    /// no arguments, shown normally because that process is the window that owns the Sandbox.
+    /// </summary>
+    [TestMethod]
+    public async Task LaunchAsync_OpensTheClientBesideWsbWithNoArguments()
+    {
+        if (WindowsSandboxHostProbe.ResolveTrustedAlias() is not { } wsb)
+        {
+            Assert.Inconclusive("wsb.exe is not installed on this machine.");
+            return;
+        }
+
+        System.Diagnostics.ProcessStartInfo? captured = null;
+        _cli.ConnectLauncher = startInfo =>
+        {
+            captured = startInfo;
+            return null;
+        };
+
+        using var attempt = await _cli.LaunchAsync(_ => { }, TestContext.CancellationTokenSource.Token);
+
+        Assert.IsNotNull(captured);
+        Assert.AreEqual(
+            Path.Join(Path.GetDirectoryName(wsb), WindowsSandboxCli.ClientExecutableName),
+            captured.FileName);
+        Assert.IsFalse(captured.UseShellExecute);
+        Assert.AreEqual(System.Diagnostics.ProcessWindowStyle.Normal, captured.WindowStyle);
+        Assert.IsFalse(captured.RedirectStandardOutput);
+        Assert.IsEmpty(captured.ArgumentList);
+        Assert.IsEmpty(captured.Arguments);
+    }
+
+    [TestMethod]
+    public async Task LaunchAsync_WithoutTheClientAliasBesideWsb_ReportsWindowsSandboxAsNotInstalled()
+    {
+        // An ordinary file named wsb.exe has no client alias beside it, so nothing is launched.
+        _cli.UseExecutable(Path.Join(Environment.SystemDirectory, "wsb.exe"));
+        _cli.ConnectLauncher = _ => throw new AssertFailedException("Nothing may be launched.");
+
+        await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => _cli.LaunchAsync(_ => { }, TestContext.CancellationTokenSource.Token));
+    }
+
     [TestMethod]
     public async Task ConnectAsync_ReportsOwnershipBeforeWatchingForImmediateFailure()
     {
@@ -399,21 +443,47 @@ public class WindowsSandboxCliTests
     }
 
     [TestMethod]
-    public async Task ConnectAsync_StillDetectsAnImmediateNonzeroExit()
+    [DataRow(0)]
+    [DataRow(17)]
+    public async Task ConnectAsync_ReportsAnImmediateExit(int exitCode)
     {
         _cli.UseExecutable(Path.Join(Environment.SystemDirectory, "wsb.exe"));
-        _cli.ConnectLauncher = _ => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
             FileName = Environment.GetEnvironmentVariable("ComSpec")!,
-            Arguments = "/d /c exit 17",
+            Arguments = $"/d /c exit {exitCode}",
             UseShellExecute = false,
             CreateNoWindow = true,
         });
+        Assert.IsNotNull(process);
+        using var startup = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationTokenSource.Token);
+        startup.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            // Establish immediate exit at the launch seam without racing process scheduling against the watch window.
+            await process.WaitForExitAsync(startup.Token);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None);
+            }
+        }
+        Assert.AreEqual(exitCode, process.ExitCode);
+        _cli.ConnectLauncher = _ => process;
 
+        if (exitCode == 0)
+        {
+            using var attempt = await _cli.ConnectAsync("sandbox-1", TestContext.CancellationTokenSource.Token);
+            return;
+        }
         var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
             () => _cli.ConnectAsync("sandbox-1", TestContext.CancellationTokenSource.Token));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, failure.Error.Code);
+        Assert.AreEqual("17", failure.Error.Context!["exitCode"]);
     }
 
     [TestMethod]

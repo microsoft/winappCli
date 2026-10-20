@@ -31,7 +31,7 @@
         "project.scaffold",
         "project.setup",
         "winui.design",
-        "session.report"
+        "winui.inspect"
       ]
     }
   }

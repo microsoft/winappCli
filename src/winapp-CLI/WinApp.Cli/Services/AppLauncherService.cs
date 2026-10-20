@@ -24,8 +24,27 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
     [SupportedOSPlatform("windows8.0")]
     public uint LaunchByAumid(string aumid, string? arguments = null)
     {
-        return ActivateApplicationImpl(aumid, arguments);
+        // IApplicationActivationManager.ActivateApplication has no timeout of its own and can block
+        // indefinitely, so run it off-thread and give up after ActivationTimeout. A timed-out call
+        // is abandoned on a background thread, which does not keep the process alive.
+        var activation = Task.Run(() => ActivateApplicationImpl(aumid, arguments));
+        try
+        {
+            return activation.WaitAsync(ActivationTimeout).GetAwaiter().GetResult();
+        }
+        catch (TimeoutException) when (!activation.IsCompleted)
+        {
+            throw new TimeoutException(
+                $"Windows did not finish activating '{aumid}' within {ActivationTimeout.TotalSeconds:0} seconds. " +
+                "The package is registered; try launching it again, or check Event Viewer > Applications and Services Logs > " +
+                "Microsoft > Windows > AppModel-Runtime for activation errors.");
+        }
     }
+
+    /// <summary>
+    /// Upper bound on a single AUMID activation. Overridable in tests.
+    /// </summary>
+    internal TimeSpan ActivationTimeout { get; set; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// COM activation seam. Defaults to the real <see cref="IApplicationActivationManager"/>;
@@ -42,7 +61,7 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
     }
 
     /// <inheritdoc />
-    public ILaunchedProcess LaunchExecutable(string exePath, string? arguments = null, string? workingDirectory = null, LaunchStdioMode stdioMode = LaunchStdioMode.Inherit)
+    public ILaunchedProcess LaunchExecutable(string exePath, string? arguments = null, string? workingDirectory = null, LaunchStdioMode stdioMode = LaunchStdioMode.Inherit, IReadOnlyDictionary<string, string?>? environment = null)
     {
         var psi = new ProcessStartInfo
         {
@@ -61,6 +80,7 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
             psi.RedirectStandardOutput = true;
             psi.RedirectStandardError = true;
             psi.RedirectStandardInput = true;
+            psi.CreateNoWindow = true;
         }
 
         if (!string.IsNullOrEmpty(arguments))
@@ -71,6 +91,21 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
         if (!string.IsNullOrEmpty(workingDirectory))
         {
             psi.WorkingDirectory = workingDirectory;
+        }
+
+        if (environment is not null)
+        {
+            foreach (var (key, value) in environment)
+            {
+                if (value is null)
+                {
+                    psi.Environment.Remove(key);
+                }
+                else
+                {
+                    psi.Environment[key] = value;
+                }
+            }
         }
 
         // Return the owned Process wrapped in ILaunchedProcess. The caller keeps the handle to wait
@@ -191,7 +226,9 @@ internal class AppLauncherService(ILogger<AppLauncherService> logger) : IAppLaun
     private static string? DefaultFindPackageFullName(string packageFamilyName)
     {
         var pm = new PackageManager();
-        var packages = pm.FindPackages(packageFamilyName);
+        // Current-user scope: FindPackages(familyName) searches all users and requires
+        // administrative rights, so it throws in a normal terminal.
+        var packages = pm.FindPackagesForUser(string.Empty, packageFamilyName);
         return packages.FirstOrDefault()?.Id.FullName;
     }
 

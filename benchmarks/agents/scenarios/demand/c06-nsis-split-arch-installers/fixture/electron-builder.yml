@@ -1,0 +1,17 @@
+appId: io.ridgeway.scoutdesk
+productName: ScoutDesk
+directories:
+  output: release
+files:
+  - dist/**
+  - node_modules/**
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+nsis:
+  oneClick: false
+  perMachine: false
+  artifactName: "${productName} Setup ${version}.${ext}"

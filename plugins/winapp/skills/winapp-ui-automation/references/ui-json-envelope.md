@@ -118,12 +118,12 @@ Search returns an envelope, not a bare array:
         "selector": "btn-save-c3d4",
         "name": "Save button",
         "type": "Button",
-        "isEnabled": false,
+        "isEnabled": true,
         "isOffscreen": false,
-        "x": 0,
-        "y": 0,
-        "width": 0,
-        "height": 0,
+        "x": 90,
+        "y": 196,
+        "width": 120,
+        "height": 32,
         "isInvokable": true
       }
     }

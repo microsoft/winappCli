@@ -17,13 +17,13 @@
       "acceptable": [
         "winui.review",
         "winui.build",
+        "winui.inspect",
         "ui.automate"
       ],
       "forbid": [
         "msix.package",
         "msix.sign",
-        "winui.migrate",
-        "session.report"
+        "winui.migrate"
       ]
     }
   }

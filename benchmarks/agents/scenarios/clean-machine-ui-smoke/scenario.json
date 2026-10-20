@@ -29,10 +29,10 @@
       ],
       "forbid": [
         "winui.design",
+        "winui.inspect",
         "winui.migrate",
         "msix.sign",
-        "msix.package",
-        "session.report"
+        "msix.package"
       ]
     }
   }

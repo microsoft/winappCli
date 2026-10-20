@@ -1,0 +1,21 @@
+{
+  "id": "c08-manifest-en-uk-language",
+  "description": "MakeAppx accepts an invalid `en-UK` resource language that later prevents package installation, based on https://github.com/microsoft/WindowsAppSDK/issues/5636.",
+  "set": "demand",
+  "cohort": "trap",
+  "prompt": "My hand-built package passes MakeAppx, but `Add-AppxPackage` fails on another machine with a manifest/resource error. The package has only English resources, and I set the language to `en-UK` because the app is for UK customers.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

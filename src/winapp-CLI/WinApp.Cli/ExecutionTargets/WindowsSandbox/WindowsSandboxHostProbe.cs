@@ -191,7 +191,7 @@ internal sealed class WindowsSandboxHostProbe(IProcessRunner processRunner) : IW
     }
 
     /// <summary>Whether a path is an app execution alias rather than an ordinary executable.</summary>
-    private static bool IsExecutionAlias(string path)
+    internal static bool IsExecutionAlias(string path)
     {
         try
         {

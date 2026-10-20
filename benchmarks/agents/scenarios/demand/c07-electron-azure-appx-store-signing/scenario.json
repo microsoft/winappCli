@@ -1,0 +1,26 @@
+{
+  "id": "c07-electron-azure-appx-store-signing",
+  "description": "Electron-builder fails to sign a Microsoft Store AppX with Azure Trusted Signing, based on https://github.com/electron-userland/electron-builder/issues/8948.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I am using Azure Trusted Signing in electron-builder 26.0.10 for Windows builds. MSI works, but the AppX build for the Microsoft Store dies at the very end when it signs the final package.\n\nSignTool Error: An unexpected internal error has occurred.\nError information: \"Error: SignerSign() failed.\" (-2147467259/0x80004005)",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  },
+  "leakAllow": [
+    "azure trusted signing",
+    "azure trusted",
+    "trusted signing"
+  ]
+}

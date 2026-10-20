@@ -1,0 +1,16 @@
+Machine: Windows 11 23H2 ARM64
+Host: Snapdragon X Elite
+SDK: .NET 9.0.101
+MAUI workload: 9.0.10
+
+Navigation:
+  MainPage -> HybridPage
+
+Exception:
+System.BadImageFormatException: %1 is not a valid Win32 application.
+   at Microsoft.UI.Xaml.Application.Start(ApplicationInitializationCallback callback)
+   at BluePeak.Mobile.WinUI.App.Main(String[] args) in obj\ARM64\Debug\net9.0-windows10.0.19041.0\win10-arm64\App.g.i.cs:line 28
+
+Observed:
+  x64 laptop on Windows 11 24H2 renders the same page.
+  ARM64 laptop and ARM64 VM show a blank window or crash.

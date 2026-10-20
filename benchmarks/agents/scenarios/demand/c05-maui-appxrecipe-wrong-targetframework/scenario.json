@@ -1,0 +1,21 @@
+{
+  "id": "c05-maui-appxrecipe-wrong-targetframework",
+  "description": ".NET MAUI Windows deployment cannot find the generated `.appxrecipe` when Visual Studio targets the non-Windows framework, based on https://github.com/dotnet/maui/issues/16975.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I upgraded my MAUI Blazor app to .NET 8 and F5 on Windows now stops before deployment. Clean/rebuild didn't help.\n\nDEP1700: The recipe file `C:\\Repos\\mealboard\\MealBoard\\bin\\Debug\\net8.0-windows10.0.19041.0\\win10-x64\\MealBoard.build.appxrecipe` does not exist. You may need to build your project.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

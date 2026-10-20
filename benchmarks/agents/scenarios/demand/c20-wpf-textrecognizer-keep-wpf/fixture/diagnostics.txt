@@ -1,0 +1,8 @@
+OS: Windows 11 Home 24H2, build 26100.4652
+CPU: Snapdragon(R) X Plus
+App type: WPF desktop app with package identity for debugging
+Windows App SDK: 1.7.250513003
+
+loadResult.Status = Failure
+loadResult.Error.Message = ""
+TextRecognizer.CreateAsync threw System.Runtime.InteropServices.COMException: Catastrophic failure (0x8000FFFF)

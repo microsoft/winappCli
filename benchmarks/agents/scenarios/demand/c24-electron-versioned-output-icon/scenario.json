@@ -1,0 +1,21 @@
+{
+  "id": "c24-electron-versioned-output-icon",
+  "description": "Electron-builder portable Windows packaging looks for the generated icon under the expanded version folder while the temporary icon was written under the literal `${version}` folder, based on https://github.com/electron-userland/electron-builder/issues/7711.",
+  "set": "demand",
+  "cohort": "implicit",
+  "prompt": "I want every Windows build to land under `release/<version>`, but the portable build is failing while loading the icon. The same icon builds on macOS, so I don't think the image itself is corrupt.\n\n```\nError while loading icon from \"E:\\gardenbox\\release\\0.0.0\\.icon-ico\\icon.ico\": can't open file\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

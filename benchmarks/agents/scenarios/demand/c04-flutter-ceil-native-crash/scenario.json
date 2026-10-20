@@ -1,0 +1,21 @@
+{
+  "id": "c04-flutter-ceil-native-crash",
+  "description": "A Flutter Windows app crashes after updating to Flutter 3.16 when Dart numeric operations hit a native VM crash on some machines, from https://github.com/flutter/flutter/issues/138693.",
+  "set": "demand",
+  "cohort": "near-miss",
+  "prompt": "After updating Flutter, a few Windows users say the app just never opens. I narrowed one repro to this line, but none of my Dart error handlers fire.\n\n```\nreturn (source * factor).ceil();\nPlatformDispatcher.instance.onError, FlutterError.onError, runZonedGuarded, and try/catch do not catch anything.\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

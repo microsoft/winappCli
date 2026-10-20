@@ -82,7 +82,7 @@ public class UiHelpTests : BaseCommandTests
     {
         foreach (var command in UiGroup.Subcommands)
         {
-            var output = UiHelpRenderer.Render(command).Replace("\r\n", "\n");
+            var output = CompactHelpRenderer.Render(command).Replace("\r\n", "\n");
 
             Assert.IsTrue(output.StartsWith($"winapp ui {command.Name} - ", StringComparison.Ordinal), output);
             StringAssert.Contains(output, "\nExamples:\n");
@@ -99,17 +99,39 @@ public class UiHelpTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task RootHelp_PointsToUiHelp()
+    public async Task RootHelp_ShowsQuickStartBeforeAllCommands()
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["--help"]);
-        StringAssert.Contains(TestAnsiConsole.Output, "Driving an app's UI from an agent or script? Start with 'winapp ui --help'.");
+        var output = TestAnsiConsole.Output;
+        var quickStart = output.IndexOf("Quick start:", StringComparison.Ordinal);
+        var allCommands = output.IndexOf("All commands:", StringComparison.Ordinal);
+        Assert.IsGreaterThanOrEqualTo(0, quickStart, output);
+        Assert.IsLessThan(allCommands, quickStart);
+        Assert.IsLessThan(output.IndexOf("Set Up & Run", StringComparison.Ordinal), allCommands);
+        foreach (var step in CustomHelpAction.QuickStart.SelectMany(g => g.Steps))
+        {
+            StringAssert.Contains(output, step.Command);
+        }
     }
 
     [TestMethod]
-    public async Task OtherCommandGroups_KeepDefaultHelp()
+    public void RootHelp_QuickStartCommandsParse()
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        foreach (var step in CustomHelpAction.QuickStart.SelectMany(g => g.Steps))
+        {
+            CompactCommandHelpTests.AssertParses(root, step.Command);
+        }
+    }
+
+    [TestMethod]
+    public async Task OtherCommandGroups_UseTheSameLayout()
     {
         await ParseAndInvokeWithCaptureAsync(GetRequiredService<WinAppRootCommand>(), ["cert", "--help"]);
-        Assert.DoesNotContain(UiHelpRenderer.GlobalOptionsLine, TestAnsiConsole.Output);
+        var output = TestAnsiConsole.Output.Replace("\r\n", "\n");
+        StringAssert.StartsWith(output, "winapp cert - ");
+        StringAssert.Contains(output, "\nCommands:\n  generate ");
+        StringAssert.Contains(output, CompactHelpRenderer.LocalGlobalOptionsLine);
     }
 
     [TestMethod]
@@ -128,7 +150,7 @@ public class UiHelpTests : BaseCommandTests
     [DataRow("xyzzy", new string[0])]
     public void Suggest_UsesSynonymsThenEditDistance(string token, string[] expected)
     {
-        var suggestions = UiUnknownCommand.Suggest(token, UiGroup.Subcommands);
+        var suggestions = UnknownGroupCommand.Suggest(token, UiGroup);
         Assert.IsLessThanOrEqualTo(2, suggestions.Length);
         CollectionAssert.AreEqual(expected, suggestions.Take(expected.Length).ToArray());
         if (expected.Length == 0)
@@ -155,7 +177,7 @@ public class UiHelpTests : BaseCommandTests
     public void UnknownCommand_Text_ListsCommandsOnlyWithoutSuggestion_AndEscapesControlCharacters()
     {
         using var writer = new StringWriter();
-        UiUnknownCommand.WriteText(writer, "x\u001b]0;owned\u0007", []);
+        UnknownGroupCommand.WriteText(writer, "x\u001b]0;owned\u0007", [], GetRequiredService<UiCommand>());
 
         var text = writer.ToString();
         StringAssert.StartsWith(text, "Unknown command 'x\\u001b]0;owned\\u0007'.");
@@ -177,7 +199,7 @@ public class UiHelpTests : BaseCommandTests
         Assert.AreEqual(UiJsonError.CodeInvalidArguments, error.GetProperty("code").GetString());
         Assert.AreEqual("Unknown command 'dump'.", error.GetProperty("message").GetString());
         Assert.AreEqual("inspect", error.GetProperty("suggestions")[0].GetString());
-        Assert.AreEqual(UiUnknownCommand.RecoveryHint, error.GetProperty("recoveryHint").GetString());
+        Assert.AreEqual(UnknownGroupCommand.RecoveryHint(UiGroup), error.GetProperty("recoveryHint").GetString());
     }
 
     [TestMethod]

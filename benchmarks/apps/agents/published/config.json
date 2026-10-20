@@ -1,0 +1,9 @@
+{
+  "description": "Both plugins exactly as the published marketplace catalog (microsoft/win-dev-skills .github/plugin/marketplace.json) pins them: what users get today.",
+  "from_repo": {
+    "repo": "microsoft/win-dev-skills",
+    "default_ref": "main",
+    "catalog": ".github/plugin/marketplace.json",
+    "plugins": ["winappcli", "winui"]
+  }
+}

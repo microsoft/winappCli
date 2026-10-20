@@ -1,0 +1,32 @@
+{
+  "cluster": "c11",
+  "framework": "WPF",
+  "goal": "Show the developer how to make MSIX publishing consistently generate an App Installer file with the desired update policy.",
+  "must_include": [
+    "For Visual Studio/packaging-project publishes, adds or renames the App Installer template item to exactly `Package.appinstaller` so the tooling consumes the desired settings; for a custom CI generator, uses a checked-in template as the source of the generated file.",
+    "Uses the App Installer 2018 namespace when relying on `ShowPrompt`, `UpdateBlocksActivation`, `AutomaticBackgroundTask`, and `ForceUpdateFromAnyVersion`.",
+    "Keeps placeholder tokens such as `{AppInstallerUri}`, `{Version}`, `{Name}`, `{Publisher}`, and `{MainPackageUri}` in the template instead of hard-coding every publish output path.",
+    "Sets `ShowPrompt=\"true\"` when `UpdateBlocksActivation=\"true\"`, because blocking activation is only valid with a visible update prompt."
+  ],
+  "must_not": [
+    "Tells them to manually edit the generated `.appinstaller` file after every publish as the normal workflow.",
+    "Blames Visual Studio Community edition licensing for the generated update settings.",
+    "Uses the 2017/2 schema while adding settings that require the newer App Installer update schema.",
+    "Renames the template to a custom file name that the packaging project will not consume."
+  ],
+  "acceptable_alternatives": [
+    "Generate the final `.appinstaller` file in CI from a checked-in template with the same schema and tokens.",
+    "Use Visual Studio's App Installer file item and edit that source template rather than the publish output.",
+    "Manage updates through Store/enterprise deployment if the organization does not want an App Installer feed."
+  ],
+  "solved": "The answer tells the developer to make `Package.appinstaller` the source template consumed by Visual Studio/MSBuild, or to replace that generation with an equivalent checked-in template step, and includes the required update settings/schema so future outputs are correct automatically.",
+  "partial": "The answer lists the right XML settings but does not explain where to put the template or why the generated file keeps reverting.",
+  "sources": [
+    "https://stackoverflow.com/questions/67285329/how-do-i-get-the-msix-appinstaller-to-output-the-correct-settings-during-each-bu"
+  ],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/msix/app-installer/update-settings",
+    "https://learn.microsoft.com/en-us/windows/msix/app-installer/app-installer-file-overview"
+  ],
+  "notes": "The exact `Package.appinstaller` pickup behavior is from the accepted Stack Overflow answer; Microsoft Learn verifies update-setting semantics and minimum-version constraints."
+}

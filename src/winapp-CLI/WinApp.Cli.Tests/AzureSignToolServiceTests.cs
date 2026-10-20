@@ -236,6 +236,29 @@ public class AzureSignToolServiceTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task SignAsync_Sha384Package_SignsWithPackageDigest()
+    {
+        CreateDlibInCache();
+        var signtool = CreateFakeSigntool("x64");
+        var recording = new RecordingBuildToolsService { SignToolToReturn = signtool };
+        var service = new AzureSignToolService(
+            recording, _nuget, _installer, new FakeSignToolWinappDirectoryService(_globalWinappDir))
+        {
+            DlibIntegrityVerifier = _ => true,
+            TrustedAzureCliBinDirsProvider = () => Array.Empty<string>(),
+        };
+
+        var package = PackageDigestAlgorithmTests.CreatePackage(
+            Path.Join(_tempDirectory.FullName, "app.msixbundle"), PackageDigestAlgorithmTests.Sha384);
+        var metadata = new FileInfo(Path.Join(_tempDirectory.FullName, "metadata.json"));
+        await File.WriteAllTextAsync(metadata.FullName, "{}", TestContext.CancellationToken);
+
+        await service.SignAsync(package, metadata, tenantId: null, TestTaskContext, TestContext.CancellationToken);
+
+        StringAssert.Contains(recording.CapturedArguments!, "/fd SHA384");
+    }
+
+    [TestMethod]
     public async Task SignAsync_PrependsTrustedAzureCliDirsToPath()
     {
         CreateDlibInCache();

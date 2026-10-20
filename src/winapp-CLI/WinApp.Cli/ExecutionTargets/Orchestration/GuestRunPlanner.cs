@@ -9,7 +9,7 @@ namespace WinApp.Cli.ExecutionTargets.Orchestration;
 internal static class GuestRunPlanner
 {
     public static List<string> BuildRegistrationArguments(
-        string payloadPath, string layoutPath, bool clean, bool json)
+        string payloadPath, string layoutPath, bool clean, bool json, string? inspectorApplicationId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(payloadPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(layoutPath);
@@ -24,6 +24,10 @@ internal static class GuestRunPlanner
         if (json)
         {
             arguments.Add("--json");
+        }
+        if (inspectorApplicationId is not null)
+        {
+            arguments.Add("--guest-inspector-application=" + inspectorApplicationId);
         }
         return arguments;
     }

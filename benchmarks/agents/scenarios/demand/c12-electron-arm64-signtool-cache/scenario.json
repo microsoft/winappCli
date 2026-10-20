@@ -1,0 +1,21 @@
+{
+  "id": "c12-electron-arm64-signtool-cache",
+  "description": "Electron-builder cannot code sign on Windows ARM64 because its cached winCodeSign bundle lacks an ARM64 SignTool path, based on https://github.com/electron-userland/electron-builder/issues/9190.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I'm trying to sign an Electron Windows ARM64 build on a Surface Pro ARM runner. Packaging succeeds until signing, then electron-builder looks under an `arm64` signing-tools folder that isn't there. I can sign x64 builds from the same cert.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

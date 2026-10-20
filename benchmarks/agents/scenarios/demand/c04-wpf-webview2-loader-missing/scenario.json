@@ -1,0 +1,21 @@
+{
+  "id": "c04-wpf-webview2-loader-missing",
+  "description": "A WPF WebView2 app throws DllNotFoundException for WebView2Loader.dll at runtime because the native runtimes folder is missing from the deployed app, from https://stackoverflow.com/questions/71855131/system-dllnotfoundexception-unable-to-load-dll-webview2loader-dll-the-specifi.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "The WPF screen works in Visual Studio, but our copied release folder crashes when the WebView opens.\n\n```\nSystem.DllNotFoundException: Unable to load DLL 'WebView2Loader.dll' or one of its dependencies: The specified module could not be found. (0x8007007E)\n   at Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(...)\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

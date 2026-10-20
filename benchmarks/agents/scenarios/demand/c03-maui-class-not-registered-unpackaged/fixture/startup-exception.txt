@@ -1,0 +1,11 @@
+System.Runtime.InteropServices.COMException
+  HResult=0x80040154
+  Message=Class not registered (0x80040154 (REGDB_E_CLASSNOTREG))
+  Source=System.Private.CoreLib
+  StackTrace:
+   at System.Runtime.InteropServices.Marshal.ThrowExceptionForHR(Int32 errorCode)
+   at WinRT.ActivationFactory.Get(String typeName)
+   at Microsoft.Windows.ApplicationModel.WindowsAppRuntime.DeploymentInitializeOptions.get__objRef_global__Microsoft_Windows_ApplicationModel_WindowsAppRuntime_DeploymentInitializeOptions()
+   at Microsoft.Windows.ApplicationModel.WindowsAppRuntime.DeploymentInitializeOptions..ctor()
+   at Microsoft.Windows.ApplicationModel.WindowsAppRuntime.DeploymentManagerCS.AutoInitialize.get_Options() in C:\Users\dev\.nuget\packages\microsoft.windowsappsdk\1.6.240923002\include\DeploymentManagerAutoInitializer.cs:line 44
+   at Microsoft.Windows.ApplicationModel.WindowsAppRuntime.DeploymentManagerCS.AutoInitialize.AccessWindowsAppSDK() in C:\Users\dev\.nuget\packages\microsoft.windowsappsdk\1.6.240923002\include\DeploymentManagerAutoInitializer.cs:line 30

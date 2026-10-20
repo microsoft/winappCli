@@ -35,8 +35,7 @@
       ],
       "forbid": [
         "winui.migrate",
-        "project.scaffold",
-        "session.report"
+        "project.scaffold"
       ]
     }
   }

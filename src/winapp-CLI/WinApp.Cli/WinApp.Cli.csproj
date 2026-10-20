@@ -56,6 +56,14 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <!-- Resolve winapp.exe's own static imports (version.dll, bcrypt.dll, ...) from System32 only
+         (0x800 = LOAD_LIBRARY_SEARCH_SYSTEM32), so those names planted next to the exe are not
+         loaded. This does not cover DLLs that system DLLs import themselves (for example
+         crypt32.dll -> sspicli.dll), and runtime LoadLibrary calls are unaffected. -->
+    <LinkerArg Include="/DEPENDENTLOADFLAG:0x800" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Share publication logic without making it part of the recording package's public API. -->
     <Compile Include="..\WinApp.UIAutomation.Recording\RecordingArtifactPublisher.cs" Link="Helpers\RecordingArtifactPublisher.cs" />
@@ -68,6 +76,13 @@
     <!-- find-ui curated enrichment (tags/keywords) + core patterns. -->
     <EmbeddedResource Include="Services\Controls\Data\core-patterns.json" LogicalName="core-patterns.json" />
     <EmbeddedResource Include="Services\Controls\Data\gallery-tags.json" LogicalName="gallery-tags.json" />
+    <!--
+      Find-ui vocabulary derived from catalog/search-vocabulary.json in microsoft/winapp-samples
+      at e0b5b6a80e6bcec81f023a37f6a25e7d7a2ce334. This CLI-owned subset omits the site's
+      two-way groups and broad rows/field/fields expansions, and routes toolbar only to CommandBar.
+      Check ranking against the embedded corpus when bringing in upstream changes.
+    -->
+    <EmbeddedResource Include="Services\Controls\Data\search-vocabulary.json" LogicalName="search-vocabulary.json" />
     <!--
       The baked corpus floor (see EmbeddedSnapshot.cs). Only the Brotli blob is committed
       and embedded: the corpus is a backup for the offline case, refreshed wholesale by
@@ -105,6 +120,7 @@
     <PackageReference Include="NuGet.Configuration" />
     <PackageReference Include="NuGet.Versioning" />
     <PackageReference Include="NuGet.Credentials" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <!-- Native debugging engine bits (dbgeng/dbghelp/dbgcore/dbgmodel/msdia140 + symsrv) used by the
          WinUI triage pass. Restore-only: nothing is bundled into the AOT/single-file output (the
          packages ship native DLLs under content/<arch>/ which PackageReference does not auto-consume,
@@ -122,6 +138,9 @@
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>WinApp.Cli.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>WinApp.Cli.LifetimeFixture</_Parameter1>
     </AssemblyAttribute>
     <!-- The OneFuzz harness targets ZipRangeExtractor, which is internal. -->
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">

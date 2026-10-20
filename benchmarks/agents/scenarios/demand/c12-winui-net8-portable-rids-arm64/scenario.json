@@ -1,0 +1,24 @@
+{
+  "id": "c12-winui-net8-portable-rids-arm64",
+  "description": "A WinUI 3 project upgraded to .NET 8 reports NETSDK1206 for `win10-*` runtime identifiers while targeting x64, x86, and ARM64, based on https://github.com/microsoft/microsoft-ui-xaml/issues/9107.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "After moving our WinUI desktop app to .NET 8, the ARM64 package build started warning about runtime identifiers. We already changed the main project to `win-arm64`, but the warning still mentions `win10-arm64`.\n\n```\nwarning NETSDK1206: Found version-specific or distribution-specific runtime identifier(s): win10-arm64, win10-x64, win10-x86. Affected libraries: Microsoft.WindowsAppSDK. In .NET 8.0 and higher, assets for version-specific and distribution-specific runtime identifiers will not be found by default.\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  },
+  "leakAllow": [
+    "package build"
+  ]
+}

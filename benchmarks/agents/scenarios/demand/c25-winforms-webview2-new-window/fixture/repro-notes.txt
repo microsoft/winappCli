@@ -1,0 +1,9 @@
+Windows 11 23H2
+Microsoft.Web.WebView2 1.0.1901.177
+
+Steps:
+1. Start Pinegrove.Support.
+2. Click "Open ticket in a new tab".
+3. A separate WebView2/Edge-hosted window appears outside BrowserForm.
+
+Expected: the app either blocks the popup or keeps navigation inside BrowserForm.

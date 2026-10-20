@@ -21,7 +21,6 @@
       ],
       "forbid": [
         "winui.migrate",
-        "session.report",
         "msix.package",
         "winui.package",
         "msix.sign"

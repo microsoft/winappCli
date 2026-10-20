@@ -1,0 +1,34 @@
+{
+  "cluster": "c09",
+  "framework": "WinUI3",
+  "goal": "Help the developer create the correct Store submission package for a WinUI 3 app from the right project/template.",
+  "must_include": [
+    "Notices the solution contains only the WinUI app project and no Windows Application Packaging Project or single-project MSIX Store packaging setup.",
+    "For the Visual Studio 2022/Windows App SDK 1.0-era fixture, recommends creating/using the `Blank App, Packaged with Windows Application Packaging Project` template or adding a Windows Application Packaging Project that references the app.",
+    "Tells them to run Package and Publish/Create App Packages from the packaging project (or the configured single-project MSIX project in newer tooling), not from an unrelated class library or unpackaged project.",
+    "Says Store submission should produce an `.msixupload`/`.appxupload` package upload file and that Partner Center will sign Store MSIX/AppX packages during submission."
+  ],
+  "must_not": [
+    "Says WinUI 3 desktop apps cannot be published to the Microsoft Store.",
+    "Instructs them to upload the raw `bin\\Release` executable folder as the Store package.",
+    "Requires buying a CA code-signing certificate for an MSIX/AppX Store submission."
+  ],
+  "acceptable_alternatives": [
+    "Migrate the app to current single-project MSIX if the installed Visual Studio/Windows App SDK version supports Store package generation.",
+    "Use MSBuild packaging properties to generate a StoreUpload bundle in CI after the packaging project or single-project MSIX setup exists.",
+    "Create a new packaged-with-packaging-project WinUI solution and move the app code into it."
+  ],
+  "solved": "The answer directs the developer to the packaging project or single-project MSIX Store packaging workflow and explains the `.msixupload`/Store signing outcome.",
+  "partial": "The answer says to use Package and Publish but does not mention the missing packaging project/template or the Store upload artifact.",
+  "sources": [
+    "https://stackoverflow.com/questions/71308139/publish-winui-3-app-in-microsoft-store-windows-11"
+  ],
+  "verified_with": [
+    "https://api.stackexchange.com/2.3/questions/71308139/answers?site=stackoverflow&filter=withbody",
+    "https://learn.microsoft.com/en-us/windows/msix/package/packaging-uwp-apps",
+    "https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/app-package-requirements",
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/single-project-msix",
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/ci-for-winui3"
+  ],
+  "notes": "Modern WinUI tooling can use single-project MSIX; because the fixture is VS 2022/Windows App SDK 1.0 with no packaging project, the accepted Stack Overflow fix remains applicable."
+}

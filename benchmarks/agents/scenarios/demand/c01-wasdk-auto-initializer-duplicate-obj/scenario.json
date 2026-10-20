@@ -1,0 +1,21 @@
+{
+  "id": "c01-wasdk-auto-initializer-duplicate-obj",
+  "description": "A C++ solution that references Windows App SDK from both an EXE and DLL reports duplicate `WindowsAppRuntimeAutoInitializer.cpp` objects, based on https://github.com/microsoft/WindowsAppSDK/issues/5395.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My native desktop solution started warning after I upgraded the Windows App SDK package. It has an EXE and a DLL project that both reference the same package version, and the build says `warning MSB8027: Two or more files with the name of WindowsAppRuntimeAutoInitializer.cpp will produce outputs to the same location` followed by `WindowsAppRuntimeAutoInitializer.obj : warning LNK4042: object specified more than once; extras ignored`. Should I rename something?",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

@@ -20,7 +20,6 @@
       "forbid": [
         "winui.*",
         "ui.samples",
-        "session.report",
         "project.setup",
         "maui.package"
       ]

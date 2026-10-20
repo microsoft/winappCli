@@ -158,6 +158,41 @@ public class WindowsSandboxWindowControllerTests
         Assert.IsFalse(ambiguous);
     }
 
+    /// <summary>
+    /// When winapp opens a new Sandbox it launches the client itself, so the launcher is the window's
+    /// own process, identified by its ID and exact start time rather than by a parent.
+    /// </summary>
+    [TestMethod]
+    public void SelectOwnedClient_TakesTheClientWinappLaunchedDirectly()
+    {
+        var (client, ambiguous) = WindowsSandboxWindowController.SelectOwnedClient(
+            Ownership(),
+            [
+                Candidate(OtherLauncher, 100, parentProcessId: 1),
+                Candidate(OurLauncher, 200, parentProcessId: 1, startTicksUtc: LauncherStartTicks),
+            ]);
+
+        Assert.IsFalse(ambiguous);
+        Assert.IsNotNull(client);
+        Assert.AreEqual((nint)200, client.Handle);
+        Assert.AreEqual(OurLauncher, client.ProcessId);
+    }
+
+    /// <summary>
+    /// A process ID is a reusable number. A window whose process now has winapp's launcher ID but
+    /// started at a different moment is some other process that inherited the number.
+    /// </summary>
+    [TestMethod]
+    public void SelectOwnedClient_IgnoresAWindowWhoseProcessOnlySharesTheLaunchersId()
+    {
+        var (client, ambiguous) = WindowsSandboxWindowController.SelectOwnedClient(
+            Ownership(),
+            [Candidate(OurLauncher, 200, parentProcessId: 1, startTicksUtc: LauncherStartTicks - 1)]);
+
+        Assert.IsNull(client);
+        Assert.IsFalse(ambiguous);
+    }
+
     [TestMethod]
     public void ResolveClient_PrefersTheRecordedWindowWhileItIsStillOpen()
     {
@@ -797,6 +832,66 @@ public class WindowsSandboxWindowControllerTests
             Snapshot(), Attempt(), TestContext.CancellationToken));
         Assert.AreEqual(0, scripted.Parked.Count);
         Assert.IsTrue(scripted.Looks > 1, "Waiting for a client that is still starting is expected.");
+    }
+
+    /// <summary>
+    /// A client winapp launched itself that shows Windows Sandbox's error page, such as "Only one
+    /// running instance of Windows Sandbox is allowed", will never show a session. With no other
+    /// Sandbox window open, the Sandbox that won has no window at all.
+    /// </summary>
+    [TestMethod]
+    public async Task PlaceConnectedClient_LaunchedClientLosesToAWindowlessSandbox_ReportsItWithoutWaiting()
+    {
+        var scripted = new ScriptedDesktop([LaunchedClientShowingTheErrorPage()]);
+        var controller = scripted.CreateController();
+        var attempt = Attempt();
+
+        Assert.IsNull(await controller.PlaceConnectedClientAsync(
+            Snapshot(), attempt, TestContext.CancellationToken));
+        Assert.IsTrue(attempt.LostToWindowlessSandbox);
+        Assert.AreEqual(0, scripted.Parked.Count);
+        Assert.AreEqual(1, scripted.Looks);
+    }
+
+    /// <summary>
+    /// Losing to someone who opened Windows Sandbox from Start at the same moment: their window owns
+    /// the Sandbox, so winapp must not treat it as windowless and connect a second one.
+    /// </summary>
+    [TestMethod]
+    public async Task PlaceConnectedClient_LaunchedClientLosesToAnotherSandboxWindow_IsNotWindowless()
+    {
+        var startWindow = Candidate(OtherLauncher, 300, parentProcessId: 1) with { Surface = SandboxClientSurface.Unknown };
+        var scripted = new ScriptedDesktop([LaunchedClientShowingTheErrorPage(), startWindow]);
+        var controller = scripted.CreateController();
+        var attempt = Attempt();
+
+        Assert.IsNull(await controller.PlaceConnectedClientAsync(
+            Snapshot(), attempt, TestContext.CancellationToken));
+        Assert.IsFalse(attempt.LostToWindowlessSandbox);
+        Assert.AreEqual(0, scripted.Parked.Count, "The other window is never moved.");
+        Assert.AreEqual(1, scripted.Looks);
+    }
+
+    private static SandboxClientCandidate LaunchedClientShowingTheErrorPage() =>
+        Candidate(OurLauncher, 200, parentProcessId: 1, startTicksUtc: LauncherStartTicks)
+            with { Surface = SandboxClientSurface.TerminalError };
+
+    /// <summary>
+    /// A <c>wsb connect</c> child that shows an error does not end the wait: the same launcher can
+    /// still produce the session window.
+    /// </summary>
+    [TestMethod]
+    public async Task PlaceConnectedClient_ConnectChildShowsTheErrorPage_IsNotReportedAsTheLaunchFailing()
+    {
+        var error = Candidate(12, 200, OurLauncher) with { Surface = SandboxClientSurface.TerminalError };
+        var scripted = new ScriptedDesktop([error]);
+        var controller = scripted.CreateController();
+        var attempt = Attempt();
+
+        Assert.IsNull(await controller.PlaceConnectedClientAsync(
+            Snapshot(), attempt, TestContext.CancellationToken));
+        Assert.IsFalse(attempt.LostToWindowlessSandbox);
+        Assert.IsTrue(scripted.Looks > 1);
     }
 
     public TestContext TestContext { get; set; } = null!;

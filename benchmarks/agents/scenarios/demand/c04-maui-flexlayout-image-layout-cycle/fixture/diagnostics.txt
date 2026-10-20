@@ -1,0 +1,12 @@
+Visual Studio 17.10 Preview 2
+.NET MAUI workload: 8.0.10 SR3
+Windows target: net8.0-windows10.0.19041.0
+
+Repro:
+1. Start the app with a 650px-wide window, or start wider and resize below the toolbar width.
+2. The first button has an image source and the FlexLayout wraps.
+3. The UI stops responding; on some runs the debugger breaks with:
+
+Microsoft.UI.Xaml.LayoutCycleException: Layout cycle detected. Layout could not complete.
+   at Microsoft.Maui.Platform.LayoutPanel.MeasureOverride(Size availableSize)
+   at Microsoft.UI.Xaml.UIElement.Measure(Size availableSize)

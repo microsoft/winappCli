@@ -1,7 +1,9 @@
 ---
 name: winapp-find-api
-description: Agent-first search and inspection of the Windows/WinRT API surface (types, members, enums, namespaces) available to a project, resolved from its referenced .winmd/.dll metadata — or, outside any project, from the machine-wide Windows SDK. Built primarily for AI coding agents to ground code generation in real metadata instead of guessing, and equally usable by hand. Use when an AI agent or developer needs to discover an API, list a type's properties/events/methods, validate that a property exists before writing XAML/code, enumerate an enum's values, explore the namespaces and packages a project can call, or resolve a compile error that names a type or member (CS0246, CS0117, CS1061, CS0104, XAML unknown member). Works with WinUI 3, WinRT/UWP, and any project with .winmd/.dll references. Distinct from 'winapp find-ui', which returns working WinUI control samples.
+description: Look up real Windows, WinRT, and Windows App SDK APIs (types, members, enums) from a project's references or the installed SDKs with winapp find-api instead of guessing. Use before coding against an unverified API, or to fix unknown-member, CS0117, CS1061, or WMC0011 errors. Not for registry code.
 ---
+
+**If you can't run `winapp` yourself** (no shell, or the command is denied), give the user the exact `winapp` command(s) for their project instead of only describing the steps.
 
 ## This is an agent-first command
 

@@ -13,9 +13,29 @@ using WinApp.Cli.Telemetry.Events;
 
 namespace WinApp.Cli.Commands;
 
-internal partial class PackageCommand : Command, IShortDescription
+internal partial class PackageCommand : Command, IShortDescription, ICompactHelpCommand
 {
     public string ShortDescription => "Create MSIX package or bundle";
+
+    string? ICompactHelpCommand.Usage => "winapp package <.csproj | folder>... [options]";
+
+    IReadOnlyList<(string Command, string Description)> ICompactHelpCommand.Examples { get; } =
+    [
+        ("winapp cert generate", "make a test certificate (once)"),
+        ("winapp cert install devcert.pfx", "trust it on this machine (admin, once)"),
+        ("winapp package .\\MyApp.csproj --cert devcert.pfx", "build, package, and sign"),
+        ("winapp package <build-folder> --cert devcert.pfx", "package a built app folder"),
+        ("winapp package .\\MyApp.csproj --arch x64 --arch arm64", "one bundle for x64 and arm64"),
+        ("winapp package <x64-folder> <arm64-folder>", "bundle existing folders"),
+        ("Add-AppxPackage <file>.msix", "install it"),
+    ];
+
+    IReadOnlyList<(string Heading, Option[] Options)> ICompactHelpCommand.OptionGroups =>
+    [
+        ("Signing", [CertOption, CertPasswordOption, GenerateCertOption, InstallCertOption, PublisherOption, NoSignOption]),
+        ("Package contents", [OutputOption, ManifestOption, NameOption, ExecutableOption, SelfContainedOption, SkipPriOption]),
+        ("Build (.csproj input only)", [ConfigurationOption, ArchOption, FrameworkOption, PropertyOption, NoBuildOption, NoRestoreOption]),
+    ];
 
     public static Argument<DirectoryInfo[]> InputFolderArgument { get; }
     public static Option<FileInfo> OutputOption { get; }
@@ -48,6 +68,7 @@ internal partial class PackageCommand : Command, IShortDescription
         };
         OutputOption = new Option<FileInfo>("--output")
         {
+            HelpName = "file",
             Description = "Output file name for the generated package (.msix) or bundle (.msixbundle). Defaults to <name>_<version>_<arch>.msix for single packages, or <name>_<version>_<arch1>_<arch2>.msixbundle for bundles.",
         };
 
@@ -61,11 +82,13 @@ internal partial class PackageCommand : Command, IShortDescription
         };
         CertOption = new Option<FileInfo>("--cert")
         {
+            HelpName = "pfx",
             Description = "Path to signing certificate (will auto-sign if provided)"
         };
         CertOption.AcceptExistingOnly();
         CertPasswordOption = new Option<string>("--cert-password")
         {
+            HelpName = "password",
             Description = "Certificate password (default: password)",
             DefaultValueFactory = (argumentResult) => "password"
         };
@@ -87,6 +110,7 @@ internal partial class PackageCommand : Command, IShortDescription
         };
         ManifestOption = new Option<FileInfo>("--manifest")
         {
+            HelpName = "path",
             Description = "Path to AppX manifest file (default: auto-detect from input folder or current directory)"
         };
         ManifestOption.AcceptExistingOnly();
@@ -96,12 +120,14 @@ internal partial class PackageCommand : Command, IShortDescription
         };
         ExecutableOption = new Option<string?>("--executable")
         {
+            HelpName = "path",
             Description = "Path to the executable relative to the input folder."
         };
         ExecutableOption.Aliases.Add("--exe");
 
         ConfigurationOption = new Option<string>("--configuration")
         {
+            HelpName = "name",
             Description = "Project mode: build configuration (e.g., Debug, Release). Requires a .csproj input; rejected for folder/bundle/manifest inputs. Default: Release.",
             DefaultValueFactory = _ => "Release",
         };
@@ -116,6 +142,7 @@ internal partial class PackageCommand : Command, IShortDescription
 
         FrameworkOption = new Option<string?>("--framework")
         {
+            HelpName = "tfm",
             Description = "Project mode: target framework moniker for multi-targeted projects (e.g. net10.0-windows10.0.26100.0). Requires a .csproj input; rejected for folder/bundle/manifest inputs."
         };
         FrameworkOption.Aliases.Add("-f");
@@ -132,7 +159,8 @@ internal partial class PackageCommand : Command, IShortDescription
 
         PropertyOption = new Option<string[]>("--property")
         {
-            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c for configuration, -f for framework, and --arch for architecture; a -p Configuration/TargetFramework is dropped in favor of those flags, while a lone -p RuntimeIdentifier (no --arch) selects an exact RID. Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
+            HelpName = "Name=Value",
+            Description = "Project mode: MSBuild property as Name=Value, forwarded to both build and evaluation. Repeatable (e.g. -p WindowsPackageType=None). Use -c, -f, and --arch instead of -p for configuration, framework, and architecture. Requires a .csproj input; rejected for folder/bundle/manifest inputs.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false,
         };

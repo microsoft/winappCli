@@ -597,7 +597,7 @@ internal class NewCommand : Command, IShortDescription
             var frameworkArgs = new List<string>();
             if (entry.IsProject)
             {
-                var frameworkError = ResolveTargetFrameworkArgs(frameworkArgs, entry, sdkVersion);
+                var frameworkError = ResolveTargetFrameworkArgs(frameworkArgs, entry, sdkVersion, packVersion);
                 if (frameworkError is not null)
                 {
                     if (isJson)
@@ -1277,9 +1277,36 @@ internal class NewCommand : Command, IShortDescription
             {
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: [blue]cd \"{relative}\"[/] then [blue]winapp run[/] — this packaged MSTest app runs its tests when launched.");
             }
+            else if (IsSingleFileApp(entry, name, outputDir))
+            {
+                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: [blue]cd \"{relative}\"[/] then [blue]winapp run \"{name}.cs\"[/].");
+            }
             else
             {
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: [blue]cd \"{relative}\"[/] then [blue]winapp run[/].");
+            }
+        }
+
+        /// <summary>
+        /// True when the template produced a .NET file-based app (one <c>&lt;name&gt;.cs</c>, no project file),
+        /// which <c>winapp run</c> only runs when given the <c>.cs</c> path. The scaffolded files are checked
+        /// as well as the <c>SingleFile</c> tag because <c>dotnet new list</c> can cut off the Tags column.
+        /// </summary>
+        private static bool IsSingleFileApp(WinUiTemplateEntry entry, string name, DirectoryInfo outputDir)
+        {
+            if (entry.HasTag("SingleFile"))
+            {
+                return true;
+            }
+
+            try
+            {
+                return File.Exists(Path.Join(outputDir.FullName, name + ".cs"))
+                    && !Directory.EnumerateFiles(outputDir.FullName, "*.csproj").Any();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
             }
         }
 
@@ -1344,35 +1371,45 @@ internal class NewCommand : Command, IShortDescription
         /// reported as a failure rather than silently allowed. Falls back to the historical heuristic
         /// (<c>--dotnet-version net{major}.0</c> for SDK 8-10) only when no cache describes the template.
         /// </para>
+        /// <para>
+        /// Each SDK band keeps its own cache, and a band that is no longer used still describes the pack
+        /// version installed back then (whose option name may differ). So a cache describing the
+        /// installed <paramref name="packVersion"/> wins; any other cache is used only when none does.
+        /// </para>
         /// </summary>
-        private string? ResolveTargetFrameworkArgs(List<string> args, WinUiTemplateEntry entry, Version sdkVersion)
+        private string? ResolveTargetFrameworkArgs(List<string> args, WinUiTemplateEntry entry, Version sdkVersion, string? packVersion)
         {
-            foreach (var cacheJson in templateCacheReader.ReadTemplateCacheDocuments())
+            var caches = templateCacheReader.ReadTemplateCacheDocuments();
+            string?[] passes = string.IsNullOrEmpty(packVersion) ? [null] : [packVersion, null];
+            foreach (var requiredPackVersion in passes)
             {
-                var (found, optionName, tfm, choices) = WinUiTemplateCatalog.DeriveTfmOption(
-                    cacheJson, TemplatePackageId, entry.ShortName, sdkVersion.Major);
-                if (!found)
+                foreach (var cacheJson in caches)
                 {
-                    continue;
-                }
+                    var (found, optionName, tfm, choices) = WinUiTemplateCatalog.DeriveTfmOption(
+                        cacheJson, TemplatePackageId, entry.ShortName, sdkVersion.Major, requiredPackVersion);
+                    if (!found)
+                    {
+                        continue;
+                    }
 
-                // The template was located: its metadata is authoritative. Pin only when it declares a
-                // framework choice the SDK can satisfy.
-                if (!string.IsNullOrEmpty(optionName) && !string.IsNullOrEmpty(tfm))
-                {
-                    args.Add("--" + optionName);
-                    args.Add(tfm);
+                    // The template was located: its metadata is authoritative. Pin only when it declares a
+                    // framework choice the SDK can satisfy.
+                    if (!string.IsNullOrEmpty(optionName) && !string.IsNullOrEmpty(tfm))
+                    {
+                        args.Add("--" + optionName);
+                        args.Add(tfm);
+                        return null;
+                    }
+
+                    if (tfm is null && WinUiTemplateCatalog.MinimumSdkMajor(choices) is { } minimumMajor)
+                    {
+                        return $"Template '{entry.ShortName}' requires the .NET {minimumMajor} SDK or newer, but .NET SDK {sdkVersion} is installed. "
+                            + $"Install .NET {minimumMajor} from https://dotnet.microsoft.com/download, then re-run 'winapp new'.";
+                    }
+
+                    // The template declares no framework choice — there is nothing to pin.
                     return null;
                 }
-
-                if (tfm is null && WinUiTemplateCatalog.MinimumSdkMajor(choices) is { } minimumMajor)
-                {
-                    return $"Template '{entry.ShortName}' requires the .NET {minimumMajor} SDK or newer, but .NET SDK {sdkVersion} is installed. "
-                        + $"Install .NET {minimumMajor} from https://dotnet.microsoft.com/download, then re-run 'winapp new'.";
-                }
-
-                // The template declares no framework choice — there is nothing to pin.
-                return null;
             }
 
             // No cache described the template — fall back to the previous heuristic.

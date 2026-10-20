@@ -84,16 +84,16 @@ internal sealed class CrashDumpService(IAnsiConsole console, ILogger<CrashDumpSe
             {
                 // Prefer the terminating stowed exception (0xC000027B) for the dump's exception
                 // record: its parameters point at the stowed-exception array that WinUI triage
-                // (!xamlstowed) reads via $exr_param0/$exr_param1. The thread CONTEXT, however,
-                // stays the first-chance one — it points to the user code that originally threw,
-                // before XAML's error handling replaced the stack with FailFastWithStowedExceptions,
-                // so ClrMD still recovers the managed user frames.
-                var (recordCode, recordAddress, useStowedRecord) = SelectExceptionRecord(
+                // (!xamlstowed) reads via $exr_param0/$exr_param1. The thread CONTEXT is whatever
+                // the caller supplied: the crashing thread's first-chance context when that frame is
+                // still live (so ClrMD recovers the managed user frames that originally threw), or
+                // the crash's own context when it is not.
+                var (recordCode, recordAddress, useCrashParameters) = SelectExceptionRecord(
                     savedExceptionCode, savedExceptionAddress,
                     crashExceptionCode, crashExceptionAddress, crashExceptionParameters);
 
-                logger.LogDebug("Writing dump (thread {ThreadId}); exception record code 0x{Code:X8}{Stowed}.",
-                    savedThreadId, recordCode, useStowedRecord ? " (stowed, with parameters)" : string.Empty);
+                logger.LogDebug("Writing dump (thread {ThreadId}); exception record code 0x{Code:X8}{Params}.",
+                    savedThreadId, recordCode, useCrashParameters ? " (with crash parameters)" : string.Empty);
 
                 // CONTEXT must be 16-byte aligned on x64/ARM64. The saved byte[] from a managed
                 // array doesn't guarantee this, so copy into an aligned native buffer.
@@ -112,10 +112,10 @@ internal sealed class CrashDumpService(IAnsiConsole console, ILogger<CrashDumpSe
                         ExceptionRecord = null,
                     };
 
-                    if (useStowedRecord)
+                    if (useCrashParameters)
                     {
-                        // Copy the stowed exception parameters (array pointer + count) so the dump's
-                        // exception record mirrors the live RaiseException for 0xC000027B.
+                        // Copy the crash's parameters (e.g., the stowed-exception array pointer + count,
+                        // or a fail-fast code) so the dump's record mirrors the live exception.
                         var n = Math.Min(crashExceptionParameters!.Length, exRecord.ExceptionInformation.Length);
                         var slot = exRecord.ExceptionInformation.AsSpan();
                         for (var i = 0; i < n; i++)
@@ -184,19 +184,27 @@ internal sealed class CrashDumpService(IAnsiConsole console, ILogger<CrashDumpSe
     /// <summary>
     /// Chooses which exception the dump's exception record should describe. A terminating stowed
     /// exception (<c>0xC000027B</c>) carrying parameters is preferred so WinUI triage can locate the
-    /// stowed-exception array; otherwise the first-chance exception is used. The thread CONTEXT is
-    /// always the first-chance one (handled by the caller) so ClrMD still recovers user frames.
-    /// Exposed internally for testing the selection logic without writing a real dump.
+    /// stowed-exception array; otherwise the saved exception is used. The crash's parameters are
+    /// copied whenever the chosen record is the crash itself (stowed, or the saved exception is the
+    /// crash). Exposed internally for testing the selection logic without writing a real dump.
     /// </summary>
-    internal static (int Code, nuint Address, bool UseStowed) SelectExceptionRecord(
+    internal static (int Code, nuint Address, bool UseCrashParameters) SelectExceptionRecord(
         int savedExceptionCode, nuint savedExceptionAddress,
         int crashExceptionCode, nuint crashExceptionAddress, nuint[]? crashExceptionParameters)
     {
         const int statusStowedException = unchecked((int)0xC000027B);
-        var useStowed = crashExceptionCode == statusStowedException && crashExceptionParameters is { Length: > 0 };
-        return useStowed
-            ? (crashExceptionCode, crashExceptionAddress, true)
-            : (savedExceptionCode, savedExceptionAddress, false);
+        if (crashExceptionParameters is not { Length: > 0 })
+        {
+            return (savedExceptionCode, savedExceptionAddress, false);
+        }
+
+        if (crashExceptionCode == statusStowedException)
+        {
+            return (crashExceptionCode, crashExceptionAddress, true);
+        }
+
+        var savedIsCrash = savedExceptionCode == crashExceptionCode && savedExceptionAddress == crashExceptionAddress;
+        return (savedExceptionCode, savedExceptionAddress, savedIsCrash);
     }
 
     /// <inheritdoc/>

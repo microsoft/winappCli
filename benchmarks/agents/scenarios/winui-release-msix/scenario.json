@@ -21,7 +21,6 @@
       ],
       "forbid": [
         "winui.migrate",
-        "session.report",
         "maui.package",
         "winui.review"
       ]

@@ -13,7 +13,7 @@ Uses Windows UI Automation (UIA). Works with any Windows app — WPF, WinForms, 
 Most commands drive the app through UIA patterns (no input injection). The exceptions inject real input: `ui click`/`ui hover`/`ui drag` use mouse simulation, `ui touch`/`ui pen` synthesize touch and pen/stylus input, and `ui send-keys` synthesizes keyboard input — for controls and scenarios that UIA patterns can't drive.
 
 > [!IMPORTANT]
-> **Interactive-desktop requirement (input-injecting verbs).** `click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`, and `send-keys --via send-input` synthesize OS-level input, so they need an **unlocked, interactive desktop** with the target window in the foreground. On a **locked workstation or secure desktop** (LogonUI/UAC) they can't inject and fail fast with **`no_interactive_desktop`** (distinct from the elevation/`foreground_not_target` cases). `touch`/`pen` additionally refuse when no window resolves (**`no_target`**); a coordinate outside the target window is a **non-fatal warning** (a `warnings[]` entry under `--json`, or a warning line in text mode) and injection still proceeds — consistent with the mouse verbs. Everything else — `inspect`, `search`, `get-property`, `get-value`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to` — drives the app through UIA patterns and is **headless/locked-session friendly**. `screenshot` is the exception among the non-injecting verbs: it takes an exclusive turn and its capture can need a usable interactive desktop, because the engine restores a minimized target and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used. Prefer the UIA-pattern verbs in CI; reserve the injection verbs for scenarios that genuinely need real input. Before injecting, the gesture verbs also **re-resolve the target element** and refuse with **`target_moved`** if it's still animating/relocating, rather than landing input on empty space.
+> **Interactive-desktop requirement (input-injecting verbs).** `click`, `hover`, `drag`, `touch`, `pen`, `scroll --wheel`/`--wheel-horizontal`, and `send-keys --via send-input` synthesize OS-level input, so they need an **unlocked, interactive desktop** with the target window in the foreground. On a **locked workstation or secure desktop** (LogonUI/UAC) they can't inject and fail fast with **`no_interactive_desktop`** (distinct from the elevation/`foreground_not_target` cases). `touch`/`pen` additionally refuse when no window resolves (**`no_target`**); a coordinate outside the target window is a **non-fatal warning** (a `warnings[]` entry under `--json`, or a warning line in text mode) and injection still proceeds — consistent with the mouse verbs. Everything else — `inspect`, `search`, `get-property`, `get-value`, `wait-for`, `set-value`, `invoke`, `scroll --direction/--to` — drives the app through UIA patterns and is **headless/locked-session friendly**. `screenshot` is the exception among the non-injecting verbs: it takes an exclusive turn and its capture can need a usable interactive desktop, because the engine restores a minimized target and falls back to foregrounding it when frame capture is unavailable or `--capture-screen` is used. Prefer the UIA-pattern verbs in CI; reserve the injection verbs for scenarios that genuinely need real input. Before injecting, the gesture verbs also **re-resolve the target element** and refuse with **`target_moved`** if it's still animating/relocating, rather than landing input on empty space.
 
 ## Quick Start
 
@@ -22,6 +22,11 @@ can act on, `invoke` or `set-value` to act, and `get-value` to check the result.
 command's `--help` shows examples. An unknown command, such as `winapp ui dump`, exits with
 code 1 and suggests the closest commands (as a JSON error with `suggestions` when you pass
 `--json`).
+
+To change a WinUI 3 app's text or properties live without editing its source, use
+[DevTools](guides/devtools.md) (`winapp devtools --help`). When the app you target already has
+DevTools attached, `winapp ui` commands print a one-line tip to stderr saying so (not with `--json`
+or `--quiet`).
 
 ```bash
 # Connect to any app and see its UI tree
@@ -61,16 +66,28 @@ winapp ui get-property Subject -a myapp --root MailRow --type Edit --property Va
 winapp ui wait-for Subject -a myapp --root MailRow --type Edit --value "Ready" --timeout 10000
 winapp ui invoke Open -w <dialog-HWND> --type Button
 winapp ui set-value "Text editor" "hello" -a notepad --type Document
+
+# No text selector: --type and --class-name can be the whole query
+winapp ui search --class-name CalendarSurface -a myapp
+winapp ui click --class-name CalendarSurface -a myapp
 ```
 
 These commands accept optional filters on their element selector:
-`inspect` (with a selector), `search`, `get-property`, `get-value`, `wait-for`,
+`inspect`, `search`, `get-property`, `get-value`, `wait-for`,
 `invoke`, `set-value`, `click`, `focus`, `hover`, `scroll`, `scroll-into-view`,
 `screenshot`, `record`, `touch`, and `pen`. `drag` (two selectors) and `send-keys --target` do not.
-The selector and every supplied filter must match the **same element**. Filters narrow a
-selector, so `inspect`, `screenshot`, and `record`, whose selector is optional, fail with
-`invalid_arguments` when given filters without one. For `touch` and `pen`, filters need a
-selector; they can't be combined with `--at` or `--path` (`invalid_arguments`):
+The selector and every supplied filter must match the **same element**.
+
+`--type` and `--class-name` also work without a selector. `search` lists every element
+they match. Every other command needs exactly one match and fails with
+`ambiguous_selector` otherwise. The error lists the first five matches with a slug for each;
+pass one of those slugs, or add `--root` or the other filter to narrow it. Without a
+selector, `inspect`, `screenshot`, `record`, and `focus` then act on that element instead
+of the whole window. `--root` alone is not a query: give it a selector, `--type`, or
+`--class-name`, or run `inspect <root>` to see everything inside it. `set-value` takes the
+value as its second argument, so pass `""` as the selector:
+`winapp ui set-value "" "hello" -a notepad --type Document`. For `click`, `hover`, `touch`,
+and `pen`, filters can't be combined with `--at` or `--path` (`invalid_arguments`):
 
 - **`--root <selector>`** searches only descendants of one uniquely matching root,
   never the root itself. Use an AutomationId or slug from `inspect` to disambiguate.
@@ -116,8 +133,8 @@ When filters are present, every command except `search` fails with
 `ambiguous_selector` if more than one element remains; narrow the filters or use
 a unique slug. Commands that act on the element count matches in every window
 they search, so a matching control in an owned dialog also makes the selector
-ambiguous. Exact AutomationId matches retain precedence over substring
-matches, within the filtered scope. Omitting all three options preserves the
+ambiguous. Exact AutomationId matches, then a single exact Name match, retain precedence
+over substring matches, within the filtered scope. Omitting all three options preserves the
 existing query behavior.
 
 ## Coordinating concurrent UI workflows
@@ -166,8 +183,18 @@ What you need to know:
   Continuous activity by one workflow can therefore delay others indefinitely.
 - **There is no hard cap.** A long script, an unbounded recording, or a failure loop can block other
   mutating workflows.
-- **Cancellation or process termination is the recovery** for a stuck live workflow. Waiting commands
-  print a status after one second and can be stopped with `Ctrl+C`, which exits `130`.
+- **Cancellation or process termination is the recovery** for a stuck live workflow. A waiting
+  command can be stopped with `Ctrl+C`, which exits `130`.
+- **A waiting command tells you why.** After one second it prints a notice to stderr, and repeats it
+  every five seconds:
+
+  ```text
+  'ui click' has waited 3s for the desktop: another workflow is using the desktop ('ui record') and has held it for 2m 14s. If both commands belong to the same task (for example, a recording and the input it captures), run them with the same WINAPP_UI_WORKFLOW_ID. Press Ctrl+C to cancel.
+  ```
+
+  By default the notice names only the command holding the desktop, never the other workflow's id
+  or process. `--verbose` also shows the holder's PID and queue position. `--json` and `--quiet` print nothing while
+  waiting, so stderr carries only the final error, if any.
 - **Only compatible updated binaries cooperate.** Older `winapp` builds predate this feature and are
   not coordinated. Code calling the UI Automation NuGet packages directly is outside this guarantee
   entirely — coordination lives in the CLI, not in the packages.
@@ -178,7 +205,7 @@ Which commands wait for a turn:
 |---|---|
 | Runs concurrently (never waits) | `status`, `list-windows`, `inspect`, `search`, `get-property`, `get-value`, `get-focused`, `wait-for` |
 | Waits for the turn but never takes the desktop | `set-value`, `scroll-into-view`, `scroll --direction`/`--to`, `record` |
-| Waits for the turn and takes the desktop exclusively | `invoke`, `click`, `drag`, `hover`, `scroll --wheel`, `touch`, `pen`, `focus`, `send-keys`, `screenshot` |
+| Waits for the turn and takes the desktop exclusively | `invoke`, `click`, `drag`, `hover`, `scroll --wheel`/`--wheel-horizontal`, `touch`, `pen`, `focus`, `send-keys`, `screenshot` |
 
 The middle row is the one worth understanding. `set-value`, `scroll-into-view` and
 `scroll --direction`/`--to` drive UIA patterns rather than the foreground, so they stay
@@ -367,7 +394,13 @@ winapp ui search "Save" -a notepad          # find elements containing "Save"
 winapp ui search "error" -a myapp           # case-insensitive match
 ```
 
-When a text search matches multiple elements (e.g., SettingsExpander where Group, Button, and Text all share the same name), the CLI automatically picks the only invokable element. If multiple are invokable, it lists all matches with slugs.
+When a text search matches multiple elements, commands that act on one element choose in this order:
+
+1. An element whose AutomationId is exactly the text.
+2. The only element whose Name is exactly the text, ignoring case. `winapp ui click "Mail" -a myapp` clicks the element named `Mail`, not one named `Welcome to Mail`.
+3. The only invokable element (for example, in a SettingsExpander where Group, Button, and Text share the same name).
+
+If several elements are still left, the command lists them with slugs; re-run with one. `search` always lists every match.
 
 For non-invokable search results (e.g., a TextBlock inside a Button), the search
 automatically surfaces the nearest **invokable ancestor** — the parent element you can use with `invoke`.
@@ -595,9 +628,35 @@ including default outputs when `--output` is omitted. See
 recordings and whole-desktop capture.
 
 **Capture modes** (reported in the JSON `mode` field):
-- `wgc` — Windows Graphics Capture (default; works while the window is occluded).
-- `printwindow` — GDI PrintWindow (fallback when WGC is unavailable on this system/session; re-run with `--capture-screen` to use screen DC instead).
+- `wgc` — Windows Graphics Capture (default; works while the window is occluded). See [Menus and flyouts in recordings](#menus-and-flyouts-in-recordings).
+- `printwindow` — GDI PrintWindow (fallback when WGC is unavailable on this system/session or rejects a directly selected menu or tooltip; re-run with `--capture-screen` to use screen DC instead).
 - `screen` — Screen DC via `--capture-screen` (includes overlays/popups; brings the window to the foreground).
+
+The mode describes the selected window's capture backend. A WGC window recording remains
+`wgc` when an included menu or tooltip uses PrintWindow.
+
+#### Menus and flyouts in recordings
+
+```powershell
+winapp ui record --app myapp --duration-sec 10 --output menu.mp4
+```
+
+WinUI menus, dropdowns, flyouts and tooltips often have their own native window, even when they
+look like part of the app. Recordings draw these popups over the selected window, in place,
+whenever they are open. No flag is needed.
+
+- Only visible popups that belong to the selected window and its process are included.
+- The recording keeps the selected window's size, so the part of a flyout that extends past the
+  window's edge is cut off. To record that popup in full, find its HWND with
+  `winapp ui list-windows` and record it with `-w <hwnd>`.
+- If Windows refuses to capture a popup directly, winapp renders it with PrintWindow instead. It then
+  appears as a plain rectangle, without rounded corners or transparency.
+- If a popup can't be captured, the recording continues without it and the result's `warnings`
+  says which popup is missing.
+- Overlays from another process aren't included. Use `--capture-screen -w <hwnd>` for those,
+  and keep the window uncovered: screen capture can include other apps.
+
+Screenshots show the same popups as separate labeled panels instead; see [screenshot](#screenshot).
 
 **JSON output (`--json`):**
 - **stdout:** Final recording result, including cadence, stop reason, optional `frameArtifacts`, and warnings.
@@ -630,9 +689,10 @@ Use `--action` when a test must perform a specific operation on exactly the sele
 element. It never tries another pattern or an invokable ancestor, even if the
 requested action fails. A control supporting both invocation and selection will
 be selected, not invoked, with `--action select`. With `--action`, a slug targets
-exactly one element; a plain-text or AutomationId selector that matches more than
-one element fails closed with a nonzero exit code rather than acting on the first
-match, so pass a slug from `inspect`/`search` when a name is ambiguous.
+exactly one element; a plain-text or AutomationId selector that still matches more
+than one element after the [exact-match preferences](#plain-text-search) fails closed
+with a nonzero exit code rather than acting on the first match, so pass a slug from
+`inspect`/`search` when a name is ambiguous.
 
 `--root`, `--type`, and `--class-name` narrow the match as described in
 [Scoped and typed queries](#scoped-and-typed-queries), with or without `--action`.
@@ -676,9 +736,14 @@ winapp ui click btn-column1-a3f2 -a myapp              # single click by slug
 winapp ui click "Column1" -a myapp                      # single click by text search
 winapp ui click btn-column1-a3f2 -a myapp --double      # double-click
 winapp ui click btn-column1-a3f2 -a myapp --right       # right-click
+winapp ui click --at 1520,780 -a myapp                  # click a screen point instead of an element
 ```
 
-> Like the other input-injecting verbs, `click` brings the target to the foreground and **fails fast** (`no_interactive_desktop` on a locked/secure desktop, `foreground_not_target` if focus couldn't be transferred) rather than clicking the wrong window. It also **re-resolves the element just before the button-down**: after positioning the cursor it does one final position check, so a continuously moving/animating target fails with **`target_moved`** instead of reporting success after the click landed on empty space — a reported success means the target was still in place when the button went down.
+**Options:**
+- `--at <x,y>` — Click this screen point (same space `winapp ui inspect` reports) instead of an element's center. Use it inside a WebView2 page, or to press one part of a control, such as the header line of an expanded tree row. It can't be combined with a selector or with `--root`/`--type`/`--class-name`. A point outside the target window still gets clicked, with a warning (`warnings[]` in `--json`).
+- `--double` / `--right` — Double-click or right-click. Both work with `--at`.
+
+> Like the other input-injecting verbs, `click` brings the target to the foreground and **fails fast** (`no_interactive_desktop` on a locked/secure desktop, `foreground_not_target` if focus couldn't be transferred) rather than clicking the wrong window. It also **re-resolves the element just before the button-down**: after positioning the cursor it does one final position check, so a continuously moving/animating target fails with **`target_moved`** instead of reporting success after the click landed on empty space — a reported success means the target was still in place when the button went down. With `--at` there is no element to re-check, so the point is used as-is.
 
 ### drag
 Press the mouse button at one point, move to another, then release with `drag <from> <to>`, where each endpoint is either an **element selector** (drags from/to the element's center) or **screen coordinates `x,y`** exactly as reported by `winapp ui inspect`. Mix and match freely (selector→selector, selector→coords, coords→coords).
@@ -713,6 +778,7 @@ winapp ui touch tile-photo-7b3c -a myapp --gesture long-press --hold-ms 600
 winapp ui touch -a myapp --at 100,300 --gesture swipe --to-point 400,300
 winapp ui touch img-map-9f8e -a myapp --gesture pinch --distance 200    # pinch-to-zoom out (2 fingers)
 winapp ui touch img-map-9f8e -a myapp --gesture stretch --distance 200  # stretch-to-zoom in (2 fingers)
+winapp ui touch img-map-9f8e -a myapp --gesture pinch --distance 300 --angle 45   # diagonal pinch
 ```
 
 **Options:**
@@ -721,6 +787,7 @@ winapp ui touch img-map-9f8e -a myapp --gesture stretch --distance 200  # stretc
 - `--to-point <x,y>` — End point for a `swipe`. Takes precedence over `--direction`.
 - `--direction <right|left|up|down>` — Swipe direction (default: `right`). Combined with `--distance` to compute the end point when `--to-point` is not given.
 - `--distance <px>` — Finger spread for `pinch`/`stretch`, or swipe distance in pixels.
+- `--angle <degrees>` — Finger axis for `pinch`/`stretch`, 0–359, counter-clockwise: `0` is horizontal (default), `90` is vertical, `45` runs from lower-left to upper-right.
 - `--hold-ms <ms>` — Hold contacts down before lifting (long-press hold time; defaults to 500 ms for `long-press` when not set).
 - `--duration-ms <ms>` — Glide time for moving gestures (swipe/pinch/stretch; default 300).
 - `--fingers <n>` — Number of contacts (1–10; default 1). `pinch`/`stretch` always use 2.
@@ -760,10 +827,12 @@ winapp ui hover btn-info-a1b2 -a myapp                          # hover with def
 winapp ui hover btn-info-a1b2 -a myapp --dwell-time 1200        # longer dwell for slow tooltips
 winapp ui list-windows -a myapp                              # use the main window's HWND below
 winapp ui hover btn-info-a1b2 -a myapp; winapp ui screenshot -w <hwnd> --capture-screen  # hover then capture tooltip in place
+winapp ui hover --at 1520,780 -a myapp                       # hover a screen point instead of an element
 ```
 
 **Options:**
 - `--dwell-time <ms>` — Time in milliseconds to wait after hovering for effects to appear (default: 800, range: 0–10000)
+- `--at <x,y>` — Hover this screen point instead of an element's center. Same rules as [`click --at`](#click).
 
 ### send-keys
 Send synthetic keyboard input — the keyboard counterpart to `click`. UIA has no keyboard-injection pattern, so this drops to the Win32 layer. Use it for keyboard navigation (arrows, Tab, Enter, Esc), shortcuts (`ctrl+c`, `alt+f4`), and typing into controls that need per-keystroke events rather than `set-value`'s atomic write.
@@ -846,12 +915,17 @@ the accessibility label instead, use `get-property --property Name`.
 ### focus
 ```bash
 winapp ui focus txt-textbox-a4b1 -a notepad
+winapp ui focus -a calculator        # no selector: restore and activate the window itself
 ```
 
 Activates the selected control's window when needed, then focuses the control.
-The selector is required; use `-a <app>` or `-w <HWND>` to choose the target.
-Success means that window was foreground and the selected control confirmed
-`HasKeyboardFocus` before the command returned. The command allows up to 500 ms
+Use `-a <app>` or `-w <HWND>` to choose the target. If the window is minimized,
+`focus` restores it first; this matters for packaged apps such as Calculator,
+which hide their controls while minimized. Without a selector, `focus` restores
+and activates the target window and succeeds once it is in the foreground.
+With a selector, success means that window was foreground and the selected control confirmed
+`HasKeyboardFocus` before the command returned (a selected `Window` element only
+needs to be in the foreground). The command allows up to 500 ms
 for the control to report focus; it stops if the target disappears or loses the
 foreground rather than trying to take focus back. An owned dialog in front of the
 main window is not enough: select a control in the dialog if that is your target.
@@ -900,14 +974,18 @@ winapp ui scroll itm-someitem-a1b2 --direction down -a myapp
 # Synthesize real mouse-wheel input over the element (1 = one notch up, -1 = one notch down).
 # Use this to test handlers that respond to the wheel directly (zoom, custom scroll) rather than ScrollPattern.
 winapp ui scroll img-map-a1b2 --wheel -1 -a myapp
+
+# Tilt the horizontal wheel (1 = one notch right, -1 = one notch left), e.g. to pan a timeline.
+winapp ui scroll pn-timeline-c3d4 --wheel-horizontal 3 -a myapp
 ```
 
 **Options:**
 - `--direction <up|down|left|right>` — Scroll incrementally via `ScrollPattern`.
 - `--to <top|bottom>` — Jump to the start/end via `ScrollPattern`.
 - `--wheel <notches>` — Synthesize mouse-wheel input over the element's center via `SendInput`, in wheel notches (detents): `1` = one notch up/away, `-1` = one notch down/toward, `3` = three notches up. (Each notch is the Windows `WHEEL_DELTA` of 120 units that `SendInput` consumes; the CLI scales notches by 120 for you.) Bypasses `ScrollPattern`.
+- `--wheel-horizontal <notches>` — Same as `--wheel`, but for the horizontal (tilt) wheel: `1` = one notch right, `-1` = one notch left.
 
-> `--direction`, `--to`, and `--wheel` are mutually exclusive — pass exactly one. Because `--wheel` injects OS-wide input at screen coordinates, it brings the target to the foreground first and **fails (`foreground_not_target`)** if focus couldn't be transferred, rather than scrolling the wrong window.
+> `--direction`, `--to`, `--wheel`, and `--wheel-horizontal` are mutually exclusive — pass exactly one. Because the wheel options inject OS-wide input at screen coordinates, they bring the target to the foreground first and **fail (`foreground_not_target`)** if focus couldn't be transferred, rather than scrolling the wrong window.
 
 ### get-focused
 ```bash
@@ -983,8 +1061,9 @@ UiInvokeActionResult result = await ui.InvokeAsync(target, selected, UiInvokeAct
 ```
 
 `requireUnique: true` rejects ambiguous text instead of choosing an invokable
-match. Exact AutomationId matches take precedence over name or AutomationId
-substrings; a unique name can still select a control whose AutomationId is shared.
+match. Exact AutomationId matches take precedence, then a single exact (case-insensitive)
+Name match, then name or AutomationId substrings; a unique name can still select
+a control whose AutomationId is shared.
 For an app-scoped target, that check covers all of its app/owned windows. Use
 `-w <HWND>` (or an explicit-window library target) to restrict the selection scope.
 
@@ -1034,6 +1113,7 @@ for example `MSTest.Windows.UIAutomation`, whose `WindowTest.MainWindow` is a UI
 | "does not support any invoke pattern" | Element can't be invoked | Use `inspect` on the element to find an invokable child |
 | "No UIA window found" | UIA can't see the process | Use `list-windows` to find the HWND, then `-w` |
 | "Window has zero size" | Window is minimized | App will be auto-restored |
+| `element_not_found` or an empty `search`/`inspect` with "is minimized" | Some apps, such as Calculator, hide their UI while minimized | Run the suggested `winapp ui focus -w <HWND>` (or `winapp ui focus -a <app>`), then retry |
 | Popup/dropdown not in screenshot | Default capture is per-window and doesn't include unowned overlays | Follow the [screenshot overlay workflow](#screenshot) to select a window with `-w <hwnd> --capture-screen` |
 | `foreground_not_target` from `--capture-screen` | Windows refused the activation, so a screen capture would have recorded whatever window is actually in front | Click the target window or close the focus-stealing window and retry, or drop `--capture-screen` |
 | `element_not_found` during record | Selector given but no matching element | Re-run `inspect` or `search` to get a fresh selector |

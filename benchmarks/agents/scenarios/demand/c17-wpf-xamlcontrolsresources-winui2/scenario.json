@@ -1,0 +1,10 @@
+{
+  "id": "c17-wpf-xamlcontrolsresources-winui2",
+  "description": "A WPF developer added WinUI 2 XamlControlsResources to App.xaml and got a namespace error, based on https://stackoverflow.com/questions/62541270/the-tag-xamlcontrolsresources-does-not-exist-in-xml-namespace-usingmicrosoft.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "I tried to use WinUI controls in my WPF app and added the Microsoft.UI.Xaml package. App.xaml now fails with: The tag 'XamlControlsResources' does not exist in XML namespace 'using:Microsoft.UI.Xaml.Controls'. What did I wire up wrong?",
+  "configurations": ["none", "winapp", "winui", "both"],
+  "fixture": "fixture",
+  "expect": { "capabilities": { "primary": [], "acceptable": [], "forbid": [] } }
+}

@@ -1,0 +1,13 @@
+name: kiln_register
+description: Point-of-sale companion for Windows desktops.
+version: 4.8.0+48
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

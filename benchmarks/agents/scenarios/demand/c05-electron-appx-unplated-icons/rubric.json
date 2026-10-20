@@ -1,0 +1,35 @@
+{
+  "cluster": "c05",
+  "framework": "Electron",
+  "goal": "Help the developer provide the AppX icon assets Windows needs so the installed app icon is unplated and correctly sized.",
+  "must_include": [
+    "Says the `.ico` used by the unpacked EXE is not enough for AppX; Windows uses package visual assets named from `Square44x44Logo`/AppList resources.",
+    "Calls out that the fixture has only `Square44x44Logo.png` and scale assets, but no `targetsize-*_altform-unplated` or `targetsize-*_altform-lightunplated` variants.",
+    "Recommends adding unplated target-size icons for common sizes such as 16, 24, 32, 48, and 256, with light and dark variants if the icon needs theme-specific contrast.",
+    "Keeps the AppX manifest/config pointing at the base asset name so Windows resource qualifier matching can select the target-size variants."
+  ],
+  "must_not": [
+    "Suggests changing only `StoreLogo.png` to 512x512 as the fix for Start/taskbar plating.",
+    "Tells them to edit the installed package contents after packaging.",
+    "Claims this is a certificate, publisher, or Store ingestion problem."
+  ],
+  "acceptable_alternatives": [
+    "Generate the assets with a UWP/MSIX tile asset generator as long as the expected qualified filenames are produced.",
+    "Use electron-builder's `build/appx` asset folder with correctly named target-size/unplated PNGs.",
+    "Provide equivalent manifest visual assets manually through a custom AppX manifest.",
+    "the winapp CLI's equivalent asset generation command (`winapp manifest update-assets .\\logo.png --manifest .\\Package.appxmanifest`) when repairing an MSIX manifest asset set outside electron-builder."
+  ],
+  "solved": "The answer tells the developer exactly which target-size unplated AppX assets to add and keeps the manifest/base asset relationship intact.",
+  "partial": "The answer generally says to add more icon sizes but does not mention unplated target-size assets or light/dark variants.",
+  "sources": [
+    "https://github.com/electron-userland/electron-builder/issues/7811"
+  ],
+  "verified_with": [
+    "https://www.electron.build/docs/appx",
+    "https://learn.microsoft.com/en-us/windows/apps/design/iconography/app-icon-construction",
+    "https://learn.microsoft.com/en-us/windows/uwp/app-resources/images-tailored-for-scale-theme-contrast",
+    "https://github.com/electron-userland/electron-builder/issues/7811",
+    "docs\\usage.md#manifest-update-assets"
+  ],
+  "notes": "The fixture names use electron-builder's `build/appx` convention; equivalent AppList/Square44x44Logo target-size assets should be accepted."
+}

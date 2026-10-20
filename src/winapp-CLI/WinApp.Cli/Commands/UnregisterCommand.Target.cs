@@ -24,6 +24,7 @@ internal partial class UnregisterCommand
         /// </remarks>
         private async Task<int> UnregisterOnTargetAsync(
             MsixIdentityResult identity,
+            IEnumerable<string> uniqueNames,
             bool isJson,
             CancellationToken cancellationToken)
         {
@@ -33,17 +34,24 @@ internal partial class UnregisterCommand
                     PrepareTargetOptions.Mutating with { RequireInteractiveDesktop = false },
                     cancellationToken);
 
-                var familyName = appLauncherService.ComputePackageFamilyName(
-                    identity.PackageName,
-                    identity.Publisher);
-                var unregistered = await guestApplicationRunner.UnregisterOwnedPackageAsync(
-                    target,
-                    identity.PackageName,
-                    identity.Publisher,
-                    familyName,
-                    requiredDeploymentId: null,
-                    requiredRevision: null,
-                    cancellationToken);
+                // Derived names first: they belong to this input alone. The manifest's own name is shared by
+                // every checkout of the app, so it is tried only when no unique registration exists.
+                GuestPackageRegistration? unregistered = null;
+                foreach (var name in uniqueNames.Append(identity.PackageName))
+                {
+                    unregistered = await guestApplicationRunner.UnregisterOwnedPackageAsync(
+                        target,
+                        name,
+                        identity.Publisher,
+                        appLauncherService.ComputePackageFamilyName(name, identity.Publisher),
+                        requiredDeploymentId: null,
+                        requiredRevision: null,
+                        cancellationToken);
+                    if (unregistered is not null)
+                    {
+                        break;
+                    }
+                }
 
                 if (unregistered is null)
                 {

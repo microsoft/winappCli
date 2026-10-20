@@ -36,8 +36,7 @@
       "forbid": [
         "winui.*",
         "maui.package",
-        "winui.migrate",
-        "session.report"
+        "winui.migrate"
       ]
     }
   }

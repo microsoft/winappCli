@@ -39,8 +39,7 @@
       "forbid": [
         "winui.*",
         "project.scaffold",
-        "msix.package",
-        "session.report"
+        "msix.package"
       ]
     }
   }

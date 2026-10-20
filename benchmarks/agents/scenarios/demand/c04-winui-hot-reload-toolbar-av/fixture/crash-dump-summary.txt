@@ -1,0 +1,18 @@
+PROCESS_NAME: AtlasDesk.exe
+OS_VERSION: Windows 10.0.19044
+CLR_VERSION: .NET 8.0
+Loaded module: Microsoft.WindowsAppRuntime.Bootstrap.dll
+Loaded module: Microsoft_UI_Windowing_Core.dll
+
+EXCEPTION_RECORD:
+  ExceptionAddress: 00007ffd6057de84 (Microsoft_UI_Windowing_Core!Api::ReunionApi32::GetWindowFeatureImpl+0x20)
+  ExceptionCode: c0000005 (Access violation)
+  ExceptionFlags: 00000001
+  Parameter[0]: 0000000000000000
+  Parameter[1]: 0000000000000030
+  Attempt to read from address 0000000000000030
+
+Repro notes:
+  Start app in x64 Debug from Visual Studio.
+  Open the secondary diagnostics window.
+  Crash occurs while the in-app XAML toolbar overlay is visible.

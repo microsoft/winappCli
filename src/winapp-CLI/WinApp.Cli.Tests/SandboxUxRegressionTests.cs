@@ -23,6 +23,16 @@ namespace WinApp.Cli.Tests;
 [TestClass]
 public class SandboxUxRegressionTests
 {
+    private static readonly string[] ColdPreparationPhases =
+    [
+        "Preparing the Windows Sandbox guest agent...",
+        "Copying the Windows Sandbox guest-agent files...",
+        "Checking the Windows Sandbox interactive sign-in...",
+        "Connecting the Windows Sandbox interactive client...",
+        "Configuring the Windows Sandbox guest-agent firewall rule...",
+        "Starting the Windows Sandbox guest agent and waiting for readiness...",
+    ];
+
     public TestContext TestContext { get; set; } = null!;
 
     // ---- The guest agent must never trip the Windows Firewall consent dialog ----
@@ -102,17 +112,16 @@ public class SandboxUxRegressionTests
     // ---- Bootstrap folders must stay shareable under a state root locked to the current user ----
 
     /// <summary>
-    /// An agent binary another winapp version staged, which cannot be replaced, is a version
-    /// conflict with recovery guidance, not an unhandled exception.
+    /// An agent binary another winapp version staged, which the Sandbox still holds, does not stop this
+    /// version: each version stages into its own content-named payload directory and never replaces it.
     /// </summary>
     /// <remarks>
     /// Reproduced on a live Sandbox after switching winapp builds: with no agent running in the
     /// guest, the Sandbox still held the previously staged <c>winapp.exe</c>, and replacing it threw
-    /// <c>UnauthorizedAccessException</c>, which crashed the command with a stack trace. A read-only
-    /// destination makes the same replace fail with the same exception, deterministically.
+    /// <c>UnauthorizedAccessException</c>. A read-only file makes the same replace fail deterministically.
     /// </remarks>
     [TestMethod]
-    public async Task StagedAgentFromAnotherVersion_ThatCannotBeReplaced_IsAVersionConflict()
+    public async Task StagedAgentFromAnotherVersion_ThatCannotBeReplaced_DoesNotBlockThisVersion()
     {
         using var harness = new BackendHarness();
         harness.MarkInstanceAlreadyRunning();
@@ -121,23 +130,18 @@ public class SandboxUxRegressionTests
 
         try
         {
-            var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
-                () => harness.Backend.EnsureConnectedAsync(
-                    new EnsureTargetOptions(RequireInteractiveDesktop: false),
-                    TestContext.CancellationToken));
+            await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken, requireInteractiveDesktop: false);
 
-            Assert.AreEqual(ExecutionTargetErrorCodes.AgentIncompatible, failure.Error.Code);
-            StringAssert.Contains(failure.Error.UserAction, "`wsb stop --id sandbox-existing`", "Copying the command from the message text must work; wsb stop needs --id.");
-            Assert.DoesNotContain("Close Windows Sandbox", failure.Error.UserAction!, StringComparison.Ordinal, "Closing the window does not stop a Sandbox winapp started, so its files stay in use.");
-            Assert.AreEqual("wsb stop --id sandbox-existing", failure.Error.NextCommand!.Command, "wsb stop needs --id.");
-            Assert.IsInstanceOfType<UnauthorizedAccessException>(failure.InnerException);
+            Assert.AreEqual("an older winapp", File.ReadAllText(staged), "The held file is left alone.");
+            var payloads = Directory.GetDirectories(Path.GetDirectoryName(staged)!, "payload-*");
+            Assert.HasCount(1, payloads);
+            Assert.IsTrue(File.Exists(Path.Join(payloads[0], "winapp.exe")));
         }
         finally
         {
             File.SetAttributes(staged, FileAttributes.Normal);
         }
     }
-
     /// <summary>
     /// Every folder handed to <c>wsb share</c> grants SYSTEM, even when the state root does not.
     /// </summary>
@@ -220,19 +224,34 @@ public class SandboxUxRegressionTests
             "A guest whose bootstrap never finished has no interactive session yet.");
     }
 
-    /// <summary>A first bootstrap still connects the client, because there is no session yet.</summary>
+    /// <summary>
+    /// A first bootstrap uses the window that opened the Sandbox and never connects a second one.
+    /// </summary>
+    /// <remarks>
+    /// winapp opens a new Sandbox the way Start does, so its window owns it: closing it asks the user,
+    /// then ends the Sandbox. A <c>wsb connect</c> on top would put a second window on screen, and
+    /// closing that one would leave the Sandbox running.
+    /// </remarks>
     [TestMethod]
-    public async Task FirstBootstrap_StillConnectsTheClient()
+    public async Task FirstBootstrap_UsesTheWindowThatOpenedTheSandbox()
     {
-        using var harness = new BackendHarness();
+        var client = new SandboxClientWindow((nint)0x2468, 4343, 1_000_000);
+        var windows = new PlacedWindowController(client);
+        using var harness = new BackendHarness(windows);
 
         await harness.RunUntilAgentLaunchAsync(
             TestContext.CancellationToken,
-            requireInteractiveDesktop: false);
+            requireInteractiveDesktop: true);
 
-        Assert.IsTrue(
+        Assert.AreEqual(1, harness.Cli.Operations.Count(op => op == "launch"));
+        Assert.IsFalse(
             harness.Cli.Operations.Any(op => op.StartsWith("connect", StringComparison.Ordinal)),
-            "A brand-new instance has no interactive session until a client connects.");
+            "The window that opened the Sandbox is its session; a second window must not be connected.");
+        Assert.IsFalse(
+            harness.Cli.Operations.Contains("probe-session"),
+            "A just-opened window is still signing in, so the session probe cannot say anything useful.");
+        Assert.AreEqual(client, harness.ReadClient(), "The owning window is recorded as winapp's.");
+        Assert.AreEqual(client, windows.Placed, "The owning window is moved behind the user's window.");
     }
 
     [TestMethod]
@@ -241,6 +260,7 @@ public class SandboxUxRegressionTests
         var client = new SandboxClientWindow((nint)0x1234, 4321, 638_900_000_000_000_000);
         var windows = new PlacedWindowController(client);
         using var harness = new BackendHarness(windows);
+        harness.MarkInstanceOwnedButNeverBootstrapped();
         harness.Cli.ConnectFailure = new OperationCanceledException(new CancellationToken(canceled: true));
 
         await Assert.ThrowsAsync<OperationCanceledException>(
@@ -258,6 +278,7 @@ public class SandboxUxRegressionTests
         var client = new SandboxClientWindow((nint)0x5678, 8765, 638_900_000_100_000_000);
         var windows = new PlacedWindowController(client);
         using var harness = new BackendHarness(windows);
+        harness.MarkInstanceOwnedButNeverBootstrapped();
         harness.Cli.ConnectFailure = ExecutionTargetException.Create(
             ExecutionTargetErrorCodes.NoInteractiveSession,
             "The Windows Sandbox client could not connect.");
@@ -362,6 +383,18 @@ public class SandboxUxRegressionTests
     }
 
     // ---- Slow phases must announce themselves ----
+
+    [TestMethod]
+    public async Task ColdBootstrap_ReportsThePreparationPhasesInOrder()
+    {
+        var progress = new RecordingProgress();
+        using var harness = new BackendHarness(progress: progress);
+        harness.Cli.SetRunning("sandbox-existing");
+
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+
+        CollectionAssert.AreEqual(ColdPreparationPhases, progress.Messages);
+    }
 
     [TestMethod]
     public void TargetProgress_WritesToItsErrorStreamWhenInformationIsEnabled()
@@ -571,8 +604,9 @@ public class SandboxUxRegressionTests
         private readonly TargetStateStore _stateStore;
 
         private readonly IWindowsSandboxWindowController _windowController;
+        private readonly ITargetProgress? _progress;
 
-        public BackendHarness(IWindowsSandboxWindowController? windowController = null)
+        public BackendHarness(IWindowsSandboxWindowController? windowController = null, ITargetProgress? progress = null)
         {
             _root = new DirectoryInfo(TestPaths.TempRoot(nameof(SandboxUxRegressionTests)));
             _root.Create();
@@ -581,9 +615,12 @@ public class SandboxUxRegressionTests
             _stateStore = new TargetStateStore(_directories);
             Cli = new RecordingSandboxCli();
             _windowController = windowController ?? new NoOpWindowController();
+            _progress = progress;
 
             var binary = new FileInfo(Path.Join(_root.FullName, "winapp.exe"));
             File.WriteAllText(binary.FullName, "agent");
+            File.WriteAllText(Path.Join(_root.FullName, "libSkiaSharp.dll"), "skia");
+            File.WriteAllText(Path.Join(_root.FullName, "libHarfBuzzSharp.dll"), "harfbuzz");
 
             Backend = Create(binary);
         }
@@ -763,7 +800,8 @@ public class SandboxUxRegressionTests
                 // No setup runner: this harness models a host where wsb.exe is already usable, so
                 // the support probe short-circuits on IsAvailable before setup would be consulted.
                 setup: null,
-                _stateStore);
+                _stateStore,
+                _progress);
 
         public void Dispose()
         {
@@ -780,6 +818,12 @@ public class SandboxUxRegressionTests
 
     /// <summary>Marks the point the harness stops, rather than a failure under test.</summary>
     private sealed class AgentLaunchReached : Exception;
+
+    private sealed class RecordingProgress : ITargetProgress
+    {
+        public List<string> Messages { get; } = [];
+        public void Report(string message) => Messages.Add(message);
+    }
 
     /// <summary>A Sandbox CLI that records the order of everything it was asked to do.</summary>
     private sealed class RecordingSandboxCli : IWindowsSandboxCli
@@ -804,11 +848,18 @@ public class SandboxUxRegressionTests
         public Task<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<string>>([.. _running]);
 
-        public Task<string> StartAsync(string instanceId, string? configuration, CancellationToken cancellationToken)
+        /// <summary>The ID Windows gives the Sandbox a launched window opens.</summary>
+        public string LaunchedId { get; set; } = "sandbox-launched";
+
+        public Task<SandboxConnectAttempt> LaunchAsync(
+            Action<SandboxConnectAttempt> onLaunched,
+            CancellationToken cancellationToken)
         {
-            Operations.Add("start");
-            _running.Add(instanceId);
-            return Task.FromResult(instanceId);
+            Operations.Add("launch");
+            _running.Add(LaunchedId);
+            var attempt = SandboxConnectAttempt.ForLauncher(4343, 1_000_000);
+            onLaunched(attempt);
+            return Task.FromResult(attempt);
         }
 
         public Task<bool> IsResolvableAsync(string id, CancellationToken cancellationToken) =>

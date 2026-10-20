@@ -30,11 +30,18 @@ internal class FakeMsixService : IMsixService
     public List<string?> AddLooseLayoutRuntimeIdentifierCalls { get; } = [];
     public List<string?> AddLooseLayoutRecipeCalls { get; } = [];
 
+    /// <summary>Records the identity options passed to each layout call (local and target).</summary>
+    public List<DevelopmentIdentityOptions?> DevelopmentIdentityCalls { get; } = [];
+
     /// <summary>Records the <c>projectAssetsFile</c> passed to each <see cref="EnsureWindowsAppRuntimeInstalledAsync"/> call.</summary>
     public List<string?> EnsureRuntimeInstalledAssetsFileCalls { get; } = [];
 
+    /// <summary>Records the Windows App SDK package folder passed to each <see cref="EnsureWindowsAppRuntimeInstalledAsync"/> call.</summary>
+    public List<string?> EnsureRuntimeInstalledPackageDirCalls { get; } = [];
+
     /// <summary>Records the <c>ensureExecutionAlias</c> flag passed to each <see cref="AddLooseLayoutIdentityAsync"/> call.</summary>
     public List<bool> AddLooseLayoutEnsureAliasCalls { get; } = [];
+    public List<InspectorAliasRequest?> AddLooseLayoutInspectorRequests { get; } = [];
     public List<(string? ProjectFile, string? Architecture, string? Framework, bool NoRestore)> EnsureRuntimeInstalledCalls { get; } = [];
     public List<(string? EntryPoint, string? ManifestPath, bool NoInstall, bool KeepIdentity)> AddSparseIdentityCalls { get; } = [];
     public Exception? ExceptionToThrow { get; set; }
@@ -109,9 +116,12 @@ internal class FakeMsixService : IMsixService
         bool selfContained = false,
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
+        InspectorAliasRequest? inspectorAlias = null,
         FileInfo? appxRecipe = null,
+        DevelopmentIdentityOptions? developmentIdentity = null,
         CancellationToken cancellationToken = default)
     {
+        DevelopmentIdentityCalls.Add(developmentIdentity);
         AddLooseLayoutCalls.Add((appxManifestPath.FullName, clean));
         AddLooseLayoutDirectoryCalls.Add((inputDirectory.FullName, outputAppXDirectory.FullName));
         LayoutReconciliations.Add(reconciliation);
@@ -119,6 +129,7 @@ internal class FakeMsixService : IMsixService
         AddLooseLayoutSelfContainedCalls.Add(selfContained);
         AddLooseLayoutExecutableCalls.Add(executable);
         AddLooseLayoutEnsureAliasCalls.Add(ensureExecutionAlias);
+        AddLooseLayoutInspectorRequests.Add(inspectorAlias);
         AddLooseLayoutAssetsFileCalls.Add(packageGraph?.AssetsFile.FullName);
         AddLooseLayoutRuntimeIdentifierCalls.Add(packageGraph?.RuntimeIdentifier);
         AddLooseLayoutRecipeCalls.Add(appxRecipe?.FullName);
@@ -156,8 +167,10 @@ internal class FakeMsixService : IMsixService
         bool ensureExecutionAlias = false,
         PackageGraphSource? packageGraph = null,
         FileInfo? appxRecipe = null,
+        DevelopmentIdentityOptions? developmentIdentity = null,
         CancellationToken cancellationToken = default)
     {
+        DevelopmentIdentityCalls.Add(developmentIdentity);
         MaterializeLooseLayoutCalls.Add((appxManifestPath.FullName, outputAppXDirectory.FullName));
         LayoutReconciliations.Add(reconciliation);
         AddLooseLayoutRecipeCalls.Add(appxRecipe?.FullName);
@@ -175,9 +188,11 @@ internal class FakeMsixService : IMsixService
         bool noRestore,
         TaskContext taskContext,
         PackageGraphSource? packageGraph = null,
+        DirectoryInfo? windowsAppSdkPackageDirectory = null,
         CancellationToken cancellationToken = default)
     {
         EnsureRuntimeInstalledAssetsFileCalls.Add(packageGraph?.AssetsFile.FullName);
+        EnsureRuntimeInstalledPackageDirCalls.Add(windowsAppSdkPackageDirectory?.FullName);
         EnsureRuntimeInstalledCalls.Add((projectFile?.FullName, architecture, framework, noRestore));
         if (EnsureRuntimeInstalledException != null)
         {

@@ -1,0 +1,22 @@
+{
+  "name": "rivet-console",
+  "version": "5.1.0",
+  "private": true,
+  "build": {
+    "productName": "Rivet Console",
+    "appId": "com.rivetops.console",
+    "directories": {
+      "buildResources": "build"
+    },
+    "win": {
+      "target": ["appx"],
+      "icon": "build/icon.ico"
+    },
+    "appx": {
+      "identityName": "RivetOps.RivetConsole",
+      "publisher": "CN=Rivet Operations",
+      "publisherDisplayName": "Rivet Operations",
+      "displayName": "Rivet Console"
+    }
+  }
+}

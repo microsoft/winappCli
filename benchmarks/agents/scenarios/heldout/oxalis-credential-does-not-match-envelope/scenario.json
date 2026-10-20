@@ -36,8 +36,7 @@
       "forbid": [
         "toolchain.prereqs",
         "winui.*",
-        "project.scaffold",
-        "session.report"
+        "project.scaffold"
       ]
     }
   }

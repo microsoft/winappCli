@@ -1,0 +1,21 @@
+{
+  "id": "c02-tauri-linux-windows-icon-resource",
+  "description": "A Tauri app cross-compiling for Windows on Linux fails while compiling `icons/icon.ico` into a Windows resource file, based on https://github.com/tauri-apps/tauri/issues/6746.",
+  "set": "demand",
+  "cohort": "trap",
+  "prompt": "I'm cross-compiling our Tauri app for Windows from a Linux CI image and the Rust build gets all the way to the custom build script, then fails with `failed to compile icons/icon.ico into a Windows Resource file during tauri-build: No such file or directory (os error 2)`. The icon path is valid in the repo, so I'm not sure why it is looking in the wrong place.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

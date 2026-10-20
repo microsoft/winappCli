@@ -35,6 +35,22 @@ Describe 'Read-SessionEvents' {
         $r.unparsedLines | Should -Be 0
     }
 
+    It 'measures tool time as the union of running tool calls, plus API and session time' {
+        $r = Read-SessionEvents -Path (Join-Path $PSScriptRoot 'events-complete.jsonl')
+        # 60 + 33 (two overlapping calls 05.063-05.096) + 4 + 4
+        $r.toolTimeMs | Should -Be 101
+        $r.apiDurationMs | Should -Be 19117
+        $r.sessionDurationMs | Should -Be 20618
+    }
+
+    It 'leaves tool time out for a call that never completed' {
+        $path = Join-Path $TestDrive 'open-tool.jsonl'
+        Get-Content (Join-Path $PSScriptRoot 'events-complete.jsonl') |
+            Where-Object { $_ -notmatch '"type":"tool\.execution_complete".*toolu_01UQbf1HTNJXhaEVVr2nVocQ' } | Set-Content $path
+        $r = Read-SessionEvents -Path $path
+        $r.toolTimeMs | Should -Be 97
+    }
+
     It 'counts repeated deliveries of the same skill and the context they add' {
         $path = Join-Path $TestDrive 'repeat.jsonl'
         $lines = Get-Content (Join-Path $PSScriptRoot 'events-complete.jsonl')
@@ -46,6 +62,26 @@ Describe 'Read-SessionEvents' {
         $r.skillRepeatDeliveries | Should -Be 2
         $r.skillContextChars | Should -Be (186 * 3)
         $r.skillRepeatContextTokensApprox | Should -Be ([Math]::Round(186 * 2 / 4))
+    }
+
+    It 'records skill reference files the agent read, and denied reads separately' {
+        $path = Join-Path $TestDrive 'refs.jsonl'
+        $base = 'C:\\h\\installed-plugins\\_direct\\winapp\\skills\\winapp-setup'
+        @(
+            '{"type":"tool.execution_start","data":{"toolCallId":"a","toolName":"view","arguments":{"path":"' + $base + '\\references\\electron.md"}}}'
+            '{"type":"tool.execution_complete","data":{"toolCallId":"a","success":true,"result":{"content":"12345678"}}}'
+            '{"type":"tool.execution_start","data":{"toolCallId":"b","toolName":"view","arguments":{"path":"' + $base + '\\SKILL.md"}}}'
+            '{"type":"tool.execution_complete","data":{"toolCallId":"b","success":true,"result":{"content":"x"}}}'
+            '{"type":"tool.execution_start","data":{"toolCallId":"c","toolName":"view","arguments":{"path":"' + $base + '\\references\\cpp.md"}}}'
+            '{"type":"tool.execution_complete","data":{"toolCallId":"c","success":false,"error":{"code":"denied"}}}'
+            '{"type":"tool.execution_start","data":{"toolCallId":"d","toolName":"view","arguments":{"path":"' + $base + '\\references\\missing.md"}}}'
+            '{"type":"tool.execution_complete","data":{"toolCallId":"d","success":false,"error":{"code":"not_found"}}}'
+        ) | Set-Content $path
+        $r = Read-SessionEvents -Path $path
+        @($r.skillFilesRead) | Should -Be @('winapp-setup/references/electron.md')
+        # Only policy denials count as denied; a failed lookup is neither read nor denied.
+        @($r.skillFilesDenied) | Should -Be @('winapp-setup/references/cpp.md')
+        $r.skillFileTokensApprox | Should -Be 2
     }
 
     It 'returns null tokens with a reason when session.shutdown is missing' {
@@ -107,6 +143,11 @@ Describe 'Get-WinappCommands' {
     It 'records npm wrapper node subcommands' {
         @(Get-WinappCommands -Text @('npx winapp node create-addon --name myAddon; winapp node add-electron-debug-identity', 'winapp node something-else')) |
             Should -Be @('node create-addon', 'node add-electron-debug-identity', 'node')
+    }
+
+    It 'records perf subcommands' {
+        @(Get-WinappCommands -Text @('winapp perf start --app 1234 --output .\cap --json', 'winapp perf analyze .\trace --view hotspots')) |
+            Should -Be @('perf start', 'perf analyze')
     }
 }
 
@@ -308,14 +349,15 @@ Describe 'Invoke-Rescore' {
         $r = Invoke-Rescore -ResultsDir $dir -Scenarios @($scenario)
 
         $r.Runs | Should -Be 5
-        $r.Changed | Should -Be 2
+        $r.Changed | Should -Be 3
         $r.Transitions['pass -> n/a'] | Should -Be 1
+        $r.Transitions['fail -> scenario_removed'] | Should -Be 1
         $rows = Get-Content $r.RunsPath | ConvertFrom-Json
-        $rows.status | Should -Be @('fail', 'pass', 'timeout', 'fail', 'n/a')
+        $rows.status | Should -Be @('fail', 'pass', 'timeout', 'scenario_removed', 'n/a')
         $rows[0].originalStatus | Should -Be 'pass'
-        $rows[3].expectationNotes | Should -Contain 'scenario no longer defined; status not rescored'
+        $rows[3].expectationNotes | Should -Contain 'scenario no longer defined; excluded'
         (Get-FileHash (Join-Path $dir 'runs.jsonl')).Hash | Should -Be $original.Hash
-        Get-Content -Raw $r.SummaryPath | Should -Match 'Status changes\*\*: 2 of 5 runs \(pass -> fail 1, pass -> n/a 1\)'
+        Get-Content -Raw $r.SummaryPath | Should -Match 'Status changes\*\*: 3 of 5 runs \(pass -> fail 1, fail -> scenario_removed 1, pass -> n/a 1\)'
     }
 }
 
@@ -470,6 +512,15 @@ Describe 'Get-ComparisonReport' {
     It 'flags cells where an expected skill is installed on one side only and leaves them out of pooled pass' {
         $report | Should -Match ([regex]::Escape('| m2 | s1 | both | 1/1 (100%) → 1/1 (100%) | check differs |'))
         $report | Should -Match ([regex]::Escape('| m2 | 2 (1 not pooled) | 1/1 (100%) → 1/1 (100%) | = |'))
+    }
+
+    It 'reports reference reads per run, and n/a for runs recorded before they were tracked' {
+        $rb = Join-Path $TestDrive 'ref-base'; $rc = Join-Path $TestDrive 'ref-cand'
+        Write-Runs $rb @(@{ status = 'pass'; skillsLoaded = @('winapp-signing') })
+        Write-Runs $rc @(@{ status = 'pass'; skillsLoaded = @('winapp-signing'); skillFileTokensApprox = 400 })
+        Get-ComparisonReport -Baseline $rb -Candidate $rc -Scenarios @($scenario) | Should -Match ([regex]::Escape('| n/a → 400 | n/a |'))
+        Write-Runs $rb @(@{ status = 'pass'; skillsLoaded = @('winapp-signing'); skillFileTokensApprox = 200 })
+        Get-ComparisonReport -Baseline $rb -Candidate $rc -Scenarios @($scenario) | Should -Match ([regex]::Escape('| 200 → 400 | +100% |'))
     }
 
     It 'filters by model and rejects filter values that are not in the results' {

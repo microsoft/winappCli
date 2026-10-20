@@ -1,0 +1,31 @@
+trigger:
+  branches:
+    include:
+    - main
+
+stages:
+- stage: Build
+  jobs:
+  - job: Package
+    pool:
+      vmImage: 'windows-latest'
+    steps:
+    - task: UseDotNet@2
+      inputs:
+        version: '8.x'
+
+    - task: PowerShell@2
+      displayName: 'Check .NET'
+      inputs:
+        targetType: 'inline'
+        script: |
+          dotnet --version
+          dotnet --list-sdks
+
+    - task: VSBuild@1
+      inputs:
+        solution: 'DockOffice.sln'
+        vsVersion: 'latest'
+        platform: 'x64'
+        configuration: 'Release'
+        msbuildArchitecture: 'x64'

@@ -36,8 +36,7 @@
       "forbid": [
         "msix.package",
         "identity",
-        "winui.*",
-        "session.report"
+        "winui.*"
       ]
     }
   }

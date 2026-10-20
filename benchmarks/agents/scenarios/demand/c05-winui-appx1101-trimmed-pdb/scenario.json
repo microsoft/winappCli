@@ -1,0 +1,24 @@
+{
+  "id": "c05-winui-appx1101-trimmed-pdb",
+  "description": "WinUI packaging fails with APPX1101 duplicate `.pdb` payload after enabling publish trimming, based on https://github.com/microsoft/microsoft-ui-xaml/issues/9634.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "Our GitHub Actions build for a WinUI 3 app started failing on the second package build after we enabled trimming for Release. Local Debug is fine.\n\nerror APPX1101: Payload contains two or more files with the same destination path 'Starboard.pdb'.",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  },
+  "leakAllow": [
+    "package build"
+  ]
+}

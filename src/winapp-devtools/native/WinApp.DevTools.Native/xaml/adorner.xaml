@@ -1,0 +1,7 @@
+
+<Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        AutomationProperties.AutomationId="WinAppDevToolsHighlight"
+        AutomationProperties.Name="Selected element highlight"
+        Canvas.Left="$X$" Canvas.Top="$Y$" Width="$W$" Height="$H$"
+        IsHitTestVisible="False"
+        BorderBrush="#FF3B9EFF" BorderThickness="2" Background="#333B9EFF" />

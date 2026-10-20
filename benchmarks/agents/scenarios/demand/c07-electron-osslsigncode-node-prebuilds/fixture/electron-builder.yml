@@ -1,0 +1,14 @@
+appId: io.signalridge.desktop
+productName: Signal Ridge
+directories:
+  output: dist_electron
+win:
+  target:
+    - nsis
+  certificateFile: ${env.WINDOWS_PFX}
+  certificatePassword: ${env.WINDOWS_PFX_PASSWORD}
+files:
+  - dist/**
+  - node_modules/**
+asarUnpack:
+  - "**/*.node"

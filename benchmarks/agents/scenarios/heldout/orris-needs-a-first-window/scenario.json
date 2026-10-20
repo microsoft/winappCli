@@ -31,8 +31,7 @@
         "winui.build"
       ],
       "forbid": [
-        "winui.migrate",
-        "session.report"
+        "winui.migrate"
       ]
     }
   }

@@ -4,7 +4,8 @@
     Validate plugin examples against the built CLI and check plugin manifest versions
 .DESCRIPTION
     This script extracts a fresh CLI schema into ignored artifacts and verifies
-    that every plugin manifest version matches version.json. Plugin
+    that every plugin manifest version (winapp and WinUI; see plugin-version-manifests.ps1)
+    matches version.json. Plugin
     skills are hand-authored and are not generated or drift-checked.
 
     It also runs scripts/validate-plugin-package.ps1, which enforces Agent Plugins
@@ -47,13 +48,8 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$ManifestPaths = @(
-    (Join-Path $ProjectRoot "plugin.json"),
-    (Join-Path $ProjectRoot "plugins\winapp\plugin.json"),
-    (Join-Path $ProjectRoot "plugins\winapp\.claude-plugin\plugin.json"),
-    (Join-Path $ProjectRoot ".github\plugin\marketplace.json"),
-    (Join-Path $ProjectRoot ".claude-plugin\marketplace.json")
-)
+. (Join-Path $PSScriptRoot "plugin-version-manifests.ps1")
+$ManifestPaths = Get-VersionedPluginManifests -ProjectRoot $ProjectRoot
 
 foreach ($manifestPath in $ManifestPaths) {
     if (-not (Test-Path $manifestPath)) {

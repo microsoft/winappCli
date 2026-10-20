@@ -1,0 +1,2 @@
+%LOCALAPPDATA%\Packages\LedgerLane.Desktop_9zz4h110yvjzm\LocalCache\Local\LedgerLane\LedgerLane.exe_Url_dfvfmfjs1qo33zsag1ay5w1s0rwg0u53\0.2.10.0\user.config
+%LOCALAPPDATA%\Packages\LedgerLane.Desktop_9zz4h110yvjzm\LocalCache\Local\LedgerLane\LedgerLane.exe_Url_tazrvujdga5ujjarnahpkoscv5zbkgl0\0.2.11.0\user.config

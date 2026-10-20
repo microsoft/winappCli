@@ -34,7 +34,7 @@
         "winui.migrate",
         "project.scaffold",
         "ui.automate",
-        "session.report"
+        "winui.inspect"
       ]
     }
   }

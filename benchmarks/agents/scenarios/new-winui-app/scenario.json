@@ -19,8 +19,7 @@
         "toolchain.prereqs"
       ],
       "forbid": [
-        "winui.migrate",
-        "session.report"
+        "winui.migrate"
       ]
     }
   }

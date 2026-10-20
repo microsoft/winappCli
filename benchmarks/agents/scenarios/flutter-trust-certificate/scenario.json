@@ -21,8 +21,7 @@
         "project.*",
         "msix.manifest",
         "winui.*",
-        "ui.samples",
-        "session.report"
+        "ui.samples"
       ]
     }
   }

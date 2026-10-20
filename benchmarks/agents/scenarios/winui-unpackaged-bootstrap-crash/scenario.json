@@ -22,9 +22,9 @@
       ],
       "forbid": [
         "winui.design",
+        "winui.inspect",
         "winui.migrate",
-        "ui.samples",
-        "session.report"
+        "ui.samples"
       ]
     }
   }

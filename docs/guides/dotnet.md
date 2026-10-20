@@ -2,7 +2,7 @@
 <!-- description: Add Windows App SDK support to a .NET WPF or WinForms project with the winapp CLI, then build, add identity, and package the app as MSIX. -->
 # Using winapp CLI with .NET 
 
-> This guide should work for most .NET project types. The steps have been tested with both console and UI-based projects like WPF. For working examples, check out the [dotnet-app](../../samples/dotnet-app) (console) and [wpf-app](../../samples/wpf-app) (WPF) samples in the samples folder.
+> This guide should work for most .NET project types. The steps have been tested with both console and UI-based projects like WPF. For working examples, check out the [dotnet-app](../../samples/dotnet-app) (console) and [wpf-app](../../samples/wpf-app) (WPF) samples in the samples folder. For a single `.cs` file with no project, see [.NET file-based apps](dotnet-file-based.md).
 
 This guide demonstrates how to use the `winapp` CLI with a .NET application to debug with package identity and package your application as an MSIX.
 
@@ -129,7 +129,7 @@ To force AUMID for a console app anyway, set the following inside any `<Property
 <WinAppRunUseExecutionAlias>false</WinAppRunUseExecutionAlias>
 ```
 
-If you'd rather choose the command name yourself, run `winapp manifest add-alias` to declare one in `Package.appxmanifest`; an alias you author is used as-is.
+If you'd rather choose the command name yourself, run `winapp manifest add-alias` to declare one in `Package.appxmanifest`; an alias you author is used as-is (unless you pass `--unique-identity`, which renames it).
 
 ## 5. Debug with Identity
 
@@ -145,8 +145,8 @@ Arguments you write after `dotnet run` go to **your application**, exactly as th
 project did not reference this package:
 
 ```powershell
-dotnet run --devtools          # your app receives --devtools
-dotnet run -- --devtools       # identical: the SDK consumes the -- before forwarding
+dotnet run --demo-mode          # your app receives --demo-mode
+dotnet run -- --demo-mode       # identical: the SDK consumes the -- before forwarding
 ```
 
 Use `--` when your app's flag is also a `dotnet run` option (`--configuration`, `--framework`,
@@ -161,10 +161,10 @@ Configure the WinApp launcher itself with the `WinAppRun*` MSBuild properties. M
 these, so they never reach your application:
 
 ```powershell
-dotnet run -p:WinAppRunDebugOutput=true --devtools
+dotnet run -p:WinAppRunDebugOutput=true --demo-mode
 ```
 
-Here the property configures WinApp while `--devtools` is passed to your app. See
+Here the property configures WinApp while `--demo-mode` is passed to your app. See
 [`dotnet run` support](../dotnet-run-support.md) for the full property list, including which
 properties cannot be combined.
 
@@ -209,9 +209,19 @@ Project mode supports both **packaged** and **unpackaged** WinUI apps — it det
 
 **Multi-project apps** (an app referencing class libraries) build correctly: winapp keeps `AnyCPU`/`netstandard2.0` references on their compatible platform instead of forcing the app's architecture across the graph. RID-only remains the default; when the effective configuration requires a self-contained profile (for example, a trimmed Release build), winapp selects the matching profile without changing referenced libraries' platforms.
 
-The `dotnet build` output streams live, with the exact invocation printed first. Add `--verbose` for winapp's own build decision traces. Requires .NET SDK 8.0.100 or newer. See [`winapp run` in the usage reference](../usage.md#project-mode-net-sdk-projects) for the full option list.
+The build output looks like `dotnet build`'s; a failed step shows the exact `dotnet` command. Add `--verbose` to see every command and winapp's own build decision traces. Requires .NET SDK 8.0.100 or newer. See [`winapp run` in the usage reference](../usage.md#project-mode-net-sdk-projects) for the full option list.
 
-> **No Windows SDK installed?** C#/WinRT authoring projects normally need a registered Windows SDK to build. When project mode detects none (clean CI, containers, SDK-less dev boxes), it points cswinrt at the winmds from the auto-restored `Microsoft.Windows.SDK.NET.Ref` package so the build still succeeds — no action needed. It does nothing when an SDK is installed or when you set `-p CsWinRTWindowsMetadata=…` yourself.
+For two worktrees of the same packaged project, use the CLI explicitly:
+
+```powershell
+winapp run .\dotnet-app.csproj --unique-identity
+winapp unregister .\dotnet-app.csproj
+```
+
+See [unique identity for parallel checkouts](../usage.md#unique-identity-for-parallel-checkouts).
+Don't pass `--unique-identity` to `dotnet run`; it would go to your app, not to winapp.
+
+> **Targeted Windows SDK not installed?** If the Windows SDK version your C#/WinRT project builds against isn't installed, `winapp run` builds against the Windows metadata from the auto-restored `Microsoft.Windows.SDK.NET.Ref` package instead. No action is needed. winapp leaves your setting alone if you pass `-p CsWinRTWindowsMetadata=…` or set it to `local` or a winmd folder.
 
 To add the NuGet package back: `dotnet add package Microsoft.Windows.SDK.BuildTools.WinApp --prerelease`
 

@@ -1,0 +1,21 @@
+{
+  "id": "c11-appinstaller-version-digit-dosvc",
+  "description": "An App Installer feed starts failing with 0x80D05011 after an MSIX version changes digit length, based on https://stackoverflow.com/questions/64381453/appinstaller-xml-issue.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "My `.msix` installs if I double-click it, but the `.appinstaller` link is failing after today's build. I only changed the version from 1.0.9.9 to 1.0.10.0.\n\n```\nApp installation failed with error message: Appinstaller operation failed with error code 0x80D05011. Detail: Unknown error (0x80d05011)\n```",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

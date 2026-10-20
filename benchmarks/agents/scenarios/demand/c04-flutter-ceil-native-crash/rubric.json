@@ -1,0 +1,29 @@
+{
+  "cluster": "c04",
+  "framework": "Flutter",
+  "goal": "Prevent a misleading app-code fix by recognizing the Flutter/Dart Windows native crash and recommending upgrade plus native-crash diagnostics.",
+  "must_include": [
+    "Explains that Dart/Flutter error handlers will not catch a process-level VM/native crash, so the lack of handler output is expected.",
+    "Does not treat `.ceil()` itself as semantically wrong; uses it as a minimal trigger for the Flutter 3.16-era Windows crash.",
+    "Recommends upgrading Flutter/Dart to a fixed stable version such as 3.19.5 or later and retesting affected machines.",
+    "Suggests collecting `flutter doctor -v`, Windows Event Viewer/Application error details, and the `dart.exe --target-unknown-cpu` comparison if the crash still reproduces."
+  ],
+  "must_not": [
+    "Replace every `.ceil()` with `.toInt()` as the final fix.",
+    "Promise that `runZonedGuarded` or `PlatformDispatcher.instance.onError` can catch this crash.",
+    "Ignore reports that a fresh Flutter counter app also exits on the same machine."
+  ],
+  "acceptable_alternatives": [
+    "Temporarily pin Flutter before 3.16 while preparing an upgrade to a fixed stable channel.",
+    "Ship a guarded build to affected testers only to gather Event Viewer and Dart VM diagnostic data."
+  ],
+  "solved": "The answer identifies a native Flutter/Dart Windows regression, recommends upgrading/pinning appropriately, and asks for native crash diagnostics rather than changing numeric semantics.",
+  "partial": "The answer recognizes a Flutter engine/native issue but gives no upgrade or diagnostic plan.",
+  "sources": ["https://github.com/flutter/flutter/issues/138693"],
+  "verified_with": [
+    "https://github.com/flutter/flutter/issues/138693",
+    "https://docs.flutter.dev/install/upgrade",
+    "https://docs.flutter.dev/platform-integration/windows/building"
+  ],
+  "notes": "The near-miss is that the prompt points at a normal Dart expression, but the source issue shows the broader VM/native crash on affected Windows machines."
+}

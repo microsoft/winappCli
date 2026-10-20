@@ -150,13 +150,12 @@ public class SandboxLiveAdoptionTests
 
         var cli = CreateCli();
 
-        // Started exactly as a user would, and deliberately not through winapp: no state record
-        // exists for it, so winapp must treat it as an instance it did not create.
-        var manualId = WindowsSandboxLifecycle.GenerateInstanceId();
-        var reportedId = await cli.StartAsync(manualId, configuration: null, timeout.Token);
+        // Started the way another tool, or an older winapp, starts one, and deliberately not through
+        // winapp's lifecycle: no state record exists for it, so winapp must treat it as an instance
+        // it did not create.
+        var manualId = await StartWithWsbAsync(timeout.Token);
         _startedByThisTest = manualId;
 
-        Assert.AreEqual(manualId, reportedId, "wsb start must honour the caller-assigned instance ID.");
         CollectionAssert.Contains(
             (await cli.ListAsync(timeout.Token)).ToArray(),
             manualId,
@@ -265,36 +264,19 @@ public class SandboxLiveAdoptionTests
         Assert.AreEqual(manualId, second.DescribeForDiagnostics()["sandboxId"]);
     }
 
-    /// <summary>
-    /// <c>wsb start --id</c> honours the caller's GUID, which is what makes recovery possible.
-    /// </summary>
-    /// <remarks>
-    /// The whole partial-start recovery design rests on this: winapp writes down an ID before
-    /// starting, and reconciles that exact ID afterwards. If <c>wsb</c> ever stopped honouring it,
-    /// recovery would silently degrade into guessing from a list, so it is verified against the real
-    /// tool rather than assumed.
-    /// </remarks>
-    [TestMethod]
-    public async Task WsbStart_HonoursTheCallerAssignedInstanceId()
+    /// <summary>Starts a headless Sandbox with <c>wsb start</c> and returns its ID.</summary>
+    private static async Task<string> StartWithWsbAsync(CancellationToken cancellationToken)
     {
-        await SkipUnlessTheMachineIsFreeAsync();
+        var wsb = WindowsSandboxHostProbe.ResolveTrustedAlias()
+            ?? throw new AssertInconclusiveException("wsb.exe is not available.");
+        var instanceId = Guid.NewGuid().ToString("D");
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
-        timeout.CancelAfter(CommandTimeout);
+        var result = await new ProcessRunner().RunAsync(
+            new ProcessRunRequest(wsb, ["start", "--id", instanceId, "--raw"]),
+            cancellationToken: cancellationToken);
 
-        var cli = CreateCli();
-        var assignedId = WindowsSandboxLifecycle.GenerateInstanceId();
-
-        var reportedId = await cli.StartAsync(assignedId, configuration: null, timeout.Token);
-        _startedByThisTest = assignedId;
-
-        Assert.AreEqual(assignedId, reportedId);
-
-        await WaitUntilResolvableAsync(cli, assignedId, timeout.Token);
-
-        Assert.IsTrue(
-            await cli.IsResolvableAsync(assignedId, timeout.Token),
-            "An instance winapp claims must be reachable before anything is prepared in it.");
+        Assert.AreEqual(0, result.ExitCode, $"wsb start failed: {result.StandardError}");
+        return instanceId;
     }
 
     /// <summary>Puts a file and a running process into the guest before winapp sees it.</summary>

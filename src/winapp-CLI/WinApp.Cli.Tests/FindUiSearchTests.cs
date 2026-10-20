@@ -66,6 +66,60 @@ public class FindUiSearchTests
     }
 
     [TestMethod]
+    public void SearchGrouped_MatchesControlByDescriptionOnlyTerm()
+    {
+        // "tabular" appears ONLY in DataGrid's ControlDescription — not in its
+        // name, id, or scenario header. The description is the only control field
+        // carrying task vocabulary (what a control is *for* rather than what it is
+        // *called*), so if it is ever dropped from the BM25 document again, intent
+        // queries silently stop reaching their control and this test fails.
+        var engine = BuildEngine();
+        var groups = engine.SearchGrouped("tabular", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "expected the description term to match");
+        Assert.AreEqual("DataGrid", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void Search_MatchesControlByDescriptionOnlyTerm()
+    {
+        // Same guarantee for the ungrouped path, which builds its own BM25 document.
+        var engine = BuildEngine();
+        var results = engine.Search("tabular", maxResults: 5);
+        Assert.IsTrue(results.Count > 0, "expected the description term to match");
+        Assert.AreEqual("toolkit-datagrid-1", results[0].Id);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_ExactControlName_ShowsThatControlAloneWithMoreSamples()
+    {
+        // Typing a control's exact name is the most common query there is, and find-ui
+        // answers it by dropping the weaker sibling controls and showing more samples
+        // from the one the user named — five instead of the default three.
+        //
+        // Regression guard: the query is CamelCase-expanded before it is tokenized, and
+        // expanding a query with nothing to split appends a copy of itself
+        // ("listview" -> "listview listview"). That made every single-token query count
+        // as two, so this widening silently stopped firing and a bare control-name
+        // search quietly returned fewer samples than it used to.
+        var scenarios = new List<Scenario>();
+        for (int i = 1; i <= 6; i++)
+        {
+            scenarios.Add(Scn("gallery", "listview", "ListView", $"listview-{i}", $"ListView variant {i}"));
+        }
+        scenarios.Add(Scn("gallery", "tabview", "TabView", "tabview-1", "Add, close, and rearrange tabs"));
+
+        var engine = new SearchEngine(
+            [.. scenarios], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var groups = engine.SearchGrouped("listview", maxControls: 3);
+
+        Assert.AreEqual(1, groups.Count,
+            "an exact single-token control name should return that control alone, not padded with siblings");
+        Assert.AreEqual(5, groups[0].Scenarios.Count,
+            "an exact control-name query should widen the sample list from three to five");
+    }
+
+    [TestMethod]
     public void HasSource_LoadedSource_True()
     {
         var engine = BuildEngine();
@@ -139,10 +193,95 @@ public class FindUiSearchTests
         Assert.IsTrue(found);
         StringAssert.Contains(formatted, "[Reactor]");
         StringAssert.Contains(formatted, "**Setup:** NuGet `Microsoft.UI.Reactor`");
-        // All reactor controls share Microsoft.UI.Reactor, so the namespace hint is suppressed.
-        Assert.IsFalse(formatted.Contains("**Namespace:**"), "reactor must not emit a **Namespace:** line");
+        // Reactor's apiNamespace is uniform across all its controls, so it is never emitted.
+        // A reactor control that publishes its own `usings` still gets a **Namespace:** line
+        // (see GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine); this one has none.
+        Assert.IsFalse(formatted.Contains("**Namespace:**"), "the shared reactor apiNamespace is not a hint");
         // Reactor samples are C#-only — no XAML block.
         Assert.IsFalse(formatted.Contains("**XAML:**"), "reactor scenarios have no XAML");
+    }
+
+    [TestMethod]
+    public void GetPattern_ReactorScenario_WithUsings_EmitsNamespaceLine()
+    {
+        // Per-control reactor namespaces (Microsoft.UI.Reactor.Docking and friends) are
+        // exactly the imports a consumer cannot guess, so they get the line even though the
+        // uniform apiNamespace does not.
+        var flex = ReactorScn("flex", "Flex", "flex-1", "CSS-style flex layout");
+        flex.Usings = ["Microsoft.UI.Reactor.Flex", "Microsoft.UI.Xaml.Controls"];
+        var engine = new SearchEngine([flex], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, found, _) = engine.GetPattern("reactor-flex-1");
+
+        Assert.IsTrue(found);
+        StringAssert.Contains(formatted, "**Namespace:** `Microsoft.UI.Reactor.Flex`");
+        // Ambient namespaces are filtered: a stock WinUI project already resolves this one.
+        Assert.IsFalse(formatted.Contains("Microsoft.UI.Xaml.Controls"), "ambient namespaces are noise");
+    }
+
+    [TestMethod]
+    public void GetPattern_StaleSourcePrefixedId_SuggestsHowToFindTheCurrentId()
+    {
+        // Sample ids are rebuilt from the upstream corpus, so an id an agent saved from an
+        // earlier search can stop resolving. The failure has to say where to look.
+        var engine = BuildEngine();
+
+        var (formatted, found, canonicalId) = engine.GetPattern("toolkit-colorpickerbutton-1");
+
+        Assert.IsFalse(found);
+        Assert.IsNull(canonicalId);
+        StringAssert.Contains(formatted, "not found.");
+        StringAssert.Contains(formatted, "winapp find-ui colorpickerbutton",
+            "the suggested search drops the scenario number, which is the part that changed");
+        StringAssert.Contains(formatted, "--list");
+    }
+
+    [TestMethod]
+    public void GetPattern_StaleReactorId_SuggestsAScopedSearchRatherThanList()
+    {
+        // Reactor is opt-in: a plain search and --list both skip the provider entirely, and
+        // --source can't be combined with --list. Suggesting either would send the caller to
+        // a command that cannot return the id they are trying to recover.
+        var engine = BuildEngine();
+
+        var (formatted, found, canonicalId) = engine.GetPattern("reactor-flexpanel-9");
+
+        Assert.IsFalse(found);
+        Assert.IsNull(canonicalId);
+        StringAssert.Contains(formatted, "winapp find-ui flexpanel --source reactor");
+        Assert.IsFalse(formatted.Contains("--list", StringComparison.Ordinal),
+            "--list excludes Reactor and cannot be narrowed with --source, so it can't recover a reactor id");
+    }
+
+    [TestMethod]
+    public void GetPattern_UnknownBareId_StaysTerse()
+    {
+        // No source prefix means this reads as a typo rather than a stale id, and the
+        // generic message already covers that — don't bury every miss in advice.
+        var engine = BuildEngine();
+
+        var (formatted, found, _) = engine.GetPattern("nonsense");
+
+        Assert.IsFalse(found);
+        Assert.AreEqual("Pattern 'nonsense' not found.", formatted);
+    }
+
+    [TestMethod]
+    public void GetPattern_GalleryScenario_KeepsApiNamespaceWhenUsingsAreAllAmbient()
+    {
+        // Regression: 49 Gallery controls publish BOTH usings and apiNamespace, and they
+        // differ. AppWindow imports only template namespaces but the type itself lives in
+        // Microsoft.UI.Windowing — treating usings as a replacement for apiNamespace rather
+        // than a union silently dropped that hint, which is the whole point of the line.
+        var s = Scn("gallery", "appwindow", "AppWindow", "appwindow-1", "Basic usage", "Windowing.");
+        s.Usings = ["Microsoft.UI.Xaml", "Microsoft.UI.Xaml.Controls"];
+        s.ApiNamespace = "Microsoft.UI.Windowing";
+        var engine = new SearchEngine([s], corePatterns: [], enrichmentTags: new(), curatedKeywords: new());
+
+        var (formatted, found, _) = engine.GetPattern("gallery-appwindow-1");
+
+        Assert.IsTrue(found);
+        StringAssert.Contains(formatted, "**Namespace:** `Microsoft.UI.Windowing`");
     }
 
     [TestMethod]
@@ -356,6 +495,242 @@ public class FindUiSearchTests
         {
             CollectionAssert.Contains(expanded, control, $"'image grid' must reach {control}");
         }
+    }
+
+    [TestMethod]
+    public void SearchVocabulary_EmbeddedFileLoads()
+    {
+        var vocabulary = SearchVocabulary.LoadEmbedded();
+
+        Assert.AreEqual(SearchVocabulary.SupportedSchemaVersion, vocabulary.SchemaVersion);
+        Assert.IsTrue(vocabulary.Phrases.Length > 0, "phrases must not be empty");
+        Assert.IsTrue(vocabulary.Expansions.Length > 0, "expansions must not be empty");
+        Assert.IsTrue(Synonyms.Phrases.Count > 0 && Synonyms.ReplacePhrases.Length > 0 && Synonyms.Map.Count > 0,
+            "Synonyms must be built from the embedded vocabulary");
+    }
+
+    [TestMethod]
+    public void Preprocess_ReplacePhrase_SubstitutesToken()
+    {
+        var tokens = BM25.Tokenize(Synonyms.Preprocess("sign in page"));
+
+        CollectionAssert.Contains(tokens, "login");
+        CollectionAssert.DoesNotContain(tokens, "sign", "a replace phrase must drop its original words");
+    }
+
+    [TestMethod]
+    public void Preprocess_AddPhrase_KeepsOriginalWords()
+    {
+        var tokens = BM25.Tokenize(Synonyms.Preprocess("data grid"));
+
+        foreach (var expected in new[] { "data", "grid", "datagrid" })
+        {
+            CollectionAssert.Contains(tokens, expected);
+        }
+    }
+
+    [TestMethod]
+    public void Expand_SiteGroups_DoNotAddUnrelatedControlNames()
+    {
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["audio"]).ToList(), "sound");
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["picture"]).ToList(), "photo");
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["camera"]).ToList(), "webcam");
+    }
+
+    [TestMethod]
+    public void Expand_Expansion_IsOneWay()
+    {
+        CollectionAssert.Contains(Synonyms.Expand(["modal"]).ToList(), "contentdialog");
+        CollectionAssert.DoesNotContain(Synonyms.Expand(["contentdialog"]).ToList(), "modal");
+    }
+
+    /// <summary>Common ways people describe a control without naming it must reach that control.</summary>
+    [TestMethod]
+    [DataRow("toolbar with icons", "commandbar")]
+    [DataRow("speed gauge", "radialgauge")]
+    [DataRow("battery meter", "radialgauge")]
+    [DataRow("editor with tabs", "tabview")]
+    [DataRow("tabbed documents", "tabview")]
+    [DataRow("notification badge", "infobadge")]
+    [DataRow("warning alert", "infobar")]
+    [DataRow("reorder items", "listview")]
+    [DataRow("chat messages", "listview")]
+    [DataRow("signup form", "textbox")]
+    [DataRow("text field", "textbox")]
+    [DataRow("option selector", "combobox")]
+    [DataRow("slide out panel", "splitview")]
+    [DataRow("slide-out panel", "splitview")]
+    [DataRow("side sheet", "splitview")]
+    [DataRow("range slider", "rangeselector")]
+    [DataRow("coach mark", "teachingtip")]
+    [DataRow("scale image to fit", "viewbox")]
+    [DataRow("file picker", "pickers")]
+    public void Expand_DescriptivePhrase_ReachesControl(string query, string control)
+    {
+        var expanded = Synonyms.Expand(BM25.Tokenize(Synonyms.Preprocess(query))).ToList();
+        CollectionAssert.Contains(expanded, control, $"'{query}' must reach {control}");
+    }
+
+    private static SearchEngine BuildEmbeddedEngine()
+    {
+        var scenarios = new List<Scenario>();
+        var tags = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var keywords = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var provider in ProviderRegistry.Descriptors.Where(p => !ProviderRegistry.IsReactorSource(p.Id)))
+        {
+            var data = EmbeddedSnapshot.TryLoad(provider.Id);
+            Assert.IsNotNull(data, $"the {provider.Id} snapshot must be available");
+            scenarios.AddRange(data.Scenarios);
+            foreach (var pair in data.Tags)
+            {
+                tags[$"{provider.Id}:{pair.Key}"] = pair.Value;
+            }
+            foreach (var pair in data.Keywords)
+            {
+                keywords[$"{provider.Id}:{pair.Key}"] = pair.Value;
+            }
+        }
+
+        return new SearchEngine(scenarios.ToArray(), DataLoader.LoadCorePatterns(), tags, keywords);
+    }
+
+    [TestMethod]
+    [DataRow("play audio", "MediaPlayerElement")]
+    [DataRow("play audio file", "MediaPlayerElement")]
+    [DataRow("range slider", "RangeSelector")]
+    [DataRow("coach mark", "TeachingTip")]
+    [DataRow("side sheet", "SplitView")]
+    [DataRow("slide-out", "SplitView")]
+    [DataRow("toolbar", "CommandBar")]
+    public void SearchGrouped_EmbeddedVocabulary_RanksIntendedControlFirst(string query, string expected)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual(expected, groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    /// <summary>TableView is the control built for tabular data, so table, grid and
+    /// spreadsheet wording must reach it ahead of ListView.</summary>
+    [TestMethod]
+    [DataRow("table")]
+    [DataRow("tables")]
+    [DataRow("data table")]
+    [DataRow("data grid")]
+    [DataRow("datagrid")]
+    [DataRow("spreadsheet")]
+    [DataRow("sortable table")]
+    [DataRow("editable table")]
+    [DataRow("table with sorting")]
+    [DataRow("table grouping")]
+    [DataRow("sortable columns")]
+    [DataRow("sort by column")]
+    [DataRow("resize columns")]
+    [DataRow("edit cells")]
+    [DataRow("table sort group resize edit")]
+    [DataRow("datagrid sort group resize columns edit cells")]
+    [DataRow("table view")]
+    [DataRow("tabular data")]
+    [DataRow("grid with sorting and grouping")]
+    public void SearchGrouped_EmbeddedVocabulary_RanksTableViewFirstForTabularData(string query)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual("TableView", groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    [TestMethod]
+    [DataRow("list view")]
+    [DataRow("reorder items")]
+    public void SearchGrouped_EmbeddedVocabulary_KeepsListViewFirstForLists(string query)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsNotEmpty(groups, $"'{query}' must return matches");
+        Assert.AreEqual("ListView", groups[0].ControlName,
+            $"'{query}' returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    [TestMethod]
+    [DataRow("picture grid", "GridView")]
+    [DataRow("camera", "CameraHelper")]
+    [DataRow("date field", "DatePicker")]
+    [DataRow("numeric field", "NumberBox")]
+    [DataRow("rows and columns", "Grid")]
+    [DataRow("toolbar with icons", "CommandBar")]
+    public void SearchGrouped_EmbeddedVocabulary_KeepsRelevantControls(string query, string expected)
+    {
+        var groups = BuildEmbeddedEngine().SearchGrouped(query);
+
+        Assert.IsTrue(groups.Any(g => g.ControlName == expected),
+            $"'{query}' must include {expected}; returned {string.Join(", ", groups.Select(g => g.ControlName))}");
+    }
+
+    /// <summary>
+    /// The Toolkit groups helpers, converters and behaviors under an umbrella control and
+    /// names the specific type in the scenario header, so the header carries vocabulary that
+    /// exists nowhere else on the control.
+    /// </summary>
+    private static SearchEngine BuildTypeNameHeaderEngine() => new(
+        [
+            Scn("toolkit", "converters", "Converters", "converters-1", "FileSizeToFriendlyStringConverter", "Converters for data binding."),
+            Scn("toolkit", "converters", "Converters", "converters-2", "VisibilityToBoolConverter", "Converters for data binding."),
+            Scn("toolkit", "headerbehaviors", "Header Behaviors", "headerbehaviors-1", "StickyHeaderBehavior", "Behaviors for list headers."),
+            Scn("toolkit", "colorpicker", "ColorPicker", "colorpicker-1", "ColorPicker", "Extended color picker."),
+            Scn("toolkit", "colorpicker", "ColorPicker", "colorpicker-2", "ColorPickerButton", "Extended color picker."),
+        ],
+        corePatterns: [],
+        enrichmentTags: new(),
+        curatedKeywords: new());
+
+    [TestMethod]
+    public void SearchGrouped_FindsATypeNameHeaderByItsWordParts()
+    {
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("file size converter", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'file size converter' must reach the Converters group");
+        Assert.AreEqual("Converters", groups[0].ControlName);
+        Assert.AreEqual("toolkit-converters-1", groups[0].Scenarios[0].Id);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_FindsATypeNameHeaderBySingleWordPart()
+    {
+        // "converter" is singular, so it matches no control name — only the split header.
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("converter", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'converter' must reach the Converters group");
+        Assert.AreEqual("Converters", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_FindsABehaviorByItsDescriptiveWords()
+    {
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("sticky header", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'sticky header' must reach the Header Behaviors group");
+        Assert.AreEqual("Header Behaviors", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_StillMatchesTheExactTypeName()
+    {
+        // Splitting the header must not cost the compact form the exact name relies on.
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("StickyHeaderBehavior", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "the exact type name must keep matching");
+        Assert.AreEqual("Header Behaviors", groups[0].ControlName);
+    }
+
+    [TestMethod]
+    public void SearchGrouped_MatchesAScenarioWhoseHeaderExtendsTheControlName()
+    {
+        // "ColorPickerButton" under control "ColorPicker": stripping the control name by plain
+        // replace would leave "Button" and lose the only token that identifies this scenario.
+        var groups = BuildTypeNameHeaderEngine().SearchGrouped("ColorPickerButton", maxControls: 5);
+        Assert.IsTrue(groups.Count > 0, "'ColorPickerButton' must reach the ColorPicker group");
+        Assert.AreEqual("ColorPicker", groups[0].ControlName);
+        Assert.AreEqual("toolkit-colorpicker-2", groups[0].Scenarios[0].Id,
+            "the ColorPickerButton scenario must rank above its sibling");
     }
 
 }

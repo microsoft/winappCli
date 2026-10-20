@@ -1,0 +1,29 @@
+{
+  "cluster": "c02",
+  "framework": "MAUI",
+  "goal": "Fix the MAUI Windows compile error by making the specific WinRT-facing type compatible with CsWinRT source generation.",
+  "must_include": [
+    "Identifies `CsWinRT1028` as an analyzer/build error for a type that implements or crosses WinRT interfaces and must be declared `partial`.",
+    "Changes the named source type, for example `public sealed class MauiCommandBar`, to `public sealed partial class MauiCommandBar` rather than editing generated files.",
+    "Keeps the fix focused on the affected class or classes reported by the compiler output.",
+    "Mentions updating MAUI/Windows App SDK/CsWinRT workloads or packages if many generated framework types are reported, because servicing releases reduced false positives."
+  ],
+  "must_not": [
+    "Suppress `CsWinRT1028` globally as the primary fix.",
+    "Edit files under `obj` or `WinRT.SourceGenerator`.",
+    "Add `AllowUnsafeBlocks` for this specific partial-class diagnostic unless a separate `CsWinRT1030` or unsafe-code error is present."
+  ],
+  "acceptable_alternatives": [
+    "Upgrade to a serviced SDK/package set where the offending generated framework type is already emitted as partial.",
+    "Temporarily disable Native AOT compatibility checks only if the project explicitly does not target trimming/AOT and the answer explains the tradeoff."
+  ],
+  "solved": "The reported class compiles because it is declared partial, or the SDK/package update removes the false positive without suppressing unrelated diagnostics.",
+  "partial": "The answer says to add `partial` but does not say to apply it to the reported source type rather than generated files.",
+  "sources": ["https://github.com/dotnet/maui/issues/25132"],
+  "verified_with": [
+    "https://github.com/dotnet/maui/issues/25132",
+    "https://raw.githubusercontent.com/microsoft/CsWinRT/master/src/Authoring/WinRT.SourceGenerator/AnalyzerReleases.Shipped.md",
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/release-channels"
+  ],
+  "notes": "CsWinRT1028 is documented by CsWinRT's shipped analyzer list as 'Class should be marked partial'."
+}

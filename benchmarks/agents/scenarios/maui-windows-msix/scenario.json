@@ -19,8 +19,7 @@
         "msix.sign"
       ],
       "forbid": [
-        "winui.migrate",
-        "session.report"
+        "winui.migrate"
       ]
     }
   }

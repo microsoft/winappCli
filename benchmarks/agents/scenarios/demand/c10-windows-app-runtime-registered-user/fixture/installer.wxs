@@ -1,0 +1,14 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Atlas Desk" Manufacturer="Summit Harbor" Version="5.2.7" UpgradeCode="{B5F71757-C1DF-4E8A-8C88-4E7185B13413}">
+    <MediaTemplate />
+    <CustomAction Id="InstallWindowsAppRuntime"
+                  Directory="INSTALLFOLDER"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  ExeCommand="&quot;[INSTALLFOLDER]windowsappruntimeinstall-x64.exe&quot; --quiet"
+                  Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="InstallWindowsAppRuntime" After="InstallFiles" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

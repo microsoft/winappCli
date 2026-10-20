@@ -1,0 +1,32 @@
+{
+  "cluster": "c05",
+  "framework": "MAUI",
+  "goal": "Help the developer build/deploy the Windows MSIX output for the Windows target framework instead of a plain .NET target.",
+  "must_include": [
+    "Notices that the project has both `net8.0` and `net8.0-windows10.0.19041.0`, so Visual Studio can be trying to launch the non-Windows target that cannot produce an AppX recipe.",
+    "Tells them to select the Windows Machine / `net8.0-windows...` debug target before F5 or publishing.",
+    "Suggests removing the plain `net8.0` TFM from the app project if it exists only for tests/shared code, or moving shared code to a separate library.",
+    "Includes clearing stale `bin`, `obj`, and `.vs` state or recloning only as cleanup after fixing/confirming the selected Windows target."
+  ],
+  "must_not": [
+    "Treats the missing `.appxrecipe` as a file that should be hand-created.",
+    "Recommends changing the MAUI app to an unpackaged Windows executable as the primary fix.",
+    "Says a signing certificate is always the root cause without checking the selected target framework."
+  ],
+  "acceptable_alternatives": [
+    "Use `dotnet publish -f net8.0-windows10.0.19041.0 -c Debug` to force the Windows target outside Visual Studio.",
+    "Create a fresh solution or clear VS caches after ensuring the Windows target is selected, if the IDE state is corrupt.",
+    "Keep the plain `net8.0` target only in a separate class library referenced by the MAUI app."
+  ],
+  "solved": "The answer directs the developer to build/launch the Windows TFM so the appx recipe is generated and explains what to do with the extra plain TFM.",
+  "partial": "The answer suggests cleaning/recloning or changing OutputType but misses the selected non-Windows target framework shown by the project file.",
+  "sources": [
+    "https://github.com/dotnet/maui/issues/16975"
+  ],
+  "verified_with": [
+    "https://github.com/dotnet/maui/issues/16975",
+    "https://learn.microsoft.com/en-us/dotnet/maui/windows/deployment/publish-visual-studio-folder",
+    "https://learn.microsoft.com/en-us/windows/msix/package/packaging-uwp-apps"
+  ],
+  "notes": "The source thread has multiple workarounds; this fixture makes the target-framework selection visible and gradeable."
+}

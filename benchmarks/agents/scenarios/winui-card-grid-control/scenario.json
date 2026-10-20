@@ -18,9 +18,9 @@
       ],
       "forbid": [
         "winui.migrate",
-        "session.report",
         "ui.automate",
         "ui.test",
+        "winui.inspect",
         "msix.package"
       ]
     }

@@ -1,0 +1,10 @@
+{
+  "id": "c10-windows-app-runtime-registered-user",
+  "description": "An unpackaged Windows App SDK app repeatedly asks for a runtime that appears installed, based on https://github.com/microsoft/WindowsAppSDK/issues/4268.",
+  "set": "demand",
+  "cohort": "error",
+  "prompt": "Some users install our desktop app and still get the Windows App Runtime prompt every time they start it. The bundled runtime installer says it completed successfully.\n\n```\nThis application requires the Windows App Runtime\n  Version 1.5\n  (MSIX package version >= 5001.70.1338.0)\n\nEvent Viewer: ERROR 0x80070005: Bootstrapper initialization failed while looking for version 1.5\n```",
+  "configurations": ["none", "winapp", "winui", "both"],
+  "fixture": "fixture",
+  "expect": { "capabilities": { "primary": [], "acceptable": [], "forbid": [] } }
+}

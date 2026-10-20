@@ -1,0 +1,42 @@
+{
+  "id": "pebblewick-total-stays-blank",
+  "description": "Error-first: a field in a running WinUI 3 window is empty with no exception; find what its binding resolves against at runtime.",
+  "set": "heldout",
+  "cohort": "error",
+  "persona": "2",
+  "framework": "WinUI 3",
+  "conflictingSignal": false,
+  "sources": [
+    "https://learn.microsoft.com/windows/apps/develop/data-binding/data-binding-in-depth"
+  ],
+  "prompt": "Pebblewick's invoice screen is open and the Total field is empty, while every other field fills in. No exception, no output. What is that field's {Binding} actually pointing at right now, and what value does it get?",
+  "paraphrases": {
+    "novice": "In Pebblewick, the invoice page is showing but the total box is blank even though the rest looks fine. Nothing crashes. Can you find out what the total is hooked up to while the app is running and why nothing appears?",
+    "terse": "Pebblewick InvoicePage Total blank, no exception. Runtime binding source/path/value?"
+  },
+  "configurations": [
+    "none",
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "routingSnapshotReason": "The open window is represented by its source files; the evaluated agent selects help rather than reading a live process.",
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "winui.inspect"
+      ],
+      "acceptable": [
+        "winui.design",
+        "winui.build"
+      ],
+      "forbid": [
+        "ui.test",
+        "winui.migrate",
+        "project.scaffold",
+        "msix.package"
+      ]
+    }
+  }
+}

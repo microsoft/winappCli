@@ -38,6 +38,7 @@ A single shared plugin at `plugins/winapp/` serves both GitHub Copilot and Claud
 - [Electron Packaging](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/electron/packaging.md): Creating MSIX packages for Electron apps
 - [C++ Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/cpp.md): Native C++ apps with Windows SDK
 - [.NET Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/dotnet.md): .NET apps with winapp
+- [.NET File-Based Apps Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/dotnet-file-based.md): Single-file .NET apps with package identity
 - [Flutter Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/flutter.md): Flutter apps with package identity and MSIX
 - [Rust Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/rust.md): Rust apps with Windows features
 - [Tauri Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/guides/tauri.md): Tauri apps with MSIX packaging

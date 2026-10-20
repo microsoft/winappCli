@@ -1,0 +1,34 @@
+{
+  "cluster": "c06",
+  "framework": "Electron",
+  "goal": "Help the developer choose an installer format that avoids surprising consumer UAC while preserving a viable enterprise deployment path.",
+  "must_include": [
+    "Recommends a per-user NSIS `.exe`/assisted installer for the default consumer download when avoiding an immediate UAC prompt is more important than MSI enterprise semantics.",
+    "Explains that `msiWrapped` is an MSI launching an embedded NSIS installer, so the observed UAC and `.tmp` launch problem are from the MSI wrapper path, not from the app payload.",
+    "Frames MSIX as the right choice only if the app can accept package identity/containerization, signing, and MSIX/App Installer style updates.",
+    "Frames MSI/WiX as appropriate for managed per-machine deployment, Group Policy/SCCM/Intune-style enterprise installs, or explicit all-users installs that normally require elevation."
+  ],
+  "must_not": [
+    "Claims `msiWrapped.impersonate: true` is enough to make the MSI wrapper a no-UAC per-user installer.",
+    "Treats code signing as the fix for every UAC prompt instead of distinguishing trust prompts from elevation prompts.",
+    "Recommends MSIX without mentioning package identity, signing, and the different update/deployment model.",
+    "Tells them to keep only MSI even though the stated default install goal is a non-admin per-user install."
+  ],
+  "acceptable_alternatives": [
+    "Ship two artifacts: NSIS `.exe` for direct downloads and MSI/MSIX for enterprise administrators.",
+    "Use a native WiX MSI only for a managed all-users channel while keeping NSIS for self-service users.",
+    "Move to MSIX plus App Installer if the app benefits from package identity and clean updates more than traditional installer customization."
+  ],
+  "solved": "The answer makes a clear NSIS-for-default, MSI/MSIX-for-specific-enterprise-or-identity decision and warns that the existing `msiWrapped` configuration is the wrong default path for no-UAC installs.",
+  "partial": "The answer identifies `msiWrapped` as the source of the prompt but does not make a concrete MSI/MSIX/NSIS recommendation or omits the MSIX tradeoffs.",
+  "sources": [
+    "https://github.com/electron-userland/electron-builder/issues/8219"
+  ],
+  "verified_with": [
+    "https://github.com/electron-userland/electron-builder/issues/8219",
+    "https://www.electron.build/docs/nsis",
+    "https://learn.microsoft.com/en-us/windows/msix/overview",
+    "https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/deployment-architecture"
+  ],
+  "notes": "The upstream issue was closed stale without a maintainer fix; grade recommendations by whether they avoid relying on `msiWrapped` for the default no-UAC consumer path."
+}

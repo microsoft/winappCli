@@ -17,8 +17,7 @@
         "winui.*",
         "ui.samples",
         "msix.*",
-        "identity",
-        "session.report"
+        "identity"
       ]
     }
   }

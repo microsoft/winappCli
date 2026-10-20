@@ -1,0 +1,26 @@
+{
+  "cluster": "c18",
+  "framework": "WinUI3",
+  "goal": "Explain the Windows App SDK version boundary for Acrylic/Mica backdrops and give the current WinUI 3 approach.",
+  "must_include": [
+    "Says the fixture's Windows App SDK 1.0 project predates the supported WinUI 3 desktop backdrop APIs, so UWP/WinUI 2 Acrylic samples will not compile unchanged.",
+    "Recommends upgrading Windows App SDK and using `Window.SystemBackdrop` with `DesktopAcrylicBackdrop` or `MicaBackdrop` for current WinUI 3 apps.",
+    "Mentions that `DesktopAcrylicBackdrop` is appropriate when Acrylic is specifically desired, while Mica is often recommended for a main app window foundation layer.",
+    "Keeps backdrop setup on the WinUI `Window`, not as a WPF/WinForms or UWP-only API call."
+  ],
+  "must_not": [
+    "Tells the developer to use `AcrylicBrush` as a drop-in window background for a Windows App SDK 1.0 desktop window.",
+    "Claims Acrylic was fully supported for WinUI 3 desktop windows in Windows App SDK 1.0.",
+    "Suggests switching to UWP solely to get Acrylic in a new desktop app."
+  ],
+  "acceptable_alternatives": [
+    "Use the older `DesktopAcrylicController`/`MicaController` composition-controller pattern if the answer targets Windows App SDK 1.1 or 1.2.",
+    "Use `MicaBackdrop` instead of `DesktopAcrylicBackdrop` if the developer accepts Mica for the main window.",
+    "Use Acrylic only on transient UI such as flyouts and use Mica for the base window."
+  ],
+  "solved": "The answer tells the developer to upgrade from Windows App SDK 1.0 and uses a supported WinUI 3 backdrop API instead of UWP-only Acrylic snippets.",
+  "partial": "The answer says to upgrade but does not name the current `Window.SystemBackdrop`/backdrop classes or the Acrylic versus Mica distinction.",
+  "sources": ["https://stackoverflow.com/questions/70231916/how-to-implement-acrylic-windows-effect-in-winui3-in-desktop-application"],
+  "verified_with": ["https://learn.microsoft.com/en-us/windows/apps/develop/ui/system-backdrops"],
+  "notes": "The user requested a WPF or WinForms theming scenario only if the data had one; this cluster's available data did not, so this uses WinUI 3."
+}

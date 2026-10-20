@@ -1,0 +1,29 @@
+{
+  "cluster": "c04",
+  "framework": "WinUI3",
+  "goal": "Explain why the renamed self-contained single-file WinUI executable can no longer find its MRT resources and give a project-file workaround or upgrade path.",
+  "must_include": [
+    "Connects the XamlParseException to renaming the published single-file executable, not to a broken MainWindow XAML element.",
+    "Says the resource lookup is derived from the executable name in affected SDK builds, so the renamed exe looks for the wrong PRI/resource name.",
+    "Adds `<ProjectPriFileName>resources.pri</ProjectPriFileName>` in a project property group or tells the developer to update to the Microsoft.Windows.SDK.BuildTools.MSIX build that contains the fix.",
+    "Keeps `WindowsAppSDKSelfContained`/single-file deployment as a supported publishing choice but notes the native Windows App SDK files and PRI resources still must be present."
+  ],
+  "must_not": [
+    "Tell the developer to catch and ignore XamlParseException in `OnLaunched`.",
+    "Advise renaming or deleting `.pri` files by hand after publish.",
+    "Claim WinUI 3 supports a completely standalone one-file executable with no resource files."
+  ],
+  "acceptable_alternatives": [
+    "Do not rename the published executable and instead set the assembly/output name before publishing.",
+    "Move to a fixed Microsoft.Windows.SDK.BuildTools.MSIX package instead of carrying the explicit `ProjectPriFileName` workaround."
+  ],
+  "solved": "The answer identifies the rename-dependent PRI lookup failure and gives either the `ProjectPriFileName` workaround or the fixed SDK package/update path.",
+  "partial": "The answer recognizes a missing resource/PRI problem but does not tie it to the renamed executable or gives no durable workaround.",
+  "sources": ["https://github.com/microsoft/WindowsAppSDK/issues/6248"],
+  "verified_with": [
+    "https://github.com/microsoft/WindowsAppSDK/issues/6248",
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/self-contained-deploy/deploy-self-contained-apps",
+    "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/deploy-overview"
+  ],
+  "notes": "The issue was reported against Windows App SDK 1.8-era bits and later comments cite a BuildTools.MSIX fix; the workaround is still useful when the project is pinned to affected packages."
+}

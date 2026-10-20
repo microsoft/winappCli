@@ -38,7 +38,7 @@ internal partial class RunCommand
         /// <see cref="RunUnpackagedProjectAsync"/> so both reject the exact same set (issue #676).
         /// </summary>
         private static List<string> CollectUnpackagedIncompatibleOptions(
-            bool noLaunch, bool withAlias, bool withoutAlias, bool unregisterOnExit, bool clean, FileInfo? manifest, DirectoryInfo? outputAppXDirectory, string? executable)
+            bool noLaunch, bool withAlias, bool withoutAlias, bool unregisterOnExit, bool clean, FileInfo? manifest, DirectoryInfo? outputAppXDirectory, string? executable, bool uniqueIdentity)
         {
             var rejected = new List<string>();
             if (noLaunch)
@@ -76,6 +76,10 @@ internal partial class RunCommand
             {
                 // --executable selects an entry within an MSIX layout; unusable for an unpackaged app.
                 rejected.Add("--executable");
+            }
+            if (uniqueIdentity)
+            {
+                rejected.Add("--unique-identity");
             }
             return rejected;
         }
@@ -192,12 +196,46 @@ internal partial class RunCommand
                 return Fail($"{(aot ? "--aot" : "--framework")} applies to .NET projects and can't be used with a C++ project ({csproj.Name}).", isJson);
             }
 
+            // For C++, -p Configuration=Release is how Visual Studio users pick the configuration, so treat it
+            // like -c. Both are allowed only when they name the same configuration.
+            if (isCpp && ProjectRunService.CppConfigurationFromProperties(properties) is { } propertyConfiguration)
+            {
+                if (parseResult.GetResult(ConfigurationOption) is { Implicit: false }
+                    && !string.Equals(propertyConfiguration, configuration, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Fail($"-p Configuration={propertyConfiguration} conflicts with -c {configuration}. Pass only one of them.", isJson);
+                }
+
+                configuration = propertyConfiguration;
+            }
+
             // For C++, -p Platform=ARM64 is how Visual Studio users pick the architecture, so honor it when
             // --arch/--runtime weren't given instead of defaulting to the machine's architecture.
             if (isCpp && archOption is null && runtimeOption is null
                 && ProjectRunService.CppArchitectureFromProperties(properties) is { } platformArch)
             {
                 architecture = platformArch;
+            }
+
+            // Fail before a potentially minutes-long build that could only end in a launch this machine can't
+            // perform. --no-launch still builds, and a remote execution target has its own architecture.
+            if (!noLaunch && executionTarget.IsLocal && !CanRunArchitecture(architecture, OsArchitecture()))
+            {
+                var host = OsArchitecture().ToString().ToLowerInvariant();
+                // Suggest changing whichever input chose the architecture; --runtime outranks --arch, which outranks -p Platform.
+                var buildForHost = runtimeOption is not null ? $"-r win-{host}"
+                    : archOption is not null || !isCpp ? $"--arch {host}"
+                    : $"-p Platform={ProjectRunService.ToCppPlatform(host)}";
+                if (isCpp && (runtimeOption is not null || archOption is not null)
+                    && ProjectRunService.CppArchitectureFromProperties(properties) is not null)
+                {
+                    // A matching -p Platform must change too, or the build rejects the pair as conflicting.
+                    buildForHost += $" -p Platform={ProjectRunService.ToCppPlatform(host)}";
+                }
+                return Fail(
+                    $"{csproj.Name} targets {architecture}, which this {host} machine can't run. " +
+                    $"Run it on an {architecture} machine, or build for this machine ({buildForHost}).",
+                    isJson);
             }
 
             // Immediate, persistent context line (UX): the pre-build steps below each spawn dotnet and can
@@ -236,7 +274,8 @@ internal partial class RunCommand
             // Build (unless --no-build) and resolve the output properties. ProjectRunService owns the build
             // UX: it streams dotnet's output live and prints the exact invocation; in --json/--quiet mode it
             // routes both to stderr to keep stdout pure.
-            var buildOptions = new ProjectRunOptions(configuration, architecture, framework, noBuild, noRestore, properties, isJson, solution);
+            var buildOptions = new ProjectRunOptions(configuration, architecture, framework, noBuild, noRestore, properties, isJson, solution,
+                CaptureDevToolsSources: devToolsRun.Enabled);
 
             // Fail fast (issue #676): identity-only options like --no-launch are meaningless for an
             // unpackaged app but are only rejected authoritatively AFTER packaging is known (post-build).
@@ -246,7 +285,7 @@ internal partial class RunCommand
             // projects (this probe evaluates with dotnet).
             if (!noBuild && !aot && !isCpp)
             {
-                var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
+                var incompatible = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable, _uniqueIdentityRequested);
                 if (incompatible.Count > 0
                     && await projectRunService.IsDefinitivelyUnpackagedAsync(csproj, buildOptions, cancellationToken))
                 {
@@ -284,11 +323,11 @@ internal partial class RunCommand
                 ? await RunPackagedProjectAsync(
                     resolution, csproj, manifest, layoutOutput, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, noBuild, isJson,
-                    executionTarget, cancellationToken)
+                    executionTarget, cancellationToken, devTools: devToolsRun.Enabled, showOverlay: devToolsRun.ShowToolbar)
                 : await RunUnpackagedProjectAsync(
                     resolution, csproj, appArgs,
                     noLaunch, withAlias, withoutAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, manifest, outputAppXDirectory, isJson,
-                    executionTarget, cancellationToken);
+                    executionTarget, cancellationToken, devTools: devToolsRun.Enabled, showOverlay: devToolsRun.ShowToolbar);
         }
 
         /// <summary>
@@ -314,7 +353,9 @@ internal partial class RunCommand
             bool noBuild,
             bool isJson,
             ExecutionTargetRef executionTarget,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool devTools = false,
+            bool showOverlay = true)
         {
             var targetDir = new DirectoryInfo(resolution.TargetDir);
             if (resolution.IsAot &&
@@ -354,11 +395,11 @@ internal partial class RunCommand
                 targetDir, effectiveManifest, layoutOutput, appArgs,
                 noLaunch, withAlias, debugOutput, unregisterOnExit, detach, clean, useSymbols, executable, isJson,
                 runtimeArch: resolution.Architecture, projectFile: csproj, framework: resolution.Framework, noRestore: resolution.NoRestore, selfContained: resolution.SelfContained,
-                aliasDecision, executionTarget, cancellationToken,
-                packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier),
+                aliasDecision, executionTarget, cancellationToken, packageGraph: ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier),
+                devTools: devTools, showOverlay: showOverlay, devToolsSources: resolution.DevToolsXamlSources, nativeAot: resolution.IsAot,
                 appxRecipe: string.IsNullOrWhiteSpace(resolution.AppxRecipePath)
                     ? null
-                    : new FileInfo(resolution.AppxRecipePath));
+                    : new FileInfo(resolution.AppxRecipePath), devToolsCompilerArtifacts: resolution.DevToolsCompilerArtifacts);
         }
 
         /// <summary>
@@ -383,12 +424,14 @@ internal partial class RunCommand
             DirectoryInfo? outputAppXDirectory,
             bool isJson,
             ExecutionTargetRef executionTarget,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool devTools = false,
+            bool showOverlay = true)
         {
             // AUTHORITATIVE gate — rejects packaged-only options once packaging is definitively known.
             // RunProjectModeAsync fails fast on the definitively-unpackaged case before building (issue
             // #676); this still catches the indeterminate-then-unpackaged case that only resolves here.
-            var rejected = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable);
+            var rejected = CollectUnpackagedIncompatibleOptions(noLaunch, withAlias, withoutAlias, unregisterOnExit, clean, manifest, outputAppXDirectory, executable, _uniqueIdentityRequested);
             if (rejected.Count > 0)
             {
                 return Fail(BuildUnpackagedIncompatibleMessage(rejected, csproj.Name), isJson);
@@ -397,7 +440,7 @@ internal partial class RunCommand
             if (!executionTarget.IsLocal)
             {
                 return await ExecuteUnpackagedSandboxRunAsync(
-                    resolution, csproj, appArgs, debugOutput, detach, isJson, cancellationToken);
+                    resolution, csproj, appArgs, debugOutput, detach, isJson, cancellationToken, devTools, showOverlay);
             }
 
             var exePath = resolution.RunCommand!; // guaranteed non-null for unpackaged by BuildAndResolveAsync
@@ -426,7 +469,8 @@ internal partial class RunCommand
                             // Report whether the runtime was actually prepared: a plain console/desktop app
                             // with no Windows App SDK reference is skipped inside, so claiming "ready" would
                             // be a lie. Surface the skip honestly instead.
-                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), ct);
+                            var packageDir = resolution.WindowsAppSdkPackageDir is { } dir ? new DirectoryInfo(dir) : null;
+                            var prepared = await msixService.EnsureWindowsAppRuntimeInstalledAsync(csproj, resolution.Architecture, resolution.Framework, resolution.NoRestore, taskContext, ToPackageGraph(resolution.ProjectAssetsFile, resolution.ProjectAssetsRuntimeIdentifier), packageDir, ct);
                             return (0, prepared ? "Windows App Runtime ready" : "No Windows App SDK reference — runtime not needed");
                         }
                         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -465,22 +509,55 @@ internal partial class RunCommand
             }
 
             ILaunchedProcess launched;
+            Services.DevTools.XamlSourceCoordinates.XamlCoordinateLaunch? coordinates = null;
+            IReadOnlyDictionary<string, string?>? environment = null;
+            if (devTools)
+            {
+                try
+                {
+                    coordinates = await Services.DevTools.XamlSourceCoordinates.XamlCoordinateLaunch.CreateAsync(csproj, resolution.DevToolsXamlSources,
+                        resolution.DevToolsCompilerArtifacts, cancellationToken,
+                        (snapshot, token) => BindCoordinatePayloadAsync(snapshot, Path.GetDirectoryName(exePath)!, token));
+                    environment = CreateDevToolsEnvironment(csproj.DirectoryName, !resolution.IsAot && !ProjectRunService.IsCppProject(csproj));
+                }
+                catch (Exception ex) when (devToolsRun.FailOpen && ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    coordinates?.Dispose();
+                    coordinates = null;
+                    DevToolsStepsAside($"it could not be prepared: {RunFailure.Describe(ex)}", isJson);
+                    devTools = false;
+                }
+            }
+            using var ownedCoordinates = coordinates;
             try
             {
                 // For --detach and --json the child must not inherit winapp's standard handles: inheritance
                 // would keep the npm wrapper's captured stdout pipe open (blocking a detached launch) and let
                 // app output corrupt --json stdout. A foreground, non-JSON run streams inline like `dotnet run`.
                 var stdioMode = (detach || isJson) ? LaunchStdioMode.Suppress : LaunchStdioMode.Inherit;
-                launched = appLauncherService.LaunchExecutable(exePath, launchArgs, workingDirectory, stdioMode);
+                if (coordinates is not null && environment is not null)
+                {
+                    environment = coordinates.Apply(environment, Path.GetDirectoryName(exePath)!);
+                    if (coordinates.Error is { } coordinateError) { logger.LogWarning("{Message}", coordinateError); }
+                    LogSourceExclusions(coordinates.Exclusions);
+                }
+                await PrepareProfileAsync(new(ExecutableName: Path.GetFileName(exePath)), cancellationToken);
+
+                var launchedAfter = DateTime.UtcNow;
+                launched = appLauncherService.LaunchExecutable(exePath, launchArgs, workingDirectory, stdioMode, environment);
+                await BindProfileAsync(launched.ProcessId, launchedAfter, cancellationToken);
             }
             catch (Exception ex)
             {
                 // A cross-arch apphost (e.g. an arm64 build on an x64 host) fails here with an opaque
                 // Win32 "not a valid application" error. If the resolved arch can't run on this machine,
                 // enrich the message with actionable guidance instead of surfacing the raw OS error.
-                var detail = resolution.Architecture is { Length: > 0 } arch && !CanCurrentOsRunArchitecture(arch)
-                    ? BuildArchMismatchMessage(arch, ex.Message)
-                    : ex.Message;
+                var detail = ex is System.ComponentModel.Win32Exception { NativeErrorCode: ErrorElevationRequired }
+                    ? $"{Path.GetFileName(exePath)} requires administrator rights (its manifest sets requireAdministrator). " +
+                      "Run winapp from an elevated terminal, or lower the app's UAC execution level for this configuration."
+                    : resolution.Architecture is { Length: > 0 } arch && !CanCurrentOsRunArchitecture(arch)
+                        ? BuildArchMismatchMessage(arch, RunFailure.Describe(ex))
+                        : RunFailure.Describe(ex);
                 logger.LogError("{UISymbol} Failed to launch '{Exe}': {Message}", UiSymbols.Error, exePath, detail);
                 if (isJson)
                 {
@@ -496,6 +573,12 @@ internal partial class RunCommand
             {
                 var processId = launched.ProcessId;
 
+                if (devTools)
+                {
+                    return await RunInspectedProcessAsync(launched, null, resolution.TargetDir, debugOutput, useSymbols,
+                        detach, isJson, showOverlay, cancellationToken, coordinates);
+                }
+
                 // --detach: return immediately, surfacing the PID for automation.
                 if (detach)
                 {
@@ -507,7 +590,7 @@ internal partial class RunCommand
                     {
                         ansiConsole.WriteLine(processId.ToString());
                     }
-                    return 0;
+                    return profileRun?.Error is null ? 0 : 1;
                 }
 
                 if (isJson)
@@ -547,9 +630,17 @@ internal partial class RunCommand
         /// x86 host runs x86 only. Unknown monikers are treated as runnable so a genuine launch error still
         /// surfaces normally rather than being masked by a false "wrong architecture" message.
         /// </summary>
-        internal static bool CanCurrentOsRunArchitecture(string targetArch)
+        internal static bool CanCurrentOsRunArchitecture(string targetArch) =>
+            CanRunArchitecture(targetArch, RuntimeInformation.OSArchitecture);
+
+        /// <summary>ERROR_ELEVATION_REQUIRED: the executable's manifest asks for administrator rights.</summary>
+        private const int ErrorElevationRequired = 740;
+
+        /// <summary>The OS architecture. A seam so tests can pin the host regardless of the machine running them.</summary>
+        internal Func<Architecture> OsArchitecture { get; set; } = () => RuntimeInformation.OSArchitecture;
+
+        internal static bool CanRunArchitecture(string targetArch, Architecture os)
         {
-            var os = RuntimeInformation.OSArchitecture;
             return targetArch.ToLowerInvariant() switch
             {
                 "arm64" => os == Architecture.Arm64,

@@ -23,8 +23,7 @@
         "msix.sign",
         "project.*",
         "toolchain.prereqs",
-        "winui.*",
-        "session.report"
+        "winui.*"
       ]
     },
     "maxSkills": 2

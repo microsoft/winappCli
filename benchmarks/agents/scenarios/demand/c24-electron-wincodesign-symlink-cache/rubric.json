@@ -1,0 +1,30 @@
+{
+  "cluster": "c24",
+  "framework": "Electron",
+  "goal": "Get the Windows Electron package building on non-admin Windows machines without weakening signing requirements.",
+  "must_include": [
+    "Connects the failure to electron-builder's cached `winCodeSign-2.6.0.7z` extraction trying to create macOS symlinks on Windows, not to the app's own source files.",
+    "Gives a non-admin workaround: pre-populate `C:\\Users\\build\\AppData\\Local\\electron-builder\\Cache\\winCodeSign\\winCodeSign-2.6.0\\` from a manually extracted archive or from the release source zip so electron-builder skips the failing extraction.",
+    "Mentions that pinning/downgrading electron-builder to a version before the 7zip behavior change is a temporary fallback if cache seeding is unacceptable.",
+    "Keeps the normal Windows package target (`portable` or `nsis`) and does not remove code signing support just to bypass the tool download."
+  ],
+  "must_not": [
+    "Requires the CI job to run as Administrator as the primary fix.",
+    "Deletes the whole electron-builder cache on every run without explaining that the same failing extraction will return.",
+    "Blames the `.dylib` files on a macOS target accidentally being requested by the project."
+  ],
+  "acceptable_alternatives": [
+    "Use a newer electron-builder release if it has repackaged the Windows signing toolset without the problematic symlinks.",
+    "Install the toolset cache as a dedicated CI preparation step before running `electron-builder`.",
+    "Temporarily build with `electron-builder@24.6.3` while tracking the upstream toolset fix."
+  ],
+  "solved": "The answer identifies the winCodeSign extraction/cache problem and provides a non-admin way to seed or avoid the bad extraction so the same `electron-builder --win` package can continue.",
+  "partial": "The answer recognizes the symlink privilege problem but only suggests running elevated or omits how to make CI work.",
+  "sources": ["https://github.com/electron-userland/electron-builder/issues/8149"],
+  "verified_with": [
+    "https://www.electron.build/docs/features/code-signing/code-signing-win/",
+    "https://www.electron.build/docs/configuration/",
+    "https://github.com/electron-userland/electron-builder/issues/8149"
+  ],
+  "notes": "The upstream issue was caused by the bundled signing-tool archive extraction on Windows. Running elevated can mask it locally, but the scenario is specifically non-admin CI."
+}

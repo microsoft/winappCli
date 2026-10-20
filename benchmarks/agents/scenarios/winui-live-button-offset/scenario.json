@@ -1,0 +1,29 @@
+{
+  "id": "winui-live-button-offset",
+  "description": "Running WinUI app: read the layout values an element actually resolves to and where they come from (live XAML inspection, not UI Automation).",
+  "set": "dev",
+  "cohort": "implicit",
+  "prompt": "Harborlight is up from my debug session. On SettingsPage, Save sits a few pixels lower than Cancel even though they share a StackPanel. What Margin, Padding and VerticalAlignment does Save really end up with on screen, and which file sets them?",
+  "configurations": [
+    "winapp",
+    "both"
+  ],
+  "fixture": "fixture",
+  "routingSnapshot": true,
+  "expect": {
+    "capabilities": {
+      "primary": [
+        "winui.inspect"
+      ],
+      "acceptable": [
+        "winui.design"
+      ],
+      "forbid": [
+        "ui.test",
+        "msix.package",
+        "msix.sign",
+        "winui.migrate"
+      ]
+    }
+  }
+}

@@ -144,6 +144,7 @@ Additional guides:
 - [Packaging an EXE/CLI](/docs/guides/packaging-cli.md): step by step guide of packaging an existing exe/cli as MSIX
 - [Sparse packaging](./docs/guides/sparse.md): give an unpackaged app package identity with an identity-only MSIX and external content
 - [Shell completion](./docs/guides/shell-completion.md): tab completion for commands, options, and values in PowerShell, bash, zsh, and fish
+- [.NET file-based apps](./docs/guides/dotnet-file-based.md): run a single `.cs` file with package identity, no project file or manifest required
 - **Electron JS/TypeScript bindings** *(npm only)*: opt into auto-generated WinRT bindings via `winapp init --add-js-bindings`. See task-focused guides:
   - [File picker](/docs/guides/electron/js-file-picker.md) — open native Windows file/folder pickers from the renderer
   - [Toast notifications](/docs/guides/electron/js-notification.md) — show Windows toasts with actions
@@ -240,6 +241,7 @@ npx winapp --help
 
 **App Identity & Debugging:**
 
+- [`perf`](./docs/guides/winui-performance.md) - Record and query WinUI operation trees, layout/scrolling timings, and managed GC suspension context
 - [`run`](./docs/usage.md#run) - Run app as a packaged application for debugging (loose layout registration)
 - [`create-debug-identity`](./docs/usage.md#create-debug-identity) - Add sparse package identity to an existing exe
 - [`embed-identity`](./docs/usage.md#embed-identity) - Connect an exe to its sparse identity package by embedding the `<msix>` element
@@ -263,17 +265,19 @@ See also: [Security guidance](./docs/security.md) — what development certifica
 - [`tool`](./docs/usage.md#tool) - Access Windows SDK tools
 - [`store`](./docs/usage.md#store) - Run Microsoft Store Developer CLI commands
 - [`get-winapp-path`](./docs/usage.md#get-winapp-path) - Get paths to installed SDK components
+- [`config`](./docs/usage.md#config) - Show or change your per-user winapp settings
 - [`complete`](./docs/usage.md#shell-completion) - Tab completion for PowerShell, bash, zsh, and fish
 
 **UI Automation & Sandbox:**
 
 - [`ui`](./docs/usage.md#ui) - Inspect and interact with running app UIs through UI Automation (screenshots, element trees, clicks, and text input). See the [UI Automation guide](./docs/ui-automation.md)
 - [`target`](./docs/usage.md#target) - Run commands, copy files, and capture the desktop inside Windows Sandbox. See [Windows Sandbox execution](./docs/sandbox-execution.md)
+- [`devtools`](./docs/usage.md#devtools) - Inspect, comment on and live-edit a running WinUI app ([guide](./docs/guides/devtools.md))
 
 **Discovery** (agent-first — built for AI coding agents to ground generated code in real metadata and real samples, and usable by hand):
 
 - [`find-api`](./docs/usage.md#find-api) - Search and inspect the Windows/WinRT API surface (types, members, enums, namespaces) a project references
-- [`find-ui`](./docs/usage.md#find-ui) - Search WinUI controls & samples (WinUI 3 Gallery + Windows Community Toolkit; Reactor is opt-in via `--source reactor`) for a working code example
+- [`find-ui`](./docs/usage.md#find-ui) - Search WinUI controls & samples (WinUI 3 Gallery + Windows Community Toolkit, including its helpers, converters, and behaviors; Reactor is opt-in via `--source reactor`) for a working code example
 
 **Node.js/Electron Specific:**
 
@@ -294,6 +298,7 @@ This repository includes samples demonstrating how to use the CLI with various f
 | [C++ App](/samples/cpp-app/README.md) | Native C++ Win32 application with CMake |
 | [C++ WinUI App](/samples/cpp-winui-app/README.md) | Packaged C++/WinRT WinUI 3 app (Visual Studio `.vcxproj`, XAML) launched via `winapp run <vcxproj>` |
 | [.NET Console](/samples/dotnet-app/README.md) | .NET console application |
+| [.NET File-Based App](/samples/dotnet-file-app/README.md) | Single `.cs` file app with package identity, run via `winapp run app.cs` — no project or manifest |
 | [WPF App](/samples/wpf-app/README.md) | WPF desktop application |
 | [WinUI App](/samples/winui-app/README.md) | Packaged WinUI 3 app registered and launched via `winapp run <csproj>` |
 | [WinUI Unpackaged App](/samples/winui-unpackaged-app/README.md) | Unpackaged WinUI 3 app launched via `winapp run <csproj>` |
@@ -353,7 +358,12 @@ To build the CLI:
 .\scripts\build-cli.ps1
 ```
 
-The binaries and packages will be placed in the `artifacts` folder
+The binaries and packages will be placed in the `artifacts` folder. The build
+also builds and stages the matching DevTools engines beside each `winapp.exe`.
+Install the Visual Studio C++ x64/x86 and ARM64 build tools before a full build.
+Npm packaging requires PowerShell 7.3 or newer for tarball verification.
+From `src\winapp-npm`, `npm run build-x64` or `npm run build-arm64` builds only
+that architecture and its engines, without running tests.
 
 ### Reviewing your changes before pushing
 

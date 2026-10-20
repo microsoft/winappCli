@@ -1,0 +1,33 @@
+{
+  "cluster": "c07",
+  "framework": "other",
+  "goal": "Help the developer sign from a non-elevated build account by fixing certificate store/private-key access instead of weakening signing.",
+  "must_include": [
+    "Explains that SignTool found a matching certificate before the Private Key filter, so the likely issue is access to the private key or the wrong store/context, not issuer matching.",
+    "Tells them to inspect whether the cert is in CurrentUser or LocalMachine and run SignTool against the same store used by the non-admin build account.",
+    "For a LocalMachine certificate, grants the actual build user access via Certificates MMC > certificate > All Tasks > Manage Private Keys, rather than requiring elevated builds.",
+    "Keeps `/fd SHA256` and timestamping in the signing command when updating it."
+  ],
+  "must_not": [
+    "Recommends running the whole build permanently as Administrator as the fix.",
+    "Suggests exporting the private key without protection or committing a PFX to source control.",
+    "Treats the problem as a missing Windows SDK because SignTool is already running and enumerating certificates."
+  ],
+  "acceptable_alternatives": [
+    "Import the PFX into the CurrentUser\\My store for the service account that runs the build.",
+    "Use `/f path\\cert.pfx /p ...` from a protected secret store instead of relying on a machine certificate store.",
+    "Use a managed signing service/HSM integration that the build identity can access.",
+    "the winapp CLI's equivalent PFX signing command (`winapp sign .\\Orbit.Reporting.dll .\\cert.pfx --password ...`) when the build uses a protected PFX instead of a certificate-store private key."
+  ],
+  "solved": "The answer fixes the non-admin private-key access/store mismatch and preserves secure SHA-256 signing and timestamping.",
+  "partial": "The answer says it is a private-key or certificate-store problem but does not say how to grant the build identity access or choose the right store.",
+  "sources": [
+    "https://stackoverflow.com/questions/56563732/why-does-signtool-exe-only-find-certificate-when-run-as-admin"
+  ],
+  "verified_with": [
+    "https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool",
+    "https://learn.microsoft.com/en-us/windows/msix/package/create-certificate-package-signing",
+    "docs\\usage.md#sign"
+  ],
+  "notes": "The source accepted answer uses MMC Manage Private Keys; equivalent certificate-store ACL fixes count."
+}

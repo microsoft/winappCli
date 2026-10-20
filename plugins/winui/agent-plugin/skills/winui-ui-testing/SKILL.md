@@ -1,6 +1,6 @@
 ---
 name: winui-ui-testing
-description: "Automated UI testing for Windows desktop apps — generate a batch test script with the `winapp ui` UI Automation harness (WinApp CLI 0.7+), run all tests in one pass, read results. Covers assertions, interactions, keyboard/touch/pen input, file pickers, dialogs, persistence, accessibility, and screenshot/video capture for Win32, WPF, WinForms, and WinUI 3, in Windows Sandbox or locally."
+description: "Write and run automated UI tests for Windows desktop apps (WinUI 3, WPF, WinForms, Win32) with the winapp ui harness: one batch script, assertions, input, file pickers, dialogs, screenshots, locally or in Windows Sandbox. Use when asked for UI tests or to verify a feature end to end."
 ---
 
 ### Scope and execution boundary

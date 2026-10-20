@@ -1,0 +1,34 @@
+{
+  "cluster": "c07",
+  "framework": "Electron",
+  "goal": "Help the developer keep signing the Electron binaries while producing a Store-ready AppX that is not signed by Azure Trusted Signing.",
+  "must_include": [
+    "Says Store-bound AppX/MSIX packages do not need a publisher code-signing certificate because the Microsoft Store re-signs them after certification.",
+    "Identifies that the failure is on the final `.appx` artifact, not on the EXE/DLL signing that already succeeded.",
+    "Keeps Authenticode signing for the unpacked EXE/DLL/MSI artifacts, but excludes the final AppX from the Azure signing pass (for example a separate AppX config/hook or electron-builder `signExts` exclusion when available).",
+    "Sets the AppX publisher value in distinguished-name form matching the certificate subject, such as `CN=Asteria Labs`, when a sideload/enterprise AppX is signed outside the Store."
+  ],
+  "must_not": [
+    "Tells them to buy an EV certificate or move to a hardware token for this Store AppX failure.",
+    "Disables all Windows signing so the EXE/DLL files inside the package are also unsigned.",
+    "Claims the 403 is fixed by changing the timestamp URL alone."
+  ],
+  "acceptable_alternatives": [
+    "Use a separate electron-builder configuration for Store AppX that removes Azure signing only for the final package.",
+    "Patch or hook electron-builder's AppX target to skip the final AppX signing step until `signExts` exclusion support is available.",
+    "For non-Store sideloading, sign the AppX with a normal trusted code-signing certificate or the platform's supported SignTool flow instead of submitting it to the Store unsigned."
+  ],
+  "solved": "The answer distinguishes Store versus sideload signing, preserves binary signing, and gives a concrete way to stop Azure Trusted Signing from signing the final Store AppX.",
+  "partial": "The answer recognizes that the final AppX should not be signed for Store submission but either omits how to preserve EXE/DLL signing or omits the publisher-subject detail.",
+  "sources": [
+    "https://github.com/electron-userland/electron-builder/issues/8948"
+  ],
+  "verified_with": [
+    "https://github.com/electron-userland/electron-builder/issues/8948",
+    "https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/app-package-requirements",
+    "https://learn.microsoft.com/en-us/windows/msix/package/signing-package-overview",
+    "https://www.electron.build/docs/appx",
+    "https://www.electron.build/docs/win"
+  ],
+  "notes": "Electron-builder maintainers discussed adding an AppX signing exclusion; grade concrete workarounds equivalent if they leave Store packages unsigned and inner binaries signed."
+}

@@ -1,0 +1,21 @@
+{
+  "id": "c06-installer-tech-for-no-uac",
+  "description": "Electron-builder's msiWrapped target prompts for elevation and can fail when impersonation is enabled, based on https://github.com/electron-userland/electron-builder/issues/8219.",
+  "set": "demand",
+  "cohort": "implicit",
+  "prompt": "I need to pick our Windows installer format for a desktop app before we send it to customers. The MSI-wrapped build pops UAC immediately and the team is debating MSI vs MSIX vs an exe installer.\n\nGiven these files, which installer technology should I use if we want a normal per-user install by default but still have a path for managed enterprise installs?",
+  "configurations": [
+    "none",
+    "winapp",
+    "winui",
+    "both"
+  ],
+  "fixture": "fixture",
+  "expect": {
+    "capabilities": {
+      "primary": [],
+      "acceptable": [],
+      "forbid": []
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "cluster": "c24",
+  "framework": "Electron",
+  "goal": "Produce the Windows portable package without the icon lookup path splitting between literal and expanded version folders.",
+  "must_include": [
+    "Points to `directories.output: release/${version}` as the trigger for the Windows icon path mismatch.",
+    "Recommends removing the `${version}` macro from `directories.output` for the Windows build, for example using `release`, and keeping versioning in `artifactName` instead.",
+    "Keeps `win.icon` pointing at a valid source icon and does not tell the developer to move the generated `.icon-ico` folder by hand.",
+    "Explains that `artifactName` supports macros and is the safer place for `${version}` when naming deliverables."
+  ],
+  "must_not": [
+    "Blames the failure on PNG-to-ICO conversion without addressing the versioned output directory.",
+    "Suggests checking in `release\\${version}\\.icon-ico\\icon.ico` as a source asset.",
+    "Removes the Windows `portable` target to hide the problem."
+  ],
+  "acceptable_alternatives": [
+    "Hardcode the release directory for this build and move artifacts after the build completes.",
+    "Use a CI step to archive `release` under a versioned parent after electron-builder finishes.",
+    "Use `artifactName: \"${productName}_${version}.${ext}\"` or an equivalent target-specific artifact name."
+  ],
+  "solved": "The answer changes output layout so electron-builder's temporary icon path and final icon lookup agree, while preserving versioned artifact names.",
+  "partial": "The answer says to remove `${version}` somewhere but does not distinguish `directories.output` from `artifactName`.",
+  "sources": ["https://github.com/electron-userland/electron-builder/issues/7711"],
+  "verified_with": [
+    "https://www.electron.build/docs/file-patterns/",
+    "https://www.electron.build/docs/configuration/",
+    "https://github.com/electron-userland/electron-builder/issues/7711"
+  ],
+  "notes": "The fixture uses the same pattern as the source issue: `directories.output` contains `${version}` while `artifactName` also uses `${version}`."
+}

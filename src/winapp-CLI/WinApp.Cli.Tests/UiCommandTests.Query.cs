@@ -374,7 +374,8 @@ public partial class UiCommandTests
     public void QueryOptions_EverySelectorCommand_AcceptsElementFilters()
     {
         static IEnumerable<Command> All(Command command) => command.Subcommands.SelectMany(c => All(c).Prepend(c));
-        var offenders = All(GetRequiredService<WinAppRootCommand>())
+        // The ui group only: devtools commands take XAML selectors, which these UI Automation filters do not apply to.
+        var offenders = All(GetRequiredService<UiCommand>())
             .Where(c => c.Arguments.Any(a => a.Name == "selector")
                 && !(c.Options.Contains(UiQueryOptions.Type)
                      && c.Options.Contains(UiQueryOptions.Root)

@@ -36,7 +36,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
     {
         InputArgument = new Argument<FileInfo>("input")
         {
-            Description = "Path to a .NET file-based app (a single .cs) whose package should be unregistered. Its identity is resolved the same way 'winapp run' resolves it, so no manifest path is needed. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest.",
+            Description = "The app whose registration should be removed: a .cs file-based app, a .csproj or .vcxproj, or the folder you passed to 'winapp run'. Works whether or not the run used --unique-identity. Omit to use --manifest or auto-detect a manifest in the current directory. Cannot be combined with --manifest.",
             Arity = ArgumentArity.ZeroOrOne
         };
 
@@ -168,7 +168,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 return await PruneOrphanedRegistrationsAsync(force, isJson, cancellationToken);
             }
 
-            if (!target.IsLocal && input is not null)
+            if (!target.IsLocal && input is not null && ProjectRunService.IsSingleFileApp(input))
             {
                 return TargetOutput.RejectOptions(
                     ansiConsole,
@@ -191,9 +191,11 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                     isJson);
             }
 
+            var isSingleFile = input != null && ProjectRunService.IsSingleFileApp(input);
+
             // These only participate in resolving a file-based app's identity; a manifest states it.
             if ((properties.Length > 0 || configuration != null || archOption != null || runtimeOption != null)
-                && input == null)
+                && !isSingleFile)
             {
                 return FailWith(
                     "--property, --configuration, --arch and --runtime only apply to a .cs file-based app, whose identity is evaluated from its #:property directives. A manifest already declares its identity.",
@@ -210,7 +212,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
             // bypasses the --json contract entirely. A mistyped or already-deleted path is exactly the case
             // cleanup automation has to parse. RunCommand's input and --manifest dropped that validator for
             // the same reason.
-            if (input != null && !input.Exists)
+            if (input != null && !input.Exists && !Directory.Exists(input.FullName))
             {
                 return FailWith($"'{input.FullName}' does not exist.", isJson);
             }
@@ -229,14 +231,49 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
             // picking one — is what keeps the guard strict without rejecting valid registrations.
             var trustedRoots = new List<string>();
 
-            if (input != null)
+            // The paths a --unique-identity run could have derived this app's identity from.
+            var owners = new List<string>();
+
+            // An explicit input names one app, so only its own folder is trusted. Trusting the current
+            // directory too would match a sibling checkout's registration when run from their parent.
+            var explicitInput = input != null;
+
+            if (input != null && !isSingleFile)
             {
-                if (!ProjectRunService.IsSingleFileApp(input))
+                var isFolder = Directory.Exists(input.FullName);
+                if (!isFolder && input.Extension.ToLowerInvariant() is not (".csproj" or ".vcxproj"))
                 {
                     return FailWith(
-                        $"'{input.Name}' is not a .NET file-based app. Pass a single .cs file, or use --manifest to name a package's manifest.",
+                        $"'{input.Name}' is not an app input. Pass a .cs file, a .csproj or .vcxproj, the folder you passed to 'winapp run', or use --manifest.",
                         isJson);
                 }
+
+                var appDirectory = isFolder ? input.FullName : input.DirectoryName!;
+                manifest = ManifestHelper.FindManifest(appDirectory);
+                if (!manifest.Exists && isFolder)
+                {
+                    // Same fallback as `run <folder>`: a build-output folder can use the manifest in the current directory.
+                    manifest = ManifestHelper.FindManifest(currentDirectoryProvider.GetCurrentDirectory());
+                }
+                if (!manifest.Exists)
+                {
+                    return FailWith(
+                        $"No manifest found in '{appDirectory}' or the current directory. Run from the folder that holds the manifest, or pass --manifest instead of an input.",
+                        isJson);
+                }
+
+                // `run` on a folder that holds a project derives from the project file instead.
+                owners.Add(input.FullName);
+                if (isFolder)
+                {
+                    owners.AddRange(Directory.EnumerateFiles(appDirectory, "*.csproj").Concat(Directory.EnumerateFiles(appDirectory, "*.vcxproj")));
+                }
+                trustedRoots.Add(appDirectory);
+                input = null;
+            }
+
+            if (input != null)
+            {
 
                 // Same resolution run uses: --runtime's arch beats --arch, else the process arch.
                 if (!RunCommand.Handler.TryResolveArchitecture(archOption, runtimeOption, out var architecture, out var archError))
@@ -279,6 +316,7 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 }
 
                 packageName = resolved.PackageName;
+                owners.Add(input.FullName);
 
                 // A file-based app's layout lives in the SDK's own %TEMP%\dotnet\runfile\<stem>-<hash>
                 // directory, never under the user's working directory. That is strictly more precise than
@@ -320,12 +358,25 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 // manifest into the INPUT's AppX directory rather than registering from the manifest's
                 // own folder. Trusting only the manifest directory would refuse to clean up
                 // `run . --manifest C:\shared\custom.appxmanifest`, whose layout is under the project.
-                if (resolvedManifest.DirectoryName is { Length: > 0 } manifestDirectory)
+                if (!explicitInput)
                 {
-                    trustedRoots.Add(manifestDirectory);
+                    if (resolvedManifest.DirectoryName is { Length: > 0 } manifestDirectory)
+                    {
+                        trustedRoots.Add(manifestDirectory);
+                    }
+
+                    trustedRoots.Add(currentDirectoryProvider.GetCurrentDirectory());
                 }
 
-                trustedRoots.Add(currentDirectoryProvider.GetCurrentDirectory());
+                // Without an explicit input, try the folders and projects a run from here would have used.
+                if (owners.Count == 0)
+                {
+                    foreach (var root in trustedRoots.Distinct(StringComparer.OrdinalIgnoreCase).Where(Directory.Exists))
+                    {
+                        owners.Add(root);
+                        owners.AddRange(Directory.EnumerateFiles(root, "*.csproj").Concat(Directory.EnumerateFiles(root, "*.vcxproj")));
+                    }
+                }
             }
 
             // --output-appx-directory relocates the registered layout, so the caller has to be able to
@@ -356,12 +407,13 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
                 return await UnregisterOnTargetAsync(
                     targetIdentity ?? throw new InvalidOperationException(
                         "Target unregister requires a manifest-derived package identity."),
+                    UniqueNames(packageName, owners),
                     isJson,
                     cancellationToken);
             }
 
-            // Search for both the exact name and the .debug variant
-            var namesToCheck = new[] { packageName, $"{packageName}.debug" };
+            // The exact name, the .debug variant, and any --unique-identity name derived from this app's paths.
+            var namesToCheck = new[] { packageName, $"{packageName}.debug" }.Concat(UniqueNames(packageName, owners)).ToList();
 
             var unregistered = new List<string>();
             var skipped = new List<string>();
@@ -497,6 +549,9 @@ internal partial class UnregisterCommand : Command, IShortDescription, ITargetAw
         /// non-interactive run requires it rather than silently assuming consent.
         /// </para>
         /// </remarks>
+        private static IEnumerable<string> UniqueNames(string packageName, IEnumerable<string> owners) =>
+            owners.Select(owner => DevelopmentIdentityHelper.DeriveName(owner, packageName)).Distinct(StringComparer.OrdinalIgnoreCase);
+
         private async Task<int> PruneOrphanedRegistrationsAsync(bool force, bool isJson, CancellationToken cancellationToken)
         {
             var orphans = packageRegistrationService.FindOrphanedDevPackages();

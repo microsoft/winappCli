@@ -6,17 +6,23 @@ BeforeAll {
     function New-SchemaFixture {
         $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         foreach ($directory in @('scripts', 'docs', 'plugins\winapp\skills\fixture', 'plugins\winapp\com.github.copilot\agents',
-            'plugins\winapp\.claude-plugin', '.github\plugin', '.claude-plugin', 'src\winapp-npm\src', 'artifacts\cli\win-x64')) {
+            'plugins\winapp\.claude-plugin', '.github\plugin', '.claude-plugin', 'src\winapp-npm\src', 'artifacts\cli\win-x64',
+            'plugins\winui\agent-plugin', 'plugins\winui\.claude-plugin', 'plugins\winui\.codex-plugin')) {
             New-Item -ItemType Directory -Path (Join-Path $root $directory) -Force | Out-Null
         }
 
-        foreach ($name in @('generate-llm-docs', 'validate-llm-docs', 'validate-plugin-package')) {
+        foreach ($name in @('generate-llm-docs', 'validate-llm-docs', 'validate-plugin-package', 'plugin-version-manifests')) {
             Copy-Item "$repoRoot\scripts\$name.ps1" "$root\scripts"
         }
         Set-Content "$root\plugin.json" '{"version":"1.2.3","skills":["plugins/winapp/skills"],"agents":["plugins/winapp/com.github.copilot/agents/winapp.agent.md"]}'
         Set-Content "$root\plugins\winapp\plugin.json" '{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"winapp","version":"1.2.3"}'
         Set-Content "$root\plugins\winapp\.claude-plugin\plugin.json" '{"version":"1.2.3","agents":["com.github.copilot/agents/winapp.agent.md"]}'
         Set-Content "$root\.github\plugin\marketplace.json", "$root\.claude-plugin\marketplace.json" '{"version":"1.2.3"}'
+        foreach ($winui in @('agent-plugin', '.claude-plugin', '.codex-plugin')) {
+            Set-Content "$root\plugins\winui\$winui\plugin.json" '{"name":"winui","version":"1.2.3"}'
+        }
+        # Carries no version; the sync must leave it alone.
+        Set-Content "$root\plugins\winui\openclaw.plugin.json" '{"id":"winui","name":"WinUI"}'
         Set-Content "$root\version.json" '{"version":"1.2.3"}'
         Set-Content "$root\src\winapp-npm\src\cli.ts" "const NODE_SUBCOMMANDS = ['create-addon'];"
         $content = @'
@@ -98,6 +104,27 @@ Describe 'Live CLI schema consumers' {
         $result = Invoke-SchemaFixture $root 'validate'
         $result.ExitCode | Should -Not -Be 0
         $result.Output | Should -Match "unknown command 'winapp nonexistent'"
+    }
+
+    It 'stamps the repo version on every winapp and WinUI plugin manifest' {
+        Set-Content "$root\version.json" '{"version":"2.0.0"}'
+        $result = Invoke-SchemaFixture $root 'generate'
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        foreach ($manifest in @('plugin.json', 'plugins\winapp\plugin.json', 'plugins\winapp\.claude-plugin\plugin.json',
+                'plugins\winui\agent-plugin\plugin.json', 'plugins\winui\.claude-plugin\plugin.json', 'plugins\winui\.codex-plugin\plugin.json',
+                '.github\plugin\marketplace.json', '.claude-plugin\marketplace.json')) {
+            (Get-Content "$root\$manifest" -Raw | ConvertFrom-Json).version | Should -Be '2.0.0' -Because $manifest
+        }
+        Get-Content "$root\plugins\winui\openclaw.plugin.json" -Raw | Should -Not -Match 'version'
+        $after = Invoke-SchemaFixture $root 'validate'
+        $after.ExitCode | Should -Be 0 -Because $after.Output
+    }
+
+    It 'fails validation when a WinUI plugin manifest drifts from version.json' -ForEach @('agent-plugin', '.claude-plugin', '.codex-plugin') {
+        Set-Content "$root\plugins\winui\$_\plugin.json" '{"name":"winui","version":"0.8.0"}'
+        $result = Invoke-SchemaFixture $root 'validate'
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match "plugins\\winui\\$([regex]::Escape($_))\\plugin\.json must all equal 1\.2\.3"
     }
 
     It 'rejects an explicitly missing schema rather than skipping command validation' {

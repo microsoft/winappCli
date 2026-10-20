@@ -20,7 +20,7 @@
       ],
       "forbid": [
         "winui.migrate",
-        "session.report",
+        "winui.inspect",
         "msix.sign"
       ]
     }

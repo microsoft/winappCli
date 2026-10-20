@@ -22,8 +22,7 @@
         "msix.package",
         "msix.sign",
         "project.setup",
-        "winui.migrate",
-        "session.report"
+        "winui.migrate"
       ]
     }
   }

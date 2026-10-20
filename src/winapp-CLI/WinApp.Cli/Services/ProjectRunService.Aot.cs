@@ -31,7 +31,7 @@ internal sealed partial class ProjectRunService
         WarnOnOverriddenFlags(options);
         var workingDirectory = csproj.Directory
             ?? new DirectoryInfo(Directory.GetCurrentDirectory());
-        (options, _, var csWinRTMetadata) =
+        (options, _, var csWinRTMetadata, _) =
             await PrepareBuildInputsAsync(
                 csproj,
                 options,
@@ -67,7 +67,12 @@ internal sealed partial class ProjectRunService
             throw new ProjectRunException(BuildPublishAotRequiredMessage(csproj));
         }
 
-        var resolution = CreateAotResolution(csproj, options, properties);
+        var resolution = CreateAotResolution(csproj, options, properties) with
+        {
+            DevToolsXamlSources = options.CaptureDevToolsSources ? ReadDevToolsSources(publish.Properties) : null,
+            DevToolsCompilerArtifacts = options.CaptureDevToolsSources
+                ? DevTools.XamlSourceCoordinates.FromProperties(csproj, properties) : null,
+        };
         logger.LogDebug(
             "{UISymbol} Native AOT output: PublishDir={PublishDir}; executable={Executable}; manifest={Manifest}; recipe={Recipe}",
             UiSymbols.Note,
@@ -119,13 +124,26 @@ internal sealed partial class ProjectRunService
             var (exitCode, output, error) = await dotNetService.RunDotnetCommandAsync(
                 workingDirectory,
                 [.. arguments, $"--getResultOutputFile:{resultFile}"],
-                BuildAotPublishEnvironment(),
+                WithPackagingReferenceTargets(BuildAotPublishEnvironment()),
                 writeLine,
                 writeLine,
                 cancellationToken);
             var properties = exitCode == 0 && File.Exists(resultFile)
                 ? await File.ReadAllTextAsync(resultFile, cancellationToken)
                 : string.Empty;
+            if (exitCode != 0 && !logger.IsEnabled(LogLevel.Debug))
+            {
+                // --verbose already showed the command; otherwise show it so the failure can be reproduced.
+                if (options.Json)
+                {
+                    Console.Error.WriteLine($"Command: dotnet {display}");
+                }
+                else if (logger.IsEnabled(LogLevel.Information))
+                {
+                    PrintFailedCommand($"dotnet {display}");
+                }
+            }
+
             return (exitCode, output, error, properties);
         }
         finally

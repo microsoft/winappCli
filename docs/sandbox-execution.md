@@ -13,7 +13,16 @@ winapp ui invoke --on sandbox SubmitButton -a MyApp
 
 Replace `MyApp` with your app name or the guest PID printed by `run`. `--detach` returns
 after launch so the next command can inspect the app; without it, `run` waits for the
-app to exit. The Sandbox stays running between commands and rebuilds.
+app to exit. The Sandbox stays running between commands and rebuilds until it is ended; see
+[Removing an app and ending the Sandbox](#removing-an-app-and-ending-the-sandbox).
+
+`winapp ui inspect --on sandbox --help` shows command help without starting or
+preparing Windows Sandbox.
+
+For WinUI XAML inspection, managed binding diagnostics and persistent host-backed
+comments, see [DevTools inside Sandbox](guides/devtools-advanced.md#inspect-inside-windows-sandbox).
+This runs the overlay in the guest and uses qualified DevTools app selectors,
+not the UI Automation selectors above.
 
 ## Before you start
 
@@ -34,11 +43,15 @@ menu and finish any client installation or update. winapp does not enable the fe
 install the client, request elevation, or restart Windows. If prerequisites are missing,
 it stops with setup instructions; an observed pending Windows restart is reported separately.
 
+To check these prerequisites without starting a Sandbox, run
+`winapp target snapshot sandbox`. See [Inspecting the Sandbox](#inspecting-the-sandbox).
+
 A cold connection or reconnect can briefly take focus. Once connected, winapp puts
 the Sandbox window behind the window you were using, without activating it; switch to
-**Windows Sandbox** in the taskbar to watch the guest. Unlike a Sandbox opened from
-Start, closing this window does not end the Sandbox; it keeps running. To see it again,
-run `wsb list`, then `wsb connect --id <id>`. To end it, see
+**Windows Sandbox** in the taskbar to watch the guest. When winapp started the Sandbox,
+closing that window ends it, just like a Sandbox opened from Start: Windows first asks you
+to confirm, because everything in it is discarded. The next `--on sandbox` command starts a
+fresh one. A Sandbox started with `wsb start` keeps running when its window is closed. See
 [Removing an app and ending the Sandbox](#removing-an-app-and-ending-the-sandbox).
 
 > [!IMPORTANT]
@@ -63,6 +76,10 @@ winapp run .\publish --on sandbox --detach
 winapp run . --on sandbox --clean --detach
 ```
 
+To run copies of a packaged app from different worktrees in the same Sandbox, add
+`--unique-identity`: `winapp run . --unique-identity --on sandbox --detach`. See
+[unique identity for parallel checkouts](usage.md#unique-identity-for-parallel-checkouts).
+
 Build options such as `--configuration`, `--arch`, `--framework`, `--property`,
 `--no-build`, and `--no-restore` apply on the host. Registration, launch, and debugging
 happen in the guest; the app is not registered on your machine.
@@ -84,9 +101,14 @@ Application data is preserved unless you request `--clean`. An incomplete deploy
 does not launch; retrying rebuilds its guest copy. If build files change while winapp is
 preparing them, finish the build and retry.
 
-Warm UI commands report only their result, without repeating a Sandbox preparation
-message. Sandbox startup and connection recovery still report progress. Use `--verbose` for
-connection timings and diagnostic details; `--quiet` and `--json` suppress progress.
+
+Preparation reports separate steps on stderr: starting Sandbox when needed, copying
+the guest-agent files, configuring its firewall rule, and starting the agent.
+Attaching to a running Sandbox also reports checking sign-in. `target push` and
+`target pull` announce when file transfer starts.
+Warm UI commands report only their result, without repeating preparation messages.
+Connection recovery still reports progress. Use `--verbose` for connection timings
+and diagnostic details; `--quiet` and `--json` suppress progress.
 JSON runs include a guest process ID and target scope:
 
 ```json
@@ -273,6 +295,13 @@ This reports readiness, current deployments, and guest windows without creating 
 reconnecting the client, or repairing the agent. With no Sandbox running, it reports
 that fact and exits successfully. To start one, use `winapp run . --on sandbox --detach`.
 
+The report begins with host prerequisites: Windows version, the Windows Sandbox
+feature, the Sandbox client, the `wsb` command, and any pending Windows restart. Each
+check is `passed`, `failed`, or `not checked`; a failed check includes the fix to apply.
+These checks never install anything, request elevation, or restart Windows. In
+`--json` output they appear under `host`, which also appears in the error output
+when inspection fails.
+
 The report distinguishes what the guest supports from what the current client can do;
 a minimized client can prevent input or capture even when the guest supports both.
 Use the guest window list for UI PIDs, not a deployment's tracked launcher process.
@@ -318,18 +347,21 @@ a link is refused. Copy the real files or directories instead.
 ## Removing an app and ending the Sandbox
 
 ```powershell
-winapp unregister --on sandbox --manifest .\Package.appxmanifest
+winapp unregister . --on sandbox
 ```
 
-With a manifest in the current directory, you can omit `--manifest`. This removes only
-the matching development package registered by winapp in the current Sandbox.
+Pass the project or folder you passed to `run`, with or without `--unique-identity`, or a
+manifest. This removes only the matching development package registered by winapp in the
+current Sandbox: the input's `--unique-identity` registration if it has one, otherwise the
+registration under the manifest's own name, which every checkout of the app shares.
 An externally installed package is left alone, even if its identity matches.
 `--force` is not supported with `--on`; it cannot bypass ownership checks.
-This is manifest-based package cleanup, not an unregister command for unpackaged apps
-or a `.cs` input.
+A `.cs` input isn't supported with `--on`; pass its manifest instead. Unpackaged apps have no
+package registration to remove.
 
-The Sandbox remains running, even after you close its window. Manage its lifetime with
-Windows Sandbox's own CLI:
+To end the Sandbox, close its window and confirm. If winapp is using a Sandbox that was
+started with `wsb start`, for example by another tool or by winapp 0.7.1 or earlier,
+closing its window leaves it running. Manage any Sandbox with Windows Sandbox's own CLI:
 
 ```powershell
 wsb list
@@ -337,8 +369,8 @@ wsb connect --id <id>
 wsb stop --id <id>
 ```
 
-Stopping discards the guest and its work. Save needed evidence first, and obtain the
-user's consent before stopping an instance they may be using. Later winapp commands
+Ending a Sandbox discards the guest and its work. Save needed evidence first, and obtain the
+user's consent before ending an instance they may be using. Later winapp commands
 can create a fresh Sandbox; rediscover all app targets afterwards.
 
 ## Troubleshooting
@@ -359,7 +391,7 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_setup_incomplete` | Open Windows Sandbox from Start and finish client setup/update, then retry |
 | `sandbox_unmanaged_instance`, `sandbox_target_ambiguous` | Inspect the reported instances/windows; do not stop unrelated work to resolve ambiguity |
 | `sandbox_input_not_ready`, `sandbox_no_interactive_session` | Restore the existing client or reconnect as directed, then retry |
-| `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested. If it asks you to stop the Sandbox, save any work you need, then run `wsb stop --id <id>` (with consent) and retry; closing its window does not stop it |
+| `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested. If it asks you to stop the Sandbox, save any work you need, then run `wsb stop --id <id>` (with consent) and retry; it works however the Sandbox was started |
 | `sandbox_transport_failed` | Follow the error's `userAction`. If a folder share failed with `0x80070005`, Windows Sandbox (which shares folders as the SYSTEM account) can't read the reported folder; grant access, then retry: `icacls "<folder>" /grant "*S-1-5-18:(OI)(CI)F"` (`S-1-5-18` is SYSTEM) |
 | `sandbox_agent_busy` | Wait for another command to finish, then retry |
 | `sandbox_terminated`, `sandbox_target_stale`, `sandbox_stale_handle` | Rerun the app and rediscover guest PIDs/windows |
