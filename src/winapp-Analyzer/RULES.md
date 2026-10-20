@@ -151,9 +151,9 @@ Informational only. When code uses any namespace listed in the [Microsoft Learn 
 <a id="wui2005"></a>
 ### WUI2005 — Virtualized reset drops the rebuilt range cache
 * **Category:** `WinUI.Runtime` · **Severity:** `Warning`
-* **Fires when:** An `IItemsRangeInfo` implementation replaces the `UpdateRanges` receiver used by `RangesChanged`, raises an inline `NotifyCollectionChangedAction.Reset` later in the same sequential block, and does not replay retained ranges afterward.
-* **Why:** When the item count and visible range remain unchanged, WinUI 3 may not invoke `RangesChanged` again after `Reset`. A replacement cache therefore remains empty and the list loses all rendered items. Retain the last tracked ranges and replay them into the new cache after raising the reset.
-* **False-positive guards:** Ordinary observable collections, resets that preserve the existing range cache, mutually exclusive rebuild/reset paths, and reset paths that unconditionally replay retained ranges are not reported.
+* **Fires when:** An `IItemsRangeInfo` implementation replaces the field or property used as the `UpdateRanges` receiver by `RangesChanged`, raises a semantically bound `NotifyCollectionChangedAction.Reset` later in the same sequential block through the current instance's collection-changed event or `OnCollectionChanged`, and does not replay retained state directly for each corresponding `RangesChanged` argument afterward.
+* **Why:** When the item count and visible range remain unchanged, WinUI 3 may not invoke `RangesChanged` again after `Reset`. A replacement cache therefore remains empty and the list loses all rendered items. Retain the last visible range and tracked item ranges, then replay both into the new cache after raising the reset.
+* **False-positive guards:** Ordinary observable collections, reset arguments passed to unrelated methods or notifications raised on another collection instance, resets that preserve the existing range cache, mutually exclusive rebuild/reset paths, nested switch/loop exits that complete before replay, and reset paths that unconditionally pass the matching retained visible and tracked range members are not reported.
 * **Microsoft Learn:** [`IItemsRangeInfo`](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.data.iitemsrangeinfo)
 * **Suppression:** `#pragma warning disable WUI2005` or `dotnet_diagnostic.WUI2005.severity = none`.
 
