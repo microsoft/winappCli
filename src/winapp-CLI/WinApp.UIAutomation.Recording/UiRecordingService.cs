@@ -165,6 +165,8 @@ internal sealed partial class UiRecordingService(
 
         IFrameGrabber? grabber = null;
         RecordFrameArtifactCoordinator? frameOutput = null;
+        RecordCursorOverlay? cursorOverlay = null;
+        var wgcCaptureHwnd = rootHwnd;
 
         try
         {
@@ -274,6 +276,7 @@ internal sealed partial class UiRecordingService(
                             grabber = _windowCapture.StartFrameGrabber(captureTargetHwnd, options.Fps);
                             var retargetFirst = await grabber.GetFrameAsync(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false)
                                 ?? throw new InvalidOperationException("Timed out waiting for the first captured frame.");
+                            wgcCaptureHwnd = captureTargetHwnd;
                             srcWidth = retargetFirst.Width;
                             srcHeight = retargetFirst.Height;
                             global::Windows.Win32.PInvoke.GetWindowRect(popupHwnd, out var popupWinRect);
@@ -385,6 +388,31 @@ internal sealed partial class UiRecordingService(
                 });
             }
 
+            if (options.Cursor)
+            {
+                cursorOverlay = new RecordCursorOverlay(
+                    options.ClickHighlight,
+                    trackClicks: options.ClickHighlight || options.FramesDirectory is not null,
+                    _logger);
+            }
+
+            // Window capture follows the window if it moves, so the pointer is placed relative to
+            // where the window is now. Screen capture records a fixed area.
+            var pointerOriginHwnd = useScreen ? 0 : (useWgc ? wgcCaptureHwnd : (nint)hwnd);
+            (int Left, int Top) CurrentCaptureOrigin()
+            {
+                if (pointerOriginHwnd == 0 || !_uiAutomation.TryGetWindowRect(pointerOriginHwnd, out var windowRect))
+                {
+                    return (captureOriginLeft, captureOriginTop);
+                }
+                if (!useWgc)
+                {
+                    return (windowRect.Left, windowRect.Top);
+                }
+                var visible = _uiAutomation.GetVisibleWindowBounds(pointerOriginHwnd, windowRect);
+                return (visible.Left, visible.Top);
+            }
+
             // The capture clock starts here, after frame artifact setup has created its staging
             // directory and opened the manifest and index writers. Starting it before that setup
             // charged the filesystem work to --duration, so on a loaded machine a short recording
@@ -392,11 +420,29 @@ internal sealed partial class UiRecordingService(
             // instant, so a frame's elapsedMs is an offset from the manifest's startedUtc.
             var stopwatch = Stopwatch.StartNew();
             var startedUtc = DateTimeOffset.UtcNow;
+            cursorOverlay?.Start(Stopwatch.GetTimestamp());
 
-            async ValueTask CommitFrameAsync(byte[] processedFrame)
+            // sharesSourceBuffer: the frame is the capture source's own buffer, which must not be drawn on.
+            async ValueTask CommitFrameAsync(byte[] processedFrame, (int X, int Y, int Width, int Height) contentCrop, bool sharesSourceBuffer = false)
             {
                 var sampleIndex = frameIndex;
                 var elapsedMs = Math.Max(0, (long)Math.Round(stopwatch.Elapsed.TotalMilliseconds));
+
+                RecordFrameCursor? cursor = null;
+                RecordFrameClick[]? clicks = null;
+                if (cursorOverlay is not null)
+                {
+                    if (sharesSourceBuffer)
+                    {
+                        processedFrame = (byte[])processedFrame.Clone();
+                    }
+                    var (originLeft, originTop) = CurrentCaptureOrigin();
+                    var mapping = CursorFrameMapping.Create(
+                        originLeft + contentCrop.X, originTop + contentCrop.Y, contentCrop.Width, contentCrop.Height,
+                        encoderW, encoderH, displayW, displayH);
+                    (cursor, clicks) = cursorOverlay.Apply(
+                        processedFrame, encoderW, encoderH, mapping, Stopwatch.GetTimestamp());
+                }
 
                 if (frameOutput is not null)
                 {
@@ -405,6 +451,8 @@ internal sealed partial class UiRecordingService(
                         SampleIndex = sampleIndex,
                         ElapsedMs = elapsedMs,
                         MediaTimeMs = sampleIndex * 1000.0 / options.Fps,
+                        Cursor = cursor,
+                        Clicks = clicks,
                     }).ConfigureAwait(false);
                 }
 
@@ -454,7 +502,10 @@ internal sealed partial class UiRecordingService(
                                     closedSrc, closedSw, closedSh,
                                     cropX, cropY, closedCropW, closedCropH,
                                     encoderW, encoderH, displayW, displayH);
-                                await CommitFrameAsync(closedFrame).ConfigureAwait(false);
+                                await CommitFrameAsync(
+                                    closedFrame,
+                                    ClampCropRect(cropX, cropY, closedCropW, closedCropH, closedSw, closedSh),
+                                    sharesSourceBuffer: ReferenceEquals(closedFrame, closedSrc)).ConfigureAwait(false);
                             }
                         }
                         targetClosed = true;
@@ -466,6 +517,8 @@ internal sealed partial class UiRecordingService(
 
                     byte[] frame;
                     long sourceVersion = -1;
+                    var frameCrop = (X: cropX, Y: cropY, Width: cropW, Height: cropH);
+                    var sharesSourceBuffer = false;
                     if (useWgc)
                     {
                         var latest = grabber!.TryGetLatest();
@@ -477,11 +530,17 @@ internal sealed partial class UiRecordingService(
                         var (source, sw, sh, version) = latest.Value;
 
                         sourceVersion = version;
-                        frame = ProcessFrame(
-                            source, sw, sh, cropX, cropY,
+                        frameCrop = ClampCropRect(
+                            cropX, cropY,
                             isWholeWindowWgc ? sw : cropW,
                             isWholeWindowWgc ? sh : cropH,
+                            sw, sh);
+                        frame = ProcessFrame(
+                            source, sw, sh, frameCrop.X, frameCrop.Y,
+                            frameCrop.Width,
+                            frameCrop.Height,
                             encoderW, encoderH, displayW, displayH);
+                        sharesSourceBuffer = ReferenceEquals(frame, source);
                     }
                     else if (initialDesktopFrame is { } initialFrame)
                     {
@@ -539,13 +598,15 @@ internal sealed partial class UiRecordingService(
                     else
                     {
                         var source = _windowCapture.CaptureWindowPixels((nint)hwnd, srcWidth, srcHeight);
+                        frameCrop = ClampCropRect(cropX, cropY, cropW, cropH, srcWidth, srcHeight);
                         frame = ProcessFrame(
                             source, srcWidth, srcHeight,
-                            cropX, cropY, cropW, cropH,
+                            frameCrop.X, frameCrop.Y, frameCrop.Width, frameCrop.Height,
                             encoderW, encoderH, displayW, displayH);
+                        sharesSourceBuffer = ReferenceEquals(frame, source);
                     }
 
-                    await CommitFrameAsync(frame).ConfigureAwait(false);
+                    await CommitFrameAsync(frame, frameCrop, sharesSourceBuffer).ConfigureAwait(false);
                     if (useWgc)
                     {
                         lastEncodedVersion = sourceVersion;
@@ -716,6 +777,13 @@ internal sealed partial class UiRecordingService(
                     "the MP4 is complete, but only the indexed frame prefix was retained. " +
                     "Retry with a shorter duration, lower fps, or lower max-edge for complete frame evidence.");
             }
+            if (cursorOverlay?.ClickTrackingUnavailable == true)
+            {
+                warnings ??= [];
+                warnings.Add(
+                    "Mouse clicks could not be tracked, so the recording shows the pointer without click rings " +
+                    "and the frame index has no click events.");
+            }
             if (grabber?.Warnings is { Count: > 0 } captureWarnings)
             {
                 warnings ??= [];
@@ -755,6 +823,7 @@ internal sealed partial class UiRecordingService(
                 }
             }
             grabber?.Dispose();
+            cursorOverlay?.Dispose();
         }
     }
 

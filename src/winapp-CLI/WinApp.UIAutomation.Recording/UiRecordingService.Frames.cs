@@ -37,6 +37,8 @@ internal sealed partial class UiRecordingService
                 DurationSec = setup.Options.DurationSec,
                 Fps = setup.Options.Fps,
                 MaxEdge = setup.Options.MaxEdge,
+                Cursor = setup.Options.Cursor ? true : null,
+                ClickHighlight = setup.Options.Cursor ? setup.Options.ClickHighlight : null,
             },
             Logger = _logger,
         });

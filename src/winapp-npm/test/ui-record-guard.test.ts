@@ -98,11 +98,13 @@ test('buildUiRecordArgs: all options produce correct arg list', () => {
   const opts: UiRecordOptions = {
     app: 'myapp',
     captureScreen: true,
+    cursor: true,
     durationSec: 10,
     fps: 30,
     frames: true,
     json: true,
     maxEdge: 1080,
+    noClickHighlight: true,
     output: 'out.mp4',
     window: 12345,
     quiet: true,
@@ -124,6 +126,8 @@ test('buildUiRecordArgs: all options produce correct arg list', () => {
   assert.ok(args.includes('--app'), '--app must be present');
   assert.equal(args[args.indexOf('--app') + 1], 'myapp');
   assert.ok(args.includes('--capture-screen'), '--capture-screen must be present');
+  assert.ok(args.includes('--cursor'), '--cursor must be present');
+  assert.ok(args.includes('--no-click-highlight'), '--no-click-highlight must be present');
   assert.equal(args[args.indexOf('--duration-sec') + 1], '10');
   assert.ok(args.includes('--fps'));
   assert.equal(args[args.indexOf('--fps') + 1], '30');
