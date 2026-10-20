@@ -14,5 +14,6 @@ public static class UiPropertyNames
         "IsPassword" or "ToggleState" or "IsReadOnly" or "IsSelected" or
         "ExpandCollapseState" or "ScrollHorizontalPercent" or "ScrollVerticalPercent" or
         "HorizontallyScrollable" or "VerticallyScrollable" or
+        "ScrollHorizontalViewSize" or "ScrollVerticalViewSize" or "SelectionAutomationIds" or
         "FontWeight" or "FontName" or "FontSize" or "ForegroundColor" or "IsItalic" or "StrikethroughStyle";
 }

@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "name": "document-journey",
+  "project": "JourneyDemo\\AccessLoop.JourneyDemo.csproj",
+  "navigationRootId": "MainNavigation",
+  "initialPageId": "home",
+  "pages": [
+    {
+      "id": "home",
+      "title": "Home",
+      "navigationId": "NavHome",
+      "readyId": "HomePageRoot",
+      "requiredControlIds": ["HomePageRoot", "HomeHeading"],
+      "exercise": null
+    },
+    {
+      "id": "documents",
+      "title": "Documents",
+      "navigationId": "NavDocuments",
+      "readyId": "DocumentsPageRoot",
+      "requiredControlIds": ["DocumentsPageRoot", "DocumentTitleInput", "SaveDocumentButton", "SaveStatus"],
+      "exercise": {
+        "targetId": "SaveDocumentButton",
+        "expectedName": "Save document",
+        "anchorId": "DocumentTitleInput",
+        "resultId": "SaveStatus",
+        "inputText": "AccessLoop",
+        "initialResult": "Not saved yet",
+        "expectedResult": "Saved: AccessLoop",
+        "maxTabs": 3
+      }
+    },
+    {
+      "id": "export",
+      "title": "Export",
+      "navigationId": "NavExport",
+      "readyId": "ExportPageRoot",
+      "requiredControlIds": ["ExportPageRoot", "ExportTitleInput", "ExportDocumentButton", "ExportStatus"],
+      "exercise": {
+        "targetId": "ExportDocumentButton",
+        "expectedName": "Export document",
+        "anchorId": "ExportTitleInput",
+        "resultId": "ExportStatus",
+        "inputText": "AccessLoop",
+        "initialResult": "Not exported yet",
+        "expectedResult": "Exported: AccessLoop",
+        "maxTabs": 3
+      }
+    }
+  ],
+  "timeoutSeconds": 20,
+  "maxTransitions": 20,
+  "maxRepairs": 4
+}

@@ -205,6 +205,25 @@ Use the same `workflowId` for recording and concurrent UI actions when they belo
 to one workflow. Do not use cancellation as normal recording completion.
 See [UI recording](ui-automation.md) for capture options.
 
+### Record an action draft
+
+`uiRecordActions` also requires a finite, positive `durationSec`:
+
+```typescript
+import { uiRecordActions } from '@microsoft/winappcli';
+
+await uiRecordActions({
+  app: 'notepad',
+  durationSec: 20,
+  output: './actions.json',
+});
+```
+
+The file is a draft, not a passing test. Review it before using `uiReplay` with
+`acceptRecording: true`; replay sends real input and does not undo app changes.
+See [action recording and replay](ui-automation.md#record-actions) for supported
+inputs, text privacy, replay parameters, and explicit assertions.
+
 ## Electron and Node-only tools
 
 The package also exports `addElectronDebugIdentity`, `clearElectronDebugIdentity`,

@@ -49,6 +49,11 @@ public class FakeUiAutomationService : IUiAutomation
     public int ExplicitInvokeCalls { get; private set; }
     /// <summary>Legacy automatic invoke calls, including configured failures and ancestor retries.</summary>
     public int AutomaticInvokeCalls { get; private set; }
+    public double? VerticalScrollPercentResult { get; set; }
+    public List<UiElement> InvokeCalls { get; } = [];
+    public List<(UiTarget Target, UiElement Element, UiExpandCollapseState State)> ExpandCollapseCalls { get; } = [];
+    public List<(UiTarget Target, UiElement Element, double Percent)> VerticalScrollPercentCalls { get; } = [];
+    public List<(UiElement Element, string? Direction, string? Destination)> ScrollContainerCalls { get; } = [];
     public (byte[] Pixels, int Width, int Height) ScreenshotResult { get; set; } = (new byte[4], 1, 1);
 
     /// <summary>
@@ -87,6 +92,8 @@ public class FakeUiAutomationService : IUiAutomation
     public Exception? PropertiesThrow { get; set; }
     public Exception? ScreenshotThrow { get; set; }
     public Exception? InvokeThrow { get; set; }
+    public Exception? ExpandCollapseThrow { get; set; }
+    public Exception? VerticalScrollPercentThrow { get; set; }
     public Exception? FocusThrow { get; set; }
     public Exception? GetFocusedThrow { get; set; }
     public Exception? GetTextThrow { get; set; }
@@ -252,6 +259,7 @@ public class FakeUiAutomationService : IUiAutomation
     {
         AutomaticInvokeCalls++;
         LastInvokeAction = null;
+        InvokeCalls.Add(element);
         if (InvokeThrow is not null) { throw InvokeThrow; }
         if (InvokeThrowsForAncestorFallback && element.InvokableAncestor is not null)
         {
@@ -283,6 +291,13 @@ public class FakeUiAutomationService : IUiAutomation
     /// <summary>Last element passed to <see cref="InvokeAsync"/>.</summary>
     public UiElement? LastInvokedElement { get; private set; }
 
+    public Task<UiExpandCollapseState> SetExpandCollapseStateAsync(UiTarget uiTarget, UiElement element, UiExpandCollapseState state, CancellationToken ct)
+    {
+        ExpandCollapseCalls.Add((uiTarget, element, state));
+        if (ExpandCollapseThrow is not null) { throw ExpandCollapseThrow; }
+        return Task.FromResult(state);
+    }
+
     public Task SetValueAsync(UiTarget uiTarget, UiElement element, string text, CancellationToken ct)
     {
         if (SetValueThrow is not null) { throw SetValueThrow; }
@@ -311,8 +326,16 @@ public class FakeUiAutomationService : IUiAutomation
 
     public Task ScrollContainerAsync(UiTarget uiTarget, UiElement element, string? direction, string? destination, CancellationToken ct)
     {
+        ScrollContainerCalls.Add((element, direction, destination));
         if (ScrollContainerThrow is not null) { throw ScrollContainerThrow; }
         return Task.CompletedTask;
+    }
+
+    public Task<double> SetVerticalScrollPercentAsync(UiTarget uiTarget, UiElement element, double verticalPercent, CancellationToken ct)
+    {
+        VerticalScrollPercentCalls.Add((uiTarget, element, verticalPercent));
+        if (VerticalScrollPercentThrow is not null) { throw VerticalScrollPercentThrow; }
+        return Task.FromResult(VerticalScrollPercentResult ?? verticalPercent);
     }
 
     public UiElement? FocusedResult { get; set; } = new UiElement { Id = "e0", Type = "Edit", Name = "FocusedElement" };

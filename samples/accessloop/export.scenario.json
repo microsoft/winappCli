@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "name": "export-document",
+  "project": "Demo\\AccessLoop.Demo.csproj",
+  "targetId": "ExportDocumentButton",
+  "expectedName": "Export document",
+  "anchorId": "DocumentTitleInput",
+  "resultId": "SaveStatus",
+  "inputText": "AccessLoop",
+  "expectedResult": "Exported: AccessLoop",
+  "maxTabs": 5,
+  "timeoutSeconds": 15
+}

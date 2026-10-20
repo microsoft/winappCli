@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>winapp-accessibility-worker</AssemblyName>
+    <RootNamespace>AccessLoop</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <UseAppHost>true</UseAppHost>
+    <PublishAot>false</PublishAot>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishSingleFile>false</PublishSingleFile>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Match the linked sample's package and analyzer settings without changing the CLI defaults. -->
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <AnalysisMode>Default</AnalysisMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Axe.Windows" Version="2.4.2" />
+    <!-- Keep the existing checks, approvals, evidence handling, and Axe child entry point intact. -->
+    <Compile Include="..\..\..\samples\accessloop\AccessLoop\**\*.cs"
+             Exclude="..\..\..\samples\accessloop\AccessLoop\bin\**;..\..\..\samples\accessloop\AccessLoop\obj\**"
+             Link="AccessLoop\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <Target Name="IncludeWorkerRedistributableNotices" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <_WorkerRuntimePack Include="@(ResolvedRuntimePack)"
+                          Condition="'%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.NETCore.App'" />
+      <_WorkerPackage Include="@(ReferenceCopyLocalPaths->'%(NuGetPackageId)')"
+                      Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)' != ''" />
+      <_WorkerPackage Remove="@(ResolvedRuntimePack->'%(NuGetPackageId)')" />
+    </ItemGroup>
+    <RemoveDuplicates Inputs="@(_WorkerPackage)">
+      <Output TaskParameter="Filtered" ItemName="_WorkerDistinctPackage" />
+    </RemoveDuplicates>
+    <GetPackageDirectory Items="@(_WorkerDistinctPackage)" PackageFolders="@(AssetsFilePackageFolder)">
+      <Output TaskParameter="Output" ItemName="_WorkerResolvedPackage" />
+    </GetPackageDirectory>
+    <Error Condition="'@(_WorkerRuntimePack)' == ''"
+           Text="Cannot include redistributable notices without the worker's resolved .NET runtime pack." />
+    <Error Condition="'%(_WorkerResolvedPackage.PackageDirectory)' == ''"
+           Text="Cannot locate redistributable notices for %(_WorkerResolvedPackage.Identity)." />
+    <Error Condition="!Exists('%(_WorkerResolvedPackage.PackageDirectory)\%(_WorkerResolvedPackage.NuGetPackageId).nuspec')"
+           Text="Missing package attribution for %(_WorkerResolvedPackage.Identity)." />
+    <ItemGroup>
+      <_WorkerNotice Include="@(_WorkerRuntimePack->'%(PackageDirectory)\LICENSE.TXT');@(_WorkerRuntimePack->'%(PackageDirectory)\THIRD-PARTY-NOTICES.TXT')" />
+      <_WorkerNotice Include="..\..\..\LICENSE">
+        <RelativePath>licenses\WinAppCLI\LICENSE.txt</RelativePath>
+      </_WorkerNotice>
+      <!-- Axe.Windows supplies its copyright and MIT attribution in its nuspec, not a license file. -->
+      <_WorkerNotice Include="%(_WorkerResolvedPackage.PackageDirectory)\*.nuspec;%(_WorkerResolvedPackage.PackageDirectory)\LICENSE*;%(_WorkerResolvedPackage.PackageDirectory)\THIRD-PARTY-NOTICES*">
+        <NoticeDirectory>licenses\%(_WorkerResolvedPackage.NuGetPackageId)\</NoticeDirectory>
+      </_WorkerNotice>
+      <_WorkerNotice Update="@(_WorkerNotice)">
+        <RelativePath Condition="'%(_WorkerNotice.RelativePath)' == ''">%(_WorkerNotice.NoticeDirectory)%(_WorkerNotice.Filename)%(_WorkerNotice.Extension)</RelativePath>
+      </_WorkerNotice>
+    </ItemGroup>
+    <Error Condition="!Exists('%(_WorkerNotice.Identity)')"
+           Text="Missing worker redistributable notice: %(_WorkerNotice.Identity)." />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="@(_WorkerNotice)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>

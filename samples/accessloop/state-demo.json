@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "name": "AccessLoop three-page UI states",
+  "processName": "AccessLoop.StateDemo",
+  "project": "StateDemo\\AccessLoop.StateDemo.csproj",
+  "navigationRootId": "MainNavigation",
+  "initialPageId": "basics",
+  "pages": [
+    {
+      "id": "basics",
+      "name": "Basics",
+      "navigationId": "NavBasics",
+      "readyId": "BasicsReady",
+      "dropdowns": [
+        {
+          "controlId": "DensityCombo",
+          "itemIds": ["DensityStandard", "DensityComfortable", "DensityCompact"]
+        }
+      ]
+    },
+    {
+      "id": "scrolling",
+      "name": "Long content",
+      "navigationId": "NavScrolling",
+      "readyId": "ScrollingReady",
+      "scroll": {
+        "containerId": "ContentScroller",
+        "topAnchorId": "ScrollTopAnchor",
+        "bottomAnchorId": "ScrollBottomAnchor",
+        "maxPositions": 4,
+        "overlapFraction": 0.25
+      }
+    },
+    {
+      "id": "dialogs",
+      "name": "Dialogs",
+      "navigationId": "NavDialogs",
+      "readyId": "DialogsReady",
+      "dialogs": [
+        {
+          "openerId": "OpenInfoDialog",
+          "rootId": "InfoDialog",
+          "dismissId": "CloseInfoDialog",
+          "scope": "same-window"
+        }
+      ]
+    }
+  ],
+  "scopeProbe": {
+    "pageId": "dialogs",
+    "openerId": "OpenScopeProbe",
+    "windowTitle": "AccessLoop scope probe"
+  },
+  "timeoutSeconds": 20,
+  "maxDurationSeconds": 300,
+  "maxStates": 10,
+  "treeDepth": 20,
+  "maxElements": 1000
+}

@@ -4,7 +4,7 @@
 namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 
 /// <summary>
-/// The wait-between-polls delay used by <c>winapp ui wait-for</c>. Extracted behind an interface so
+/// The wait-between-polls delay used by <c>winapp ui wait-for</c> and UIA state confirmation. Extracted behind an interface so
 /// the retry loop's "condition not met yet — keep polling" continuations are unit-testable without a
 /// real wall-clock wait: production wires <see cref="RealPollDelay"/> (a plain <see cref="Task.Delay(int, CancellationToken)"/>),
 /// while tests inject a fast fake so the poll continuations run deterministically.

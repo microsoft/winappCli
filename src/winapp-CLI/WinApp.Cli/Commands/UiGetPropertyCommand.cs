@@ -4,6 +4,7 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
@@ -107,10 +108,15 @@ internal class UiGetPropertyCommand : Command, IShortDescription, IHelpExamples
 
                 if (json)
                 {
-                    var stringProps = new Dictionary<string, string?>();
+                    var jsonProps = new Dictionary<string, object?>();
                     foreach (var kvp in props)
                     {
-                        stringProps[kvp.Key] = kvp.Value?.ToString();
+                        jsonProps[kvp.Key] = kvp.Value switch
+                        {
+                            string[] ids => ids,
+                            IFormattable number => number.ToString(null, CultureInfo.InvariantCulture),
+                            _ => kvp.Value?.ToString(),
+                        };
                     }
                     var elementId = element.Selector ?? element.Id ?? "";
                     UiElementScrubber.Scrub(element);
@@ -118,7 +124,7 @@ internal class UiGetPropertyCommand : Command, IShortDescription, IHelpExamples
                     {
                         ElementId = elementId,
                         Element = element,
-                        Properties = stringProps,
+                        Properties = jsonProps,
                     };
                     ansiConsole.Profile.Out.Writer.WriteLine(
                         JsonSerializer.Serialize(result, UiJsonContext.Default.UiPropertyResult));
@@ -127,7 +133,9 @@ internal class UiGetPropertyCommand : Command, IShortDescription, IHelpExamples
                 {
                     foreach (var kvp in props)
                     {
-                        var value = kvp.Value?.ToString() ?? "(null)";
+                        var value = kvp.Value is string[] ids
+                            ? JsonSerializer.Serialize(ids, UiJsonContext.Default.StringArray)
+                            : kvp.Value?.ToString() ?? "(null)";
                         // Sanitize control characters for single-line display
                         value = value.Replace("\r\n", "↵").Replace("\r", "↵").Replace("\n", "↵").Replace("\t", "→");
                         ansiConsole.WriteLine($"  {kvp.Key}: {value}");

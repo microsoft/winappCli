@@ -55,6 +55,7 @@ GetForegroundWindow
 GetDpiForWindow
 GetWindowDpiAwarenessContext
 GetAwarenessFromDpiAwarenessContext
+DwmGetWindowAttribute
 SetForegroundWindow
 GetCurrentThreadId
 SetWindowPos

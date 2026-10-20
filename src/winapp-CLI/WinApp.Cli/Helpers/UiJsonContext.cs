@@ -22,12 +22,22 @@ namespace WinApp.Cli.Helpers;
 [JsonSerializable(typeof(UiSearchResult))]
 [JsonSerializable(typeof(UiPropertyResult))]
 [JsonSerializable(typeof(Dictionary<string, string?>))]
+[JsonSerializable(typeof(Dictionary<string, object?>))]
+[JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(UiInvokeResult))]
+[JsonSerializable(typeof(UiExpandCollapseResult))]
 [JsonSerializable(typeof(UiClickResult))]
 [JsonSerializable(typeof(UiScreenshotResult))]
 [JsonSerializable(typeof(UiScreenshotResult[]))]
+[JsonSerializable(typeof(UiAuditScreenshotResult))]
+[JsonSerializable(typeof(UiAuditSnapshotResult))]
+[JsonSerializable(typeof(UiAuditTabsResult))]
+[JsonSerializable(typeof(UiAuditObservationResult))]
 [JsonSerializable(typeof(UiRecordResult))]
 [JsonSerializable(typeof(UiRecordStartedEvent))]
+[JsonSerializable(typeof(UiActionsRecordResult))]
+[JsonSerializable(typeof(UiActionsRecordStartedEvent))]
+[JsonSerializable(typeof(UiActionsReplayResult))]
 [JsonSerializable(typeof(RecordFrameArtifactResult))]
 [JsonSerializable(typeof(RecordFrameIndexEntry))]
 [JsonSerializable(typeof(RecordFrameBundleManifest))]
@@ -62,6 +72,7 @@ namespace WinApp.Cli.Helpers;
 internal partial class UiJsonContext : JsonSerializerContext;
 
 [JsonSerializable(typeof(UiRecordStartedEvent))]
+[JsonSerializable(typeof(UiActionsRecordStartedEvent))]
 [JsonSerializable(typeof(UiErrorResult))]
 [JsonSourceGenerationOptions(
     WriteIndented = false,
@@ -128,7 +139,15 @@ internal sealed class UiPropertyResult
 {
     public string ElementId { get; set; } = "";
     public UiElement Element { get; set; } = new();
-    public Dictionary<string, string?> Properties { get; set; } = [];
+    public Dictionary<string, object?> Properties { get; set; } = [];
+}
+
+internal sealed class UiExpandCollapseResult
+{
+    public string ElementId { get; set; } = "";
+    public long Hwnd { get; set; }
+    public string State { get; set; } = "";
+    public string Pattern { get; set; } = "ExpandCollapsePattern";
 }
 
 internal sealed class UiInvokeResult
@@ -175,6 +194,29 @@ internal sealed class UiScreenshotResult
     /// </remarks>
     public ExecutionTargetScope? ExecutionTarget { get; set; }
 }
+
+internal sealed class UiAuditScreenshotResult
+{
+    public int SchemaVersion { get; set; } = 1;
+    public string Status { get; set; } = "captured";
+    public int ProcessId { get; set; }
+    public long WindowHandle { get; set; }
+    public string FilePath { get; set; } = "";
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public string CaptureMethod { get; set; } = "windows-graphics-capture";
+    public bool ActivationRequested { get; set; }
+    public DateTimeOffset CaptureStartedAtUtc { get; set; }
+    public DateTimeOffset CapturedAtUtc { get; set; }
+    public UiAuditCaptureBounds? CaptureBoundsBefore { get; set; }
+    public UiAuditCaptureBounds? CaptureBoundsAfter { get; set; }
+    public string CoordinateMappingStatus { get; set; } = "unavailable";
+    public string? CoordinateMappingReason { get; set; }
+    public long ForegroundBefore { get; set; }
+    public long ForegroundAfter { get; set; }
+}
+
+internal sealed record UiAuditCaptureBounds(int Left, int Top, int Width, int Height);
 
 internal sealed class UiScreenshotWindowInfo
 {
@@ -226,6 +268,32 @@ internal sealed class UiRecordStartedEvent
     public string? FramesDirectory { get; set; }
     public string? FramesManifest { get; set; }
     public string? FramesIndex { get; set; }
+}
+
+internal sealed class UiActionsRecordResult
+{
+    public string Path { get; set; } = "";
+    public string Status { get; set; } = "";
+    public int StepCount { get; set; }
+    public string StopReason { get; set; } = "";
+    public IReadOnlyList<string> Warnings { get; set; } = [];
+    public IReadOnlyList<string> Parameters { get; set; } = [];
+}
+
+internal sealed class UiActionsRecordStartedEvent
+{
+    public string Event { get; set; } = "recording-actions-started";
+    public string Path { get; set; } = "";
+    public int DurationSec { get; set; }
+    public bool CaptureText { get; set; }
+    public bool IncludeInjected { get; set; }
+}
+
+internal sealed class UiActionsReplayResult
+{
+    public string Status { get; set; } = "completed";
+    public int CompletedSteps { get; set; }
+    public int AssertionsChecked { get; set; }
 }
 
 internal sealed class UiWaitForResult
@@ -320,6 +388,8 @@ internal sealed class UiScrollResult
     public string? To { get; set; }
     public int? Wheel { get; set; }
     public int? WheelHorizontal { get; set; }
+    public double? VerticalPercent { get; set; }
+    public double? ActualVerticalPercent { get; set; }
     public long Hwnd { get; set; }
 }
 

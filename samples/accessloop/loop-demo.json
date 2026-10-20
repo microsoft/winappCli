@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "name": "AccessLoop preset inspection and repair",
+  "project": "StateDemo\\AccessLoop.StateDemo.csproj",
+  "processName": "AccessLoop.StateDemo",
+  "timeoutSeconds": 20,
+  "maxDurationSeconds": 300,
+  "treeDepth": 24,
+  "maxElements": 1500,
+  "pages": [
+    { "id": "basics", "name": "Basics", "navigationId": "NavBasics", "readyId": "BasicsReady" },
+    { "id": "scrolling", "name": "Long content", "navigationId": "NavScrolling", "readyId": "ScrollingReady" },
+    { "id": "dialogs", "name": "Dialogs", "navigationId": "NavDialogs", "readyId": "DialogsReady" }
+  ],
+  "steps": [
+    {
+      "id": "enter-basics", "pageId": "basics", "name": "Prepare the Basics tab", "kind": "navigate",
+      "targetId": "NavBasics", "controlType": "TabItem",
+      "expectations": [{ "targetId": "NavBasics", "property": "IsSelected", "expected": "True" }]
+    },
+    {
+      "id": "basics-default", "pageId": "basics", "name": "Inspect the initial controls", "kind": "scan",
+      "requiredIds": ["BasicIconButton", "PreviewGuidesToggle", "PreviewGuidesStatus", "DensityCombo"],
+      "expectations": [
+        { "targetId": "PreviewGuidesToggle", "property": "ToggleState", "expected": "Off" },
+        { "targetId": "PreviewGuidesStatus", "property": "Name", "expected": "Preview guides off" },
+        { "targetId": "DensityCombo", "property": "SelectionAutomationIds", "expected": ["DensityStandard"] }
+      ]
+    },
+    {
+      "id": "tab-to-toggle", "pageId": "basics", "name": "Reach the switch with Tab", "kind": "key",
+      "targetId": "NavBasics", "controlType": "TabItem", "keys": "Tab",
+      "expectations": [{ "targetId": "PreviewGuidesToggle", "property": "HasKeyboardFocus", "expected": "True" }]
+    },
+    {
+      "id": "enable-guides", "pageId": "basics", "name": "Enable the in-memory preview", "kind": "key",
+      "targetId": "PreviewGuidesToggle", "controlType": "CheckBox", "keys": "Space",
+      "expectations": [
+        { "targetId": "PreviewGuidesToggle", "property": "ToggleState", "expected": "On" },
+        { "targetId": "PreviewGuidesStatus", "property": "Name", "expected": "Preview guides on" }
+      ]
+    },
+    {
+      "id": "guides-on", "pageId": "basics", "name": "Inspect the enabled switch state", "kind": "scan",
+      "requiredIds": ["BasicIconButton", "PreviewGuidesToggle", "PreviewGuidesStatus"]
+    },
+    {
+      "id": "restore-guides", "pageId": "basics", "name": "Restore the original switch state", "kind": "key",
+      "targetId": "PreviewGuidesToggle", "controlType": "CheckBox", "keys": "Space",
+      "expectations": [
+        { "targetId": "PreviewGuidesToggle", "property": "ToggleState", "expected": "Off" },
+        { "targetId": "PreviewGuidesStatus", "property": "Name", "expected": "Preview guides off" }
+      ]
+    },
+    {
+      "id": "tab-to-density", "pageId": "basics", "name": "Reach the dropdown with Tab", "kind": "key",
+      "targetId": "PreviewGuidesToggle", "controlType": "CheckBox", "keys": "Tab",
+      "expectations": [{ "targetId": "DensityCombo", "property": "HasKeyboardFocus", "expected": "True" }]
+    },
+    {
+      "id": "open-density", "pageId": "basics", "name": "Open the dropdown with the keyboard", "kind": "key",
+      "targetId": "DensityCombo", "controlType": "ComboBox", "keys": "Alt+Down",
+      "expectations": [
+        { "targetId": "DensityCombo", "property": "ExpandCollapseState", "expected": "Expanded" },
+        { "targetId": "DensityCombo", "property": "SelectionAutomationIds", "expected": ["DensityStandard"] },
+        { "targetId": "DensityStandard", "property": "HasKeyboardFocus", "expected": "True" }
+      ]
+    },
+    {
+      "id": "density-expanded", "pageId": "basics", "name": "Inspect the expanded options", "kind": "scan",
+      "requiredIds": ["BasicIconButton", "DensityCombo", "DensityStandard", "DensityComfortable", "DensityCompact"]
+    },
+    {
+      "id": "close-density", "pageId": "basics", "name": "Close the dropdown without changing selection", "kind": "key",
+      "targetId": "DensityStandard", "controlType": "ListItem", "keys": "Escape",
+      "expectations": [
+        { "targetId": "DensityCombo", "property": "ExpandCollapseState", "expected": "Collapsed" },
+        { "targetId": "DensityCombo", "property": "SelectionAutomationIds", "expected": ["DensityStandard"] },
+        { "targetId": "DensityCombo", "property": "HasKeyboardFocus", "expected": "True" }
+      ]
+    },
+    {
+      "id": "tab-to-refresh", "pageId": "basics", "name": "Reach the icon button with Tab", "kind": "key",
+      "targetId": "DensityCombo", "controlType": "ComboBox", "keys": "Tab",
+      "expectations": [{ "targetId": "BasicIconButton", "property": "HasKeyboardFocus", "expected": "True" }]
+    },
+    {
+      "id": "reverse-to-density", "pageId": "basics", "name": "Verify reverse keyboard navigation", "kind": "key",
+      "targetId": "BasicIconButton", "controlType": "Button", "keys": "Shift+Tab",
+      "expectations": [{ "targetId": "DensityCombo", "property": "HasKeyboardFocus", "expected": "True" }]
+    },
+    {
+      "id": "return-to-refresh", "pageId": "basics", "name": "Return to the same button through Tab", "kind": "key",
+      "targetId": "DensityCombo", "controlType": "ComboBox", "keys": "Tab",
+      "expectations": [{ "targetId": "BasicIconButton", "property": "HasKeyboardFocus", "expected": "True" }]
+    },
+    {
+      "id": "refresh-preview", "pageId": "basics", "name": "Activate the button and verify its result", "kind": "key",
+      "targetId": "BasicIconButton", "controlType": "Button", "keys": "Enter",
+      "expectations": [{ "targetId": "BasicsActionStatus", "property": "Name", "expected": "Preview refreshed" }]
+    },
+    {
+      "id": "enter-scrolling", "pageId": "scrolling", "name": "Prepare the Long content tab", "kind": "navigate",
+      "targetId": "NavScrolling", "controlType": "TabItem",
+      "expectations": [{ "targetId": "NavScrolling", "property": "IsSelected", "expected": "True" }]
+    },
+    {
+      "id": "scroll-to-top", "pageId": "scrolling", "name": "Confirm the original content position", "kind": "scroll",
+      "targetId": "ContentScroller", "controlType": "Pane", "verticalPercent": 0,
+      "expectations": [{ "targetId": "ContentScroller", "property": "ScrollVerticalPercent", "expected": 0 }]
+    },
+    {
+      "id": "scroll-top", "pageId": "scrolling", "name": "Inspect the top of the long page", "kind": "scan",
+      "requiredIds": ["ContentScroller", "ScrollTopAnchor"]
+    },
+    {
+      "id": "tab-to-scroller", "pageId": "scrolling", "name": "Reach the body scroll container with Tab", "kind": "key",
+      "targetId": "NavScrolling", "controlType": "TabItem", "keys": "Tab",
+      "expectations": [{ "targetId": "ContentScroller", "property": "HasKeyboardFocus", "expected": "True" }]
+    },
+    {
+      "id": "scroll-to-middle", "pageId": "scrolling", "name": "Move the body to its middle", "kind": "scroll",
+      "targetId": "ContentScroller", "controlType": "Pane", "verticalPercent": 50,
+      "expectations": [{ "targetId": "ContentScroller", "property": "ScrollVerticalPercent", "expected": 50 }]
+    },
+    {
+      "id": "scroll-middle", "pageId": "scrolling", "name": "Inspect the middle viewport", "kind": "scan",
+      "requiredIds": ["ContentScroller", "ScrollBottomButton"]
+    },
+    {
+      "id": "scroll-to-bottom", "pageId": "scrolling", "name": "Reach the declared bottom", "kind": "scroll",
+      "targetId": "ContentScroller", "controlType": "Pane", "verticalPercent": 100,
+      "expectations": [
+        { "targetId": "ContentScroller", "property": "ScrollVerticalPercent", "expected": 100 },
+        { "targetId": "ScrollBottomAnchor", "property": "IsOffscreen", "expected": "False" }
+      ]
+    },
+    {
+      "id": "scroll-bottom", "pageId": "scrolling", "name": "Inspect the bottom action", "kind": "scan",
+      "requiredIds": ["ContentScroller", "ScrollBottomAnchor", "ScrollBottomButton"]
+    },
+    {
+      "id": "tab-to-save-layout", "pageId": "scrolling", "name": "Reach the bottom action through the keyboard", "kind": "key",
+      "targetId": "ContentScroller", "controlType": "Pane", "keys": "Tab",
+      "expectations": [{ "targetId": "ScrollBottomButton", "property": "HasKeyboardFocus", "expected": "True" }]
+    },
+    {
+      "id": "save-layout", "pageId": "scrolling", "name": "Verify the in-memory save action", "kind": "key",
+      "targetId": "ScrollBottomButton", "controlType": "Button", "keys": "Enter",
+      "expectations": [{ "targetId": "ScrollActionStatus", "property": "Name", "expected": "Layout saved" }]
+    },
+    {
+      "id": "restore-scroll", "pageId": "scrolling", "name": "Restore the original content position", "kind": "scroll",
+      "targetId": "ContentScroller", "controlType": "Pane", "verticalPercent": 0,
+      "expectations": [{ "targetId": "ContentScroller", "property": "ScrollVerticalPercent", "expected": 0 }]
+    },
+    {
+      "id": "enter-dialogs", "pageId": "dialogs", "name": "Prepare the Dialogs tab", "kind": "navigate",
+      "targetId": "NavDialogs", "controlType": "TabItem",
+      "expectations": [{ "targetId": "NavDialogs", "property": "IsSelected", "expected": "True" }]
+    },
+    {
+      "id": "dialogs-default", "pageId": "dialogs", "name": "Inspect the dialog entry page", "kind": "scan",
+      "requiredIds": ["OpenInfoDialog"]
+    },
+    {
+      "id": "tab-to-information", "pageId": "dialogs", "name": "Reach the dialog opener with Tab", "kind": "key",
+      "targetId": "NavDialogs", "controlType": "TabItem", "keys": "Tab",
+      "expectations": [{ "targetId": "OpenInfoDialog", "property": "HasKeyboardFocus", "expected": "True" }]
+    },
+    {
+      "id": "open-information", "pageId": "dialogs", "name": "Open the in-window dialog using Enter", "kind": "key",
+      "targetId": "OpenInfoDialog", "controlType": "Button", "keys": "Enter",
+      "expectations": [
+        { "targetId": "InfoDialog", "property": "IsOffscreen", "expected": "False" },
+        { "targetId": "DialogIconButton", "property": "HasKeyboardFocus", "expected": "True" }
+      ]
+    },
+    {
+      "id": "information-open", "pageId": "dialogs", "name": "Inspect the open information dialog", "kind": "scan",
+      "requiredIds": ["InfoDialog", "CloseInfoDialog", "DialogIconButton"]
+    },
+    {
+      "id": "tab-to-dialog-close", "pageId": "dialogs", "name": "Move focus within the open dialog", "kind": "key",
+      "targetId": "DialogIconButton", "controlType": "Button", "keys": "Tab",
+      "expectations": [{ "targetId": "CloseInfoDialog", "property": "HasKeyboardFocus", "expected": "True" }]
+    },
+    {
+      "id": "close-information", "pageId": "dialogs", "name": "Dismiss the dialog and verify returned focus", "kind": "key",
+      "targetId": "CloseInfoDialog", "controlType": "Button", "keys": "Escape",
+      "expectations": [{ "targetId": "OpenInfoDialog", "property": "HasKeyboardFocus", "expected": "True" }]
+    },
+    {
+      "id": "return-to-basics", "pageId": "basics", "name": "Return to the initial tab", "kind": "navigate",
+      "targetId": "NavBasics", "controlType": "TabItem",
+      "expectations": [
+        { "targetId": "NavBasics", "property": "IsSelected", "expected": "True" },
+        { "targetId": "PreviewGuidesToggle", "property": "ToggleState", "expected": "Off" },
+        { "targetId": "DensityCombo", "property": "SelectionAutomationIds", "expected": ["DensityStandard"] }
+      ]
+    }
+  ],
+  "repairTargets": [
+    { "automationId": "BasicIconButton", "expectedName": "Refresh preview", "pageId": "basics", "checkpointId": "basics-default" },
+    { "automationId": "ScrollBottomButton", "expectedName": "Save layout", "pageId": "scrolling", "checkpointId": "scroll-bottom" }
+  ]
+}

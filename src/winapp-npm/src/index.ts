@@ -5,6 +5,7 @@ import { getGlobalWinappPath, getLocalWinappPath } from './winapp-path-utils';
 import * as winappCommands from './winapp-commands';
 import { uiRecord } from './ui-record-guard';
 import { targetRecord } from './target-record-guard';
+import { uiRecordActions } from './ui-record-actions-guard';
 
 // Re-export types from child_process for convenience
 export type { ExecSyncOptions } from 'child_process';
@@ -36,6 +37,7 @@ export * from './winapp-commands';
 // Also re-export the stricter UiRecordOptions type (durationSec: number, required),
 // which shadows the generated optional durationSec version from winapp-commands.
 export { uiRecord, type UiRecordOptions } from './ui-record-guard';
+export { uiRecordActions, type UiRecordActionsOptions } from './ui-record-actions-guard';
 
 // Same arrangement for `target record`: the stricter TargetRecordOptions (durationSec required)
 // shadows the generated one, so a caller who omits a duration fails to compile as well as at
@@ -68,4 +70,5 @@ export default {
   ...winappCommands,
   uiRecord, // guarded wrapper — overrides any uiRecord from the spread (none expected)
   targetRecord, // guarded wrapper — overrides any targetRecord from the spread (none expected)
+  uiRecordActions,
 };

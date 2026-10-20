@@ -29,7 +29,6 @@ public class GestureTargetingTests
         Assert.AreEqual(17, delays[0]);
         Assert.AreEqual(1, ui.FindCalls);
     }
-
     [TestMethod]
     public async Task ResolveStableAsync_ReturnsNotFoundWhenElementVanishes()
     {
@@ -143,10 +142,12 @@ public class GestureTargetingTests
         public Task<(byte[] Pixels, int Width, int Height)> ScreenshotAsync(UiTarget uiTarget, string? elementId, bool captureScreen, bool focus, CancellationToken ct) => throw new NotImplementedException();
         public Task<string> InvokeAsync(UiTarget uiTarget, UiElement element, CancellationToken ct) => throw new NotImplementedException();
         public Task<UiInvokeActionResult> InvokeAsync(UiTarget uiTarget, UiElement element, UiInvokeAction action, CancellationToken ct) => throw new NotImplementedException();
+        public Task<UiExpandCollapseState> SetExpandCollapseStateAsync(UiTarget uiTarget, UiElement element, UiExpandCollapseState state, CancellationToken ct) => throw new NotImplementedException();
         public Task SetValueAsync(UiTarget uiTarget, UiElement element, string text, CancellationToken ct) => throw new NotImplementedException();
         public Task FocusAsync(UiTarget uiTarget, UiElement element, CancellationToken ct) => throw new NotImplementedException();
         public Task ScrollIntoViewAsync(UiTarget uiTarget, UiElement element, CancellationToken ct) => throw new NotImplementedException();
         public Task ScrollContainerAsync(UiTarget uiTarget, UiElement element, string? direction, string? destination, CancellationToken ct) => throw new NotImplementedException();
+        public Task<double> SetVerticalScrollPercentAsync(UiTarget uiTarget, UiElement element, double verticalPercent, CancellationToken ct) => throw new NotImplementedException();
         public Task<UiElement?> GetFocusedElementAsync(UiTarget uiTarget, CancellationToken ct) => throw new NotImplementedException();
         public Task<string?> GetTextAsync(UiTarget uiTarget, UiElement element, CancellationToken ct) => throw new NotImplementedException();
         public bool TryResolveRootWindow(UiTarget target, out nint hwnd, out string? title) => throw new NotImplementedException();

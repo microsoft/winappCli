@@ -1,0 +1,696 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="AccessLoop.StateDemo.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AccessLoop.StateDemo"
+    Title="AccessLoop UI states demo">
+    <Grid
+        x:Name="WindowRoot"
+        Background="{ThemeResource StudioCanvasBrush}"
+        Loaded="WindowRoot_Loaded"
+        Padding="24,16,24,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="16" Height="36">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <Border
+                    Background="{ThemeResource StudioAccentBrush}"
+                    CornerRadius="9"
+                    Width="34"
+                    Height="34">
+                    <Path
+                        AutomationProperties.AccessibilityView="Raw"
+                        Data="M 2,2 H 9 V 18 H 2 Z M 12,2 H 18 V 9 H 12 Z M 12,12 H 18 V 18 H 12 Z"
+                        Fill="{ThemeResource StudioOnAccentBrush}"
+                        HorizontalAlignment="Center"
+                        IsHitTestVisible="False"
+                        VerticalAlignment="Center"
+                        Width="20"
+                        Height="20" />
+                </Border>
+                <TextBlock
+                    AutomationProperties.HeadingLevel="Level1"
+                    FontSize="20"
+                    FontWeight="SemiBold"
+                    Text="AccessLoop"
+                    VerticalAlignment="Center" />
+                <Rectangle
+                    AutomationProperties.AccessibilityView="Raw"
+                    Fill="{ThemeResource StudioBorderBrush}"
+                    Width="1"
+                    Height="18" />
+                <TextBlock
+                    Style="{StaticResource SecondaryTextStyle}"
+                    Text="Layout studio"
+                    VerticalAlignment="Center" />
+            </StackPanel>
+            <Border
+                Grid.Column="1"
+                Background="{ThemeResource StudioSurfaceBrush}"
+                BorderBrush="{ThemeResource StudioBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="16"
+                Padding="12,5"
+                VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Ellipse
+                        AutomationProperties.AccessibilityView="Raw"
+                        Fill="{ThemeResource StudioAccentBrush}"
+                        Width="6"
+                        Height="6" />
+                    <TextBlock FontSize="13" FontWeight="SemiBold" Text="Local preview" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <TabView
+            x:Name="MainTabs"
+            Grid.Row="1"
+            AutomationProperties.AutomationId="MainNavigation"
+            AutomationProperties.Name="Main navigation"
+            AllowDrop="False"
+            Background="{ThemeResource StudioCanvasBrush}"
+            CanDragTabs="False"
+            CanReorderTabs="False"
+            IsAddTabButtonVisible="False"
+            Margin="0,12,0,0"
+            SelectedIndex="0"
+            TabWidthMode="SizeToContent">
+            <TabView.TabItems>
+                <TabViewItem
+                    AutomationProperties.AutomationId="NavBasics"
+                    AutomationProperties.Name="Basics"
+                    Header="Basics"
+                    IsClosable="False">
+                    <Grid x:Name="BasicsPage" Margin="0,18,0,0" RowSpacing="18">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                AutomationProperties.AutomationId="BasicsReady"
+                                Style="{StaticResource PageHeadingStyle}"
+                                Text="Preview the layout" />
+                            <TextBlock
+                                Style="{StaticResource SecondaryTextStyle}"
+                                Text="Adjust the details. See the workspace take shape." />
+                        </StackPanel>
+                        <Grid Grid.Row="1" ColumnSpacing="20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource DemoCardStyle}">
+                                <StackPanel Spacing="16">
+                                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="Preview settings" />
+                                    <StackPanel>
+                                        <local:AutomationCheckBox
+                                            x:Name="PreviewGuidesToggle"
+                                            AutomationProperties.AutomationId="PreviewGuidesToggle"
+                                            AutomationProperties.Name="Preview guides"
+                                            Content="Preview guides"
+                                            IsChecked="False"
+                                            IsThreeState="False"
+                                            MinHeight="44"
+                                            TabIndex="0" />
+                                        <TextBlock
+                                            x:Name="PreviewGuidesStatus"
+                                            AutomationProperties.AutomationId="PreviewGuidesStatus"
+                                            AutomationProperties.LiveSetting="Polite"
+                                            FontSize="13"
+                                            Margin="32,0,0,0"
+                                            Style="{StaticResource SecondaryTextStyle}"
+                                            Text="Preview guides off" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="6">
+                                        <local:AutomationComboBox
+                                            x:Name="DensityCombo"
+                                            AutomationProperties.AutomationId="DensityCombo"
+                                            AutomationProperties.Name="Preview density"
+                                            Header="Preview density"
+                                            HorizontalAlignment="Stretch"
+                                            IsEditable="False"
+                                            MinHeight="44"
+                                            SelectedIndex="0"
+                                            TabIndex="1">
+                                            <local:AutomationComboBoxItem
+                                                AutomationProperties.AutomationId="DensityStandard"
+                                                AutomationProperties.Name="Standard"
+                                                Content="Standard" />
+                                            <local:AutomationComboBoxItem
+                                                AutomationProperties.AutomationId="DensityComfortable"
+                                                AutomationProperties.Name="Comfortable"
+                                                Content="Comfortable" />
+                                            <local:AutomationComboBoxItem
+                                                AutomationProperties.AutomationId="DensityCompact"
+                                                AutomationProperties.Name="Compact"
+                                                Content="Compact" />
+                                        </local:AutomationComboBox>
+                                        <TextBlock
+                                            x:Name="DensityStatus"
+                                            AutomationProperties.AutomationId="DensityStatus"
+                                            AutomationProperties.LiveSetting="Polite"
+                                            FontSize="13"
+                                            Style="{StaticResource SecondaryTextStyle}"
+                                            Text="Current preview: Standard" />
+                                    </StackPanel>
+                                    <Border Background="{ThemeResource StudioDividerBrush}" Height="1" />
+                                    <StackPanel Spacing="8">
+                                        <StackPanel Orientation="Horizontal" Spacing="14">
+                                            <!-- Intentional missing Name: the caption stays outside the button. -->
+                                            <Button
+                                                AutomationProperties.AutomationId="BasicIconButton"
+                                                Click="BasicIconButton_Click"
+                                                Padding="10"
+                                                Style="{StaticResource AccentButtonStyle}"
+                                                TabIndex="2"
+                                                Width="44"
+                                                Height="44">
+                                                <Path
+                                                    AutomationProperties.AccessibilityView="Raw"
+                                                    Width="20"
+                                                    Height="20"
+                                                    Data="M 20,8 A 9,9 0 1 0 21,15 M 20,8 L 20,1 M 20,8 L 13,8"
+                                                    IsHitTestVisible="False"
+                                                    Stretch="Uniform"
+                                                    Stroke="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                                    StrokeThickness="1.7" />
+                                            </Button>
+                                            <TextBlock FontWeight="SemiBold" Text="Refresh preview" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock
+                                            x:Name="BasicsActionStatus"
+                                            AutomationProperties.AutomationId="BasicsActionStatus"
+                                            AutomationProperties.LiveSetting="Polite"
+                                            Margin="58,0,0,0"
+                                            Style="{StaticResource StatusTextStyle}"
+                                            Text="Preview idle" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource DemoCardStyle}" Padding="0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="52" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Background="{ThemeResource StudioRailBrush}" CornerRadius="11,0,0,11">
+                                        <StackPanel Spacing="26" Margin="0,26,0,0" HorizontalAlignment="Center">
+                                            <Path
+                                                AutomationProperties.AccessibilityView="Raw"
+                                                Data="M 1,1 H 8 V 8 H 1 Z M 12,1 H 19 V 8 H 12 Z M 1,12 H 8 V 19 H 1 Z M 12,12 H 19 V 19 H 12 Z"
+                                                Fill="{ThemeResource StudioAccentBrush}"
+                                                IsHitTestVisible="False"
+                                                Width="20"
+                                                Height="20" />
+                                            <Path
+                                                AutomationProperties.AccessibilityView="Raw"
+                                                Data="M 4,1 H 13 L 18,6 V 19 H 4 Z M 12,1 V 7 H 18 M 7,11 H 14 M 7,15 H 14"
+                                                IsHitTestVisible="False"
+                                                Stroke="{ThemeResource StudioSecondaryTextBrush}"
+                                                StrokeThickness="1.5"
+                                                Width="20"
+                                                Height="20" />
+                                            <Path
+                                                AutomationProperties.AccessibilityView="Raw"
+                                                Data="M 3,3 H 17 V 15 H 9 L 4,19 V 15 H 3 Z M 6,7 H 14 M 6,11 H 12"
+                                                IsHitTestVisible="False"
+                                                Stroke="{ThemeResource StudioSecondaryTextBrush}"
+                                                StrokeThickness="1.5"
+                                                Width="20"
+                                                Height="20" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Grid Grid.Column="1" Padding="22,20" RowSpacing="16">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="4">
+                                                <TextBlock Style="{StaticResource StepLabelStyle}" Text="WORKSPACE PREVIEW" />
+                                                <TextBlock Style="{StaticResource SectionHeadingStyle}" Text="A place to focus" />
+                                            </StackPanel>
+                                            <TextBlock
+                                                Grid.Column="1"
+                                                FontSize="13"
+                                                Style="{StaticResource SecondaryTextStyle}"
+                                                Text="Read-only"
+                                                VerticalAlignment="Center" />
+                                        </Grid>
+                                        <Border
+                                            Grid.Row="1"
+                                            Background="{ThemeResource StudioAccentTintBrush}"
+                                            CornerRadius="8"
+                                            Padding="16,14">
+                                            <Grid ColumnSpacing="18">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="60" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock
+                                                        FontSize="18"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{ThemeResource StudioAccentTextBrush}"
+                                                        Text="Make space for good work."
+                                                        TextWrapping="Wrap" />
+                                                    <TextBlock
+                                                        Style="{StaticResource SecondaryTextStyle}"
+                                                        Text="Three priorities. One clear place to start." />
+                                                </StackPanel>
+                                                <Path
+                                                    Grid.Column="1"
+                                                    AutomationProperties.AccessibilityView="Raw"
+                                                    Data="M 2,2 H 57 V 44 H 2 Z M 2,13 H 57 M 17,13 V 44 M 24,22 H 49 M 24,29 H 43 M 24,36 H 46"
+                                                    IsHitTestVisible="False"
+                                                    Stroke="{ThemeResource StudioAccentBrush}"
+                                                    StrokeThickness="1.6"
+                                                    VerticalAlignment="Center"
+                                                    Width="60"
+                                                    Height="46" />
+                                            </Grid>
+                                        </Border>
+                                        <Grid Grid.Row="2" RowSpacing="10">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="*" />
+                                            </Grid.RowDefinitions>
+                                            <Grid>
+                                                <TextBlock FontWeight="SemiBold" Text="Next up" />
+                                                <TextBlock
+                                                    FontSize="13"
+                                                    HorizontalAlignment="Right"
+                                                    Style="{StaticResource SecondaryTextStyle}"
+                                                    Text="3 priorities" />
+                                            </Grid>
+                                            <Grid Grid.Row="1">
+                                                <StackPanel x:Name="PreviewRows" Margin="8,6" Spacing="12" VerticalAlignment="Center">
+                                                    <Grid ColumnSpacing="12">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="30" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Background="{ThemeResource StudioAccentTintBrush}" CornerRadius="7" Height="30">
+                                                            <TextBlock Style="{StaticResource PreviewIndexStyle}" Text="01" />
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" Spacing="2">
+                                                            <TextBlock FontWeight="SemiBold" Text="Shape the overview" />
+                                                            <TextBlock FontSize="13" Style="{StaticResource SecondaryTextStyle}" Text="Bring the essentials into view." />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="2" FontSize="13" Style="{StaticResource SecondaryTextStyle}" Text="Layout" VerticalAlignment="Center" />
+                                                    </Grid>
+                                                    <Grid ColumnSpacing="12">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="30" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Background="{ThemeResource StudioAccentTintBrush}" CornerRadius="7" Height="30">
+                                                            <TextBlock Style="{StaticResource PreviewIndexStyle}" Text="02" />
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" Spacing="2">
+                                                            <TextBlock FontWeight="SemiBold" Text="Find a comfortable rhythm" />
+                                                            <TextBlock FontSize="13" Style="{StaticResource SecondaryTextStyle}" Text="Give the important things room." />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="2" FontSize="13" Style="{StaticResource SecondaryTextStyle}" Text="Spacing" VerticalAlignment="Center" />
+                                                    </Grid>
+                                                    <Grid ColumnSpacing="12">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="30" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Background="{ThemeResource StudioAccentTintBrush}" CornerRadius="7" Height="30">
+                                                            <TextBlock Style="{StaticResource PreviewIndexStyle}" Text="03" />
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" Spacing="2">
+                                                            <TextBlock FontWeight="SemiBold" Text="Keep the details close" />
+                                                            <TextBlock FontSize="13" Style="{StaticResource SecondaryTextStyle}" Text="A quiet place for supporting notes." />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="2" FontSize="13" Style="{StaticResource SecondaryTextStyle}" Text="Notes" VerticalAlignment="Center" />
+                                                    </Grid>
+                                                </StackPanel>
+                                                <Rectangle
+                                                    x:Name="PreviewGuidesOverlay"
+                                                    AutomationProperties.AccessibilityView="Raw"
+                                                    IsHitTestVisible="False"
+                                                    RadiusX="6"
+                                                    RadiusY="6"
+                                                    Stroke="{ThemeResource StudioAccentBrush}"
+                                                    StrokeDashArray="4,3"
+                                                    StrokeThickness="1.5"
+                                                    Visibility="Collapsed" />
+                                            </Grid>
+                                        </Grid>
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </TabViewItem>
+
+                <TabViewItem
+                    AutomationProperties.AutomationId="NavScrolling"
+                    AutomationProperties.Name="Scrolling"
+                    Header="Scrolling"
+                    IsClosable="False">
+                    <Grid x:Name="ScrollingPage" Margin="0,18,0,0" RowSpacing="18">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                AutomationProperties.AutomationId="ScrollingReady"
+                                Style="{StaticResource PageHeadingStyle}"
+                                Text="Build the full picture" />
+                            <TextBlock
+                                Style="{StaticResource SecondaryTextStyle}"
+                                Text="A clear beginning, room to focus, and a considered finish." />
+                        </StackPanel>
+                        <Border Grid.Row="1" Style="{StaticResource DemoCardStyle}" Padding="0">
+                            <ScrollViewer
+                                x:Name="ContentScroller"
+                                AutomationProperties.AutomationId="ContentScroller"
+                                AutomationProperties.Name="Workspace layout"
+                                HorizontalScrollBarVisibility="Disabled"
+                                HorizontalScrollMode="Disabled"
+                                IsTabStop="True"
+                                Loaded="ContentScroller_Loaded"
+                                ScrollViewer.BringIntoViewOnFocusChange="True"
+                                SizeChanged="ContentScroller_SizeChanged"
+                                TabIndex="0"
+                                VerticalScrollBarVisibility="Auto"
+                                VerticalScrollMode="Enabled"
+                                ZoomMode="Disabled">
+                                <Grid x:Name="ScrollContent" Height="740" Padding="20,18" RowSpacing="14">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="0.9*" />
+                                        <RowDefinition Height="1*" />
+                                        <RowDefinition Height="1.3*" />
+                                    </Grid.RowDefinitions>
+                                    <Border BorderBrush="{ThemeResource StudioDividerBrush}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnSpacing="24" Padding="18,19,18,18">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="22">
+                                                <TextBlock Style="{StaticResource EditorialNumberStyle}" Text="01" />
+                                                <Path
+                                                    AutomationProperties.AccessibilityView="Raw"
+                                                    Data="M 1,1 H 65 V 49 H 1 Z M 1,13 H 65 M 19,13 V 49 M 26,23 H 56 M 26,31 H 49 M 26,39 H 53"
+                                                    IsHitTestVisible="False"
+                                                    Stroke="{ThemeResource StudioAccentBrush}"
+                                                    StrokeThickness="1.5"
+                                                    Width="68"
+                                                    Height="52" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Spacing="10">
+                                                <TextBlock Style="{StaticResource StepLabelStyle}" Text="OVERVIEW" />
+                                                <TextBlock
+                                                    AutomationProperties.AutomationId="ScrollTopAnchor"
+                                                    Style="{StaticResource SectionHeadingStyle}"
+                                                    Text="Put the essentials first" />
+                                                <TextBlock
+                                                    Text="Start with a short summary, then give the next task a clear place to live."
+                                                    TextWrapping="Wrap" />
+                                                <Border
+                                                    Background="{ThemeResource StudioAccentTintBrush}"
+                                                    CornerRadius="6"
+                                                    HorizontalAlignment="Left"
+                                                    Padding="14,10">
+                                                    <TextBlock
+                                                        Foreground="{ThemeResource StudioAccentTextBrush}"
+                                                        Text="Overview  /  Current focus  /  Project notes"
+                                                        TextWrapping="Wrap" />
+                                                </Border>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                    <Border
+                                        Grid.Row="1"
+                                        BorderBrush="{ThemeResource StudioDividerBrush}"
+                                        BorderThickness="0,0,0,1">
+                                        <Grid ColumnSpacing="24" Padding="18,19,18,18">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="22">
+                                                <TextBlock Style="{StaticResource EditorialNumberStyle}" Text="02" />
+                                                <Path
+                                                    AutomationProperties.AccessibilityView="Raw"
+                                                    Data="M 1,1 H 14 V 12 H 1 Z M 23,3 H 64 M 23,10 H 49 M 1,24 H 14 V 35 H 1 Z M 23,26 H 64 M 23,33 H 55 M 1,47 H 14 V 58 H 1 Z M 23,49 H 64 M 23,56 H 45"
+                                                    IsHitTestVisible="False"
+                                                    Stroke="{ThemeResource StudioAccentBrush}"
+                                                    StrokeThickness="1.5"
+                                                    Width="68"
+                                                    Height="60" />
+                                            </StackPanel>
+                                            <Grid Grid.Column="1" ColumnSpacing="28">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="1.3*" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="10">
+                                                    <TextBlock Style="{StaticResource StepLabelStyle}" Text="FOCUS" />
+                                                    <TextBlock Style="{StaticResource SectionHeadingStyle}" Text="Leave room to do the work" />
+                                                    <TextBlock
+                                                        Style="{StaticResource SecondaryTextStyle}"
+                                                        Text="Give the task at hand a little breathing room. Keep useful notes nearby, without competing for attention." />
+                                                </StackPanel>
+                                                <Border
+                                                    Grid.Column="1"
+                                                    BorderBrush="{ThemeResource StudioDividerBrush}"
+                                                    BorderThickness="2,0,0,0"
+                                                    Padding="20,0,0,0"
+                                                    VerticalAlignment="Center">
+                                                    <StackPanel Spacing="12">
+                                                        <TextBlock FontWeight="SemiBold" Text="Arrange with intention" />
+                                                        <TextBlock Style="{StaticResource SecondaryTextStyle}" Text="One visible next step" />
+                                                        <TextBlock Style="{StaticResource SecondaryTextStyle}" Text="Related information, together" />
+                                                        <TextBlock Style="{StaticResource SecondaryTextStyle}" Text="Space between the details" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+                                    <Grid Grid.Row="2" ColumnSpacing="24" Padding="18,19,18,18">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="22">
+                                            <TextBlock Style="{StaticResource EditorialNumberStyle}" Text="03" />
+                                            <Path
+                                                AutomationProperties.AccessibilityView="Raw"
+                                                Data="M 2,1 H 50 L 64,15 V 57 H 2 Z M 15,1 V 20 H 47 V 1 M 15,57 V 36 H 51 V 57 M 23,44 H 43"
+                                                IsHitTestVisible="False"
+                                                Stroke="{ThemeResource StudioAccentBrush}"
+                                                StrokeThickness="1.5"
+                                                Width="68"
+                                                Height="60" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Spacing="10">
+                                            <TextBlock Style="{StaticResource StepLabelStyle}" Text="FINISH" />
+                                            <TextBlock Style="{StaticResource SectionHeadingStyle}" Text="Save the arrangement" />
+                                            <TextBlock
+                                                Text="Save this arrangement for the current preview. No files or settings are changed."
+                                                TextWrapping="Wrap" />
+                                            <StackPanel Orientation="Horizontal" Spacing="14">
+                                                <!-- Intentional missing Name: the caption stays outside the button. -->
+                                                <Button
+                                                    AutomationProperties.AutomationId="ScrollBottomButton"
+                                                    Click="ScrollBottomButton_Click"
+                                                    Padding="10"
+                                                    Style="{StaticResource AccentButtonStyle}"
+                                                    TabIndex="1"
+                                                    Width="44"
+                                                    Height="44">
+                                                    <Path
+                                                        AutomationProperties.AccessibilityView="Raw"
+                                                        Width="20"
+                                                        Height="20"
+                                                        Data="M 2,1 L 17,1 22,6 22,22 1,22 1,1 Z M 6,1 L 6,8 16,8 16,1 M 6,22 L 6,14 17,14 17,22"
+                                                        IsHitTestVisible="False"
+                                                        Stretch="Uniform"
+                                                        Stroke="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                                        StrokeThickness="1.7" />
+                                                </Button>
+                                                <TextBlock FontWeight="SemiBold" Text="Save layout" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                            <TextBlock
+                                                x:Name="ScrollActionStatus"
+                                                AutomationProperties.AutomationId="ScrollActionStatus"
+                                                AutomationProperties.LiveSetting="Polite"
+                                                Style="{StaticResource StatusTextStyle}"
+                                                Text="Layout not saved" />
+                                            <TextBlock
+                                                AutomationProperties.AutomationId="ScrollBottomAnchor"
+                                                FontSize="13"
+                                                Style="{StaticResource SecondaryTextStyle}"
+                                                Text="End of layout" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Grid>
+                            </ScrollViewer>
+                        </Border>
+                    </Grid>
+                </TabViewItem>
+
+                <TabViewItem
+                    AutomationProperties.AutomationId="NavDialogs"
+                    AutomationProperties.Name="Dialogs"
+                    Header="Dialogs"
+                    IsClosable="False">
+                    <Grid x:Name="DialogsPage" Margin="0,18,0,0" RowSpacing="18">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                AutomationProperties.AutomationId="DialogsReady"
+                                Style="{StaticResource PageHeadingStyle}"
+                                Text="Review the details" />
+                            <TextBlock
+                                Style="{StaticResource SecondaryTextStyle}"
+                                Text="Take a closer look without leaving your workspace." />
+                        </StackPanel>
+                        <Grid Grid.Row="1" RowSpacing="18">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Border Style="{StaticResource DemoCardStyle}" Padding="28">
+                                <Grid ColumnSpacing="36">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1.1*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="16" VerticalAlignment="Center">
+                                        <TextBlock Style="{StaticResource StepLabelStyle}" Text="LAYOUT DETAILS" />
+                                        <TextBlock Style="{StaticResource SectionHeadingStyle}" Text="A moment to review" />
+                                        <TextBlock
+                                            Style="{StaticResource SecondaryTextStyle}"
+                                            Text="See the workspace summary and review a detail, without changing a file or setting." />
+                                        <local:AutomationButton
+                                            x:Name="OpenInfoDialogButton"
+                                            AutomationProperties.AutomationId="OpenInfoDialog"
+                                            AutomationProperties.Name="Open info dialog"
+                                            Click="OpenInfoDialog_Click"
+                                            Content="Open info dialog"
+                                            HorizontalAlignment="Left"
+                                            MinHeight="44"
+                                            Padding="18,10"
+                                            Style="{StaticResource AccentButtonStyle}"
+                                            TabIndex="0" />
+                                        <TextBlock
+                                            FontSize="13"
+                                            Style="{StaticResource SecondaryTextStyle}"
+                                            Text="Close the dialog or press Esc to return here." />
+                                    </StackPanel>
+                                    <Border
+                                        Grid.Column="1"
+                                        Background="{ThemeResource StudioSubtleBrush}"
+                                        CornerRadius="8"
+                                        Padding="24"
+                                        VerticalAlignment="Center">
+                                        <StackPanel Spacing="18">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Path
+                                                    AutomationProperties.AccessibilityView="Raw"
+                                                    Data="M 4,1 H 18 L 25,8 V 29 H 4 Z M 17,1 V 9 H 25 M 9,15 H 20 M 9,21 H 20"
+                                                    IsHitTestVisible="False"
+                                                    Stroke="{ThemeResource StudioAccentBrush}"
+                                                    StrokeThickness="1.6"
+                                                    Width="30"
+                                                    Height="32" />
+                                                <StackPanel Grid.Column="1" Spacing="2">
+                                                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="Workspace summary" />
+                                                    <TextBlock FontSize="13" Style="{StaticResource SecondaryTextStyle}" Text="Read-only · Local preview" />
+                                                </StackPanel>
+                                            </Grid>
+                                            <Border Background="{ThemeResource StudioDividerBrush}" Height="1" />
+                                            <Grid ColumnSpacing="20" RowSpacing="14">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <TextBlock FontWeight="SemiBold" Text="Overview" />
+                                                <TextBlock Grid.Column="1" Style="{StaticResource SecondaryTextStyle}" Text="The essentials, together" />
+                                                <TextBlock Grid.Row="1" FontWeight="SemiBold" Text="Focus" />
+                                                <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource SecondaryTextStyle}" Text="One clear next step" />
+                                                <TextBlock Grid.Row="2" FontWeight="SemiBold" Text="Details" />
+                                                <TextBlock Grid.Row="2" Grid.Column="1" Style="{StaticResource SecondaryTextStyle}" Text="Useful notes, close by" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </Border>
+                            <Border
+                                Grid.Row="1"
+                                BorderBrush="{ThemeResource StudioBorderBrush}"
+                                BorderThickness="0,1,0,0"
+                                Padding="4,14,4,0">
+                                <Grid ColumnSpacing="24">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock FontSize="13" FontWeight="SemiBold" Style="{StaticResource SecondaryTextStyle}" Text="DEVELOPER TOOLS" />
+                                        <TextBlock FontSize="13" Style="{StaticResource SecondaryTextStyle}" Text="The scope probe opens a separate demo window, outside the layout dialog." />
+                                    </StackPanel>
+                                    <local:AutomationButton
+                                        Grid.Column="1"
+                                        AutomationProperties.AutomationId="OpenScopeProbe"
+                                        AutomationProperties.Name="Open scope probe"
+                                        Click="OpenScopeProbe_Click"
+                                        Content="Open scope probe"
+                                        MinHeight="40"
+                                        Padding="14,8"
+                                        TabIndex="1" />
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </TabViewItem>
+            </TabView.TabItems>
+        </TabView>
+
+        <TextBlock
+            Grid.Row="2"
+            Margin="0,12,0,0"
+            FontSize="13"
+            Style="{StaticResource SecondaryTextStyle}"
+            Text="Session only · Views reset when you return." />
+    </Grid>
+</Window>

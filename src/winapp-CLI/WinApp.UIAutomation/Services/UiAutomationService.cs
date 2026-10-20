@@ -27,6 +27,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
     private readonly IUIAutomation _automation;
     private readonly IUiSelectorParser _selectorParser;
     private int _serializedElementResolutionCount;
+    private readonly IPollDelay _pollDelay;
 
     internal int SerializedElementResolutionCount => Volatile.Read(ref _serializedElementResolutionCount);
 
@@ -80,10 +81,11 @@ internal sealed partial class UiAutomationService : IUiAutomation
         s_sleepForBlankRetry = Thread.Sleep;
     }
 
-    public UiAutomationService(ILogger<UiAutomationService> logger, IUiSelectorParser selectorParser)
+    public UiAutomationService(ILogger<UiAutomationService> logger, IUiSelectorParser selectorParser, IPollDelay? pollDelay = null)
     {
         _logger = logger;
         _selectorParser = selectorParser;
+        _pollDelay = pollDelay ?? new RealPollDelay();
         _automation = CUIAutomation8.CreateInstance<IUIAutomation>();
     }
 
@@ -966,6 +968,16 @@ internal sealed partial class UiAutomationService : IUiAutomation
             }
             catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
 
+            if (propertyName is null or "SelectionAutomationIds")
+            {
+                try
+                {
+                    var pattern = (IUIAutomationSelectionPattern)comElement.GetCurrentPattern(UIA_PATTERN_ID.UIA_SelectionPatternId);
+                    props["SelectionAutomationIds"] = ReadSelectionAutomationIds(pattern);
+                }
+                catch { }
+            }
+
             patternAcquired = false;
             try
             {
@@ -991,8 +1003,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 patternAcquired = true;
                 props["ScrollHorizontalPercent"] = pattern.get_CurrentHorizontalScrollPercent();
                 props["ScrollVerticalPercent"] = pattern.get_CurrentVerticalScrollPercent();
-                props["HorizontallyScrollable"] = pattern.get_CurrentHorizontallyScrollable();
-                props["VerticallyScrollable"] = pattern.get_CurrentVerticallyScrollable();
+                props["HorizontallyScrollable"] = (bool)pattern.get_CurrentHorizontallyScrollable();
+                props["VerticallyScrollable"] = (bool)pattern.get_CurrentVerticallyScrollable();
+                props["ScrollHorizontalViewSize"] = pattern.get_CurrentHorizontalViewSize();
+                props["ScrollVerticalViewSize"] = pattern.get_CurrentVerticalViewSize();
             }
             catch (Exception ex) when (!IsScopedReadFailure(element, ex, patternAcquired)) { }
         }
@@ -1655,7 +1669,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
             return context.AutomationElement;
         }
 
-        return ResolveComElement(uiTarget, element, strictIdentity, requireCurrentIdentity, ct);
+        return ResolveComElement(uiTarget, element, strictIdentity, requireCurrentIdentity, ct: ct);
     }
 
     /// <summary>
@@ -1665,7 +1679,7 @@ internal sealed partial class UiAutomationService : IUiAutomation
     /// resolve only the supplied slug or unique AutomationId, without rebinding on a miss.
     /// </summary>
     private IUIAutomationElement? ResolveComElement(UiTarget uiTarget, UiElement element,
-        bool strictIdentity = false, bool requireCurrentIdentity = false, CancellationToken ct = default)
+        bool strictIdentity = false, bool requireCurrentIdentity = false, bool exactTarget = false, CancellationToken ct = default)
     {
         Interlocked.Increment(ref _serializedElementResolutionCount);
 
@@ -1739,6 +1753,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 return comElement;
             }
             if (requireCurrentIdentity) { throw new UiElementNotFoundException(element.Selector); }
+            if (exactTarget && SlugGenerator.ParseSlug(element.Selector) is not null)
+            {
+                return null;
+            }
         }
 
         // Fall back to AutomationId (stable but not unique across duplicates)
@@ -1757,6 +1775,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
             var condition = _automation.CreatePropertyCondition(
                 UIA_PROPERTY_ID.UIA_AutomationIdPropertyId,
                 ComVariant.Create(element.AutomationId));
+            if (exactTarget)
+            {
+                return FindUniqueComElement(root, condition, element);
+            }
             var found = root.FindFirst(TreeScope.TreeScope_Descendants, condition);
             if (found is not null)
             {
@@ -1791,6 +1813,10 @@ internal sealed partial class UiAutomationService : IUiAutomation
                 condition = nameCondition;
             }
 
+            if (exactTarget)
+            {
+                return FindUniqueComElement(root, condition, element);
+            }
             var found = root.FindFirst(TreeScope.TreeScope_Descendants, condition);
             if (found is not null)
             {

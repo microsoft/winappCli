@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="AccessLoop.JourneyDemo.Pages.ExportPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AccessLoop.JourneyDemo"
+    AutomationProperties.AccessibilityView="Raw"
+    IsTabStop="False">
+    <local:AutomationStackPanel
+        AutomationProperties.AutomationId="ExportPageRoot"
+        AutomationProperties.Name="Export page"
+        Spacing="24"
+        VerticalAlignment="Top">
+        <TextBlock
+            AutomationProperties.AutomationId="ExportHeading"
+            Style="{StaticResource TitleTextBlockStyle}"
+            Text="Export" />
+        <TextBlock
+            AutomationProperties.AutomationId="ExportDescription"
+            Text="Enter an export title, then use Tab and Enter to export it in this demo."
+            TextWrapping="Wrap" />
+        <TextBox
+            x:Name="ExportTitleInput"
+            AutomationProperties.AutomationId="ExportTitleInput"
+            AutomationProperties.Name="Export title"
+            Header="Export title"
+            Text="Untitled" />
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <!-- Intentional missing name: the visible label stays outside this icon-only button. -->
+            <Button
+                AutomationProperties.AutomationId="ExportDocumentButton"
+                Click="ExportDocument_Click"
+                MinWidth="44"
+                MinHeight="44">
+                <Path
+                    AutomationProperties.AccessibilityView="Raw"
+                    AutomationProperties.AutomationId="ExportDocumentIcon"
+                    Width="20"
+                    Height="20"
+                    Data="M 3,11 L 3,21 21,21 21,11 M 12,16 L 12,1 M 6,7 L 12,1 18,7"
+                    IsHitTestVisible="False"
+                    Stretch="Uniform"
+                    Stroke="{ThemeResource TextFillColorPrimaryBrush}"
+                    StrokeThickness="1.5" />
+            </Button>
+            <TextBlock
+                AutomationProperties.AutomationId="ExportDocumentLabel"
+                VerticalAlignment="Center"
+                Text="Export document" />
+        </StackPanel>
+        <TextBlock
+            x:Name="ExportStatus"
+            AutomationProperties.AutomationId="ExportStatus"
+            AutomationProperties.LiveSetting="Polite"
+            Text="Not exported yet"
+            TextWrapping="Wrap" />
+        <TextBlock
+            AutomationProperties.AutomationId="ExportNotice"
+            Text="Demo only. Nothing is written to disk."
+            TextWrapping="Wrap" />
+    </local:AutomationStackPanel>
+</UserControl>

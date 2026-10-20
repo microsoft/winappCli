@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "name": "save-document",
+  "project": "Demo\\AccessLoop.Demo.csproj",
+  "targetId": "SaveDocumentButton",
+  "expectedName": "Save document",
+  "anchorId": "DocumentTitleInput",
+  "resultId": "SaveStatus",
+  "inputText": "AccessLoop",
+  "expectedResult": "Saved: AccessLoop",
+  "maxTabs": 5,
+  "timeoutSeconds": 15
+}
