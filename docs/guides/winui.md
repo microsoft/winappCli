@@ -1,17 +1,17 @@
 <!-- mslearn: true -->
 <!-- ms.topic: how-to -->
-<!-- description: Create, run, debug, automate, and package WinUI 3 apps from the command line with winapp CLI, from a new template to a signed MSIX. -->
-# Using winapp CLI with WinUI
+<!-- description: Create, run, debug, automate, and package WinUI 3 apps from the command line with WinApp CLI, from a new template to a signed MSIX. -->
+# Using WinApp CLI with WinUI
 
-This guide shows how to use winapp CLI across the full inner loop of a WinUI 3 app: create a project from an official template, build and launch it with package identity, debug crashes, find controls and APIs, automate the UI, and produce a signed MSIX package. Every step runs from the command line, so it works in any editor, in CI, and with AI coding agents.
+This guide shows how to use WinApp CLI across the full inner loop of a WinUI 3 app: create a project from an official template, build and launch it with package identity, debug crashes, find controls and APIs, automate the UI, and produce a signed MSIX package. Every step runs from the command line, so it works in any editor, in CI, and with AI coding agents.
 
-WinUI project templates already include a `Package.appxmanifest`, so you don't need to run `winapp init` for a WinUI app. If you're adding package identity to an existing .NET app that doesn't use WinUI, see [Using winapp CLI with .NET](dotnet.md) instead.
+WinUI project templates already include a `Package.appxmanifest`, so you don't need to run `winapp init` for a WinUI app. If you're adding package identity to an existing .NET app that doesn't use WinUI, see [Using WinApp CLI with .NET](dotnet.md) instead.
 
 ## Prerequisites
 
 - Windows 10 version 1809 or later, or Windows 11.
-- The [.NET SDK](https://dotnet.microsoft.com/download), version 8.0.100 or later. The experimental Reactor templates require the .NET 10 SDK. winapp CLI doesn't install toolchains, so `winapp new` and `winapp run` stop with guidance if the .NET SDK is missing.
-- winapp CLI:
+- The [.NET SDK](https://dotnet.microsoft.com/download), version 8.0.100 or later. The experimental Reactor templates require the .NET 10 SDK. WinApp CLI doesn't install toolchains, so `winapp new` and `winapp run` stop with guidance if the .NET SDK is missing.
+- WinApp CLI:
 
   ```powershell
   winget install Microsoft.winappcli --source winget
@@ -63,7 +63,7 @@ winapp run
 # A specific project and configuration
 winapp run .\MyApp.csproj -c Release --arch arm64
 
-# A solution: winapp CLI finds the single app project and skips libraries and tests
+# A solution: WinApp CLI finds the single app project and skips libraries and tests
 winapp run .\MySolution.sln
 
 # A solution with more than one app project
@@ -73,7 +73,7 @@ winapp run .\MySolution.sln --project MyApp
 winapp run .\bin\x64\Debug\net10.0-windows10.0.26100.0\win-x64
 ```
 
-winapp CLI reads the project's `WindowsPackageType` property to decide how to launch it. A packaged project runs with package identity. A project that sets `WindowsPackageType` to `None` runs as an unpackaged app without identity. To run a packaged project as unpackaged, pass the property on the command line:
+WinApp CLI reads the project's `WindowsPackageType` property to decide how to launch it. A packaged project runs with package identity. A project that sets `WindowsPackageType` to `None` runs as an unpackaged app without identity. To run a packaged project as unpackaged, pass the property on the command line:
 
 ```powershell
 winapp run -p WindowsPackageType=None
@@ -94,13 +94,13 @@ You can pass `winapp run` options as `WinAppRun*` MSBuild properties, for exampl
 
 ## Debug crashes
 
-Add `--debug-output` to capture `OutputDebugString` messages and first-chance exceptions while the app runs. When a WinUI app fails with a stowed exception, winapp CLI analyzes the crash dump and prints the original error and call stack instead of a generic failure code.
+Add `--debug-output` to capture `OutputDebugString` messages and first-chance exceptions while the app runs. When a WinUI app fails with a stowed exception, WinApp CLI analyzes the crash dump and prints the original error and call stack instead of a generic failure code.
 
 ```powershell
 winapp run --debug-output
 ```
 
-Add `--symbols` to download symbols for full native function names. Because `--debug-output` attaches winapp CLI as the debugger, you can't attach Visual Studio or another debugger to the same process. To debug with your IDE instead, see [Debugging with winapp CLI](../debugging.md). For details about the stowed-exception analysis, see [WinUI stowed-exception triage](../debugging.md#winui-stowed-exception-triage).
+Add `--symbols` to download symbols for full native function names. Because `--debug-output` attaches WinApp CLI as the debugger, you can't attach Visual Studio or another debugger to the same process. To debug with your IDE instead, see [Debugging with WinApp CLI](../debugging.md). For details about the stowed-exception analysis, see [WinUI stowed-exception triage](../debugging.md#winui-stowed-exception-triage).
 
 ## Find controls and APIs
 
@@ -150,7 +150,7 @@ The development certificate is for local testing only, and it uses a default pas
 
 ## Existing WinUI projects
 
-winapp CLI works with WinUI projects that you created in Visual Studio. Point `winapp run` at the project file, the solution file, or the folder that contains one. For `winapp pack`, pass the `.csproj`. You can keep building and debugging in Visual Studio and use winapp CLI for scripts, CI, and agent workflows.
+WinApp CLI works with WinUI projects that you created in Visual Studio. Point `winapp run` at the project file, the solution file, or the folder that contains one. For `winapp pack`, pass the `.csproj`. You can keep building and debugging in Visual Studio and use WinApp CLI for scripts, CI, and agent workflows.
 
 ## WinUI with C++
 
@@ -163,7 +163,7 @@ winapp run .\MyApp.vcxproj
 winapp run .
 ```
 
-C++ projects need Visual Studio or Build Tools for Visual Studio with the **Desktop development with C++** workload and **C++ WinUI app development tools**. `winapp pack` doesn't build `.vcxproj` projects, so create the MSIX package in Visual Studio. For prerequisites and options, see [C++ projects (.vcxproj)](../usage.md#c-projects-vcxproj). For C++ apps that don't use WinUI, see [Using winapp CLI with C++](cpp.md).
+C++ projects need Visual Studio or Build Tools for Visual Studio with the **Desktop development with C++** workload and **C++ WinUI app development tools**. `winapp pack` doesn't build `.vcxproj` projects, so create the MSIX package in Visual Studio. For prerequisites and options, see [C++ projects (.vcxproj)](../usage.md#c-projects-vcxproj). For C++ apps that don't use WinUI, see [Using WinApp CLI with C++](cpp.md).
 
 ## Samples
 
@@ -175,6 +175,6 @@ C++ projects need Visual Studio or Build Tools for Visual Studio with the **Desk
 ## Next steps
 
 - [Get started with WinUI](https://learn.microsoft.com/windows/apps/get-started/start-here)
-- [winapp CLI command reference](../usage.md)
-- [Debugging with winapp CLI](../debugging.md)
+- [WinApp CLI command reference](../usage.md)
+- [Debugging with WinApp CLI](../debugging.md)
 - [UI automation](../ui-automation.md)

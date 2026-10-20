@@ -1,7 +1,7 @@
-# winapp CLI
+# WinApp CLI
 
 > [!IMPORTANT]
-> :warning: **Status: Public Preview** — The Windows App Development CLI (winapp CLI) is experimental and in active development. We'd love your feedback! Share your thoughts by creating an [issue](https://github.com/microsoft/WinAppCli/issues).
+> :warning: **Status: Public Preview** — The Windows App Development CLI (WinApp CLI) is experimental and in active development. We'd love your feedback! Share your thoughts by creating an [issue](https://github.com/microsoft/WinAppCli/issues).
 
 > [!NOTE]
 > The **`main` branch** contains work that is in **active development**. Documentation, features, and behavior here may differ from what is publicly released. For the latest stable version, see the [latest release](https://github.com/microsoft/WinAppCli/releases/latest). To try the newest in-progress build, see [Install from latest build](#install-from-latest-build-main-branch) below.
@@ -51,7 +51,7 @@
 </h3>
 <br/>
 
-The Windows App Development CLI (winapp CLI) is a single command-line interface for creating, running, debugging, testing, and packaging Windows apps. It manages Windows SDKs, app identity, manifests, certificates, and build tools for WinUI and any other app framework.
+The Windows App Development CLI (WinApp CLI) is a single command-line interface for creating, running, debugging, testing, and packaging Windows apps. It manages Windows SDKs, app identity, manifests, certificates, and build tools for WinUI and any other app framework.
 <br/><br/>
 Whether you're building with WinUI, .NET/Win32, CMake, Electron, or Rust, this CLI gives you access to:
 
@@ -82,10 +82,10 @@ Our goal is to support developers wherever they are, with the tools and framewor
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./docs/images/before-after-winapp-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="./docs/images/before-after-winapp.png">
-    <img src="./docs/images/before-after-winapp.png" alt="Before: 12 manual steps to access Windows APIs. After: 4 winapp commands (init, create-addon, add-electron-debug-identity, pack)">
+    <img src="./docs/images/before-after-winapp.png" alt="Before: 12 manual steps to access Windows APIs. After: 4 WinApp CLI commands (init, create-addon, add-electron-debug-identity, pack)">
   </picture>
 </p>
-<p align="center"><i>Without winapp CLI, setting up a project involves 12 manual steps—downloading SDKs, generating headers, creating manifests, and more. With the CLI, it's just 4 commands.</i></p>
+<p align="center"><i>Without WinApp CLI, setting up a project involves 12 manual steps—downloading SDKs, generating headers, creating manifests, and more. With the CLI, it's just 4 commands.</i></p>
 
 **A few examples of what package identity and MSIX packaging unlock:**
 
@@ -283,7 +283,7 @@ See also: [Security guidance](./docs/security.md) — what development certifica
 - [`node clear-electron-debug-identity`](./docs/usage.md#node-clear-electron-debug-identity) - Remove identity from Electron processes
 
 The full CLI usage can be found here: [Documentation](/docs/usage.md)
-Use winapp from JavaScript or TypeScript: [NPM programmatic guide](/docs/npm-usage.md)
+Use WinApp CLI from JavaScript or TypeScript: [NPM programmatic guide](/docs/npm-usage.md)
 
 ## 🧾 Samples
 
@@ -316,7 +316,7 @@ Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio
 
 ## 🤖 Using with AI Coding Agents
 
-winapp ships a single plugin (at [`plugins/winapp/`](./plugins/winapp/)) — an agent plus skills — that conforms to the [Agent Plugins 1.0](https://agent-plugins.org/) specification and is distributed to GitHub Copilot and Claude Code through their respective plugin marketplaces.
+WinApp CLI ships a single plugin (at [`plugins/winapp/`](./plugins/winapp/)) — an agent plus skills — that conforms to the [Agent Plugins 1.0](https://agent-plugins.org/) specification and is distributed to GitHub Copilot and Claude Code through their respective plugin marketplaces.
 
 **GitHub Copilot CLI** (global — works across all projects)
 ```bash
@@ -329,7 +329,7 @@ claude plugin marketplace add microsoft/WinAppCli
 claude plugin install winappcli@winappcli
 ```
 
-This gives agents full understanding of winapp commands, workflows, and troubleshooting.
+This gives agents full understanding of WinApp CLI commands, workflows, and troubleshooting.
 
 
 ## 🔧 Feedback and Support

@@ -486,15 +486,15 @@ if ($portedIndexContent -match '(?ms)(## Supported frameworks\s*\n.+?)(?=\n## )'
 # Build guides/index.md using the extracted content
 $guidesIndex = @"
 ---
-title: winapp CLI framework guides
-description: Step-by-step guides for using the winapp CLI with WinUI, .NET, .NET MAUI, C++, Electron, Rust, Tauri, Flutter, and other frameworks.
+title: WinApp CLI framework guides
+description: Step-by-step guides for using the WinApp CLI with WinUI, .NET, .NET MAUI, C++, Electron, Rust, Tauri, Flutter, and other frameworks.
 ms.date: $msDate
 ms.topic: overview
 ---
 
 # Framework guides
 
-These guides walk you through using the winapp CLI with your app framework — from project setup to debugging with package identity to packaging as MSIX.
+These guides walk you through using the WinApp CLI with your app framework — from project setup to debugging with package identity to packaging as MSIX.
 
 "@
 
