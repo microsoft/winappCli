@@ -461,12 +461,28 @@ static bool RestoreLanded(const std::wstring& actionJson)
 {
     DevToolsJson act;
     if (!DevToolsJsonParse(actionJson, act) || !act.IsObject()) return false;
-    if (act.GetString(L"state") == L"restored") return true;
+    // The app can drop the binding again while it is being reattached, so "restored" alone is not enough.
+    if (act.GetString(L"state") == L"restored") return act.GetString(L"bound") == L"True";
     const DevToolsJson* before = act.Find(L"before");
     const DevToolsJson* after = act.Find(L"after");
     return act.GetString(L"ownerUpdated") == L"True" && before && after &&
            before->type == DevToolsJsonType::String && after->type == DevToolsJsonType::String &&
            before->str != after->str;
+}
+
+// Restore reattaches the last binding DevTools saw, which can be one applied from the panel rather than the
+// one in the XAML (x:Bind -> {Binding Title} -> Literal -> Restore). Record it so the panel shows what is installed.
+static void NoteRestoredBinding(const std::wstring& prop, const std::wstring& actionJson)
+{
+    DevToolsJson act;
+    if (!DevToolsJsonParse(actionJson, act) || !act.IsObject() || act.GetString(L"restoreKind") != L"binding") return;
+    const std::wstring bindPath = act.GetString(L"path");
+    if (bindPath.empty()) return;
+    const DevToolsCardRow* row = FindPropertyRow(g_propRows, prop);
+    if (!row || row->authoredKind == L"binding") return;
+    std::wstring mode = act.GetString(L"mode");
+    if (std::find(BindingModes().begin(), BindingModes().end(), mode) == BindingModes().end()) mode = L"OneWay";
+    NoteSessionAssign(prop, DevToolsKind::Binding, BindingExprFrom(bindPath, mode));
 }
 
 struct DiagAsk { InstanceHandle wire; std::wstring prop; std::wstring op; unsigned gen; bool afterLiveWrite; };
@@ -512,6 +528,7 @@ static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
             // looking like it worked, and kept a successful one saying the binding could not come back.
             BindingLostErase(a.prop);
             SessionAssignErase(a.prop);
+            NoteRestoredBinding(a.prop, a.action);
             DevToolsBindingRow_ForgetLiveWrite(a.wire, a.prop);
             for (size_t i = g_walkAnswers.size(); i-- > 0;)
                 if (g_walkAnswers[i].prop == a.prop && g_walkAnswers[i].tryPath.empty()) g_walkAnswers.erase(g_walkAnswers.begin() + i);

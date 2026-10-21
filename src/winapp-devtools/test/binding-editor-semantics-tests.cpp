@@ -122,6 +122,23 @@ int main()
           "a compiled refresh whose target could not be reread is not restored");
     check(!RestoreLanded(L"{\"state\":\"unavailable\",\"reason\":\"nothing was captured\"}"),
           "an unavailable restore is not restored");
+    check(!RestoreLanded(L"{\"state\":\"restored\",\"bound\":\"False\"}"),
+          "a reattached binding the app dropped again is not restored");
+    row.name = L"Text";
+    row.authoredKind = L"xBind";
+    g_propRows = {row};
+    NoteRestoredBinding(L"Text", L"{\"state\":\"restored\",\"restoreKind\":\"binding\",\"path\":\"Title\","
+                                 L"\"mode\":\"TwoWay\",\"bound\":\"True\"}");
+    const SessionAssign* restoredAssign = SessionAssignFind(L"Text");
+    check(restoredAssign && restoredAssign->kind == DevToolsKind::Binding &&
+          restoredAssign->detail == L"{Binding Title, Mode=TwoWay}",
+          "restoring a panel-applied {Binding} over an x:Bind shows the {Binding}, not the XAML");
+    SessionAssignErase(L"Text");
+    g_propRows[0].authoredKind = L"binding";
+    NoteRestoredBinding(L"Text", L"{\"state\":\"restored\",\"restoreKind\":\"binding\",\"path\":\"Title\","
+                                 L"\"mode\":\"OneWay\",\"bound\":\"True\"}");
+    check(SessionAssignFind(L"Text") == nullptr, "restoring the XAML's own {Binding} leaves the XAML as the source");
+    g_propRows.clear();
     DevToolsWindowComment comment;
     comment.id = L"host-note";
     g_commentRows = {comment};

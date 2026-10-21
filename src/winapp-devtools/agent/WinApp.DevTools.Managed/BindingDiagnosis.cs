@@ -373,6 +373,11 @@ internal static class BindingDiagnosis
             {
                 BindingOperations.SetBinding(element, dp, saved is Binding binding ? CloneBinding(binding) : saved);
                 Field(sb, "restoreKind", "binding");
+                if (saved is Binding restored)
+                {
+                    Field(sb, "path", restored.Path?.Path ?? "");
+                    Field(sb, "mode", restored.Mode.ToString());
+                }
                 Field(sb, "restoreScope", "element-property");
                 Field(sb, "restoreDisclosure", "Re-attached the binding; source/model changes were not undone.");
             }

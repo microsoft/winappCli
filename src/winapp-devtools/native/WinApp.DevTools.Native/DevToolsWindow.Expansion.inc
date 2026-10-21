@@ -424,8 +424,8 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
     }
 
     // A binding replaced by a literal still gets the BINDING block, so Restore binding stays reachable.
-    const bool lostBinding = shown == DevToolsKind::Literal && BindingLost(path) &&
-                             (r.authoredKind == L"xBind" || r.authoredKind == L"binding");
+    // This includes bindings set in code or applied from the panel, which the XAML doesn't declare.
+    const bool lostBinding = shown == DevToolsKind::Literal && BindingLost(path);
     const bool bound = (shown == DevToolsKind::XBind || shown == DevToolsKind::Binding) || lostBinding;
     const bool xbind = shown == DevToolsKind::XBind || (lostBinding && r.authoredKind == L"xBind");
     if (bound) { PostWalk(path); PostDiagnose(path); }
