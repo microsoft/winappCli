@@ -108,7 +108,7 @@ internal static partial class ReactorSecrets
 
     /// <summary>
     /// How many items a collection holds, without enumerating it (which could run app code or never end):
-    /// <c>ICollection.Count</c> or a public <c>int Count</c>; null when neither answers.
+    /// <c>ICollection.Count</c> or a public <c>int Count</c> with a public getter; null when neither answers.
     /// </summary>
     internal static int? Count(object value)
     {
@@ -118,8 +118,9 @@ internal static partial class ReactorSecrets
             {
                 return collection.Count;
             }
-            return value.GetType().GetProperty("Count", BindingFlags.Public | BindingFlags.Instance, null, typeof(int), Type.EmptyTypes, null)
-                ?.GetValue(value) as int?;
+            var getter = value.GetType().GetProperty("Count", BindingFlags.Public | BindingFlags.Instance, null, typeof(int), Type.EmptyTypes, null)
+                ?.GetGetMethod(nonPublic: false);
+            return getter?.Invoke(value, null) as int?;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

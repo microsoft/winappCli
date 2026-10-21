@@ -102,6 +102,23 @@ public sealed class ReactorComponentsTests
         Assert.AreEqual("Context<string>", context.Name);
     }
 
+    public enum SessionToken { None, Issued }
+
+    [TestMethod]
+    public void ASecretTypedHookHoldingNull_IsNotEditable()
+    {
+        var component = Internal(new RenderContext(new ValueHookState<SessionToken?>(null), new ValueHookState<Filter?>(null)).Init());
+        var json = ReactorComponentOps.Json(w => ReactorComponentOps.WriteComponent(w, component, null));
+        using var doc = JsonDocument.Parse(json);
+        var hooks = doc.RootElement.GetProperty("hooks");
+
+        Assert.AreEqual("null", hooks[0].GetProperty("value").GetString(), "null has nothing to redact");
+        Assert.IsFalse(hooks[0].GetProperty("editable").GetBoolean(), "but a secret type is never offered for editing");
+        Assert.IsTrue(hooks[1].GetProperty("editable").GetBoolean(), "an ordinary nullable enum is");
+        Assert.IsFalse(ReactorComponents.IsEditableValue("ApiPassword", typeof(string), redacted: false), "nor a secret name");
+        Assert.IsTrue(ReactorComponents.IsEditableValue("Title", typeof(string), redacted: false));
+    }
+
     [TestMethod]
     public void Internal_SetRerendersOnlyWhenTheValueChanges()
     {

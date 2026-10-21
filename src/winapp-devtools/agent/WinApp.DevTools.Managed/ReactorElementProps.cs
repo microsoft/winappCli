@@ -144,6 +144,18 @@ internal static class ReactorElementProps
         return list;
     }
 
+    /// <summary>
+    /// A value shown as itself rather than member by member: primitives, enums, text, numbers, dates, times, GUIDs and
+    /// URIs, and their nullables.
+    /// </summary>
+    internal static bool IsScalar(Type type)
+    {
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        return type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal) || type == typeof(Guid) ||
+            type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan) || type == typeof(DateOnly) ||
+            type == typeof(TimeOnly) || type == typeof(Uri) || type == typeof(Version);
+    }
+
     /// <summary>A component's props as name/value rows; a scalar props value is one row named <c>Props</c>.</summary>
     internal static IReadOnlyList<(string Name, string Value, bool Redacted)> ComponentProps(object? props)
     {
@@ -152,7 +164,7 @@ internal static class ReactorElementProps
             return [];
         }
         var type = props.GetType();
-        if (type.IsPrimitive || props is string or decimal or Enum || ReactorSecrets.IsSecretType(type))
+        if (IsScalar(type) || ReactorSecrets.IsSecretType(type))
         {
             var (text, redacted) = Format("Props", props);
             return [("Props", text, redacted)];
@@ -191,8 +203,8 @@ internal static class ReactorElementProps
         {
             return (Redacted, true);
         }
-        if (value is IEnumerable and not string &&
-            value.GetType().GetMethod("ToString", Type.EmptyTypes)?.DeclaringType == typeof(object))
+        // Every collection is summarised by its count: its own ToString may enumerate it.
+        if (value is IEnumerable and not string)
         {
             var type = ReactorComponents.FriendlyTypeName(value.GetType());
             return (ReactorSecrets.Count(value) is { } count ? $"{type} ({count.ToString(CultureInfo.InvariantCulture)} items)" : $"{type} (count unknown)", false);

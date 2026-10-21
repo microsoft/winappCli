@@ -192,6 +192,13 @@ internal static class ReactorComponents
         return type.IsGenericType ? $"{name}<{string.Join(", ", type.GetGenericArguments().Select(FriendlyTypeName))}>" : name;
     }
 
+    /// <summary>
+    /// Whether DevTools offers to edit a value: a type that can be typed as text, that is not a secret by its name or
+    /// type (even when it holds null, and so shows nothing to redact), and was not redacted.
+    /// </summary>
+    internal static bool IsEditableValue(string name, Type? type, bool redacted) =>
+        !redacted && !ReactorSecrets.IsSecretName(name) && !IsSecretType(type) && IsEditable(type);
+
     /// <summary>A type a value can be typed as on the command line: primitives, strings, enums and their nullables.</summary>
     internal static bool IsEditable(Type? type)
     {
@@ -217,9 +224,8 @@ internal static class ReactorComponents
         {
             return (ReactorElementProps.Redacted, true);
         }
-        var listLike = value is ICollection ||
-            (value is IEnumerable and not string && value.GetType().GetMethod("ToString", Type.EmptyTypes)?.DeclaringType == typeof(object));
-        if (value is not null && listLike)
+        // Every collection is summarised by its count: its own ToString may enumerate it.
+        if (value is IEnumerable and not string)
         {
             // A collection expression's runtime type is compiler-generated (<>z__ReadOnlyArray); name the declared one.
             var shownType = value.GetType().Name.StartsWith('<') && declared is not null ? declared : value.GetType();

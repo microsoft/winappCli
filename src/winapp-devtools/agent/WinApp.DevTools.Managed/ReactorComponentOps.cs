@@ -232,7 +232,7 @@ internal static class ReactorComponentOps
                 if (redacted) { w.WriteBoolean("redacted", true); }
                 if (context is not null) { w.WriteString("context", context.Name); }
                 w.WriteBoolean("canSet", hook.CanSet);
-                w.WriteBoolean("editable", hook.CanSet && !redacted && ReactorComponents.IsEditable(hook.ValueType));
+                w.WriteBoolean("editable", hook.CanSet && ReactorComponents.IsEditableValue(context?.Name ?? "", hook.ValueType, redacted));
             }
             if (hook.Migrated) { w.WriteBoolean("migrated", true); }
             w.WriteEndObject();
@@ -361,7 +361,8 @@ internal static class ReactorComponentOps
                 return;
             }
             var (beforeText, redacted) = ReactorComponents.Format("", hook.ValueType, hook.Value);
-            if (redacted)
+            // A secret-typed hook holding null is still a secret.
+            if (redacted || ReactorComponents.IsSecretType(hook.ValueType))
             {
                 done(Refused("secret", $"hook {index} of <{component.Name}> holds a secret; DevTools does not write it"));
                 return;
