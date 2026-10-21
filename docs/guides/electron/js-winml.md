@@ -22,6 +22,7 @@ npm install onnxruntime-node@1.24.3
 
 The Windows App SDK transitively depends on `Microsoft.WindowsAppSDK.ML`, so the WinML APIs are already in your generated bindings. Verify:
 
+> [!IMPORTANT]
 > **Requires `@microsoft/dynwinrt-codegen` ≥ `0.1.0-preview.8`** — see [Get started with Electron](index.md#2-call-windows-apis-from-javascript) for older-project fallbacks.
 
 ```bash

@@ -17,11 +17,10 @@
           - 115–145 characters
           - free of YAML-special characters that would force the value to be quoted
       * No banned marketing words anywhere in the doc (title, prose, or sample text).
-
-    WARN-only checks (reported, non-fatal):
-      * Blockquotes used as callouts (a "> **Bold lead-in**") that don't use MS Learn
-        alert syntax (> [!NOTE] / [!IMPORTANT] / [!TIP] / [!WARNING] / [!CAUTION]).
-        Converting these is a judgement call, so they are surfaced but never fail CI.
+      * No blockquotes used as callouts (a block that opens with "> **Bold lead-in**")
+        without MS Learn alert syntax (> [!NOTE] / [!IMPORTANT] / [!TIP] / [!WARNING]
+        / [!CAUTION]). Learn renders those as plain quotes, and the port script
+        would overwrite any fix made by hand in the docs repo.
 
     Front-matter resolution + quoting rules live in mslearn-doc-lib.ps1, which
     both this validator and port-mslearn-docs.ps1 dot-source, so the gate and the
@@ -69,10 +68,8 @@ $CalloutPattern = '^\s*>\s*\*\*'   # blockquote whose first line starts with bol
 # ─── Helpers ────────────────────────────────────────────────────────────────────
 
 $errors = [System.Collections.Generic.List[string]]::new()
-$warnings = [System.Collections.Generic.List[string]]::new()
 
 function Add-Error { param([string]$File, [string]$Msg) $errors.Add("$File`: $Msg") }
-function Add-Warning { param([string]$File, [string]$Msg) $warnings.Add("$File`: $Msg") }
 
 # Blank out fenced code blocks (preserving line count so reported line numbers
 # stay aligned with the source) so structural checks ignore code. Marketing
@@ -138,42 +135,27 @@ foreach ($file in $docFiles) {
         }
     }
 
-    # Blockquote-as-callout (warn only). A callout ("> **Lead-in**") is fine when
-    # it belongs to a contiguous blockquote that opened with an MS Learn alert
-    # marker — track the block's opening line rather than only the previous line,
-    # so multi-paragraph alerts (marker, prose, "> ", then "> **Details**") don't
-    # produce false warnings.
+    # Blockquote-as-callout. Only a block's opening line is checked: bold text
+    # later in the block (a "> **Details**" paragraph inside an alert, or a bold
+    # word that wraps to the start of a line) is not a callout lead-in.
     $body = Remove-CodeFences $raw
     $lines = $body -split "`r?`n"
     $inBlockquote = $false
-    $blockHasAlert = $false
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $isQuote = $lines[$i] -match '^\s*>'
-        if ($isQuote) {
-            if (-not $inBlockquote) {
-                $inBlockquote = $true
-                $blockHasAlert = ($lines[$i] -match $AlertPattern)
-            }
-            if (($lines[$i] -match $CalloutPattern) -and -not $blockHasAlert) {
-                Add-Warning $relPath "blockquote callout on line $($i + 1) does not use MS Learn alert syntax ([!NOTE]/[!IMPORTANT]/[!TIP]/[!WARNING]/[!CAUTION])."
+        if ($isQuote -and -not $inBlockquote) {
+            if (($lines[$i] -match $CalloutPattern) -and ($lines[$i] -notmatch $AlertPattern)) {
+                Add-Error $relPath "blockquote callout on line $($i + 1) does not use MS Learn alert syntax; put '> [!NOTE]', '> [!TIP]', '> [!IMPORTANT]', '> [!WARNING]', or '> [!CAUTION]' on the line above it."
             }
         }
-        else {
-            # Any non-blockquote line (including a blank line) ends the block.
-            $inBlockquote = $false
-            $blockHasAlert = $false
-        }
+        # Any non-blockquote line (including a blank line) ends the block.
+        $inBlockquote = $isQuote
     }
 }
 
 # ─── Report ─────────────────────────────────────────────────────────────────────
 
 Write-Host "`nValidated $checked MS Learn doc(s) under $DocsRoot" -ForegroundColor Cyan
-
-if ($warnings.Count -gt 0) {
-    Write-Host "`nWarnings ($($warnings.Count)):" -ForegroundColor Yellow
-    foreach ($w in $warnings) { Write-Host "  [warn] $w" -ForegroundColor Yellow }
-}
 
 if ($errors.Count -gt 0) {
     Write-Host "`nErrors ($($errors.Count)):" -ForegroundColor Red
