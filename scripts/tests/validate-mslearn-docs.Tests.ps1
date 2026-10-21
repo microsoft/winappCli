@@ -142,14 +142,25 @@ Describe 'validate-mslearn-docs gate' {
         $r.Output | Should -Match "banned marketing word 'powerful' on line"
     }
 
-    It 'warns (non-fatal) on a bold blockquote callout without alert syntax' {
+    It 'fails on a bold blockquote callout without alert syntax (exit 1)' {
         Set-Doc $Root (New-DocContent -Body "> **Note:** a bold blockquote used as a callout.")
         $r = Invoke-Validator $Root
-        $r.ExitCode | Should -Be 0
-        $r.Output | Should -Match 'does not use MS Learn alert syntax'
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -Match 'blockquote callout on line \d+ does not use MS Learn alert syntax'
     }
 
-    It 'does NOT warn on a multi-paragraph alert whose block opened with a marker' {
+    It 'does NOT flag bold text that wraps to the start of a later blockquote line' {
+        $body = @"
+> A plain quote whose second line starts with
+> **bold text** is not a callout.
+"@
+        Set-Doc $Root (New-DocContent -Body $body)
+        $r = Invoke-Validator $Root
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -Not -Match 'does not use MS Learn alert syntax'
+    }
+
+    It 'does NOT flag a multi-paragraph alert whose block opened with a marker' {
         $body = @"
 > [!NOTE]
 > This is an important note about the feature.
