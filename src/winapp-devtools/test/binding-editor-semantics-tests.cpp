@@ -100,6 +100,28 @@ int main()
     check(g_validateVerdict.find(L"Proposed replacement") != std::wstring::npos &&
           g_validateVerdict.find(L"not the installed binding") != std::wstring::npos,
           "editor validation identifies new DataContext replacement rather than current explicit source");
+    g_validateFromXBind = true;
+    ApplyValidateAnswer(L"{\"expressionSource\":\"proposed\",\"againstKind\":\"binding\",\"segments\":["
+                        L"{\"path\":\"ViewModel\",\"found\":false,\"hr\":\"0x80070490\",\"isNull\":false}]}");
+    check(g_validateBad && g_validateVerdict.find(L"starts at the DataContext") != std::wstring::npos,
+          "a failing path copied from x:Bind explains that {Binding} starts at the DataContext");
+    g_validateFromXBind = false;
+    ApplyValidateAnswer(L"{\"expressionSource\":\"proposed\",\"againstKind\":\"binding\",\"segments\":["
+                        L"{\"path\":\"ViewModel\",\"found\":false,\"hr\":\"0x80070490\",\"isNull\":false}]}");
+    check(g_validateVerdict.find(L"starts at the DataContext") == std::wstring::npos,
+          "a typed {Binding} path gets no x:Bind hint");
+    check(RestoreLanded(L"{\"state\":\"restored\",\"bound\":\"True\"}"), "a reattached {Binding} counts as restored");
+    check(RestoreLanded(L"{\"state\":\"unavailable\",\"ownerUpdated\":\"True\",\"restoreVerification\":\"unchecked\","
+                        L"\"before\":\"OVERRIDE\",\"after\":\"Hello\"}"),
+          "a compiled refresh that changed the target counts as restored");
+    check(!RestoreLanded(L"{\"state\":\"unavailable\",\"ownerUpdated\":\"True\",\"restoreVerification\":\"unchecked\","
+                         L"\"before\":\"OVERRIDE\",\"after\":\"OVERRIDE\"}"),
+          "a compiled refresh that left the override in place is not restored");
+    check(!RestoreLanded(L"{\"state\":\"unavailable\",\"ownerUpdated\":\"True\",\"before\":\"OVERRIDE\","
+                         L"\"targetUnavailable\":\"gone\"}"),
+          "a compiled refresh whose target could not be reread is not restored");
+    check(!RestoreLanded(L"{\"state\":\"unavailable\",\"reason\":\"nothing was captured\"}"),
+          "an unavailable restore is not restored");
     DevToolsWindowComment comment;
     comment.id = L"host-note";
     g_commentRows = {comment};

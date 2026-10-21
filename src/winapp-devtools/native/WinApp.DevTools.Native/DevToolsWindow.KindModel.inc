@@ -455,11 +455,18 @@ static void BindingAnswersForget(const std::wstring& prop)
 }
 
 // A {Binding} restore reports "restored"; an {x:Bind} restore can only say it re-pushed the owner's bindings.
+// An x:Bind restore only reports that the page re-ran its compiled bindings. That counts as restored only when
+// the target's value visibly changed; otherwise the override may still be in place.
 static bool RestoreLanded(const std::wstring& actionJson)
 {
     DevToolsJson act;
     if (!DevToolsJsonParse(actionJson, act) || !act.IsObject()) return false;
-    return act.GetString(L"state") == L"restored" || act.GetString(L"ownerUpdated") == L"True";
+    if (act.GetString(L"state") == L"restored") return true;
+    const DevToolsJson* before = act.Find(L"before");
+    const DevToolsJson* after = act.Find(L"after");
+    return act.GetString(L"ownerUpdated") == L"True" && before && after &&
+           before->type == DevToolsJsonType::String && after->type == DevToolsJsonType::String &&
+           before->str != after->str;
 }
 
 struct DiagAsk { InstanceHandle wire; std::wstring prop; std::wstring op; unsigned gen; bool afterLiveWrite; };
@@ -497,9 +504,10 @@ static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
         return;
     }
     bool any = false, restored = false;
-    for (const DiagAnswer& a : done) {
+    for (DiagAnswer a : done) {
         if (a.gen != g_route1Gen || a.wire != g_selWire) continue;
-        if (!a.action.empty() && RestoreLanded(a.action)) {
+        const bool hadAction = !a.action.empty();
+        if (hadAction && RestoreLanded(a.action)) {
             // Only now is the binding back. Clearing these when the button was clicked kept a failed restore
             // looking like it worked, and kept a successful one saying the binding could not come back.
             BindingLostErase(a.prop);
@@ -507,11 +515,15 @@ static void CALLBACK DiagTimerProc(HWND, UINT, UINT_PTR id, DWORD)
             DevToolsBindingRow_ForgetLiveWrite(a.wire, a.prop);
             for (size_t i = g_walkAnswers.size(); i-- > 0;)
                 if (g_walkAnswers[i].prop == a.prop && g_walkAnswers[i].tryPath.empty()) g_walkAnswers.erase(g_walkAnswers.begin() + i);
+            // This answer now describes the restored binding: a later edit must ask again rather than reuse it,
+            // and must not be reported as a failed restore.
+            a.action.clear();
+            a.afterLiveWrite = false;
         }
         if (DiagAnswer* existing = DiagFind(a.prop)) *existing = a;
         else g_diagAnswers.push_back(a);
         any = true;
-        restored = restored || !a.action.empty();
+        restored = restored || hadAction;
     }
     if (!any) return;
     // A restore changed a value the tree's caption may show.

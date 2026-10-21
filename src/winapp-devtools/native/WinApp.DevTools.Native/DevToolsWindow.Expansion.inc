@@ -447,8 +447,10 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         DevToolsBindingRow_ApplyLiveOverride(sum, DevToolsBindingRow_WasWrittenLive(g_selWire, path), r.value);
     if (replaced || overridden) {
         DevToolsJson act;
-        if (DevToolsJsonParse(diag->action, act) && act.IsObject() && act.GetString(L"state") != L"restored")
-            sum.reason = L"Restore failed: " + act.GetString(L"reason");
+        if (DevToolsJsonParse(diag->action, act) && act.IsObject() && !RestoreLanded(diag->action))
+            sum.reason = (act.GetString(L"ownerUpdated") == L"True" ? std::wstring(L"Restore not confirmed: ")
+                                                                    : std::wstring(L"Restore failed: "))
+                       + act.GetString(L"reason");
     }
     // Without the managed answer the native walk still names a segment where a path stops, as in the quick panel;
     // otherwise the status is unknown rather than guessed.
