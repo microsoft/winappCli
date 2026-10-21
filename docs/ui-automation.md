@@ -227,6 +227,7 @@ the command takes the turn up front rather than guessing. When it composites sev
 captures them all under one exclusive turn, so the saved image is a single consistent moment rather
 than a mix of before and after. Encoding and writing the file happen after the desktop is released.
 
+> [!NOTE]
 > **`--capture-screen` needs exactly one window.** Live-screen capture records whatever is actually
 > in front, and only one window can be. Selecting a window explicitly with `-w <hwnd>` gives it
 > exactly one region — the pixels inside that window's bounds, including any dialog or overlay
@@ -805,6 +806,7 @@ winapp ui touch img-map-9f8e -a myapp --gesture pinch --distance 300 --angle 45 
 - `--duration-ms <ms>` — Glide time for moving gestures (swipe/pinch/stretch; default 300).
 - `--fingers <n>` — Number of contacts (1–10; default 1). `pinch`/`stretch` always use 2.
 
+> [!NOTE]
 > **Injection safety.** `touch` refuses to inject unless a **non-zero target window handle** resolves and that window holds the foreground — it fails with **`no_target`** when no window can be resolved, **`foreground_not_target`** if focus couldn't be transferred, or **`no_interactive_desktop`** on a locked/secure desktop. Every coordinate (element center, explicit `--at`/`--to-point`, and generated waypoints) is **checked against the target window rectangle**; a point outside the window is surfaced as a **non-fatal warning** (a `warnings[]` entry in `--json`, or a warning line in text mode) and injection still proceeds — matching the mouse verbs (`click`/`drag`/`hover`/`scroll`), which also inject at out-of-window coordinates. `--fingers` above 10 is rejected up front.
 >
 > **Hardware note.** Touch prefers the modern synthetic-pointer device (`CreateSyntheticPointerDevice(PT_TOUCH)`) and falls back to the legacy `InitializeTouchInjection`/`InjectTouchInput` API. If injection is unsupported on the current device/session, the command surfaces the **actual Win32 error code** (e.g. "unsupported") rather than reporting a false success — treat a non-zero exit as "touch not delivered".
@@ -829,6 +831,7 @@ winapp ui pen -a myapp --at 200,200 --tilt-x 30 --tilt-y -15           # tilted 
 - `--eraser` — Use the eraser end of the pen instead of the tip.
 - `--duration-ms <ms>` — Total stroke travel time in milliseconds distributed as interpolated UPDATE frames across the path (default: ~10 ms per waypoint). Use this to control how fast the pen visibly moves from start to end.
 
+> [!NOTE]
 > **Injection safety.** Like `touch`, `pen` refuses to inject without a **non-zero, foregrounded target window** (`no_target` / `foreground_not_target` / `no_interactive_desktop`) and **checks every ink point** against the target window rectangle, surfacing any out-of-window coordinate as a **non-fatal warning** (`warnings[]` in `--json`, or a warning line in text mode) while still injecting — consistent with the mouse verbs. Invalid `--pressure` (outside 0.0–1.0) or tilt (outside ±90°) are rejected up front.
 >
 > **Remote Desktop / VM sessions.** Pen routing is **especially unreliable over Remote Desktop**: the injection call can report success (exit 0) while **no pen input reaches the app**. When a remote session is detected, `pen` appends a **delivery-uncertainty warning** (`warnings[]` in `--json`, or a warning line in text mode) so a ✅ is not mistaken for confirmed delivery. Validate pen-dependent flows on a **local, interactive desktop**.
@@ -902,6 +905,7 @@ winapp ui set-value doc-compose-9f3a "hello" -a myapp        # RichEdit/compose 
 ```
 If none of the three patterns can set the value, `set-value` fails with a clear error pointing at `send-keys` as the last resort.
 
+> [!NOTE]
 > **Not every rich editor supports programmatic set.** The LegacyIAccessible fallback only works on controls whose accessibility implements `IAccessible::put_accValue` — native Win32 rich-edit controls and Chromium/Electron/WebView2 compose surfaces typically do. **WinUI 3 `RichEditBox` and WPF `RichTextBox` don't support programmatic value-setting** — by design they expose their contents to UI Automation as read-only (Text pattern, no settable Value pattern), so `set-value` can't write to them. Use `send-keys` (which needs an unlocked, foregrounded desktop) for those.
 
 
@@ -1242,6 +1246,7 @@ winapp ui wait-for "Dialog Title" -a $pid --gone -t 5000
 ### Assert with JSON output
 Use `--json` with PowerShell or jq for more complex assertions:
 
+> [!NOTE]
 > **Exit-code contract for `search` and `wait-for` in `--json` mode:** when no element matches
 > (`search`) or the wait times out (`wait-for`), the command writes a fully parseable result envelope
 > to **stdout** (`{ "matchCount": 0, ... }` or `{ "found": false, "timedOut": true, ... }`) and

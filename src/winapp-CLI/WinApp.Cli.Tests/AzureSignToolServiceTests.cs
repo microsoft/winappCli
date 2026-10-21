@@ -336,6 +336,8 @@ internal sealed class FakeSignToolNugetService(DirectoryInfo cacheDir) : INugetS
 {
     public DirectoryInfo GetNuGetGlobalPackagesDir() => cacheDir;
 
+    public DirectoryInfo GetNuGetGlobalPackagesDir(string configRoot) => cacheDir;
+
     public Task<string> GetLatestVersionAsync(string packageName, SdkInstallMode sdkInstallMode, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
 

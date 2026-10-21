@@ -26,6 +26,48 @@ public sealed class NuGetResolverTests
     #region Compile-surface resolution
 
     [TestMethod]
+    public void FindPackagesFromConfig_PackageInConfiguredGlobalFolder_IsFound()
+    {
+        // A packages.config project on a machine whose nuget.config redirects
+        // globalPackagesFolder: the package lives only in that folder, not under
+        // %USERPROFILE%\.nuget\packages, and must still be found.
+        string projectDir = Path.Combine(_dir, "App");
+        Directory.CreateDirectory(projectDir);
+        string configPath = Path.Combine(projectDir, "packages.config");
+        File.WriteAllText(configPath, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <packages>
+              <package id="Contoso.Widgets" version="1.2.3" />
+            </packages>
+            """);
+        string globalPackages = Path.Combine(_dir, "redirected-packages");
+        string packageDir = Path.Combine(globalPackages, "contoso.widgets", "1.2.3", "lib");
+        Directory.CreateDirectory(packageDir);
+        File.WriteAllText(Path.Combine(packageDir, "Contoso.winmd"), string.Empty);
+
+        List<PackageWithWinMd> packages = NuGetResolver.FindPackagesFromConfig(configPath, projectDir, globalPackages);
+
+        Assert.HasCount(1, packages);
+        Assert.AreEqual("Contoso.Widgets", packages[0].Id);
+        CollectionAssert.AreEqual(SelectedWinmdOnly, packages[0].WinMdFiles.Select(Path.GetFileName).ToList());
+    }
+
+    [TestMethod]
+    public void FindWindowsSdkWinMd_NonDefaultKitsRoot_FindsSdk()
+    {
+        // An SDK installed to another drive registers that root in KitsRoot10; the
+        // search must use it rather than assuming %ProgramFiles(x86)%.
+        string kitsRoot = Path.Combine(_dir, "Kits", "10");
+        string versionDir = Path.Combine(kitsRoot, "UnionMetadata", "10.0.26100.0");
+        Directory.CreateDirectory(versionDir);
+        File.WriteAllText(Path.Combine(versionDir, "Windows.winmd"), string.Empty);
+
+        (List<string> files, string version) = NuGetResolver.FindWindowsSdkWinMd(kitsRoot: kitsRoot);
+
+        Assert.AreEqual("10.0.26100.0", version);
+        Assert.AreEqual(Path.Combine(versionDir, "Windows.winmd"), files.Single());
+    }
+    [TestMethod]
     public void ReadTargetPlatformVersionFromProjectFile_CppProject_ReadsWindowsTargetPlatformVersion()
     {
         // A C++ project has no project.assets.json, so this is the only place its target
