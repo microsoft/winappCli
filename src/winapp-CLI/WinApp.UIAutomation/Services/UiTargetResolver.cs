@@ -66,6 +66,12 @@ public sealed class UiTargetResolver(
             {
                 throw new AppNotFoundException($"No running app found matching '{app}'.");
             }
+            // "My App" means the window titled exactly that, not also "My App 2".
+            var exactTitles = windows.Where(w => string.Equals(w.Title, app, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (exactTitles.Count > 0)
+            {
+                windows = exactTitles;
+            }
             if (processOnly)
             {
                 var processes = windows.Select(window => window.Pid).Distinct().ToArray();
@@ -89,7 +95,7 @@ public sealed class UiTargetResolver(
         // inside an ApplicationFrameHost frame, so it owns no top-level window — except while
         // minimized, when its content window detaches from the frame and becomes an empty top-level
         // window. In both cases the frame hosting the app is the real target.
-        var processWindows = uiAutomation.FindWindowsByPid(resolved.Id);
+        var processWindows = WithoutDevToolsInspector(uiAutomation.FindWindowsByPid(resolved.Id));
         if (processWindows.TrueForAll(w => IsCoreWindow(systemQuery, w.Hwnd)))
         {
             var frames = HostedAppFrameWindows(systemQuery, resolved.Id);
@@ -153,6 +159,16 @@ public sealed class UiTargetResolver(
         }
 
         return target;
+    }
+
+    // The DevTools inspector runs inside the app's process, so it is one of the app's own windows. Targeting
+    // the app by PID or name means the app's UI, never the inspector, even when the inspector is in front.
+    private const string DevToolsInspectorTitlePrefix = "WinApp DevTools · PID ";
+
+    private static List<(nint Hwnd, int Pid, string Title)> WithoutDevToolsInspector(List<(nint Hwnd, int Pid, string Title)> windows)
+    {
+        var appWindows = windows.Where(w => !w.Title.StartsWith(DevToolsInspectorTitlePrefix, StringComparison.Ordinal)).ToList();
+        return appWindows.Count > 0 ? appWindows : windows;
     }
 
     private const string ApplicationFrameWindowClass = "ApplicationFrameWindow";

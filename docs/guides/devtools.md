@@ -64,7 +64,8 @@ winapp config unset run.devtools      # back to the default, on
 
 If DevTools can't start in a run where you didn't pass `--devtools`, the app runs
 without it and winapp says why; with `--devtools on` or `headless`, that's an error.
-If the app is already running, `run` closes it so DevTools can start it.
+If the app is already running, `run` closes it first, so DevTools can start it and its
+files can be replaced. This also happens with `--devtools off`.
 
 ## Use the toolbar
 

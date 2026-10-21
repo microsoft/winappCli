@@ -2398,7 +2398,7 @@ winapp ui [command] [options]
 
 **Options:**
 - `-a, --app <app>` - Target app (name, title, or PID)
-- `-w, --window <hwnd>` - Target window by HWND (stable)
+- `-w, --window <hwnd>` - Target window by HWND (stable), in decimal or `0x` hex
 - `--on <target>` - Run any `ui` verb in `sandbox`; names, PIDs, and window handles refer to the guest. Outputs are delivered to the host. See [Sandbox UI automation](sandbox-execution.md#automating-the-ui) for setup, workflow coordination, and client requirements.
 - `--type`, `--root`, `--class-name` - Narrow a selector, or use `--type`/`--class-name` without one, on the commands listed in [Scoped and typed queries](ui-automation.md#scoped-and-typed-queries)
 
