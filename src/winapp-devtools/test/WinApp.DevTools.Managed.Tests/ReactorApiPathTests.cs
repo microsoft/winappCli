@@ -9,8 +9,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace WinApp.DevTools.Managed.Tests;
 
 /// <summary>
-/// DevTools reads a Reactor with the public diagnostics API only through it, and an older Reactor (published
-/// 0.1.0-preview.16) only through the internals adapter. Built against emitted stand-ins of both shapes.
+/// DevTools reads a Reactor with the public diagnostics API (GetHosts and DescribeComponent) only through it, and an
+/// older Reactor (published 0.1.0-preview.16) only through the internals adapter. Built against emitted stand-ins of both shapes.
 /// </summary>
 [TestClass]
 public sealed class ReactorApiPathTests
@@ -18,7 +18,7 @@ public sealed class ReactorApiPathTests
     [TestMethod]
     public void PublicDiagnostics_AreUsedAlone_WhenReactorHasThem()
     {
-        var reactor = FakeReactor(getHosts: true, tryGetComponent: true, tryGetRootComponent: true);
+        var reactor = FakeReactor(getHosts: true, describeComponent: true);
         var api = ReactorApi.ForAssembly(reactor);
 
         Assert.IsNull(api.Error);
@@ -34,7 +34,7 @@ public sealed class ReactorApiPathTests
     [TestMethod]
     public void Internals_AreUsed_ForAReactorWithoutThePublicApi()
     {
-        var reactor = FakeReactor(getHosts: false, tryGetComponent: false, tryGetRootComponent: false);
+        var reactor = FakeReactor(getHosts: false, describeComponent: false);
         var api = ReactorApi.ForAssembly(reactor);
 
         Assert.IsNull(api.Error);
@@ -47,12 +47,11 @@ public sealed class ReactorApiPathTests
     }
 
     [TestMethod]
-    [DataRow(true, false, true)]
-    [DataRow(true, true, false)]
-    [DataRow(false, true, true)]
-    public void APartialPublicApi_FallsBackToInternalsAsAWhole(bool getHosts, bool tryGetComponent, bool tryGetRootComponent)
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public void APartialPublicApi_FallsBackToInternalsAsAWhole(bool getHosts, bool describeComponent)
     {
-        var reactor = FakeReactor(getHosts, tryGetComponent, tryGetRootComponent);
+        var reactor = FakeReactor(getHosts, describeComponent);
         var api = ReactorApi.ForAssembly(reactor);
 
         Assert.IsFalse(api.PublicDiagnostics);
@@ -63,10 +62,10 @@ public sealed class ReactorApiPathTests
     }
 
     [TestMethod]
-    public void TextDiagnostics_AreThePublicApi_WithoutTheTypedComponentLookups()
+    public void TextDiagnostics_AreThePublicApi()
     {
-        // Reactor's final API: GetHosts and DescribeComponent/TrySetState/Rerender; TryGetComponent never shipped.
-        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, tryGetComponent: false, tryGetRootComponent: false, describeComponent: true));
+        // Reactor's final API: GetHosts and DescribeComponent/TrySetState/Rerender.
+        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, describeComponent: true));
 
         Assert.IsTrue(api.PublicDiagnostics);
         Assert.IsTrue(api.TextDiagnostics);
@@ -77,27 +76,16 @@ public sealed class ReactorApiPathTests
     }
 
     [TestMethod]
-    public void TypedLookups_StillServeLocalPackagesWithoutTextDiagnostics()
-    {
-        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, tryGetComponent: true, tryGetRootComponent: true));
-        Assert.IsTrue(api.PublicDiagnostics);
-        Assert.IsFalse(api.TextDiagnostics);
-        Assert.AreEqual((false, "this Reactor version cannot set state from text"), api.SetState(null!, 0, "1"));
-    }
-
-    [TestMethod]
     public void IslandHost_IsOnlyAskedOfTheInternalsAdapter()
     {
-        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, tryGetComponent: true, tryGetRootComponent: true));
+        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, describeComponent: true));
         Assert.IsNull(api.IslandHost(null!), "the public host registry already lists islands");
     }
 
     [TestMethod]
-    [DataRow(nameof(ReactorReferenceTests.Snapshots))]
-    [DataRow(nameof(ReactorReferenceTests.Edges))]
-    public void PendingReferences_ComeFromGetReferenceEdges_WhenReactorHasIt(string shape)
+    public void PendingReferences_ComeFromGetReferenceEdges_WhenReactorHasIt()
     {
-        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, tryGetComponent: true, tryGetRootComponent: true, referenceEdges: shape));
+        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, describeComponent: true, referenceEdges: nameof(ReactorReferenceTests.Snapshots)));
 
         var pending = api.PendingReferences(null!);
 
@@ -108,7 +96,7 @@ public sealed class ReactorApiPathTests
     [TestMethod]
     public void PendingReferences_AreUnknown_ForAReactorWithoutGetReferenceEdges()
     {
-        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, tryGetComponent: true, tryGetRootComponent: true));
+        var api = ReactorApi.ForAssembly(FakeReactor(getHosts: true, describeComponent: true));
 
         Assert.IsNull(api.PendingReferences(null!));
         Assert.AreEqual("{\"state\":\"ok\",\"supported\":false,\"edges\":[]}", ReactorProvider.DescribeReferences(null));
@@ -120,7 +108,7 @@ public sealed class ReactorApiPathTests
     private static bool Flag(Assembly assembly, string type, string field) =>
         assembly.GetType(type)?.GetField(field)?.GetValue(null) is true;
 
-    private static Assembly FakeReactor(bool getHosts, bool tryGetComponent, bool tryGetRootComponent, bool describeComponent = false, string? referenceEdges = null)
+    private static Assembly FakeReactor(bool getHosts, bool describeComponent, string? referenceEdges = null)
     {
         var assembly = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("FakeReactor" + Guid.NewGuid().ToString("N")), AssemblyBuilderAccess.Run);
         var module = assembly.DefineDynamicModule("Reactor");
@@ -139,7 +127,7 @@ public sealed class ReactorApiPathTests
         EmptyListGetter(app, "Windows", windowsRead);
         app.CreateType();
 
-        if (getHosts || tryGetComponent || tryGetRootComponent || describeComponent || referenceEdges is not null)
+        if (getHosts || describeComponent || referenceEdges is not null)
         {
             var diagnostics = module.DefineType(DiagnosticsType, TypeAttributes.Public | TypeAttributes.Class);
             var hostsRead = diagnostics.DefineField("HostsRead", typeof(bool), FieldAttributes.Public | FieldAttributes.Static);
@@ -157,22 +145,6 @@ public sealed class ReactorApiPathTests
             {
                 var method = diagnostics.DefineMethod("GetHosts", MethodAttributes.Public | MethodAttributes.Static, typeof(object[]), Type.EmptyTypes);
                 EmitFlagAndEmptyArray(method.GetILGenerator(), hostsRead);
-            }
-            foreach (var (name, present) in new[] { ("TryGetComponent", tryGetComponent), ("TryGetRootComponent", tryGetRootComponent) })
-            {
-                if (!present)
-                {
-                    continue;
-                }
-                var method = diagnostics.DefineMethod(name, MethodAttributes.Public | MethodAttributes.Static, typeof(bool),
-                    [typeof(UIElement), typeof(object).MakeByRefType()]);
-                method.DefineParameter(2, ParameterAttributes.Out, "component");
-                var body = method.GetILGenerator();
-                body.Emit(OpCodes.Ldarg_1);
-                body.Emit(OpCodes.Ldnull);
-                body.Emit(OpCodes.Stind_Ref);
-                body.Emit(OpCodes.Ldc_I4_0);
-                body.Emit(OpCodes.Ret);
             }
             if (describeComponent)
             {

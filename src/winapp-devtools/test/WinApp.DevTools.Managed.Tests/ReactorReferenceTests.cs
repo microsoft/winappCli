@@ -2,26 +2,14 @@
 // Licensed under the MIT License.
 
 using System.Text.Json;
-using Microsoft.UI.Xaml.Controls;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace WinApp.DevTools.Managed.Tests;
 
-// Stand-ins with the shapes of Reactor's public reference edges. The agent reads them by member name, so these exercise
-// the same reads without a Reactor that has the API.
-//
-// ReferenceEdgeSnapshot: the text-only shape Reactor ships (ExpectedTargetTypeName is a friendly name such as "Button").
+// A stand-in with the shape of Reactor's public reference edge (ReferenceEdgeSnapshot; ExpectedTargetTypeName is a
+// friendly name such as "Button"). The agent reads it by member name, so this exercises the same reads without Reactor.
 public sealed record ReferenceEdgeSnapshot(string Property, bool IsList, int Index, string? TargetAutomationId,
     string? ExpectedTargetTypeName, bool IsResolved, object? Target);
-
-// ReferenceEdgeDiagnostics: the shape of the local 0.0.0-devtools.7/.8 packages (a Type, plus Source, Slot and TargetRef).
-public enum ReferenceEdgeSource { Modifier, Descriptor, Binding }
-
-public sealed record ReferenceEdgeDiagnostics(string Property, ReferenceEdgeSource Source, int Slot, bool IsList, int Index,
-    object? TargetRef, string? TargetAutomationId, Type? ExpectedTargetType, object? Target)
-{
-    public bool IsResolved => Target is not null;
-}
 
 /// <summary>
 /// References whose target Reactor hasn't created (on a tab that isn't open, say) have nothing in WinUI to point at;
@@ -38,50 +26,36 @@ public sealed class ReactorReferenceTests
         new("FlowsTo", true, 1, null, "TextBlock", false, null),
     ];
 
-    public static IReadOnlyList<ReferenceEdgeDiagnostics> Edges() =>
-    [
-        new("XYFocusRight", ReferenceEdgeSource.Modifier, 0, false, 0, new object(), null, typeof(Button), null),
-        new("XYFocusDown", ReferenceEdgeSource.Modifier, 1, false, 0, new object(), null, typeof(Button), new object()),
-        new("LabeledBy", ReferenceEdgeSource.Modifier, 2, false, 0, null, "Title", null, null),
-        new("FlowsTo", ReferenceEdgeSource.Modifier, 3, true, 1, new object(), null, typeof(TextBlock), null),
-    ];
-
     [TestMethod]
     public void Snapshots_OnlyEdgesWhoseTargetIsNotShownArePending_NamedByTheTextTypeName()
     {
         var pending = ReactorApi.PendingReferencesFrom(Snapshots());
 
         Assert.HasCount(3, pending);
-        Assert.AreEqual(new ReactorPendingReference("XYFocusRight", null, false, 0, "Button", null), pending[0]);
-        Assert.AreEqual(new ReactorPendingReference("LabeledBy", null, false, 0, null, "Title"), pending[1]);
-        Assert.AreEqual(new ReactorPendingReference("FlowsTo", null, true, 1, "TextBlock", null), pending[2]);
+        Assert.AreEqual(new ReactorPendingReference("XYFocusRight", false, 0, "Button", null), pending[0]);
+        Assert.AreEqual(new ReactorPendingReference("LabeledBy", false, 0, null, "Title"), pending[1]);
+        Assert.AreEqual(new ReactorPendingReference("FlowsTo", true, 1, "TextBlock", null), pending[2]);
     }
 
     [TestMethod]
-    public void BothShapesDescribeTheSamePendingTargets()
+    public void ThePendingLinesAreBuiltFromPropertyTypeAutomationIdAndListPosition()
     {
-        // Only what "(not shown)" is built from: the property, the expected type, the AutomationId and the list position.
-        static string Shown(System.Collections.IEnumerable edges)
-        {
-            using var answer = JsonDocument.Parse(ReactorProvider.DescribeReferences(ReactorApi.PendingReferencesFrom(edges)));
-            return string.Join("|", answer.RootElement.GetProperty("edges").EnumerateArray().Select(edge => string.Join(",",
-                new[] { "property", "targetType", "automationId", "list", "index" }
-                    .Select(name => edge.TryGetProperty(name, out var value) ? value.ToString() : "-"))));
-        }
+        using var answer = JsonDocument.Parse(ReactorProvider.DescribeReferences(ReactorApi.PendingReferencesFrom(Snapshots())));
+        var shown = string.Join("|", answer.RootElement.GetProperty("edges").EnumerateArray().Select(edge => string.Join(",",
+            new[] { "property", "targetType", "automationId", "list", "index" }
+                .Select(name => edge.TryGetProperty(name, out var value) ? value.ToString() : "-"))));
 
-        var current = Shown(Snapshots());
-        Assert.AreEqual("XYFocusRight,Button,-,-,-|LabeledBy,-,Title,-,-|FlowsTo,TextBlock,-,True,1", current);
-        Assert.AreEqual(current, Shown(Edges()), "the devtools.7/.8 shape shows the same lines");
+        Assert.AreEqual("XYFocusRight,Button,-,-,-|LabeledBy,-,Title,-,-|FlowsTo,TextBlock,-,True,1", shown);
     }
 
     [TestMethod]
-    public void AnUntypedSnapshotHasNoTargetType_AndTheTextNameWinsOverAType()
+    public void AnUntypedSnapshotHasNoTargetType()
     {
         var pending = ReactorApi.PendingReferencesFrom(new object[]
         {
             new ReferenceEdgeSnapshot("reference#2", false, 0, null, null, false, null),
             new ReferenceEdgeSnapshot("binding#1", false, 0, null, "", false, null),
-            new { Property = "XYFocusUp", IsResolved = false, ExpectedTargetTypeName = "ToggleButton", ExpectedTargetType = typeof(Button) },
+            new ReferenceEdgeSnapshot("XYFocusUp", false, 0, null, "ToggleButton", false, null),
         });
 
         Assert.HasCount(3, pending);
@@ -91,20 +65,9 @@ public sealed class ReactorReferenceTests
     }
 
     [TestMethod]
-    public void OnlyEdgesWhoseTargetIsNotShownArePending()
-    {
-        var pending = ReactorApi.PendingReferencesFrom(Edges());
-
-        Assert.HasCount(3, pending);
-        Assert.AreEqual(new ReactorPendingReference("XYFocusRight", "Modifier", false, 0, "Button", null), pending[0]);
-        Assert.AreEqual(new ReactorPendingReference("LabeledBy", "Modifier", false, 0, null, "Title"), pending[1]);
-        Assert.AreEqual(new ReactorPendingReference("FlowsTo", "Modifier", true, 1, "TextBlock", null), pending[2]);
-    }
-
-    [TestMethod]
     public void TheAnswerNamesEachPendingTargetByTypeOrAutomationId()
     {
-        using var answer = JsonDocument.Parse(ReactorProvider.DescribeReferences(ReactorApi.PendingReferencesFrom(Edges())));
+        using var answer = JsonDocument.Parse(ReactorProvider.DescribeReferences(ReactorApi.PendingReferencesFrom(Snapshots())));
         var root = answer.RootElement;
 
         Assert.AreEqual("ok", root.GetProperty("state").GetString());
@@ -121,16 +84,15 @@ public sealed class ReactorReferenceTests
     }
 
     [TestMethod]
-    public void AnEdgeWithoutIsResolvedIsPendingOnlyWithoutATarget()
+    public void AnEdgeWithoutIsResolvedIsNotPending()
     {
         var pending = ReactorApi.PendingReferencesFrom(new object[]
         {
             new { Property = "LabeledBy", Target = (object?)null },
-            new { Property = "DescribedBy", Target = (object?)new object() },
-            new { Target = (object?)null },
+            new ReferenceEdgeSnapshot("DescribedBy", false, 0, null, null, false, null),
         });
 
         Assert.HasCount(1, pending);
-        Assert.AreEqual("LabeledBy", pending[0].Property);
+        Assert.AreEqual("DescribedBy", pending[0].Property);
     }
 }

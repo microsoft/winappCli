@@ -14,7 +14,7 @@ internal sealed record ReactorAppliedProperty(string Modifier, string Property, 
 /// A reference Reactor set on an element whose target isn't created yet: <see cref="Property"/> (LabeledBy, XYFocusRight,
 /// reference#N ...), where it came from, and what the target is expected to be.
 /// </summary>
-internal sealed record ReactorPendingReference(string Property, string? Source, bool IsList, int Index, string? TargetType, string? AutomationId);
+internal sealed record ReactorPendingReference(string Property, bool IsList, int Index, string? TargetType, string? AutomationId);
 
 /// <summary>One element-record property the app's C# set, and the WinUI property it writes.</summary>
 internal sealed record ReactorRecordProp(string Name, string Property, string Value, bool Redacted);
@@ -224,6 +224,13 @@ internal static class ReactorElementProps
         }
         return (text.Length > MaxValueLength ? text[..MaxValueLength] + "..." : text, false);
     }
+
+    /// <summary>
+    /// A value Reactor already formatted as text (<c>GetAppliedProperties</c>), redacted by the same rules as
+    /// <see cref="Format"/>: Reactor does not redact.
+    /// </summary>
+    internal static (string Text, bool Redacted) FormatText(string name, string text) =>
+        IsSecretName(name) || ReactorSecrets.HasLabelledSecret(text) ? (Redacted, true) : (text, false);
 
     private static IEnumerable<PropertyInfo> OwnProperties(Type type, Type? elementBase)
     {

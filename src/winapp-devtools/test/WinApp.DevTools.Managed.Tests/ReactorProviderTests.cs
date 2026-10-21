@@ -21,23 +21,14 @@ public sealed class ReactorProviderTests
     // ReactorHostInfo as Reactor reports it now: the root by name only.
     private sealed record NamedHost(string Kind, string? RootComponentName, string? RootRenderFunctionName);
 
-    // ReactorHostInfo before it named its root (devtools.1 to .8): a Type or a render delegate.
-    private sealed record TypedHost(string Kind, Type? RootComponentType, Delegate? RootRenderFunction, object? Reconciler);
-
     [TestMethod]
-    public void HostRoot_ReadsTheRootsNameAndFallsBackToItsTypeOrDelegate()
+    public void HostRoot_ReadsTheRootsComponentOrRenderFunctionName()
     {
         Assert.AreEqual(("class", (string?)null, "Counter"), ReactorApi.HostRoot(new NamedHost("Window", "Counter", null)));
         Assert.AreEqual(("function", (string?)null, "Program.Main"), ReactorApi.HostRoot(new NamedHost("Window", null, "Program.Main")));
         Assert.AreEqual(("function", (string?)null, "Program.Main"), ReactorApi.HostRoot(new NamedHost("Window", "", "Program.Main")),
             "an empty component name is no name");
         Assert.IsNull(ReactorApi.HostRoot(new NamedHost("Window", null, null)), "a host with no root yet");
-
-        Assert.AreEqual(("class", typeof(App).FullName, "App"), ReactorApi.HostRoot(new TypedHost("Window", typeof(App), null, null)),
-            "an older Reactor names the root by its type");
-        Assert.AreEqual(("function", (string?)null, "render in App.Lambda"),
-            ReactorApi.HostRoot(new TypedHost("Window", null, new App().Lambda(), null)), "or by its render delegate");
-        Assert.IsNull(ReactorApi.HostRoot(new TypedHost("Window", null, null, null)));
     }
 
     [TestMethod]

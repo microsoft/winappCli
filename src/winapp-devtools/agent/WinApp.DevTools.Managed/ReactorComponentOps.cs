@@ -255,7 +255,7 @@ internal static class ReactorComponentOps
         w.WriteEndArray();
     }
 
-    // Props, hooks and contexts exactly as Reactor formatted and redacted them, in the shape the typed path writes.
+    // Props, hooks and contexts as Reactor formatted them and DevTools redacted them, in the shape the typed path writes.
     private static void WriteSnapshotValues(Utf8JsonWriter w, SnapshotReactorComponent component)
     {
         var snapshot = component.Snapshot;
@@ -412,11 +412,16 @@ internal static class ReactorComponentOps
         string text, bool idleBefore, Action<string> done)
     {
         var before = component.Hook(index);
+        // Reactor writes any text-typed hook; DevTools never writes one it shows as a secret.
+        if (before is { Redacted: true })
+        {
+            done(Refused("secret", $"hook {index} of <{component.Name}> holds a secret; DevTools does not write it"));
+            return;
+        }
         var (ok, error) = component.TrySetText(index, text);
         if (!ok)
         {
             var code = before is null ? "bad-hook"
-                : before.Redacted ? "secret"
                 : before.Kind is not ("state" or "reducer" or "persisted") ? "not-settable"
                 : "bad-value";
             done(Refused(code, error ?? $"<{component.Name}> refused the value"));
@@ -683,34 +688,10 @@ internal sealed partial class ReactorApi
         var hosts = Internals?.HostObjects(chain);
         for (var i = 0; i < chain.Count; i++)
         {
-            if ((Internals is { } internals ? internals.ComponentAt(chain[i], hosts!) : PublicComponentAt(chain[i])) is { } component)
+            if ((Internals is { } internals ? internals.ComponentAt(chain[i], hosts!) : SnapshotComponentAt(chain[i])) is { } component)
             {
                 exact = i == 0;
                 return component;
-            }
-        }
-        return null;
-    }
-
-    private ReactorComponentHandle? PublicComponentAt(UIElement element)
-    {
-        if (TextDiagnostics)
-        {
-            return SnapshotComponentAt(element);
-        }
-        foreach (var lookup in new[] { tryGetComponent, tryGetRootComponent })
-        {
-            try
-            {
-                var args = new object?[] { element, null };
-                if (lookup!.Invoke(null, args) is true && args[1] is { } diagnostics)
-                {
-                    return new PublicReactorComponent(diagnostics);
-                }
-            }
-            catch (TargetInvocationException)
-            {
-                // Not on the UI thread or not a component here.
             }
         }
         return null;

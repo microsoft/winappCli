@@ -193,7 +193,7 @@ internal static class ResourceOps
     /// </summary>
     private static int Refresh(UIElement element, bool everyWindow)
     {
-        // Reactor 0.0.0-devtools.4+ re-resolves every ThemeRef and re-renders every host itself.
+        // Reactor with Theme.NotifyResourcesChanged re-resolves every ThemeRef and re-renders every host itself.
         var notified = false;
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
         {

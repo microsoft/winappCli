@@ -139,51 +139,11 @@ public sealed class ReactorComponentsTests
         Assert.AreEqual(2, context.Renders);
     }
 
-    // Reactor's public HookDiagnostics/ContextDiagnostics and ComponentDiagnostics shapes.
-    public enum HookKind { Unknown, State, Reducer, Ref, Memo, Effect, Context }
-
-    public sealed record HookDiagnostics(int Index, HookKind Kind, Type? ValueType, object? Value, bool CanSetValue, bool MigratedByHotReload);
-
-    public sealed record ContextDiagnostics(int HookIndex, object Context, string? Name, Type ValueType, object? Value, object? DefaultValue);
-
-    public enum ComponentKind { Class, Function, Memo }
-
-    public sealed class ComponentDiagnostics
-    {
-        public ComponentKind Kind => ComponentKind.Class;
-        public bool IsRoot => false;
-        public Type ComponentType => typeof(Counter);
-        public object Props => new TaskItem(7, "Write docs");
-        public bool IsMounted => true;
-        public object? Written;
-        public IReadOnlyList<HookDiagnostics> GetHooks() =>
-            [new(0, HookKind.State, typeof(int), 3, true, false), new(1, HookKind.Context, typeof(string), "Dark", false, false)];
-        public IReadOnlyList<ContextDiagnostics> GetContexts() => [new(1, new object(), "ThemeContext", typeof(string), "Dark", "Light")];
-        public bool TrySetHookValue(int index, object? value) { Written = value; return index == 0; }
-        public bool RequestRerender() => true;
-    }
-
-    [TestMethod]
-    public void Public_BindsReactorsComponentDiagnosticsByName()
-    {
-        var diagnostics = new ComponentDiagnostics();
-        var component = new PublicReactorComponent(diagnostics);
-
-        Assert.AreEqual("reactor", component.Api);
-        Assert.AreEqual("class", component.Kind);
-        Assert.AreEqual("Counter", component.Name);
-        CollectionAssert.AreEqual(new[] { "state", "context" }, component.Hooks().Select(h => h.Kind).ToArray());
-        Assert.AreEqual("ThemeContext", component.Contexts().Single().Name);
-        Assert.IsTrue(component.TrySet(0, 5));
-        Assert.AreEqual(5, diagnostics.Written);
-        Assert.IsTrue(component.Rerender());
-        Assert.AreEqual("Render", component.RenderMethod?.Name);
-    }
-
     [TestMethod]
     public void WriteComponent_ReportsHooksPropsContextsAndTheRenderDefinition()
     {
-        var json = ReactorComponentOps.Json(w => ReactorComponentOps.WriteComponent(w, new PublicReactorComponent(new ComponentDiagnostics()), null));
+        var component = Internal(new RenderContext(new ValueHookState<int>(3), new ContextHookState(new Context<string>("Light"), "Dark")).Init());
+        var json = ReactorComponentOps.Json(w => ReactorComponentOps.WriteComponent(w, component, null));
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
@@ -193,8 +153,8 @@ public sealed class ReactorComponentsTests
         Assert.AreEqual("int", hook.GetProperty("type").GetString());
         Assert.AreEqual("3", hook.GetProperty("value").GetString());
         Assert.IsTrue(hook.GetProperty("editable").GetBoolean());
-        Assert.AreEqual("ThemeContext", root.GetProperty("hooks")[1].GetProperty("context").GetString());
-        Assert.AreEqual("Write docs", root.GetProperty("props").GetProperty("values").EnumerateArray()
+        Assert.AreEqual("Context<string>", root.GetProperty("hooks")[1].GetProperty("context").GetString());
+        Assert.AreEqual("Ship", root.GetProperty("props").GetProperty("values").EnumerateArray()
             .Single(v => v.GetProperty("name").GetString() == "Title").GetProperty("value").GetString());
         var definition = root.GetProperty("definition");
         StringAssert.EndsWith(definition.GetProperty("file").GetString(), "ReactorComponentsTests.cs");

@@ -7,8 +7,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace WinApp.DevTools.Managed.Tests;
 
 /// <summary>
-/// The agent's own formatting, used for Reactor versions without text diagnostics, is at least as strict as Reactor's:
-/// secret names and types, labelled secrets in text, counts without enumerating, and contained ToString failures.
+/// DevTools' own redaction, the only one now that Reactor reports values unredacted: secret names and types, labelled
+/// secrets in text, counts without enumerating, and contained ToString failures.
 /// </summary>
 [TestClass]
 public sealed class ReactorSecretsTests
@@ -227,5 +227,33 @@ public sealed class ReactorSecretsTests
         Assert.AreEqual("Throws (ToString() threw InvalidOperationException)", ReactorElementProps.Format("Content", new Throws()).Text);
         Assert.AreEqual("Throws (ToString() threw InvalidOperationException)",
             ReactorElementProps.ComponentProps(new { Content = new Throws() }).Single().Value);
+    }
+
+    [TestMethod]
+    [DataRow("SecureString")]
+    [DataRow("System.Security.SecureString")]
+    [DataRow("ApiToken")]
+    [DataRow("ApiToken?")]
+    [DataRow("List<ApiToken>")]
+    [DataRow("Dictionary<string, SessionTokens>")]
+    [DataRow("UserCredential[]")]
+    public void SecretTypeNames_InReactorsText_AreSecrets(string type) =>
+        Assert.IsTrue(ReactorSecrets.IsSecretTypeName(type));
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("string")]
+    [DataRow("List<TaskItem>")]
+    [DataRow("PasswordBox")]
+    [DataRow("KeyValuePair<string, int>")]
+    public void OrdinaryTypeNames_AreNotSecrets(string type) =>
+        Assert.IsFalse(ReactorSecrets.IsSecretTypeName(type));
+
+    [TestMethod]
+    public void AppliedPropertyText_IsRedactedByNameOrLabelledSecret()
+    {
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.FormatText("PasswordBox.Password", "hunter2"));
+        Assert.AreEqual(("<redacted>", true), ReactorElementProps.FormatText("TextBlock.Text", "token=abc123"));
+        Assert.AreEqual(("120", false), ReactorElementProps.FormatText("FrameworkElement.Width", "120"));
     }
 }

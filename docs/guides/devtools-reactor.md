@@ -112,8 +112,7 @@ winapp devtools set-property "<Counter>/Button" Content "Plus one"
 `get-property` marks each value the element's C# sets (its factory arguments,
 initializers and modifiers such as `.Width(120)`) with `set in C# · App.cs:67`; with
 `--json` those properties have `"setBy": "reactor"`. For a component, it also lists
-the props the component was rendered with. Values whose names end in `Password` are
-redacted.
+the props the component was rendered with. Secrets are redacted, as in `get-state`.
 
 `set-property` changes such a property live and warns that it is set in C#: Reactor
 writes its own value again when the component that rendered the element re-renders
@@ -153,8 +152,10 @@ contexts it reads. Hook names need a Reactor version that records them; otherwis
 hooks show their index only. Pass a component
 (`"<Counter>"`) or any element inside it. `defined` is where the component's render
 method is, read from the app's PDB; when that file changed after the build, the
-output says lines may have moved. Values of password-like types, and props or
-contexts whose names end in `Password`, show `<redacted>`.
+output says lines may have moved. DevTools shows `<redacted>` for a secret and never
+sets one: a prop, hook or context whose name or type ends in `Password`, `Secret`,
+`Token`, `Credential`, `ApiKey`, `PrivateKey` or `ConnectionString` (or is a
+`SecureString`), and any value whose text labels a secret, such as `token=...`.
 
 ```powershell
 winapp devtools set-state "<Counter>" count 42

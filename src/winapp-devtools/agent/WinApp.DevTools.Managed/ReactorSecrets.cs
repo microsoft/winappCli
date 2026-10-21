@@ -8,9 +8,10 @@ using System.Text.RegularExpressions;
 namespace WinApp.DevTools.Managed;
 
 /// <summary>
-/// What the agent's own value formatting (used for Reactor versions without text diagnostics) treats as a secret,
-/// and how it reads values without running more app code than it must. Kept at least as strict as Reactor's own
-/// <c>DescribeComponent</c>, so an older Reactor never shows more than a newer one.
+/// What DevTools treats as a secret in a Reactor app, and how it reads values without running more app code than it
+/// must. Reactor reports values unredacted, so this is the only redaction: it applies to the agent's own formatting
+/// (Reactor versions without text diagnostics) and to the text <c>DescribeComponent</c> and
+/// <c>GetAppliedProperties</c> return.
 /// </summary>
 internal static partial class ReactorSecrets
 {
@@ -74,6 +75,16 @@ internal static partial class ReactorSecrets
         }
         return false;
     }
+
+    /// <summary>
+    /// Whether a type as C# spells it in Reactor's text diagnostics (<c>SecureString</c>, <c>List&lt;ApiToken&gt;</c>,
+    /// <c>AuthToken?</c>) names a secret: the same rule as <see cref="IsSecretType(Type?)"/>, applied to each name in it.
+    /// </summary>
+    internal static bool IsSecretTypeName(string? type) =>
+        !string.IsNullOrEmpty(type) && TypeNamePart().Matches(type).Any(part => part.Value == "SecureString" || IsSecretName(part.Value));
+
+    [GeneratedRegex("[A-Za-z_][A-Za-z0-9_]*", RegexOptions.CultureInvariant)]
+    private static partial Regex TypeNamePart();
 
     private static Type[] SafeInterfaces(Type type)
     {

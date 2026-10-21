@@ -240,7 +240,8 @@ std::vector<char> DevToolsBindingRelay_BuildBindingFrame(const std::vector<char>
 }
 
 bool DevToolsBindingRelay_AgentPresent()
-{    // WaitNamedPipe against a name that was never created fails immediately with FILE_NOT_FOUND, which is the
+{
+    // WaitNamedPipe against a name that was never created fails immediately with FILE_NOT_FOUND.
     std::wstring name = PipeName();
     if (WaitNamedPipeW(name.c_str(), 1)) return true;
     return GetLastError() != ERROR_FILE_NOT_FOUND;

@@ -232,7 +232,6 @@ internal static class ReactorProvider
             {
                 w.WriteStartObject();
                 w.WriteString("property", edge.Property);
-                if (edge.Source is { } source) { w.WriteString("source", source); }
                 if (edge.IsList)
                 {
                     w.WriteBoolean("list", true);
@@ -287,13 +286,13 @@ internal static class ReactorProvider
         }
 
         var tag = api.GetTag(element);
-        // Reactor's text diagnostics already formatted and redacted the props of the component mounted here.
+        // Reactor's text diagnostics format the props of the component mounted here; DevTools redacts them.
         var shownProps = api.DescribeComponent(element);
         object? props = null;
         var hasComponentProps = shownProps is not null;
         if (shownProps is null)
         {
-            props = api.ComponentProps(tag, element, out hasComponentProps);
+            props = api.ComponentProps(tag, out hasComponentProps);
         }
         using var stream = new MemoryStream();
         using (var w = new Utf8JsonWriter(stream))
@@ -334,7 +333,7 @@ internal static class ReactorProvider
                     w.WriteString("modifier", modifier.Modifier);
                     w.WriteString("property", modifier.Property);
                     var (value, redacted) = api.TextDiagnostics && modifier.Value is string text
-                        ? (text, text == ReactorElementProps.Redacted)
+                        ? ReactorElementProps.FormatText(modifier.Property, text)
                         : ReactorElementProps.Format(modifier.Property, modifier.Value);
                     w.WriteString("value", value);
                     if (redacted) { w.WriteBoolean("redacted", true); }
@@ -535,8 +534,7 @@ internal sealed record ReactorHostInfo(
     (string File, int Line, int Column)? Mount = null);
 /// <summary>
 /// Reflection over Reactor, bound once per Reactor assembly. Reactor versions with the public diagnostics API
-/// (<c>ReactorDiagnostics.GetHosts</c> with <c>DescribeComponent</c>, or with <c>TryGetComponent</c> and
-/// <c>TryGetRootComponent</c> in local builds before it) are read only through it;
+/// (<c>ReactorDiagnostics.GetHosts</c> with <c>DescribeComponent</c>) are read only through it;
 /// older versions (published 0.1.0-preview.16 and earlier) are read through <see cref="ReactorInternals"/>, the one
 /// place that touches Reactor internals. <see cref="PublicDiagnostics"/> picks the path once.
 /// </summary>
@@ -555,8 +553,6 @@ internal sealed partial class ReactorApi
     private readonly Type? memoElement;
     private readonly PropertyInfo? sourceMapEnabled;
     private readonly MethodInfo? getHosts;
-    private readonly MethodInfo? tryGetRootComponent;
-    private readonly MethodInfo? tryGetComponent;
     private readonly MethodInfo? getAppliedProperties;
     private readonly MethodInfo? describeComponent;
     private readonly MethodInfo? trySetState;
@@ -587,23 +583,16 @@ internal sealed partial class ReactorApi
         sourceMapEnabled = sourceMap?.GetProperty("Enabled", BindingFlags.Public | BindingFlags.Static);
         getSource = sourceMap?.GetMethod("GetSource", BindingFlags.Public | BindingFlags.Static, [typeof(UIElement)]);
         var diagnostics = assembly.GetType(DiagnosticsType);
-        tryGetRootComponent = diagnostics?.GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .FirstOrDefault(method => method.Name == "TryGetRootComponent" && method.GetParameters() is { Length: 2 } p &&
-                p[0].ParameterType == typeof(UIElement) && p[1].IsOut);
-        tryGetComponent = diagnostics?.GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .FirstOrDefault(method => method.Name == "TryGetComponent" && method.GetParameters() is { Length: 2 } p &&
-                p[0].ParameterType == typeof(UIElement) && p[1].IsOut);
         getAppliedProperties = diagnostics?.GetMethod("GetAppliedProperties", BindingFlags.Public | BindingFlags.Static, [typeof(UIElement)]);
         getReferenceEdges = diagnostics?.GetMethod("GetReferenceEdges", BindingFlags.Public | BindingFlags.Static, [typeof(UIElement)]);
         getHosts = diagnostics?.GetMethod("GetHosts", BindingFlags.Public | BindingFlags.Static, Type.EmptyTypes);
-        // Reactor's text component diagnostics: values formatted, redacted and parsed by Reactor itself.
+        // Reactor's text component diagnostics: values formatted and parsed by Reactor itself (DevTools redacts them).
         describeComponent = diagnostics?.GetMethod("DescribeComponent", BindingFlags.Public | BindingFlags.Static, [typeof(UIElement)]);
         trySetState = diagnostics?.GetMethods(BindingFlags.Public | BindingFlags.Static)
             .FirstOrDefault(method => method.Name == "TrySetState" && method.GetParameters() is { Length: 4 } p &&
                 p[0].ParameterType == typeof(UIElement) && p[1].ParameterType == typeof(int) && p[2].ParameterType == typeof(string) && p[3].IsOut);
         rerenderComponent = diagnostics?.GetMethod("Rerender", BindingFlags.Public | BindingFlags.Static, [typeof(UIElement)]);
-        PublicDiagnostics = getHosts is not null &&
-            (describeComponent is not null || (tryGetComponent is not null && tryGetRootComponent is not null));
+        PublicDiagnostics = getHosts is not null && describeComponent is not null;
         Internals = PublicDiagnostics ? null : new ReactorInternals(assembly);
         if (getElementTag is null || element is null)
         {
@@ -674,38 +663,6 @@ internal sealed partial class ReactorApi
         return (snapshot.Kind, type is null ? null : type.FullName ?? type.Name, snapshot.Name);
     }
 
-    // The component Reactor's public ReactorDiagnostics.TryGetRootComponent reports for a root control.
-    internal (string Kind, string? Type, string Name)? PublicRootComponent(UIElement control)
-    {
-        if (tryGetRootComponent is null)
-        {
-            return null;
-        }
-        try
-        {
-            var args = new object?[] { control, null };
-            if (tryGetRootComponent.Invoke(null, args) is not true || args[1] is not { } component)
-            {
-                return null;
-            }
-            var kind = Member(component, "Kind")?.ToString()?.ToLowerInvariant() switch
-            {
-                "function" => "function",
-                "memo" => "memo",
-                _ => "class",
-            };
-            if (kind == "class" && Member(component, "ComponentType") is Type type)
-            {
-                return ("class", type.FullName ?? type.Name, TypeName(type));
-            }
-            return (kind, null, DelegateName(Member(component, "RenderFunc") as Delegate, "render"));
-        }
-        catch (Exception ex) when (ex is TargetInvocationException or InvalidCastException or MemberAccessException or ArgumentException)
-        {
-            return null;
-        }
-    }
-
     /// <summary>The <c>ReactorHostInfo</c> objects of <c>ReactorDiagnostics.GetHosts()</c>; empty when it fails.</summary>
     private List<object> HostRegistry()
     {
@@ -742,8 +699,7 @@ internal sealed partial class ReactorApi
                     // Not rendered yet, or a removed island that stays registered until it is collected.
                     continue;
                 }
-                (string Kind, string? Type, string Name)? root = SnapshotRoot(control) ?? HostRootNamed(item) ??
-                    PublicRootComponent(control) ?? HostRootTyped(item);
+                (string Kind, string? Type, string Name)? root = SnapshotRoot(control) ?? HostRoot(item);
                 var reactorWindow = Member(item, "ReactorWindow");
                 var kind = Member(item, "Kind")?.ToString() == "HostControl" ? "island" : reactorWindow is not null ? "window" : "host";
                 var window = Member(item, "Window") ?? Member(reactorWindow, "NativeWindow");
@@ -764,27 +720,15 @@ internal sealed partial class ReactorApi
 
     /// <summary>
     /// The root component a <c>ReactorHostInfo</c> names: <c>RootComponentName</c> or <c>RootRenderFunctionName</c>
-    /// (already demangled, such as <c>Program.Main</c>), or on Reactor versions before those, the
-    /// <c>RootComponentType</c> or <c>RootRenderFunction</c> delegate.
+    /// (already demangled, such as <c>Program.Main</c>).
     /// </summary>
-    internal static (string Kind, string? Type, string Name)? HostRoot(object item) => HostRootNamed(item) ?? HostRootTyped(item);
-
-    private static (string Kind, string? Type, string Name)? HostRootNamed(object item)
+    internal static (string Kind, string? Type, string Name)? HostRoot(object item)
     {
         if (Member(item, "RootComponentName") is string { Length: > 0 } component)
         {
             return ("class", null, component);
         }
         return Member(item, "RootRenderFunctionName") is string { Length: > 0 } function ? ("function", null, function) : null;
-    }
-
-    private static (string Kind, string? Type, string Name)? HostRootTyped(object item)
-    {
-        if (Member(item, "RootComponentType") is Type type)
-        {
-            return ("class", type.FullName ?? type.Name, TypeName(type));
-        }
-        return Member(item, "RootRenderFunction") is Delegate render ? ("function", null, DelegateName(render, "render")) : null;
     }
 
     /// <summary>Each host's root control mapped to its host object (a <c>ReactorHost</c> or <c>ReactorHostControl</c>).</summary>
@@ -918,22 +862,19 @@ internal sealed partial class ReactorApi
     }
 
     /// <summary>
-    /// The unresolved edges among Reactor's reference edges, in Reactor's order: <c>ReferenceEdgeSnapshot</c>
-    /// (<c>ExpectedTargetTypeName</c>), or the <c>ReferenceEdgeDiagnostics</c> of local 0.0.0-devtools.7/.8 packages
-    /// (<c>ExpectedTargetType</c> as a <see cref="Type"/>, plus <c>Source</c>).
+    /// The unresolved edges among Reactor's reference edges (<c>ReferenceEdgeSnapshot</c>), in Reactor's order.
     /// </summary>
     internal static IReadOnlyList<ReactorPendingReference> PendingReferencesFrom(System.Collections.IEnumerable edges)
     {
         var list = new List<ReactorPendingReference>();
         foreach (var edge in edges)
         {
-            if (edge is null || Member(edge, "Property") is not string property ||
-                (Member(edge, "IsResolved") is bool resolved ? resolved : Member(edge, "Target") is not null))
+            if (edge is null || Member(edge, "Property") is not string property || Member(edge, "IsResolved") is not false)
             {
                 continue;
             }
-            var targetType = Member(edge, "ExpectedTargetTypeName") as string ?? (Member(edge, "ExpectedTargetType") as Type)?.Name;
-            list.Add(new ReactorPendingReference(property, Member(edge, "Source")?.ToString(),
+            var targetType = Member(edge, "ExpectedTargetTypeName") as string;
+            list.Add(new ReactorPendingReference(property,
                 Member(edge, "IsList") is true, Member(edge, "Index") is int index ? index : 0,
                 string.IsNullOrEmpty(targetType) ? null : targetType, Member(edge, "TargetAutomationId") as string));
         }
@@ -941,38 +882,13 @@ internal sealed partial class ReactorApi
     }
 
     /// <summary>
-    /// The props a component was rendered with: the element's <c>Props</c> for a component element, or the root
-    /// component's props (Reactor's <c>ReactorDiagnostics</c>) for a host's root control.
+    /// The props a component element was rendered with, for Reactor versions without <c>DescribeComponent</c>, which
+    /// reports them itself.
     /// </summary>
-    public object? ComponentProps(object? tag, UIElement control, out bool known)
+    public object? ComponentProps(object? tag, out bool known)
     {
-        known = false;
-        if (tag is not null && componentElement?.IsInstanceOfType(tag) == true && componentProps is not null)
-        {
-            known = true;
-            return componentProps.GetValue(tag);
-        }
-        foreach (var lookup in new[] { tryGetComponent, tryGetRootComponent })
-        {
-            if (lookup is null)
-            {
-                continue;
-            }
-            try
-            {
-                var args = new object?[] { control, null };
-                if (lookup.Invoke(null, args) is true && args[1] is { } component)
-                {
-                    known = true;
-                    return Member(component, "Props");
-                }
-            }
-            catch (Exception ex) when (ex is TargetInvocationException or InvalidCastException or MemberAccessException or ArgumentException)
-            {
-                // Not a component here.
-            }
-        }
-        return null;
+        known = tag is not null && componentElement?.IsInstanceOfType(tag) == true && componentProps is not null;
+        return known ? componentProps!.GetValue(tag) : null;
     }
 
     /// <summary>The props record a component element was rendered with; null for any other element.</summary>

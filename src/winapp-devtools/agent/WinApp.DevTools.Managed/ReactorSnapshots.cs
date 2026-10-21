@@ -8,33 +8,40 @@ using Microsoft.UI.Xaml;
 namespace WinApp.DevTools.Managed;
 
 /// <summary>
-/// One value of Reactor's <c>ComponentSnapshot</c> (a <c>DiagnosticValue</c>): a prop, a hook or a context, already
-/// formatted and redacted by Reactor.
+/// One value of Reactor's <c>ComponentSnapshot</c> (a <c>DiagnosticValue</c>): a prop, a hook or a context, formatted
+/// by Reactor. Reactor does not redact, so a value whose name, type or text says it is a secret
+/// (<see cref="ReactorSecrets"/>) is replaced here and is never editable.
 /// </summary>
 internal sealed record ReactorShownValue(int Index, string Name, string Kind, string Type, string Value, bool Editable,
     bool Redacted, bool Migrated)
 {
-    internal static ReactorShownValue? From(object? value)
+    internal static ReactorShownValue? From(object? value, string? contextName = null)
     {
         if (value is null)
         {
             return null;
         }
+        var name = ReactorReflect.Member(value, "Name") as string ?? "";
+        var type = ReactorReflect.Member(value, "Type") as string ?? "";
+        var text = ReactorReflect.Member(value, "Value") as string ?? "";
+        var secret = ReactorSecrets.IsSecretName(name) || ReactorSecrets.IsSecretName(contextName) ||
+            ReactorSecrets.IsSecretTypeName(type) || ReactorSecrets.HasLabelledSecret(text);
         return new ReactorShownValue(
             ReactorReflect.Member(value, "Index") is int index ? index : -1,
-            ReactorReflect.Member(value, "Name") as string ?? "",
+            name,
             ReactorReflect.Member(value, "Kind") as string ?? "unknown",
-            ReactorReflect.Member(value, "Type") as string ?? "",
-            ReactorReflect.Member(value, "Value") as string ?? "",
-            ReactorReflect.Member(value, "Editable") is true,
-            ReactorReflect.Member(value, "Redacted") is true,
+            type,
+            secret ? ReactorElementProps.Redacted : text,
+            !secret && ReactorReflect.Member(value, "Editable") is true,
+            secret,
             ReactorReflect.Member(value, "MigratedByHotReload") is true);
     }
 }
 
 /// <summary>
 /// Reactor's <c>ComponentSnapshot</c> from <c>ReactorDiagnostics.DescribeComponent</c>: the component's name and kind,
-/// and its props, hooks and contexts as text. Reactor formats and redacts every value, so DevTools shows them as is.
+/// and its props, hooks and contexts as text. Reactor formats every value; DevTools redacts secrets (see
+/// <see cref="ReactorShownValue"/>), including a context hook whose context is named as one.
 /// </summary>
 internal sealed record ReactorSnapshot(string Name, string Kind, bool IsRoot, IReadOnlyList<ReactorShownValue> Props,
     IReadOnlyList<ReactorShownValue> State, IReadOnlyList<ReactorShownValue> Contexts)
@@ -51,18 +58,23 @@ internal sealed record ReactorSnapshot(string Name, string Kind, bool IsRoot, IR
             "memo" => "memo",
             _ => "class",
         };
+        var contexts = Values(snapshot, "Contexts");
+        var contextNames = contexts.GroupBy(context => context.Index).ToDictionary(group => group.Key, group => group.First().Name);
         return new ReactorSnapshot(name, kind, ReactorReflect.Member(snapshot, "IsRoot") is true,
-            Values(snapshot, "Props"), Values(snapshot, "State"), Values(snapshot, "Contexts"));
+            Values(snapshot, "Props"), Values(snapshot, "State", contextNames), contexts);
     }
 
-    private static IReadOnlyList<ReactorShownValue> Values(object snapshot, string member)
+    // A context hook reads the context of the same index, whose name says whether its value is a secret.
+    private static IReadOnlyList<ReactorShownValue> Values(object snapshot, string member, IReadOnlyDictionary<int, string>? contextNames = null)
     {
         var list = new List<ReactorShownValue>();
         if (ReactorReflect.Member(snapshot, member) is IEnumerable values)
         {
             foreach (var value in values)
             {
-                if (ReactorShownValue.From(value) is { } shown)
+                var contextName = contextNames is not null && ReactorReflect.Member(value, "Kind") as string == "context" &&
+                    ReactorReflect.Member(value, "Index") is int index ? contextNames.GetValueOrDefault(index) : null;
+                if (ReactorShownValue.From(value, contextName) is { } shown)
                 {
                     list.Add(shown);
                 }
