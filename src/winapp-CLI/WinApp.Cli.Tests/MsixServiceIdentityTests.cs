@@ -1829,6 +1829,51 @@ public class MsixServiceIdentityTests : BaseCommandTests
         Assert.IsFalse(MsixService.IsPathInsideDirectory("bad\0path", _tempDirectory.FullName));
     }
 
+    // ---- EnsureLayoutIsNotVirtualized (issue #1049) -------------------------------
+
+    private static readonly string[] FakeAppDataFolders =
+        [@"C:\Users\dev\AppData\Local", @"C:\Users\dev\AppData\Roaming", @"C:\Users\dev\AppData\LocalLow"];
+    private const string FakeTemp = @"C:\Users\dev\AppData\Local\Temp\";
+
+    [TestMethod]
+    [DataRow(@"C:\Users\dev\AppData\Local\winapp-layout\repro")]
+    [DataRow(@"C:\Users\dev\AppData\Roaming\layout")]
+    [DataRow(@"C:\Users\dev\AppData\LocalLow\layout")]
+    public void EnsureLayoutIsNotVirtualized_PackagedUnderAppData_Throws(string layout)
+    {
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+            () => MsixService.EnsureLayoutIsNotVirtualized(layout, isPackaged: true, FakeAppDataFolders, FakeTemp));
+
+        StringAssert.Contains(ex.Message, layout, StringComparison.Ordinal);
+        StringAssert.Contains(ex.Message, "outside AppData", StringComparison.Ordinal);
+    }
+
+    [TestMethod]
+    [DataRow(@"C:\Users\dev\layout")]
+    [DataRow(@"C:\Users\dev\AppData\Local\Temp\winapp-package-1")]
+    [DataRow(@"C:\Users\dev\AppDataX\layout")]
+    [DataRow(@"C:\Users\dev\AppData\Other\layout")]
+    public void EnsureLayoutIsNotVirtualized_PackagedOutsideRedirectedAppData_DoesNotThrow(string layout)
+    {
+        MsixService.EnsureLayoutIsNotVirtualized(layout, isPackaged: true, FakeAppDataFolders, FakeTemp);
+    }
+
+    [TestMethod]
+    public void EnsureLayoutIsNotVirtualized_RelocatedLocalAppData_OnlyRejectsThatFolder()
+    {
+        string?[] folders = [@"D:\LocalAppData", @"C:\Users\dev\AppData\Roaming", null];
+
+        MsixService.EnsureLayoutIsNotVirtualized(@"D:\Projects\layout", isPackaged: true, folders, FakeTemp);
+        Assert.ThrowsExactly<InvalidOperationException>(
+            () => MsixService.EnsureLayoutIsNotVirtualized(@"D:\LocalAppData\layout", isPackaged: true, folders, FakeTemp));
+    }
+
+    [TestMethod]
+    public void EnsureLayoutIsNotVirtualized_NotPackaged_DoesNotThrow()
+    {
+        MsixService.EnsureLayoutIsNotVirtualized(@"C:\Users\dev\AppData\Local\layout", isPackaged: false, FakeAppDataFolders, FakeTemp);
+    }
+
     // ---- Register wrappers --------------------------------------------------------
 
     [TestMethod]

@@ -174,6 +174,8 @@ internal partial class MsixService
             throw new InvalidOperationException("Developer Mode is not enabled on this machine. Please enable Developer Mode and try again.");
         }
 
+        EnsureLayoutIsNotVirtualized(outputAppXDirectory.FullName, EngineStaging.IsPackaged, GetAppDataFolders(), Path.GetTempPath());
+
         taskContext.AddDebugMessage($"Using AppX manifest: {appxManifestPath}");
 
         var manifestContent = await File.ReadAllTextAsync(appxManifestPath.FullName, Encoding.UTF8, cancellationToken);
@@ -570,6 +572,59 @@ internal partial class MsixService
 
     /// <summary>One validated recipe entry: an existing source file and where it goes in the layout.</summary>
     private readonly record struct RecipeEntry(string SourcePath, string PackagePath);
+
+    /// <summary>
+    /// Rejects a layout under AppData when winapp itself runs from its MSIX package.
+    /// </summary>
+    /// <remarks>
+    /// Windows redirects a packaged app's new files under AppData into the app's private
+    /// <c>Packages\&lt;family name&gt;\LocalCache</c> folder. Only winapp sees the redirected copy:
+    /// makepri and the deployment service look at the real path, find nothing, and registration
+    /// fails with a "file not found" error that points at the manifest. %TEMP% is not redirected.
+    /// </remarks>
+    internal static void EnsureLayoutIsNotVirtualized(string layoutPath, bool isPackaged, IEnumerable<string?> appDataFolders, string tempPath)
+    {
+        if (!isPackaged ||
+            (!string.IsNullOrEmpty(tempPath) && IsPathInsideDirectory(layoutPath, tempPath)) ||
+            !appDataFolders.Any(folder => !string.IsNullOrEmpty(folder) && IsPathInsideDirectory(layoutPath, folder)))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"The AppX layout directory '{layoutPath}' is under AppData. This winapp is installed as an MSIX " +
+            "package, and Windows redirects its writes under AppData to a private folder, so the app could not " +
+            "be registered from there. Point --output-appx-directory at a folder outside AppData, " +
+            "or move the project out of AppData.");
+    }
+
+    /// <summary>
+    /// The actual Local, Roaming and LocalLow folders. Each can be relocated on its own, so they
+    /// may not share a parent.
+    /// </summary>
+    private static string?[] GetAppDataFolders() =>
+    [
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+        GetLocalLowFolder(),
+    ];
+
+    private static unsafe string? GetLocalLowFolder()
+    {
+        var hr = Windows.Win32.PInvoke.SHGetKnownFolderPath(
+            Windows.Win32.PInvoke.FOLDERID_LocalAppDataLow,
+            Windows.Win32.UI.Shell.KNOWN_FOLDER_FLAG.KF_FLAG_DONT_VERIFY,
+            null,
+            out var path);
+        try
+        {
+            return hr.Succeeded ? path.ToString() : null;
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeCoTaskMem((nint)path.Value);
+        }
+    }
 
     /// <summary>
     /// Rejects a layout path that is, or sits beneath, a reparse point.
