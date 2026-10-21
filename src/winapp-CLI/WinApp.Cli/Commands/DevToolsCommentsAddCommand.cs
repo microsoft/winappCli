@@ -326,7 +326,10 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
         try
         {
             globalDirectory = directories.GetGlobalWinappDirectory().FullName;
-            return CommentStoreLocator.SameProject(CommentStoreLocator.Resolve(sourceRoot).WinappDirectory, globalDirectory);
+            var global = Path.TrimEndingDirectorySeparator(Path.GetFullPath(globalDirectory));
+            var store = Path.TrimEndingDirectorySeparator(Path.GetFullPath(CommentStoreLocator.Resolve(sourceRoot).WinappDirectory));
+            return string.Equals(store, global, StringComparison.OrdinalIgnoreCase) ||
+                store.StartsWith(global + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
         catch (IOException)
         {

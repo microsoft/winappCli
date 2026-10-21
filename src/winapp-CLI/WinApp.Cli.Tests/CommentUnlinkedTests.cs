@@ -177,6 +177,25 @@ public class CommentUnlinkedTests
     }
 
     [TestMethod]
+    public async Task AStoreInsideWinappsOwnFolder_IsRefused()
+    {
+        var global = Directory.CreateDirectory(Path.Combine(_root.FullName, ".winapp"));
+        var directories = new WinappDirectoryService(new FixedDirectory(global.FullName));
+        directories.SetCacheDirectoryForTesting(global);
+        var store = new CommentStore();
+        var console = new TestConsole();
+        var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
+            new CommentTestTargetResolver(), new FixedDirectory(global.FullName), console,
+            NullLogger<DevToolsCommentsAddCommand>.Instance, winappDirectories: directories);
+
+        var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(["--name", "CounterButton", "--text", "x"]));
+
+        Assert.AreEqual(1, exit, console.Output);
+        StringAssert.Contains(console.Output, "winapp's own folder");
+        Assert.IsFalse(File.Exists(store.GetStorePath(global)));
+    }
+
+    [TestMethod]
     public async Task AnOfflineCommentWithoutAFile_WarnsItIsNotLinkedToSource()
     {
         var store = new CommentStore();
