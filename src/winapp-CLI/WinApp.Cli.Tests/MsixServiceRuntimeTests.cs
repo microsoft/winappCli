@@ -401,9 +401,9 @@ public class MsixServiceRuntimeTests : BaseCommandTests
         ArrangeRuntimeMsixCache("1.6.0", RuntimeIdentity);
         var buildSdkDir = _tempDirectory.CreateSubdirectory("packages").CreateSubdirectory("Microsoft.WindowsAppSDK.1.8.0");
         var msixArchDir = Directory.CreateDirectory(
-            Path.Combine(buildSdkDir.FullName, "tools", "MSIX", $"win10-{WorkspaceSetupService.GetSystemArchitecture()}"));
+            Path.Join(buildSdkDir.FullName, "tools", "MSIX", $"win10-{WorkspaceSetupService.GetSystemArchitecture()}"));
         File.WriteAllLines(
-            Path.Combine(msixArchDir.FullName, "msix.inventory"),
+            Path.Join(msixArchDir.FullName, "msix.inventory"),
             ["Microsoft.WindowsAppRuntime.msix=Microsoft.WindowsAppRuntime.1.8_8000.616.304.0_x64__8wekyb3d8bbwe"]);
         var manifest = ManifestWithDependencies(
             "    <PackageDependency Name=\"Microsoft.WindowsAppRuntime.1.8\" MinVersion=\"8000.616.304.0\" Publisher=\"CN=Microsoft Corporation\" />");
