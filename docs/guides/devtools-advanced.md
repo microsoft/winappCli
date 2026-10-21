@@ -122,7 +122,8 @@ binding doesn't prove a property is unbound.
 Comments are saved in `.winapp/ui-comments.json` at the repository root, or in the
 source directory when there is no repository. An app launched without a project, such as
 a C++ app from its build output, keeps them in the folder you ran `winapp run` from; it
-shows them in its list and count but can't place markers.
+shows them in its list and count but can't place markers. If winapp can't tell which
+project an app belongs to, `comments add` saves nothing and asks for `--source-root <dir>`.
 
 ```powershell
 winapp devtools comments add SaveButton -a 12345 --text "Make this label clearer"
