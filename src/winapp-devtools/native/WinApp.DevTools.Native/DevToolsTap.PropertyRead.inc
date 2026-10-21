@@ -445,11 +445,13 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
     std::wstring srcFile; unsigned int srcLine = 0, srcCol = 0;
     if (!projection) ReadElementSourceInfo(h, srcFile, srcLine, srcCol);
     std::wstring srcType, srcName;
+    unsigned long long wire = 0;
     {
         CensusSharedLock lock;
         const auto type = g_type.find(h), name = g_nameOf.find(h);
         if (type != g_type.end()) srcType = type->second;
         if (name != g_nameOf.end()) srcName = name->second;
+        wire = PackWire_nolock(h);
     }
     std::wstring authoredXaml;
     DevToolsAuthoredLocation authoredLocation;
@@ -482,7 +484,7 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
             }
             for (const auto& [member, qualified] : candidates) if (!ambiguous.count(member)) ownerless[qualified] = member;
         }
-        std::set<std::wstring> taken;
+        std::set<std::wstring> taken, authoredNames, liveNames, unsetNames;
         for (unsigned int i = 0; i < pc; i++) {
             if (!v[i].PropertyName) continue;
             std::wstring name = v[i].PropertyName;
@@ -612,7 +614,18 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                     prop.authored = authored;
                     prop.authoredKind = DevToolsRead_ClassifyAuthored(authored);
                     prop.authoredKey = DevToolsRead_AuthoredKey(authored);
+                    authoredNames.insert(name);
                 }
+            }
+
+            // The runtime calls a DevTools write Local, like a XAML attribute. Name it, so it is not credited to XAML.
+            if (prop.source == L"Local" && !isBinding && DevToolsBindingRow_WasWrittenLive(wire, name)) {
+                prop.source = kDevToolsReadLiveEditSource;
+                liveNames.insert(name);
+            } else if (prop.source == L"Local" && !isBinding && prop.authored.empty() &&
+                       DevToolsRead_IsUnsetRuntimeLocal(name, prop.value)) {
+                prop.source = L"Default";
+                unsetNames.insert(name);
             }
 
             // Only object-valued properties can have children, and only the curated expandable types get them --
@@ -659,12 +672,18 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                           : ResolveDisplayValue(name, PickValueType(v[i]), raw, isHandle);
                 if (!e.value.empty() && v[i].Type && !EnumTableFor(v[i].Type).empty()) e.value = EnumNameForValue(v[i].Type, e.value);
                 e.winner  = !v[i].Overridden;
+                // A Local entry's source position is the element's opening tag, which proves nothing about this
+                // property. Keep it only when that tag sets the property.
+                const bool local = e.source == L"Local";
+                if (local && liveNames.count(name)) e.source = kDevToolsReadLiveEditSource;
+                else if (local && unsetNames.count(name)) e.source = L"Default";
+                const bool placeable = !local || (!liveNames.count(name) && !unsetNames.count(name) && authoredNames.count(name));
                 unsigned int si = v[i].PropertyChainIndex;
                 if (s && si < sc) {
                     if (s[si].TargetType) e.targetType = s[si].TargetType;
-                    if (s[si].SrcInfo.FileName) e.file = DevToolsSourcePath_AppUri(s[si].SrcInfo.FileName);
-                    e.line = s[si].SrcInfo.LineNumber;
-                    if (sourceLocations[si].mapped) {
+                    if (placeable && s[si].SrcInfo.FileName) e.file = DevToolsSourcePath_AppUri(s[si].SrcInfo.FileName);
+                    if (placeable) e.line = s[si].SrcInfo.LineNumber;
+                    if (placeable && sourceLocations[si].mapped) {
                         e.authoredFile = sourceLocations[si].sourceFile;
                         e.authoredLine = sourceLocations[si].line;
                     }

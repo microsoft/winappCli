@@ -454,6 +454,62 @@ static void CheckEmptyString(const std::function<void(bool,const char*)>& check)
     g_diag=nullptr;g_vts3=nullptr;
 }
 
+// A Local value's source position is the element's opening tag. It is shown only when that tag sets the property,
+// a DevTools write is named as one, and a runtime-only Local (Translation at 0,0,0) reads as Default.
+struct ElementLineTreeService : TextTreeService {
+    using TextTreeService::TextTreeService;
+    HRESULT STDMETHODCALLTYPE GetPropertyValuesChain(InstanceHandle handle,unsigned int* sc,PropertyChainSource** sources,
+        unsigned int* pc,PropertyChainValue** values) override {
+        const HRESULT hr=TextTreeService::GetPropertyValuesChain(handle,sc,sources,pc,values);
+        if(SUCCEEDED(hr) && *sc==2 && *pc==4){
+            (*sources)[0].Handle=901;
+            (*sources)[0].SrcInfo.FileName=SysAllocString(L"ms-appx:///MainWindow.xaml");
+            (*sources)[0].SrcInfo.LineNumber=46;
+            auto& v=(*values)[3];
+            SysFreeString(v.PropertyName);v.PropertyName=SysAllocString(L"Translation");
+            SysFreeString(v.Type);v.Type=SysAllocString(L"Windows.Foundation.Numerics.Vector3");
+            SysFreeString(v.ValueType);v.ValueType=SysAllocString(L"Windows.Foundation.Numerics.Vector3");
+            SysFreeString(v.Value);v.Value=SysAllocString(L"0.000000,0.000000,0.000000");
+        }
+        return hr;
+    }
+};
+
+static void CheckLocalProvenance(const std::function<void(bool,const char*)>& check)
+{
+    TextDiagnostics diagnostics;
+    ElementLineTreeService tree(diagnostics.text);
+    g_diag=&diagnostics;g_vts3=&tree;
+    diagnostics.text.text=L"live";
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
+    MintSlot_nolock(901);
+    const unsigned long long wire=PackWire_nolock(901);
+    auto text=[](const std::vector<DevToolsReadProp>& props){
+        return std::find_if(props.begin(),props.end(),[](const DevToolsReadProp& p){return p.name==L"Text";});
+    };
+
+    std::vector<DevToolsReadProp> props;
+    ReadCuratedProps(901,&props,nullptr);
+    auto row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        row->chain[0].file.empty() && row->chain[0].line==0,
+        "a Local value the element's XAML does not set names no XAML line");
+    const auto translation=std::find_if(props.begin(),props.end(),[](const DevToolsReadProp& p){return p.name==L"Translation";});
+    check(translation!=props.end() && translation->source==L"Default",
+        "a runtime-only Local at its unset value reads as Default");
+
+    DevToolsBindingRow_NoteLiveWrite(wire,L"Text");
+    props.clear();
+    ReadCuratedProps(901,&props,nullptr);
+    row=text(props);
+    check(row!=props.end() && row->source==kDevToolsReadLiveEditSource && row->chain.size()==2 &&
+        row->chain[0].source==kDevToolsReadLiveEditSource && row->chain[0].file.empty(),
+        "a DevTools write reads as DevTools, not as XAML");
+    DevToolsBindingRow_ForgetLiveWrite(wire,L"Text");
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
+    g_diag=nullptr;g_vts3=nullptr;
+}
+
 static void CheckSearchText(const std::function<void(bool,const char*)>& check)
 {
     TextDiagnostics diagnostics;
@@ -1187,6 +1243,7 @@ int wmain(int argc, wchar_t** argv)
             "DevTools UI preferences are per user, in the CLI's user state folder");
     }
     CheckEmptyString(check);
+    CheckLocalProvenance(check);
     CheckEffectiveValues(check);
     CheckCensusFollowsReparentsAndParentlessRemoves(check);
     CheckTreeDeltasFollowSubscription(check);

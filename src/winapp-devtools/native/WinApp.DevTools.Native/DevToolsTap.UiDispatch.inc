@@ -337,7 +337,14 @@ static HRESULT ClearLiteral(InstanceHandle h, const std::wstring& prop)
     unsigned int idx = FindPropIndex(h, prop);
     if (idx == 0xFFFFFFFF) { Log(L"clearprop: '%s' not found on %llu", prop.c_str(), h); return E_INVALIDARG; }
     if (!g_vts3) return E_NOINTERFACE;
-    return WindowElementCurrent_ui(h) ? g_vts3->ClearProperty(h, idx) : E_ACCESSDENIED;
+    if (!WindowElementCurrent_ui(h)) return E_ACCESSDENIED;
+    const HRESULT hr = g_vts3->ClearProperty(h, idx);
+    if (SUCCEEDED(hr) && TryAcquireSRWLockShared(&g_censusLock)) {
+        const unsigned long long wire = PackWire_nolock(h);
+        ReleaseSRWLockShared(&g_censusLock);
+        DevToolsBindingRow_ForgetLiveWrite(wire, prop);
+    }
+    return hr;
 }
 
 // Defined below, next to the write path it was extracted from. Declared here because the `hotreload.clearprop`
