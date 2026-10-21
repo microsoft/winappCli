@@ -423,7 +423,11 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         blk->Release();
     }
 
-    const bool bound = (shown == DevToolsKind::XBind || shown == DevToolsKind::Binding);
+    // A binding replaced by a literal still gets the BINDING block, so Restore binding stays reachable.
+    const bool lostBinding = shown == DevToolsKind::Literal && BindingLost(path) &&
+                             (r.authoredKind == L"xBind" || r.authoredKind == L"binding");
+    const bool bound = (shown == DevToolsKind::XBind || shown == DevToolsKind::Binding) || lostBinding;
+    const bool xbind = shown == DevToolsKind::XBind || (lostBinding && r.authoredKind == L"xBind");
     if (bound) { PostWalk(path); PostDiagnose(path); }
     const WalkAnswer* answer = bound ? WalkFind(path) : nullptr;
     DevToolsPathWalkView wv;
@@ -488,13 +492,13 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         // nothing.
         const bool offer = bound && g_ctx.bindFn && (replaced || overridden);
         if (IInspectable* row = FindInRow(fe, L"PBindRestoreRow")) { ShowEl(row, offer); row->Release(); }
-        if (IInspectable* note = FindInRow(fe, L"PBindRestoreNote")) { ShowEl(note, offer && shown == DevToolsKind::XBind); note->Release(); }
+        if (IInspectable* note = FindInRow(fe, L"PBindRestoreNote")) { ShowEl(note, offer && xbind); note->Release(); }
         if (IInspectable* b = FindInRow(fe, L"PBindRestore")) {
             SetAutomationTextOn(b, L"Restore the binding on " + path, L"", L"");
             void* bb = nullptr;
             if (offer && SUCCEEDED(b->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
                 BindRestoreSink* rs = new BindRestoreSink();
-                rs->Init(path, shown == DevToolsKind::XBind);
+                rs->Init(path, xbind);
                 __int64 tok = 0;
                 DevToolsAddClick(bb, rs, &tok);
                 reinterpret_cast<IUnknown*>(bb)->Release();
