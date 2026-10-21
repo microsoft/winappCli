@@ -97,8 +97,7 @@ static const wchar_t* const kAddCommentHint = L"Enter to save \u00B7 Shift+Enter
 // box. Text typed there but not saved is kept here so the rebuild never discards it: it comes back when the same
 // element is selected again, and is offered for copying when the element is gone.
 struct CommentBoxSaved { std::wstring id, text; };
-struct CommentDraft { InstanceHandle wire = 0; std::wstring text; };
-static CommentDraft g_commentDraft;
+static std::map<InstanceHandle, std::wstring> g_commentDrafts; // unsaved text, per element
 static winrt::weak_ref<DevToolsXC::TextBox> g_commentBox;
 static std::shared_ptr<CommentBoxSaved> g_commentBoxSaved; // what the live box last loaded or saved
 
@@ -408,11 +407,12 @@ static void StashCommentDraft()
     g_commentBox = nullptr;
     if (!box || !g_selWire) return;
     try {
+        // A read-only box is mid-save: the writer already has this text, so it is not an unsaved draft.
+        if (box.IsReadOnly()) return;
         std::wstring value(box.Text());
-        const bool blank = value.find_first_not_of(L" \t\r\n") == std::wstring::npos;
-        const bool unchanged = g_commentBoxSaved && value == g_commentBoxSaved->text;
-        if (!blank && !unchanged) g_commentDraft = { g_selWire, std::move(value) };
-        else if (g_commentDraft.wire == g_selWire) g_commentDraft = {};
+        const bool unchanged = g_commentBoxSaved && DevToolsCommentText::Unchanged(value, g_commentBoxSaved->text);
+        if (!DevToolsCommentText::IsBlank(value) && !unchanged) g_commentDrafts[g_selWire] = std::move(value);
+        else g_commentDrafts.erase(g_selWire);
     } catch (const winrt::hresult_error&) {}
 }
 
@@ -567,9 +567,9 @@ static void OnAppTreeChanged()
     SelectRowVisual(nullptr);
     ShowPropsForNode(0, L"(no selection)", L"", true);
     static const wchar_t* const kGone = L"The selected element is gone. The app navigated or removed it.";
-    if (gone && g_commentDraft.wire == gone) {
-        const std::wstring draft = std::move(g_commentDraft.text);
-        g_commentDraft = {};
+    if (auto it = gone ? g_commentDrafts.find(gone) : g_commentDrafts.end(); it != g_commentDrafts.end()) {
+        const std::wstring draft = std::move(it->second);
+        g_commentDrafts.erase(it);
         ShowCommentDraftNotice(kGone, draft);
     } else {
         ShowPaneNotice(kGone);

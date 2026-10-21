@@ -600,11 +600,11 @@ static void WireAddComment(void* frameworkElement)
         }
         g_commentBox = winrt::make_weak(text);
         g_commentBoxSaved = saved;
-        if (g_selWire && g_commentDraft.wire == g_selWire) {
-            text.Text(g_commentDraft.text);
+        if (auto it = g_selWire ? g_commentDrafts.find(g_selWire) : g_commentDrafts.end(); it != g_commentDrafts.end()) {
+            text.Text(it->second);
             status.Text(L"Your unsaved comment is back. Press Enter to save it, or Esc to discard it.");
             box.Visibility(DevToolsX::Visibility::Visible);
-            g_commentDraft = {};
+            g_commentDrafts.erase(it);
         }
         button.Click([box, text](auto&&, auto&&) {
             box.Visibility(DevToolsX::Visibility::Visible);

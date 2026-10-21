@@ -184,7 +184,8 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             {
                 return Task.FromResult(Fail(ansiConsole, json,
                     $"Comments can't be saved in winapp's own folder ({globalDirectory}). " +
-                    "Run this from your project folder, or pass --source-root <project folder>. Nothing was saved."));
+                    "Run this from your project folder, or pass --source-root <project folder>. " +
+                    "If a git repository encloses your project, run 'git init' in the project folder. Nothing was saved."));
             }
             if (captured?.SourceProvenance == "likely-source-line" && !parseResult.GetValue(ConfirmLikelySourceOption))
             {
