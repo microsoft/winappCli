@@ -304,6 +304,31 @@ public partial class RealUiAutomationTests
     }
 
     [TestMethod]
+    public async Task FindSingleElementAsync_DoesNotSearchTheDevToolsInspector()
+    {
+        using var fx = new UiaTestFixture();
+        var (inspectorHwnd, _) = fx.OpenOwnedWindow("Inspector");
+        var svc = NewService();
+        var uiTarget = NonExplicitSession(fx);
+        var automation = CUIAutomation8.CreateInstance<IUIAutomation>();
+        var mainRoot = automation.ElementFromHandle(new HWND(fx.Hwnd));
+        var inspectorRoot = automation.ElementFromHandle(new HWND(inspectorHwnd));
+
+        UiAutomationService.s_getRootElement = (_, _, _) => mainRoot;
+        UiAutomationService.s_getAllAppWindows = (_, _) =>
+            [(inspectorHwnd, fx.ProcessId, UiTargetResolver.DevToolsInspectorTitlePrefix + fx.ProcessId)];
+        UiAutomationService.s_getRootElementForHwnd = (_, hwnd, _) => hwnd == inspectorHwnd ? inspectorRoot : null;
+        UiAutomationService.s_findAllDescendants = (_, _) => ElementArray();
+
+        var result = await svc.FindSingleElementAsync(
+            uiTarget,
+            new UiSelector { Query = "OwnedOnly" },
+            CancellationToken.None);
+
+        Assert.IsNull(result, "A control that exists only in the inspector is not the app's.");
+    }
+
+    [TestMethod]
     public async Task FindSingleElementAsync_RecoveredExactId_UsesLiveWindowHandle()
     {
         using var fx = new UiaTestFixture();

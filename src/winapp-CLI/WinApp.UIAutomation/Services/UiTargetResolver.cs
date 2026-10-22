@@ -163,11 +163,15 @@ public sealed class UiTargetResolver(
 
     // The DevTools inspector runs inside the app's process, so it is one of the app's own windows. Targeting
     // the app by PID or name means the app's UI, never the inspector, even when the inspector is in front.
-    private const string DevToolsInspectorTitlePrefix = "WinApp DevTools · PID ";
+    /// <summary>The title of the DevTools inspector window, followed by the app's PID.</summary>
+    public const string DevToolsInspectorTitlePrefix = "WinApp DevTools · PID ";
+
+    /// <summary>Whether a window title is the DevTools inspector's, which runs inside the app's process.</summary>
+    public static bool IsDevToolsInspector(string title) => title.StartsWith(DevToolsInspectorTitlePrefix, StringComparison.Ordinal);
 
     private static List<(nint Hwnd, int Pid, string Title)> WithoutDevToolsInspector(List<(nint Hwnd, int Pid, string Title)> windows)
     {
-        var appWindows = windows.Where(w => !w.Title.StartsWith(DevToolsInspectorTitlePrefix, StringComparison.Ordinal)).ToList();
+        var appWindows = windows.Where(w => !IsDevToolsInspector(w.Title)).ToList();
         return appWindows.Count > 0 ? appWindows : windows;
     }
 

@@ -58,6 +58,7 @@ internal static class DevToolsErrors
         "time-budget" => "the search ran out of time; narrow it with --root or --of-type",
         "value-budget" => "the property values were too large to read in one search; narrow it with --root or --of-type",
         "classifying" => "DevTools is still matching elements to their XAML source; try again in a moment",
+        "unknown-child" => "part of the visual tree was not read yet; try again in a moment",
         _ => reason,
     };
 

@@ -1859,7 +1859,12 @@ internal sealed partial class UiAutomationService : IUiAutomation
     /// </summary>
     private List<(nint Hwnd, int Pid, string Title)> GetAllAppWindows(UiTarget uiTarget)
     {
-        return s_getAllAppWindows(this, uiTarget);
+        // The DevTools inspector shares the app's process, but its controls are not the app's. It is searched
+        // only when it is the window the user targeted.
+        var mainHwnd = (nint)uiTarget.WindowHandle;
+        return s_getAllAppWindows(this, uiTarget)
+            .Where(w => w.Hwnd == mainHwnd || !UiTargetResolver.IsDevToolsInspector(w.Title))
+            .ToList();
     }
 
     private List<(nint Hwnd, int Pid, string Title)> GetAllAppWindowsCore(UiTarget uiTarget)
