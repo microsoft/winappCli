@@ -69,6 +69,9 @@ internal sealed class CaptureResult
 
     public CapturedElement? Element { get; init; }
     public DevToolsProtocolError? Error { get; init; }
+
+    /// <summary>The elements an ambiguous selector matched.</summary>
+    public IReadOnlyList<DevToolsSelector.VisualTreeMatch> Candidates { get; init; } = [];
 }
 
 internal static class CommentSelectionCapture
@@ -103,7 +106,9 @@ internal static class CommentSelectionCapture
         var resolved = DevToolsSelector.Resolve(tap, handleOrName, cancellationToken);
         if (!resolved.Ok)
         {
-            return Failed(resolved.RemoteError ?? new(-32602, "selector", resolved.Error ?? "The element selector could not be resolved."));
+            var failed = Failed(resolved.RemoteError ?? new(-32602, "selector", resolved.Error ?? "The element selector could not be resolved."));
+            // An ambiguous selector's message ends in "use one of their selectors:", so the candidates travel with it.
+            return new CaptureResult { Status = failed.Status, Error = failed.Error, Candidates = resolved.Candidates };
         }
         if (resolved.Warning is not null)
         {

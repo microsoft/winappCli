@@ -326,6 +326,32 @@ public class DevToolsCSharpCommentsTests
     }
 
     [TestMethod]
+    public async Task AmbiguousSelector_ListsTheCandidates()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", """
+                {"state":"ok","nodes":[
+                  {"handle":"20","element":"Stack","file":0,"line":7,"host":{"kind":"window","window":"100","title":"Main","root":{"kind":"class","name":"App"}}},
+                  {"handle":"21","parent":"20","element":"Component","file":0,"line":36,"key":"first","component":{"kind":"class","name":"Counter"}},
+                  {"handle":"31","parent":"20","element":"Component","file":0,"line":79,"key":"second","component":{"kind":"class","name":"Counter"}}],
+                 "files":["C:\\src\\App.cs"],"unmapped":0,"truncated":false,"complete":true}
+                """)
+            .Answer("VisualTree.enumerate", """{"nodes":[]}""");
+        var console = new TestConsole();
+        console.Profile.Width = 200;
+        var store = new CommentStore();
+        var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
+            new CommentTestTargetResolver(agent.Pid), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
+
+        var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(["<Counter>", "--app", agent.Pid.ToString(), "--text", "x"]));
+
+        Assert.AreEqual(1, exit);
+        StringAssert.Contains(console.Output, "one of their selectors:");
+        StringAssert.Contains(console.Output, "key=first App.cs:36");
+        StringAssert.Contains(console.Output, "key=second App.cs:79");
+    }
+
+    [TestMethod]
     public void ReactorMarkerAnchor_MatchesTheAppsFormat_AndIsOnlyForOwnCallSites()
     {
         var cs = new CommentCSharpAnchor { SourceFile = "App.cs", Line = 78, Column = 0, Element = "Button", Component = "Counter", LineHash = "" };

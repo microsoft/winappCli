@@ -153,6 +153,16 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                     : CommentSelectionCapture.CaptureElement(pid, fromElement, cancellationToken);
                 switch (result.Status)
                 {
+                    case CaptureStatus.Failed when result.Candidates.Count > 0 && json:
+                        return Task.FromResult(Fail(ansiConsole, json,
+                            $"{result.Error?.Message} {string.Join(", ", result.Candidates.Select(candidate => candidate.Selector))}"));
+                    case CaptureStatus.Failed when result.Candidates.Count > 0:
+                        Fail(ansiConsole, json, result.Error?.Message ?? "Element capture failed.");
+                        foreach (var candidate in result.Candidates)
+                        {
+                            DevToolsRender.WriteMarkupLine(ansiConsole, "  " + DevToolsRender.Match(candidate));
+                        }
+                        return Task.FromResult(1);
                     case CaptureStatus.Failed:
                         return Task.FromResult(Fail(ansiConsole, json, result.Error?.Message ?? "Element capture failed."));
                     case CaptureStatus.NoAgent:
