@@ -41,6 +41,21 @@ public class DevToolsLogsCommandTests
     }
 
     [TestMethod]
+    public async Task Logs_AreProcessWide_SoTheyOfferNoWindowOrRootScope()
+    {
+        var command = new DevToolsLogsCommand();
+        Assert.IsFalse(command.Options.Any(option => option.Name is "--window" or "--root" || option.Aliases.Contains("-w")),
+            "the app's logs are not per window; -w would always fail");
+        Assert.IsNotEmpty(command.Parse(["-w", "100"]).Errors);
+
+        // Without the options, the handler still runs (it reads no window from the parse).
+        using var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.logs", Logs);
+        var (exit, output) = await Run(agent);
+        Assert.AreEqual(0, exit, output);
+        Assert.IsFalse(agent.ReceivedRequests.Any(r => r.Contains("\"window\"", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public async Task Logs_JsonCarriesTheEntries()
     {
         using var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.logs", Logs);

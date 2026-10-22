@@ -18,12 +18,15 @@ namespace WinApp.Cli.Commands;
 /// </summary>
 internal abstract class DevToolsLiveCommand : Command, IShortDescription
 {
-    protected DevToolsLiveCommand(string name, string description)
+    protected DevToolsLiveCommand(string name, string description, bool windowScoped = true)
         : base(name, description)
     {
         Options.Add(SharedUiOptions.AppOption);
-        Options.Add(SharedUiOptions.WindowOption);
-        Options.Add(SharedDevToolsOptions.RootOption);
+        if (windowScoped)
+        {
+            Options.Add(SharedUiOptions.WindowOption);
+            Options.Add(SharedDevToolsOptions.RootOption);
+        }
         Options.Add(SharedDevToolsOptions.AttachOption);
         Options.Add(WinAppRootCommand.JsonOption);
     }

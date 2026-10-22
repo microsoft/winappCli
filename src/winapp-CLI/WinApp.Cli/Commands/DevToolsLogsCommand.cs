@@ -38,7 +38,8 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
     internal static readonly TimeSpan FollowInterval = TimeSpan.FromMilliseconds(500);
 
     public DevToolsLogsCommand()
-        : base("logs", "Show the Microsoft.UI.Reactor warnings and errors a running app has raised since launch: render and swallowed errors, framework warnings, keyed lists with null or duplicate keys, hot reload and window events. Messages carry exception types, never exception text or user data.")
+        : base("logs", "Show the Microsoft.UI.Reactor warnings and errors a running app has raised since launch: render and swallowed errors, framework warnings, keyed lists with null or duplicate keys, hot reload and window events. Messages carry exception types, never exception text or user data.",
+            windowScoped: false)
     {
         LevelOption.AcceptOnlyFromAmong("error", "warning", "info");
         Options.Add(FollowOption);
