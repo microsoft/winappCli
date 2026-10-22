@@ -774,7 +774,7 @@ Use `--clean` when you need a fresh start (e.g., to reset corrupted state or tes
 **What it does:**
 
 - Locates or generates the Package.appxmanifest
-- Closes the app if it is already running from this layout, so its files can be replaced. winapp asks it to close and ends it after 2 seconds, so save your work first. This also happens with `--no-launch`.
+- Closes the app if it is already running from this layout, so its files can be replaced. winapp asks it to close and ends it after 2 seconds, or right away if it has no window or is showing a dialog, so save your work first. This also happens with `--no-launch`.
 - Creates and registers a debug identity using a loose layout package
 - Computes the Application User Model ID (AUMID)
 - Launches the application using the registered identity (unless `--no-launch` is specified)
