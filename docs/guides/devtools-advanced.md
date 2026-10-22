@@ -97,7 +97,9 @@ and says so. A search with no match exits nonzero.
 
 `get-property` and `set-property` with `--of-type`/`--with` instead of a selector need
 exactly one provable match. Zero, several, unreadable or truncated matches refuse the
-operation and list each candidate's predicate results. A query write rechecks its
+operation and list each candidate's predicate results. A value that isn't set (null)
+doesn't equal or contain a non-empty value, so `--with 'Text==Save'` skips a TextBlock
+with no text instead of refusing. A query write rechecks its
 target in the app before writing. If it times out, the outcome is indeterminate: read
 the property to check, and don't retry automatically.
 
