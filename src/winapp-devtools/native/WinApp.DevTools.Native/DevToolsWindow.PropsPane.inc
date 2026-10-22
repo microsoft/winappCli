@@ -38,6 +38,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropPane);
     if (!g_ctx.propsHostChildren || !g_ctx.rowsFn) return;
     if (!force && wire != 0 && wire == g_selWire) return;
+    StashCommentDraft();
     // Save the focused editor before its pane goes away, while g_selWire still names the element it edits. Its
     // focus-out would otherwise arrive after the selection moved.
     std::wstring flushed;
