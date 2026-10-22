@@ -514,9 +514,11 @@ static std::vector<InstanceHandle> TapCensusRoots()
 
 // See DevToolsTreeLayout's identity block for why the id is a path fold rather than a property of the element alone:
 // it is what makes two DataTemplate instances of one x:Name individually addressable, and what makes a moved
-// element's selector fail loudly instead of resolving to a similar element.
+// element's selector fail loudly instead of resolving to a similar element. A Reactor element also folds in its
+// Reactor identity, so another component rendered in the same place after navigation gets a different selector.
 static void FoldIdentities(const CensusSnapshot& cs, InstanceHandle h, unsigned long long value,
-                           std::map<InstanceHandle, unsigned long long>& values, int depth)
+                           std::map<InstanceHandle, unsigned long long>& values, int depth,
+                           const std::map<InstanceHandle, std::wstring>& reactor)
 {
     if (depth > kMaxEnumDepth) return;
     if (!values.emplace(h, value).second) return;
@@ -529,11 +531,16 @@ static void FoldIdentities(const CensusSnapshot& cs, InstanceHandle h, unsigned 
         const int ordinal = perType[ty->second]++;
         if (values.find(c) != values.end()) continue;
         auto nm = cs.name.find(c);
+        auto rx = reactor.find(c);
         const std::wstring segment = DevToolsTreeLayout::IdentitySegment(
-            ty->second, nm == cs.name.end() ? std::wstring() : nm->second, ordinal);
-        FoldIdentities(cs, c, DevToolsTreeLayout::IdentityFold(value, segment), values, depth + 1);
+            ty->second, nm == cs.name.end() ? std::wstring() : nm->second, ordinal,
+            rx == reactor.end() ? std::wstring() : rx->second);
+        FoldIdentities(cs, c, DevToolsTreeLayout::IdentityFold(value, segment), values, depth + 1, reactor);
     }
 }
+
+// Defined in DevToolsTap.Reactor.inc: the Reactor identity of each census element a Reactor element produced.
+static void TapReactorIdentities(const CensusSnapshot& cs, std::map<InstanceHandle, std::wstring>& out);
 
 // Compute the facts a client's SELECTOR vocabulary needs, over the WHOLE census rather than over whatever a
 // particular request selected. Deriving either from the request's own bounded walk would make an element's selector
@@ -541,6 +548,8 @@ static void FoldIdentities(const CensusSnapshot& cs, InstanceHandle h, unsigned 
 static void ComputeSelectorFacts(CensusSnapshot& cs)
 {
     std::map<InstanceHandle, unsigned long long> values;
+    std::map<InstanceHandle, std::wstring> reactor;
+    TapReactorIdentities(cs, reactor);
     std::map<std::wstring, int> perRootType;
     for (InstanceHandle root : CollectRoots(cs)) {
         auto ty = cs.type.find(root);
@@ -548,9 +557,11 @@ static void ComputeSelectorFacts(CensusSnapshot& cs)
         const int ordinal = perRootType[ty->second]++;
         if (values.find(root) != values.end()) continue;
         auto nm = cs.name.find(root);
+        auto rx = reactor.find(root);
         const std::wstring segment = DevToolsTreeLayout::IdentitySegment(
-            ty->second, nm == cs.name.end() ? std::wstring() : nm->second, ordinal);
-        FoldIdentities(cs, root, DevToolsTreeLayout::IdentityFold(DevToolsTreeLayout::kIdentitySeed, segment), values, 0);
+            ty->second, nm == cs.name.end() ? std::wstring() : nm->second, ordinal,
+            rx == reactor.end() ? std::wstring() : rx->second);
+        FoldIdentities(cs, root, DevToolsTreeLayout::IdentityFold(DevToolsTreeLayout::kIdentitySeed, segment), values, 0, reactor);
     }
 
     cs.id.clear();
@@ -720,6 +731,9 @@ static std::wstring CmdEnumerate(const std::vector<std::wstring>& p)
     if (authoredOnly || annotate) {
         reactor = TapReactorStatusNow();
         if (TapReactorCanDescribe(reactor)) reactorDescribed = TapReactorDescribe(reactor, &reactorMembers);
+    } else {
+        // Reactor elements' selectors include their Reactor identity, so a plain enumerate needs it current too.
+        TapReactorRefreshAuthored();
     }
 
     // Leaf-scoped critical section (C5): copy the census maps under the shared lock, then RELEASE before

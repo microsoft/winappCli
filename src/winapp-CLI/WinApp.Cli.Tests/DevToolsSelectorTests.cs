@@ -660,6 +660,30 @@ public class DevToolsSelectorTests
         Assert.AreEqual("SubmitButton", resolved.Candidates[0].Selector);
     }
 
+    /// <summary>
+    /// After navigation a Reactor app renders &lt;OverlaysPage&gt; into the Border that held &lt;HomePage&gt;. The tap
+    /// folds the component into that Border's identity, so the selector printed for &lt;HomePage&gt; must not resolve
+    /// to the new component (set-state would write into it).
+    /// </summary>
+    [TestMethod]
+    public void Resolve_AReactorSlugAfterNavigation_IsStale_NotTheComponentNowInItsPlace()
+    {
+        const string afterNavigation = """
+            {"matches":[{"handle":"77","name":"","type":"Microsoft.UI.Xaml.Controls.Border","id":"5d10e2c4a7","depth":7,
+              "reactor":{"element":"Component","component":"OverlaysPage","file":"C:\\src\\MainShell.cs","line":31}}],
+             "query":"border","appAuthoredOnly":false,"searchedNodes":40,"censusNodes":40,"truncated":false}
+            """;
+        using var agent = new FakeDevToolsProtocolAgent().Answer("VisualTree.find", afterNavigation);
+        var tap = new VisualTreeTap((uint)agent.Pid);
+
+        var homePage = DevToolsSelector.Resolve(tap, "border-2c606cd91b");
+        var overlaysPage = DevToolsSelector.Resolve(tap, "border-5d10e2c4a7");
+
+        Assert.IsFalse(homePage.Ok, "the <HomePage> selector must not resolve to <OverlaysPage>");
+        StringAssert.Contains(homePage.Error, "stale");
+        Assert.AreEqual("77", overlaysPage.Handle, "the new component's own selector resolves");
+    }
+
     /// <summary>A slug for an element that is simply gone is refused with rerun guidance, not a near-miss claim.</summary>
     [TestMethod]
     public void Resolve_AnUnknownSlugSaysToRerunInspect()

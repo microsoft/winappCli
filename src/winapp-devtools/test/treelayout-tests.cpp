@@ -392,6 +392,33 @@ static void Test_A11yRowsFollowTheVisibleHierarchy()
     CheckEq(a11y[6].level, 2, "its child nests under that root");
 }
 
+// A Reactor app renders a different component into the same Border after navigation, a tab switch or a conditional
+// unmount. Type, x:Name and position are unchanged, so without the Reactor identity the old selector would silently
+// name the new component and set-state would write into it.
+static void Test_ReactorIdentityTellsComponentsAtOnePlaceApart()
+{
+    std::printf("\n[selectors] a Reactor element's identity includes its component, key or call site\n");
+
+    const std::wstring home = ReactorIdentity(L"<HomePage>", L"", L"MainShell.cs:30");
+    const std::wstring overlays = ReactorIdentity(L"<OverlaysPage>", L"", L"MainShell.cs:31");
+    Check(IdentitySegment(L"Microsoft.UI.Xaml.Controls.Border", L"", 0, home) !=
+          IdentitySegment(L"Microsoft.UI.Xaml.Controls.Border", L"", 0, overlays),
+          "two components rendered at the same position get different segments");
+    Check(IdentityFold(kIdentitySeed, IdentitySegment(L"Border", L"", 0, home)) !=
+          IdentityFold(kIdentitySeed, IdentitySegment(L"Border", L"", 0, overlays)),
+          "...and so different identities");
+    Check(ReactorIdentity(L"<LazyTab>", L"", L"Tabs.cs:20") != ReactorIdentity(L"<TabCounter>", L"", L"Tabs.cs:20"),
+          "the component tells two components from one call site apart");
+    Check(ReactorIdentity(L"TextBlock", L"tab1Text", L"Tabs.cs:30") != ReactorIdentity(L"TextBlock", L"tab3Label", L"Tabs.cs:30"),
+          "the key tells two keyed elements apart");
+    Check(ReactorIdentity(L"TextBlock", L"t1", L"Tabs.cs:30") == ReactorIdentity(L"TextBlock", L"t1", L"Tabs.cs:31"),
+          "a keyed element keeps its identity when its line moves");
+    Check(ReactorIdentity(L"<Counter>", L"", L"App.cs:36") == ReactorIdentity(L"<Counter>", L"", L"App.cs:36"),
+          "the same element re-rendered keeps its identity");
+    Check(IdentitySegment(L"Microsoft.UI.Xaml.Controls.Button", L"Submit", 2, L"") == L"Button#Submit[2]",
+          "an element Reactor did not create keeps exactly its XAML segment");
+}
+
 // The identity a devtools selector is built on. A wire handle is exact but opaque; `id` is the readable
 // half, and the ONLY thing that lets the CLI refuse a selector that no longer names the element it named
 // when it was printed. Three properties have to hold or the selector is worse than the bare handle it
@@ -817,6 +844,7 @@ int main()
     Test_VisibleParents();
     Test_TreeFilterMatcherIsSharedWithTheProtocol();
     Test_ElementIdentityIsPathDependentAndStable();
+    Test_ReactorIdentityTellsComponentsAtOnePlaceApart();
     Test_CollapseStateSurvivesARowRebuild();
     Test_FocusRedirectsToTheNearestAuthoredAncestor();
     Test_PartialPackageScanDoesNotHideTheApp();

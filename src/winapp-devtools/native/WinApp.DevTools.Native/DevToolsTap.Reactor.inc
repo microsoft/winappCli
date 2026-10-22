@@ -159,6 +159,21 @@ static void TapReactorAddAuthored(const CensusSnapshot& cs, std::set<InstanceHan
     ReleaseSRWLockShared(&g_reactorAuthoredLock);
 }
 
+static std::wstring TapReactorShortSource(const ReactorAnnotation& a);
+static std::wstring TapReactorLabel(const ReactorAnnotation& a);
+
+// The Reactor identity each live census element a Reactor element produced folds into its selector.
+static void TapReactorIdentities(const CensusSnapshot& cs, std::map<InstanceHandle, std::wstring>& out)
+{
+    AcquireSRWLockShared(&g_reactorAuthoredLock);
+    for (const auto& [ih, annotation] : g_reactorAnnotations) {
+        const auto current = cs.wire.find(ih);
+        if (current == cs.wire.end() || current->second != annotation.wire || !cs.type.count(ih)) continue;
+        out[ih] = DevToolsTreeLayout::ReactorIdentity(TapReactorLabel(annotation), annotation.key, TapReactorShortSource(annotation));
+    }
+    ReleaseSRWLockShared(&g_reactorAuthoredLock);
+}
+
 // The annotation for one element (`nearest` false), or for the nearest element at or above it that a Reactor element
 // produced. `exact` says whether it is the element's own. Reads the cache only, so it is safe on the UI thread.
 static bool TapReactorAnnotationFor(InstanceHandle ih, bool nearest, ReactorAnnotation* out,
