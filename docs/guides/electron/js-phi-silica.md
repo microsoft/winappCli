@@ -39,6 +39,7 @@ npx winapp node add-electron-debug-identity
 
 Import the generated bindings through `#winapp/bindings`, create a `TextSummarizer`, and call it at the end of `createWindow()` to verify everything works:
 
+> [!IMPORTANT]
 > **Requires `@microsoft/dynwinrt-codegen` ≥ `0.1.0-preview.8`** — see [Get started with Electron](index.md#2-call-windows-apis-from-javascript) for older-project fallbacks.
 
 ```js
