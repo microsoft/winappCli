@@ -497,49 +497,31 @@ public class DevToolsQueryCommandTests
     }
 
     [TestMethod]
-    public void Preview_FormatDropsAnAccessibleNameThatRepeatsTheShownCaption()
+    public void Preview_FormatKeepsAnExplicitAccessibleNameThatRepeatsTheCaption()
     {
+        // A XAML app that sets AutomationProperties.Name wrote it on purpose, even when it equals the caption.
         var same = DevToolsPreviews.Format([
             new("Content", "+1", "value", "String", false),
             new("AutomationProperties.Name", "+1", "value", "String", false),
         ]);
-        Assert.AreEqual("Content=\"+1\"", same);
+        Assert.AreEqual("Content=\"+1\" AutomationProperties.Name=\"+1\"", same);
 
-        var text = DevToolsPreviews.Format([
-            new("AutomationProperties.Name", "Count", "value", "String", false),
-            new("Text", "Count", "value", "String", false),
-        ]);
-        Assert.AreEqual("Text=\"Count\"", text);
-
-        var different = DevToolsPreviews.Format([
-            new("Content", "+1", "value", "String", false),
-            new("AutomationProperties.Name", "Increment", "value", "String", false),
-        ]);
-        StringAssert.Contains(different, "AutomationProperties.Name=\"Increment\"");
-    }
-
-    [TestMethod]
-    public void Preview_FormatDropsAnAccessibleNameThatRepeatsThePlaceholder()
-    {
-        // Reactor copies a TextBox's placeholder into its accessible name: `PlaceholderText="New task"` says it once.
-        var text = DevToolsPreviews.Format([
+        var placeholder = DevToolsPreviews.Format([
             new("PlaceholderText", "New task", "value", "String", false),
             new("AutomationProperties.Name", "New task", "value", "String", false),
         ]);
-        Assert.AreEqual("PlaceholderText=\"New task\"", text);
-
-        var different = DevToolsPreviews.Format([
-            new("PlaceholderText", "New task", "value", "String", false),
-            new("AutomationProperties.Name", "Task title", "value", "String", false),
-        ]);
-        StringAssert.Contains(different, "AutomationProperties.Name=\"Task title\"", "a name that differs is the app's own");
+        StringAssert.Contains(placeholder, "AutomationProperties.Name=\"New task\"");
     }
 
     [TestMethod]
     public void Preview_FormatDropsReactorsDefaultAccessibleNameWhateverItCopied()
     {
-        // Reactor reports the name as its own default (DefaultAutomationName), even when the caption it came from is
-        // not among the compact values.
+        // Reactor reports the name as its own default (DefaultAutomationName): a copy of the caption, or of something
+        // that is not among the compact values.
+        Assert.AreEqual("PlaceholderText=\"New task\"", DevToolsPreviews.Format([
+            new("PlaceholderText", "New task", "value", "String", false),
+            new("AutomationProperties.Name", "New task", "value", "String", false),
+        ], defaultAutomationName: true));
         var values = new DevToolsPreviewValue[]
         {
             new("Text", "Done today: 3", "value", "String", false),
@@ -547,7 +529,7 @@ public class DevToolsQueryCommandTests
         };
         Assert.AreEqual("Text=\"Done today: 3\"", DevToolsPreviews.Format(values, defaultAutomationName: true));
         StringAssert.Contains(DevToolsPreviews.Format(values), "AutomationProperties.Name=\"Counter\"",
-            "without Reactor's word for it, only an exact repeat is dropped");
+            "without Reactor's word for it, the name is the app's own");
     }
 
     [TestMethod]
@@ -555,7 +537,7 @@ public class DevToolsQueryCommandTests
     {
         var text = DevToolsPreviews.Format([
             new("PlaceholderText", "Search tasks", "value", "String", false),
-            new("AutomationProperties.Name", "Find a task", "value", "String", false),
+            new("AutomationProperties.Name", "Search tasks", "value", "String", false),
             new("Header", "Very long", "value", "String", true),
             new("Content", "", "object", "StackPanel", false),
         ]);
