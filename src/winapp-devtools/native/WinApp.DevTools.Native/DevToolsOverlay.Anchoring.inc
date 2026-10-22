@@ -747,6 +747,7 @@ static void TrackingTick()
 // Park markers whose elements are not presented; keep the saved registry unchanged.
     {
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::OverlayPins);
+    std::vector<InstanceHandle> placed; // handles that already have a visible marker this tick
     for (auto& p : g_pins) {
         if (!g_commentsShown) continue;
         RECT nb{};
@@ -776,8 +777,10 @@ static void TrackingTick()
             DrawPinUi(p);
             continue;
         }
+        const int slot = static_cast<int>(std::count(placed.begin(), placed.end(), p.handle));
+        placed.push_back(p.handle);
         const auto pin = DevToolsSelection::SnapPin(DevToolsSelection::PlacePin(
-            { nb.left, nb.top, nb.right, nb.bottom }, DevToolsSelection::PinViewport(cw, ch, PinTitleBarInsetDip())), PinScale());
+            { nb.left, nb.top, nb.right, nb.bottom }, DevToolsSelection::PinViewport(cw, ch, PinTitleBarInsetDip()), slot), PinScale());
         MoveOverlayElement(p.ui, pin.x, pin.y);
         SetOverlayElementVisible(p.ui, true);
     }
