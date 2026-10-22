@@ -406,7 +406,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                 !value || value->type != DevToolsJsonType::String)
                 return DevToolsRpcError(id, DevToolsErr::InvalidParams,
                                    L"hook must be a non-negative integer index and value a string", L"bad-args");
-            reply = CmdReactorAgent(wire, L"reactorsetstate", std::to_wstring(static_cast<long long>(hook->num)), value->str);
+            reply = CmdReactorSetState(wire, std::to_wstring(static_cast<long long>(hook->num)), value->str);
         } else if (m == L"Reactor.invokeHandler") {
             const std::wstring event = p.GetString(L"event");
             if (event.empty())

@@ -95,12 +95,12 @@ internal static partial class ReactorSecrets
     /// <summary>
     /// Whether text carries a labelled secret: <c>AccessToken=abc</c>, a connection string with a password,
     /// <c>apiKey: abc</c>, or a record's <c>ToString</c> listing <c>Password = abc</c>. A bare label with no value
-    /// (<c>Password:</c>) is not one.
+    /// (<c>Password:</c>) is not one, and neither is one already redacted (<c>Token=&lt;redacted&gt;</c>).
     /// </summary>
     internal static bool HasLabelledSecret(string? text) => text is { Length: > 0 } && LabelledSecret().IsMatch(text);
 
     [GeneratedRegex("""
-        (?<![A-Za-z0-9])[A-Za-z0-9_.\-]*(?:password|passwd|pwd|secret|credentials?|token|api[_\-]?key|private[_\-]?key|connection[_\-]?string|account[_\-]?key|access[_\-]?key)["']?\s*[:=]\s*["']?(?=[^\s,;}\])"'])
+        (?<![A-Za-z0-9])[A-Za-z0-9_.\-]*(?:password|passwd|pwd|secret|credentials?|token|api[_\-]?key|private[_\-]?key|connection[_\-]?string|account[_\-]?key|access[_\-]?key)["']?\s*[:=]\s*["']?(?=[^\s,;}\])"'<])
         """, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LabelledSecret();
 

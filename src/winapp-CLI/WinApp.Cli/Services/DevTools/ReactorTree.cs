@@ -254,8 +254,8 @@ internal sealed record ReactorDescription(
     /// <summary>The one note shown when the app uses Reactor but its components cannot be read.</summary>
     public string ExplainUnavailable() =>
         $"This app uses Microsoft.UI.Reactor, but its components cannot be read: {(Reason ?? "the managed DevTools agent did not answer").TrimEnd('.')}. " +
-        "Launch it with `winapp run --devtools`. A Debug build loads the managed agent; Native AOT, trimmed and " +
-        "late-attached apps show their components when Reactor publishes its diagnostics, which `winapp run --devtools` " +
+        "Launch it with `winapp run --devtools on`. A Debug build loads the managed agent; Native AOT, trimmed and " +
+        "late-attached apps show their components when Reactor publishes its diagnostics, which `winapp run --devtools on` " +
         "turns on (REACTOR_DIAGNOSTICS=1).";
 
     /// <summary>
@@ -281,7 +281,7 @@ internal sealed record ReactorDescription(
             return null;
         }
         return SourceMap == false
-            ? "Reactor source mapping is off, so no C# locations were recorded. Launch with `winapp run --devtools` " +
+            ? "Reactor source mapping is off, so no C# locations were recorded. Launch with `winapp run --devtools on` " +
               "(it sets REACTOR_SOURCEMAP=1) and build in Debug, or set <ReactorSourceMap>true</ReactorSourceMap>."
             : "No C# locations were recorded. Build in Debug, or set <ReactorSourceMap>true</ReactorSourceMap>, and relaunch.";
     }

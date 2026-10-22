@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace WinApp.Cli.Services.DevTools;
 
 /// <summary>
-/// What a project's build says about Microsoft.UI.Reactor, for <c>winapp run --devtools</c>: whether it uses
+/// What a project's build says about Microsoft.UI.Reactor, for <c>winapp run --devtools on</c>: whether it uses
 /// Reactor, whether this configuration compiles Reactor's source-map interceptors (the C# call sites DevTools
 /// shows), whether it still references the deprecated <c>Microsoft.UI.Reactor.Devtools</c> package, and the
 /// build's <c>PathMap</c> so recorded paths can be mapped back to files.

@@ -354,6 +354,39 @@ public class DevToolsJsonParityTests
     }
 
     [TestMethod]
+    public async Task GetSource_ACSharpCallSite_UsesTheSameLocationNames()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"winapp-csharp-{Guid.NewGuid():N}.cs");
+        File.WriteAllText(file, "var b = Button(\"+1\");");
+        try
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                .Answer("Source.get", JsonSerializer.Serialize(new
+                {
+                    handle = "42", kind = "csharp", fileName = file, lineNumber = 1, columnNumber = 9, onDisk = true,
+                    authoredState = "available", csharp = "var b = Button(\"+1\");",
+                }));
+
+            var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+            Assert.AreEqual(0, jsonExit, jsonOut);
+            using var doc = JsonDocument.Parse(jsonOut);
+            var root = doc.RootElement;
+            Assert.AreEqual("csharp", root.GetProperty("kind").GetString());
+            Assert.AreEqual(file, root.GetProperty("file").GetString());
+            Assert.AreEqual(file, root.GetProperty("path").GetString());
+            Assert.AreEqual(1, root.GetProperty("line").GetInt32());
+            Assert.AreEqual(9, root.GetProperty("column").GetInt32());
+            Assert.IsFalse(root.TryGetProperty("fileName", out _), "the agent's transport names are not the CLI's");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [TestMethod]
     [DataRow(246, "MainPage.xaml:246")]
     [DataRow(248, "MainPage.xaml:246-248")]
     public async Task GetSource_MappedDeclaration_ShowsOneLocationAndKeepsRuntimeCoordinatesApart(int endLine, string location)

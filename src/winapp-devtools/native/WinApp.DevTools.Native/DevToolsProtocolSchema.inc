@@ -241,7 +241,7 @@ WINAPP_DEVTOOLS_PROTOCOL_METHOD(BindingRestore,            L"Binding.restore",  
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(BindingClearValue,         L"Binding.clearValue",            L"Binding",    DevToolsAccess::Mutation, DevToolsVisibility::Public, BindingParams,           BindingResult)
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(BindingWalk,              L"Binding.walk",                  L"Binding",    DevToolsAccess::Read,     DevToolsVisibility::Public, BindingParams,           WalkResult)
 // Microsoft.UI.Reactor elements behind realized controls. Answered by the managed agent, so it needs a
-// `winapp run --devtools` launch of a .NET app; `state` says why there is nothing to describe.
+// `winapp run --devtools on` launch of a .NET app; `state` says why there is nothing to describe.
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(ReactorDescribe,           L"Reactor.describe",              L"Reactor",    DevToolsAccess::Read,     DevToolsVisibility::Public, ReactorDescribeParams,   ReactorDescribeResult)
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(ReactorElement,            L"Reactor.element",               L"Reactor",    DevToolsAccess::Read,     DevToolsVisibility::Public, HandleParams,            ReactorElementResult)
 WINAPP_DEVTOOLS_PROTOCOL_METHOD(ReactorComponent,          L"Reactor.component",             L"Reactor",    DevToolsAccess::Read,     DevToolsVisibility::Public, HandleParams,            ReactorComponentResult)

@@ -523,7 +523,7 @@ static std::wstring TapReactorPublishedAnswer_ui(const std::set<InstanceHandle>*
             ? L"{\"state\":\"unavailable\",\"reason\":\"no managed DevTools agent is loaded, and this Reactor version does not "
               L"publish its diagnostics on the controls (Native AOT and trimmed builds need a Reactor that does)\"}"
             : L"{\"state\":\"unavailable\",\"reason\":\"no managed DevTools agent is loaded, and Reactor publishes its diagnostics "
-              L"on the controls only when the app is launched with `winapp run --devtools` (REACTOR_DIAGNOSTICS=1)\"}";
+              L"on the controls only when the app is launched with `winapp run --devtools on` (REACTOR_DIAGNOSTICS=1)\"}";
     }
     if (!scope && !g_windowScope) TapReactorForgetPublished_ui(census);
     std::map<InstanceHandle, DevToolsReactorPublished::Record> records;
@@ -1432,9 +1432,26 @@ static void TapReactorLocateMember(DevToolsJson& owner, const wchar_t* member)
     at.obj[L"stale"] = stale;
 }
 
+// Whether a C# name says it holds a secret, by the managed agent's rule (ReactorSecrets.IsSecretName): it ends with
+// one of these, or is their plural (`AuthTokens`). A bare "Key" does not.
+static bool TapReactorIsSecretName(const std::wstring& name)
+{
+    static const wchar_t* const kSuffixes[] = { L"Password", L"Secret", L"Credential", L"Token", L"ApiKey", L"PrivateKey",
+                                                L"ConnectionString" };
+    auto ends = [](const std::wstring& text) {
+        for (const wchar_t* suffix : kSuffixes) {
+            const size_t length = wcslen(suffix);
+            if (text.size() >= length && _wcsicmp(text.c_str() + text.size() - length, suffix) == 0) return true;
+        }
+        return false;
+    };
+    return ends(name) || (name.size() > 1 && (name.back() == L's' || name.back() == L'S') && ends(name.substr(0, name.size() - 1)));
+}
+
 // Names each hook of a Reactor.component answer with the C# variable it was assigned to, from the hooks Reactor
 // published on the component's element (`hooks=`). The component is the nearest element at or above `wire` that
-// mounts it (or whose host renders it as the root). Hooks Reactor did not name keep only their index.
+// mounts it (or whose host renders it as the root). Hooks Reactor did not name keep only their index. The agent
+// formats values before the name is known, so a hook whose name says it holds a secret is redacted here.
 static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
 {
     auto hooks = answer.obj.find(L"hooks");
@@ -1485,6 +1502,15 @@ static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         if (hookName.empty()) continue;
         DevToolsJson text; text.type = DevToolsJsonType::String; text.str = hookName;
         hook.obj[L"name"] = text;
+        if (TapReactorIsSecretName(hookName)) {
+            if (hook.Find(L"value")) {
+                DevToolsJson redacted; redacted.type = DevToolsJsonType::String; redacted.str = kDevToolsRedacted;
+                hook.obj[L"value"] = redacted;
+            }
+            DevToolsJson yes; yes.type = DevToolsJsonType::Bool; yes.b = true;
+            hook.obj[L"redacted"] = yes;
+            if (hook.Find(L"editable")) { DevToolsJson no; no.type = DevToolsJsonType::Bool; no.b = false; hook.obj[L"editable"] = no; }
+        }
         if (line) {
             DevToolsJson number; number.type = DevToolsJsonType::Number; number.num = line;
             hook.obj[L"line"] = number;
@@ -1508,6 +1534,7 @@ static std::wstring CmdReactorComponent(unsigned long long wire)
 }
 
 static std::wstring CmdReactorElement(unsigned long long wire);
+static std::wstring CmdReactorSetState(unsigned long long wire, const std::wstring& index, const std::wstring& value);
 static bool TapReactorAskWire(unsigned long long wire, const std::wstring& operation, const std::wstring& arg,
                               const std::wstring& value, std::wstring* out);
 
@@ -1530,7 +1557,8 @@ static bool TapReactorAskWire(unsigned long long wire, const std::wstring& opera
     }
     if (operation == L"reactorcomponent") *out = CmdReactorComponent(wire);
     else if (operation == L"reactorelement") *out = CmdReactorElement(wire);
-    else if (operation == L"reactorsetstate" || operation == L"reactorinvoke") *out = CmdReactorAgent(wire, op, arg, value);
+    else if (operation == L"reactorsetstate") *out = CmdReactorSetState(wire, arg, value);
+    else if (operation == L"reactorinvoke") *out = CmdReactorAgent(wire, op, arg, value);
     else { *out = DevToolsBindingRelay_UnavailableJson(L"unsupported Reactor operation"); return false; }
     if (out->rfind(L"ERR ", 0) == 0) {
         *out = DevToolsBindingRelay_UnavailableJson(L"this element is no longer in the visual tree");
@@ -1541,6 +1569,26 @@ static bool TapReactorAskWire(unsigned long long wire, const std::wstring& opera
 
 // Reactor.element: what Reactor set on one element (its record properties, applied modifiers, component props), from
 // the managed agent, plus the component that rendered it from the annotation cache.
+// Reactor.setState: refused for a hook shown as a secret (by its type, value or published name), otherwise the agent
+// writes it. The agent sees the type and value; only the published name needs the component answer first.
+static std::wstring CmdReactorSetState(unsigned long long wire, const std::wstring& index, const std::wstring& value)
+{
+    DevToolsJson component;
+    if (DevToolsJsonParse(CmdReactorComponent(wire), component) && component.IsObject() && component.GetString(L"state") == L"ok") {
+        if (const DevToolsJson* hooks = component.Find(L"hooks"); hooks && hooks->type == DevToolsJsonType::Array) {
+            for (const auto& hook : hooks->arr) {
+                const DevToolsJson* at = hook.Find(L"index");
+                if (!at || at->type != DevToolsJsonType::Number || std::to_wstring(static_cast<long long>(at->num)) != index) continue;
+                if (hook.GetBool(L"redacted", false))
+                    return L"{\"state\":\"refused\",\"code\":\"secret\",\"reason\":\"hook " + DevToolsJsonEscape(index) +
+                           L" holds a secret; DevTools does not write it\"}";
+                break;
+            }
+        }
+    }
+    return CmdReactorAgent(wire, L"reactorsetstate", index, value);
+}
+
 static std::wstring CmdReactorElement(unsigned long long wire)
 {
     TapReactorRefreshAuthored();

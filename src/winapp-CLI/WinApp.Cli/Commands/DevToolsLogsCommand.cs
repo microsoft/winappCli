@@ -26,7 +26,7 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
 
     public static Option<bool> FollowOption { get; } = new("--follow", "-f")
     {
-        Description = "Keep printing new entries until Ctrl+C or the app exits.",
+        Description = "Keep printing new entries until Ctrl+C or the app exits. With --json, prints each entry as one JSON object per line.",
     };
 
     public static Option<string> LevelOption { get; } = new("--level")
@@ -78,7 +78,7 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
                     return state == "absent"
                         ? Fail(json, target.Pid, "This app does not use Microsoft.UI.Reactor, so it has no Reactor logs.", "reactor-absent")
                         : Fail(json, target.Pid, "Reactor logs are unavailable" + (reason is { Length: > 0 } ? ": " + reason : ".") +
-                            " Launch the app with 'winapp run <project> --devtools'.", "reactor-unavailable");
+                            " Launch the app with 'winapp run <project> --devtools on'.", "reactor-unavailable");
                 }
                 var entries = root.GetProperty("entries");
                 if (json && !follow)

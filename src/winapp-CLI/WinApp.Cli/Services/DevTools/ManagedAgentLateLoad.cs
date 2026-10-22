@@ -14,7 +14,7 @@ namespace WinApp.Cli.Services.DevTools;
 /// <summary>What happened to the managed DevTools agent while connecting to an app.</summary>
 internal enum ManagedAgentState
 {
-    /// <summary>The agent was already running (the app was launched with <c>winapp run --devtools</c>).</summary>
+    /// <summary>The agent was already running (the app was launched with <c>winapp run --devtools on</c>).</summary>
     Present,
     /// <summary>The agent was loaded into the running app now.</summary>
     Loaded,
@@ -133,7 +133,7 @@ internal static partial class DiagnosticsIpc
 
 /// <summary>
 /// Loads the managed DevTools agent (binding diagnosis, the Reactor component tree) into a .NET app that is already
-/// running, so <c>winapp devtools attach</c> gets the same managed features as <c>winapp run --devtools</c>. The agent
+/// running, so <c>winapp devtools attach</c> gets the same managed features as <c>winapp run --devtools on</c>. The agent
 /// is a .NET startup hook; the runtime's diagnostics IPC <c>ApplyStartupHook</c> command runs it in a live .NET 8+
 /// process. Only for processes of this user at this integrity level, and only after the native engine attached.
 /// </summary>
@@ -207,10 +207,10 @@ internal sealed partial class ManagedAgentLateLoad
         {
             case null:
                 return new(ManagedAgentState.Unavailable,
-                    "the app has no .NET diagnostics port (it may set DOTNET_EnableDiagnostics=0). Relaunch it with `winapp run --devtools`.");
+                    "the app has no .NET diagnostics port (it may set DOTNET_EnableDiagnostics=0). Relaunch it with `winapp run --devtools on`.");
             case DiagnosticsIpc.UnknownCommand or DiagnosticsIpc.NotSupported:
                 return new(ManagedAgentState.Unavailable,
-                    "loading it into a running app needs .NET 8 or later. Relaunch the app with `winapp run --devtools`.");
+                    "loading it into a running app needs .NET 8 or later. Relaunch the app with `winapp run --devtools on`.");
             case not 0:
                 return new(ManagedAgentState.Unavailable, $"the app's .NET runtime refused the agent (0x{hr:X8}).");
         }
@@ -224,7 +224,7 @@ internal sealed partial class ManagedAgentLateLoad
         }
         return new(ManagedAgentState.Unavailable,
             $"the app accepted the agent, but it did not start within {(int)ReadyTimeout.TotalSeconds} seconds. " +
-            "Relaunch the app with `winapp run --devtools`.");
+            "Relaunch the app with `winapp run --devtools on`.");
     }
 
     private static bool DefaultIsManaged(Process target) =>

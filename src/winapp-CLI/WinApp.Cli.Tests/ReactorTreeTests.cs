@@ -61,7 +61,7 @@ public class ReactorTreeTests
         StringAssert.Contains(absent.ExplainIfEmpty(), "does not use Microsoft.UI.Reactor");
 
         var noAgent = ReactorDescription.Parse("""{"state":"unavailable","reason":"no managed host","nodes":[],"files":[],"truncated":false}""")!;
-        StringAssert.Contains(noAgent.ExplainIfEmpty(), "winapp run --devtools");
+        StringAssert.Contains(noAgent.ExplainIfEmpty(), "winapp run --devtools on");
 
         Assert.IsNull(ReactorDescription.Parse(Described)!.ExplainIfEmpty());
     }
@@ -129,7 +129,7 @@ public class ReactorTreeTests
         Assert.IsTrue(unreadable.Present);
         Assert.IsFalse(unreadable.IsReactor);
         Assert.AreEqual(ReactorDescription.UnavailableToken, unreadable.Token);
-        StringAssert.Contains(unreadable.ExplainUnavailable(), "winapp run --devtools");
+        StringAssert.Contains(unreadable.ExplainUnavailable(), "winapp run --devtools on");
     }
 
     [TestMethod]

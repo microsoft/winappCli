@@ -242,11 +242,13 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     WriteIdentity(writer, target, handle, cancellationToken);
                     WriteWarning(writer);
                     writer.WriteString("kind", "csharp");
-                    writer.WriteString("fileName", file);
-                    writer.WriteNumber("lineNumber", line);
-                    writer.WriteNumber("columnNumber", column);
-                    writer.WriteBoolean("onDisk", onDisk);
-                    if (!onDisk && FindRelativeSource(file) is { } found) { writer.WriteString("fileOnDisk", found); }
+                    // The location vocabulary the XAML answer uses: the recorded file, its path here, line and column.
+                    writer.WriteString("file", file);
+                    var path = onDisk && Path.IsPathFullyQualified(file) ? file
+                        : DevToolsJson.ProjectPath(DevToolsJson.SourceRoot(target.Tap!, cancellationToken), file) ?? FindRelativeSource(file);
+                    if (path is not null) { writer.WriteString("path", path); }
+                    writer.WriteNumber("line", line);
+                    if (column > 0) { writer.WriteNumber("column", column); }
                     if (compiled.Length > 0) { writer.WriteString("compiledFileName", compiled); }
                     if (reactor.ValueKind == JsonValueKind.Object)
                     {

@@ -260,7 +260,7 @@ internal partial class RunCommand
 
         /// <summary>
         /// A packaged watch's launch step (<c>dotnet watch</c> runs it as the app): repeats the watching run's
-        /// <c>winapp run --no-build --devtools</c>, which registers the fresh build and launches it through the staged alias.
+        /// <c>winapp run --no-build --devtools on</c>, which registers the fresh build and launches it through the staged alias.
         /// </summary>
         private async Task<int> InvokeWatchLaunchAsync(ParseResult parseResult, CancellationToken cancellationToken)
         {

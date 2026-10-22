@@ -296,7 +296,7 @@ The common cases are in [When something fails](devtools.md#when-something-fails)
 ### An app whose alias starts a launcher
 
 When the app's execution alias starts a different exe (a launcher) than its main
-executable, `winapp run --devtools` can't start the app. Start it through its own alias
+executable, `winapp run --devtools on` can't start the app. Start it through its own alias
 with source info turned on, then attach:
 
 ```powershell
