@@ -307,8 +307,35 @@ internal sealed record ReactorComponentState(
         {
             value = value[1..^1];
         }
-        return shown is { Length: > 0 } && value.Length > 0 && value is not ("null" or "True" or "False" or "<redacted>") &&
-            shown.Contains(value, StringComparison.Ordinal);
+        // A value with no letter or digit (a dash, a comma) appears everywhere and says nothing.
+        if (shown is not { Length: > 0 } || !value.Any(char.IsLetterOrDigit) || value is "null" or "True" or "False" or "<redacted>")
+        {
+            return false;
+        }
+        // Whole values only: 1 and 3 are not shown by "Done today: 13", and 3 is not shown by "1.3".
+        for (var at = shown.IndexOf(value, StringComparison.Ordinal); at >= 0;
+             at = shown.IndexOf(value, at + 1, StringComparison.Ordinal))
+        {
+            var end = at + value.Length;
+            if (!ContinuesToken(shown, at - 1, at - 2, value[0]) && !ContinuesToken(shown, end, end + 1, value[^1]))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Whether the character next to a match continues the token the match is part of.
+    private static bool ContinuesToken(string text, int next, int beyond, char edge)
+    {
+        if (next < 0 || next >= text.Length || !char.IsLetterOrDigit(edge))
+        {
+            return false;
+        }
+        var neighbor = text[next];
+        // A digit next to a decimal or group separator that has another digit beyond it: 3 in 1.3 or 3,5.
+        return char.IsLetterOrDigit(neighbor) || neighbor == '_' ||
+            char.IsDigit(edge) && neighbor is '.' or ',' && beyond >= 0 && beyond < text.Length && char.IsDigit(text[beyond]);
     }
 
     private static string Value(string value, string? highlight) =>

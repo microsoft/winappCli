@@ -274,7 +274,7 @@ internal class DevToolsDiagnoseBindingCommand : DevToolsLiveCommand, IHelpExampl
             }
             foreach (var hook in component.ValueHooks)
             {
-                if (!hook.Redacted && hook.Kind != "context") { yield return ("hook", $"[{hook.Index}] {hook.Kind}", hook.Value!); }
+                if (!hook.Redacted && hook.Kind != "context") { yield return ("hook", hook.Name ?? $"[{hook.Index}] {hook.Kind}", hook.Value!); }
             }
             foreach (var context in component.Contexts)
             {

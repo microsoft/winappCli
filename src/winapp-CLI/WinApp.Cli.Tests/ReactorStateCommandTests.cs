@@ -369,11 +369,46 @@ public class ReactorStateCommandTests
         Assert.AreEqual("OnClick", doc.RootElement.GetProperty("reactor").GetProperty("handlers")[0].GetProperty("event").GetString());
     }
 
+    private const string DoneToday = """
+        {"state":"ok","version":"0.1.0","api":"internal","exact":true,"idle":true,
+         "component":{"kind":"class","name":"DoneToday","type":"DoneToday","isRoot":false,"mounted":true},
+         "props":{"type":"DoneTodayProps","values":[{"name":"Id","value":"13"}]},
+         "hooks":[
+           {"index":0,"kind":"state","type":"int","value":"1","name":"count","canSet":true,"editable":true},
+           {"index":1,"kind":"state","type":"int","value":"3","name":"total","canSet":true,"editable":true}],
+         "contexts":[]}
+        """;
+
+    [TestMethod]
+    [DataRow("Done today: 13", "Id")]
+    [DataRow("1 of 3", "count,total")]
+    public async Task DiagnoseBinding_LikelySources_AreWholeValuesOnly_AndNamedHooksByName(string shown, string expected)
+    {
+        // <DoneToday Id=13> with hooks count=1 and total=3: "Done today: 13" shows the Id, not the 1 or the 3 inside it.
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Binding.diagnose", """{"state":"none"}""")
+            .Answer("Reactor.element", ElementWithText.Replace("Done today: 3", shown, StringComparison.Ordinal))
+            .Answer("Property.get", """{"handle":"42","authoredState":"noSourceInfo","props":[{"name":"Text","value":"SHOWN","valueType":"String","valueSource":"Local","editKind":"text"}]}""".Replace("SHOWN", shown, StringComparison.Ordinal))
+            .Answer("Reactor.component", DoneToday);
+        var (exit, output) = await Run(new DevToolsDiagnoseBindingCommand(), agent, ["42", "Text", "--json"]);
+
+        Assert.AreEqual(0, exit, output);
+        using var doc = JsonDocument.Parse(output);
+        var sources = doc.RootElement.GetProperty("likelySources").EnumerateArray().Select(s => s.GetProperty("name").GetString()).ToArray();
+        CollectionAssert.AreEqual(expected.Split(','), sources);
+    }
+
     [TestMethod]
     public void Feeds_MatchesTextInsideTheShownValueOnly()
     {
         Assert.IsTrue(ReactorComponentState.Feeds("\"Ada\"", "Hello Ada"));
         Assert.IsTrue(ReactorComponentState.Feeds("3", "Done today: 3"));
+        Assert.IsTrue(ReactorComponentState.Feeds("13", "Done today: 13"));
+        Assert.IsFalse(ReactorComponentState.Feeds("1", "Done today: 13"), "part of a number is not the number");
+        Assert.IsFalse(ReactorComponentState.Feeds("3", "Done today: 13"));
+        Assert.IsFalse(ReactorComponentState.Feeds("3", "Version 1.3"));
+        Assert.IsFalse(ReactorComponentState.Feeds("\"Ad\"", "Hello Ada"), "part of a word is not the word");
+        Assert.IsFalse(ReactorComponentState.Feeds("\"-\"", "Mon - Fri"), "punctuation alone says nothing");
         Assert.IsFalse(ReactorComponentState.Feeds("True", "True"), "booleans match too much to mean anything");
         Assert.IsFalse(ReactorComponentState.Feeds("\"\"", "anything"));
         Assert.IsFalse(ReactorComponentState.Feeds("4", null));
