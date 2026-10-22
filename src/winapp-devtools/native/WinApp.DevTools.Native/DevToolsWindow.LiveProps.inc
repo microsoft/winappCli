@@ -135,6 +135,16 @@ static void LiveUnwatch()
 static void UpdateSelectedTreePreview();
 
 // Live reads carry only the value fields. Lay them over the pane's rows so the edit records compare like with like.
+static void OverlayLiveValues(DevToolsCardRow& row, const DevToolsCardRow& live)
+{
+    row.value = live.value;
+    row.valueState = live.valueState;
+    row.source = live.source;
+    for (auto& child : row.children)
+        for (const auto& lc : live.children)
+            if (lc.name == child.name) { OverlayLiveValues(child, lc); break; }
+}
+
 static void ReconcileLiveValues(InstanceHandle wire, const std::vector<DevToolsCardRow>& fresh)
 {
     std::vector<DevToolsCardRow> merged;
@@ -144,14 +154,44 @@ static void ReconcileLiveValues(InstanceHandle wire, const std::vector<DevToolsC
         for (const auto& known : g_propRows)
             if (known.name == f.name) {
                 row = known;
-                row.value = f.value;
-                row.valueState = f.valueState;
-                row.source = f.source;
+                OverlayLiveValues(row, f);
                 break;
             }
         merged.push_back(std::move(row));
     }
     ReconcileEditRecords(wire, merged);
+}
+
+// Read the selected element's edited properties now. Records for an element that isn't selected wait for its next
+// full read, because the live values can only be laid over the selected element's rows.
+static void CheckEditRecordsNow(InstanceHandle wire)
+{
+    if (!wire || wire != g_selWire || !g_valuesFn) return;
+    std::vector<std::wstring> names;
+    for (const auto& rec : g_editRecords) {
+        if (rec.wire != wire) continue;
+        const std::wstring top = rec.prop.substr(0, rec.prop.find(L'.'));
+        if (std::find(names.begin(), names.end(), top) == names.end()) names.push_back(top);
+    }
+    if (names.empty()) return;
+    std::vector<DevToolsCardRow> fresh;
+    if (g_valuesFn(wire, names, &fresh)) ReconcileLiveValues(wire, fresh);
+}
+
+static int ElementThemeOf(InstanceHandle wire)
+{
+    if (!wire || !g_elementFn) return -1;
+    IInspectable* element = g_elementFn(wire);
+    if (!element) return -1;
+    int theme = -1;
+    void* fe = nullptr;
+    if (SUCCEEDED(element->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+        int value = 0;
+        if (SUCCEEDED(DevToolsGetActualTheme(fe, &value))) theme = value;
+        reinterpret_cast<IUnknown*>(fe)->Release();
+    }
+    element->Release();
+    return theme;
 }
 
 static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)

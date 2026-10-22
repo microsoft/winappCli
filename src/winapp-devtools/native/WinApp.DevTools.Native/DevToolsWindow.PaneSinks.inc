@@ -31,14 +31,15 @@ static void ShowWriteError(const std::wstring& prop, const std::wstring& text)
 // Defined once the row model is available (DevToolsWindow.KindModel.inc / Expansion.inc).
 static bool OriginalFor(const std::wstring& prop, const std::wstring& preVal, EditRecord& out);
 static void UpdateEditedUi(const std::wstring& prop);
+// Read the element's edited properties now and compare them with their records (DevToolsWindow.LiveProps.inc).
+static void CheckEditRecordsNow(InstanceHandle wire);
 
-static bool IsThemeMarkup(const std::wstring& v) { return v.rfind(L"{ThemeResource ", 0) == 0; }
-
-// A DevTools write can change other properties of the same element (Padding.Left changes Padding), so the next
-// read becomes every record's new baseline instead of looking like the app changed them.
+// A DevTools write can change other properties of the same element (Padding.Left changes Padding), so the values
+// read right after it become every record's new baseline instead of looking like the app changed them.
 static void RebaselineRecords(InstanceHandle wire)
 {
     for (auto& e : g_editRecords) if (e.wire == wire) e.needsBaseline = true;
+    CheckEditRecordsNow(wire);
 }
 
 static void NoteChange(const std::wstring& prop, const std::wstring& preVal, const std::wstring& newVal)
@@ -46,13 +47,13 @@ static void NoteChange(const std::wstring& prop, const std::wstring& preVal, con
     if (EditRecord* rec = DirtyFind(prop)) {
         // An Unset original is not restored by typing the value it showed: the property would still be set here.
         if (rec->kind != DevToolsOriginal::Unset && newVal == rec->original) DirtyErase(prop);
-        else rec->followsTheme = IsThemeMarkup(newVal);
-    } else if (newVal != preVal) {
-        EditRecord rec;
-        if (OriginalFor(prop, preVal, rec)) {
-            rec.followsTheme = IsThemeMarkup(newVal);
-            g_editRecords.push_back(std::move(rec));
-        }
+    } else {
+        // After an app change, the editor may still hold the value it opened with; the app's value is what was
+        // really there before this edit.
+        const AppChange* app = AppChangedFind(g_selWire, prop);
+        const std::wstring before = app ? app->value : preVal;
+        EditRecord first;
+        if (newVal != before && OriginalFor(prop, before, first)) g_editRecords.push_back(std::move(first));
     }
     AppChangedErase(g_selWire, prop);
     RebaselineRecords(g_selWire);
@@ -77,6 +78,8 @@ static DevToolsWriteOutcome CommitWrite(InstanceHandle wire, const std::wstring&
     if (!g_ctx.writeFn) return DevToolsWriteOutcome::Failed;
     if (!confirmed && ResourceBacked(prop) && !LinkLost(prop)) return DevToolsWriteOutcome::NeedsConfirm;
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropWrite);
+    // An app change made since the last read must be seen as the app's before this write's baseline replaces it.
+    CheckEditRecordsNow(wire);
     g_lastWriteReason.clear();
     const DevToolsWriteOutcome oc = g_ctx.writeFn(wire, prop, type, value, confirmed, &g_lastWriteReason);
     // A landed write over a resource link retires the link. Recorded BEFORE the caller reacts, so the pane
@@ -113,7 +116,11 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
     ++g_commitSeq;
     g_lastCommitOc = oc;
     g_lastCommitWhy = oc == DevToolsWriteOutcome::Failed ? WriteFailureText(prop) : std::wstring();
-    if (wire != g_selWire) return DevToolsWriteLanded(oc);
+    if (wire != g_selWire) {
+        // A late save to an element that is no longer selected: its records' baselines must follow the write.
+        if (DevToolsWriteLanded(oc)) RebaselineRecords(wire);
+        return DevToolsWriteLanded(oc);
+    }
     if (oc != DevToolsWriteOutcome::Failed && g_writeErrorWire == wire && g_writeErrorPath == prop) ShowWriteError(prop, L"");
     switch (oc) {
     case DevToolsWriteOutcome::Ok:
@@ -251,14 +258,18 @@ static void ForgetPaneEditors(const std::wstring& path)
     }
 }
 
-static void RetirePaneEditors()
+// `retire` when the pane is rebuilt for the same element: the flush already saved the boxes, and a late focus-out
+// would write over what the rebuild shows (for example, Restore). When the selection moves to another element the
+// boxes stay live, so a focus-out that arrives after the move still saves to the element its box was built for.
+static void ReleasePaneEditors(bool retire)
 {
     for (auto& e : g_paneEditors) {
-        if (e.retired) *e.retired = true;
+        if (retire && e.retired) *e.retired = true;
         if (e.ident) e.ident->Release();
     }
     g_paneEditors.clear();
 }
+static void RetirePaneEditors() { ReleasePaneEditors(/*retire*/ true); }
 
 // Save the property editor that has keyboard focus, as leaving it would. Returns what happened, for the status
 // line, or an empty string when no editor was focused or its text was unchanged.

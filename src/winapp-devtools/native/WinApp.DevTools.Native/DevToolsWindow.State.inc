@@ -196,8 +196,6 @@ static void CALLBACK HoverRevertProc(HWND, UINT, UINT_PTR id, DWORD)
                   (unsigned long long)g_selWire);
 }
 
-struct EditRow { std::wstring prop; std::wstring type; std::wstring original; IInspectable* box = nullptr; };
-static std::vector<EditRow> g_editRows;
 static IInspectable*        g_statusTb = nullptr;
 // Props-pane breadcrumb: the elided one-line chain and the full wrapped chain, both QI'd to IUIElement
 // and AddRef-held for the pane's lifetime so BreadcrumbSink can flip between them with put_Visibility.
@@ -231,12 +229,15 @@ struct EditRecord
     // putting the original back would undo the app's change rather than the user's.
     std::wstring     baseline;
     bool             needsBaseline = true;
-    // The edit assigned a {ThemeResource}, so a theme switch changes the value without the app touching it.
-    bool             followsTheme = false;
+    // The element's ActualTheme when `baseline` was read, or -1 if unknown. A theme switch changes theme-following
+    // values without the app touching them, so a different theme takes a new baseline instead of dropping Restore.
+    int              baselineTheme = -1;
 };
 static std::vector<EditRecord> g_editRecords;
-// Properties whose record was dropped because the app changed the value after the user's edit.
-static std::vector<std::pair<InstanceHandle, std::wstring>> g_appChanged;
+// Properties whose record was dropped because the app changed the value after the user's edit, and the value the
+// app set, which is what a later edit's Restore must put back.
+struct AppChange { InstanceHandle wire = 0; std::wstring prop; std::wstring value; };
+static std::vector<AppChange> g_appChanged;
 // Resolve a named child of the REALIZED row for `prop`, AddRef'd, or null when that row is not currently on
 // screen. Defined with the repeater below. Looked up live rather than cached because a virtualized row's
 // elements are released the moment it leaves the viewport, and a cached pointer would outlive the element.
@@ -333,15 +334,16 @@ static void RecordErase(InstanceHandle w, const std::wstring& p)
 static EditRecord* DirtyFind(const std::wstring& p) { return RecordFind(g_selWire, p); }
 static bool DirtyHas(const std::wstring& p) { return DirtyFind(p) != nullptr; }
 static void DirtyErase(const std::wstring& p) { RecordErase(g_selWire, p); }
-static bool AppChanged(InstanceHandle w, const std::wstring& p)
+static const AppChange* AppChangedFind(InstanceHandle w, const std::wstring& p)
 {
-    for (const auto& e : g_appChanged) if (e.first == w && e.second == p) return true;
-    return false;
+    for (const auto& e : g_appChanged) if (e.wire == w && e.prop == p) return &e;
+    return nullptr;
 }
+static bool AppChanged(InstanceHandle w, const std::wstring& p) { return AppChangedFind(w, p) != nullptr; }
 static void AppChangedErase(InstanceHandle w, const std::wstring& p)
 {
     for (size_t i = 0; i < g_appChanged.size(); ++i)
-        if (g_appChanged[i].first == w && g_appChanged[i].second == p) { g_appChanged.erase(g_appChanged.begin() + i); return; }
+        if (g_appChanged[i].wire == w && g_appChanged[i].prop == p) { g_appChanged.erase(g_appChanged.begin() + i); return; }
 }
 
 static std::vector<std::wstring> g_bindingLost;

@@ -39,17 +39,14 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     if (!g_ctx.propsHostChildren || !g_ctx.rowsFn) return;
     if (!force && wire != 0 && wire == g_selWire) return;
     // Save the focused editor before its pane goes away, while g_selWire still names the element it edits. Its
-    // focus-out would otherwise arrive after the selection moved. Then retire the old pane's editors so that late
-    // focus-out cannot write again over what this rebuild is about to show.
+    // focus-out would otherwise arrive after the selection moved.
     std::wstring flushed;
     if (!g_flushingEditor) {
         const bool leaving = g_selWire != 0 && wire != g_selWire;
         const std::wstring saved = FlushFocusedEditor();
         if (leaving) flushed = saved;
-        RetirePaneEditors();
+        ReleasePaneEditors(/*retire*/ !leaving);
     }
-    for (auto& r : g_editRows) if (r.box) reinterpret_cast<IUnknown*>(r.box)->Release();
-    g_editRows.clear();
     ReleasePropFilterState();
     ReleaseBreadcrumbRefs();
     ReleaseLayoutSectionRefs();
@@ -64,7 +61,7 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
             for (size_t i = g_editRecords.size(); i-- > 0; )
                 if (!g_ctx.wireLiveFn(g_editRecords[i].wire)) g_editRecords.erase(g_editRecords.begin() + i);
             for (size_t i = g_appChanged.size(); i-- > 0; )
-                if (!g_ctx.wireLiveFn(g_appChanged[i].first)) g_appChanged.erase(g_appChanged.begin() + i);
+                if (!g_ctx.wireLiveFn(g_appChanged[i].wire)) g_appChanged.erase(g_appChanged.begin() + i);
         }
     }
     g_selWire = wire; g_selLabel = label; g_selBreadcrumb = breadcrumb;
@@ -441,9 +438,7 @@ static void ResetRoute1State()
     ReleaseInspectorCaptionTheme();
     if (HWND h = Route1WindowHwnd()) { KillTimer(h, kRefreshTimerId); KillTimer(h, kDisarmAfterWindowPickTimerId); }
     if (g_ctx.highlightFn) g_ctx.highlightFn(0, true);
-    // Release the editable inspector state (tracked TextBox refs + status line + props-host children).
-    for (auto& r : g_editRows) if (r.box) reinterpret_cast<IUnknown*>(r.box)->Release();
-    g_editRows.clear();
+    // Release the editable inspector state (status line + props-host children).
     if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
     ReleaseBreadcrumbRefs(); ReleaseLayoutSectionRefs(); ReleasePropFilterState();
     g_bcExpanded = false; g_axmlExpanded = false;

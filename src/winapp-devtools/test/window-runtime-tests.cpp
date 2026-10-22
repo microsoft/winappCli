@@ -548,6 +548,10 @@ int main()
         g_ctx.rowsFn=[text](InstanceHandle wire,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>& rows,std::wstring&,std::wstring&) {
             auto fresh=text; fresh.value=live[wire]; fresh.source=liveSource; rows={fresh}; return true;
         };
+        g_valuesFn=[](InstanceHandle wire,const std::vector<std::wstring>&,std::vector<DevToolsCardRow>* rows) {
+            DevToolsCardRow fresh; fresh.name=L"Text"; fresh.type=L"String"; fresh.value=live[wire]; fresh.source=liveSource;
+            rows->push_back(fresh); return true;
+        };
         g_statusTb=&testStatus; g_editRecords.clear(); g_appChanged.clear();
         g_linkedRows.clear(); g_linkLost.clear(); g_bindingLost.clear(); g_sessionAssign.clear();
         g_pendingWrites.clear(); g_pendingKind.clear();
@@ -597,22 +601,67 @@ int main()
         now[0].value=L"FromApp";
         ReconcileEditRecords(500,now);
         check(!DirtyFind(L"Text") && AppChanged(500,L"Text"), "an app change since the edit drops Restore and says why");
-        ApplyLiteralValue(L"Text",L"String",L"FromApp",L"Edited2",false);
+        // The editor still holds "Edited" from before the app's change; the app's value is the real original.
+        ApplyLiteralValue(L"Text",L"String",L"Edited",L"Edited2",false);
         check(DirtyFind(L"Text") && DirtyFind(L"Text")->original==L"FromApp" && !AppChanged(500,L"Text"),
             "a new edit after an app change records the app's value as the original");
+
+        // Every DevTools write first reads the edited properties, so an app change can't hide in the next baseline.
+        check(!DirtyFind(L"Text")->needsBaseline && DirtyFind(L"Text")->baseline==L"Edited2",
+            "the value read right after a write becomes the baseline");
+        live[500]=L"AppAgain";
+        const auto writeAll=g_ctx.writeFn;
+        g_ctx.writeFn=[](InstanceHandle,const std::wstring&,const std::wstring&,const std::wstring&,bool,std::wstring*){
+            return DevToolsWriteOutcome::Ok;
+        };
+        CommitWrite(500,L"Other",L"String",L"x",false);
+        check(!DirtyFind(L"Text") && AppChangedFind(500,L"Text") && AppChangedFind(500,L"Text")->value==L"AppAgain",
+            "an app change before another write drops Restore instead of becoming the new baseline");
+        g_ctx.writeFn=writeAll;
+
+        // A theme switch changes theme-following values without the app: take a new baseline, keep Restore.
+        g_editRecords.clear(); g_appChanged.clear();
+        EditRecord themed; themed.wire=500; themed.prop=L"Text"; themed.original=L"Hello";
+        themed.baseline=L"Light"; themed.needsBaseline=false; themed.baselineTheme=1;
+        g_editRecords.push_back(themed);
+        std::vector<DevToolsCardRow> dark{text}; dark[0].value=L"Dark";
+        ReconcileEditRecordsAt(500,dark,2);
+        check(DirtyFind(L"Text") && DirtyFind(L"Text")->baseline==L"Dark" && !AppChanged(500,L"Text"),
+            "a theme switch keeps Restore");
+        dark[0].value=L"FromApp";
+        ReconcileEditRecordsAt(500,dark,2);
+        check(!DirtyFind(L"Text") && AppChanged(500,L"Text"), "an app change in the same theme still drops Restore");
+
+        // A failed resource Restore can clear the property; the value before it is put back and Restore stays.
+        g_editRecords.clear(); g_appChanged.clear();
+        live[500]=L"Lit"; liveSource=L"Local"; g_propRows={text}; g_propRows[0].value=L"Lit";
+        EditRecord linked; linked.wire=500; linked.prop=L"Text"; linked.kind=DevToolsOriginal::Resource;
+        linked.original=L"{StaticResource Accent}"; linked.key=L"Accent"; linked.baseline=L"Lit"; linked.needsBaseline=false;
+        g_editRecords.push_back(linked);
+        g_ctx.resolveFn=[](InstanceHandle wire,const std::wstring&,const std::wstring&,bool){ live[wire]=L""; return false; };
+        RestoreRowValue(500,L"Text",L"String");
+        check(live[500]==L"Lit" && DirtyFind(L"Text") && !AppChanged(500,L"Text") &&
+              testStatus.text.find(L"Nothing was changed")!=std::wstring::npos,
+            "a failed resource Restore keeps the current value and the record");
+        g_ctx.resolveFn=nullptr;
 
         // An editor removed by a rebuild can still deliver a focus-out; it must not write again.
         g_ctx.readInputFn=[](IInspectable*,std::wstring& t){ t=L"Stale"; return true; };
         LostFocusSink late; late.Init(500,L"Text",L"String",L"Edited2",&testInput);
         late.retired=true;
         const unsigned editsLate=edits;
+        const std::wstring liveLate=live[500];
         late.Invoke(nullptr,nullptr);
-        check(edits==editsLate && live[500]==L"Edited2", "a retired editor's focus-out does not write");
+        check(edits==editsLate && live[500]==liveLate,  "a retired editor's focus-out does not write");
         RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr);
         late.retired=false;
+        ReleasePaneEditors(/*retire*/ false);
+        check(!late.retired && g_paneEditors.empty(),
+            "moving to another element keeps its editors live, so a late focus-out still saves to its own element");
+        RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr);
         RetirePaneEditors();
         check(late.retired && g_paneEditors.empty(), "rebuilding the pane retires its editors");
-        g_editRecords.clear(); g_appChanged.clear(); g_ctx.clearFn=nullptr; g_statusTb=nullptr;
+        g_editRecords.clear(); g_appChanged.clear(); g_ctx.clearFn=nullptr; g_statusTb=nullptr; g_valuesFn=nullptr;
     }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }
