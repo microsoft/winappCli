@@ -544,6 +544,32 @@ static void CheckLocalProvenance(const std::function<void(bool,const char*)>& ch
         !row->chain[0].file.empty() && row->chain[0].line==46,
         "a Local value the element's XAML sets keeps its XAML line");
 
+    const std::wstring propertyElement=WriteElementLineXaml(
+        L"<TextBlock>\r\n  <!-- <TextBlock.Foreground> -->\r\n  <TextBlock.Text>live</TextBlock.Text>\r\n</TextBlock>");
+    DevToolsAuthored_Init(propertyElement,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        !row->chain[0].file.empty() && row->chain[0].line==46,
+        "a Local value set by a <Type.Property> child keeps its XAML line");
+
+    const std::wstring content=WriteElementLineXaml(L"<TextBlock>live</TextBlock>");
+    DevToolsAuthored_Init(content,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 && row->chain[0].line==46,
+        "a Local value set as the element's content keeps its XAML line");
+
+    const std::wstring otherChild=WriteElementLineXaml(
+        L"<TextBlock\r\n    Margin=\"1\">\r\n  <TextBlock.Foreground>\r\n    <SolidColorBrush Color=\"Red\" />\r\n"
+        L"  </TextBlock.Foreground>\r\n</TextBlock>");
+    DevToolsAuthored_Init(otherChild,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        row->chain[0].file.empty() && row->chain[0].line==0,
+        "a body that sets only other properties names no XAML line");
+    DevToolsAuthored_Init(authored,0);
     DevToolsBindingRow_NoteLiveWrite(wire,L"Text");
     read(props);
     row=text(props);
@@ -567,6 +593,9 @@ static void CheckLocalProvenance(const std::function<void(bool,const char*)>& ch
     DevToolsAuthored_Init(L"",0);
     RemoveElementLineXaml(unset);
     RemoveElementLineXaml(authored);
+    RemoveElementLineXaml(propertyElement);
+    RemoveElementLineXaml(content);
+    RemoveElementLineXaml(otherChild);
     g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
     g_diag=nullptr;g_vts3=nullptr;
 }

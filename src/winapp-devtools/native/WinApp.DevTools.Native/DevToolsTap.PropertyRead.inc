@@ -385,6 +385,19 @@ static void ReadChildProps(InstanceHandle childHandle, const std::wstring& expan
     FreePropChain(sc, s, pc, v);
 }
 
+// Whether the element's body sets `name`: a <Type.Property> child, or text/child elements for a content property.
+// The content property depends on the type, so any of WinUI's content property names counts.
+static bool BodySetsProperty(const DevToolsAuthoredLocation& location, const std::wstring& name)
+{
+    if (std::find(location.bodyProperties.begin(), location.bodyProperties.end(), name) != location.bodyProperties.end())
+        return true;
+    static const wchar_t* const kContentProperties[] = {
+        L"Content", L"Child", L"Children", L"Items", L"Text", L"Inlines", L"Blocks" };
+    return location.bodyContent &&
+        std::any_of(std::begin(kContentProperties), std::end(kContentProperties),
+                    [&](const wchar_t* p) { return name == p; });
+}
+
 static DevToolsAuthoredState ReadElementAuthoredContext(InstanceHandle h, const std::wstring& file,
     unsigned int line, unsigned int column, std::wstring* xaml, DevToolsAuthoredLocation* location)
 {
@@ -680,13 +693,15 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                 if (!e.value.empty() && v[i].Type && !EnumTableFor(v[i].Type).empty()) e.value = EnumNameForValue(v[i].Type, e.value);
                 e.winner  = !v[i].Overridden;
                 // A Local entry's source position is the element's opening tag, which proves nothing about this
-                // property. When that tag can be read, keep the position only if the tag sets the property.
+                // property. When that XAML can be read, keep the position only if the tag or the element's body
+                // sets the property.
                 const bool local = e.source == L"Local";
                 if (local && liveNames.count(name)) e.source = kDevToolsReadLiveEditSource;
                 else if (local && unsetNames.count(name)) e.source = L"Default";
-                const bool tagChecked = authoredState == DevToolsAuthoredState::Available;
+                const bool xamlChecked = authoredState == DevToolsAuthoredState::Available && authoredLocation.bodyRead;
                 const bool placeable = !local || (!liveNames.count(name) && !unsetNames.count(name) &&
-                                                  (!tagChecked || authoredNames.count(name)));
+                                                  (!xamlChecked || authoredNames.count(name) ||
+                                                   BodySetsProperty(authoredLocation, name)));
                 unsigned int si = v[i].PropertyChainIndex;
                 if (s && si < sc) {
                     if (s[si].TargetType) e.targetType = s[si].TargetType;

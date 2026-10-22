@@ -155,7 +155,7 @@ commands return a string `error`. Check the exit code and `ok`. Elements carry `
 and when confirmed `line`, `endLine` and `column`. `set-property` reports `valueSource`,
 `binding`, `authored`, `chain` (every competing value, `winner` marking the effective
 one) and `replacedBinding`. `valueSource` is `DevTools` for a value you changed live with
-DevTools, until you clear or undo it. Password values add `"redacted": true`.
+DevTools, until you clear, undo or restore it, or the app sets that property itself. Password values add `"redacted": true`.
 
 ## Use the DevTools protocol
 
