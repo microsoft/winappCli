@@ -22,6 +22,18 @@ static HRESULT TestAddTheme(void*, void*, __int64*);
 static LRESULT CALLBACK TestNativeClose(HWND, UINT, WPARAM, LPARAM);
 static double testViewport = 0.0;
 static HRESULT TestViewport(void*, double* value) { *value = testViewport; return S_OK; }
+static double splitHostWidth = 1000.0, splitPaneWidth = 420.0;
+static unsigned splitWidthWrites = 0;
+static HRESULT TestActualWidth(void* element, double* value)
+{
+    *value = element == reinterpret_cast<void*>(1) ? splitHostWidth : splitPaneWidth;
+    return S_OK;
+}
+static HRESULT TestPutWidth(void*, double value) { splitPaneWidth = value; ++splitWidthWrites; return S_OK; }
+struct TestKeyArgs { int key; bool handled = false; };
+static HRESULT TestGetKey(void* args, int* key) { *key = static_cast<TestKeyArgs*>(args)->key; return S_OK; }
+static HRESULT TestPutHandled(void* args, bool value) { static_cast<TestKeyArgs*>(args)->handled = value; return S_OK; }
+static HRESULT TestDragChange(void* args, double* dx, double* dy) { *dx = *static_cast<double*>(args); *dy = 0.0; return S_OK; }
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsRepeaterTryGetElement GetTestElement
@@ -38,6 +50,11 @@ static HRESULT TestViewport(void*, double* value) { *value = testViewport; retur
 #define DevToolsAddActualThemeChanged TestAddTheme
 #define DefSubclassProc TestNativeClose
 #define DevToolsScrollGetViewportHeight TestViewport
+#define DevToolsGetActualWidth TestActualWidth
+#define DevToolsPutWidth TestPutWidth
+#define DevToolsGetKey TestGetKey
+#define DevToolsPutHandled TestPutHandled
+#define DevToolsDragDeltaGetChange TestDragChange
 #include "../native/WinApp.DevTools.Native/DevToolsWindow.cpp"
 
 struct TestElement : IInspectable {
@@ -126,6 +143,43 @@ int main()
 {
     unsigned checks=0, failed=0, writes=0;
     auto check=[&](bool ok,const char* name){++checks;if(!ok){++failed;std::printf("FAIL %s\n",name);}};
+    {
+        g_splitHostFe = reinterpret_cast<void*>(1);
+        g_splitPaneFe = reinterpret_cast<void*>(2);
+        g_splitTarget = 0.0;
+        SplitterKeySink keys; keys.Init();
+        TestKeyArgs right{VK_RIGHT}, left{VK_LEFT}, tab{VK_TAB}, up{VK_UP};
+        keys.Invoke(nullptr, &right);
+        check(right.handled && splitPaneWidth == 430.0,
+            "Right grows the tree pane by 10 from its current width");
+        keys.Invoke(nullptr, &left);
+        check(left.handled && splitPaneWidth == 420.0, "Left shrinks the tree pane by 10");
+        const auto writesBefore = splitWidthWrites;
+        keys.Invoke(nullptr, &tab); keys.Invoke(nullptr, &up);
+        check(!tab.handled && !up.handled && splitWidthWrites == writesBefore,
+            "Tab and unrelated keys are not consumed by the divider");
+        g_splitTarget = splitPaneWidth = 225.0;
+        keys.Invoke(nullptr, &left);
+        check(splitPaneWidth == 220.0, "keyboard resizing preserves the minimum tree width");
+        keys.Invoke(nullptr, &left);
+        check(splitPaneWidth == 220.0, "repeated Left stays at the minimum tree width");
+        g_splitTarget = splitPaneWidth = 690.0;
+        keys.Invoke(nullptr, &right);
+        check(splitPaneWidth == 694.0, "keyboard resizing leaves 300 for properties and 6 for the divider");
+        keys.Invoke(nullptr, &right);
+        check(splitPaneWidth == 694.0, "repeated Right stays at the maximum tree width");
+        SplitterSink drag; drag.Init();
+        double dx = -24.0;
+        drag.Invoke(nullptr, &dx);
+        check(splitPaneWidth == 670.0, "mouse dragging still uses the same resize path");
+        splitHostWidth = 800.0;
+        SplitSizeSink size; size.Init(); size.Invoke(nullptr, nullptr);
+        check(splitPaneWidth == 494.0, "window resizing reclamps the keyboard or mouse split");
+        keys.gen = g_route1Gen - 1; right.handled = false;
+        keys.Invoke(nullptr, &right);
+        check(!right.handled && splitPaneWidth == 494.0, "a stale divider cannot resize a new window");
+        g_splitHostFe = g_splitPaneFe = nullptr; g_splitTarget = 0.0;
+    }
     {
         // Only open comments are pushed; with none open but some resolved, the pane must not claim there are none.
         size_t open = 0;

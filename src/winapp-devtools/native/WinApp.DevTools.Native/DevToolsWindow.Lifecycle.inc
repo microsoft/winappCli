@@ -419,6 +419,17 @@ if (g_route1WindowHidden) {
                     // subscribed-but-never-invoked shape this file keeps having to detect, so say it.
                     if (FAILED(hrS)) DevToolsOverlayLog(L"route1.splitter add_DragDelta FAILED hr=0x%08X -- the divider will not resize", hrS);
                     reinterpret_cast<IUnknown*>(thumb)->Release();
+                    void* splitUi = nullptr;
+                    const HRESULT uiHr = splitInsp->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &splitUi);
+                    if (SUCCEEDED(uiHr) && splitUi) {
+                        auto* keys = new SplitterKeySink(); keys->Init();
+                        __int64 keyToken = 0;
+                        const HRESULT keyHr = DevToolsAddPreviewKeyDown(splitUi, keys, &keyToken);
+                        if (FAILED(keyHr)) DevToolsOverlayLog(L"route1.splitter keyboard subscription FAILED hr=0x%08X", keyHr);
+                        reinterpret_cast<IUnknown*>(splitUi)->Release();
+                    } else {
+                        DevToolsOverlayLog(L"route1.splitter IUIElement FAILED hr=0x%08X -- keyboard resizing is unavailable", uiHr);
+                    }
                 } else {
                     DevToolsOverlayLog(L"route1.splitter MISS: PaneSplitter is not a Thumb, or TreePane has no IFrameworkElement -- the divider will not resize");
                 }

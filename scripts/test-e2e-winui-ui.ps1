@@ -483,6 +483,39 @@ if (-not $devPid) {
     $windows = (Invoke-Winapp @("ui", "list-windows", "-a", "$devPid", "--json")).Output | ConvertFrom-Json
     $inspectorHwnd = [string](@($windows | Where-Object title -like "WinApp DevTools*")[0].hwnd)
     $mainHwnd = [string](@($windows | Where-Object { $_.title -notlike "WinApp DevTools*" })[0].hwnd)
+    try {
+        $splitter = Invoke-Winapp @("ui", "get-property", "PaneSplitter", "-w", $inspectorHwnd, "--json")
+        if ($splitter.ExitCode -ne 0) { throw $splitter.Output }
+        $splitterInfo = $splitter.Output | ConvertFrom-Json
+        if ($splitterInfo.properties.IsKeyboardFocusable -ne "True" -or
+            $splitterInfo.properties.HelpText -notmatch "Left and Right arrow keys") {
+            throw "The divider must be keyboard focusable and expose its arrow-key instructions through UIA."
+        }
+        Assert-WinappSuccess "focus inspector divider" @("ui", "focus", "PaneSplitter", "-w", $inspectorHwnd) | Out-Null
+        foreach ($step in @(
+            @{ keys = "tab"; focused = "False" },
+            @{ keys = "shift+tab"; focused = "True" },
+            @{ keys = "shift+tab"; focused = "False" },
+            @{ keys = "tab"; focused = "True" }
+        )) {
+            Assert-WinappSuccess "divider navigation: $($step.keys)" @("ui", "send-keys", $step.keys, "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+            Assert-WinappSuccess "divider HasKeyboardFocus=$($step.focused) after $($step.keys)" @(
+                "ui", "wait-for", "PaneSplitter", "-w", $inspectorHwnd,
+                "-p", "HasKeyboardFocus", "--value", $step.focused, "-t", "3000") | Out-Null
+        }
+        $beforeSplit = ((Invoke-Winapp @("ui", "get-property", "PaneSplitter", "-w", $inspectorHwnd, "--json")).Output | ConvertFrom-Json).element.x
+        Assert-WinappSuccess "Right resizes inspector divider" @("ui", "send-keys", "right", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        $afterRight = ((Invoke-Winapp @("ui", "get-property", "PaneSplitter", "-w", $inspectorHwnd, "--json")).Output | ConvertFrom-Json).element.x
+        Assert-WinappSuccess "Left resizes inspector divider" @("ui", "send-keys", "left", "-w", $inspectorHwnd, "--via", "send-input") | Out-Null
+        $afterLeft = ((Invoke-Winapp @("ui", "get-property", "PaneSplitter", "-w", $inspectorHwnd, "--json")).Output | ConvertFrom-Json).element.x
+        if ($afterRight -gt $beforeSplit -and [Math]::Abs($afterLeft - $beforeSplit) -le 1.0) {
+            Write-TestPass "arrow keys move the divider right and back left"
+        } else {
+            Write-TestFail "arrow keys move the divider right and back left" "X positions: $beforeSplit -> $afterRight -> $afterLeft"
+        }
+    } catch {
+        Write-TestFail "inspector divider keyboard access" $_.Exception.Message
+    }
     for ($i = 0; $i -lt 10; $i++) {
         $null = Invoke-Winapp @("ui", "focus", "-w", $inspectorHwnd)
         $null = Invoke-Winapp @("ui", "focus", "-w", $mainHwnd)
