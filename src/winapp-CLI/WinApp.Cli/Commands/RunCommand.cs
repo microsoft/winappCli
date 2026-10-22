@@ -718,9 +718,10 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                         },
                     });
 
-            if (parseResult.GetValue(WatchOption) && inputResolution.Mode != WinAppRunMode.Project)
+            if (parseResult.GetValue(WatchOption) &&
+                (inputResolution.Mode != WinAppRunMode.Project || ProjectRunService.IsCppProject(inputResolution.Csproj!)))
             {
-                return Fail("--watch needs a .NET project (.csproj): 'dotnet watch' rebuilds the project, so it can't run a .cs file or a build output folder.", isJson);
+                return Fail("--watch needs a .NET project (.csproj): 'dotnet watch' rebuilds the project, so it can't run a C++ project, a .cs file or a build output folder.", isJson);
             }
 
             if (inputResolution.Mode == WinAppRunMode.SingleFile)

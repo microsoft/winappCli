@@ -690,6 +690,22 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
+    public async Task Watch_CppProject_FailsBeforeBuilding()
+    {
+        var source = _tempDirectory.CreateSubdirectory("cpp");
+        var vcxproj = new FileInfo(Path.Combine(source.FullName, "CppConsole.vcxproj"));
+        File.WriteAllText(vcxproj.FullName, "<Project />");
+        _projects.InputResolutionOverride = new RunInputResolution(WinAppRunMode.Project, vcxproj, source);
+
+        var exit = await Run(vcxproj.FullName, "--devtools", "on", "--watch");
+
+        Assert.AreNotEqual(0, exit);
+        StringAssert.Contains(ConsoleStdErr.ToString(), "--watch needs a .NET project (.csproj)");
+        Assert.IsEmpty(_projects.BuildOptions, "a C++ project must be rejected before it builds");
+        Assert.IsEmpty(_launcher.LaunchExecutableCalls);
+    }
+
+    [TestMethod]
     public async Task Watch_Packaged_ForwardsEveryLaunchOption_OrRejectsIt()
     {
         // Every run option must be forwarded to the launch step, rejected by --watch, or listed here with the reason
