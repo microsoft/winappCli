@@ -18,6 +18,9 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
     public DevToolsProtocolError? LastError { get; private set; }
     public string? LastConnectionError => LastError?.Message;
 
+    /// <summary>The window (-w) every request is scoped to, if any.</summary>
+    public long? Window => window;
+
     public DevToolsProtocolResponse Request(string method, Action<Utf8JsonWriter>? writeParams = null,
         int timeoutMs = DefaultTimeoutMs, CancellationToken cancellationToken = default)
     {

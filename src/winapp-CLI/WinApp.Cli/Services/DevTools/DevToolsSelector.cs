@@ -181,9 +181,10 @@ internal static class DevToolsSelector
 
         var candidates = ReactorCandidates(tap, reactor, matches, cancellationToken);
         var windows = candidates.Select(candidate => candidate.Window).Where(window => window is not null).Distinct().Count();
+        // -w only helps when the matches are in different windows and no window was picked yet.
         return Resolution.Fail(
             $"{selector} matches {candidates.Length} rendered elements{(windows > 1 ? $" in {windows} windows" : "")}. " +
-            "Pass -w <window> to pick a window, or use one of their selectors:",
+            (windows > 1 && tap.Window is null ? "Pass -w <window> to pick a window, or use" : "Use") + " one of their selectors:",
             candidates);
     }
 

@@ -292,6 +292,29 @@ public class DevToolsSelectorTests
     }
 
     [TestMethod]
+    [DataRow(true, null, true)]
+    [DataRow(true, 100L, false)]
+    [DataRow(false, null, false)]
+    public void ReactorAmbiguity_SuggestsDashW_OnlyWhenItWouldPickOne(bool twoWindows, long? window, bool suggested)
+    {
+        // Two <Counter>s: one per window, or both in the TaskBoard window.
+        var described = twoWindows
+            ? CounterInTwoWindows()
+            : CounterInTwoWindows().Replace("""{"handle":"30","element":"Stack","file":0,"line":77,"host":{"kind":"window","window":"200","title":"Settings","root":{"kind":"class","name":"SettingsPage"}}},""",
+                """{"handle":"30","parent":"20","element":"Stack","file":0,"line":77},""", StringComparison.Ordinal);
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", described)
+            .Answer("VisualTree.enumerate", """{"nodes":[]}""");
+
+        var resolved = DevToolsSelector.Resolve(new VisualTreeTap(unchecked((uint)agent.Pid), window: window), "<Counter>");
+
+        Assert.IsFalse(resolved.Ok);
+        Assert.HasCount(2, resolved.Candidates);
+        Assert.AreEqual(suggested, resolved.Error!.Contains("-w", StringComparison.Ordinal), resolved.Error);
+        StringAssert.Contains(resolved.Error, "one of their selectors:");
+    }
+
+    [TestMethod]
     public async Task Search_ReactorPath_ListsWhatItSelectsInEveryWindow()
     {
         const string described = """
