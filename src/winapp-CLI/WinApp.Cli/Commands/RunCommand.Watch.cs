@@ -207,7 +207,16 @@ internal partial class RunCommand
             }
             Add("--manifest", parseResult.GetValue(ManifestOption)?.FullName);
             Add("--output-appx-directory", parseResult.GetValue(OutputAppXDirectoryOption)?.FullName);
+            Add("--managed-appx-directory", parseResult.GetValue(ManagedAppXDirectoryOption)?.FullName);
             Add("--executable", parseResult.GetValue(ExecutableOption));
+            if (parseResult.GetValue(UniqueIdentityOption))
+            {
+                tokens.Add("--unique-identity");
+            }
+            if (parseResult.GetValue(WithAliasOption))
+            {
+                tokens.Add("--with-alias");
+            }
             if (!string.IsNullOrEmpty(appArgs))
             {
                 tokens.Add("--");

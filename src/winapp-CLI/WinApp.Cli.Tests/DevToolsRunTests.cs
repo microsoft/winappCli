@@ -690,6 +690,74 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
     }
 
     [TestMethod]
+    public async Task Watch_Packaged_ForwardsEveryLaunchOption_OrRejectsIt()
+    {
+        // Every run option must be forwarded to the launch step, rejected by --watch, or listed here with the reason
+        // it can't change the launch. A new option fails this test until it is classified.
+        // Options the launch step sets itself: it always names the resolved project and runs without building.
+        string[] decidedByTheLaunchStep = ["--devtools", "--no-build", "--args", "--watch", "--devtools-watch-launch", "--project",
+            "--verbose", "--quiet"]; // --verbose and --quiet travel on the launch step's own command line
+        string[] inert =
+        [
+            "--no-restore", // the launch step doesn't build
+            "--symbols", // only used with --debug-output, which --watch rejects
+            "--profile-mode", "--profile-duration-sec", "--profile-max-size-mib", // only used with --profile, which --watch rejects
+            "--devtools-sources", // only for a build output folder from 'dotnet run'; --watch needs a project
+        ];
+        var app = Prepare("project", true);
+        var rejected = new Dictionary<string, string[]>
+        {
+            ["--detach"] = [],
+            ["--json"] = [],
+            ["--debug-output"] = [],
+            ["--aot"] = [],
+            ["--clean"] = [],
+            ["--unregister-on-exit"] = [],
+            ["--no-launch"] = [],
+            ["--without-alias"] = [],
+            ["--profile"] = [Path.Combine(_tempDirectory.FullName, "trace")],
+            ["--guest-inspector-application"] = ["App"],
+        };
+        var command = GetRequiredService<RunCommand>();
+        var csproj = new FileInfo(app.Input);
+        var dropped = new List<string>();
+
+        foreach (var option in command.Options)
+        {
+            if (decidedByTheLaunchStep.Contains(option.Name) || inert.Contains(option.Name))
+            {
+                continue;
+            }
+            if (rejected.TryGetValue(option.Name, out var rejectedValue))
+            {
+                var launches = _launcher.LaunchExecutableCalls.Count;
+                Assert.AreNotEqual(0, await Run(app.Input, ["--devtools", "on", "--watch", option.Name, .. rejectedValue]), option.Name);
+                Assert.AreEqual(launches, _launcher.LaunchExecutableCalls.Count, $"--watch must reject {option.Name} before starting dotnet watch.");
+                continue;
+            }
+            string[] value = option.ValueType == typeof(bool) ? []
+                : option.ValueType == typeof(FileInfo) || option.ValueType == typeof(DirectoryInfo) ? [Path.Combine(_tempDirectory.FullName, "value")]
+                : option.ValueType == typeof(string[]) ? ["Foo=Bar"]
+                : ["Release"];
+            var parse = command.Parse([app.Input, "--devtools", "on", "--watch", option.Name, .. value]);
+            Assert.IsEmpty(parse.Errors, $"{option.Name}: {string.Join("; ", parse.Errors.Select(error => error.Message))}");
+
+            var tokens = RunCommand.Handler.WatchLaunchTokens(parse, csproj, null, null, showToolbar: true);
+
+            var at = tokens.ToList().IndexOf(option.Name);
+            if (at < 0)
+            {
+                dropped.Add(option.Name);
+            }
+            else if (value.Length > 0)
+            {
+                Assert.AreEqual(value[0], tokens[at + 1], option.Name);
+            }
+        }
+        Assert.IsEmpty(dropped, $"--watch drops {string.Join(", ", dropped)}: forward each in WatchLaunchTokens, or reject it in WatchConflict.");
+    }
+
+    [TestMethod]
     [DoNotParallelize]
     public async Task WatchLaunch_StoppedByDotnetWatchForARestart_ExitsCleanly()
     {
