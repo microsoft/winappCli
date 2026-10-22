@@ -70,7 +70,7 @@ int main()
     row.authoredKind = L"binding";
     row.authored = L"{Binding Title, Converter={StaticResource Tag}, UpdateSourceTrigger=LostFocus}";
     row.source = L"Binding";
-    KindCtx ctx{std::make_shared<const DevToolsCardRow>(row), L"Text", 0, nullptr, &pathBox};
+    KindCtx ctx{std::make_shared<const DevToolsCardRow>(row), L"Text", 0, nullptr, &pathBox, 77};
     pathBox.text = L"OtherValue";
     CommitKind(ctx);
     check(submissions == 0, "Enter/unconfirmed classic edit never reaches write boundary");
@@ -84,6 +84,15 @@ int main()
         check(submissions == i + 1, "explicit Apply reaches one write boundary");
         check(submittedPath == L"OtherValue" && submittedMode == BindingModes()[i],
               "real editor forwards exact selected path and mode");
+    }
+    {
+        KindCtx stale = ctx;
+        stale.wire = 76;
+        KindApplySink late;
+        late.Init(stale);
+        const auto beforeLate = submissions;
+        late.Invoke(nullptr, nullptr);
+        check(submissions == beforeLate, "Apply from an editor built for another element does not write");
     }
     row.authoredKind = L"xBind";
     row.authored = L"{x:Bind Vm.Title}";

@@ -134,6 +134,26 @@ static void LiveUnwatch()
 
 static void UpdateSelectedTreePreview();
 
+// Live reads carry only the value fields. Lay them over the pane's rows so the edit records compare like with like.
+static void ReconcileLiveValues(InstanceHandle wire, const std::vector<DevToolsCardRow>& fresh)
+{
+    std::vector<DevToolsCardRow> merged;
+    merged.reserve(fresh.size());
+    for (const auto& f : fresh) {
+        DevToolsCardRow row = f;
+        for (const auto& known : g_propRows)
+            if (known.name == f.name) {
+                row = known;
+                row.value = f.value;
+                row.valueState = f.valueState;
+                row.source = f.source;
+                break;
+            }
+        merged.push_back(std::move(row));
+    }
+    ReconcileEditRecords(wire, merged);
+}
+
 static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
 {
     KillTimer(nullptr, id);
@@ -141,7 +161,15 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
     if (!g_live.wire || g_live.wire != g_selWire || g_live.gen != g_route1Gen || !g_valuesFn) return;
     if (g_ctx.wireLiveFn && !g_ctx.wireLiveFn(g_live.wire)) { LiveUnwatch(); return; }
     // An edit is in progress: its row is not replaced under the user; look again once it is committed or cancelled.
-    if (!CanRereadSelection(nullptr)) { g_liveTimer = SetTimer(nullptr, 0, 250, &LiveRefreshProc); return; }
+    // Edit records are still checked, so an app change during the edit still drops a stale Restore.
+    if (!CanRereadSelection(nullptr)) {
+        if (!g_live.changed.empty()) {
+            std::vector<DevToolsCardRow> peek;
+            if (g_valuesFn(g_live.wire, g_live.changed, &peek)) ReconcileLiveValues(g_live.wire, peek);
+        }
+        g_liveTimer = SetTimer(nullptr, 0, 250, &LiveRefreshProc);
+        return;
+    }
     LARGE_INTEGER freq{}, t0{}, t1{};
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&t0);
@@ -149,6 +177,7 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
     g_live.changed.clear();
     std::vector<DevToolsCardRow> fresh;
     if (!g_valuesFn(g_live.wire, names, &fresh)) return;
+    ReconcileLiveValues(g_live.wire, fresh);
     const auto plan = DevToolsLiveRows::Decide(g_propRows, fresh, false,
         [](const std::wstring& prop) { return PropIsExpanded(prop); });
     if (plan.action == DevToolsLiveRows::Action::Rebuild) {

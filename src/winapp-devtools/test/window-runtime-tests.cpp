@@ -531,6 +531,88 @@ int main()
         check(!SelectedElementComment(300, &found), "a resolved comment does not refill the inspector's box");
         check(!SelectedElementComment(999, &found), "an element without a comment starts with an empty box");
         g_commentsFn = nullptr; g_anchorWireFn = nullptr;
+    }
+    {
+        // Edit records: Restore puts back what the property was before the session's first edit, on that element,
+        // after the user has looked at other elements, and not after the app changed the value since.
+        static std::map<InstanceHandle,std::wstring> live;
+        static std::wstring liveSource = L"Local";
+        static unsigned clears = 0, edits = 0;
+        live = {{500,L"Hello"},{501,L"Other"}};
+        DevToolsCardRow text; text.name=L"Text"; text.type=L"String"; text.valueType=L"Windows.Foundation.String";
+        text.value=L"Hello"; text.source=L"Local"; text.authoredKind=L"literal"; text.authored=L"Hello";
+        g_ctx.writeFn=[](InstanceHandle wire,const std::wstring&,const std::wstring&,const std::wstring& value,bool,std::wstring*){
+            ++edits; live[wire]=value; liveSource=L"Local"; return DevToolsWriteOutcome::Ok;
+        };
+        g_ctx.clearFn=[](InstanceHandle wire,const std::wstring&){ ++clears; live[wire]=L""; liveSource=L"Default"; return true; };
+        g_ctx.rowsFn=[text](InstanceHandle wire,std::wstring&,std::wstring&,std::vector<DevToolsCardRow>& rows,std::wstring&,std::wstring&) {
+            auto fresh=text; fresh.value=live[wire]; fresh.source=liveSource; rows={fresh}; return true;
+        };
+        g_statusTb=&testStatus; g_editRecords.clear(); g_appChanged.clear();
+        g_linkedRows.clear(); g_linkLost.clear(); g_bindingLost.clear(); g_sessionAssign.clear();
+        g_pendingWrites.clear(); g_pendingKind.clear();
+        g_selWire=g_dirtyNode=500; g_propRows={text};
+
+        check(ApplyLiteralValue(L"Text",L"String",L"Hello",L"Edited",false) && live[500]==L"Edited",
+            "an edit writes to the selected element");
+        const EditRecord* rec=DirtyFind(L"Text");
+        check(rec && rec->kind==DevToolsOriginal::Value && rec->original==L"Hello", "the first edit records the original value");
+        ApplyLiteralValue(L"Text",L"String",L"Edited",L"Again",false);
+        check(DirtyFind(L"Text") && DirtyFind(L"Text")->original==L"Hello", "a second edit keeps the first original");
+
+        g_selWire=g_dirtyNode=501;
+        check(!DirtyFind(L"Text") && RecordFind(500,L"Text"), "an edit record belongs to its element, not the selection");
+        g_selWire=g_dirtyNode=500; g_propRows={text}; g_propRows[0].value=L"Again";
+        check(DirtyFind(L"Text") != nullptr, "coming back to an edited element still offers Restore");
+
+        RestoreRowValue(500,L"Text",L"String");
+        check(live[500]==L"Hello" && !DirtyFind(L"Text") && testStatus.text.find(L"Restored Text")!=std::wstring::npos,
+            "Restore writes the original back and clears the record");
+
+        g_propRows={text};
+        ClearRowValue(500,L"Text");
+        check(clears==1 && DirtyFind(L"Text") && DirtyFind(L"Text")->original==L"Hello", "Clear is recorded as an edit");
+        g_propRows={text}; g_propRows[0].value=L""; g_propRows[0].source=L"Default";
+        ApplyLiteralValue(L"Text",L"String",L"",L"New",false);
+        RestoreRowValue(500,L"Text",L"String");
+        check(live[500]==L"Hello" && !DirtyFind(L"Text"), "Clear, then an edit, then Restore puts the original back");
+
+        // A value from a style is not set on the element: Restore clears the property instead of pinning the value.
+        DevToolsCardRow styled=text; styled.source=L"Style"; styled.authoredKind.clear(); styled.authored.clear();
+        styled.value=L"FromStyle"; live[500]=L"FromStyle"; liveSource=L"Style";
+        g_propRows={styled};
+        ApplyLiteralValue(L"Text",L"String",L"FromStyle",L"Mine",false);
+        check(DirtyFind(L"Text") && DirtyFind(L"Text")->kind==DevToolsOriginal::Unset, "a style-supplied original is recorded as not set");
+        const unsigned clearsBefore=clears, editsBefore=edits;
+        RestoreRowValue(500,L"Text",L"String");
+        check(clears==clearsBefore+1 && edits==editsBefore && !DirtyFind(L"Text"),
+            "restoring a not-set original clears the property rather than writing its old value");
+
+        // The app changes the value after the edit: Restore would undo the app's change, so the record is dropped.
+        g_propRows={text}; live[500]=L"Hello"; liveSource=L"Local";
+        ApplyLiteralValue(L"Text",L"String",L"Hello",L"Edited",false);
+        std::vector<DevToolsCardRow> now{text}; now[0].value=L"Edited";
+        ReconcileEditRecords(500,now);
+        check(DirtyFind(L"Text") != nullptr, "re-reading our own write keeps the record");
+        now[0].value=L"FromApp";
+        ReconcileEditRecords(500,now);
+        check(!DirtyFind(L"Text") && AppChanged(500,L"Text"), "an app change since the edit drops Restore and says why");
+        ApplyLiteralValue(L"Text",L"String",L"FromApp",L"Edited2",false);
+        check(DirtyFind(L"Text") && DirtyFind(L"Text")->original==L"FromApp" && !AppChanged(500,L"Text"),
+            "a new edit after an app change records the app's value as the original");
+
+        // An editor removed by a rebuild can still deliver a focus-out; it must not write again.
+        g_ctx.readInputFn=[](IInspectable*,std::wstring& t){ t=L"Stale"; return true; };
+        LostFocusSink late; late.Init(500,L"Text",L"String",L"Edited2",&testInput);
+        late.retired=true;
+        const unsigned editsLate=edits;
+        late.Invoke(nullptr,nullptr);
+        check(edits==editsLate && live[500]==L"Edited2", "a retired editor's focus-out does not write");
+        RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr);
+        late.retired=false;
+        RetirePaneEditors();
+        check(late.retired && g_paneEditors.empty(), "rebuilding the pane retires its editors");
+        g_editRecords.clear(); g_appChanged.clear(); g_ctx.clearFn=nullptr; g_statusTb=nullptr;
     }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

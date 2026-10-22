@@ -213,9 +213,30 @@ static std::wstring         g_selBreadcrumb;
 static std::wstring         g_selSourceFile;
 static unsigned int         g_selSourceLine = 0;
 
-// Dirty tracking records what this pane changed because runtime local values cannot recover resource keys.
+// The element whose per-selection pane state (pending writes, lost links, staged kinds) is current.
 static InstanceHandle g_dirtyNode = 0;
-static std::vector<std::pair<std::wstring, std::wstring>> g_dirtySeed;
+
+// What Restore puts back, per element and property, for the whole session. Only the first edit records it.
+// Value: write `original` back. Unset: clear the local value. Resource: re-assign `key`; `original` is its markup.
+enum class DevToolsOriginal { Value, Unset, Resource };
+struct EditRecord
+{
+    InstanceHandle   wire = 0;
+    std::wstring     prop;
+    DevToolsOriginal kind = DevToolsOriginal::Value;
+    std::wstring     original;
+    std::wstring     key;
+    bool             theme = false;
+    // The value read back after DevTools' last write. A different value later means the app changed it, and
+    // putting the original back would undo the app's change rather than the user's.
+    std::wstring     baseline;
+    bool             needsBaseline = true;
+    // The edit assigned a {ThemeResource}, so a theme switch changes the value without the app touching it.
+    bool             followsTheme = false;
+};
+static std::vector<EditRecord> g_editRecords;
+// Properties whose record was dropped because the app changed the value after the user's edit.
+static std::vector<std::pair<InstanceHandle, std::wstring>> g_appChanged;
 // Resolve a named child of the REALIZED row for `prop`, AddRef'd, or null when that row is not currently on
 // screen. Defined with the repeater below. Looked up live rather than cached because a virtualized row's
 // elements are released the moment it leaves the viewport, and a cached pointer would outlive the element.
@@ -299,9 +320,29 @@ static void ReleasePropFilterState()
 // somewhere other than this element's own declaration -- the exact set-in-code vs inherited distinction.
 static bool SourceIsSetHere(const std::wstring& s) { return s == L"Local" || s == L"Binding"; }
 
-static std::wstring* DirtyFind(const std::wstring& p) { for (auto& e : g_dirtySeed) if (e.first == p) return &e.second; return nullptr; }
+static EditRecord* RecordFind(InstanceHandle w, const std::wstring& p)
+{
+    for (auto& e : g_editRecords) if (e.wire == w && e.prop == p) return &e;
+    return nullptr;
+}
+static void RecordErase(InstanceHandle w, const std::wstring& p)
+{
+    for (size_t i = 0; i < g_editRecords.size(); ++i)
+        if (g_editRecords[i].wire == w && g_editRecords[i].prop == p) { g_editRecords.erase(g_editRecords.begin() + i); return; }
+}
+static EditRecord* DirtyFind(const std::wstring& p) { return RecordFind(g_selWire, p); }
 static bool DirtyHas(const std::wstring& p) { return DirtyFind(p) != nullptr; }
-static void DirtyErase(const std::wstring& p) { for (size_t i = 0; i < g_dirtySeed.size(); ++i) if (g_dirtySeed[i].first == p) { g_dirtySeed.erase(g_dirtySeed.begin() + i); return; } }
+static void DirtyErase(const std::wstring& p) { RecordErase(g_selWire, p); }
+static bool AppChanged(InstanceHandle w, const std::wstring& p)
+{
+    for (const auto& e : g_appChanged) if (e.first == w && e.second == p) return true;
+    return false;
+}
+static void AppChangedErase(InstanceHandle w, const std::wstring& p)
+{
+    for (size_t i = 0; i < g_appChanged.size(); ++i)
+        if (g_appChanged[i].first == w && g_appChanged[i].second == p) { g_appChanged.erase(g_appChanged.begin() + i); return; }
+}
 
 static std::vector<std::wstring> g_bindingLost;
 static bool BindingLost(const std::wstring& p) { for (const auto& e : g_bindingLost) if (e == p) return true; return false; }

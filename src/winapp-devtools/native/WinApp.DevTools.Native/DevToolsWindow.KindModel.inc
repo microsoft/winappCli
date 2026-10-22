@@ -39,6 +39,149 @@ static std::wstring MarkupInner(const std::wstring& authored)
     return body.substr(start);
 }
 
+static const DevToolsCardRow* FindPropertyRowIn(const std::vector<DevToolsCardRow>& rows, const std::wstring& path)
+{
+    return FindPropertyRow(const_cast<std::vector<DevToolsCardRow>&>(rows), path);
+}
+
+static std::wstring CurrentEditSeed(const std::wstring& prop)
+{
+    const DevToolsCardRow* row = FindPropertyRowIn(g_propRows, prop);
+    return row ? RowEditSeed(*row) : std::wstring();
+}
+
+// What Restore should put back for the selection's first edit of `prop`, read before the edit lands.
+// False when there is nothing honest to restore (a binding cannot be recreated from its resolved value).
+static bool OriginalFor(const std::wstring& prop, const std::wstring& preVal, EditRecord& out)
+{
+    out = EditRecord{};
+    out.wire = g_selWire;
+    out.prop = prop;
+    out.original = preVal;
+    if (const SessionAssign* sa = SessionAssignFind(prop)) {
+        if (sa->kind == DevToolsKind::Binding) return false;
+        if (KindIsResource(sa->kind) && !MarkupInner(sa->detail).empty()) {
+            out.kind = DevToolsOriginal::Resource;
+            out.key = MarkupInner(sa->detail);
+            out.theme = sa->kind == DevToolsKind::Theme;
+            out.original = sa->detail;
+            return true;
+        }
+    }
+    const DevToolsCardRow* row = FindPropertyRowIn(g_propRows, prop);
+    if (row && ResourceBacked(prop) && !row->authoredKey.empty() &&
+        (row->authoredKind == L"themeResource" || row->authoredKind == L"staticResource")) {
+        out.kind = DevToolsOriginal::Resource;
+        out.key = row->authoredKey;
+        out.theme = row->authoredKind == L"themeResource";
+        out.original = std::wstring(out.theme ? L"{ThemeResource " : L"{StaticResource ") + out.key + L"}";
+        return true;
+    }
+    // Only a whole property can be cleared; a field such as Padding.Left can only be written back.
+    bool topLevel = false;
+    for (const auto& r : g_propRows) if (r.name == prop) { topLevel = true; break; }
+    if (topLevel && row && !row->source.empty() && !SourceIsSetHere(row->source) && row->authoredKind.empty())
+        out.kind = DevToolsOriginal::Unset;
+    return true;
+}
+
+// Compare the element's freshly read rows with what DevTools last wrote. A difference means the app changed the
+// value since, so Restore would undo the app's change rather than the user's edit: drop the record and say why.
+static void ReconcileEditRecords(InstanceHandle wire, const std::vector<DevToolsCardRow>& rows)
+{
+    for (size_t i = g_editRecords.size(); i-- > 0; ) {
+        EditRecord& rec = g_editRecords[i];
+        if (rec.wire != wire) continue;
+        const DevToolsCardRow* row = FindPropertyRowIn(rows, rec.prop);
+        if (!row) continue;
+        const std::wstring now = RowEditSeed(*row);
+        if (rec.needsBaseline) { rec.baseline = now; rec.needsBaseline = false; continue; }
+        if (rec.followsTheme || now == rec.baseline) continue;
+        const std::wstring prop = rec.prop;
+        g_editRecords.erase(g_editRecords.begin() + i);
+        if (!AppChanged(wire, prop)) g_appChanged.push_back({ wire, prop });
+        if (wire == g_selWire) UpdateEditedUi(prop);
+    }
+}
+
+static void ClearRowValue(InstanceHandle wire, const std::wstring& prop)
+{
+    FlushFocusedEditor();
+    if (wire != g_selWire) return;
+    if (BindingLost(prop)) {
+        SetStatusText(L"Clearing " + prop + L" can't bring its binding back. Restart the app");
+        return;
+    }
+    EditRecord first;
+    const bool recordable = !DirtyHas(prop) && OriginalFor(prop, CurrentEditSeed(prop), first);
+    const bool ok = g_ctx.clearFn(wire, prop);
+    if (ok) {
+        // Clear is an edit too: Restore still puts back what the property was before the first one.
+        if (EditRecord* rec = DirtyFind(prop)) {
+            if (rec->kind == DevToolsOriginal::Unset) DirtyErase(prop);
+            else rec->followsTheme = false;
+        } else if (recordable && first.kind != DevToolsOriginal::Unset) {
+            g_editRecords.push_back(std::move(first));
+        }
+        SessionAssignErase(prop);
+        AppChangedErase(wire, prop);
+        RebaselineRecords(wire);
+    }
+    ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+    SetStatusText(ok ? (L"Cleared " + prop + L". It now falls back to its default")
+                     : (L"Couldn't clear " + prop));
+}
+
+static void RestoreRowValue(InstanceHandle wire, const std::wstring& prop, const std::wstring& type)
+{
+    FlushFocusedEditor();
+    if (wire != g_selWire) return;
+    if (BindingLost(prop)) {
+        SetStatusText(L"Can't restore " + prop + L". Its binding was replaced and can't be restored");
+        return;
+    }
+    const EditRecord* found = DirtyFind(prop);
+    if (!found) return;
+    const EditRecord rec = *found;
+    bool ok = false;
+    std::wstring done;
+    switch (rec.kind) {
+    case DevToolsOriginal::Value:
+        if (g_ctx.writeFn) ok = DevToolsWriteLanded(CommitWrite(wire, prop, type, rec.original, /*confirmed*/ false));
+        if (ok) SessionAssignErase(prop);
+        done = L"Restored " + prop + L" to the value it had before your change";
+        break;
+    case DevToolsOriginal::Unset:
+        ok = g_ctx.clearFn && g_ctx.clearFn(wire, prop);
+        if (ok) SessionAssignErase(prop);
+        done = L"Restored " + prop + L". It's no longer set here, so it uses its style or default value";
+        break;
+    case DevToolsOriginal::Resource: {
+        ok = g_ctx.resolveFn && g_ctx.resolveFn(wire, prop, rec.key, rec.theme);
+        if (ok) {
+            for (size_t i = 0; i < g_linkLost.size(); ++i)
+                if (g_linkLost[i] == prop) { g_linkLost.erase(g_linkLost.begin() + i); break; }
+            const DevToolsCardRow* row = FindPropertyRowIn(g_propRows, prop);
+            const bool authored = row && row->authoredKey == rec.key &&
+                                  row->authoredKind == (rec.theme ? L"themeResource" : L"staticResource");
+            if (authored) SessionAssignErase(prop);
+            else NoteSessionAssign(prop, rec.theme ? DevToolsKind::Theme : DevToolsKind::Static, rec.original);
+        }
+        done = L"Restored " + prop + L" to " + rec.original;
+        break;
+    }
+    }
+    // A failed restore keeps the record, so the user can try again.
+    if (ok) {
+        DirtyErase(prop);
+        PendingErase(prop);
+        AppChangedErase(wire, prop);
+        RebaselineRecords(wire);
+    }
+    ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
+    SetStatusText(ok ? done : (L"Couldn't restore " + prop));
+}
+
 // The PATH a {Binding}/{x:Bind} editor is seeded with. `authoredKey` is the tap's own extraction and is
 // preferred; the reconstructed expression is the fallback for a runtime {Binding} whose source we could not
 // read, which is the only case where the two can disagree.
@@ -177,11 +320,11 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
                                     L", and DevTools had no earlier value to put back - set it again."));
         return false;
     }
+    // Record the original before the session witness changes, so a first edit that assigns a resource still
+    // remembers what the property was before it. Undo also clears the session assignment witness.
+    NoteChange(path, preVal, std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}");
     NoteSessionAssign(path, asTheme ? DevToolsKind::Theme : DevToolsKind::Static,
                       std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}");
-    // Preserve the pre-edit seed across resource assignment so Restore original can revert it.
-        // Undo also clears the session assignment witness.
-    NoteChange(path, preVal, std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}");
     // The value FOLLOWS a resource now, so an earlier "this link is gone" verdict is retired.
     for (size_t i = 0; i < g_linkLost.size(); ++i) if (g_linkLost[i] == path) { g_linkLost.erase(g_linkLost.begin() + i); break; }
     // THE SUCCESS LINE IS THE CALLER'S TO SET, AFTER ITS RE-RENDER. Setting it here is what the failure
@@ -210,6 +353,7 @@ static_assert(true, "the pane assigns resources through ResolveResource, never t
 struct BindOpResult
 {
     unsigned     gen = 0;
+    InstanceHandle wire = 0;
     std::wstring op;
     std::wstring prop;
     std::wstring payload;
@@ -249,7 +393,7 @@ static void CALLBACK BindOpTimerProc(HWND, UINT, UINT_PTR id, DWORD)
         if (graft) {
             NoteSessionAssign(r.prop, DevToolsKind::Binding, r.shown);
             PendingKindErase(r.prop);
-            DirtyErase(r.prop);
+            RecordErase(r.wire, r.prop);
             status = L"Bound " + r.prop + L" to " + r.shown
                    + L". The running app only - your .xaml is unchanged";
         } else {
@@ -268,7 +412,7 @@ static DWORD WINAPI BindOpWorker(LPVOID param)
 {
     BindOpAsk* ask = reinterpret_cast<BindOpAsk*>(param);
     BindOpResult res;
-    res.gen = ask->gen; res.op = ask->op; res.prop = ask->prop; res.payload = ask->payload;
+    res.gen = ask->gen; res.wire = ask->wire; res.op = ask->op; res.prop = ask->prop; res.payload = ask->payload;
     res.mode = ask->mode; res.shown = ask->shown;
     std::wstring json;
     if (!g_ctx.bindFn) {
@@ -656,6 +800,7 @@ struct KindCtx
     int   edit = -1;
     void* rowFe = nullptr;
     void* expFe = nullptr;
+    InstanceHandle wire = 0;
 };
 
 // Read one named TextBox inside the expansion. Returns empty when the control is absent -- which is a real
@@ -758,6 +903,10 @@ static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
     }
 
     const std::wstring ek = c.row->editKind;
+    // The current row, not the expansion's snapshot: after Enter saves, a later focus-out must compare with the
+    // value that was saved, or it writes the same text again.
+    const DevToolsCardRow* live = FindPropertyRowIn(g_propRows, c.path);
+    const std::wstring seed = RowEditSeed(live ? *live : *c.row);
     std::wstring value;
     if (ek == L"bool") {
         if (IInspectable* t = FindInRow(c.expFe, L"PToggle")) {
@@ -778,10 +927,10 @@ static void CommitKind(const KindCtx& c, bool confirmedReplacement = false)
         // what keeps a four-box Thickness one commit instead of four partial ones.
         value = ReadFieldBoxes(c.path, c.row->fields.size());
     } else {
-        value = DevToolsEditText::WithLineEndingsOf(ReadBox(c.expFe, L"PEdit"), RowEditSeed(*c.row));
+        value = DevToolsEditText::WithLineEndingsOf(ReadBox(c.expFe, L"PEdit"), seed);
     }
     const DevToolsKind was = CurrentKindOf(*c.row, c.path);
-    const bool landed = ApplyLiteralValue(c.path, c.row->type, RowEditSeed(*c.row), value, /*confirmed*/ staged);
+    const bool landed = ApplyLiteralValue(c.path, c.row->type, seed, value, /*confirmed*/ staged);
     // Record a landed literal as replacing x:Bind even when the runtime reports only a local value.
 // Authored source still describes the original expression, not the session mutation.
 // Drop the resolved-value seed rather than offer a Restore that cannot restore the binding.

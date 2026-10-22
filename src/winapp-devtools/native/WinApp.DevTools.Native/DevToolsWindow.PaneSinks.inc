@@ -28,22 +28,35 @@ static void ShowWriteError(const std::wstring& prop, const std::wstring& text)
     }
 }
 
+// Defined once the row model is available (DevToolsWindow.KindModel.inc / Expansion.inc).
+static bool OriginalFor(const std::wstring& prop, const std::wstring& preVal, EditRecord& out);
+static void UpdateEditedUi(const std::wstring& prop);
+
+static bool IsThemeMarkup(const std::wstring& v) { return v.rfind(L"{ThemeResource ", 0) == 0; }
+
+// A DevTools write can change other properties of the same element (Padding.Left changes Padding), so the next
+// read becomes every record's new baseline instead of looking like the app changed them.
+static void RebaselineRecords(InstanceHandle wire)
+{
+    for (auto& e : g_editRecords) if (e.wire == wire) e.needsBaseline = true;
+}
+
 static void NoteChange(const std::wstring& prop, const std::wstring& preVal, const std::wstring& newVal)
 {
-    std::wstring* seedp = DirtyFind(prop);
-    const std::wstring seed = seedp ? *seedp : preVal;
-    bool dirty;
-    if (newVal == seed) { DirtyErase(prop); dirty = false; }
-    else { if (!seedp) g_dirtySeed.push_back({ prop, seed }); dirty = true; }
-    if (void* dot = PaneRowChild(prop, L"PDot")) {
-        DevToolsPutVisibility(dot, dirty ? 0 : 1);
-        reinterpret_cast<IUnknown*>(dot)->Release();
+    if (EditRecord* rec = DirtyFind(prop)) {
+        // An Unset original is not restored by typing the value it showed: the property would still be set here.
+        if (rec->kind != DevToolsOriginal::Unset && newVal == rec->original) DirtyErase(prop);
+        else rec->followsTheme = IsThemeMarkup(newVal);
+    } else if (newVal != preVal) {
+        EditRecord rec;
+        if (OriginalFor(prop, preVal, rec)) {
+            rec.followsTheme = IsThemeMarkup(newVal);
+            g_editRecords.push_back(std::move(rec));
+        }
     }
-    // Restore has nothing to put back once the binding is gone, and saying otherwise is the lie removed.
-    if (void* rs = PaneRowChild(prop, L"PRestore")) {
-        DevToolsPutVisibility(rs, (dirty && !BindingLost(prop)) ? 0 : 1);
-        reinterpret_cast<IUnknown*>(rs)->Release();
-    }
+    AppChangedErase(g_selWire, prop);
+    RebaselineRecords(g_selWire);
+    UpdateEditedUi(prop);
 }
 
 // Render a single-quoted value for a prompt, elided so a long paste can't blow out the pane.
@@ -78,11 +91,28 @@ static DevToolsWriteOutcome CommitWrite(InstanceHandle wire, const std::wstring&
 }
 
 static bool RefreshCommittedValue(const std::wstring& prop);
+
+// The last commit's outcome, so a flush can say whether the edit it saved actually landed.
+static unsigned             g_commitSeq = 0;
+static DevToolsWriteOutcome g_lastCommitOc = DevToolsWriteOutcome::Ok;
+static std::wstring         g_lastCommitWhy;
+
+static std::wstring WriteFailureText(const std::wstring& prop)
+{
+    // The tap's reason is "token|message"; the message is what the row shows.
+    const size_t bar = g_lastWriteReason.find(L'|');
+    const std::wstring why = bar == std::wstring::npos ? g_lastWriteReason : g_lastWriteReason.substr(bar + 1);
+    return why.empty() ? L"Couldn't set " + prop : why;
+}
+
 static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
                                const std::wstring& prop, const std::wstring& type,
                                const std::wstring& preVal, const std::wstring& val)
 {
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropCommit);
+    ++g_commitSeq;
+    g_lastCommitOc = oc;
+    g_lastCommitWhy = oc == DevToolsWriteOutcome::Failed ? WriteFailureText(prop) : std::wstring();
     if (wire != g_selWire) return DevToolsWriteLanded(oc);
     if (oc != DevToolsWriteOutcome::Failed && g_writeErrorWire == wire && g_writeErrorPath == prop) ShowWriteError(prop, L"");
     switch (oc) {
@@ -104,6 +134,7 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
         PendingErase(prop);
         DirtyErase(prop);
         NoteBindingLost(prop);
+        RebaselineRecords(wire);
         // Rebuild so the row re-renders with its undo + reset affordances DISABLED and the reason attached.
         // Safe from inside a commit/click handler for the same reason ResetSink's rebuild is (the sinks are
         // process-lifetime and gen-guarded, not owned by the subtree being replaced).
@@ -141,10 +172,7 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
 
     case DevToolsWriteOutcome::Failed:
     default: {
-        // The tap's reason is "token|message"; the message is what the row shows.
-        const size_t bar = g_lastWriteReason.find(L'|');
-        const std::wstring why = bar == std::wstring::npos ? g_lastWriteReason : g_lastWriteReason.substr(bar + 1);
-        const std::wstring text = why.empty() ? L"Couldn't set " + prop : why;
+        const std::wstring text = g_lastCommitWhy;
         ShowWriteError(prop, text);
         SetStatusText(text);
         return false;
@@ -160,7 +188,7 @@ struct LostFocusSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
-        if (gen != g_route1Gen) return S_OK;
+        if (gen != g_route1Gen || retired) return S_OK;
         if (!g_ctx.readInputFn || !g_ctx.writeFn || !box) return S_OK;
         std::wstring text;
         if (!g_ctx.readInputFn(box, text)) {
@@ -183,8 +211,96 @@ struct LostFocusSink : DevToolsSinkBase
     InstanceHandle selWire = 0;
     std::wstring   prop, type, original, shown;
     bool           hasShown = false;
+    // Set once the pane that owns the box is rebuilt: the flush already saved the box, and a late focus-out
+    // from the removed box would write its text over whatever the rebuild just did (for example, Restore).
+    bool           retired = false;
     IInspectable*  box = nullptr;
 };
+
+// The pane's text editors, so an edit can be saved before the selection changes or the pane is rebuilt, even
+// when focus never leaves the box (UI Automation can select another element or invoke Restore directly).
+struct PaneEditor
+{
+    std::wstring          path;
+    IUnknown*             ident = nullptr;
+    bool*                 retired = nullptr;
+    LostFocusSink*        text = nullptr;
+    std::function<void()> commit;
+};
+static std::vector<PaneEditor> g_paneEditors;
+static bool g_flushingEditor = false;
+
+static void RegisterPaneEditor(const std::wstring& path, void* element, bool* retired, LostFocusSink* text,
+                               std::function<void()> commit)
+{
+    if (!element) return;
+    IUnknown* ident = nullptr;
+    if (FAILED(reinterpret_cast<IUnknown*>(element)->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&ident))) || !ident)
+        return;
+    g_paneEditors.push_back({ path, ident, retired, text, std::move(commit) });
+}
+
+// A row's expansion is being rebuilt: its old boxes are leaving the registry but stay live, so a focus-out
+// still saves them as it did before.
+static void ForgetPaneEditors(const std::wstring& path)
+{
+    for (size_t i = g_paneEditors.size(); i-- > 0; ) {
+        if (g_paneEditors[i].path != path) continue;
+        if (g_paneEditors[i].ident) g_paneEditors[i].ident->Release();
+        g_paneEditors.erase(g_paneEditors.begin() + i);
+    }
+}
+
+static void RetirePaneEditors()
+{
+    for (auto& e : g_paneEditors) {
+        if (e.retired) *e.retired = true;
+        if (e.ident) e.ident->Release();
+    }
+    g_paneEditors.clear();
+}
+
+// Save the property editor that has keyboard focus, as leaving it would. Returns what happened, for the status
+// line, or an empty string when no editor was focused or its text was unchanged.
+static std::wstring FlushFocusedEditor()
+{
+    if (g_flushingEditor || g_paneEditors.empty() || !g_inspectorContent) return std::wstring();
+    std::function<void()> commit;
+    std::wstring path;
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, g_inspectorContent);
+        auto root = object.as<DevToolsX::FrameworkElement>();
+        auto focused = DevToolsXI::FocusManager::GetFocusedElement(root.XamlRoot());
+        if (!focused) return std::wstring();
+        const auto ident = focused.as<winrt::Windows::Foundation::IUnknown>();
+        for (const auto& e : g_paneEditors)
+            if (e.ident == static_cast<IUnknown*>(winrt::get_abi(ident))) { commit = e.commit; path = e.path; break; }
+    } catch (const winrt::hresult_error&) {
+        return std::wstring();
+    }
+    if (!commit) return std::wstring();
+    const unsigned seq = g_commitSeq;
+    const std::wstring label = g_selLabel;
+    g_flushingEditor = true;
+    commit();
+    g_flushingEditor = false;
+    if (seq == g_commitSeq) return std::wstring();
+    switch (g_lastCommitOc) {
+    case DevToolsWriteOutcome::Ok:
+    case DevToolsWriteOutcome::ReplacedBinding:
+        return L"Saved " + path + L" on " + label;
+    case DevToolsWriteOutcome::NeedsConfirm:
+        return L"Didn't save " + path + L" on " + label + L". It needs confirmation";
+    default:
+        return L"Couldn't save " + path + L" on " + label + L": " + g_lastCommitWhy;
+    }
+}
+
+// Defined once the row model is available (DevToolsWindow.KindModel.inc).
+static void ClearRowValue(InstanceHandle wire, const std::wstring& prop);
+static void RestoreRowValue(InstanceHandle wire, const std::wstring& prop, const std::wstring& type);
+static std::wstring CurrentEditSeed(const std::wstring& prop);
 
 // Clear the captured node/property through ClearProperty, then reread inheritance.
 // Clearing can remove a binding/resource link and is distinct from restoring a prior literal.
@@ -195,15 +311,7 @@ struct ResetSink : DevToolsSinkBase
     {
         if (gen != g_route1Gen) return S_OK;
         if (!g_ctx.clearFn) return S_OK;
-        if (BindingLost(prop)) {
-            SetStatusText(L"Clearing " + prop + L" can't bring its binding back. Restart the app");
-            return S_OK;
-        }
-        bool ok = g_ctx.clearFn(selWire, prop);
-        DirtyErase(prop);
-        ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
-        SetStatusText(ok ? (L"Cleared " + prop + L" . It now falls back to its default")
-                         : (L"Couldn't clear " + prop));
+        ClearRowValue(selWire, prop);
         return S_OK;
     }
     void Init(InstanceHandle w, const std::wstring& p)
@@ -215,28 +323,14 @@ struct ResetSink : DevToolsSinkBase
     std::wstring   prop;
 };
 
-// Restore the selection's pre-edit literal and clear its dirty record. This is not ClearProperty.
+// Put back what the property was before the session's first edit: a value, "not set here", or a resource.
 // Refuse when a binding was replaced: restoring its resolved literal cannot restore the expression.
 struct UndoSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen) return S_OK;
-        if (!g_ctx.writeFn) return S_OK;
-        if (BindingLost(prop)) {
-            SetStatusText(L"Can't restore " + prop + L" . Its binding was replaced and can't be restored");
-            return S_OK;
-        }
-        std::wstring* seedp = DirtyFind(prop);
-        if (!seedp) return S_OK;
-        const std::wstring seed = *seedp;
-        DevToolsWriteOutcome oc = CommitWrite(selWire, prop, type, seed, /*confirmBindingReplace*/ false);
-        DirtyErase(prop);
-        // an incorrect resource-link claim.
-        if (DevToolsWriteLanded(oc)) SessionAssignErase(prop);
-        ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
-        SetStatusText(DevToolsWriteLanded(oc) ? (L"Restored " + prop + L" to the value it had before your change")
-                                         : (L"Couldn't restore " + prop));
+        RestoreRowValue(selWire, prop, type);
         return S_OK;
     }
     void Init(InstanceHandle w, const std::wstring& p, const std::wstring& t)
@@ -257,8 +351,9 @@ struct ConfirmSink : DevToolsSinkBase
         PendingWrite* pw = PendingFind(prop);
         if (!pw) return S_OK;
         const std::wstring type = pw->type, val = pw->value;
+        const std::wstring preVal = selWire == g_selWire ? CurrentEditSeed(prop) : std::wstring();
         ApplyCommitOutcome(CommitWrite(selWire, prop, type, val, /*confirmBindingReplace*/ true),
-                           selWire, prop, type, /*preVal*/ std::wstring(), val);
+                           selWire, prop, type, preVal, val);
         return S_OK;
     }
     void Init(InstanceHandle w, const std::wstring& p)

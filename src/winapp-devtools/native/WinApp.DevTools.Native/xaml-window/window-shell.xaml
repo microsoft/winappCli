@@ -346,6 +346,7 @@
                   <StackPanel x:Name="PEdText" Visibility="Collapsed" Spacing="3">
                     <TextBlock x:Name="PEdTextLbl" Text="VALUE" FontSize="10" CharacterSpacing="60" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                     <TextBox x:Name="PEdit" MinHeight="30" FontSize="12" FontFamily="Consolas"/>
+                    <TextBlock x:Name="PEditHint" Visibility="Collapsed" Text="Enter applies &#183; Shift+Enter adds a new line" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
                   </StackPanel>
 
                   <StackPanel x:Name="PEdBool" Visibility="Collapsed" Spacing="3">

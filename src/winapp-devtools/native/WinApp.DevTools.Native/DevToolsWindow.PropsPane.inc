@@ -38,24 +38,42 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropPane);
     if (!g_ctx.propsHostChildren || !g_ctx.rowsFn) return;
     if (!force && wire != 0 && wire == g_selWire) return;
+    // Save the focused editor before its pane goes away, while g_selWire still names the element it edits. Its
+    // focus-out would otherwise arrive after the selection moved. Then retire the old pane's editors so that late
+    // focus-out cannot write again over what this rebuild is about to show.
+    std::wstring flushed;
+    if (!g_flushingEditor) {
+        const bool leaving = g_selWire != 0 && wire != g_selWire;
+        const std::wstring saved = FlushFocusedEditor();
+        if (leaving) flushed = saved;
+        RetirePaneEditors();
+    }
     for (auto& r : g_editRows) if (r.box) reinterpret_cast<IUnknown*>(r.box)->Release();
     g_editRows.clear();
     ReleasePropFilterState();
     ReleaseBreadcrumbRefs();
     ReleaseLayoutSectionRefs();
     if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
-    // Selecting a DIFFERENT node starts a fresh dirty-tracking session (its changed markers reflect only edits made
-    // while it stays selected). A reset/undo click rebuilds the pane for the SAME wire and must preserve the set.
-    // The binding-lost list and any un-confirmed pending write are per-node for the same reason: they describe
-    // what happened to THIS element's rows while it was selected.
-    if (wire != g_dirtyNode) { g_dirtySeed.clear(); g_bindingLost.clear(); g_linkLost.clear(); g_pendingWrites.clear();
-                               g_sessionAssign.clear(); g_pendingKind.clear(); WalkForget(); g_dirtyNode = wire; }
+    // Selecting a DIFFERENT node resets the pane state that describes what happened to the selection's rows:
+    // lost bindings and links, unconfirmed writes, staged kinds. Edit records are kept for the whole session, so
+    // Restore still works after the user comes back to an element; only records for elements that are gone are dropped.
+    if (wire != g_dirtyNode) {
+        g_bindingLost.clear(); g_linkLost.clear(); g_pendingWrites.clear();
+        g_sessionAssign.clear(); g_pendingKind.clear(); WalkForget(); g_dirtyNode = wire;
+        if (g_ctx.wireLiveFn) {
+            for (size_t i = g_editRecords.size(); i-- > 0; )
+                if (!g_ctx.wireLiveFn(g_editRecords[i].wire)) g_editRecords.erase(g_editRecords.begin() + i);
+            for (size_t i = g_appChanged.size(); i-- > 0; )
+                if (!g_ctx.wireLiveFn(g_appChanged[i].first)) g_appChanged.erase(g_appChanged.begin() + i);
+        }
+    }
     g_selWire = wire; g_selLabel = label; g_selBreadcrumb = breadcrumb;
 
     std::wstring type, name; std::vector<DevToolsCardRow> rows;
     std::wstring authoredState, authoredXaml;
     { WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropRead);
       g_ctx.rowsFn(wire, type, name, rows, authoredState, authoredXaml); }
+    ReconcileEditRecords(wire, rows);
 
     const PaneEditMap emap = BuildEditMap(rows);
 
@@ -332,6 +350,20 @@ g_propRows = rows;
                   (double)(tAuthor1.QuadPart - tAuthor0.QuadPart) * ms,
                   (double)(tParse1.QuadPart - tAuthor1.QuadPart) * ms,
                   (double)(tWire1.QuadPart - tParse1.QuadPart) * ms);
+    if (!flushed.empty()) {
+        SetStatusText(flushed);
+        if (g_statusTb) {
+            try {
+                winrt::Windows::Foundation::IInspectable object{ nullptr };
+                winrt::copy_from_abi(object, g_statusTb);
+                if (auto peer = winrt::Microsoft::UI::Xaml::Automation::Peers::FrameworkElementAutomationPeer::FromElement(
+                        object.as<DevToolsX::UIElement>()))
+                    peer.RaiseNotificationEvent(winrt::Microsoft::UI::Xaml::Automation::Peers::AutomationNotificationKind::ActionCompleted,
+                                                winrt::Microsoft::UI::Xaml::Automation::Peers::AutomationNotificationProcessing::ImportantMostRecent,
+                                                flushed, L"DevToolsEditSaved");
+            } catch (...) {}
+        }
+    }
     LiveWatchSelection();
 }
 
@@ -416,7 +448,8 @@ static void ResetRoute1State()
     ReleaseBreadcrumbRefs(); ReleaseLayoutSectionRefs(); ReleasePropFilterState();
     g_bcExpanded = false; g_axmlExpanded = false;
     g_propFilterQuery.clear(); g_propFilterRaw.clear();
-    g_dirtySeed.clear(); g_dirtyNode = 0; g_propView = DevToolsPropView::Computed; g_propShowAll = false;
+    RetirePaneEditors();
+    g_editRecords.clear(); g_appChanged.clear(); g_dirtyNode = 0; g_propView = DevToolsPropView::Computed; g_propShowAll = false;
     g_bindingLost.clear(); g_linkedRows.clear(); g_linkLost.clear();
     g_sessionAssign.clear(); g_pendingKind.clear(); g_pendingWrites.clear();
     if (g_ctx.propsHostChildren) { g_ctx.propsHostChildren->Release(); g_ctx.propsHostChildren = nullptr; }
