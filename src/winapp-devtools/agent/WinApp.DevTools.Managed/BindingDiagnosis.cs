@@ -397,7 +397,9 @@ internal static class BindingDiagnosis
 
         object? after = element.GetValue(dp);
         Field(sb, "after", Str(after));
-        Field(sb, "bound", (ParentBindingOf(element.ReadLocalValue(dp)) is not null).ToString());
+        bool bound = ParentBindingOf(element.ReadLocalValue(dp)) is not null;
+        Field(sb, "bound", bound.ToString());
+        if (!bound) Field(sb, "reason", "the app removed the binding again right after it was reattached");
         sb.Append('}');
         return sb.ToString();
     }

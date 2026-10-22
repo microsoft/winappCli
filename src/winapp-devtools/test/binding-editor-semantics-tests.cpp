@@ -135,6 +135,14 @@ int main()
           "restoring a panel-applied {Binding} over an x:Bind shows the {Binding}, not the XAML");
     SessionAssignErase(L"Text");
     g_propRows[0].authoredKind = L"binding";
+    g_propRows[0].authoredKey = L"Name";
+    NoteRestoredBinding(L"Text", L"{\"state\":\"restored\",\"restoreKind\":\"binding\",\"path\":\"Title\","
+                                 L"\"mode\":\"OneWay\",\"bound\":\"True\"}");
+    restoredAssign = SessionAssignFind(L"Text");
+    check(restoredAssign && restoredAssign->detail == L"{Binding Title, Mode=OneWay}",
+          "restoring a panel-applied {Binding Title} over XAML {Binding Name} shows Title, not the XAML path");
+    SessionAssignErase(L"Text");
+    g_propRows[0].authoredKey = L"Title";
     NoteRestoredBinding(L"Text", L"{\"state\":\"restored\",\"restoreKind\":\"binding\",\"path\":\"Title\","
                                  L"\"mode\":\"OneWay\",\"bound\":\"True\"}");
     check(SessionAssignFind(L"Text") == nullptr, "restoring the XAML's own {Binding} leaves the XAML as the source");

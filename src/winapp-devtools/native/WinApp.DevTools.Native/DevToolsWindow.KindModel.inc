@@ -479,7 +479,7 @@ static void NoteRestoredBinding(const std::wstring& prop, const std::wstring& ac
     const std::wstring bindPath = act.GetString(L"path");
     if (bindPath.empty()) return;
     const DevToolsCardRow* row = FindPropertyRow(g_propRows, prop);
-    if (!row || row->authoredKind == L"binding") return;
+    if (!row || (row->authoredKind == L"binding" && bindPath == row->authoredKey)) return;
     std::wstring mode = act.GetString(L"mode");
     if (std::find(BindingModes().begin(), BindingModes().end(), mode) == BindingModes().end()) mode = L"OneWay";
     NoteSessionAssign(prop, DevToolsKind::Binding, BindingExprFrom(bindPath, mode));
