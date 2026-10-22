@@ -458,10 +458,12 @@ static void CheckEmptyString(const std::function<void(bool,const char*)>& check)
 // a DevTools write is named as one, and a runtime-only Local (Translation at 0,0,0) reads as Default.
 struct ElementLineTreeService : TextTreeService {
     using TextTreeService::TextTreeService;
+    const wchar_t* chainText=nullptr; // when set, the chain keeps reporting this while the live value changes
     HRESULT STDMETHODCALLTYPE GetPropertyValuesChain(InstanceHandle handle,unsigned int* sc,PropertyChainSource** sources,
         unsigned int* pc,PropertyChainValue** values) override {
         const HRESULT hr=TextTreeService::GetPropertyValuesChain(handle,sc,sources,pc,values);
         if(SUCCEEDED(hr) && *sc==2 && *pc==4){
+            if(chainText){SysFreeString((*values)[0].Value);(*values)[0].Value=SysAllocString(chainText);}
             (*sources)[0].Handle=901;
             (*sources)[0].SrcInfo.FileName=SysAllocString(L"ms-appx:///MainWindow.xaml");
             (*sources)[0].SrcInfo.LineNumber=46;
@@ -542,18 +544,24 @@ static void CheckLocalProvenance(const std::function<void(bool,const char*)>& ch
         !row->chain[0].file.empty() && row->chain[0].line==46,
         "a Local value the element's XAML sets keeps its XAML line");
 
-    const std::wstring written=L"live", overwritten=L"Count: 1";
-    DevToolsBindingRow_NoteLiveWrite(wire,L"Text",&written);
+    DevToolsBindingRow_NoteLiveWrite(wire,L"Text");
     read(props);
     row=text(props);
     check(row!=props.end() && row->source==kDevToolsReadLiveEditSource && row->chain.size()==2 &&
         row->chain[0].source==kDevToolsReadLiveEditSource && row->chain[0].file.empty(),
         "a DevTools write reads as DevTools, not as XAML");
-    DevToolsBindingRow_NoteLiveWrite(wire,L"Text",&overwritten);
+    tree.chainText=L"live";
+    diagnostics.text.text=L"Count: 1";
     read(props);
     row=text(props);
-    check(row!=props.end() && row->source==L"Local",
-        "once the app writes a different value, it is no longer credited to DevTools");
+    check(row!=props.end() && row->source==L"Local" && row->value==L"Count: 1",
+        "once the app writes a different value, it is no longer credited to DevTools, even with unchanged chain text");
+    diagnostics.text.text=L"live";
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && !DevToolsBindingRow_WasWrittenLive(wire,L"Text"),
+        "and the app writing the edited value back later does not credit DevTools again");
+    tree.chainText=nullptr;
     DevToolsBindingRow_ForgetLiveWrite(wire,L"Text");
 
     DevToolsAuthored_Init(L"",0);
@@ -960,6 +968,7 @@ static bool CompleteBindingRelay()
     g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
     MintSlot_nolock(404);
     const auto wire = PackWire_nolock(404);
+    DevToolsBindingRow_NoteLiveWrite(wire, L"Text");
     bool passed = true;
     for (const wchar_t* op : {L"capture", L"restore"}) {
         const auto name = L"\\\\.\\pipe\\winapp-devtools-binding-" + std::to_wstring(GetCurrentProcessId());
@@ -1032,7 +1041,10 @@ static bool CompleteBindingRelay()
             op,identity,referenceCount);
     }
     g_diag=nullptr;
-    return passed && diagnostics.calls==2;
+    // The peer answered "none", not "restored": the edited value is still what the app shows.
+    const bool keptEdit = DevToolsBindingRow_WasWrittenLive(wire, L"Text");
+    DevToolsBindingRow_ForgetLiveWrite(wire, L"Text");
+    return passed && keptEdit && diagnostics.calls==2;
 }
 
 struct GuestNegotiationDiagnostics : BindingDiagnostics {
@@ -1548,7 +1560,7 @@ int wmain(int argc, wchar_t** argv)
               "bounded XAML diagnostic preserves valid UTF-16");
         check(InitialBindingTimeout(false), "Pending binding timeout cancels diagnostics acquisition");
         check(InitialBindingTimeout(true), "Running binding timeout releases late diagnostics acquisition");
-        check(CompleteBindingRelay(), "actual CmdBindingOp and relay preserve fake diagnostics identity across capture/restore transports");
+        check(CompleteBindingRelay(), "actual CmdBindingOp and relay preserve fake diagnostics identity across capture/restore transports, and a restore that did not happen keeps the live edit");
         CoUninitialize();
     }
     g_testPropertyMutation = nullptr;

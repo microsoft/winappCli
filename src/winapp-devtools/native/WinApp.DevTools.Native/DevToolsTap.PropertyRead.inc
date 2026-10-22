@@ -623,8 +623,10 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
             }
 
             // The runtime calls a DevTools write Local, like a XAML attribute. Name it, so it is not credited to XAML,
-            // but only while the value is still the one DevTools wrote.
-            if (prop.source == L"Local" && !isBinding && DevToolsBindingRow_LiveWriteHolds(wire, name, rawValue)) {
+            // but only while the value is still the one DevTools wrote. Some values have no chain text (CornerRadius,
+            // a local enum), so the comparison also uses the value read live.
+            const std::wstring observed = rawValue + L'\x1F' + prop.valueState + L'\x1F' + prop.value;
+            if (prop.source == L"Local" && !isBinding && DevToolsBindingRow_LiveWriteHolds(wire, name, observed)) {
                 prop.source = kDevToolsReadLiveEditSource;
                 liveNames.insert(name);
             } else if (prop.source == L"Local" && !isBinding && prop.authored.empty() &&

@@ -197,14 +197,14 @@ static void Test_LiveEditOverridesAnXBind()
           "live edits are remembered per element and property");
     DevToolsBindingRow_ForgetLiveWrite(42, L"Content");
     Check(!DevToolsBindingRow_WasWrittenLive(42, L"Content"), "a restore forgets the edit");
-    const std::wstring hi = L"Hi", again = L"Hello";
-    DevToolsBindingRow_NoteLiveWrite(42, L"Content", &hi);
-    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hi"), "the edit owns the value it wrote");
-    Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Count: 1"), "not one the app wrote after it");
-    DevToolsBindingRow_NoteLiveWrite(42, L"Content", &again);
-    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hello"), "a second edit replaces the remembered value");
     DevToolsBindingRow_NoteLiveWrite(42, L"Content");
-    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"anything"), "an edit that could not be read back still counts");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hi"), "the first read after an edit records what it wrote");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hi"), "and the edit keeps owning that value");
+    Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Count: 1"), "not one the app wrote after it");
+    Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hi") && !DevToolsBindingRow_WasWrittenLive(42, L"Content"),
+          "an app write ends the edit, even if the app later writes the same value back");
+    DevToolsBindingRow_NoteLiveWrite(42, L"Content");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hello"), "a new edit records its own value");
     DevToolsBindingRow_ForgetLiveWrite(42, L"Content");
     CheckEqW(DevToolsBindingRow_SpokenStatus(L"\u2713 Works"), L"Works", "a screen reader hears the status, not the glyph");
     CheckEqW(DevToolsBindingRow_SpokenStatus(L"\u2715 Broken at Nope"), L"Broken at Nope", "including a broken one");

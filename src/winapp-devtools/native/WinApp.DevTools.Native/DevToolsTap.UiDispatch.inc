@@ -282,6 +282,11 @@ static void ClearOriginatedError()
     if (SUCCEEDED(GetRestrictedErrorInfo(&info)) && info) info->Release();
 }
 
+// Defined in DevToolsTap.PropertyRead.inc; SetLiteral reads the property it wrote through it.
+static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>* out, std::wstring* outAuthoredState,
+                                std::wstring* outAuthoredXaml, const std::set<std::wstring>* projection,
+                                size_t* retrievedRows);
+
 // Set a literal property: CreateInstance from a XAML type-converter literal, then SetProperty. UI thread.
 static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std::wstring& type, const std::wstring& value,
                           std::wstring* error = nullptr)
@@ -325,10 +330,11 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
     if (SUCCEEDED(hr) && TryAcquireSRWLockShared(&g_censusLock)) {
         const unsigned long long wire = PackWire_nolock(h);
         ReleaseSRWLockShared(&g_censusLock);
-        // Kept with the edit so a later write by the app itself is not credited to DevTools.
-        const PriorLocalValue written = ReadPriorLocalValue(h, idx);
-        const std::wstring raw = written.object ? std::to_wstring(written.object) : written.value;
-        DevToolsBindingRow_NoteLiveWrite(wire, prop, written.had && written.restorable ? &raw : nullptr);
+        DevToolsBindingRow_NoteLiveWrite(wire, prop);
+        // Read the property once now, so the edit records the value it wrote before the app can write its own.
+        std::vector<DevToolsReadProp> written;
+        const std::set<std::wstring> only{ prop };
+        ReadCuratedProps(h, &written, nullptr, nullptr, &only, nullptr);
     }
     return hr;
 }

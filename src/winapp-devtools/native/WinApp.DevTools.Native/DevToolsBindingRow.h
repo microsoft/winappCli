@@ -41,13 +41,12 @@ DevToolsBindingSummary DevToolsBindingRow_Summary(const std::wstring& json);
 
 // Properties changed with a live edit, per element wire. An {x:Bind} keeps reporting its source value after one,
 // so the edit is the evidence that what the app shows is no longer the binding's value. UI thread only.
-// rawValue is the local value the runtime holds after the write, when it could be read back.
-void DevToolsBindingRow_NoteLiveWrite(unsigned long long wire, const std::wstring& prop,
-                                      const std::wstring* rawValue = nullptr);
+void DevToolsBindingRow_NoteLiveWrite(unsigned long long wire, const std::wstring& prop);
 void DevToolsBindingRow_ForgetLiveWrite(unsigned long long wire, const std::wstring& prop);
 bool DevToolsBindingRow_WasWrittenLive(unsigned long long wire, const std::wstring& prop);
-// Whether the live edit still owns the value: the app has not since written a different one.
-bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstring& prop, const std::wstring& rawValue);
+// Whether the live edit still owns the value. The first read after an edit records the value it observes; a later
+// read that observes anything else means the app wrote its own value, so the edit is forgotten for good.
+bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstring& prop, const std::wstring& observed);
 
 // Turns a working summary into "Overridden by a live edit" when a live edit put a different value on screen than
 // the binding resolves to. Returns whether it did.

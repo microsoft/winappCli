@@ -178,13 +178,13 @@ std::vector<LiveWrite>::iterator FindLiveWrite(unsigned long long wire, const st
 }
 }
 
-void DevToolsBindingRow_NoteLiveWrite(unsigned long long wire, const std::wstring& prop, const std::wstring* rawValue)
+void DevToolsBindingRow_NoteLiveWrite(unsigned long long wire, const std::wstring& prop)
 {
     if (!wire) return;
     auto it = FindLiveWrite(wire, prop);
     if (it == g_liveWrites.end()) it = g_liveWrites.insert(g_liveWrites.end(), LiveWrite{ wire, prop });
-    it->valueKnown = rawValue != nullptr;
-    it->value = rawValue ? *rawValue : std::wstring();
+    it->valueKnown = false;
+    it->value.clear();
 }
 
 void DevToolsBindingRow_ForgetLiveWrite(unsigned long long wire, const std::wstring& prop)
@@ -198,10 +198,18 @@ bool DevToolsBindingRow_WasWrittenLive(unsigned long long wire, const std::wstri
     return FindLiveWrite(wire, prop) != g_liveWrites.end();
 }
 
-bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstring& prop, const std::wstring& rawValue)
+bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstring& prop, const std::wstring& observed)
 {
     const auto it = FindLiveWrite(wire, prop);
-    return it != g_liveWrites.end() && (!it->valueKnown || it->value == rawValue);
+    if (it == g_liveWrites.end()) return false;
+    if (!it->valueKnown) {
+        it->valueKnown = true;
+        it->value = observed;
+        return true;
+    }
+    if (it->value == observed) return true;
+    g_liveWrites.erase(it);
+    return false;
 }
 
 bool DevToolsBindingRow_ApplyLiveOverride(DevToolsBindingSummary& summary, bool writtenLive, const std::wstring& shown)
