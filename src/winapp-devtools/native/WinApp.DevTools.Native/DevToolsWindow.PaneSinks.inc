@@ -117,7 +117,15 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
     g_lastCommitOc = oc;
     g_lastCommitWhy = oc == DevToolsWriteOutcome::Failed ? WriteFailureText(prop) : std::wstring();
     if (wire != g_selWire) {
-        // A late save to an element that is no longer selected: its records' baselines must follow the write.
+        // A late save to an element that is no longer selected: its records' baselines must follow the write, and a
+        // first edit still needs a record so Restore can put back the value the editor opened with.
+        if (oc == DevToolsWriteOutcome::Ok && val != preVal && !RecordFind(wire, prop)) {
+            const AppChange* app = AppChangedFind(wire, prop);
+            EditRecord rec;
+            rec.wire = wire; rec.prop = prop; rec.original = app ? app->value : preVal;
+            g_editRecords.push_back(std::move(rec));
+            AppChangedErase(wire, prop);
+        }
         if (DevToolsWriteLanded(oc)) RebaselineRecords(wire);
         return DevToolsWriteLanded(oc);
     }

@@ -652,7 +652,14 @@ int main()
         const unsigned editsLate=edits;
         const std::wstring liveLate=live[500];
         late.Invoke(nullptr,nullptr);
-        check(edits==editsLate && live[500]==liveLate,  "a retired editor's focus-out does not write");
+        check(edits==editsLate && live[500]==liveLate, "a retired editor's focus-out does not write");
+        // A late save to an element that is no longer selected still records what Restore puts back there.
+        g_editRecords.clear(); g_appChanged.clear();
+        g_selWire=g_dirtyNode=501;
+        ApplyCommitOutcome(DevToolsWriteOutcome::Ok,500,L"Text",L"String",L"Before",L"Typed");
+        check(RecordFind(500,L"Text") && RecordFind(500,L"Text")->original==L"Before" && !RecordFind(501,L"Text"),
+            "a late save to the previous element records its original on that element");
+        g_selWire=g_dirtyNode=500;
         RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr);
         late.retired=false;
         ReleasePaneEditors(/*retire*/ false);
