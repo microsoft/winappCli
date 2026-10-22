@@ -63,8 +63,9 @@ winapp devtools search --of-type Stack --with 'key==t2'
 A selector that matches more than one element fails and lists each match with its
 selector, key, call site and window; pass `-w` or one of the listed selectors.
 `search` matches component names, C# names (`#incrementButton`), element kinds, keys
-and call sites such as `App.cs:67`, and `search "<Counter>/Button"` lists every element a path selects, in
-every window. `search --component Counter` lists every rendered `Counter`, and adds a
+and call sites. A query written as a selector (`key=t1`, `App.cs:67` or `"<Counter>/Button"`)
+lists exactly the elements that selector selects, in
+every window, so `key=t1` does not also list `key=t10`. `search --component Counter` lists every rendered `Counter`, and adds a
 text query to search only inside them. `--of-type` accepts Reactor element kinds
 (`Button`, `Stack`) as well as WinUI types, and `--with 'key==t1'` filters by key.
 `--all` shows the full WinUI tree with the Reactor element after each line.

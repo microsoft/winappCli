@@ -128,6 +128,23 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
                     authored: !all, text: query, max: max));
             }
 
+            // A Reactor selector (key=v1, <Counter>/Button, App.cs:35) is not text: list exactly what it selects, in
+            // every window, as get-state would resolve it. A text search would let key=v1 match key=v10.
+            if (inside is null && ReactorSelector.Parse(query) is { } selector)
+            {
+                var described = target.Tap!.RequestReactorDescribe(cancellationToken);
+                if (described.Ok && ReactorDescription.Parse(described.ResultJson) is { IsReactor: true } description)
+                {
+                    var selected = selector.Match(description);
+                    var listed = selected.Count == 0 ? [] : DevToolsSelector.ReactorCandidates(target.Tap!, description, selected, cancellationToken);
+                    return Task.FromResult(WriteMatches(target, query, listed, max, json, appAuthored: true, fallback: null,
+                        new DevToolsSelector.FindResult(listed, listed.Length, listed.Length, false), cancellationToken,
+                        noMatch: description.Complete
+                            ? $"No rendered Reactor element matches {query}. Run `winapp devtools inspect` to list the components and elements that are rendered now."
+                            : $"No rendered Reactor element matches {query}, but the app was still changing and not every window answered. Run the command again."));
+                }
+            }
+
             var appAuthored = !all;
             var (result, error) = DevToolsSelector.Find(target.Tap!, query, appAuthored, cancellationToken);
             if (error is not null)
@@ -138,18 +155,6 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             // Nothing of the app's own XAML matched: search the whole tree before giving up. Items created from
             // data or code (a NavigationViewItem added from a model list) have no XAML source of their own.
             string? fallback = null;
-            if (appAuthored && result!.Matches.Count == 0 && inside is null && ReactorSelector.Parse(query) is { } selector)
-            {
-                // A Reactor path such as <Counter>/Button is not text: list what it selects, in every window.
-                var described = target.Tap!.RequestReactorDescribe(cancellationToken);
-                if (described.Ok && ReactorDescription.Parse(described.ResultJson) is { IsReactor: true } description &&
-                    selector.Match(description) is { Count: > 0 } selected)
-                {
-                    var listed = DevToolsSelector.ReactorCandidates(target.Tap!, description, selected, cancellationToken);
-                    return Task.FromResult(WriteMatches(target, query, listed, max, json, appAuthored: true, fallback: null,
-                        new DevToolsSelector.FindResult(listed, listed.Length, listed.Length, false), cancellationToken));
-                }
-            }
             if (appAuthored && result!.Matches.Count == 0)
             {
                 var why = result.ExplainIfNothingAuthored();
@@ -181,7 +186,8 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
         }
 
         private int WriteMatches(DevToolsTarget target, string query, IReadOnlyList<DevToolsSelector.VisualTreeMatch> matches,
-            int max, bool json, bool appAuthored, string? fallback, DevToolsSelector.FindResult result, CancellationToken cancellationToken)
+            int max, bool json, bool appAuthored, string? fallback, DevToolsSelector.FindResult result, CancellationToken cancellationToken,
+            string? noMatch = null)
         {
             IReadOnlyList<DevToolsSelector.VisualTreeMatch> shown = matches.Count > max ? matches.Take(max).ToArray() : matches;
             if (shown.Count > 0)
@@ -220,7 +226,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
                     {
                         // The same sentence the human path prints, so a --json caller is told WHY rather than
                         // being left to infer it from an empty array.
-                        DevToolsJson.WriteError(writer, "no-match", DescribeNoMatches(target, query, appAuthored, result.ClassificationTruncated));
+                        DevToolsJson.WriteError(writer, "no-match", noMatch ?? DescribeNoMatches(target, query, appAuthored, result.ClassificationTruncated));
                     }
 
                     writer.WriteStartArray("matches");
@@ -276,7 +282,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             Console.WriteLine();
             if (!found)
             {
-                Console.MarkupLineInterpolated($"[yellow]{DescribeNoMatches(target, query, appAuthored, result.ClassificationTruncated)}[/]");
+                Console.MarkupLineInterpolated($"[yellow]{noMatch ?? DescribeNoMatches(target, query, appAuthored, result.ClassificationTruncated)}[/]");
                 return 1;
             }
 

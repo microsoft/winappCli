@@ -340,6 +340,52 @@ public class DevToolsSelectorTests
         StringAssert.Contains(output, "Found 2 match(es)");
     }
 
+    /// <summary>A key is exact, as in get-state: key=v1 must not also list v10, which text search would.</summary>
+    [TestMethod]
+    public async Task Search_ReactorKey_IsExact_NotASubstringOfLongerKeys()
+    {
+        const string described = """
+            {"state":"ok","nodes":[
+              {"handle":"20","element":"Stack","file":0,"line":7,"host":{"kind":"window","window":"100","title":"Perf","root":{"kind":"class","name":"App"}}},
+              {"handle":"21","parent":"20","element":"Border","key":"v1","file":0,"line":29},
+              {"handle":"22","parent":"20","element":"Border","key":"v10","file":0,"line":29}],
+             "files":["C:\\src\\Program.cs"],"unmapped":0,"truncated":false,"complete":true}
+            """;
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", Find("""
+                [{"handle":"21","name":"","type":"Microsoft.UI.Xaml.Controls.Border","depth":3,"reactor":{"element":"Border","key":"v1"}},
+                 {"handle":"22","name":"","type":"Microsoft.UI.Xaml.Controls.Border","depth":3,"reactor":{"element":"Border","key":"v10"}}]
+                """))
+            .Answer("Reactor.describe", described)
+            .Answer("VisualTree.enumerate", """{"nodes":[]}""");
+
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["key=v1"]);
+
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "key=v1 ");
+        Assert.IsFalse(output.Contains("key=v10", StringComparison.Ordinal), output);
+        StringAssert.Contains(output, "Found 1 match(es)");
+    }
+
+    [TestMethod]
+    public async Task Search_ReactorKey_NotRendered_SaysSoInsteadOfListingSimilarKeys()
+    {
+        const string described = """
+            {"state":"ok","nodes":[
+              {"handle":"22","element":"Border","key":"v10","file":0,"line":29}],
+             "files":["C:\\src\\Program.cs"],"unmapped":0,"truncated":false,"complete":true}
+            """;
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", Find("""[{"handle":"22","name":"","type":"Microsoft.UI.Xaml.Controls.Border","depth":3,"reactor":{"element":"Border","key":"v10"}}]"""))
+            .Answer("Reactor.describe", described);
+
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["key=v1"]);
+
+        Assert.AreNotEqual(0, exit, output);
+        StringAssert.Contains(output, "No rendered Reactor element matches key=v1");
+        Assert.IsFalse(output.Contains("key=v10", StringComparison.Ordinal), output);
+    }
+
     [TestMethod]
     public void ReactorDescription_CompleteDefaultsToTrue_AndReadsFalse()
     {
