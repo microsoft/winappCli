@@ -60,12 +60,15 @@ internal class DevToolsInvokeHandlerCommand : DevToolsLiveCommand, IHelpExamples
                     "Provide the handler, e.g. `winapp devtools invoke-handler \"<Counter>/Button\" OnClick`. " +
                     "`winapp devtools get-property <selector>` lists an element's handlers.", "bad-args"));
             }
-            var handle = RequireHandle(target, parseResult.GetValue(SelectorArgument), json,
+            var selector = parseResult.GetValue(SelectorArgument);
+            var handle = RequireHandle(target, selector, json,
                 "Run `winapp devtools inspect` to list elements.", out var exitCode, cancellationToken, forMutation: true);
             if (handle is null)
             {
                 return Task.FromResult(exitCode);
             }
+            // Read before the handler runs: a handler may remove its own element, which then has no selector to print.
+            var element = Describe(target, handle, cancellationToken);
             var response = target.Tap!.RequestReactorInvokeHandler(handle, handlerEvent.Trim(), parseResult.GetValue(ValueOption), cancellationToken);
             return Task.FromResult(ReportAgentAnswer(target, handle, json, response, (writer, root) =>
             {
@@ -78,7 +81,7 @@ internal class DevToolsInvokeHandlerCommand : DevToolsLiveCommand, IHelpExamples
                 }
             }, root =>
             [
-                $"{UiSymbols.Check} {DevToolsRender.Header(handle, Describe(target, handle, cancellationToken))}: ran " +
+                $"{UiSymbols.Check} {(element is null ? DevToolsRender.Handle(selector!.Trim()) : DevToolsRender.Header(handle, element))}: ran " +
                     $"{Markup.Escape(ReactorDescription.ReadString(root, "event") ?? handlerEvent)} → " +
                     Markup.Escape(ReactorDescription.ReadString(root, "method") ?? "handler") +
                     (root.TryGetProperty("rendered", out var rendered) && rendered.ValueKind == JsonValueKind.False
