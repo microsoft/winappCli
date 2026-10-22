@@ -101,7 +101,8 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
             var text = parseResult.GetValue(TextOption);
             var kind = parseResult.GetValue(KindOption);
             var recapture = text is null && Nullify(parseResult.GetValue(IdOption)) is not null &&
-                (parseResult.GetValue(FromSelectionOption) || Nullify(parseResult.GetValue(FromElementOption)) is not null);
+                (parseResult.GetValue(FromSelectionOption) || Nullify(parseResult.GetValue(FromElementOption)) is not null ||
+                    Nullify(parseResult.GetValue(SelectorArgument)) is not null);
 
             if (string.IsNullOrWhiteSpace(text) && !recapture)
             {

@@ -292,7 +292,9 @@ public class DevToolsCSharpCommentsTests
     }
 
     [TestMethod]
-    public async Task Recapture_KeepsTextAndMovesTheAnchor()
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Recapture_KeepsTextAndMovesTheAnchor(bool positionalSelector)
     {
         var (exit, _) = Add("--id", "cmt_keep", "--text", "keep me", "--kind", "visual", "--file", "App.cs", "--line", "9");
         Assert.AreEqual(0, exit);
@@ -301,8 +303,9 @@ public class DevToolsCSharpCommentsTests
         var store = new CommentStore();
         var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
             new CommentTestTargetResolver(agent.Pid), new FixedCwd(_root), console, NullLogger<DevToolsCommentsAddCommand>.Instance);
+        string[] element = positionalSelector ? ["7"] : ["--from-element", "7"];
         exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(
-            ["--id", "cmt_keep", "--app", agent.Pid.ToString(), "--from-element", "7"]));
+            ["--id", "cmt_keep", "--app", agent.Pid.ToString(), .. element]));
         Assert.AreEqual(0, exit, console.Output);
         var comment = store.Load(StorePath).Comments.Single();
         Assert.AreEqual("keep me", comment.Text);
