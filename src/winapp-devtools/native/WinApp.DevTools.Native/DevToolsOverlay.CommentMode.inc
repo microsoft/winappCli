@@ -181,6 +181,17 @@ static std::wstring BuildPinMarkup(const DevToolsSelection::PinPixels& pin, cons
     return m;
 }
 
+// How many markers before this one belong to the same element, so markers sharing an element sit side by side.
+static int PinSlot(const PinnedComment& p)
+{
+    int slot = 0;
+    for (const auto& other : g_pins) {
+        if (&other == &p) break;
+        if (other.handle && other.handle == p.handle && other.ui) ++slot;
+    }
+    return slot;
+}
+
 // (Re)draw one pin's marker beside its element bounds, self-excluded from the oracle.
 static void DrawPinUi(PinnedComment& p)
 {
@@ -191,7 +202,8 @@ static void DrawPinUi(PinnedComment& p)
     if (current.right <= 0 || current.bottom <= 0 || current.left >= w || current.top >= h) return;
     p.bounds = current;
     const auto pin = DevToolsSelection::PlacePin(
-        { current.left, current.top, current.right, current.bottom }, DevToolsSelection::PinViewport(w, h, PinTitleBarInsetDip()));
+        { current.left, current.top, current.right, current.bottom }, DevToolsSelection::PinViewport(w, h, PinTitleBarInsetDip()),
+        PinSlot(p));
     std::wstring tip = p.text.size() > 120 ? (p.text.substr(0, 117) + L"\u2026") : p.text;
     if (tip.empty()) tip = L"Comment";
     IInspectable* insp = nullptr;

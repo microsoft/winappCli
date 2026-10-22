@@ -234,8 +234,8 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
                  L" AutomationProperties.Name=\"Open source for: " + subject + L"\""
                  L" ToolTipService.ToolTip=\"Hand this file to whatever opens .xaml on this machine\"/>";
         } else {
-            m += L"<HyperlinkButton x:Name=\"E" + i + L"\" Content=\"Reveal\" Padding=\"6,0\" FontSize=\"11\""
-                 L" AutomationProperties.Name=\"Reveal in File Explorer: " + subject + L"\""
+            m += L"<HyperlinkButton x:Name=\"E" + i + L"\" Content=\"Show in File Explorer\" Padding=\"6,0\" FontSize=\"11\""
+                 L" AutomationProperties.Name=\"Show in File Explorer: " + subject + L"\""
                  L" AutomationProperties.AutomationId=\"CommentReveal" + i + L"\""
                  L" ToolTipService.ToolTip=\"Nothing on this machine opens .xaml files. Show it in File Explorer instead\"/>";
             m += L"<HyperlinkButton x:Name=\"C" + i + L"\" Content=\"Copy path\" Padding=\"6,0\" FontSize=\"11\""
@@ -590,14 +590,21 @@ static void WireAddComment(void* frameworkElement)
         auto status = root.FindName(L"AddCommentStatus").try_as<DevToolsXC::TextBlock>();
         if (!button || !box || !text || !status) return;
         const unsigned gen = ++g_addCommentGen;
-        struct Saved { std::wstring id, text; };
-        auto saved = std::make_shared<Saved>();
+        auto saved = std::make_shared<CommentBoxSaved>();
         DevToolsWindowComment existing;
         if (SelectedElementComment(g_selWire, &existing)) {
             saved->id = existing.id;
             saved->text = existing.text;
             text.Text(existing.text);
             box.Visibility(DevToolsX::Visibility::Visible);
+        }
+        g_commentBox = winrt::make_weak(text);
+        g_commentBoxSaved = saved;
+        if (auto it = g_selWire ? g_commentDrafts.find(g_selWire) : g_commentDrafts.end(); it != g_commentDrafts.end()) {
+            text.Text(it->second);
+            status.Text(L"Your unsaved comment is back. Press Enter to save it, or Esc to discard it.");
+            box.Visibility(DevToolsX::Visibility::Visible);
+            g_commentDrafts.erase(it);
         }
         button.Click([box, text](auto&&, auto&&) {
             box.Visibility(DevToolsX::Visibility::Visible);
