@@ -194,6 +194,30 @@ public sealed class ReactorComponentsTests
     }
 
     [TestMethod]
+    public void TryParse_IsStrictAboutNumbersAndEnums()
+    {
+        Assert.IsFalse(ReactorComponents.TryParse("3,5", typeof(double), out _, out var error), "a group separator is not a decimal point");
+        StringAssert.Contains(error, "not a valid double");
+        Assert.IsFalse(ReactorComponents.TryParse("2,5", typeof(decimal), out _, out _));
+        Assert.IsFalse(ReactorComponents.TryParse("1,000", typeof(int), out _, out _));
+        Assert.IsFalse(ReactorComponents.TryParse("3.4e39", typeof(float), out _, out _), "out of range is not Infinity");
+        Assert.IsFalse(ReactorComponents.TryParse("1e999", typeof(double), out _, out _));
+        Assert.IsFalse(ReactorComponents.TryParse("300", typeof(byte), out _, out _));
+        Assert.IsTrue(ReactorComponents.TryParse("-1.5e3", typeof(double), out var real, out _));
+        Assert.AreEqual(-1500.0, real);
+        Assert.IsTrue(ReactorComponents.TryParse("2.5", typeof(decimal), out var money, out _));
+        Assert.AreEqual(2.5m, money);
+
+        Assert.IsFalse(ReactorComponents.TryParse("All,Done", typeof(Filter), out _, out error), "a plain enum holds one member");
+        StringAssert.Contains(error, "All, Active, Done");
+        Assert.IsTrue(ReactorComponents.TryParse("Read,Write", typeof(Access), out var access, out _));
+        Assert.AreEqual(Access.Read | Access.Write, access);
+    }
+
+    [Flags]
+    private enum Access { None = 0, Read = 1, Write = 2 }
+
+    [TestMethod]
     public void Format_SummarisesCollectionsAndRedactsPasswords()
     {
         var list = new List<TaskItem> { new(1, "a"), new(2, "b") };

@@ -176,8 +176,10 @@ internal static class ReactorComponents
             }
             if (target.IsEnum)
             {
-                if (Enum.TryParse(target, text, ignoreCase: true, out var parsed) &&
-                    (Enum.IsDefined(target, parsed!) || target.IsDefined(typeof(FlagsAttribute), false)))
+                // A comma list combines members, which only a [Flags] enum can hold.
+                var flags = target.IsDefined(typeof(FlagsAttribute), false);
+                if ((flags || !text.Contains(',')) && Enum.TryParse(target, text, ignoreCase: true, out var parsed) &&
+                    (Enum.IsDefined(target, parsed!) || flags))
                 {
                     value = parsed;
                     return true;
@@ -205,6 +207,16 @@ internal static class ReactorComponents
                 error = $"'{text}' is not a single character";
                 return false;
             }
+            if (TryParseNumber(text, target, out var number) is { } numeric)
+            {
+                if (!numeric)
+                {
+                    error = $"'{text}' is not a valid {FriendlyTypeName(type)}";
+                    return false;
+                }
+                value = number;
+                return true;
+            }
             value = target == typeof(Guid) ? Guid.Parse(text)
                 : target == typeof(TimeSpan) ? TimeSpan.Parse(text, culture)
                 : target == typeof(DateTime) ? DateTime.Parse(text, culture, DateTimeStyles.RoundtripKind)
@@ -217,6 +229,35 @@ internal static class ReactorComponents
             error = $"'{text}' is not a valid {FriendlyTypeName(type)}";
             return false;
         }
+    }
+
+    /// <summary>
+    /// Parses an invariant-culture number of a numeric type: no thousands separators (3,5 is not 35), and nothing that
+    /// overflows the type (1e999 is not Infinity). Null when <paramref name="type"/> is not numeric.
+    /// </summary>
+    private static bool? TryParseNumber(string text, Type type, out object? value)
+    {
+        const NumberStyles integer = NumberStyles.Integer;
+        const NumberStyles real = NumberStyles.Float;
+        var culture = CultureInfo.InvariantCulture;
+        value = null;
+        bool ok;
+        switch (Type.GetTypeCode(type))
+        {
+            case TypeCode.SByte: ok = sbyte.TryParse(text, integer, culture, out var i8); value = i8; break;
+            case TypeCode.Byte: ok = byte.TryParse(text, integer, culture, out var u8); value = u8; break;
+            case TypeCode.Int16: ok = short.TryParse(text, integer, culture, out var i16); value = i16; break;
+            case TypeCode.UInt16: ok = ushort.TryParse(text, integer, culture, out var u16); value = u16; break;
+            case TypeCode.Int32: ok = int.TryParse(text, integer, culture, out var i32); value = i32; break;
+            case TypeCode.UInt32: ok = uint.TryParse(text, integer, culture, out var u32); value = u32; break;
+            case TypeCode.Int64: ok = long.TryParse(text, integer, culture, out var i64); value = i64; break;
+            case TypeCode.UInt64: ok = ulong.TryParse(text, integer, culture, out var u64); value = u64; break;
+            case TypeCode.Single: ok = float.TryParse(text, real, culture, out var f32) && float.IsFinite(f32); value = f32; break;
+            case TypeCode.Double: ok = double.TryParse(text, real, culture, out var f64) && double.IsFinite(f64); value = f64; break;
+            case TypeCode.Decimal: ok = decimal.TryParse(text, real, culture, out var dec); value = dec; break;
+            default: return null;
+        }
+        return ok;
     }
 
     /// <summary>
