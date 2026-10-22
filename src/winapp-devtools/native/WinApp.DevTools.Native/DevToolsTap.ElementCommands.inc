@@ -46,8 +46,10 @@ static std::wstring CmdBindingOp(unsigned long long wire, const std::wstring& op
     struct BindState { winrt::com_ptr<IAgileReference> element; std::wstring authored; };
     auto st = std::make_shared<BindState>();
     st->authored = authoredOverride;
-    HRESULT hr = RunOnUiThread([wire, prop, st]() -> HRESULT {
+    HRESULT hr = RunOnUiThread([wire, op, prop, st]() -> HRESULT {
         DevToolsBindingRelay_NoteUiThread();
+        // Restoring or clearing replaces the live edit, as the window's Restore binding button does.
+        if (op == L"restore" || op == L"restoreconfirmed" || op == L"clear") DevToolsBindingRow_ForgetLiveWrite(wire, prop);
         // RE-RESOLVE inside the closure: never carry a raw handle across the UI-thread hop (UAF by
         // construction), same discipline as property.get.
         InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;

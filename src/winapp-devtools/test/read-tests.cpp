@@ -476,6 +476,13 @@ static void Test_OriginLabel()
     Check(DevToolsRead_IsUnsetRuntimeLocal(L"CenterPoint", L"0, 0, 0"), "CenterPoint at zero is unset");
     Check(DevToolsRead_IsUnsetRuntimeLocal(L"RasterizationScale", L"1.5"), "RasterizationScale is computed by the runtime");
     Check(DevToolsRead_IsUnsetRuntimeLocal(L"TransformMatrix", L"1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1"), "an identity TransformMatrix is unset");
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"TransformMatrix",
+              L"{{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}}"), "including in the nested-brace form a Matrix4x4 arrives in");
+    Check(DevToolsRead_IsUnsetRuntimeLocal(L"TransformMatrix",
+              L"{ {M11:1 M12:0 M13:0 M14:0} {M21:0 M22:1 M23:0 M24:0} {M31:0 M32:0 M33:1 M34:0} {M41:0 M42:0 M43:0 M44:1} }"),
+          "and with member labels");
+    Check(!DevToolsRead_IsUnsetRuntimeLocal(L"TransformMatrix",
+              L"{{2,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}}"), "a scaled TransformMatrix was set");
     Check(!DevToolsRead_IsUnsetRuntimeLocal(L"Translation", L"0,10,0"), "a moved element's Translation was set");
     Check(!DevToolsRead_IsUnsetRuntimeLocal(L"Scale", L"2,2,1"), "a scaled element's Scale was set");
     Check(!DevToolsRead_IsUnsetRuntimeLocal(L"Rotation", L""), "an unreadable value is not assumed unset");

@@ -475,6 +475,34 @@ struct ElementLineTreeService : TextTreeService {
     }
 };
 
+static std::wstring WriteElementLineXaml(const std::wstring& tag)
+{
+    wchar_t temp[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, temp);
+    static int seq = 0;
+    const std::wstring root = std::wstring(temp) + L"winapp-provenance-" + std::to_wstring(GetCurrentProcessId()) +
+                              L"-" + std::to_wstring(++seq);
+    CreateDirectoryW(root.c_str(), nullptr);
+    std::string text;
+    for (int i = 1; i < 46; ++i) text += "<!-- -->\r\n";
+    for (const wchar_t c : tag) text += static_cast<char>(c);
+    text += "\r\n";
+    const HANDLE file = CreateFileW((root + L"\\MainWindow.xaml").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                    FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(file, text.data(), (DWORD)text.size(), &written, nullptr);
+        CloseHandle(file);
+    }
+    return root;
+}
+
+static void RemoveElementLineXaml(const std::wstring& root)
+{
+    DeleteFileW((root + L"\\MainWindow.xaml").c_str());
+    RemoveDirectoryW(root.c_str());
+}
+
 static void CheckLocalProvenance(const std::function<void(bool,const char*)>& check)
 {
     TextDiagnostics diagnostics;
@@ -487,25 +515,50 @@ static void CheckLocalProvenance(const std::function<void(bool,const char*)>& ch
     auto text=[](const std::vector<DevToolsReadProp>& props){
         return std::find_if(props.begin(),props.end(),[](const DevToolsReadProp& p){return p.name==L"Text";});
     };
+    auto read=[](std::vector<DevToolsReadProp>& props){ props.clear(); ReadCuratedProps(901,&props,nullptr); };
 
     std::vector<DevToolsReadProp> props;
-    ReadCuratedProps(901,&props,nullptr);
+    read(props);
     auto row=text(props);
-    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
-        row->chain[0].file.empty() && row->chain[0].line==0,
-        "a Local value the element's XAML does not set names no XAML line");
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 && row->chain[0].line==46,
+        "a Local value keeps the element's line when its XAML cannot be read to check");
     const auto translation=std::find_if(props.begin(),props.end(),[](const DevToolsReadProp& p){return p.name==L"Translation";});
     check(translation!=props.end() && translation->source==L"Default",
         "a runtime-only Local at its unset value reads as Default");
 
-    DevToolsBindingRow_NoteLiveWrite(wire,L"Text");
-    props.clear();
-    ReadCuratedProps(901,&props,nullptr);
+    const std::wstring unset=WriteElementLineXaml(L"<TextBlock />");
+    DevToolsAuthored_Init(unset,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        row->chain[0].file.empty() && row->chain[0].line==0,
+        "a Local value the element's XAML does not set names no XAML line");
+
+    const std::wstring authored=WriteElementLineXaml(L"<TextBlock Text=\"live\" />");
+    DevToolsAuthored_Init(authored,0);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local" && row->chain.size()==2 &&
+        !row->chain[0].file.empty() && row->chain[0].line==46,
+        "a Local value the element's XAML sets keeps its XAML line");
+
+    const std::wstring written=L"live", overwritten=L"Count: 1";
+    DevToolsBindingRow_NoteLiveWrite(wire,L"Text",&written);
+    read(props);
     row=text(props);
     check(row!=props.end() && row->source==kDevToolsReadLiveEditSource && row->chain.size()==2 &&
         row->chain[0].source==kDevToolsReadLiveEditSource && row->chain[0].file.empty(),
         "a DevTools write reads as DevTools, not as XAML");
+    DevToolsBindingRow_NoteLiveWrite(wire,L"Text",&overwritten);
+    read(props);
+    row=text(props);
+    check(row!=props.end() && row->source==L"Local",
+        "once the app writes a different value, it is no longer credited to DevTools");
     DevToolsBindingRow_ForgetLiveWrite(wire,L"Text");
+
+    DevToolsAuthored_Init(L"",0);
+    RemoveElementLineXaml(unset);
+    RemoveElementLineXaml(authored);
     g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear();
     g_diag=nullptr;g_vts3=nullptr;
 }

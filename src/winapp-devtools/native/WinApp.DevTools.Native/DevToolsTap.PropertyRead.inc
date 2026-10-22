@@ -616,10 +616,15 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                     prop.authoredKey = DevToolsRead_AuthoredKey(authored);
                     authoredNames.insert(name);
                 }
+                if (name == L"Name" && authoredState == DevToolsAuthoredState::Available &&
+                    DevToolsAuthored_FindAttribute(authoredXaml, L"x:Name", &authored)) {
+                    authoredNames.insert(name);
+                }
             }
 
-            // The runtime calls a DevTools write Local, like a XAML attribute. Name it, so it is not credited to XAML.
-            if (prop.source == L"Local" && !isBinding && DevToolsBindingRow_WasWrittenLive(wire, name)) {
+            // The runtime calls a DevTools write Local, like a XAML attribute. Name it, so it is not credited to XAML,
+            // but only while the value is still the one DevTools wrote.
+            if (prop.source == L"Local" && !isBinding && DevToolsBindingRow_LiveWriteHolds(wire, name, rawValue)) {
                 prop.source = kDevToolsReadLiveEditSource;
                 liveNames.insert(name);
             } else if (prop.source == L"Local" && !isBinding && prop.authored.empty() &&
@@ -673,11 +678,13 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                 if (!e.value.empty() && v[i].Type && !EnumTableFor(v[i].Type).empty()) e.value = EnumNameForValue(v[i].Type, e.value);
                 e.winner  = !v[i].Overridden;
                 // A Local entry's source position is the element's opening tag, which proves nothing about this
-                // property. Keep it only when that tag sets the property.
+                // property. When that tag can be read, keep the position only if the tag sets the property.
                 const bool local = e.source == L"Local";
                 if (local && liveNames.count(name)) e.source = kDevToolsReadLiveEditSource;
                 else if (local && unsetNames.count(name)) e.source = L"Default";
-                const bool placeable = !local || (!liveNames.count(name) && !unsetNames.count(name) && authoredNames.count(name));
+                const bool tagChecked = authoredState == DevToolsAuthoredState::Available;
+                const bool placeable = !local || (!liveNames.count(name) && !unsetNames.count(name) &&
+                                                  (!tagChecked || authoredNames.count(name)));
                 unsigned int si = v[i].PropertyChainIndex;
                 if (s && si < sc) {
                     if (s[si].TargetType) e.targetType = s[si].TargetType;

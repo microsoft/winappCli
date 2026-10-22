@@ -325,7 +325,10 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
     if (SUCCEEDED(hr) && TryAcquireSRWLockShared(&g_censusLock)) {
         const unsigned long long wire = PackWire_nolock(h);
         ReleaseSRWLockShared(&g_censusLock);
-        DevToolsBindingRow_NoteLiveWrite(wire, prop);
+        // Kept with the edit so a later write by the app itself is not credited to DevTools.
+        const PriorLocalValue written = ReadPriorLocalValue(h, idx);
+        const std::wstring raw = written.object ? std::to_wstring(written.object) : written.value;
+        DevToolsBindingRow_NoteLiveWrite(wire, prop, written.had && written.restorable ? &raw : nullptr);
     }
     return hr;
 }

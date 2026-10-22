@@ -453,20 +453,22 @@ bool DevToolsRead_IsUnsetRuntimeLocal(const std::wstring& name, const std::wstri
         for (size_t i = 0; i < 16; i += 5) expected[i] = 1.0;
     } else return false;
 
+    // Read the numbers in order, whatever separates them: vectors arrive as "0,0,0" and a Matrix4x4 as nested
+    // braces, possibly with member labels such as "M11:", which are skipped as words.
     std::vector<double> parts;
-    size_t start = 0;
-    while (start <= value.size()) {
-        size_t end = value.find(L',', start);
-        if (end == std::wstring::npos) end = value.size();
-        std::wstring part = value.substr(start, end - start);
-        const size_t first = part.find_first_not_of(L' '), last = part.find_last_not_of(L' ');
-        if (first == std::wstring::npos) return false;
-        part = part.substr(first, last - first + 1);
-        wchar_t* stop = nullptr;
-        const double number = wcstod(part.c_str(), &stop);
-        if (!stop || *stop) return false;
-        parts.push_back(number);
-        start = end + 1;
+    for (size_t i = 0; i < value.size();) {
+        const wchar_t c = value[i];
+        if (iswalpha(c)) {
+            while (i < value.size() && iswalnum(value[i])) ++i;
+        } else if (iswdigit(c) || c == L'-' || c == L'+' || c == L'.') {
+            wchar_t* stop = nullptr;
+            const double number = wcstod(value.c_str() + i, &stop);
+            if (!stop || stop == value.c_str() + i) return false;
+            parts.push_back(number);
+            i = stop - value.c_str();
+        } else {
+            ++i;
+        }
     }
     return parts == expected;
 }
