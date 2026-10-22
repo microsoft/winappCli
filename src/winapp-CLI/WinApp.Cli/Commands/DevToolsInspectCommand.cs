@@ -133,7 +133,7 @@ internal partial class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExampl
             // genuinely all-framework), and the envelope tells them apart. Fall back to the raw tree and say which
             // one it was; an empty view alone reads as "your app has no elements" and sends someone to debug markup
             // that is fine.
-            if (authored && forest.ExplainIfEmpty() is string why)
+            if (authored && (forest.ExplainIfEmpty() ?? forest.ExplainHiddenXaml(rootHandle)) is string why)
             {
                 // A Reactor app whose components could not be read has one real reason, and it is not its XAML.
                 fallback = forest.Reactor is { Present: true, IsReactor: false } unreadable

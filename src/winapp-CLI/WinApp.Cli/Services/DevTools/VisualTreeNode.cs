@@ -216,6 +216,23 @@ internal sealed record AuthoredForest(
               "from framework or template XAML. Showing the raw tree instead.";
     }
 
+    /// <summary>
+    /// Why this view hides the app's XAML, or <c>null</c> when it does not: without XAML source information only the
+    /// Reactor islands (<c>ReactorHostControl</c>s) are classified as the app's, so a XAML app hosting them would show
+    /// the islands alone, without the XAML around them. <paramref name="rootHandle"/> is the inspected subtree, if any;
+    /// an island inspected on its own has no XAML around it to lose.
+    /// </summary>
+    public string? ExplainHiddenXaml(string? rootHandle)
+    {
+        if (SourceInstrumented || Reactor is not { IsReactor: true } reactor ||
+            !Roots.Any(root => root.Handle != rootHandle && reactor.ByHandle.TryGetValue(root.Handle, out var node) && node.Host?.Kind == "island"))
+        {
+            return null;
+        }
+        return "This app reports no XAML source information, so its own XAML around the Reactor islands cannot be told " +
+               "apart from the framework's. Showing the raw tree instead. " + DevToolsAppAuthored.RelaunchForSource;
+    }
+
     private static bool ReadBool(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
 

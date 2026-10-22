@@ -334,6 +334,80 @@ public class ReactorTreeTests
         Assert.IsFalse(Extras(annotations, nodes["1"]).TryGetProperty("name", out _));
     }
 
+    // A XAML app without source information hosting two Reactor islands: the authored view finds only the islands, in
+    // the classifier's order; the raw tree has the XAML around them in visual order.
+    private const string IslandReactor = """
+        "reactor":{"present":true,"agent":"ok","sourceMap":false,
+          "nodes":[
+            {"handle":"20","element":"Border","host":{"kind":"island","window":"100","root":{"kind":"class","name":"InteropPanel"}}},
+            {"handle":"10","element":"Border","host":{"kind":"island","window":"100","root":{"kind":"class","name":"ChartPanel"}}}],
+          "files":[],"unmapped":0,"truncated":false}
+        """;
+
+    private const string IslandsOnly = """
+        {"nodes":[
+           {"handle":"20","type":"Microsoft.UI.Xaml.Controls.Border","childCount":0,"children":[]},
+           {"handle":"10","type":"Microsoft.UI.Xaml.Controls.Border","childCount":0,"children":[]}],
+         "authored":true,"sourceInstrumented":false,"classificationTruncated":false,"classifiedNodes":6,"censusNodes":6,"authoredNodes":2,
+        """ + IslandReactor + "}";
+
+    private const string IslandsInXaml = """
+        {"nodes":[
+           {"handle":"1","type":"Microsoft.UI.Xaml.Controls.Grid","childCount":3,"children":[
+             {"handle":"2","type":"Microsoft.UI.Xaml.Controls.StackPanel","childCount":1,"children":[
+               {"handle":"3","type":"Microsoft.UI.Xaml.Controls.Button","name":"SaveButton","uniqueName":true,"childCount":0,"children":[]}]},
+             {"handle":"10","type":"Microsoft.UI.Xaml.Controls.Border","childCount":0,"children":[]},
+             {"handle":"20","type":"Microsoft.UI.Xaml.Controls.Border","childCount":0,"children":[]}]}],
+         "authored":false,"sourceInstrumented":false,
+        """ + IslandReactor + "}";
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task Inspect_WithoutXamlSourceInfo_ShowsTheXamlAroundReactorIslandsInVisualOrder()
+    {
+        static bool Authored(string request) => request.Contains("\"authored\":true", StringComparison.Ordinal);
+        foreach (var json in new[] { false, true })
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", IslandsOnly, Authored)
+                .Answer("VisualTree.enumerate", IslandsInXaml);
+            var console = new Spectre.Console.Testing.TestConsole();
+            console.Profile.Width = 300;
+            var command = new DevToolsInspectCommand();
+            command.Action = new DevToolsInspectCommand.Handler(agent.Resolver(), console);
+            var exit = await command.Parse(json ? ["--json"] : []).InvokeAsync();
+            var output = console.Output;
+
+            Assert.AreEqual(0, exit, output);
+            Assert.AreEqual(2, agent.Received.Count(method => method == "VisualTree.enumerate"), "falls back to the whole tree");
+            if (json)
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(output);
+                Assert.IsTrue(doc.RootElement.GetProperty("fallback").GetBoolean());
+                Assert.IsFalse(doc.RootElement.GetProperty("appAuthored").GetBoolean());
+                StringAssert.Contains(doc.RootElement.GetProperty("fallbackReason").GetString(), "no XAML source information");
+                continue;
+            }
+            StringAssert.Contains(output, "reports no XAML source information");
+            StringAssert.Contains(output, "winapp run --devtools on");
+            StringAssert.Contains(output, "SaveButton", "the XAML around the islands is kept");
+            Assert.IsTrue(output.IndexOf("<ChartPanel>", StringComparison.Ordinal) < output.IndexOf("<InteropPanel>", StringComparison.Ordinal),
+                "islands keep their visual order: " + output);
+        }
+    }
+
+    [TestMethod]
+    public void ExplainHiddenXaml_OnlyWhenIslandsSitInUnclassifiedXaml()
+    {
+        var islands = AuthoredForest.Parse(IslandsOnly)!;
+        StringAssert.Contains(islands.ExplainHiddenXaml(rootHandle: null), "no XAML source information");
+        Assert.IsNull(AuthoredForest.Parse(IslandsOnly.Replace("""{"handle":"20","type":"Microsoft.UI.Xaml.Controls.Border","childCount":0,"children":[]},""", "", StringComparison.Ordinal))!
+            .ExplainHiddenXaml(rootHandle: "10"), "an island inspected on its own has no XAML around it");
+        Assert.IsNull(AuthoredForest.Parse(Annotated)!.ExplainHiddenXaml(null), "an instrumented app classifies its XAML");
+        Assert.IsNull(AuthoredForest.Parse(Annotated.Replace("\"sourceInstrumented\":true", "\"sourceInstrumented\":false", StringComparison.Ordinal))!
+            .ExplainHiddenXaml(null), "a Reactor window has no XAML around it to lose");
+    }
+
     [TestMethod]
     public void StaticOnly_SaysWhatWorksWithoutTheAgent()
     {
