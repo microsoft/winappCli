@@ -60,48 +60,42 @@ internal static class ReactorComponentOps
     /// Runs <paramref name="start"/> on the element's UI thread and waits for the answer it hands to its callback,
     /// which may come several dispatcher turns later (after the host goes idle).
     /// </summary>
-    internal static string RunOnUi(BindingTarget target, bool mutation, Action<UIElement, Action<string>> start)
+    internal static string RunOnUi(BindingTarget target, bool mutation, Action<UIElement, Action<string>> start) =>
+        RunOnUi(target, target.Project, (element, work) => element.DispatcherQueue.TryEnqueue(() => work()), mutation, TimeoutMs, start);
+
+    /// <summary>
+    /// <see cref="RunOnUi(BindingTarget, bool, Action{UIElement, Action{string}})"/> over its parts: the target
+    /// (<paramref name="owner"/>, released exactly once), how it projects and how work reaches its UI thread. A
+    /// callback that starts claims the target before projecting it, so a timeout can only release a target no callback
+    /// is using; a callback that runs after the timeout does nothing.
+    /// </summary>
+    internal static string RunOnUi<T>(IDisposable owner, Func<object?> project, Func<T, Action, bool> enqueue, bool mutation,
+        int timeoutMs, Action<T, Action<string>> start) where T : class
     {
-        var owned = 1;
-        void Release()
-        {
-            if (Interlocked.Exchange(ref owned, 0) == 1)
-            {
-                target.Dispose();
-            }
-        }
+        var operation = new UiOperation(owner);
         try
         {
-            if (target.Project() is not UIElement first)
+            if (project() is not T first)
             {
                 return Unavailable("the selected object is not a XAML element");
             }
-            var done = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var cancelled = 0;
-            var enqueued = first.DispatcherQueue.TryEnqueue(() =>
+            var done = operation.Done;
+            var enqueued = enqueue(first, () => operation.Run(() =>
             {
-                if (Volatile.Read(ref cancelled) != 0)
-                {
-                    return;
-                }
-                UIElement? element;
-                try { element = target.Project() as UIElement; }
-                finally { Release(); }
-                if (element is null)
+                if (project() is not T element)
                 {
                     done.TrySetResult(Unavailable("the selected object is not a XAML element"));
                     return;
                 }
-                try { start(element, result => done.TrySetResult(result)); }
-                catch (Exception ex) { done.TrySetResult(Fault(ex)); }
-            });
+                start(element, result => done.TrySetResult(result));
+            }));
             if (!enqueued)
             {
                 return Unavailable("the app UI thread is not accepting work");
             }
-            if (!done.Task.Wait(TimeoutMs))
+            if (!done.Task.Wait(timeoutMs))
             {
-                Interlocked.Exchange(ref cancelled, 1);
+                operation.Cancel();
                 return mutation
                     ? Unavailable("the app UI thread did not respond in time; the change may or may not have been applied", indeterminate: true)
                     : Unavailable("the app UI thread did not respond");
@@ -114,7 +108,45 @@ internal static class ReactorComponentOps
         }
         finally
         {
-            Release();
+            operation.Cancel();
+        }
+    }
+
+    /// <summary>
+    /// Who owns the target of one request: the pipe thread until a UI callback claims it, then that callback, which
+    /// releases it when its synchronous part ends. Claiming and cancelling are one atomic step, as in
+    /// <c>BindingDiagnosis</c>'s operation.
+    /// </summary>
+    private sealed class UiOperation(IDisposable owner)
+    {
+        private const int Pending = 0, Running = 1, Cancelled = 2, Finished = 3;
+        private IDisposable? owner = owner;
+        private int state;
+
+        internal TaskCompletionSource<string> Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal void Cancel()
+        {
+            if (Interlocked.CompareExchange(ref state, Cancelled, Pending) == Pending)
+            {
+                Interlocked.Exchange(ref owner, null)?.Dispose();
+            }
+        }
+
+        internal void Run(Action body)
+        {
+            if (Interlocked.CompareExchange(ref state, Running, Pending) != Pending)
+            {
+                return;
+            }
+            try { body(); }
+            catch (Exception ex) { Done.TrySetResult(Fault(ex)); }
+            finally
+            {
+                try { Interlocked.Exchange(ref owner, null)?.Dispose(); }
+                catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("Releasing a Reactor request's element failed: {0}", ex.GetType().Name); }
+                Volatile.Write(ref state, Finished);
+            }
         }
     }
 

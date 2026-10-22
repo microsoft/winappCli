@@ -374,9 +374,10 @@ internal static class ReactorEvents
                     }
                 }
             }
-            catch (Exception ex) when (ex is TargetInvocationException or InvalidCastException or MemberAccessException or InvalidOperationException)
+            catch (Exception ex)
             {
-                // A Reactor version with a different shape reports nothing.
+                // Runs on a timer thread, where an escaping exception ends the app: skip this poll instead.
+                System.Diagnostics.Trace.TraceWarning("Reactor keyed-list poll failed: {0}", ex.GetType().Name);
             }
         }
 
@@ -483,7 +484,7 @@ internal static class ReactorEvents
     /// as <c>ReactorTrace.GetComponentControl</c> asks), sent with each component's control identity so the inspector
     /// can flash it. Needs a Reactor that has <c>ComponentRendered</c>; older versions never raise it.
     /// </summary>
-    private static class RenderHighlights
+    internal static class RenderHighlights
     {
         private static readonly object PendingGate = new();
         private static readonly Dictionary<long, (string Component, string Reason)> Pending = [];
@@ -536,15 +537,41 @@ internal static class ReactorEvents
                 Pending.Clear();
                 scheduled = false;
             }
-            var method = Resolver();
+            try
+            {
+                var method = Resolver();
+                Send(items, id => method?.Invoke(null, [id]) as UIElement);
+            }
+            catch (Exception ex)
+            {
+                // Runs on the app's dispatcher: drop this batch of highlights rather than end the app.
+                System.Diagnostics.Trace.TraceWarning("Reactor render highlight failed: {0}", ex.GetType().Name);
+            }
+        }
+
+        /// <summary>
+        /// Sends one batch of renders to the inspectors that show them. A component whose control cannot be resolved
+        /// is dropped from the batch; the rest are still sent.
+        /// </summary>
+        internal static void Send(IEnumerable<KeyValuePair<long, (string Component, string Reason)>> items, Func<long, UIElement?> resolve)
+        {
             using var buffer = new MemoryStream();
             using (var w = new Utf8JsonWriter(buffer))
             {
                 w.WriteStartArray();
                 foreach (var (id, (component, reason)) in items.Take(256))
                 {
-                    var control = method?.Invoke(null, [id]) as UIElement;
-                    var identity = control is null ? 0 : ReactorProvider.IdentityOf(control);
+                    long identity;
+                    try
+                    {
+                        var control = resolve(id);
+                        identity = control is null ? 0 : ReactorProvider.IdentityOf(control);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.TraceWarning("Reactor render highlight skipped: {0}", ex.GetType().Name);
+                        continue;
+                    }
                     if (identity == 0)
                     {
                         continue;
