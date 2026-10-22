@@ -61,7 +61,7 @@ inline std::wstring Describe(const Result& r,
     case Outcome::NotFound:
         return lead + L"source file not found: " + resolvedPath;
     case Outcome::NoHandler:
-        return lead + L"nothing on this machine opens .xaml files. Use Reveal in File Explorer or Copy path.";
+        return lead + L"nothing on this machine opens .xaml files. Use Show in File Explorer or Copy path.";
     case Outcome::LaunchFailed:
         return lead + L"couldn't hand " + display + L" to " + r.handler + L".";
     case Outcome::Handed:

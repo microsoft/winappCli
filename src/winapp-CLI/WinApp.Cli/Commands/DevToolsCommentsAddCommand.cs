@@ -90,7 +90,8 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
         ICurrentDirectoryProvider currentDirectory,
         IAnsiConsole ansiConsole,
         ILogger<DevToolsCommentsAddCommand> logger,
-        ExecutionTargets.GuestAgent.GuestCommentContext? guestComments = null) : AsynchronousCommandLineAction
+        ExecutionTargets.GuestAgent.GuestCommentContext? guestComments = null,
+        IWinappDirectoryService? winappDirectories = null) : AsynchronousCommandLineAction
     {
         public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default)
         {
@@ -169,8 +170,23 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                 appPid = checked((uint)process.ProcessId);
             }
 
-            var sourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption) ??
-                captured?.CommentRoot ?? currentDirectory.GetCurrentDirectory();
+            var explicitSourceRoot = parseResult.GetValue(CommentsSharedOptions.SourceRootOption);
+            var hostBound = guestComments?.Process is not null;
+            // A captured app that reports no project folder would otherwise save wherever this command happens to run.
+            if (captured is not null && captured.CommentRoot is null && explicitSourceRoot is null && !hostBound)
+            {
+                return Task.FromResult(Fail(ansiConsole, json,
+                    $"Process {appPid} has no project folder, so winapp doesn't know where to save this comment. " +
+                    "Pass --source-root <project folder>. Nothing was saved."));
+            }
+            var sourceRoot = explicitSourceRoot ?? captured?.CommentRoot ?? currentDirectory.GetCurrentDirectory();
+            if (!hostBound && IsGlobalWinappStore(sourceRoot, winappDirectories ?? new WinappDirectoryService(currentDirectory), out var globalDirectory))
+            {
+                return Task.FromResult(Fail(ansiConsole, json,
+                    $"Comments can't be saved in winapp's own folder ({globalDirectory}). " +
+                    "Run this from your project folder, or pass --source-root <project folder>. " +
+                    "If a git repository encloses your project, run 'git init' in the project folder. Nothing was saved."));
+            }
             if (captured?.SourceProvenance == "likely-source-line" && !parseResult.GetValue(ConfirmLikelySourceOption))
             {
                 return Task.FromResult(Fail(ansiConsole, json,
@@ -273,15 +289,19 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
                 var warning = CommentsSharedOptions.RefreshViews(pusher, appPid, sourceRoot, storePath,
                     parseResult.GetValue(CommentsSharedOptions.SourceRootOption), cancellationToken);
 
+                var view = CommentViewBuilder.ToView(comment, resolver, sourceRoot);
                 if (json)
                 {
-                    var view = CommentViewBuilder.ToView(comment, resolver, sourceRoot);
                     var payload = new CommentResultPayload { Ok = true, Comment = view, Warning = warning };
                     ansiConsole.Profile.Out.Writer.WriteLine(JsonSerializer.Serialize(payload, CommentsJsonContext.Output.CommentResultPayload));
                 }
                 else
                 {
                     DevToolsRender.WriteMarkupLine(ansiConsole, $"[green]{verb}[/] comment [cyan]{Markup.Escape(comment.Id)}[/] → {Markup.Escape(storePath)}");
+                    if (CommentViewBuilder.AnchorHealthWarning(view) is string anchorWarning)
+                    {
+                        DevToolsRender.WriteMarkupLine(ansiConsole, $"[yellow]⚠ {Markup.Escape(anchorWarning)}[/]");
+                    }
                     if (warning is not null)
                     {
                         DevToolsRender.WriteMarkupLine(ansiConsole, $"[yellow]{Markup.Escape(warning)}[/]");
@@ -298,6 +318,24 @@ internal class DevToolsCommentsAddCommand : Command, IShortDescription, IHelpExa
     }
 
     internal static string? Nullify(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    // True when the store for this root would be winapp's global folder (%USERPROFILE%\.winapp), which holds caches and tools.
+    internal static bool IsGlobalWinappStore(string sourceRoot, IWinappDirectoryService directories, out string globalDirectory)
+    {
+        globalDirectory = string.Empty;
+        try
+        {
+            globalDirectory = directories.GetGlobalWinappDirectory().FullName;
+            var global = Path.TrimEndingDirectorySeparator(Path.GetFullPath(globalDirectory));
+            var store = Path.TrimEndingDirectorySeparator(Path.GetFullPath(CommentStoreLocator.Resolve(sourceRoot).WinappDirectory));
+            return string.Equals(store, global, StringComparison.OrdinalIgnoreCase) ||
+                store.StartsWith(global + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// An offline <c>--file --name</c> comment names one declaration when the file has exactly one element with that

@@ -146,6 +146,72 @@ public class CommentUnlinkedTests
     }
 
     [TestMethod]
+    public async Task AnAppWithNoProjectFolder_RefusesInsteadOfSavingWhereTheCommandRan()
+    {
+        using var agent = Agent(JsonSerializer.Serialize(new { sourceRoot = "", commentRoot = "" }));
+        var store = new CommentStore();
+
+        var (exit, console) = await AddAsync(agent, store, _root.FullName);
+
+        Assert.AreEqual(1, exit, console);
+        StringAssert.Contains(console, "--source-root");
+        Assert.IsFalse(File.Exists(store.GetStorePath(_root)), "nothing is saved into whatever folder the command ran from");
+    }
+
+    [TestMethod]
+    public async Task AStoreInWinappsOwnFolder_IsRefused()
+    {
+        var directories = new WinappDirectoryService(new FixedDirectory(_root.FullName));
+        directories.SetCacheDirectoryForTesting(new DirectoryInfo(Path.Combine(_root.FullName, ".winapp")));
+        var store = new CommentStore();
+        var console = new TestConsole();
+        var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
+            new CommentTestTargetResolver(), new FixedDirectory(_root.FullName), console,
+            NullLogger<DevToolsCommentsAddCommand>.Instance, winappDirectories: directories);
+
+        var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(["--name", "CounterButton", "--text", "x"]));
+
+        Assert.AreEqual(1, exit, console.Output);
+        StringAssert.Contains(console.Output, "winapp's own folder");
+        Assert.IsFalse(File.Exists(store.GetStorePath(_root)));
+    }
+
+    [TestMethod]
+    public async Task AStoreInsideWinappsOwnFolder_IsRefused()
+    {
+        var global = Directory.CreateDirectory(Path.Combine(_root.FullName, ".winapp"));
+        var directories = new WinappDirectoryService(new FixedDirectory(global.FullName));
+        directories.SetCacheDirectoryForTesting(global);
+        var store = new CommentStore();
+        var console = new TestConsole();
+        var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
+            new CommentTestTargetResolver(), new FixedDirectory(global.FullName), console,
+            NullLogger<DevToolsCommentsAddCommand>.Instance, winappDirectories: directories);
+
+        var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(["--name", "CounterButton", "--text", "x"]));
+
+        Assert.AreEqual(1, exit, console.Output);
+        StringAssert.Contains(console.Output, "winapp's own folder");
+        Assert.IsFalse(File.Exists(store.GetStorePath(global)));
+    }
+
+    [TestMethod]
+    public async Task AnOfflineCommentWithoutAFile_WarnsItIsNotLinkedToSource()
+    {
+        var store = new CommentStore();
+        var console = new TestConsole();
+        var handler = new DevToolsCommentsAddCommand.Handler(store, new CommentAnchorResolver(), new CommentPusher(store),
+            new CommentTestTargetResolver(), new FixedDirectory(_root.FullName), console,
+            NullLogger<DevToolsCommentsAddCommand>.Instance);
+
+        var exit = await handler.InvokeAsync(new DevToolsCommentsAddCommand().Parse(["--name", "CounterButton", "--text", "x"]));
+
+        Assert.AreEqual(0, exit, console.Output);
+        StringAssert.Contains(console.Output, "Added");
+        StringAssert.Contains(System.Text.RegularExpressions.Regex.Replace(console.Output, @"\s+", " "), "not linked to source");
+    }
+
+    [TestMethod]
     public void AnAppFromAnOlderEngine_StillReportsOnlyItsSourceRoot()
     {
         Assert.AreEqual("", CommentSelectionCapture.ReadCommentRoot(DevToolsProtocolResponse.Success("""{"sourceRoot":""}""")));
