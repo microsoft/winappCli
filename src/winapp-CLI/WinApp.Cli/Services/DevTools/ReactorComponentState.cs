@@ -15,6 +15,12 @@ internal sealed record ReactorHookInfo(int Index, string Kind, string? Type, str
 
     /// <summary>The line of the hook's Use* call, when Reactor recorded it; 0 otherwise.</summary>
     public int Line { get; init; }
+
+    /// <summary>
+    /// <c>csharp-source-text</c> when DevTools read <see cref="Name"/> from the component's C# because Reactor recorded
+    /// none (see <see cref="ReactorHookSource"/>); null when Reactor recorded it.
+    /// </summary>
+    public string? NameSource { get; init; }
 }
 
 /// <summary>A context a component reads, with the value it read at its last render.</summary>
@@ -95,6 +101,12 @@ internal sealed record ReactorComponentState(
             return (null, null, DevToolsErrors.Describe(response.Error!), response.Error!.Token);
         }
         var (state, problem, token) = Parse(response.ResultJson);
+        // After a late attach Reactor recorded no hook names: read them from the component's C#, so the password rule
+        // applies to hooks too.
+        if (state is not null && ReactorHookSource.Apply(state, response.ResultJson!) is { } named)
+        {
+            return (named.State, named.Json, problem, token);
+        }
         return (state, response.ResultJson, problem, token);
     }
 
@@ -160,6 +172,7 @@ internal sealed record ReactorComponentState(
                     {
                         Name = ReactorDescription.ReadString(hook, "name"),
                         Line = hook.TryGetProperty("line", out var hookLine) && hookLine.TryGetInt32(out var l) ? l : 0,
+                        NameSource = ReactorDescription.ReadString(hook, "name") is null ? null : ReactorDescription.ReadString(hook, "nameSource"),
                     });
                 }
             }
@@ -291,6 +304,11 @@ internal sealed record ReactorComponentState(
             {
                 yield return $"{indent}    [[?]] [bold]{Markup.Escape(name)}[/]" + (at > 0 ? $" [grey]line {at}[/]" : "") +
                     " [grey](its index is not known statically)[/]";
+            }
+            if (Hooks.Any(h => h.NameSource == ReactorHookSource.NameSource))
+            {
+                var file = Definition is { } source ? Path.GetFileName(source.File.Replace('/', '\\')) : "the component's C#";
+                yield return $"{indent}    [grey]Hook names read from {Markup.Escape(file)}; they can be out of date if you edited it after the build.[/]";
             }
         }
         foreach (var context in Contexts)

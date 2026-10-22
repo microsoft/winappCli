@@ -219,6 +219,127 @@ public class ReactorStateCommandTests
         }
     }
 
+    // A late attach: Reactor recorded no hook names, and the definition's C# is on this machine.
+    private static string LateAttachLogin(string sourcePath) => $$"""
+        {"state":"ok","version":"0.1.0","api":"internal","exact":true,"idle":true,
+         "component":{"kind":"class","name":"Login2","type":"Login2","isRoot":false,"mounted":true},
+         "definition":{"file":{{JsonSerializer.Serialize(sourcePath)}},"line":4,"column":5,"method":"Login2.Render"},
+         "hooks":[
+           {"index":0,"kind":"state","type":"string","value":"\"hook-pass-1\"","canSet":true,"editable":true},
+           {"index":1,"kind":"state","type":"int","value":"3","canSet":true,"editable":true},
+           {"index":2,"kind":"context","type":"string","value":"\"ctx-pass-1\"","context":"Context<string>","canSet":false,"editable":false}],
+         "contexts":[{"hook":2,"name":"Context<string>","type":"string","value":"\"ctx-pass-1\""}]}
+        """;
+
+    private const string LoginSource = """
+        class Login2 : Component<Login2Props>
+        {
+            public override Element Render()
+            {
+                var (password, setPassword) = UseState("hook-pass-1");
+                var (count, setCount) = UseState(3);
+                var dbPassword = UseContext(Ctx.Db);
+                return TextBlock($"{password.Length} {count} {dbPassword.Length}");
+            }
+        }
+        """;
+
+    private static string WriteSource(string text)
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "winapp-hooksource-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, "Panels.cs");
+        File.WriteAllText(path, text);
+        return path;
+    }
+
+    [TestMethod]
+    public async Task GetState_AfterALateAttachNamesHooksFromTheSourceAndRedactsPasswords()
+    {
+        var path = WriteSource(LoginSource);
+        try
+        {
+            string output;
+            using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", LateAttachLogin(path)))
+            {
+                int exit;
+                (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
+                Assert.AreEqual(0, exit, output);
+            }
+            StringAssert.Contains(output, "[0] password state string = <redacted>");
+            StringAssert.Contains(output, "[1] count state int = 3 settable");
+            StringAssert.Contains(output, "[2] dbPassword context string = <redacted>");
+            StringAssert.Contains(output, "Context Context<string> = <redacted>");
+            StringAssert.Contains(output, "Hook names read from Panels.cs");
+            Assert.IsFalse(output.Contains("hook-pass-1", StringComparison.Ordinal) || output.Contains("ctx-pass-1", StringComparison.Ordinal), output);
+
+            using var jsonAgent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", LateAttachLogin(path));
+            var (jsonExit, json) = await Run(new DevToolsGetStateCommand(), jsonAgent, ["42", "--json"]);
+            Assert.AreEqual(0, jsonExit, json);
+            Assert.IsFalse(json.Contains("hook-pass-1", StringComparison.Ordinal) || json.Contains("ctx-pass-1", StringComparison.Ordinal), json);
+            var hooks = JsonDocument.Parse(json).RootElement.GetProperty("hooks");
+            Assert.AreEqual("password", hooks[0].GetProperty("name").GetString());
+            Assert.AreEqual("csharp-source-text", hooks[0].GetProperty("nameSource").GetString());
+            Assert.IsTrue(hooks[0].GetProperty("redacted").GetBoolean());
+            Assert.IsFalse(hooks[0].GetProperty("editable").GetBoolean());
+            Assert.AreEqual("count", hooks[1].GetProperty("name").GetString());
+            Assert.IsTrue(hooks[1].GetProperty("editable").GetBoolean());
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task SetState_AfterALateAttachRefusesAPasswordHookWithoutCallingTheApp()
+    {
+        var path = WriteSource(LoginSource);
+        try
+        {
+            foreach (var hook in new[] { "0", "password" })
+            {
+                using var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", LateAttachLogin(path));
+                var (exit, output) = await Run(new DevToolsSetStateCommand(), agent, ["42", hook, "x", "--json"]);
+                Assert.AreEqual(1, exit, output);
+                Assert.AreEqual("secret", JsonDocument.Parse(output).RootElement.GetProperty("error").GetProperty("token").GetString());
+                Assert.IsFalse(agent.ReceivedRequests.Any(r => r.Contains("Reactor.setState", StringComparison.Ordinal)), hook);
+            }
+
+            using var allowed = new FakeDevToolsProtocolAgent()
+                .Answer("Reactor.component", LateAttachLogin(path))
+                .Answer("Reactor.setState", """
+                    {"state":"ok","component":"Login2","index":1,"kind":"state","type":"int","requested":"5","before":"3","after":"5","changed":true,"waitedForIdle":true,"rendered":true,"api":"internal"}
+                    """);
+            var (allowedExit, allowedOutput) = await Run(new DevToolsSetStateCommand(), allowed, ["42", "count", "5"]);
+            Assert.AreEqual(0, allowedExit, allowedOutput);
+            Assert.AreEqual(1, Params(allowed, "Reactor.setState").GetProperty("hook").GetInt32(), "a hook named from source is addressable by name");
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetState_AfterALateAttachLeavesHooksUnnamedWhenTheSourceIsAmbiguous()
+    {
+        var path = WriteSource(LoginSource.Replace("var (count, setCount) = UseState(3);", "if (Props.Ready) { var (count, setCount) = UseState(3); }",
+            StringComparison.Ordinal));
+        try
+        {
+            using var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", LateAttachLogin(path));
+            var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
+            Assert.AreEqual(0, exit, output);
+            StringAssert.Contains(output, "[0] state string = \"hook-pass-1\" settable", "an unproven mapping names nothing");
+            Assert.IsFalse(output.Contains("read from", StringComparison.Ordinal), output);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, true);
+        }
+    }
+
     [TestMethod]
     public async Task Rerender_SaysWhatARenderDoesNotUndo()
     {

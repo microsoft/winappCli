@@ -70,10 +70,12 @@ internal class DevToolsSetStateCommand : DevToolsLiveCommand, IHelpExamples
             {
                 return Task.FromResult(exitCode);
             }
-            if (!int.TryParse(hookText, NumberStyles.None, CultureInfo.InvariantCulture, out var hook))
+            var byIndex = int.TryParse(hookText, NumberStyles.None, CultureInfo.InvariantCulture, out var hook);
+            // The component's hooks say which index a name is at, and which hooks hold a password. After a late
+            // attach a hook's name may come only from C# the CLI found, so a password hook is refused here too.
+            var (state, _, problem, token) = ReactorComponentState.Read(target.Tap!, handle, cancellationToken);
+            if (!byIndex)
             {
-                // A name: the component's hooks say which index Reactor recorded it at.
-                var (state, _, problem, token) = ReactorComponentState.Read(target.Tap!, handle, cancellationToken);
                 if (state is null)
                 {
                     return Task.FromResult(Fail(json, target.Pid, problem!, token!));
@@ -85,6 +87,10 @@ internal class DevToolsSetStateCommand : DevToolsLiveCommand, IHelpExamples
                         why + " Run `winapp devtools get-state <selector>` to list the hooks.", "bad-hook"));
                 }
                 hook = found.Index;
+            }
+            if (state?.Hooks.FirstOrDefault(h => h.Index == hook) is { Redacted: true })
+            {
+                return Task.FromResult(Fail(json, target.Pid, $"Hook {hook} holds a secret; DevTools does not write it.", "secret"));
             }
             var hookName = hookText.Length > 0 && !char.IsAsciiDigit(hookText[0]) ? hookText : null;
 

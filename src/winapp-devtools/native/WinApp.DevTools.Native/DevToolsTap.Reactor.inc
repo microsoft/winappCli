@@ -1469,10 +1469,59 @@ static std::wstring TapReactorSecretRefusal(const DevToolsJson& component, const
     return L"";
 }
 
+// After a late attach Reactor published no hook names: read them from the component's render body, where the PDB says
+// it is defined (DevToolsCSharpSource::HookNames), so a hook assigned to a password variable is redacted like a
+// published one. Such names are marked as read from the source text.
+static void TapReactorNameHooksFromSource(const DevToolsJson& answer, DevToolsJson& hooks)
+{
+    const DevToolsJson* definition = answer.Find(L"definition");
+    if (!definition || !definition->IsObject()) return;
+    std::wstring path = definition->GetString(L"fileOnDisk");
+    if (path.empty()) path = definition->GetString(L"file");
+    const bool rooted = path.size() > 2 && (path[1] == L':' || (path[0] == L'\\' && path[1] == L'\\'));
+    if (!rooted || path.size() < 3 || _wcsicmp(path.c_str() + path.size() - 3, L".cs") != 0) return;
+    std::vector<std::wstring> kinds;
+    for (size_t i = 0; i < hooks.arr.size(); ++i) {
+        const DevToolsJson& hook = hooks.arr[i];
+        const DevToolsJson* index = hook.IsObject() ? hook.Find(L"index") : nullptr;
+        if (!index || index->type != DevToolsJsonType::Number || index->num != static_cast<double>(i)) return;
+        kinds.push_back(hook.GetString(L"kind"));
+    }
+    std::vector<std::wstring> names;
+    if (!DevToolsAuthored_CSharpHookNames(path, static_cast<unsigned int>(definition->GetInt(L"line", 0)),
+            static_cast<unsigned int>(definition->GetInt(L"column", 0)), kinds, &names)) return;
+    for (size_t i = 0; i < names.size() && i < hooks.arr.size(); ++i) {
+        if (names[i].empty()) continue;
+        TapReactorApplyHookName(hooks.arr[i], names[i], 0);
+        DevToolsJson source; source.type = DevToolsJsonType::String; source.str = L"csharp-source-text";
+        hooks.arr[i].obj[L"nameSource"] = source;
+    }
+}
+
+// A context hook redacted by its name shows the same value in `contexts`: redact it there too.
+static void TapReactorRedactNamedContexts(DevToolsJson& answer, const DevToolsJson& hooks)
+{
+    auto contexts = answer.obj.find(L"contexts");
+    if (contexts == answer.obj.end() || contexts->second.type != DevToolsJsonType::Array) return;
+    for (const auto& hook : hooks.arr) {
+        const DevToolsJson* index = hook.IsObject() ? hook.Find(L"index") : nullptr;
+        if (!index || hook.GetString(L"kind") != L"context" || !hook.GetBool(L"redacted", false)) continue;
+        for (auto& context : contexts->second.arr) {
+            const DevToolsJson* at = context.IsObject() ? context.Find(L"hook") : nullptr;
+            if (!at || at->type != DevToolsJsonType::Number || at->num != index->num) continue;
+            DevToolsJson redacted; redacted.type = DevToolsJsonType::String; redacted.str = kDevToolsRedacted;
+            context.obj[L"value"] = redacted;
+            DevToolsJson yes; yes.type = DevToolsJsonType::Bool; yes.b = true;
+            context.obj[L"redacted"] = yes;
+        }
+    }
+}
+
 // Names each hook of a Reactor.component answer with the C# variable it was assigned to, from the hooks Reactor
 // published on the component's element (`hooks=`). The component is the nearest element at or above `wire` that
-// mounts it (or whose host renders it as the root). Hooks Reactor did not name keep only their index. The agent
-// formats values before the name is known, so a hook whose name says it holds a secret is redacted here.
+// mounts it (or whose host renders it as the root). Hooks Reactor did not name keep only their index; when Reactor
+// published no names at all, they are read from the component's source. The agent formats values before the name is
+// known, so a hook whose name says it holds a secret is redacted here.
 static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
 {
     auto hooks = answer.obj.find(L"hooks");
@@ -1480,28 +1529,36 @@ static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
     if (hooks == answer.obj.end() || hooks->second.type != DevToolsJsonType::Array || hooks->second.arr.empty() ||
         !component || !component->IsObject()) return;
     const std::wstring name = component->GetString(L"name");
+    std::vector<DevToolsReactorPublished::Hook> named;
     InstanceHandle ih = 0;
+    bool resolved = false;
     {
         CensusSharedLock lock;
         const wchar_t* error = nullptr;
-        if (!ResolveWire_nolock(wire, &ih, &error)) return;
+        resolved = ResolveWire_nolock(wire, &ih, &error);
     }
     InstanceHandle start = 0;
-    if (!TapReactorAnnotationFor(ih, true, nullptr, nullptr, &start)) return;
-    std::vector<DevToolsReactorPublished::Hook> named;
-    AcquireSRWLockShared(&g_reactorAuthoredLock);
-    InstanceHandle current = start;
-    for (int guard = 0; current && guard < 4096; ++guard) {
-        const auto a = g_reactorAnnotations.find(current);
-        if (a == g_reactorAnnotations.end()) break;
-        if (a->second.component == name || (a->second.host && a->second.rootName == name)) {
-            named = a->second.hooks;
-            break;
+    if (resolved && TapReactorAnnotationFor(ih, true, nullptr, nullptr, &start)) {
+        AcquireSRWLockShared(&g_reactorAuthoredLock);
+        InstanceHandle current = start;
+        for (int guard = 0; current && guard < 4096; ++guard) {
+            const auto a = g_reactorAnnotations.find(current);
+            if (a == g_reactorAnnotations.end()) break;
+            if (a->second.component == name || (a->second.host && a->second.rootName == name)) {
+                named = a->second.hooks;
+                break;
+            }
+            current = a->second.parent;
         }
-        current = a->second.parent;
+        ReleaseSRWLockShared(&g_reactorAuthoredLock);
     }
-    ReleaseSRWLockShared(&g_reactorAuthoredLock);
-    if (named.empty()) return;
+    bool anyName = false;
+    for (const auto& hook : hooks->second.arr) anyName = anyName || !hook.GetString(L"name").empty();
+    if (named.empty()) {
+        if (!anyName) TapReactorNameHooksFromSource(answer, hooks->second);
+        TapReactorRedactNamedContexts(answer, hooks->second);
+        return;
+    }
     // Hooks after one whose position is not fixed (in a branch, a loop or a composite hook) have no static index:
     // they are listed by name only.
     DevToolsJson unindexed; unindexed.type = DevToolsJsonType::Array;
@@ -1523,6 +1580,7 @@ static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         if (hookName.empty()) continue;
         TapReactorApplyHookName(hook, hookName, line);
     }
+    TapReactorRedactNamedContexts(answer, hooks->second);
 }
 
 // Reactor.component: the component that renders an element, with its props, hooks, contexts and where it is declared

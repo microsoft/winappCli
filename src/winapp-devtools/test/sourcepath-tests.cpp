@@ -177,6 +177,45 @@ int RunSourcePathTests()
         Check(plain == L"TextBlock(\"Done today\")", "code that names no password is unchanged");
     }
 
+    std::printf("== C# hook names ==\n");
+    {
+        using namespace DevToolsCSharpSource;
+        const auto login = SplitLines(
+            L"namespace App;\n"
+            L"class Login2<T> : Component<Login2Props>\n"
+            L"{\n"
+            L"    public override Element Render()\n"
+            L"    {\n"
+            L"        // UseState(9) in a comment\n"
+            L"        var (password, setPassword) = UseState(\"hook-pass-1\");\n"
+            L"        var theme = ctx.UseContext(Theme.Current);\n"
+            L"        UseEffect(() => { if (password.Length > 0) { return; } });\n"
+            L"        var (_, setTick) = this.UseReducer(0);\n"
+            L"        return TextBlock(\"x\");\n"
+            L"    }\n"
+            L"}\n");
+        std::vector<std::wstring> names;
+        const std::vector<std::wstring> kinds = {L"state", L"context", L"effect", L"reducer"};
+        Check(HookNames(login, 5, 5, kinds, &names) && names.size() == 4 && names[0] == L"password" && names[1] == L"theme" &&
+                  names[2].empty() && names[3].empty(),
+              "hooks are named from deconstructions and assignments in call order, with ctx. and this. receivers");
+        Check(HookNames(login, 7, 9, kinds, &names) && names[0] == L"password", "a Release build's first statement finds the same body");
+        Check(!HookNames(login, 5, 5, {L"state", L"context", L"effect"}, &names) && names.empty(), "a different hook count names nothing");
+        Check(!HookNames(login, 5, 5, {L"state", L"state", L"effect", L"reducer"}, &names), "kinds that do not line up name nothing");
+
+        auto body = [](const std::wstring& statements) {
+            return SplitLines(L"class C : Component\n{\n    public override Element Render()\n    {\n" + statements +
+                              L"\n        return TextBlock(\"x\");\n    }\n}\n");
+        };
+        Check(!HookNames(body(L"        if (Props.On) { var (a, setA) = UseState(0); }"), 4, 5, {L"state"}, &names),
+              "a hook in a branch names nothing");
+        Check(!HookNames(body(L"        if (Props.Hidden) return Empty();\n        var (a, setA) = UseState(0);"), 4, 5, {L"state"}, &names),
+              "a hook after an early return names nothing");
+        Check(!HookNames(body(L"        var form = UseForm();"), 4, 5, {L"state"}, &names), "a custom hook names nothing");
+        Check(!HookNames(body(L"        var a = Props.On ? UseState(1).Value : 0;"), 4, 5, {L"state"}, &names),
+              "a hook in a conditional expression names nothing");
+    }
+
     DeleteFileW((pages + L"\\MainPage.xaml").c_str());
     DeleteFileW((root + L"\\notes.txt").c_str());
     RemoveDirectoryW(pages.c_str());

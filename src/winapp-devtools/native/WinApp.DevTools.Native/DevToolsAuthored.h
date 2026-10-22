@@ -81,6 +81,11 @@ bool DevToolsAuthored_ReadCSharp(const std::wstring& path, unsigned int line, un
 std::wstring DevToolsAuthored_CSharpName(const std::wstring& path, unsigned int line, unsigned int column,
     const std::wstring& kind = L"");
 
+// The C# names of a Reactor component's hooks read from its render body in a file on this machine
+// (DevToolsCSharpSource::HookNames); false when the source does not name them for certain.
+bool DevToolsAuthored_CSharpHookNames(const std::wstring& path, unsigned int line, unsigned int column,
+    const std::vector<std::wstring>& kinds, std::vector<std::wstring>* names);
+
 // The lowercase hex SHA256 or SHA1 (as a portable PDB records it) of a file on this machine; empty when the file
 // cannot be read or the algorithm is neither.
 std::wstring DevToolsAuthored_FileHash(const std::wstring& path, const std::wstring& algorithm);

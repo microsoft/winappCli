@@ -148,7 +148,11 @@ winapp devtools get-state "<Counter>"
 
 `get-state` shows the component that renders the element you name: its props, its
 hooks in call order with their values and the C# variable each is assigned to, and the
-contexts it reads. Hook names need a Reactor version that records them; otherwise
+contexts it reads. When Reactor recorded no hook names (for example after
+`winapp devtools attach`), DevTools reads them from the render method's C#, as long as
+its hook calls run in a fixed order: not in a branch, a loop, a lambda or a custom
+hook. Those names are marked as read from the file (`"nameSource": "csharp-source-text"`
+with `--json`) and can be out of date if you edited it after the build. Otherwise
 hooks show their index only. Pass a component
 (`"<Counter>"`) or any element inside it. `defined` is where the component's render
 method is, read from the app's PDB; when that file changed after the build, the

@@ -564,6 +564,15 @@ std::wstring DevToolsAuthored_CSharpName(const std::wstring& path, unsigned int 
     if (line > lines.size()) return L"";
     return DevToolsReactorNames::FromSource(lines[line - 1], column, line >= 2 ? lines[line - 2] : std::wstring(), kind);
 }
+
+bool DevToolsAuthored_CSharpHookNames(const std::wstring& path, unsigned int line, unsigned int column,
+    const std::vector<std::wstring>& kinds, std::vector<std::wstring>* names)
+{
+    std::vector<std::wstring> lines;
+    std::wstring hash;
+    if (!names || path.empty() || !ReadLines(path, &lines, &hash)) return false;
+    return DevToolsCSharpSource::HookNames(lines, line, column, kinds, names);
+}
 std::wstring DevToolsAuthored_FileHash(const std::wstring& path, const std::wstring& algorithm)
 {
     const BCRYPT_ALG_HANDLE alg = algorithm == L"SHA256" ? BCRYPT_SHA256_ALG_HANDLE
