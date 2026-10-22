@@ -21,6 +21,37 @@ public sealed class ReactorProviderTests
     // ReactorHostInfo as Reactor reports it now: the root by name only.
     private sealed record NamedHost(string Kind, string? RootComponentName, string? RootRenderFunctionName);
 
+    // Reactor's built-in flyout decorators, as records shaped like Reactor's own.
+    private sealed record KeyedElement(string? Key);
+    private sealed record MenuFlyoutElement(object Target, string? Key = null);
+    private sealed record FlyoutElement(object Target, string? Key = null);
+    private sealed record TeachingTipElement(object Target, string? Key = null);
+
+    private static string? KeyOf(object tag) => tag switch
+    {
+        KeyedElement k => k.Key,
+        MenuFlyoutElement m => m.Key,
+        FlyoutElement f => f.Key,
+        TeachingTipElement t => t.Key,
+        _ => null,
+    };
+
+    [TestMethod]
+    public void Key_OfAFlyoutDecorator_IsItsTargetsKey()
+    {
+        var menu = new MenuFlyoutElement(new KeyedElement("menuTarget"));
+
+        Assert.AreEqual("menuTarget", ReactorApi.KeyThroughDecorators(menu, KeyOf, ReactorApi.DecoratorTarget),
+            "MenuFlyout(Button(...).WithKey(\"menuTarget\")) reports the button's key");
+        Assert.AreEqual("outer", ReactorApi.KeyThroughDecorators(new FlyoutElement(new KeyedElement("inner"), "outer"), KeyOf, ReactorApi.DecoratorTarget),
+            "a key on the decorator itself wins");
+        Assert.AreEqual("deep", ReactorApi.KeyThroughDecorators(new FlyoutElement(new MenuFlyoutElement(new KeyedElement("deep"))), KeyOf, ReactorApi.DecoratorTarget),
+            "nested decorators resolve to the innermost target");
+        Assert.IsNull(ReactorApi.KeyThroughDecorators(new TeachingTipElement(new KeyedElement("anchor")), KeyOf, ReactorApi.DecoratorTarget),
+            "an element that only points at another one does not take its key");
+        Assert.IsNull(ReactorApi.DecoratorTarget(new KeyedElement("k")), "a plain element is not a decorator");
+    }
+
     [TestMethod]
     public void HostRoot_ReadsTheRootsComponentOrRenderFunctionName()
     {

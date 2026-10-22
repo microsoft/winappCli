@@ -562,6 +562,7 @@ internal sealed partial class ReactorApi
     private readonly Assembly reactorAssembly;
     private readonly MethodInfo? getReferenceEdges;
     private readonly MethodInfo? getSource;
+    private readonly MethodInfo? unwrapDecorators;
     private readonly PropertyInfo? componentProps;
     private readonly Type? elementBase;
 
@@ -584,6 +585,7 @@ internal sealed partial class ReactorApi
         var sourceMap = assembly.GetType("Microsoft.UI.Reactor.Diagnostics.ReactorSourceMap");
         sourceMapEnabled = sourceMap?.GetProperty("Enabled", BindingFlags.Public | BindingFlags.Static);
         getSource = sourceMap?.GetMethod("GetSource", BindingFlags.Public | BindingFlags.Static, [typeof(UIElement)]);
+        unwrapDecorators = element is null ? null : sourceMap?.GetMethod("UnwrapDecorators", BindingFlags.NonPublic | BindingFlags.Static, [element]);
         var diagnostics = assembly.GetType(DiagnosticsType);
         getAppliedProperties = diagnostics?.GetMethod("GetAppliedProperties", BindingFlags.Public | BindingFlags.Static, [typeof(UIElement)]);
         getReferenceEdges = diagnostics?.GetMethod("GetReferenceEdges", BindingFlags.Public | BindingFlags.Static, [typeof(UIElement)]);
@@ -904,7 +906,52 @@ internal sealed partial class ReactorApi
         catch (TargetInvocationException) { return null; }
     }
 
-    public string? Key(object tag) => key?.GetValue(tag) as string;
+    /// <summary>
+    /// The element's key. Flyout, MenuFlyout and CommandBarFlyout mount their <c>Target</c>'s control and tag it with
+    /// themselves, so a decorator without a key of its own reports the key its target was given.
+    /// </summary>
+    public string? Key(object tag) => KeyThroughDecorators(tag, OwnKey, Unwrap);
+
+    private string? OwnKey(object tag) => elementBase?.IsInstanceOfType(tag) == true ? key?.GetValue(tag) as string : null;
+
+    // Reactor's own decorator walk when the version has it (it also knows decorators an app registers).
+    private object? Unwrap(object tag)
+    {
+        if (unwrapDecorators is not null)
+        {
+            try { return unwrapDecorators.Invoke(null, [tag]); }
+            catch (Exception ex) when (ex is TargetInvocationException or ArgumentException) { }
+        }
+        return DecoratorTarget(tag);
+    }
+
+    internal static string? KeyThroughDecorators(object tag, Func<object, string?> ownKey, Func<object, object?> unwrap)
+    {
+        if (ownKey(tag) is { Length: > 0 } own)
+        {
+            return own;
+        }
+        return unwrap(tag) is { } target && !ReferenceEquals(target, tag) && ownKey(target) is { Length: > 0 } wrapped ? wrapped : null;
+    }
+
+    /// <summary>The innermost target of Reactor's built-in flyout decorators; null when the element is not one.</summary>
+    internal static object? DecoratorTarget(object tag)
+    {
+        var current = tag;
+        for (var depth = 0; depth < 16; depth++)
+        {
+            if (current.GetType().Name is not ("FlyoutElement" or "MenuFlyoutElement" or "CommandBarFlyoutElement"))
+            {
+                return ReferenceEquals(current, tag) ? null : current;
+            }
+            if (Member(current, "Target") is not { } next || ReferenceEquals(next, current))
+            {
+                return null;
+            }
+            current = next;
+        }
+        return null;
+    }
 
     /// <summary>
     /// Where the element was created. Prefers Reactor's <c>ReactorSourceMap.GetSource(UIElement)</c>, which resolves a
