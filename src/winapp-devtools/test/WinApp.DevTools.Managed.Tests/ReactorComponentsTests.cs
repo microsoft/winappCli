@@ -105,18 +105,16 @@ public sealed class ReactorComponentsTests
     public enum SessionToken { None, Issued }
 
     [TestMethod]
-    public void ASecretTypedHookHoldingNull_IsNotEditable()
+    public void AHooksTypeDoesNotMakeItASecret()
     {
-        var component = Internal(new RenderContext(new ValueHookState<SessionToken?>(null), new ValueHookState<Filter?>(null)).Init());
+        var component = Internal(new RenderContext(new ValueHookState<SessionToken?>(SessionToken.Issued)).Init());
         var json = ReactorComponentOps.Json(w => ReactorComponentOps.WriteComponent(w, component, null));
         using var doc = JsonDocument.Parse(json);
-        var hooks = doc.RootElement.GetProperty("hooks");
+        var hook = doc.RootElement.GetProperty("hooks")[0];
 
-        Assert.AreEqual("null", hooks[0].GetProperty("value").GetString(), "null has nothing to redact");
-        Assert.IsFalse(hooks[0].GetProperty("editable").GetBoolean(), "but a secret type is never offered for editing");
-        Assert.IsTrue(hooks[1].GetProperty("editable").GetBoolean(), "an ordinary nullable enum is");
-        Assert.IsFalse(ReactorComponents.IsEditableValue("ApiPassword", typeof(string), redacted: false), "nor a secret name");
-        Assert.IsTrue(ReactorComponents.IsEditableValue("Title", typeof(string), redacted: false));
+        Assert.AreEqual("Issued", hook.GetProperty("value").GetString(), "only a name ending in Password is a secret, as for XAML");
+        Assert.IsFalse(hook.TryGetProperty("redacted", out _));
+        Assert.IsTrue(hook.GetProperty("editable").GetBoolean());
     }
 
     [TestMethod]
@@ -196,12 +194,11 @@ public sealed class ReactorComponentsTests
     }
 
     [TestMethod]
-    public void Format_SummarisesCollectionsAndRedactsSecrets()
+    public void Format_SummarisesCollectionsAndRedactsPasswords()
     {
         var list = new List<TaskItem> { new(1, "a"), new(2, "b") };
         Assert.AreEqual("List<TaskItem> (2 items)", ReactorComponents.Format("", list.GetType(), list).Text);
         Assert.AreEqual("TaskItem { Id = 1, Title = a }", ReactorComponents.Format("", typeof(TaskItem), list[0]).Text);
-        Assert.AreEqual(("<redacted>", true), ReactorComponents.Format("", typeof(System.Security.SecureString), new System.Security.SecureString()));
         Assert.AreEqual(("<redacted>", true), ReactorComponents.Format("ApiPassword", typeof(string), "hunter2"));
         Assert.AreEqual("string?", ReactorComponents.FriendlyTypeName(typeof(string)) + "?");
         Assert.AreEqual("int?", ReactorComponents.FriendlyTypeName(typeof(int?)));

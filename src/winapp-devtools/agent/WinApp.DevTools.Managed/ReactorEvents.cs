@@ -100,7 +100,7 @@ internal static class ReactorEvents
                 new("other", level == EventLevel.Warning ? "warning" : "error", name, true,
                     [("detail", names is null || payload is null ? null :
                         string.Join("; ", names.Zip(payload, (n, v) =>
-                            n + "=" + (ReactorSecrets.IsSecretName(n) ? ReactorElementProps.Redacted : Convert.ToString(v, CultureInfo.InvariantCulture)))))]),
+                            n + "=" + Convert.ToString(v, CultureInfo.InvariantCulture))))]),
             _ => null,
         };
     }
@@ -138,12 +138,6 @@ internal static class ReactorEvents
                         break;
                     default:
                         var text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
-                        // Event text (a warning's message, an unknown event's payload) can quote app values; Reactor
-                        // does not redact them, so a labelled secret is redacted here.
-                        if (ReactorSecrets.HasLabelledSecret(text))
-                        {
-                            text = ReactorElementProps.Redacted;
-                        }
                         if (text.Length > 0)
                         {
                             w.WriteString(name, text.Length > MaximumFieldLength ? text[..MaximumFieldLength] : text);

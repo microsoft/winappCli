@@ -26,7 +26,6 @@ internal sealed record ReactorRecordProp(string Name, string Property, string Va
 /// </summary>
 internal static class ReactorElementProps
 {
-    internal const string Redacted = "<redacted>";
     private const int MaxValueLength = 200;
     private const BindingFlags PublicInstance = BindingFlags.Public | BindingFlags.Instance;
 
@@ -55,8 +54,6 @@ internal static class ReactorElementProps
         ["AutomationId"] = "AutomationProperties.AutomationId",
         ["HeadingLevel"] = "AutomationProperties.HeadingLevel",
     };
-
-    internal static bool IsSecretName(string name) => ReactorSecrets.IsSecretName(name);
 
     /// <summary>
     /// The WinUI property name in Reactor's <c>OwnerType.PropertyName</c> form: <c>FrameworkElement.Width</c> is
@@ -106,7 +103,7 @@ internal static class ReactorElementProps
                 continue;
             }
             var target = aliases.TryGetValue(property.Name, out var alias) ? alias : property.Name == "Label" ? "Content" : property.Name;
-            var (text, redacted) = Format(property.Name, value, property.PropertyType);
+            var (text, redacted) = Format(property.Name, value);
             list.Add(new ReactorRecordProp(property.Name, target, text, redacted));
         }
         return list;
@@ -164,7 +161,7 @@ internal static class ReactorElementProps
             return [];
         }
         var type = props.GetType();
-        if (IsScalar(type) || ReactorSecrets.IsSecretType(type))
+        if (IsScalar(type))
         {
             var (text, redacted) = Format("Props", props);
             return [("Props", text, redacted)];
@@ -179,35 +176,33 @@ internal static class ReactorElementProps
             object? value;
             try { value = property.GetValue(props); }
             catch (TargetInvocationException) { continue; }
-            var (text, redacted) = Format(property.Name, value, property.PropertyType);
+            var (text, redacted) = Format(property.Name, value);
             list.Add((property.Name, text, redacted));
         }
         return list;
     }
 
     /// <summary>
-    /// A value as shown to the developer: redacted when its name or type says it is a secret, or its text carries a
-    /// labelled one (<c>Token=abc</c>, a record listing <c>Password = abc</c>). A collection shows its count, never
-    /// its items, and a <c>ToString</c> that throws is reported rather than raised.
+    /// A value as shown to the developer: redacted when its name says it is a secret (<see cref="DevToolsSecrets"/>).
+    /// A collection shows its count, never its items, and a <c>ToString</c> that throws is reported rather than raised.
     /// </summary>
-    internal static (string Text, bool Redacted) Format(string name, object? value, Type? declared = null)
+    internal static (string Text, bool Redacted) Format(string name, object? value)
     {
+        if (DevToolsSecrets.IsSecretName(name))
+        {
+            return (DevToolsSecrets.Redacted, true);
+        }
         if (value?.GetType() is { IsGenericType: true, Name: "Optional`1" } optional)
         {
             value = optional.GetProperty("HasValue", PublicInstance)?.GetValue(value) is true
                 ? optional.GetProperty("Value", PublicInstance)?.GetValue(value)
                 : null;
         }
-        if (value is not null and not Delegate &&
-            (IsSecretName(name) || ReactorSecrets.IsSecretType(declared) || ReactorSecrets.IsSecretType(value.GetType())))
-        {
-            return (Redacted, true);
-        }
         // Every collection is summarised by its count: its own ToString may enumerate it.
         if (value is IEnumerable and not string)
         {
             var type = ReactorComponents.FriendlyTypeName(value.GetType());
-            return (ReactorSecrets.Count(value) is { } count ? $"{type} ({count.ToString(CultureInfo.InvariantCulture)} items)" : $"{type} (count unknown)", false);
+            return (ReactorValueText.Count(value) is { } count ? $"{type} ({count.ToString(CultureInfo.InvariantCulture)} items)" : $"{type} (count unknown)", false);
         }
         var text = value switch
         {
@@ -215,22 +210,18 @@ internal static class ReactorElementProps
             string s => s,
             bool b => b ? "True" : "False",
             Delegate d => "handler " + (d.Method.DeclaringType is { } owner ? ReactorApi.TypeName(owner) + "." : "") + d.Method.Name,
-            IFormattable f => ReactorSecrets.SafeText(f, v => ((IFormattable)v).ToString(null, CultureInfo.InvariantCulture)),
-            _ => ReactorSecrets.SafeText(value, v => v.ToString()),
+            IFormattable f => ReactorValueText.SafeText(f, v => ((IFormattable)v).ToString(null, CultureInfo.InvariantCulture)),
+            _ => ReactorValueText.SafeText(value, v => v.ToString()),
         };
-        if (value is not Delegate && ReactorSecrets.HasLabelledSecret(text))
-        {
-            return (Redacted, true);
-        }
         return (text.Length > MaxValueLength ? text[..MaxValueLength] + "..." : text, false);
     }
 
     /// <summary>
-    /// A value Reactor already formatted as text (<c>GetAppliedProperties</c>), redacted by the same rules as
-    /// <see cref="Format"/>: Reactor does not redact.
+    /// A value Reactor already formatted as text (<c>GetAppliedProperties</c>), redacted by the same rule as
+    /// <see cref="Format"/>.
     /// </summary>
     internal static (string Text, bool Redacted) FormatText(string name, string text) =>
-        IsSecretName(name) || ReactorSecrets.HasLabelledSecret(text) ? (Redacted, true) : (text, false);
+        DevToolsSecrets.IsSecretName(name) ? (DevToolsSecrets.Redacted, true) : (text, false);
 
     private static IEnumerable<PropertyInfo> OwnProperties(Type type, Type? elementBase)
     {

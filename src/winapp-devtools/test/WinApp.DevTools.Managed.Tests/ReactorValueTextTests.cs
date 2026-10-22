@@ -7,18 +7,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace WinApp.DevTools.Managed.Tests;
 
 /// <summary>
-/// DevTools' own redaction, the only one now that Reactor reports values unredacted: secret names and types, labelled
-/// secrets in text, counts without enumerating, and contained ToString failures.
+/// How DevTools reads Reactor values as text without running more app code than it must: collections counted, never
+/// enumerated, and ToString failures contained.
 /// </summary>
 [TestClass]
-public sealed class ReactorSecretsTests
+public sealed class ReactorValueTextTests
 {
-    public sealed record ApiToken(string Value);
-
-    public sealed class AccessTokens : List<ApiToken>;
-
-    public sealed record Login(string User, string Password);
-
     public sealed record Theme(string Name, string Key);
 
     public sealed class Throws
@@ -82,90 +76,6 @@ public sealed class ReactorSecretsTests
     }
 
     [TestMethod]
-    [DataRow("ApiPassword")]
-    [DataRow("clientSecret")]
-    [DataRow("UserCredential")]
-    [DataRow("Credentials")]
-    [DataRow("AuthToken")]
-    [DataRow("refreshTokens")]
-    [DataRow("ApiKey")]
-    [DataRow("PrivateKey")]
-    [DataRow("DbConnectionString")]
-    public void SecretNames_AreRedactedWhateverTheValue(string name)
-    {
-        Assert.IsTrue(ReactorSecrets.IsSecretName(name));
-        Assert.AreEqual(("<redacted>", true), ReactorComponents.Format(name, typeof(string), "hunter2"));
-        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format(name, 42));
-    }
-
-    [TestMethod]
-    [DataRow("Key")]
-    [DataRow("SortKey")]
-    [DataRow("Title")]
-    [DataRow("Tokenizer")]
-    [DataRow("")]
-    public void OrdinaryNames_AreShown(string name)
-    {
-        Assert.IsFalse(ReactorSecrets.IsSecretName(name), "a bare Key is not a secret");
-        Assert.AreEqual(("\"Ada\"", false), ReactorComponents.Format(name, typeof(string), "Ada"));
-    }
-
-    [TestMethod]
-    public void SecretTypes_AreRedacted_AlsoAsCollectionElementsAndGenericArguments()
-    {
-        Assert.IsTrue(ReactorSecrets.IsSecretType(typeof(ApiToken)));
-        Assert.IsTrue(ReactorSecrets.IsSecretType(typeof(System.Security.SecureString)));
-        Assert.IsTrue(ReactorSecrets.IsSecretType(typeof(List<ApiToken>)), "a generic argument");
-        Assert.IsTrue(ReactorSecrets.IsSecretType(typeof(ApiToken[])), "an array element");
-        Assert.IsTrue(ReactorSecrets.IsSecretType(typeof(Dictionary<string, ApiToken>)));
-        Assert.IsTrue(ReactorSecrets.IsSecretType(typeof(AccessTokens)), "a collection of its own names its element through IEnumerable<T>");
-        Assert.IsTrue(ReactorSecrets.IsSecretType(typeof(Lazy<List<ApiToken>>)), "nested generic arguments");
-        Assert.IsFalse(ReactorSecrets.IsSecretType(typeof(List<string>)));
-        Assert.IsFalse(ReactorSecrets.IsSecretType(typeof(Theme)));
-
-        var tokens = new List<ApiToken> { new("a") };
-        Assert.AreEqual(("<redacted>", true), ReactorComponents.Format("", tokens.GetType(), tokens), "not even the count");
-        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Items", tokens));
-        Assert.AreEqual(("<redacted>", true), ReactorComponents.Format("", typeof(object), new ApiToken("a")), "the runtime type counts too");
-        var props = ReactorElementProps.ComponentProps(new ApiToken("a"));
-        Assert.AreEqual(("Props", "<redacted>", true), props.Single(), "props of a secret type are one redacted row");
-    }
-
-    [TestMethod]
-    [DataRow("AccessToken=eyJhbGciOi")]
-    [DataRow("Server=db;User Id=sa;Password=hunter2;")]
-    [DataRow("apiKey: abc123")]
-    [DataRow("{\"client_secret\": \"s3cr3t\"}")]
-    [DataRow("DefaultEndpointsProtocol=https;AccountName=x;AccountKey=abc==")]
-    public void LabelledSecretsInText_AreRedacted(string text)
-    {
-        Assert.IsTrue(ReactorSecrets.HasLabelledSecret(text), text);
-        Assert.AreEqual(("<redacted>", true), ReactorComponents.Format("Status", typeof(string), text));
-        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Text", text));
-    }
-
-    [TestMethod]
-    [DataRow("Password:")]
-    [DataRow("Enter your password: ")]
-    [DataRow("Secretary: Jane")]
-    [DataRow("Token")]
-    [DataRow("Sort by key = name")]
-    public void BareLabelsAndOrdinaryText_StayVisible(string text)
-    {
-        Assert.IsFalse(ReactorSecrets.HasLabelledSecret(text), text);
-        Assert.IsFalse(ReactorElementProps.Format("Text", text).Redacted);
-    }
-
-    [TestMethod]
-    public void ObjectsWhoseToStringNamesASecretMember_AreRedacted()
-    {
-        Assert.AreEqual(("<redacted>", true), ReactorComponents.Format("", typeof(Login), new Login("ada", "hunter2")));
-        Assert.AreEqual(("<redacted>", true), ReactorElementProps.Format("Account", new Login("ada", "hunter2")));
-        Assert.IsFalse(ReactorElementProps.Format("Account", new Login("ada", null!)).Redacted, "a secret member with no value shows nothing secret");
-        Assert.IsFalse(ReactorComponents.Format("", typeof(Theme), new Theme("Dark", "k")).Redacted, "a member named Key is not a secret");
-    }
-
-    [TestMethod]
     public void Collections_AreCountedWithoutBeingEnumerated()
     {
         var endless = new Endless();
@@ -200,8 +110,8 @@ public sealed class ReactorSecretsTests
         var hidden = new HiddenCount();
         Assert.AreEqual("HiddenCount (count unknown)", ReactorComponents.Format("", typeof(HiddenCount), hidden).Text);
         Assert.AreEqual(0, hidden.Read, "a private getter is not called");
-        Assert.IsNull(ReactorSecrets.Count(hidden));
-        Assert.AreEqual(7, ReactorSecrets.Count(new Counted()));
+        Assert.IsNull(ReactorValueText.Count(hidden));
+        Assert.AreEqual(7, ReactorValueText.Count(new Counted()));
     }
 
     [TestMethod]
@@ -227,33 +137,5 @@ public sealed class ReactorSecretsTests
         Assert.AreEqual("Throws (ToString() threw InvalidOperationException)", ReactorElementProps.Format("Content", new Throws()).Text);
         Assert.AreEqual("Throws (ToString() threw InvalidOperationException)",
             ReactorElementProps.ComponentProps(new { Content = new Throws() }).Single().Value);
-    }
-
-    [TestMethod]
-    [DataRow("SecureString")]
-    [DataRow("System.Security.SecureString")]
-    [DataRow("ApiToken")]
-    [DataRow("ApiToken?")]
-    [DataRow("List<ApiToken>")]
-    [DataRow("Dictionary<string, SessionTokens>")]
-    [DataRow("UserCredential[]")]
-    public void SecretTypeNames_InReactorsText_AreSecrets(string type) =>
-        Assert.IsTrue(ReactorSecrets.IsSecretTypeName(type));
-
-    [TestMethod]
-    [DataRow("")]
-    [DataRow("string")]
-    [DataRow("List<TaskItem>")]
-    [DataRow("PasswordBox")]
-    [DataRow("KeyValuePair<string, int>")]
-    public void OrdinaryTypeNames_AreNotSecrets(string type) =>
-        Assert.IsFalse(ReactorSecrets.IsSecretTypeName(type));
-
-    [TestMethod]
-    public void AppliedPropertyText_IsRedactedByNameOrLabelledSecret()
-    {
-        Assert.AreEqual(("<redacted>", true), ReactorElementProps.FormatText("PasswordBox.Password", "hunter2"));
-        Assert.AreEqual(("<redacted>", true), ReactorElementProps.FormatText("TextBlock.Text", "token=abc123"));
-        Assert.AreEqual(("120", false), ReactorElementProps.FormatText("FrameworkElement.Width", "120"));
     }
 }

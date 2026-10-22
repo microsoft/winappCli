@@ -62,17 +62,17 @@ public sealed class ReactorEventsTests
     }
 
     [TestMethod]
-    public void ToJson_RedactsSecretsInEventText()
+    public void ToJson_PassesEventTextOnAsReactorWroteIt()
     {
         var warning = new ReactorEventRecord("warning", "warning", "Warning", true,
-            [("message", "could not connect: connectionString=Server=x;Password=hunter2"), ("category", "Network")]);
+            [("message", "could not connect: authToken=abc123"), ("category", "Network")]);
         var json = JsonDocument.Parse(ReactorEvents.ToJson(warning, 1, DateTime.UtcNow)).RootElement;
-        Assert.AreEqual("<redacted>", json.GetProperty("message").GetString());
+        Assert.AreEqual("could not connect: authToken=abc123", json.GetProperty("message").GetString());
         Assert.AreEqual("Network", json.GetProperty("category").GetString());
 
         var other = ReactorEvents.Translate("LoginFailed", EventLevel.Warning, ["user", "authToken"], ["ada", "abc123"])!;
         var detail = JsonDocument.Parse(ReactorEvents.ToJson(other, 2, DateTime.UtcNow)).RootElement.GetProperty("detail").GetString();
-        Assert.AreEqual("user=ada; authToken=<redacted>", detail);
+        Assert.AreEqual("user=ada; authToken=abc123", detail);
     }
 
     [TestMethod]

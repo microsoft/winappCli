@@ -421,6 +421,30 @@ static void CheckSecretRedaction(const std::function<void(bool,const char*)>& ch
     g_diag=nullptr;g_vts3=nullptr;
 }
 
+// A Reactor hook follows the XAML rule by its name: only a name ending in "Password" is a secret, shown redacted and
+// never written.
+static void CheckReactorSecretHooks(const std::function<void(bool,const char*)>& check)
+{
+    DevToolsJson component;
+    check(DevToolsJsonParse(LR"({"state":"ok","hooks":[
+        {"index":0,"kind":"state","value":"\"hunter2\"","canSet":true,"editable":true},
+        {"index":1,"kind":"state","value":"\"abc123\"","canSet":true,"editable":true}]})", component),
+        "a Reactor.component answer parses");
+    auto& hooks = component.obj[L"hooks"].arr;
+    TapReactorApplyHookName(hooks[0], L"password", 12);
+    TapReactorApplyHookName(hooks[1], L"ApiToken", 13);
+    check(hooks[0].GetString(L"value") == kDevToolsRedacted && hooks[0].GetBool(L"redacted", false) &&
+        !hooks[0].GetBool(L"editable", true) && hooks[0].GetString(L"name") == L"password",
+        "a hook named password is redacted and not editable");
+    check(hooks[1].GetString(L"value") == L"\"abc123\"" && !hooks[1].GetBool(L"redacted", false) &&
+        hooks[1].GetBool(L"editable", false), "a hook named ApiToken is shown, as a XAML property of that name would be");
+    const std::wstring refusal = TapReactorSecretRefusal(component, L"0");
+    check(refusal.find(L"\"state\":\"refused\"") != std::wstring::npos && refusal.find(L"\"code\":\"secret\"") != std::wstring::npos,
+        "Reactor.setState refuses the hook named password");
+    check(TapReactorSecretRefusal(component, L"1").empty() && TapReactorSecretRefusal(component, L"9").empty(),
+        "and lets any other hook through to the app");
+}
+
 // AccessKey="" reaches the chain as a null "0" handle with an Object value type, though the property is a String.
 struct EmptyStringTreeService : TextTreeService {
     using TextTreeService::TextTreeService;
@@ -1328,6 +1352,7 @@ int wmain(int argc, wchar_t** argv)
     check(!CardReadInputBridge(&input, &unchanged), "unsupported input is refused");
     CheckCuratedText(check);
     CheckSecretRedaction(check);
+    CheckReactorSecretHooks(check);
     {
         const std::wstring settings = DevToolsSettingsFile(L"Probe");
         wchar_t profile[MAX_PATH] = L"";

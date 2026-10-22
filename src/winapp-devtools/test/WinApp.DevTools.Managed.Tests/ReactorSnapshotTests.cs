@@ -7,8 +7,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace WinApp.DevTools.Managed.Tests;
 
 /// <summary>
-/// Reactor's text component diagnostics (<c>ReactorDiagnostics.DescribeComponent</c>): values arrive formatted but not
-/// redacted, and DevTools passes them on in the shape the CLI already reads, redacting secrets itself.
+/// Reactor's text component diagnostics (<c>ReactorDiagnostics.DescribeComponent</c>): values arrive formatted, and
+/// DevTools passes them on in the shape the CLI already reads, redacting a value whose name ends in Password.
 /// </summary>
 [TestClass]
 public sealed class ReactorSnapshotTests
@@ -29,16 +29,17 @@ public sealed class ReactorSnapshotTests
 
     private static ComponentSnapshot CounterSnapshot() => new("Counter", "class", false,
         [new(0, "Label", "prop", "string", "\"Done today\"", false, false),
-         new(1, "ApiPassword", "prop", "string", "\"hunter2\"", false, false)],
+         new(1, "UserPassword", "prop", "string", "\"hunter2\"", false, false),
+         new(2, "ApiToken", "prop", "string", "\"abc123\"", false, false)],
         [new(0, "", "state", "int", "3", true, false),
          new(1, "", "context", "string", "\"Compact\"", false, false),
          new(2, "", "ref", "List<int>", "List<int> (3 items)", false, true),
          new(3, "", "effect", "", "", false, false),
-         new(4, "", "state", "SecureString", "System.Security.SecureString", true, false),
+         new(4, "password", "state", "string", "\"hunter2\"", true, false),
          new(5, "", "context", "string", "\"abc123\"", false, false),
          new(6, "status", "state", "string", "\"AccessToken=abc123\"", true, false)],
         [new(1, "Density", "provided", "string", "\"Compact\"", false, false),
-         new(5, "AuthToken", "provided", "string", "\"abc123\"", false, false)]);
+         new(5, "AdminPassword", "provided", "string", "\"abc123\"", false, false)]);
 
     private static SnapshotReactorComponent Component(ComponentSnapshot snapshot, Func<int, string, (bool, string?)>? set = null) =>
         new(ReactorSnapshot.From(snapshot)!, typeof(Counter), null, null, "CounterProps",
@@ -51,7 +52,7 @@ public sealed class ReactorSnapshotTests
 
         Assert.AreEqual("Counter", snapshot.Name);
         Assert.AreEqual("class", snapshot.Kind);
-        Assert.AreEqual(2, snapshot.Props.Count);
+        Assert.AreEqual(3, snapshot.Props.Count);
         CollectionAssert.AreEqual(new[] { "state", "context", "ref", "effect", "state", "context", "state" }, snapshot.State.Select(s => s.Kind).ToArray());
         Assert.IsTrue(snapshot.State[2].Migrated);
         Assert.AreEqual("provided", snapshot.Contexts[1].Kind);
@@ -77,26 +78,29 @@ public sealed class ReactorSnapshotTests
         Assert.AreEqual("CounterProps", props.GetProperty("type").GetString());
         var label = props.GetProperty("values")[0];
         Assert.AreEqual("\"Done today\"", label.GetProperty("value").GetString(), "Reactor's quoting is kept");
-        Assert.IsTrue(props.GetProperty("values")[1].GetProperty("redacted").GetBoolean(), "a secret-named prop is redacted by DevTools");
+        Assert.IsTrue(props.GetProperty("values")[1].GetProperty("redacted").GetBoolean(), "a prop whose name ends in Password is redacted");
         Assert.AreEqual("<redacted>", props.GetProperty("values")[1].GetProperty("value").GetString());
+        Assert.AreEqual("\"abc123\"", props.GetProperty("values")[2].GetProperty("value").GetString(), "any other name is shown, as for XAML");
+        Assert.IsFalse(props.GetProperty("values")[2].TryGetProperty("redacted", out _));
 
         var hooks = root.GetProperty("hooks");
         Assert.AreEqual(7, hooks.GetArrayLength());
         Assert.AreEqual("3", hooks[0].GetProperty("value").GetString());
         Assert.IsTrue(hooks[0].GetProperty("editable").GetBoolean());
         Assert.IsTrue(hooks[0].GetProperty("canSet").GetBoolean());
-        Assert.IsFalse(hooks[0].TryGetProperty("name", out _), "Reactor names no hooks; DevTools takes names from hooks= instead");
+        Assert.IsFalse(hooks[0].TryGetProperty("name", out _), "an unnamed hook has no name");
         Assert.AreEqual("Density", hooks[1].GetProperty("context").GetString());
         Assert.IsFalse(hooks[1].GetProperty("canSet").GetBoolean());
         Assert.AreEqual("List<int> (3 items)", hooks[2].GetProperty("value").GetString());
         Assert.IsTrue(hooks[2].GetProperty("migrated").GetBoolean());
         Assert.IsFalse(hooks[3].TryGetProperty("value", out _), "an effect holds no value");
-        Assert.IsTrue(hooks[4].GetProperty("redacted").GetBoolean(), "a secret type is redacted");
+        Assert.IsTrue(hooks[4].GetProperty("redacted").GetBoolean(), "a hook named password is redacted");
         Assert.AreEqual("<redacted>", hooks[4].GetProperty("value").GetString());
         Assert.IsFalse(hooks[4].GetProperty("editable").GetBoolean(), "and never editable, whatever Reactor says");
-        Assert.IsTrue(hooks[5].GetProperty("redacted").GetBoolean(), "a context hook whose context is named as a secret");
-        Assert.IsTrue(hooks[6].GetProperty("redacted").GetBoolean(), "text that carries a labelled secret");
-        Assert.IsFalse(hooks[6].GetProperty("editable").GetBoolean());
+        Assert.IsTrue(hooks[5].GetProperty("redacted").GetBoolean(), "a context hook whose context name ends in Password");
+        Assert.AreEqual("\"AccessToken=abc123\"", hooks[6].GetProperty("value").GetString(), "value text is never scanned");
+        Assert.IsFalse(hooks[6].TryGetProperty("redacted", out _));
+        Assert.IsTrue(hooks[6].GetProperty("editable").GetBoolean());
 
         var contexts = root.GetProperty("contexts");
         Assert.IsFalse(contexts[0].TryGetProperty("isDefault", out _));
@@ -150,5 +154,21 @@ public sealed class ReactorSnapshotTests
         Assert.AreEqual(0, component.Hooks().Count, "typed hooks are not read on this path");
         Assert.IsFalse(component.TrySet(0, 42), "typed writes are not used on this path");
         Assert.IsTrue(component.Rerender());
+    }
+
+    [TestMethod]
+    public void SetState_RefusesAHookNamedPassword_WithoutAskingReactor()
+    {
+        var asked = false;
+        var component = Component(CounterSnapshot(), (_, _) => { asked = true; return (true, null); });
+        string? answer = null;
+
+        ReactorComponentOps.SetStateText(null!, null!, null, component, 4, "letmein", idleBefore: true, json => answer = json);
+
+        Assert.IsNotNull(answer);
+        using var doc = JsonDocument.Parse(answer);
+        Assert.AreEqual("refused", doc.RootElement.GetProperty("state").GetString());
+        Assert.AreEqual("secret", doc.RootElement.GetProperty("code").GetString());
+        Assert.IsFalse(asked, "the value never reaches Reactor");
     }
 }

@@ -99,11 +99,11 @@ internal static class ReactorComponents
     }
 
     /// <summary>
-    /// Whether DevTools offers to edit a value: a type that can be typed as text, that is not a secret by its name or
-    /// type (even when it holds null, and so shows nothing to redact), and was not redacted.
+    /// Whether DevTools offers to edit a value: a type that can be typed as text, whose name does not say it is a
+    /// secret, and was not redacted.
     /// </summary>
     internal static bool IsEditableValue(string name, Type? type, bool redacted) =>
-        !redacted && !ReactorSecrets.IsSecretName(name) && !IsSecretType(type) && IsEditable(type);
+        !redacted && !DevToolsSecrets.IsSecretName(name) && IsEditable(type);
 
     /// <summary>A type a value can be typed as on the command line: primitives, strings, enums and their nullables.</summary>
     internal static bool IsEditable(Type? type)
@@ -117,40 +117,33 @@ internal static class ReactorComponents
             type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan) || type == typeof(Guid);
     }
 
-    /// <summary>Whether a value of this type is a secret; see <see cref="ReactorSecrets.IsSecretType"/>.</summary>
-    internal static bool IsSecretType(Type? type) => ReactorSecrets.IsSecretType(type);
-
     /// <summary>
-    /// A value as shown to the developer: redacted when its name or type says it is a secret or its text carries a
-    /// labelled one, collections summarised by their count (never enumerated), long text cut.
+    /// A value as shown to the developer: redacted when its name says it is a secret, collections summarised by their
+    /// count (never enumerated), long text cut.
     /// </summary>
     internal static (string Text, bool Redacted) Format(string name, Type? declared, object? value)
     {
-        if (value is not null && (ReactorSecrets.IsSecretName(name) || IsSecretType(declared) || IsSecretType(value.GetType())))
+        if (DevToolsSecrets.IsSecretName(name))
         {
-            return (ReactorElementProps.Redacted, true);
+            return (DevToolsSecrets.Redacted, true);
         }
         // Every collection is summarised by its count: its own ToString may enumerate it.
         if (value is IEnumerable and not string)
         {
             // A collection expression's runtime type is compiler-generated (<>z__ReadOnlyArray); name the declared one.
             var shownType = value.GetType().Name.StartsWith('<') && declared is not null ? declared : value.GetType();
-            var text = ReactorSecrets.Count(value) is { } count
+            var text = ReactorValueText.Count(value) is { } count
                 ? $"{FriendlyTypeName(shownType)} ({count.ToString(CultureInfo.InvariantCulture)} items)"
                 : $"{FriendlyTypeName(shownType)} (count unknown)";
             return (text, false);
         }
         if (value is string s)
         {
-            if (ReactorSecrets.HasLabelledSecret(s))
-            {
-                return (ReactorElementProps.Redacted, true);
-            }
             var quoted = "\"" + s.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal)
                 .Replace("\n", "\\n", StringComparison.Ordinal).Replace("\r", "\\r", StringComparison.Ordinal) + "\"";
             return (quoted.Length > MaxValueLength ? quoted[..MaxValueLength] + "..." : quoted, false);
         }
-        var (shown, redacted) = ReactorElementProps.Format(name, value, declared);
+        var (shown, redacted) = ReactorElementProps.Format(name, value);
         return (shown.Length > MaxValueLength ? shown[..MaxValueLength] + "..." : shown, redacted);
     }
 

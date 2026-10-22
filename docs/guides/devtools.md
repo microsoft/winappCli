@@ -163,9 +163,11 @@ edit your source and are gone when the app restarts. Setting a bound property re
 its binding until you restart the app; the output warns you. `diagnose-binding` shows
 what a binding resolves to; add `--json` for every observation.
 
-Passwords never leave the app: password properties show as `<redacted>`, DevTools
-refuses to set them, and passwords in your XAML show as `******` in source previews
-and comments.
+Passwords never leave the app. A property whose name ends in `Password` (in a
+[Reactor app](devtools-reactor.md), also a prop, hook or context with such a name)
+shows as `<redacted>`, and DevTools refuses to set it. Source previews and comments
+show `<redacted>` for password values in your XAML and for the text values on a line
+of C# that mentions a password.
 
 For a terminal you keep using, launch with `winapp run . --detach`: it prints the PID
 and the next command. For scripts, add `--json`; see

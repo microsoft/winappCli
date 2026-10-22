@@ -6,6 +6,7 @@ using System.CommandLine.Parsing;
 using System.Text.Json;
 using Spectre.Console;
 using WinApp.Cli.Services.DevTools;
+using WinApp.Cli.Services.DevTools.Comments;
 
 namespace WinApp.Cli.Commands;
 
@@ -291,7 +292,7 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     DevToolsRender.WriteMarkupLine(Console, $"  [grey]Found here: {Markup.Escape(local)}[/]");
                     if (code.Length == 0 && line > 0 && File.ReadLines(local).Skip(line - 1).FirstOrDefault() is { } text)
                     {
-                        code = text.Trim();
+                        code = CSharpSourceText.Redact(text.Trim());
                     }
                 }
                 else

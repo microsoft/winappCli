@@ -255,7 +255,7 @@ internal static class ReactorComponentOps
         w.WriteEndArray();
     }
 
-    // Props, hooks and contexts as Reactor formatted them and DevTools redacted them, in the shape the typed path writes.
+    // Props, hooks and contexts as Reactor formatted them, secrets redacted, in the shape the typed path writes.
     private static void WriteSnapshotValues(Utf8JsonWriter w, SnapshotReactorComponent component)
     {
         var snapshot = component.Snapshot;
@@ -360,13 +360,7 @@ internal static class ReactorComponentOps
                 done(Refused("not-settable", $"hook {index} of <{component.Name}> is a {hook.Kind} hook; only state, reducer and persisted hooks can be set"));
                 return;
             }
-            var (beforeText, redacted) = ReactorComponents.Format("", hook.ValueType, hook.Value);
-            // A secret-typed hook holding null is still a secret.
-            if (redacted || ReactorComponents.IsSecretType(hook.ValueType))
-            {
-                done(Refused("secret", $"hook {index} of <{component.Name}> holds a secret; DevTools does not write it"));
-                return;
-            }
+            var beforeText = ReactorComponents.Format("", hook.ValueType, hook.Value).Text;
             if (hook.ValueType is null)
             {
                 done(Refused("bad-value", "the hook has no value type"));
@@ -408,11 +402,11 @@ internal static class ReactorComponentOps
     }
 
     // Reactor parses, checks and writes the value (TrySetState); its refusal is shown as Reactor words it.
-    private static void SetStateText(UIElement element, ReactorApi api, object? host, SnapshotReactorComponent component, int index,
+    internal static void SetStateText(UIElement element, ReactorApi api, object? host, SnapshotReactorComponent component, int index,
         string text, bool idleBefore, Action<string> done)
     {
         var before = component.Hook(index);
-        // Reactor writes any text-typed hook; DevTools never writes one it shows as a secret.
+        // Reactor writes any text-typed hook; DevTools never writes one whose name says it holds a secret.
         if (before is { Redacted: true })
         {
             done(Refused("secret", $"hook {index} of <{component.Name}> holds a secret; DevTools does not write it"));

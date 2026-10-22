@@ -405,6 +405,35 @@ public class DevToolsJsonParityTests
         }
     }
 
+    // After a late attach the app knows only the project-relative path; the line read from here is redacted too.
+    [TestMethod]
+    public async Task GetSource_ALateAttachReadsTheLineHere_AndRedactsAPasswordLiteral()
+    {
+        var folder = $"winapp-late-{Guid.NewGuid():N}";
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "Login.cs"), "var box = TextBox(password: \"hunter2\");");
+        try
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+                .Answer("Source.get", JsonSerializer.Serialize(new
+                {
+                    handle = "42", kind = "csharp", fileName = folder + "/Login.cs", lineNumber = 1, columnNumber = 11, onDisk = false,
+                    authoredState = "available",
+                }));
+
+            var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
+
+            Assert.AreEqual(0, exit, output);
+            StringAssert.Contains(output, "TextBox(password: \"<redacted>\")");
+            Assert.IsFalse(output.Contains("hunter2", StringComparison.Ordinal), "the password literal never reaches the terminal");
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     [TestMethod]
     [DataRow(246, "MainPage.xaml:246")]
     [DataRow(248, "MainPage.xaml:246-248")]

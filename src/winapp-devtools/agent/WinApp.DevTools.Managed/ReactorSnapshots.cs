@@ -9,8 +9,8 @@ namespace WinApp.DevTools.Managed;
 
 /// <summary>
 /// One value of Reactor's <c>ComponentSnapshot</c> (a <c>DiagnosticValue</c>): a prop, a hook or a context, formatted
-/// by Reactor. Reactor does not redact, so a value whose name, type or text says it is a secret
-/// (<see cref="ReactorSecrets"/>) is replaced here and is never editable.
+/// by Reactor. A value whose name, or whose context's name, says it is a secret (<see cref="DevToolsSecrets"/>) is
+/// replaced here and is never editable.
 /// </summary>
 internal sealed record ReactorShownValue(int Index, string Name, string Kind, string Type, string Value, bool Editable,
     bool Redacted, bool Migrated)
@@ -24,14 +24,13 @@ internal sealed record ReactorShownValue(int Index, string Name, string Kind, st
         var name = ReactorReflect.Member(value, "Name") as string ?? "";
         var type = ReactorReflect.Member(value, "Type") as string ?? "";
         var text = ReactorReflect.Member(value, "Value") as string ?? "";
-        var secret = ReactorSecrets.IsSecretName(name) || ReactorSecrets.IsSecretName(contextName) ||
-            ReactorSecrets.IsSecretTypeName(type) || ReactorSecrets.HasLabelledSecret(text);
+        var secret = DevToolsSecrets.IsSecretName(name) || DevToolsSecrets.IsSecretName(contextName);
         return new ReactorShownValue(
             ReactorReflect.Member(value, "Index") is int index ? index : -1,
             name,
             ReactorReflect.Member(value, "Kind") as string ?? "unknown",
             type,
-            secret ? ReactorElementProps.Redacted : text,
+            secret ? DevToolsSecrets.Redacted : text,
             !secret && ReactorReflect.Member(value, "Editable") is true,
             secret,
             ReactorReflect.Member(value, "MigratedByHotReload") is true);

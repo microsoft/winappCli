@@ -86,8 +86,8 @@ winapp devtools get-source "<Counter>/Button"
 `get-source` reports the component that rendered the element, the C# call site and
 the statement there. For a template part, such as a button's inner TextBlock, it
 reports the nearest Reactor element that contains it. With `--json` the answer has
-`"kind": "csharp"` (XAML answers have `"kind": "xaml"`). Statements that mention a
-password show `<redacted>` instead of their string values.
+`"kind": "csharp"` (XAML answers have `"kind": "xaml"`). Passwords are hidden as
+described in [DevTools](devtools.md#find-and-inspect-an-element).
 
 The in-app overlay and the inspector window show the same thing. Picking an
 element in the app selects the Reactor element you wrote rather than a template
@@ -112,7 +112,7 @@ winapp devtools set-property "<Counter>/Button" Content "Plus one"
 `get-property` marks each value the element's C# sets (its factory arguments,
 initializers and modifiers such as `.Width(120)`) with `set in C# · App.cs:67`; with
 `--json` those properties have `"setBy": "reactor"`. For a component, it also lists
-the props the component was rendered with. Secrets are redacted, as in `get-state`.
+the props the component was rendered with.
 
 `set-property` changes such a property live and warns that it is set in C#: Reactor
 writes its own value again when the component that rendered the element re-renders
@@ -152,10 +152,8 @@ contexts it reads. Hook names need a Reactor version that records them; otherwis
 hooks show their index only. Pass a component
 (`"<Counter>"`) or any element inside it. `defined` is where the component's render
 method is, read from the app's PDB; when that file changed after the build, the
-output says lines may have moved. DevTools shows `<redacted>` for a secret and never
-sets one: a prop, hook or context whose name or type ends in `Password`, `Secret`,
-`Token`, `Credential`, `ApiKey`, `PrivateKey` or `ConnectionString` (or is a
-`SecureString`), and any value whose text labels a secret, such as `token=...`.
+output says lines may have moved. Passwords show as `<redacted>` and cannot be set;
+see [DevTools](devtools.md#find-and-inspect-an-element).
 
 ```powershell
 winapp devtools set-state "<Counter>" count 42

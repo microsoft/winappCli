@@ -1432,20 +1432,41 @@ static void TapReactorLocateMember(DevToolsJson& owner, const wchar_t* member)
     at.obj[L"stale"] = stale;
 }
 
-// Whether a C# name says it holds a secret, by the managed agent's rule (ReactorSecrets.IsSecretName): it ends with
-// one of these, or is their plural (`AuthTokens`). A bare "Key" does not.
-static bool TapReactorIsSecretName(const std::wstring& name)
+// Gives a hook of a Reactor.component answer its C# name. A hook named as a secret, by the rule XAML properties follow
+// (DevToolsRead_IsSecretProperty), shows no value and is not editable.
+static void TapReactorApplyHookName(DevToolsJson& hook, const std::wstring& name, unsigned int line)
 {
-    static const wchar_t* const kSuffixes[] = { L"Password", L"Secret", L"Credential", L"Token", L"ApiKey", L"PrivateKey",
-                                                L"ConnectionString" };
-    auto ends = [](const std::wstring& text) {
-        for (const wchar_t* suffix : kSuffixes) {
-            const size_t length = wcslen(suffix);
-            if (text.size() >= length && _wcsicmp(text.c_str() + text.size() - length, suffix) == 0) return true;
+    DevToolsJson text; text.type = DevToolsJsonType::String; text.str = name;
+    hook.obj[L"name"] = text;
+    if (DevToolsRead_IsSecretProperty(name)) {
+        if (hook.Find(L"value")) {
+            DevToolsJson redacted; redacted.type = DevToolsJsonType::String; redacted.str = kDevToolsRedacted;
+            hook.obj[L"value"] = redacted;
         }
-        return false;
-    };
-    return ends(name) || (name.size() > 1 && (name.back() == L's' || name.back() == L'S') && ends(name.substr(0, name.size() - 1)));
+        DevToolsJson yes; yes.type = DevToolsJsonType::Bool; yes.b = true;
+        hook.obj[L"redacted"] = yes;
+        if (hook.Find(L"editable")) { DevToolsJson no; no.type = DevToolsJsonType::Bool; no.b = false; hook.obj[L"editable"] = no; }
+    }
+    if (line) {
+        DevToolsJson number; number.type = DevToolsJsonType::Number; number.num = line;
+        hook.obj[L"line"] = number;
+    }
+}
+
+// Reactor.setState's refusal for the hook at `index` when a Reactor.component answer shows it redacted; empty when
+// the write may go ahead.
+static std::wstring TapReactorSecretRefusal(const DevToolsJson& component, const std::wstring& index)
+{
+    const DevToolsJson* hooks = component.Find(L"hooks");
+    if (!hooks || hooks->type != DevToolsJsonType::Array) return L"";
+    for (const auto& hook : hooks->arr) {
+        const DevToolsJson* at = hook.Find(L"index");
+        if (!at || at->type != DevToolsJsonType::Number || std::to_wstring(static_cast<long long>(at->num)) != index) continue;
+        if (!hook.GetBool(L"redacted", false)) return L"";
+        return L"{\"state\":\"refused\",\"code\":\"secret\",\"reason\":\"hook " + DevToolsJsonEscape(index) +
+               L" holds a secret; DevTools does not write it\"}";
+    }
+    return L"";
 }
 
 // Names each hook of a Reactor.component answer with the C# variable it was assigned to, from the hooks Reactor
@@ -1500,21 +1521,7 @@ static void TapReactorNameHooks(unsigned long long wire, DevToolsJson& answer)
         unsigned int line = 0;
         const std::wstring hookName = DevToolsReactorPublished::HookName(named, static_cast<unsigned int>(index->num), &line);
         if (hookName.empty()) continue;
-        DevToolsJson text; text.type = DevToolsJsonType::String; text.str = hookName;
-        hook.obj[L"name"] = text;
-        if (TapReactorIsSecretName(hookName)) {
-            if (hook.Find(L"value")) {
-                DevToolsJson redacted; redacted.type = DevToolsJsonType::String; redacted.str = kDevToolsRedacted;
-                hook.obj[L"value"] = redacted;
-            }
-            DevToolsJson yes; yes.type = DevToolsJsonType::Bool; yes.b = true;
-            hook.obj[L"redacted"] = yes;
-            if (hook.Find(L"editable")) { DevToolsJson no; no.type = DevToolsJsonType::Bool; no.b = false; hook.obj[L"editable"] = no; }
-        }
-        if (line) {
-            DevToolsJson number; number.type = DevToolsJsonType::Number; number.num = line;
-            hook.obj[L"line"] = number;
-        }
+        TapReactorApplyHookName(hook, hookName, line);
     }
 }
 
@@ -1569,22 +1576,14 @@ static bool TapReactorAskWire(unsigned long long wire, const std::wstring& opera
 
 // Reactor.element: what Reactor set on one element (its record properties, applied modifiers, component props), from
 // the managed agent, plus the component that rendered it from the annotation cache.
-// Reactor.setState: refused for a hook shown as a secret (by its type, value or published name), otherwise the agent
-// writes it. The agent sees the type and value; only the published name needs the component answer first.
+// Reactor.setState: refused for a hook shown as a secret (by its name), otherwise the agent writes it. The agent knows
+// the names Reactor reports; the published names need the component answer first.
 static std::wstring CmdReactorSetState(unsigned long long wire, const std::wstring& index, const std::wstring& value)
 {
     DevToolsJson component;
     if (DevToolsJsonParse(CmdReactorComponent(wire), component) && component.IsObject() && component.GetString(L"state") == L"ok") {
-        if (const DevToolsJson* hooks = component.Find(L"hooks"); hooks && hooks->type == DevToolsJsonType::Array) {
-            for (const auto& hook : hooks->arr) {
-                const DevToolsJson* at = hook.Find(L"index");
-                if (!at || at->type != DevToolsJsonType::Number || std::to_wstring(static_cast<long long>(at->num)) != index) continue;
-                if (hook.GetBool(L"redacted", false))
-                    return L"{\"state\":\"refused\",\"code\":\"secret\",\"reason\":\"hook " + DevToolsJsonEscape(index) +
-                           L" holds a secret; DevTools does not write it\"}";
-                break;
-            }
-        }
+        std::wstring refusal = TapReactorSecretRefusal(component, index);
+        if (!refusal.empty()) return refusal;
     }
     return CmdReactorAgent(wire, L"reactorsetstate", index, value);
 }

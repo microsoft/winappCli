@@ -93,7 +93,7 @@ public sealed class ReactorElementPropsTests
 
         var password = props.Single(p => p.Name == "Password");
         Assert.IsTrue(password.Redacted);
-        Assert.AreEqual(ReactorElementProps.Redacted, password.Value);
+        Assert.AreEqual(DevToolsSecrets.Redacted, password.Value);
         Assert.IsFalse(props.Any(p => p.Value.Contains("hunter2")));
     }
 
@@ -129,7 +129,7 @@ public sealed class ReactorElementPropsTests
         var rows = ReactorElementProps.ComponentProps(new LoginProps("ada", "s3cret", () => { }));
 
         Assert.AreEqual("ada", rows.Single(r => r.Name == "User").Value);
-        Assert.AreEqual(ReactorElementProps.Redacted, rows.Single(r => r.Name == "UserPassword").Value);
+        Assert.AreEqual(DevToolsSecrets.Redacted, rows.Single(r => r.Name == "UserPassword").Value);
         StringAssert.StartsWith(rows.Single(r => r.Name == "Submit").Value, "handler ");
         CollectionAssert.AreEqual(new[] { "Props=3" },
             ReactorElementProps.ComponentProps(3).Select(r => $"{r.Name}={r.Value}").ToArray());
