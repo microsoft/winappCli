@@ -63,7 +63,7 @@ std::vector<size_t> SelectRenderRows(const std::vector<Row>& rows, size_t cap, b
 
 bool IsChromeCollapseType(const std::wstring& shortType);
 
-// True when the "Just my code" filter excludes row `j` from the current view.
+// True when the "Just my XAML" filter excludes row `j` from the current view.
 bool RowHiddenByJmx(const std::vector<Row>& rows, size_t j, bool jmxActive);
 
 // Initial collapsed state for every row, for the CURRENT view. Returns one flag per row.

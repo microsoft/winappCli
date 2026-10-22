@@ -306,5 +306,5 @@ winapp devtools attach --pid <pid> --source-root <project folder>
 ```
 
 The run's error message prints these commands with the app's real alias. Every element
-then shows its XAML file, **Just my code** works, and comments link to their files.
+then shows its XAML file, **Just my XAML** works, and comments link to their files.
 Elements have no line numbers: those need the source capture that `winapp run` does.

@@ -271,6 +271,28 @@ internal sealed record ReactorDescription(
         "re-renders and logs are unavailable.";
 
     /// <summary>
+    /// The app's own elements, named for what they are: <c>your XAML</c>, <c>your Reactor code</c>, or
+    /// <c>your XAML and Reactor code</c>. An app without Reactor reads <c>your XAML</c>, as it always has.
+    /// </summary>
+    public static string YourCode(bool xaml, bool reactor) =>
+        !reactor ? "your XAML" : xaml ? "your XAML and Reactor code" : "your Reactor code";
+
+    /// <summary>
+    /// <see cref="YourCode(bool, bool)"/> for the whole app, when no result says which kinds it has: whether it renders
+    /// Reactor elements, and whether the XAML classifier finds any app-authored element that is not one of them.
+    /// </summary>
+    public static string YourCode(VisualTreeTap tap, CancellationToken cancellationToken)
+    {
+        var described = tap.RequestReactorDescribe(cancellationToken);
+        if (!described.Ok || Parse(described.ResultJson) is not { IsReactor: true, ByHandle.Count: > 0 } reactor)
+        {
+            return YourCode(xaml: true, reactor: false);
+        }
+        var authored = DevToolsAppAuthored.Parse(tap.RequestAppAuthored(cancellationToken).ResultJson);
+        return YourCode(authored?.Handles.Any(handle => !reactor.ByHandle.ContainsKey(handle)) == true, reactor: true);
+    }
+
+    /// <summary>
     /// Why elements show no C# source, when that is the launch rather than the element; null otherwise.
     /// </summary>
     public string? ExplainMissingSource()

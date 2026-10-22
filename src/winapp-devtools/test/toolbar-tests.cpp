@@ -397,20 +397,20 @@ static void TestToolbarContract()
                      windowShell.find("<TextBox x:Name=\"TreeFilter\"") < windowShell.find("<ToggleButton x:Name=\"JmxBtn\"") &&
                      windowShell.find("Grid.Row=\"1\" Margin=\"8,8,8,4\" ColumnSpacing=\"8\"") != std::string::npos &&
                      windowShell.find("<ToggleButton x:Name=\"JmxBtn\"") < windowShell.find("<TextBlock x:Name=\"TreeHeader\""),
-                 "Just my code is an icon toggle eight DIPs beside the tree filter with its status in the tooltip");
+                 "Just my XAML is an icon toggle eight DIPs beside the tree filter with its status in the tooltip");
     // JmxLbl is collapsed, so it is absent from the UIA tree by construction and the toggle's
     // AutomationProperties.Name is the ONLY thing that carries the unavailable reason to assistive tech.
     // Nothing guarded that binding, which is how the reason became a tooltip-only affordance once already.
     Check(windowShell.find("AutomationProperties.Name=\"{Binding Text, ElementName=JmxLbl}\"") != std::string::npos,
-                 "the Just my code toggle's accessible name is bound to the live reason text");
+                 "the Just my XAML toggle's accessible name is bound to the live reason text");
     Check(window.find("DevToolsToggleButtonPutIsChecked(toggle, boxed)") != std::string::npos,
-                 "the Just my code toggle reflects programmatic filter changes");
+                 "the Just my XAML toggle reflects programmatic filter changes");
 
     // ---- the left pane's mode chrome -------------------------------------------------------------
     // The tabs are the ONLY mode row, and every tree-scoped control lives inside the tree tab. Two facts,
     // both of which the shipped build got wrong: the CommentsToggle icon button carried the mode in a name
     // that was byte-identical in both views, and SetCommentsView collapsed the filter TEXTBOX rather than
-    // the row that also holds Just my code -- so the toggle floated alone over a pane it could not filter.
+    // the row that also holds Just my XAML -- so the toggle floated alone over a pane it could not filter.
     Check(windowShell.find("AutomationProperties.AutomationId=\"ViewTabTree\"") != std::string::npos &&
                      windowShell.find("AutomationProperties.AutomationId=\"ViewTabComments\"") != std::string::npos &&
                      windowShell.find("AutomationProperties.AutomationId=\"CommentsToggle\"") == std::string::npos &&
@@ -444,7 +444,7 @@ static void TestToolbarContract()
                          windowShell.find("<Grid x:Name=\"TreeControls\"") &&
                      windowShell.find("<ToggleButton x:Name=\"JmxBtn\"") >
                          windowShell.find("<Grid x:Name=\"TreeControls\""),
-                 "Pick, Track focus, the filter and Just my code all live inside the one tree-scoped row");
+                 "Pick, Track focus, the filter and Just my XAML all live inside the one tree-scoped row");
     Check(windowShell.find("AutomationProperties.AutomationId=\"PickElementToggle\"") <
                      windowShell.find("<TextBox x:Name=\"TreeFilter\"") &&
                      windowShell.find("AutomationProperties.AutomationId=\"FocusTrackingToggle\"") <
@@ -474,7 +474,7 @@ static void TestToolbarContract()
         // explicit cause the way enforced the focus rule, not by anyone remembering.
         Check(select.find("cause == SelectCause::Explicit && RowHiddenByJmx(si)") != std::string::npos &&
                          select.find("cause == SelectCause::Comment && RowHiddenByJmx(si)") != std::string::npos,
-                     "only an EXPLICIT selection may clear Just my code; a comment click reports instead");
+                     "only an EXPLICIT selection may clear Just my XAML; a comment click reports instead");
         Check(window.find("enum class SelectCause { Explicit, Focus, Comment };") != std::string::npos &&
                          window.find("SelectNodeByWire(wire, SelectCause::Comment);") != std::string::npos,
                      "and the comments path is the thing that passes that cause");

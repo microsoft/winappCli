@@ -131,8 +131,8 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                 {
                     // A Reactor app can have no XAML at all, so missing XAML source information says nothing
                     // about how it was launched: this element just has no authored declaration.
-                    noSource = "No source is recorded for this element. Framework, template or generated elements " +
-                        "may have no app-authored declaration.";
+                    noSource = "No XAML declaration or Reactor call site is recorded for this element. Framework, template or " +
+                        "generated elements may have no app-authored declaration.";
                 }
             }
 

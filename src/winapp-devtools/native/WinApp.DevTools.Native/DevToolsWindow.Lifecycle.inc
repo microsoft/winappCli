@@ -723,7 +723,7 @@ void DevToolsWindow_OnPickModeChanged(bool armed)
                   (int)DevToolsOverlay_IsPickArmed());
 }
 
-// Passive focus tracking never changes Just my code. With that filter enabled, walk the full
+// Passive focus tracking never changes Just my XAML. With that filter enabled, walk the full
 // census to the nearest authored ancestor; otherwise select the actual focused element.
 // Report redirection rather than leave stale properties or silently change the filter.
 void DevToolsWindow_OnFocusChanged(InstanceHandle wire)
@@ -753,8 +753,8 @@ void DevToolsWindow_OnFocusChanged(InstanceHandle wire)
         // Selecting the focused element itself would mean revealing a row this view does not contain, and
         // the only way to do that is to turn the filter off -- the one thing this path must not do. Leave
         // the tree where it is and say why, rather than clearing the selection without explanation.
-        SetFocusNotice(L"Focus is on " + focused + L", which isn't from your XAML, and neither is "
-                       L"anything above it. The tree didn't move. Turn off Just my code to see it.");
+        SetFocusNotice(L"Focus is on " + focused + L", which isn't from " + JmxScope() + L", and neither is "
+                       L"anything above it. The tree didn't move. Turn off " + std::wstring(JmxName()) + L" to see it.");
         DevToolsOverlayLog(L"route1.focus wire=%llu is framework with no app-authored ancestor -> tree unchanged",
                       (unsigned long long)wire);
         return;
@@ -765,7 +765,7 @@ void DevToolsWindow_OnFocusChanged(InstanceHandle wire)
     DevToolsOverlayLog(L"route1.focus wire=%llu (%s) is framework -> selecting app-authored ancestor row %zu (%s)",
                   (unsigned long long)wire, focused.c_str(), anc, target.c_str());
     SelectNodeByWire(g_allTreeNodes[anc].handle, SelectCause::Focus);
-    SetFocusNotice(L"Focus is on " + focused + L", which isn't from your XAML. Selected the nearest element "
+    SetFocusNotice(L"Focus is on " + focused + L", which isn't from " + JmxScope() + L". Selected the nearest element "
                    L"you did write: " + target + (name.empty() ? L"" : (L" #" + name)) + L".");
 }
 

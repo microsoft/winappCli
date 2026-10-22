@@ -82,7 +82,7 @@ static std::vector<char> OldCollapse_AbsoluteDepth(const std::vector<Row>& rows)
 }
 
 // Pre-visibility: hid a row if ANY ancestor by absolute depth was collapsed -- including ancestors the
-// "Just my code" filter was not showing. That omission is the entire blank-pane bug.
+// "Just my XAML" filter was not showing. That omission is the entire blank-pane bug.
 static std::vector<char> OldVisibility_FullTreeAncestry(const std::vector<Row>& rows,
                                                         const std::vector<char>& collapsed, bool jmx)
 {

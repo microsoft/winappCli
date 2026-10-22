@@ -12,7 +12,7 @@ namespace WinApp.Cli.Commands;
 
 internal partial class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExamples
 {
-    public override string ShortDescription => "View a running app's live visual tree";
+    public override string ShortDescription => "View a running app's XAML and Reactor visual tree";
 
     public IReadOnlyList<string> Examples { get; } =
     [
@@ -23,7 +23,7 @@ internal partial class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExampl
 
     public static Option<int> DepthOption { get; } = new("--depth", "-d")
     {
-        Description = "Levels to expand in your code (--all counts framework levels too).",
+        Description = "Levels to expand in your XAML or Reactor code (--all counts framework levels too).",
         DefaultValueFactory = _ => 4,
     };
 
@@ -252,7 +252,7 @@ internal partial class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExampl
                 Console.MarkupLineInterpolated($"[yellow]{previews.Error}[/]");
             }
             RenderFooter(snapshot, depth, authored, normalizedFilter, target, returned, emptyReason, classificationTruncated,
-                reactorNote, annotations.Reactor?.StaticOnly == true);
+                reactorNote, annotations.Reactor?.StaticOnly == true, YourCode(kept, annotations));
             return Task.FromResult(found ? 0 : 1);
         }
 
@@ -454,6 +454,23 @@ internal partial class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExampl
             }
         }
 
+        // What the shown elements are: XAML the app declares, elements its Reactor code created, or both.
+        private static string YourCode(IReadOnlyList<VisualTreeNode> nodes, DevToolsTreeAnnotations annotations)
+        {
+            bool xaml = false, reactor = false;
+            void Visit(IEnumerable<VisualTreeNode> level)
+            {
+                foreach (var node in level)
+                {
+                    if (annotations.For(node.Handle) is not null) { reactor = true; }
+                    else if (node.ShortFile?.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) == true) { xaml = true; }
+                    Visit(node.Children);
+                }
+            }
+            Visit(nodes);
+            return ReactorDescription.YourCode(xaml, reactor);
+        }
+
         private void RenderFooter(
             VisualTreeSnapshot snapshot,
             int depth,
@@ -464,7 +481,8 @@ internal partial class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExampl
             string? emptyReason,
             bool classificationTruncated,
             (string Token, string Message)? reactorNote,
-            bool reactorStaticOnly = false)
+            bool reactorStaticOnly = false,
+            string yourCode = "your XAML")
         {
             Console.WriteLine();
             if (reactorNote is { } early && emptyReason is not null)
@@ -478,7 +496,7 @@ internal partial class DevToolsInspectCommand : DevToolsLiveCommand, IHelpExampl
             }
 
             var flags = new List<string> { $"--depth {depth}" };
-            flags.Add(authored ? "your code" : "all elements");
+            flags.Add(authored ? yourCode : "all elements");
             if (filter.Length > 0)
             {
                 flags.Add($"filter \"{filter}\"");

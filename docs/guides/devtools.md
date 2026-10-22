@@ -80,8 +80,9 @@ If the app is already running, `run` closes it first, so DevTools can start it
 - **Comments** opens the comment panel on the element you click. It shows where the
   element is declared: its XAML file and line, or a Reactor element's C# call site.
 - Clicking a control's template part or generated text selects the control from your
-  XAML or Reactor code; turn off **Just my code** in the DevTools window to pick the parts
-  themselves.
+  XAML; turn off **Just my XAML** in the DevTools window to pick the parts themselves.
+  In a Reactor app the toggle is named **Just my code** and keeps you on elements your
+  C# created.
 - Saved comments show as markers on their elements; the arrow beside **Comments**
   lists them and hides or shows the markers.
 - **Ctrl+Shift+F12** brings back a hidden toolbar; **⋯** hides it, keeps it open, or
@@ -217,4 +218,3 @@ winapp run . --watch -- --my-flag value
 | Access denied when attaching | Run winapp as the app's user, at the same or higher integrity. |
 
 More cases are in [Advanced DevTools](devtools-advanced.md#troubleshooting).
-[JSON output](devtools-advanced.md#json-output).

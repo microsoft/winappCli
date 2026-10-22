@@ -129,7 +129,37 @@ public class DevToolsSelectorTests
         StringAssert.Contains(output, "<SettingsPage> root");
         StringAssert.Contains(output, "<Counter> App.cs:9");
         StringAssert.Contains(output, "MainWindow.xaml");
+        StringAssert.Contains(output, "your XAML and Reactor code", "the footer names both kinds of elements shown");
         Assert.IsTrue(output.IndexOf("Main", StringComparison.Ordinal) < output.IndexOf("Settings", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [DataRow(true, false, "your XAML")]
+    [DataRow(false, false, "your XAML")]
+    [DataRow(false, true, "your Reactor code")]
+    [DataRow(true, true, "your XAML and Reactor code")]
+    public void ReactorDescription_YourCode_NamesWhatTheAppIsMadeOf(bool xaml, bool reactor, string expected)
+    {
+        Assert.AreEqual(expected, ReactorDescription.YourCode(xaml, reactor));
+    }
+
+    /// <summary>A Reactor-only app has no XAML, so the search fallback must not say "your XAML".</summary>
+    [TestMethod]
+    public async Task Search_NoAuthoredMatch_InAReactorApp_SaysYourReactorCode()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find",
+                """{"matches":[],"query":"phi","appAuthoredOnly":true,"searchedNodes":2,"censusNodes":20,"truncated":false,"sourceInstrumented":true,"classificationTruncated":false}""",
+                request => request.Contains("\"appAuthoredOnly\":true", StringComparison.Ordinal))
+            .Answer("VisualTree.find",
+                """{"matches":[{"handle":"42","name":"","type":"Microsoft.UI.Xaml.Controls.NavigationViewItem","depth":9}],"query":"phi","appAuthoredOnly":false,"searchedNodes":20,"censusNodes":20,"truncated":false}""")
+            .Answer("Reactor.describe", CounterInTwoWindows())
+            .Answer("VisualTree.getAppAuthored", """{"appAuthored":["20","21","30","31"],"sourceInstrumented":true}""");
+
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["Phi 3 Medium"]);
+
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "Nothing in your Reactor code matches");
     }
 
     [TestMethod]
@@ -284,7 +314,7 @@ public class DevToolsSelectorTests
             "The default view must ask the tap for the authored projection, not filter a raw tree afterwards.");
         StringAssert.Contains(output, "SubmitButton",
             "An app-authored Button must be visible at the DEFAULT depth, which is the bug this fixes.");
-        StringAssert.Contains(output, "your code", "The footer must say which view this is.");
+        StringAssert.Contains(output, "your XAML", "The footer must say which view this is.");
     }
 
     /// <summary>
@@ -921,7 +951,7 @@ public class DevToolsSelectorTests
         var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["Phi 3 Medium"]);
         Assert.AreEqual(0, exit, output);
         StringAssert.Contains(output, "NavigationViewItem");
-        StringAssert.Contains(output, "Nothing in your code matches");
+        StringAssert.Contains(output, "Nothing in your XAML matches");
 
         var (_, jsonOut) = await RunAsync(new DevToolsSearchCommand(), agent, ["Phi 3 Medium", "--json"]);
         using var doc = JsonDocument.Parse(jsonOut);

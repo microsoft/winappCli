@@ -544,6 +544,10 @@ static std::vector<char>  g_treeAppAuthored;
 static bool  g_jmxActive    = false;
 static bool  g_jmxAvailable = false;
 static int   g_jmxSrcSeen = 0;
+// Rows a Reactor call site created. With none, the filter is about XAML and says so; with some, it covers code too.
+static int   g_jmxCodeSeen = 0;
+static const wchar_t* JmxName() { return g_jmxCodeSeen > 0 ? L"Just my code" : L"Just my XAML"; }
+static const wchar_t* JmxScope() { return g_jmxCodeSeen > 0 ? L"your XAML or Reactor code" : L"your XAML"; }
 static DevToolsPickRoute g_pickRoute;
 static bool  g_focusActive  = false;
 static void* g_jmxLbl       = nullptr;

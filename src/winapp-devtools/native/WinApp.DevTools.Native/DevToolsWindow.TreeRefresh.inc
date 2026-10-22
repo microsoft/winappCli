@@ -159,10 +159,11 @@ static int ClassifyTreeSnapshot()
     }
     DevToolsAppXaml_ClassifyBatch(jmxSrcUris, g_allTreeAppAuthored);
     // Elements a Reactor call site created are the app's own code too.
+    g_jmxCodeSeen = 0;
     if (g_codeAuthoredFn) {
         g_allTreeAppAuthored.resize(g_allTreeNodes.size(), 0);
         for (size_t i = 0; i < g_allTreeNodes.size(); ++i)
-            if (!g_allTreeAppAuthored[i] && g_codeAuthoredFn(g_allTreeNodes[i].handle)) g_allTreeAppAuthored[i] = 1;
+            if (!g_allTreeAppAuthored[i] && g_codeAuthoredFn(g_allTreeNodes[i].handle)) { g_allTreeAppAuthored[i] = 1; ++g_jmxCodeSeen; }
     }
     int appCount = 0;
     for (char a : g_allTreeAppAuthored) if (a) ++appCount;
@@ -286,10 +287,10 @@ static bool RefreshTreeFromApp(bool refreshValues)
     const bool wasAvailable = g_jmxAvailable;
     const int appCount = ClassifyTreeSnapshot();
     g_jmxAvailable = appCount > 0;
-    // Reactor elements are described after the window opens; once they make "Just my code" available it starts on,
+    // Reactor elements are described after the window opens; once they make the filter available it starts on,
     // as it would have had they been known at open.
     if (g_reclassifying && !wasAvailable && g_jmxAvailable) g_jmxActive = true;
-    // "Just my code" is a MODE the user chose, so it is carried across. But it cannot stay on over a page with
+    // "Just my XAML" is a MODE the user chose, so it is carried across. But it cannot stay on over a page with
     // no app-authored nodes -- that renders an empty tree and looks exactly like a refresh that lost the app.
     if (!g_jmxAvailable) g_jmxActive = false;
 

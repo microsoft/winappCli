@@ -45,7 +45,7 @@ static void GoToComment(size_t idx)
 
     InstanceHandle wire = (g_anchorWireFn && !c.anchor.empty()) ? g_anchorWireFn(c.anchor.c_str()) : 0;
     if (wire) {
-        // SelectCause::Comment, not the default: this path must never write the "Just my code" filter, whose
+        // SelectCause::Comment, not the default: this path must never write the "Just my XAML" filter, whose
         // toggle is not even on screen in this mode. SelectNodeByWire reports the collision instead.
         SelectNodeByWire(wire, SelectCause::Comment);
         SetStatusText(L"Selected the element for " + c.id);

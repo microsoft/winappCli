@@ -93,7 +93,7 @@ HRESULT DevToolsWindow_Close();
 
 bool DevToolsWindow_IsOpen();
 
-// True when Just my code has been turned off in the inspector (it stays off while the window is hidden). UI thread only.
+// True when Just my XAML has been turned off in the inspector (it stays off while the window is hidden). UI thread only.
 bool DevToolsWindow_ShowsFrameworkRows();
 
 

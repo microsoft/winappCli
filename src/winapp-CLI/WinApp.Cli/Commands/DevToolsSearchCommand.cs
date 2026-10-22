@@ -11,7 +11,7 @@ namespace WinApp.Cli.Commands;
 
 internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
 {
-    public override string ShortDescription => "Find elements in a running app's visual tree";
+    public override string ShortDescription => "Find elements in a running app's XAML and Reactor visual tree";
 
     public IReadOnlyList<string> Examples { get; } =
     [
@@ -156,7 +156,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
                     return Task.FromResult(Fail(json, target.Pid, error));
                 }
                 fallback = why ?? (result!.Matches.Count > 0
-                    ? $"Nothing in your code matches \"{query}\"; these are generated or framework elements, such as items created from data."
+                    ? $"Nothing in {ReactorDescription.YourCode(target.Tap!, cancellationToken)} matches \"{query}\"; these are generated or framework elements, such as items created from data."
                     : null);
             }
 
@@ -277,7 +277,9 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             }
 
             var more = matches.Count > shown.Count ? $" (showing the first {shown.Count})" : string.Empty;
-            var scope = appAuthored ? " match(es) in your code" : " match(es)";
+            var scope = appAuthored
+                ? $" match(es) in {ReactorDescription.YourCode(matches.Any(match => match.ShortFile?.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) == true && match.Label is null), matches.Any(match => match.Label is not null))}"
+                : " match(es)";
             Console.MarkupLine($"[grey]Found {matches.Count}{scope}{more}.[/]");
             if (appAuthored)
             {
@@ -316,7 +318,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             DevToolsTarget target, string query, bool appAuthored, bool classificationTruncated)
         {
             var scope = appAuthored
-                ? " in your code. Pass --all to search framework and template elements too"
+                ? $" in {ReactorDescription.YourCode(target.Tap!, CancellationToken.None)}. Pass --all to search framework and template elements too"
                 : string.Empty;
             var why = $"No element matches \"{query}\" in {target.Describe()}{scope}. " +
                       "Matching covers type, x:Name, AutomationId, source file, displayed text and, in Reactor apps, component, key and C# call site.";
