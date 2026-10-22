@@ -15,8 +15,9 @@ winapp devtools comments list --status open --json
 Complete the [Windows Sandbox prerequisites](../sandbox-execution.md#before-you-start)
 first. The project builds on your machine; the app, toolbar and inspector run in
 Sandbox. DevTools is off by default there, so pass `--devtools on` (or `headless`). It
-needs a project with XAML sources; build-output folders and .NET file-based apps aren't
-supported. Host and guest need matching winapp and DevTools engines.
+needs a project with XAML sources or a [Reactor](devtools-reactor.md) project;
+build-output folders and .NET file-based apps aren't supported. Host and guest need
+matching winapp and DevTools engines.
 
 Use `--on sandbox --app <pid>` with a PID from `winapp devtools list --on sandbox`, or
 the returned `appSelector`. Discovery doesn't start or repair Sandbox: after it is
@@ -27,13 +28,13 @@ and relaunch after changing source. Comments written in the guest are saved in t
 project's store, and the UI reports success only after the host confirms. They survive
 Sandbox, so read them on the host without `--on sandbox`:
 
-A [Reactor](devtools-reactor.md) project can launch with or without XAML files; its `.cs`
-files (outside `bin`, `obj` and hidden folders) are copied with its XAML, so comments
-in the guest anchor to C# call sites.
-
 ```powershell
 winapp devtools comments list --source-root C:\src\MyApp
 ```
+
+A Reactor project can launch with or without XAML files; its `.cs` files (outside
+`bin`, `obj` and hidden folders) are copied with its XAML, so comments in the guest
+anchor to C# call sites.
 
 To attach to an app already running in the guest, use `winapp devtools list --on
 sandbox --include-available`, then `winapp devtools attach --on sandbox --app <pid>`.
