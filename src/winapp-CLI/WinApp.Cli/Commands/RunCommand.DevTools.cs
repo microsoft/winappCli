@@ -288,7 +288,7 @@ internal partial class RunCommand
                 if (managed && alias.Target.TargetExecutable is { } targetImage &&
                     DevToolsStartupHooks.DisabledByRuntimeConfig(Path.ChangeExtension(targetImage, ".runtimeconfig.json")))
                 {
-                    logger.LogWarning("{Message}", DevToolsStartupHooks.DisabledWarning);
+                    logger.LogWarning("{Message}", DevToolsStartupHooks.DisabledWarning(devToolsReactor is not null));
                 }
                 var environment = ReactorBuildFacts.ApplyEnvironment(CreateDevToolsEnvironment(projectFile?.DirectoryName, managed), devToolsReactor);
                 environment = WithHotReloadEnvironment(environment, watchAppEnvironment);

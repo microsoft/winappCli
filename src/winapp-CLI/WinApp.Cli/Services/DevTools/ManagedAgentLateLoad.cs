@@ -34,9 +34,12 @@ internal sealed record ManagedAgentResult(ManagedAgentState State, string? Reaso
         _ => "unavailable",
     };
 
+    /// <summary>Whether the app ships Microsoft.UI.Reactor, so the note names the Reactor features it loses too.</summary>
+    public bool UsesReactor { get; init; }
+
     /// <summary>A one-line note for people when the agent is missing, or null when it runs.</summary>
     public string? Note => State == ManagedAgentState.Unavailable
-        ? $"Binding diagnosis and the Reactor component tree are unavailable: {Reason}"
+        ? $"{(UsesReactor ? "Binding diagnosis and the Reactor component tree are" : "Binding diagnosis is")} unavailable: {Reason}"
         : null;
 }
 
@@ -155,7 +158,24 @@ internal sealed partial class ManagedAgentLateLoad
     {
         var result = await LoadAsync(target, cancellationToken).ConfigureAwait(false);
         // An app launched with the agent as a startup hook may bring its pipe up while this ran; that agent counts.
-        return result.State == ManagedAgentState.Unavailable && AgentPipePresent(target.Id) ? new(ManagedAgentState.Present) : result;
+        return result.State == ManagedAgentState.Unavailable && AgentPipePresent(target.Id) ? new(ManagedAgentState.Present)
+            : result.State == ManagedAgentState.Unavailable ? result with { UsesReactor = UsesReactor(target) }
+            : result;
+    }
+
+    internal Func<Process, bool> UsesReactor { get; init; } = DefaultUsesReactor;
+
+    private static bool DefaultUsesReactor(Process target)
+    {
+        try
+        {
+            return target.MainModule?.FileName is { } exe &&
+                File.Exists(Path.Combine(Path.GetDirectoryName(exe)!, "Microsoft.UI.Reactor.dll"));
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private async Task<ManagedAgentResult> LoadAsync(Process target, CancellationToken cancellationToken)

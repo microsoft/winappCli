@@ -495,7 +495,7 @@ internal partial class RunCommand
                     if (managed &&
                         Services.DevTools.DevToolsStartupHooks.DisabledByRuntimeConfig(Path.ChangeExtension(exePath, ".runtimeconfig.json")))
                     {
-                        logger.LogWarning("{Message}", Services.DevTools.DevToolsStartupHooks.DisabledWarning);
+                        logger.LogWarning("{Message}", Services.DevTools.DevToolsStartupHooks.DisabledWarning(devToolsReactor is not null));
                     }
                 }
                 catch (Exception ex) when (devToolsRun.FailOpen && ex is IOException or UnauthorizedAccessException or InvalidOperationException)

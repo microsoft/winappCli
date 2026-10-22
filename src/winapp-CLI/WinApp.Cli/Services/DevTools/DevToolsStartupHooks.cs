@@ -48,8 +48,8 @@ internal static class DevToolsStartupHooks
         }
     }
 
-    public const string DisabledWarning =
+    public static string DisabledWarning(bool reactor) =>
         "This build turns off .NET startup hooks (System.StartupHookProvider.IsSupported=false, usually from PublishTrimmed), " +
-        "so binding diagnosis and the Reactor component tree are unavailable. Run a Debug build, or set " +
+        $"so {(reactor ? "binding diagnosis and the Reactor component tree are" : "binding diagnosis is")} unavailable. Run a Debug build, or set " +
         "<StartupHookSupport>true</StartupHookSupport> for this configuration.";
 }

@@ -81,27 +81,36 @@ public class ManagedAgentLateLoadTests
     }
 
     [TestMethod]
-    public async Task Ensure_StartupHooksDisabled_SaysHowToFixIt()
+    [DataRow(false, "Binding diagnosis is unavailable")]
+    [DataRow(true, "Binding diagnosis and the Reactor component tree are unavailable")]
+    public async Task Ensure_StartupHooksDisabled_SaysHowToFixIt(bool reactor, string note)
     {
         var config = Path.Combine(Path.GetTempPath(), $"winapp-late-{Guid.NewGuid():N}.runtimeconfig.json");
         File.WriteAllText(config, """{"runtimeOptions":{"configProperties":{"System.StartupHookProvider.IsSupported":false}}}""");
         try
         {
             var sent = 0;
-            var loader = Loader(runtimeConfig: config, send: () => { sent++; return 0; });
+            var loader = Loader(runtimeConfig: config, send: () => { sent++; return 0; }, reactor: reactor);
 
             var result = await loader.EnsureAsync(Process.GetCurrentProcess(), CancellationToken.None);
 
             Assert.AreEqual(ManagedAgentState.Unavailable, result.State);
             StringAssert.Contains(result.Reason, "StartupHookSupport");
             Assert.AreEqual(0, sent, "the runtime silently ignores a hook it can't run, so DevTools doesn't send it");
-            StringAssert.StartsWith(result.Note, "Binding diagnosis and the Reactor component tree are unavailable");
+            StringAssert.StartsWith(result.Note, note);
+            Assert.AreEqual(reactor, result.Note!.Contains("Reactor", StringComparison.Ordinal), "only a Reactor app hears about Reactor");
         }
         finally
         {
             File.Delete(config);
         }
     }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void StartupHooksDisabledWarning_NamesReactorOnlyForReactorApps(bool reactor) =>
+        Assert.AreEqual(reactor, DevToolsStartupHooks.DisabledWarning(reactor).Contains("Reactor", StringComparison.Ordinal));
 
     [TestMethod]
     [DataRow(null, "DOTNET_EnableDiagnostics=0")]
@@ -195,9 +204,10 @@ public class ManagedAgentLateLoadTests
 
     private static ManagedAgentLateLoad Loader(
         Func<bool>? present = null, bool managed = true, string? trust = null, string? runtimeConfig = null,
-        Func<uint?>? send = null, Action<string>? onSend = null, TimeSpan? timeout = null) => new()
+        Func<uint?>? send = null, Action<string>? onSend = null, TimeSpan? timeout = null, bool reactor = false) => new()
         {
             IsManaged = _ => managed,
+            UsesReactor = _ => reactor,
             TrustProblem = _ => trust,
             AgentPipePresent = _ => present?.Invoke() ?? false,
             RuntimeConfigPath = _ => runtimeConfig,
