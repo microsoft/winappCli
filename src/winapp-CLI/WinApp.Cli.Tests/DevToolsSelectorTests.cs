@@ -730,6 +730,32 @@ public class DevToolsSelectorTests
         Assert.AreEqual("77", overlaysPage.Handle, "the new component's own selector resolves");
     }
 
+    /// <summary>
+    /// In a Reactor app a stale selector usually names a component that is no longer rendered. Listing every live
+    /// Border (most of them template parts) as "the same type at a different place" sends the reader the wrong way.
+    /// </summary>
+    [TestMethod]
+    public void Resolve_AStaleSlugInAReactorApp_SaysItIsNoLongerRendered_AndListsNoUnrelatedElements()
+    {
+        const string borders = """
+            {"matches":[
+              {"handle":"77","name":"","type":"Microsoft.UI.Xaml.Controls.Border","id":"5d10e2c4a7","depth":7},
+              {"handle":"78","name":"","type":"Microsoft.UI.Xaml.Controls.Border","id":"6e21f3d5b8","depth":9,"file":"ms-appx:///themeresources.xaml"}],
+             "query":"border","appAuthoredOnly":false,"searchedNodes":40,"censusNodes":40,"truncated":false}
+            """;
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", borders)
+            .Answer("Reactor.describe", """{"state":"ok","nodes":[],"files":[],"unmapped":0,"truncated":false}""");
+        var tap = new VisualTreeTap((uint)agent.Pid);
+
+        var resolved = DevToolsSelector.Resolve(tap, "border-3fad591266");
+
+        Assert.IsFalse(resolved.Ok);
+        StringAssert.Contains(resolved.Error, "no longer rendered");
+        StringAssert.Contains(resolved.Error, "winapp devtools search");
+        Assert.AreEqual(0, resolved.Candidates.Length, "unrelated elements of the same type are not offered");
+    }
+
     /// <summary>A slug for an element that is simply gone is refused with rerun guidance, not a near-miss claim.</summary>
     [TestMethod]
     public void Resolve_AnUnknownSlugSaysToRerunInspect()

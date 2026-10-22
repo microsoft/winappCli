@@ -304,6 +304,17 @@ internal static class DevToolsSelector
 
         if (nearMisses.Length > 0)
         {
+            // In a Reactor app the usual cause is navigation, a tab switch or a conditional: the component the selector
+            // named is gone, and the same-typed elements left (often template parts) are not candidates for it.
+            if (tap.RequestReactorDescribe(cancellationToken) is { Ok: true } described &&
+                ReactorDescription.Parse(described.ResultJson) is { IsReactor: true })
+            {
+                return Resolution.Fail(
+                    $"'{selector}' is stale: the element it named is no longer rendered, for example because the app " +
+                    "navigated, switched tabs or a condition removed it, or a different component is rendered in its place. " +
+                    "Run `winapp devtools search` with the component's name (for example `winapp devtools search \"<Counter>\"`) " +
+                    "or `winapp devtools inspect` to get its current selector.");
+            }
             return Resolution.Fail(
                 $"'{selector}' is stale: an element of that type and name is live, but at a different place in " +
                 "the tree, so it is not the one this selector named. Re-run `winapp devtools inspect` or " +
