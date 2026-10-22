@@ -143,6 +143,7 @@ internal static class ReactorWrites
             "threw" => ("handler-threw", $"The handler threw {ReactorDescription.ReadString(root, "exception")}: {ReactorDescription.ReadString(root, "message")}"),
             _ when root.TryGetProperty("indeterminate", out var i) && i.ValueKind == JsonValueKind.True =>
                 ("indeterminate", "The app did not answer in time, so the change may or may not have been applied. Read it back before retrying."),
+            _ when ReactorDescription.IsBusy(reason) => ("reactor-unavailable", ReactorDescription.BusyMessage),
             _ => ("reactor-unavailable", "Unavailable: " + Sentence(reason ?? "the managed DevTools agent did not answer")),
         };
     }

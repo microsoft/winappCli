@@ -252,11 +252,19 @@ internal sealed record ReactorDescription(
     };
 
     /// <summary>The one note shown when the app uses Reactor but its components cannot be read.</summary>
-    public string ExplainUnavailable() =>
+    public string ExplainUnavailable() => IsBusy(Reason) ? BusyMessage :
         $"This app uses Microsoft.UI.Reactor, but its components cannot be read: {(Reason ?? "the managed DevTools agent did not answer").TrimEnd('.')}. " +
         "Launch it with `winapp run --devtools on`. A Debug build loads the managed agent; Native AOT, trimmed and " +
         "late-attached apps show their components when Reactor publishes its diagnostics, which `winapp run --devtools on` " +
         "turns on (REACTOR_DIAGNOSTICS=1).";
+
+    /// <summary>What to say when the app's UI thread was too busy to answer: relaunching would not help.</summary>
+    public const string BusyMessage = "The app's UI thread is busy and did not answer in time. Wait until the app responds, then run the command again.";
+
+    /// <summary>Whether an unavailable reason is the app's UI thread not answering (it is busy), not a missing agent.</summary>
+    public static bool IsBusy(string? reason) =>
+        reason is not null && (reason.Contains("UI thread did not answer", StringComparison.OrdinalIgnoreCase) ||
+            reason.Contains("UI thread did not respond", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Whether the tree came from what Reactor published on the controls rather than from the managed agent, so

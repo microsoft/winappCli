@@ -146,6 +146,10 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
     /// </summary>
     internal static string UnavailableMessage(string? reason)
     {
+        if (ReactorDescription.IsBusy(reason))
+        {
+            return ReactorDescription.BusyMessage;
+        }
         var why = reason is { Length: > 0 } ? $"Reactor logs are unavailable: {reason.TrimEnd('.', ' ')}." : "Reactor logs are unavailable.";
         return why + (reason?.Contains("Native AOT", StringComparison.Ordinal) == true
             ? " Logs need the managed DevTools agent: run a build without --aot to read them."

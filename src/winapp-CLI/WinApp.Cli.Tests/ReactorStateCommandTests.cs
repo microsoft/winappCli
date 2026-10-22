@@ -115,6 +115,23 @@ public class ReactorStateCommandTests
     }
 
     [TestMethod]
+    public async Task BusyUiThread_SaysToRetry_NotToRelaunch()
+    {
+        const string busy = """{"state":"unavailable","reason":"the app's UI thread did not answer (0x80070102)"}""";
+        using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.component", busy))
+        {
+            var (exit, output) = await Run(new DevToolsGetStateCommand(), agent, ["42"]);
+            Assert.AreEqual(1, exit);
+            StringAssert.Contains(output, "busy");
+            StringAssert.Contains(output, "run the command again");
+            Assert.DoesNotContain("--devtools on", output, "it was launched that way; relaunching would not help");
+        }
+        Assert.AreEqual(ReactorDescription.BusyMessage, ReactorDescription.Parse(busy)!.ExplainUnavailable());
+        Assert.AreEqual(ReactorDescription.BusyMessage, DevToolsLogsCommand.UnavailableMessage("the app's UI thread did not answer (0x80070102)"));
+        StringAssert.Contains(DevToolsLogsCommand.UnavailableMessage("no managed DevTools agent is loaded"), "--devtools on");
+    }
+
+    [TestMethod]
     public async Task SetState_RefusalsAndTimeoutsAreFailuresWithStableTokens()
     {
         using (var agent = new FakeDevToolsProtocolAgent().Answer("Reactor.setState",

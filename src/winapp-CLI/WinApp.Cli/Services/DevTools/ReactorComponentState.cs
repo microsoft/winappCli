@@ -118,8 +118,9 @@ internal sealed record ReactorComponentState(
                 case "none":
                     return (null, "No Reactor component renders this element.", "no-component");
                 default:
-                    return (null, "Reactor component state is unavailable: " +
-                        (ReactorDescription.ReadString(root, "reason") ?? "the managed DevTools agent did not answer") + ".", "reactor-unavailable");
+                    var reason = ReactorDescription.ReadString(root, "reason");
+                    return (null, ReactorDescription.IsBusy(reason) ? ReactorDescription.BusyMessage : "Reactor component state is unavailable: " +
+                        (reason ?? "the managed DevTools agent did not answer") + ".", "reactor-unavailable");
             }
             if (!root.TryGetProperty("component", out var component) || component.ValueKind != JsonValueKind.Object)
             {
