@@ -419,6 +419,7 @@ internal class DevToolsGetPropertyCommand : DevToolsLiveCommand, IHelpExamples
                     writer.WriteString("method", handler.Method);
                     writer.WriteString("signature", handler.Signature);
                     writer.WriteBoolean("invokable", handler.Invokable);
+                    if (handler.NeedsValue) { writer.WriteBoolean("needsValue", true); }
                     if (handler.File is not null)
                     {
                         writer.WriteString("file", handler.File);

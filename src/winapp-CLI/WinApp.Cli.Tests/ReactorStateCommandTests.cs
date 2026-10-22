@@ -399,6 +399,26 @@ public class ReactorStateCommandTests
     }
 
     [TestMethod]
+    public async Task GetProperty_Json_SaysWhichHandlersNeedAValue()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Property.get", """{"handle":"42","authoredState":"noSourceInfo","props":[]}""")
+            .Answer("Reactor.element", ElementWithText.Replace(
+                "\"line\":76}]",
+                "\"line\":76},{\"event\":\"OnChanged\",\"method\":\"lambda in Counter.Render\",\"signature\":\"(string)\",\"invokable\":false,\"needsValue\":true}]",
+                StringComparison.Ordinal));
+        var (exit, json) = await Run(new DevToolsGetPropertyCommand(), agent, ["42", "--json"]);
+
+        Assert.AreEqual(0, exit, json);
+        using var doc = JsonDocument.Parse(json);
+        var handlers = doc.RootElement.GetProperty("reactor").GetProperty("handlers");
+        Assert.AreEqual(2, handlers.GetArrayLength());
+        Assert.IsFalse(handlers[0].TryGetProperty("needsValue", out _));
+        Assert.IsFalse(handlers[1].GetProperty("invokable").GetBoolean());
+        Assert.IsTrue(handlers[1].GetProperty("needsValue").GetBoolean(), "invoke-handler --value runs it");
+    }
+
+    [TestMethod]
     public void Feeds_MatchesTextInsideTheShownValueOnly()
     {
         Assert.IsTrue(ReactorComponentState.Feeds("\"Ada\"", "Hello Ada"));
