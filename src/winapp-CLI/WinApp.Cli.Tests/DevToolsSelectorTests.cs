@@ -143,6 +143,21 @@ public class DevToolsSelectorTests
         Assert.AreEqual(expected, ReactorDescription.YourCode(xaml, reactor));
     }
 
+    /// <summary>A plain Reactor Button has no label (it would repeat its type), but it is still Reactor code.</summary>
+    [TestMethod]
+    public async Task Search_ReactorMatchWithoutLabel_SaysYourReactorCode()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.find", Find(
+                """[{"handle":"22","name":"","type":"Microsoft.UI.Xaml.Controls.Button","depth":9,"reactor":{"element":"Button","file":"C:\\src\\Program.cs","line":33,"name":"incrementButton","owner":"Counter"}}]"""));
+
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["Clicks"]);
+
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "#incrementButton Program.cs:33 in <Counter>");
+        StringAssert.Contains(output, "Found 1 match(es) in your Reactor code");
+    }
+
     /// <summary>A Reactor-only app has no XAML, so the search fallback must not say "your XAML".</summary>
     [TestMethod]
     public async Task Search_NoAuthoredMatch_InAReactorApp_SaysYourReactorCode()

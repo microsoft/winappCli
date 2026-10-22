@@ -122,10 +122,10 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                 else if (described is { IsReactor: true } && described.ByHandle.TryGetValue(handle, out var reactorNode) &&
                     reactorNode.File is null)
                 {
-                    // Other elements have call sites, so source mapping is on: Reactor did not stamp this one. A Hot
-                    // Reload edit to the method that creates it does that until the app restarts.
-                    noSource = "Reactor recorded no C# call site for this element. That happens after a Hot Reload edit to " +
-                        "the method that creates it; restart the app to record it again (Ctrl+R under `winapp run --watch`).";
+                    // Other elements have call sites, so source mapping is on: Reactor did not stamp this one. Reactor
+                    // builds before microsoft/microsoft-ui-reactor#1405 dropped them after a Hot Reload edit.
+                    noSource = "Reactor recorded no C# call site for this element. If Hot Reload changed the method that " +
+                        "creates it, restart the app to record it (Ctrl+R under `winapp run --watch`), or update Reactor.";
                 }
                 else if (described is { IsReactor: true })
                 {

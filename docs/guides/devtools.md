@@ -191,8 +191,7 @@ registered again and relaunched with its package identity on each restart, so it
 its DevTools and Hot Reload connection; this needs the app's execution alias to be
 enabled, as `winapp run` with DevTools already does. `dotnet watch` doesn't watch `.xaml`
 files by default, so after editing XAML, save a C# file or press Ctrl+R in the
-terminal to restart. In a [Reactor app](devtools-reactor.md), elements created by a method
-that Hot Reload changed show no C# line until the app restarts; press Ctrl+R to get them back.
+terminal to restart.
 
 Press Ctrl+C to stop `dotnet watch` and the app. `--watch` needs DevTools on (the default for a
 WinUI project) or `--devtools headless`, and can't be combined with `--devtools off`,

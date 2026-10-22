@@ -278,7 +278,7 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
 
             var more = matches.Count > shown.Count ? $" (showing the first {shown.Count})" : string.Empty;
             var scope = appAuthored
-                ? $" match(es) in {ReactorDescription.YourCode(matches.Any(match => match.ShortFile?.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) == true && match.Label is null), matches.Any(match => match.Label is not null))}"
+                ? $" match(es) in {ReactorDescription.YourCode(matches.Any(match => !match.IsReactor && match.ShortFile?.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) == true), matches.Any(match => match.IsReactor))}"
                 : " match(es)";
             Console.MarkupLine($"[grey]Found {matches.Count}{scope}{more}.[/]");
             if (appAuthored)

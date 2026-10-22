@@ -51,6 +51,9 @@ internal static class DevToolsSelector
         /// <summary>The C# variable a Reactor element was assigned to, which a selector names like an x:Name.</summary>
         public string? ReactorName { get; init; }
 
+        /// <summary>Whether Reactor created this element, so it comes from the app's C#, not its XAML.</summary>
+        public bool IsReactor { get; init; }
+
         /// <summary>Whether the selector is this element's x:Name or C# name.</summary>
         public bool IsNamed(string name, StringComparison comparison) =>
             string.Equals(Name, name, comparison) || string.Equals(ReactorName, name, comparison);
@@ -240,7 +243,7 @@ internal static class DevToolsSelector
         }
         return new VisualTreeMatch(node.Handle, live?.Node.Name ?? "", live?.Node.Type ?? label, null, live?.Node.Id,
             live?.Node.UniqueName ?? false, live?.Depth ?? 0)
-        { Detail = details.Count == 0 ? null : string.Join(" ", details), Window = host?.Window, Label = label, ReactorName = node.Name };
+        { Detail = details.Count == 0 ? null : string.Join(" ", details), Window = host?.Window, Label = label, ReactorName = node.Name, IsReactor = true };
     }
 
     /// <summary>
@@ -458,7 +461,8 @@ internal static class DevToolsSelector
                 string? label = null;
                 string? detail = null;
                 string? reactorName = null;
-                if (m.TryGetProperty("reactor", out var reactor) && reactor.ValueKind == JsonValueKind.Object)
+                var isReactor = m.TryGetProperty("reactor", out var reactor) && reactor.ValueKind == JsonValueKind.Object;
+                if (isReactor)
                 {
                     var element = ReadString(reactor, "element");
                     var component = ReadString(reactor, "component");
@@ -486,7 +490,7 @@ internal static class DevToolsSelector
                     id.Length == 0 ? null : id,
                     m.TryGetProperty("uniqueName", out var unique) && unique.ValueKind == JsonValueKind.True,
                     m.TryGetProperty("depth", out var d) && d.TryGetInt32(out var depth) ? depth : 0)
-                { Label = label, Detail = detail, ReactorName = reactorName });
+                { Label = label, Detail = detail, ReactorName = reactorName, IsReactor = isReactor });
             }
         }
 
