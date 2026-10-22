@@ -228,11 +228,69 @@ bool UnderSourceRoot(const std::wstring& relative, const std::wstring& sourceRoo
     }
     return false;
 }
+
+bool HasParentSegment(const std::wstring& relative)
+{
+    size_t start = 0;
+    for (;;) {
+        const size_t slash = relative.find_first_of(L"\\/", start);
+        if (relative.compare(start, slash == std::wstring::npos ? std::wstring::npos : slash - start, L"..") == 0) return true;
+        if (slash == std::wstring::npos) return false;
+        start = slash + 1;
+    }
+}
+
+// The repository the source root is in (the nearest folder above it with `.git`), or the source root's parent when
+// it is in none: how far a `../` path may reach.
+std::wstring ParentBound(const std::wstring& sourceRoot)
+{
+    std::wstring root;
+    if (!FullPath(sourceRoot, &root)) return {};
+    root = TrimTrailingSlash(root);
+    for (std::wstring folder = root;;) {
+        if (GetFileAttributesW((folder + L"\\.git").c_str()) != INVALID_FILE_ATTRIBUTES) return folder;
+        const size_t slash = folder.find_last_of(L"\\/");
+        if (slash == std::wstring::npos || slash < 3) break;
+        folder = folder.substr(0, slash);
+    }
+    const size_t slash = root.find_last_of(L"\\/");
+    return slash == std::wstring::npos || slash < 3 ? root : root.substr(0, slash);
+}
+
+// Each existing file `relative` names under the source root or one of the projects compiled into the app.
+std::vector<std::wstring> ProjectCandidates(const std::wstring& relative, const std::wstring& sourceRoot,
+                                            const std::wstring& projectDirs)
+{
+    std::vector<std::wstring> found;
+    if (relative.empty() || IsSlash(relative.front()) || relative.find(L':') != std::wstring::npos) return found;
+    const bool climbs = HasParentSegment(relative);
+    const std::wstring bound = climbs ? ParentBound(sourceRoot) : std::wstring();
+    if (climbs && bound.empty()) return found;
+    std::vector<std::wstring> folders{ sourceRoot };
+    for (size_t start = 0; start < projectDirs.size();) {
+        const size_t semicolon = projectDirs.find(L';', start);
+        folders.push_back(projectDirs.substr(start, semicolon == std::wstring::npos ? std::wstring::npos : semicolon - start));
+        start = semicolon == std::wstring::npos ? projectDirs.size() : semicolon + 1;
+    }
+    for (const auto& folder : folders) {
+        std::wstring base;
+        if (folder.empty() || !FullPath(folder, &base)) continue;
+        std::wstring candidate;
+        if (!FullPath(TrimTrailingSlash(base) + L"\\" + relative, &candidate) || !IsFile(candidate)) continue;
+        if (climbs && !DevToolsSourcePath_IsWithinRoot(bound, candidate)) continue;
+        bool known = false;
+        for (const auto& existing : found) known = known || _wcsicmp(existing.c_str(), candidate.c_str()) == 0;
+        if (!known) found.push_back(candidate);
+    }
+    return found;
+}
 }
 
 bool DevToolsSourcePath_MapCompiled(const std::wstring& compiledPath, const std::wstring& sourceRoot,
-                                    const std::wstring& pathMap, std::wstring* mapped)
+                                    const std::wstring& pathMap, std::wstring* mapped,
+                                    const std::wstring& projectDirs, std::vector<std::wstring>* ambiguous)
 {
+    if (ambiguous) ambiguous->clear();
     if (!mapped) return false;
     *mapped = compiledPath;
     if (compiledPath.empty()) return false;
@@ -263,10 +321,22 @@ bool DevToolsSourcePath_MapCompiled(const std::wstring& compiledPath, const std:
             return UnderSourceRoot(ToWindowsSlashes(compiledPath.substr(i + 1)), sourceRoot, mapped);
     }
 
-    // A project-relative path (`Views/App.cs`), as Reactor publishes it: under the project, or under a folder above
-    // it (the repository root) for a file outside the project.
+    // A project-relative path (`Views/App.cs`), as Reactor publishes it: under the project that compiled it, which
+    // is the app or one of its referenced projects. Only one of them may have it: a file at the same path in another
+    // project is not this one. A path relative to the repository root (a file outside every project) is looked for
+    // under the folders above the source root.
     const bool rooted = IsSlash(compiledPath[0]) || (compiledPath.size() >= 2 && compiledPath[1] == L':');
-    if (!rooted) return UnderSourceRoot(ToWindowsSlashes(compiledPath), sourceRoot, mapped);
+    if (!rooted) {
+        const std::wstring relative = ToWindowsSlashes(compiledPath);
+        if (sourceRoot.empty()) return false;
+        const std::vector<std::wstring> found = ProjectCandidates(relative, sourceRoot, projectDirs);
+        if (found.size() == 1) { *mapped = found.front(); return true; }
+        if (found.size() > 1) {
+            if (ambiguous) *ambiguous = found;
+            return false;
+        }
+        return UnderSourceRoot(relative, sourceRoot, mapped);
+    }
 
     if (IsFile(compiledPath)) return true;
 

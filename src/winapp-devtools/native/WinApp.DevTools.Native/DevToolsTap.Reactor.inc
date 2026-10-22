@@ -244,10 +244,8 @@ static std::wstring TapReactorSurfaceJson(const ReactorAnnotation& host)
         out += L",\"root\":{\"kind\":\"" + DevToolsJsonEscape(kind) + L"\",\"name\":\"" + DevToolsJsonEscape(host.rootName) + L"\"}";
     }
     if (!host.mountFile.empty()) {
-        static const std::wstring sourceRoot = ReactorEnvironment(L"WINAPP_DEVTOOLS_SOURCE_ROOT");
-        static const std::wstring pathMap = ReactorEnvironment(L"WINAPP_DEVTOOLS_PATH_MAP");
         std::wstring path;
-        DevToolsSourcePath_MapCompiled(host.mountFile, sourceRoot, pathMap, &path);
+        TapReactorMapFile(host.mountFile, &path);
         out += L",\"mountFile\":\"" + DevToolsJsonEscape(path) + L"\"";
         if (host.mountLine) out += L",\"mountLine\":" + std::to_wstring(host.mountLine);
         if (host.mountColumn) out += L",\"mountColumn\":" + std::to_wstring(host.mountColumn);
@@ -1090,17 +1088,18 @@ struct ReactorSource
     bool exact = false;         // the element's own call site, not an ancestor's
     std::wstring path;          // the file on this machine, or the recorded path when it is not here
     bool onDisk = false;
+    std::vector<std::wstring> ambiguous; // when the recorded path names a file in more than one of the app's projects
     std::wstring code;          // the statement at the call site, secrets redacted
 };
+
+static bool TapReactorMapFile(const std::wstring& file, std::wstring* onDisk, std::vector<std::wstring>* ambiguous);
 
 static bool TapReactorSourceFor(InstanceHandle ih, ReactorSource* out, bool readCode)
 {
     if (!out) return false;
     *out = ReactorSource{};
     if (!TapReactorAnnotationFor(ih, true, &out->node, &out->exact, &out->ih, /*requireFile*/ true)) return false;
-    static const std::wstring sourceRoot = ReactorEnvironment(L"WINAPP_DEVTOOLS_SOURCE_ROOT");
-    static const std::wstring pathMap = ReactorEnvironment(L"WINAPP_DEVTOOLS_PATH_MAP");
-    out->onDisk = DevToolsSourcePath_MapCompiled(out->node.file, sourceRoot, pathMap, &out->path);
+    out->onDisk = TapReactorMapFile(out->node.file, &out->path, &out->ambiguous);
     if (readCode && out->onDisk) DevToolsAuthored_ReadCSharp(out->path, out->node.line, out->node.column, &out->code);
     return true;
 }
@@ -1167,12 +1166,19 @@ static std::wstring CmdReactorAgent(unsigned long long wire, const wchar_t* op, 
     return json;
 }
 
-// A compile-time C# path as it is on this machine, honouring the launch's source root and PathMap.
-static bool TapReactorMapFile(const std::wstring& file, std::wstring* onDisk)
+// A compile-time C# path as it is on this machine, honouring the launch's source root, the projects compiled into
+// the app and PathMap. `ambiguous` receives the candidates when more than one project has the file.
+static bool TapReactorMapFile(const std::wstring& file, std::wstring* onDisk, std::vector<std::wstring>* ambiguous)
 {
     static const std::wstring sourceRoot = ReactorEnvironment(L"WINAPP_DEVTOOLS_SOURCE_ROOT");
     static const std::wstring pathMap = ReactorEnvironment(L"WINAPP_DEVTOOLS_PATH_MAP");
-    return DevToolsSourcePath_MapCompiled(file, sourceRoot, pathMap, onDisk);
+    static const std::wstring projectDirs = ReactorEnvironment(L"WINAPP_DEVTOOLS_PROJECT_DIRS");
+    return DevToolsSourcePath_MapCompiled(file, sourceRoot, pathMap, onDisk, projectDirs, ambiguous);
+}
+
+static bool TapReactorMapFile(const std::wstring& file, std::wstring* onDisk)
+{
+    return TapReactorMapFile(file, onDisk, nullptr);
 }
 
 // ---- Comment-marker anchors (DevToolsReactorAnchor) ----
@@ -1690,7 +1696,14 @@ static std::wstring TapReactorSourceAnswer(unsigned long long wire)
     out += source.onDisk ? L",\"onDisk\":true" : L",\"onDisk\":false";
     // Same meaning as for XAML: whether the authored text could be read from here.
     out += !source.code.empty() ? L",\"authoredState\":\"available\""
+         : !source.ambiguous.empty() ? L",\"authoredState\":\"ambiguous\""
          : source.onDisk ? L",\"authoredState\":\"noSourceInfo\"" : L",\"authoredState\":\"noFile\"";
+    if (!source.ambiguous.empty()) {
+        out += L",\"candidates\":[";
+        for (size_t i = 0; i < source.ambiguous.size(); ++i)
+            out += (i ? L",\"" : L"\"") + DevToolsJsonEscape(source.ambiguous[i]) + L"\"";
+        out += L"]";
+    }
     AcquireSRWLockShared(&g_reactorAuthoredLock);
     const unsigned int ordinal = TapReactorOrdinal_locked(source.ih, source.node);
     ReleaseSRWLockShared(&g_reactorAuthoredLock);

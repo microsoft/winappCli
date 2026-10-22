@@ -442,12 +442,46 @@ public class DevToolsJsonParityTests
         }
     }
 
-    // After a late attach the app knows only the project-relative path; the line read from here is redacted too.
+    // A project-relative call site that names a file in two of the app's projects is not shown as either.
     [TestMethod]
+    public async Task GetSource_AnAmbiguousCallSite_ShowsNoFileAndSaysWhy()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Internal.sourceRoot", """{"sourceRoot":"C:\\repo\\App"}""")
+            .Answer("Source.get", JsonSerializer.Serialize(new
+            {
+                handle = "42", kind = "csharp", fileName = "Panels/Footer.cs", lineNumber = 6, columnNumber = 9, onDisk = false,
+                authoredState = "ambiguous", candidates = new[] { @"C:\repo\App\Panels\Footer.cs", @"C:\repo\Lib\Panels\Footer.cs" },
+                reactor = new { element = "Button", handle = "42", exact = true, component = "LibPanel" },
+            }));
+
+        var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+        var (exit, output) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42"]);
+
+        Assert.AreEqual(0, jsonExit, jsonOut);
+        using var doc = JsonDocument.Parse(jsonOut);
+        var root = doc.RootElement;
+        Assert.IsFalse(root.TryGetProperty("path", out _), "neither candidate is presented as the call site");
+        Assert.IsFalse(root.TryGetProperty("csharp", out _));
+        Assert.AreEqual("ambiguous", root.GetProperty("authoredState").GetString());
+        Assert.AreEqual(2, root.GetProperty("candidates").GetArrayLength());
+        StringAssert.Contains(root.GetProperty("csharpUnavailable").GetString(), "cannot tell which one");
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "<LibPanel>");
+        StringAssert.Contains(output, "cannot tell which one");
+    }
+
+    // After a late attach the app knows only the project-relative path; it is resolved from the project this command
+    // runs in, and the line read from here is redacted too.
+    [TestMethod]
+    [DoNotParallelize]
     public async Task GetSource_ALateAttachReadsTheLineHere_AndRedactsAPasswordLiteral()
     {
         var folder = $"winapp-late-{Guid.NewGuid():N}";
+        var project = Path.Combine(Directory.GetCurrentDirectory(), $"{folder}.csproj");
         Directory.CreateDirectory(folder);
+        File.WriteAllText(project, "<Project />");
         File.WriteAllText(Path.Combine(folder, "Login.cs"), "var box = TextBox(password: \"hunter2\");");
         try
         {
@@ -467,6 +501,7 @@ public class DevToolsJsonParityTests
         }
         finally
         {
+            File.Delete(project);
             Directory.Delete(folder, recursive: true);
         }
     }

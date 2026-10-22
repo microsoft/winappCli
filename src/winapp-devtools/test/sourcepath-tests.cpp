@@ -134,10 +134,50 @@ int RunSourcePathTests()
               "a project-relative path resolves under the source root");
         Check(DevToolsSourcePath_MapCompiled(L"src/App/App.cs", app, L"", &mapped) && mapped == app + L"\\App.cs",
               "a repository-relative path (a file outside the project) resolves under a folder above it");
-        Check(!DevToolsSourcePath_MapCompiled(L"../App/App.cs", app, L"", &mapped) && mapped == L"../App/App.cs",
-              "a relative path that climbs out is refused and kept");
+        Check(!DevToolsSourcePath_MapCompiled(L"../../../../outside/App.cs", app, L"", &mapped) &&
+                  mapped == L"../../../../outside/App.cs",
+              "a relative path that climbs out of the repository is refused and kept");
         Check(!DevToolsSourcePath_MapCompiled(L"Views/App.cs", L"", L"", &mapped),
               "a relative path does not map without a source root");
+        {
+            // root\ is a repository with the app (src\App), a referenced library (src\Lib) and a linked file
+            // (src\Shared). Reactor publishes each call site relative to the project that compiled it.
+            const std::wstring lib = src + L"\\Lib";
+            const std::wstring libPanels = lib + L"\\Panels";
+            const std::wstring appPanels = app + L"\\Panels";
+            const std::wstring shared = src + L"\\Shared";
+            CreateDirectoryW((root + L"\\.git").c_str(), nullptr);
+            CreateDirectoryW(lib.c_str(), nullptr);
+            CreateDirectoryW(libPanels.c_str(), nullptr);
+            CreateDirectoryW(shared.c_str(), nullptr);
+            WriteEmptyFile(libPanels + L"\\Footer.cs");
+            WriteEmptyFile(shared + L"\\Badge.cs");
+            Check(!DevToolsSourcePath_MapCompiled(L"Panels/Footer.cs", app, L"", &mapped),
+                  "a library's project-relative path is not found under the app without its project");
+            Check(DevToolsSourcePath_MapCompiled(L"Panels/Footer.cs", app, L"", &mapped, lib) &&
+                      mapped == libPanels + L"\\Footer.cs",
+                  "a library's project-relative path resolves under the referenced project");
+            CreateDirectoryW(appPanels.c_str(), nullptr);
+            WriteEmptyFile(appPanels + L"\\Footer.cs");
+            std::vector<std::wstring> ambiguous;
+            Check(!DevToolsSourcePath_MapCompiled(L"Panels/Footer.cs", app, L"", &mapped, lib, &ambiguous) &&
+                      mapped == L"Panels/Footer.cs" && ambiguous.size() == 2,
+                  "a same-named file under the app makes the path ambiguous instead of resolving to the app's file");
+            Check(DevToolsSourcePath_MapCompiled(L"../Shared/Badge.cs", app, L"", &mapped, lib) &&
+                      mapped == shared + L"\\Badge.cs",
+                  "a linked file's ../ path resolves when the file is inside the repository");
+            Check(DevToolsSourcePath_MapCompiled(L"Panels/../../Shared/Badge.cs", app, L"", &mapped) &&
+                      mapped == shared + L"\\Badge.cs",
+                  "a ../ path is normalized");
+            DeleteFileW((appPanels + L"\\Footer.cs").c_str());
+            DeleteFileW((libPanels + L"\\Footer.cs").c_str());
+            DeleteFileW((shared + L"\\Badge.cs").c_str());
+            RemoveDirectoryW(appPanels.c_str());
+            RemoveDirectoryW(libPanels.c_str());
+            RemoveDirectoryW(lib.c_str());
+            RemoveDirectoryW(shared.c_str());
+            RemoveDirectoryW((root + L"\\.git").c_str());
+        }
         DeleteFileW((app + L"\\App.cs").c_str());
         RemoveDirectoryW(app.c_str());
         RemoveDirectoryW(src.c_str());

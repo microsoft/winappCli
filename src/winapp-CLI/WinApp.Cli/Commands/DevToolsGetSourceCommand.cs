@@ -242,22 +242,48 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             var code = ReadString(root, "csharp");
             var onDisk = !root.TryGetProperty("onDisk", out var disk) || disk.ValueKind != JsonValueKind.False;
             var compiled = ReadString(root, "compiledFileName");
-            string? sourcePath = null;
-            var sourcePathRead = false;
-            string? SourcePath()
+            var authoredState = ReadString(root, "authoredState");
+            var candidates = root.TryGetProperty("candidates", out var listed) && listed.ValueKind == JsonValueKind.Array
+                ? listed.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString()!).ToList()
+                : [];
+            string? path = onDisk && Path.IsPathFullyQualified(file) ? file : null;
+            string? unavailable = null;
+            if (!onDisk)
             {
-                if (!sourcePathRead)
+                // The app looked for the file under its project and the projects it references; a launch without a
+                // project (a late attach) leaves that to the folder this command runs from.
+                var sourceRoot = DevToolsJson.SourceRoot(target.Tap!, cancellationToken);
+                var local = candidates.Count == 0 && sourceRoot is null ? ResolveRelativeSource(file, null, out candidates) : null;
+                if (local is not null)
                 {
-                    sourcePathRead = true;
-                    sourcePath = onDisk && Path.IsPathFullyQualified(file) ? file
-                        : DevToolsJson.ProjectPath(DevToolsJson.SourceRoot(target.Tap!, cancellationToken), file) ?? FindRelativeSource(file);
+                    path = local;
+                    if (code.Length == 0 && line > 0)
+                    {
+                        try
+                        {
+                            var lines = CSharpSourceText.ReadLines(local, Path.GetDirectoryName(local)!);
+                            if (line <= lines.Length)
+                            {
+                                code = CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(local))[line - 1].Trim();
+                            }
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                        {
+                            // The location still tells the reader where to look.
+                        }
+                    }
                 }
-                return sourcePath;
+                else
+                {
+                    unavailable = DescribeMissingCSharp(file, candidates, sourceRoot is not null, component);
+                    authoredState = candidates.Count > 1 ? "ambiguous" : "noFile";
+                }
             }
             // A string passed to a password parameter is redacted even when the statement never says "password".
             if (code.Length > 0)
             {
-                code = CSharpSourceText.Redact(code, CSharpDeclarations.ForSource(SourcePath()));
+                code = CSharpSourceText.Redact(code, CSharpDeclarations.ForSource(
+                    path ?? (onDisk ? DevToolsJson.ProjectPath(DevToolsJson.SourceRoot(target.Tap!, cancellationToken), file) : null)));
             }
             if (json)
             {
@@ -270,16 +296,24 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     writer.WriteString("kind", "csharp");
                     // The location vocabulary the XAML answer uses: the recorded file, its path here, line and column.
                     writer.WriteString("file", file);
-                    if (SourcePath() is { } path) { writer.WriteString("path", path); }
+                    if (path is not null) { writer.WriteString("path", path); }
                     writer.WriteNumber("line", line);
                     if (column > 0) { writer.WriteNumber("column", column); }
                     if (compiled.Length > 0) { writer.WriteString("compiledFileName", compiled); }
+                    if (authoredState.Length > 0) { writer.WriteString("authoredState", authoredState); }
+                    if (candidates.Count > 1)
+                    {
+                        writer.WriteStartArray("candidates");
+                        foreach (var candidate in candidates) { writer.WriteStringValue(candidate); }
+                        writer.WriteEndArray();
+                    }
                     if (reactor.ValueKind == JsonValueKind.Object)
                     {
                         writer.WritePropertyName("reactor");
                         reactor.WriteTo(writer);
                     }
                     if (code.Length > 0) { writer.WriteString("csharp", code); }
+                    if (unavailable is not null) { writer.WriteString("csharpUnavailable", unavailable); }
                 }));
                 return 0;
             }
@@ -292,42 +326,15 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
             var what = mounts.Length > 0 ? $"<{mounts}>" : element;
             DevToolsRender.WriteMarkupLine(Console,
                 $"  {Markup.Escape(owner + location)} [grey](C#{(what.Length > 0 ? ", Reactor " + Markup.Escape(what) : "")})[/]");
-            DevToolsRender.WriteMarkupLine(Console, $"  [grey]{Markup.Escape(file)}[/]");
+            DevToolsRender.WriteMarkupLine(Console, $"  [grey]{Markup.Escape(path ?? file)}[/]");
             if (!exact)
             {
                 DevToolsRender.WriteMarkupLine(Console,
                     "  [grey]This element has no Reactor call site of its own; this is the nearest Reactor element that contains it.[/]");
             }
-            if (!onDisk)
+            if (unavailable is not null)
             {
-                // Reactor records C# paths relative to the project. A late attach does not know the project, so look
-                // for the file from where the command runs; the line shows where it is.
-                if (FindRelativeSource(file) is { } local)
-                {
-                    DevToolsRender.WriteMarkupLine(Console, $"  [grey]Found here: {Markup.Escape(local)}[/]");
-                    if (code.Length == 0 && line > 0)
-                    {
-                        try
-                        {
-                            var lines = CSharpSourceText.ReadLines(local, Path.GetDirectoryName(local)!);
-                            if (line <= lines.Length)
-                            {
-                                code = CSharpSourceText.Redact(
-                                    CSharpSourceText.RedactLines(lines, CSharpDeclarations.ForSource(local))[line - 1].Trim());
-                            }
-                        }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
-                        {
-                            // The location still tells the reader where to look.
-                        }
-                    }
-                }
-                else
-                {
-                    DevToolsRender.WriteMarkupLine(Console, IsRelative(file)
-                        ? $"  [grey]The build recorded {Markup.Escape(file)} relative to its project. Run this command from the project folder, or launch the app with `winapp run` and DevTools on so DevTools knows where it is.[/]"
-                        : "  [grey]This file is not on this machine at the path the build recorded. Build the app here to read the code.[/]");
-                }
+                DevToolsRender.WriteMarkupLine(Console, $"  [yellow]{Markup.Escape(unavailable)}[/]");
             }
             if (code.Length > 0)
             {
@@ -347,22 +354,105 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
         internal static bool IsRelative(string file) =>
             file.Length > 0 && !Path.IsPathRooted(file) && !file.StartsWith("/_", StringComparison.Ordinal);
 
-        // The relative file under the current folder or one above it, without leaving those folders.
-        internal static string? FindRelativeSource(string file, string? start = null)
+        internal static string? FindRelativeSource(string file, string? start = null) => ResolveRelativeSource(file, start, out _);
+
+        /// <summary>
+        /// The file a project-relative path names, found from <paramref name="start"/> (the current folder): Reactor
+        /// records a path relative to the project that compiled it, which is the project at or above the folder or one
+        /// it references. Null when no project is found there, or when more than one of those projects has the file
+        /// (listed in <paramref name="candidates"/>): a same-named file in another project is not this one. A path
+        /// relative to the repository root is looked for in the folders above the project.
+        /// </summary>
+        internal static string? ResolveRelativeSource(string file, string? start, out List<string> candidates)
         {
-            if (!IsRelative(file) || file.Split('/', '\\').Any(segment => segment == ".."))
+            candidates = [];
+            if (!IsRelative(file) || file.Contains(':'))
             {
                 return null;
             }
-            for (var folder = new DirectoryInfo(start ?? Directory.GetCurrentDirectory()); folder is not null; folder = folder.Parent)
+            var project = FindProjectFolder(start ?? Directory.GetCurrentDirectory());
+            if (project is null)
             {
-                var candidate = Path.Combine(folder.FullName, file.Replace('/', Path.DirectorySeparatorChar));
+                return null;
+            }
+            var relative = file.Replace('/', Path.DirectorySeparatorChar);
+            var climbs = relative.Split(Path.DirectorySeparatorChar).Contains("..");
+            var bound = CommentStoreLocator.Resolve(project) is { Kind: CommentStoreRootKind.RepositoryRoot } repository
+                ? repository.Root
+                : Path.GetDirectoryName(project) ?? project;
+            var folders = new List<string> { project };
+            folders.AddRange(ReactorBuildFacts.ProjectDirectories(project,
+                ReactorBuildFacts.ReadProjectReferences(Path.Combine(project, "obj", "project.assets.json"))));
+            foreach (var folder in folders)
+            {
+                var candidate = Path.GetFullPath(Path.Combine(folder, relative));
+                if (File.Exists(candidate) && (!climbs || IsUnder(bound, candidate)) &&
+                    !candidates.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+                {
+                    candidates.Add(candidate);
+                }
+            }
+            if (candidates.Count == 1)
+            {
+                return candidates[0];
+            }
+            if (candidates.Count > 1 || climbs)
+            {
+                return null;
+            }
+            for (var folder = Directory.GetParent(project); folder is not null; folder = folder.Parent)
+            {
+                var candidate = Path.Combine(folder.FullName, relative);
                 if (File.Exists(candidate))
                 {
                     return candidate;
                 }
             }
             return null;
+
+            static bool IsUnder(string root, string path) =>
+                path.StartsWith(Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // The nearest folder at or above `start` with exactly one C# project file.
+        private static string? FindProjectFolder(string start)
+        {
+            for (var folder = new DirectoryInfo(start); folder is not null; folder = folder.Parent)
+            {
+                try
+                {
+                    if (folder.Exists && folder.EnumerateFiles("*.csproj").Take(2).Count() == 1)
+                    {
+                        return folder.FullName;
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        // Why the C# at a call site cannot be shown, and what to do about it.
+        internal static string DescribeMissingCSharp(string file, IReadOnlyList<string> candidates, bool projectKnown, string component)
+        {
+            if (candidates.Count > 1)
+            {
+                var owner = component.Length > 0 ? $" Open the one in the project that defines <{component}>." : "";
+                return $"The build recorded {file} relative to the project that compiled it, and more than one of this app's " +
+                    $"projects has that file: {string.Join(", ", candidates)}. DevTools cannot tell which one created this element, " +
+                    $"so it shows no code.{owner}";
+            }
+            if (!IsRelative(file))
+            {
+                return "This file is not on this machine at the path the build recorded. Build the app here to read the code.";
+            }
+            return projectKnown
+                ? $"The build recorded {file} relative to the project that compiled it, and DevTools did not find it in this app's " +
+                  "project or the projects it references. If the file moved, rebuild and run the app again."
+                : $"The build recorded {file} relative to the project that compiled it. Run this command from the app's project " +
+                  "folder, or launch the app with `winapp run` and DevTools on so DevTools knows its projects.";
         }
 
         private static string DescribeAuthoredState(string state, string file) => state switch

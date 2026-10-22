@@ -97,10 +97,15 @@ same call site where a XAML element shows its file and line. The inspector's tre
 shows `<Counter>` rows and Reactor element kinds, and its properties pane shows the
 C# statement with an **Open** link that hands the `.cs` file to your default editor.
 
-C# paths that DevTools shows are relative to your project. When the build recorded a
-relative or deterministic path (`/_/...`), or ran on another machine, DevTools looks for
-the file under your project folder and its parent folders, and uses the build's
-`PathMap`.
+C# paths that DevTools shows are relative to your project. A Native AOT or attached app
+records each call site relative to the project that compiled it, so DevTools looks for
+the file in your project and the projects it references (`../` paths for linked files,
+inside your repository), then in the folders above your project, and uses the build's
+`PathMap`. When that path names a file in more than one of those projects, DevTools
+cannot tell which one created the element: `get-source` lists the files and shows no
+code (`"authoredState": "ambiguous"` with `--json`). Open the one in the project that
+defines the component. After `winapp devtools attach`, run `get-source` from your app's
+project folder so DevTools knows the projects.
 
 ## Properties your C# sets
 

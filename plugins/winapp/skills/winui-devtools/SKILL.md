@@ -191,7 +191,9 @@ Select Reactor elements with `"<Counter>"`, `"<Counter>/Button"`, `key=t1`,
 a name with `"nameSource": "csharp-source-text"` was read from the line and may be stale; when a selector matches several elements it fails and lists their
 selectors and windows, so pick one or add `-w`. `get-source` returns the C# call
 site, the component that rendered it and the statement (`"kind": "csharp"`): edit
-that line, not the XAML. `get-property` marks values the C# sets (`"setBy": "reactor"`);
+that line, not the XAML. Without `csharp`, never edit by line number: follow
+`csharpUnavailable`, and for `"authoredState": "ambiguous"` ask which of
+`candidates` (the file in the project that defines the component) to use. `get-property` marks values the C# sets (`"setBy": "reactor"`);
 a `set-property` on one reports `reactorOwned: true` because Reactor reapplies its
 C# value when the component re-renders with a changed value, so change the C# to
 keep it. `search --component Counter` lists every instance, and
