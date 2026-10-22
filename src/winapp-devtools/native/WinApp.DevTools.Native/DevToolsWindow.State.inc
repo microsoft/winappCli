@@ -235,8 +235,9 @@ struct EditRecord
 };
 static std::vector<EditRecord> g_editRecords;
 // Properties whose record was dropped because the app changed the value after the user's edit, and the value the
-// app set, which is what a later edit's Restore must put back.
-struct AppChange { InstanceHandle wire = 0; std::wstring prop; std::wstring value; };
+// app set, which is what a later edit's Restore must put back. `setHere` is false when the app's value isn't set on
+// the element (the app cleared it back to a style or default), so Restore clears the property instead.
+struct AppChange { InstanceHandle wire = 0; std::wstring prop; std::wstring value; bool setHere = true; };
 static std::vector<AppChange> g_appChanged;
 // Resolve a named child of the REALIZED row for `prop`, AddRef'd, or null when that row is not currently on
 // screen. Defined with the repeater below. Looked up live rather than cached because a virtualized row's
@@ -344,6 +345,16 @@ static void AppChangedErase(InstanceHandle w, const std::wstring& p)
 {
     for (size_t i = 0; i < g_appChanged.size(); ++i)
         if (g_appChanged[i].wire == w && g_appChanged[i].prop == p) { g_appChanged.erase(g_appChanged.begin() + i); return; }
+}
+// After an app change, the next edit replaces what the app set, not the element's old resource or authored value.
+static bool OriginalFromAppChange(InstanceHandle w, const std::wstring& p, EditRecord& out)
+{
+    const AppChange* app = AppChangedFind(w, p);
+    if (!app) return false;
+    out = EditRecord{};
+    out.wire = w; out.prop = p; out.original = app->value;
+    out.kind = app->setHere ? DevToolsOriginal::Value : DevToolsOriginal::Unset;
+    return true;
 }
 
 static std::vector<std::wstring> g_bindingLost;

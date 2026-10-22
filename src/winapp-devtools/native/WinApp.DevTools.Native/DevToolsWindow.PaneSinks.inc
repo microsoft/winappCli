@@ -110,7 +110,8 @@ static std::wstring WriteFailureText(const std::wstring& prop)
 
 static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
                                const std::wstring& prop, const std::wstring& type,
-                               const std::wstring& preVal, const std::wstring& val)
+                               const std::wstring& preVal, const std::wstring& val,
+                               const EditRecord* captured = nullptr)
 {
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropCommit);
     ++g_commitSeq;
@@ -118,12 +119,12 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
     g_lastCommitWhy = oc == DevToolsWriteOutcome::Failed ? WriteFailureText(prop) : std::wstring();
     if (wire != g_selWire) {
         // A late save to an element that is no longer selected: its records' baselines must follow the write, and a
-        // first edit still needs a record so Restore can put back the value the editor opened with.
+        // first edit still needs a record so Restore can put back what the editor's element had. `captured` was
+        // taken while that element was selected, so it knows whether the value was set there or came from a resource.
         if (oc == DevToolsWriteOutcome::Ok && val != preVal && !RecordFind(wire, prop)) {
-            const AppChange* app = AppChangedFind(wire, prop);
             EditRecord rec;
-            rec.wire = wire; rec.prop = prop; rec.original = app ? app->value : preVal;
-            g_editRecords.push_back(std::move(rec));
+            if (OriginalFromAppChange(wire, prop, rec)) g_editRecords.push_back(std::move(rec));
+            else if (captured) g_editRecords.push_back(*captured);
             AppChangedErase(wire, prop);
         }
         if (DevToolsWriteLanded(oc)) RebaselineRecords(wire);
@@ -148,6 +149,7 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
         // resolved literal, and offering an Undo that rewrites it would claim a restore that cannot happen.
         PendingErase(prop);
         DirtyErase(prop);
+        AppChangedErase(wire, prop);
         NoteBindingLost(prop);
         RebaselineRecords(wire);
         // Rebuild so the row re-renders with its undo + reset affordances DISABLED and the reason attached.
@@ -214,18 +216,24 @@ struct LostFocusSink : DevToolsSinkBase
         std::wstring value;
         if (!DevToolsEditText::ValueToWrite(text, hasShown ? &shown : nullptr, original, &value)) return S_OK;
         if (ApplyCommitOutcome(CommitWrite(selWire, prop, type, value, /*confirmBindingReplace*/ false),
-                               selWire, prop, type, original, value)) { original = value; shown = text; hasShown = true; }
+                               selWire, prop, type, original, value, recordable ? &first : nullptr)) {
+            original = value; shown = text; hasShown = true;
+        }
         return S_OK;
     }
     void Init(InstanceHandle w, const std::wstring& p, const std::wstring& t, const std::wstring& orig, IInspectable* b)
     {
         selWire = w; prop = p; type = t; original = orig; box = b;
         hasShown = box && g_ctx.readInputFn && g_ctx.readInputFn(box, shown);
+        recordable = w == g_selWire && OriginalFor(p, orig, first);
         InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
     }
     InstanceHandle selWire = 0;
     std::wstring   prop, type, original, shown;
     bool           hasShown = false;
+    // What Restore puts back if this box's save lands after the selection moved to another element.
+    EditRecord     first;
+    bool           recordable = false;
     // Set once the pane that owns the box is rebuilt: the flush already saved the box, and a late focus-out
     // from the removed box would write its text over whatever the rebuild just did (for example, Restore).
     bool           retired = false;

@@ -50,10 +50,36 @@ static std::wstring CurrentEditSeed(const std::wstring& prop)
     return row ? RowEditSeed(*row) : std::wstring();
 }
 
+// The top-level row a path belongs to: `Padding.Left` -> `Padding`, while an attached property such as
+// `AutomationProperties.Name` is its own top-level row.
+static std::wstring OwningRowName(const std::vector<DevToolsCardRow>& rows, const std::wstring& prop)
+{
+    std::wstring best;
+    for (const auto& r : rows) {
+        if (r.name == prop) return prop;
+        if (prop.size() > r.name.size() && prop.compare(0, r.name.size(), r.name) == 0 &&
+            prop[r.name.size()] == L'.' && r.name.size() > best.size())
+            best = r.name;
+    }
+    return best.empty() ? prop.substr(0, prop.find(L'.')) : best;
+}
+
+// Whether the property's current value is set on the element. A field such as Padding.Left can only be written
+// back, so it always counts as set.
+static bool SetHereIn(const std::vector<DevToolsCardRow>& rows, const std::wstring& prop)
+{
+    for (const auto& r : rows)
+        if (r.name == prop) return r.source.empty() || SourceIsSetHere(r.source) || !r.authoredKind.empty();
+    return true;
+}
+
 // What Restore should put back for the selection's first edit of `prop`, read before the edit lands.
 // False when there is nothing honest to restore (a binding cannot be recreated from its resolved value).
 static bool OriginalFor(const std::wstring& prop, const std::wstring& preVal, EditRecord& out)
 {
+    const SessionAssign* assigned = SessionAssignFind(prop);
+    if (assigned && assigned->kind == DevToolsKind::Binding) return false;
+    if (OriginalFromAppChange(g_selWire, prop, out)) return true;
     out = EditRecord{};
     out.wire = g_selWire;
     out.prop = prop;
@@ -88,13 +114,6 @@ static bool OriginalFor(const std::wstring& prop, const std::wstring& preVal, Ed
 // The element's ActualTheme, or -1 when it can't be read (DevToolsWindow.LiveProps.inc).
 static int ElementThemeOf(InstanceHandle wire);
 
-// The value a new edit replaces: what the app set if it changed the value since the editor opened, else `shown`.
-static std::wstring ValueBeforeEdit(const std::wstring& prop, const std::wstring& shown)
-{
-    const AppChange* app = AppChangedFind(g_selWire, prop);
-    return app ? app->value : shown;
-}
-
 // Compare the element's freshly read rows with what DevTools last wrote. A difference means the app changed the
 // value since, so Restore would undo the app's change rather than the user's edit: drop the record and say why.
 // A theme switch also changes values that follow the theme, so a different `theme` takes a new baseline instead.
@@ -118,8 +137,16 @@ static void ReconcileEditRecordsAt(InstanceHandle wire, const std::vector<DevToo
         const std::wstring prop = rec.prop;
         g_editRecords.erase(g_editRecords.begin() + i);
         AppChangedErase(wire, prop);
-        g_appChanged.push_back({ wire, prop, now });
+        g_appChanged.push_back({ wire, prop, now, SetHereIn(rows, prop) });
         if (wire == g_selWire) UpdateEditedUi(prop);
+    }
+    // The app can keep changing a property after its record was dropped; a later edit must restore the latest value.
+    for (auto& app : g_appChanged) {
+        if (app.wire != wire) continue;
+        if (const DevToolsCardRow* row = FindPropertyRowIn(rows, app.prop)) {
+            app.value = RowEditSeed(*row);
+            app.setHere = SetHereIn(rows, app.prop);
+        }
     }
 }
 
@@ -138,7 +165,7 @@ static void ClearRowValue(InstanceHandle wire, const std::wstring& prop)
     }
     CheckEditRecordsNow(wire);
     EditRecord first;
-    const bool recordable = !DirtyHas(prop) && OriginalFor(prop, ValueBeforeEdit(prop, CurrentEditSeed(prop)), first);
+    const bool recordable = !DirtyHas(prop) && OriginalFor(prop, CurrentEditSeed(prop), first);
     const bool ok = g_ctx.clearFn(wire, prop);
     if (ok) {
         // Clear is an edit too: Restore still puts back what the property was before the first one.

@@ -598,7 +598,7 @@ int main()
         std::vector<DevToolsCardRow> now{text}; now[0].value=L"Edited";
         ReconcileEditRecords(500,now);
         check(DirtyFind(L"Text") != nullptr, "re-reading our own write keeps the record");
-        now[0].value=L"FromApp";
+        now[0].value=L"FromApp"; live[500]=L"FromApp";
         ReconcileEditRecords(500,now);
         check(!DirtyFind(L"Text") && AppChanged(500,L"Text"), "an app change since the edit drops Restore and says why");
         // The editor still holds "Edited" from before the app's change; the app's value is the real original.
@@ -653,13 +653,52 @@ int main()
         const std::wstring liveLate=live[500];
         late.Invoke(nullptr,nullptr);
         check(edits==editsLate && live[500]==liveLate, "a retired editor's focus-out does not write");
-        // A late save to an element that is no longer selected still records what Restore puts back there.
+        // A late save to an element that is no longer selected records the original captured while it was selected,
+        // and reads that element back right away so a later app change there still drops Restore.
         g_editRecords.clear(); g_appChanged.clear();
         g_selWire=g_dirtyNode=501;
-        ApplyCommitOutcome(DevToolsWriteOutcome::Ok,500,L"Text",L"String",L"Before",L"Typed");
-        check(RecordFind(500,L"Text") && RecordFind(500,L"Text")->original==L"Before" && !RecordFind(501,L"Text"),
-            "a late save to the previous element records its original on that element");
+        EditRecord styledFirst; styledFirst.wire=500; styledFirst.prop=L"Text";
+        styledFirst.kind=DevToolsOriginal::Unset; styledFirst.original=L"Before";
+        live[500]=L"Typed"; liveSource=L"Local";
+        ApplyCommitOutcome(DevToolsWriteOutcome::Ok,500,L"Text",L"String",L"Before",L"Typed",&styledFirst);
+        check(RecordFind(500,L"Text") && RecordFind(500,L"Text")->kind==DevToolsOriginal::Unset && !RecordFind(501,L"Text"),
+            "a late save to the previous element keeps whether its original was set on that element");
+        check(RecordFind(500,L"Text") && !RecordFind(500,L"Text")->needsBaseline && RecordFind(500,L"Text")->baseline==L"Typed",
+            "a late save reads its element back right away");
+        std::vector<DevToolsCardRow> later{text}; later[0].value=L"FromApp";
+        ReconcileEditRecords(500,later);
+        check(!RecordFind(500,L"Text") && AppChanged(500,L"Text"), "an app change after a late save still drops Restore");
         g_selWire=g_dirtyNode=500;
+
+        // The app keeps changing a property after its record was dropped: a new edit restores the latest app value.
+        g_editRecords.clear(); g_appChanged.clear(); g_propRows={text};
+        g_appChanged.push_back({500,L"Text",L"Tick: 10",true});
+        live[500]=L"Tick: 11"; liveSource=L"Local";
+        ApplyLiteralValue(L"Text",L"String",L"Tick: 10",L"Mine",false);
+        check(DirtyFind(L"Text") && DirtyFind(L"Text")->original==L"Tick: 11" && !AppChanged(500,L"Text"),
+            "a new edit after repeated app changes records the app's latest value");
+
+        // After an app change, the element's old resource is no longer what Restore should put back.
+        g_editRecords.clear(); g_appChanged.clear();
+        DevToolsCardRow linkedRow=text; linkedRow.authoredKind=L"staticResource"; linkedRow.authoredKey=L"Greeting";
+        g_propRows={linkedRow}; g_linkedRows={L"Text"};
+        g_appChanged.push_back({500,L"Text",L"FromApp",true});
+        EditRecord fromApp;
+        check(OriginalFor(L"Text",L"Stale",fromApp) && fromApp.kind==DevToolsOriginal::Value && fromApp.original==L"FromApp",
+            "after an app change the original is the app's value, not the old resource");
+        g_appChanged[0].setHere=false;
+        check(OriginalFor(L"Text",L"Stale",fromApp) && fromApp.kind==DevToolsOriginal::Unset,
+            "after the app clears a property back to its style, Restore clears it again");
+        DevToolsCardRow styledNow=text; styledNow.source=L"Style"; styledNow.authoredKind.clear();
+        check(!SetHereIn({styledNow},L"Text") && SetHereIn({text},L"Text"), "a style value is not set on the element");
+        g_linkedRows.clear(); g_appChanged.clear(); g_propRows={text};
+
+        // Attached properties keep their full name in the pre-write read; fields read their owning property.
+        DevToolsCardRow padding; padding.name=L"Padding"; DevToolsCardRow automation; automation.name=L"AutomationProperties.Name";
+        const std::vector<DevToolsCardRow> owners{padding,automation};
+        check(OwningRowName(owners,L"Padding.Left")==L"Padding" &&
+              OwningRowName(owners,L"AutomationProperties.Name")==L"AutomationProperties.Name",
+            "the pre-write read asks for attached properties by their full name");
         RegisterPaneEditor(L"Text",&testInput,&late.retired,&late,nullptr);
         late.retired=false;
         ReleasePaneEditors(/*retire*/ false);

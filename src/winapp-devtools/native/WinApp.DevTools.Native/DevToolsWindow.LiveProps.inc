@@ -162,18 +162,31 @@ static void ReconcileLiveValues(InstanceHandle wire, const std::vector<DevToolsC
     ReconcileEditRecords(wire, merged);
 }
 
-// Read the selected element's edited properties now. Records for an element that isn't selected wait for its next
-// full read, because the live values can only be laid over the selected element's rows.
+// Read the element's edited and app-changed properties now. The selected element's live values are laid over its
+// pane rows; another element (a late save after the selection moved) is read in full, since its rows aren't loaded.
 static void CheckEditRecordsNow(InstanceHandle wire)
 {
-    if (!wire || wire != g_selWire || !g_valuesFn) return;
-    std::vector<std::wstring> names;
-    for (const auto& rec : g_editRecords) {
-        if (rec.wire != wire) continue;
-        const std::wstring top = rec.prop.substr(0, rec.prop.find(L'.'));
-        if (std::find(names.begin(), names.end(), top) == names.end()) names.push_back(top);
+    if (!wire) return;
+    bool any = false;
+    for (const auto& rec : g_editRecords) if (rec.wire == wire) { any = true; break; }
+    for (const auto& app : g_appChanged) if (app.wire == wire) { any = true; break; }
+    if (!any) return;
+    if (wire != g_selWire) {
+        if (!g_ctx.rowsFn) return;
+        std::wstring type, name, authoredState, authoredXaml;
+        std::vector<DevToolsCardRow> rows;
+        g_ctx.rowsFn(wire, type, name, rows, authoredState, authoredXaml);
+        if (!rows.empty()) ReconcileEditRecords(wire, rows);
+        return;
     }
-    if (names.empty()) return;
+    if (!g_valuesFn) return;
+    std::vector<std::wstring> names;
+    auto want = [&](const std::wstring& prop) {
+        const std::wstring top = OwningRowName(g_propRows, prop);
+        if (std::find(names.begin(), names.end(), top) == names.end()) names.push_back(top);
+    };
+    for (const auto& rec : g_editRecords) if (rec.wire == wire) want(rec.prop);
+    for (const auto& app : g_appChanged) if (app.wire == wire) want(app.prop);
     std::vector<DevToolsCardRow> fresh;
     if (g_valuesFn(wire, names, &fresh)) ReconcileLiveValues(wire, fresh);
 }
