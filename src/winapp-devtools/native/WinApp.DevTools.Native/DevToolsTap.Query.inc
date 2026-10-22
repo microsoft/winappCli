@@ -180,7 +180,8 @@ static bool QuerySnapshotCurrent(const CensusSnapshot& cs)
 using QueryKnownProperties = std::map<std::wstring, std::map<std::wstring, std::pair<unsigned int, std::wstring>>>;
 
 // Reads one property as a plain string without the whole property chain. Returns false for anything else
-// (null, failure, another type), so the full read still decides.
+// (null, failure, another type), so the full read still decides. Null falls back too: only the chain can tell
+// a local null (a mismatch) from a binding that hasn't produced a value yet (unknown).
 static bool QueryQuickString_ui(InstanceHandle raw, const std::wstring& name,
     const std::pair<unsigned int, std::wstring>& known, std::wstring* value)
 {

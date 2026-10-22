@@ -758,6 +758,12 @@ static void CheckQueries(const std::function<void(bool, const char*)>& check)
     check(byId.find(L"\"status\":\"applied\"") != std::wstring::npos && g_mutatedHandle == 1012 &&
         byId.find(L"\"evaluated\":25") != std::wstring::npos && service.chainReads == 4 && service.liveReads > 0,
         "same-type candidates are excluded by a single AutomationId read instead of a full property chain");
+    // A name without its owner is resolved per element, so it is never taken from another element's read.
+    service.liveReads = 0; g_mutatedHandle = 0;
+    const auto ownerless = query(L"{\"ofType\":\"TextBlock\",\"with\":[\"AutomationId==Id1012\"],"
+        L"\"property\":\"Text\",\"value\":\"Picked\"}", true);
+    check(ownerless.find(L"\"status\":\"applied\"") != std::wstring::npos && g_mutatedHandle == 1012 && service.liveReads == 0,
+        "an ownerless property name always uses the full read");
     service.liveIds = false; service.automationIds.clear();
     service.chainReads = 0; g_mutatedHandle = 0;
     const auto byText = query(L"{\"ofType\":\"TextBlock\",\"with\":[\"Text==Daylight-like heading 1005\"],"

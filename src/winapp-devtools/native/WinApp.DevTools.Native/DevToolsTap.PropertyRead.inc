@@ -633,8 +633,9 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
             }
 
             DevToolsRead_Redact(prop);
+            // An ownerless name is resolved per element, so it can mean a different property elsewhere.
             if (alias != ownerless.end()) prop.name = alias->second;
-            if (outIndices) (*outIndices)[prop.name] = {v[i].Index, declaredType};
+            else if (outIndices) (*outIndices)[prop.name] = {v[i].Index, declaredType};
             out->push_back(std::move(prop));
         }
 

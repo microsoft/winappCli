@@ -40,9 +40,10 @@ int RunQueryTests()
     check(Compare(&row, {L"Text", L"*=", L"Save"}).verdict == Verdict::NoMatch, "local null never contains a non-empty literal");
     check(Compare(&row, {L"Text", L"==", L""}).verdict == Verdict::Unevaluated, "null vs empty stays unknown");
     check(Compare(&row, {L"Text", L"*=", L""}).verdict == Verdict::Unevaluated, "null contains empty stays unknown");
-    row.binding = L"{Binding Heading}";
-    check(Compare(&row, {L"Text", L"==", L"Save"}).verdict == Verdict::Unevaluated, "null from a binding stays unknown");
-    row.binding.clear();
+    row.source = L"Binding";
+    check(Compare(&row, {L"Text", L"==", L"Save"}).verdict == Verdict::Unevaluated,
+        "null from a binding stays unknown even when the binding can't be described");
+    row.source.clear();
     row.valueState = L"binding"; row.value = L"Today"; row.binding = L"{Binding Heading}";
     check(Compare(&row, {L"Text", L"==", L"Today"}).verdict == Verdict::Match, "binding compares effective value");
     check(Compare(&row, {L"Text", L"==", L"{Binding Heading}"}).verdict == Verdict::NoMatch, "not the binding expression");
