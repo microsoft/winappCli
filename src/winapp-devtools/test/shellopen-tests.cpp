@@ -54,7 +54,7 @@ static void TestNoHandlerNeverLaunches()
     Check(s.askedExtension == L".xaml",
                    "the association is asked for the extension the caller named");
     const std::wstring msg = DevToolsShellOpen::Describe(r, L"MainWindow.xaml", 88, L"C:\\app\\MainWindow.xaml", L"");
-    Check(msg.find(L"Reveal in File Explorer") != std::wstring::npos &&
+    Check(msg.find(L"Show in File Explorer") != std::wstring::npos &&
                        msg.find(L"Copy path") != std::wstring::npos,
                    "and the status names the two actions that cannot fail instead");
     Check(msg.find(L"88") == std::wstring::npos,

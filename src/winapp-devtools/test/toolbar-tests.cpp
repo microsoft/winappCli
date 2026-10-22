@@ -416,7 +416,7 @@ static void TestToolbarContract()
                  "the row's actions are always visible -- no Collapsed action bar, no hover reveal");
     Check(window.find("AutomationProperties.Name=\\\"Resolve: \" + subject") != std::string::npos &&
                      window.find("AutomationProperties.Name=\\\"Open source for: \" + subject") != std::string::npos &&
-                     window.find("AutomationProperties.Name=\\\"Reveal in File Explorer: \" + subject") != std::string::npos &&
+                     window.find("AutomationProperties.Name=\\\"Show in File Explorer: \" + subject") != std::string::npos &&
                      window.find("AutomationProperties.Name=\\\"Copy path for: \" + subject") != std::string::npos,
                  "every always-on action names the comment it acts on, so N rows are not N identical names");
     // Always-VISIBLE is not always-PRESENT (part 3): the SET of actions is still the association answer.
