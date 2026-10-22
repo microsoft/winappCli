@@ -354,6 +354,25 @@ public class DevToolsJsonParityTests
     }
 
     [TestMethod]
+    public async Task GetSource_AReactorElementWithoutACallSite_SaysHotReloadDropsIt()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Source.get", """{"handle":"42","fileName":"","lineNumber":0,"columnNumber":0,"authoredState":"noSourceInfo"}""")
+            .Answer("Reactor.describe", """
+                {"state":"ok","sourceMap":true,"files":["C:\\src\\App.cs"],"nodes":[
+                  {"handle":"20","element":"Stack","file":0,"line":7},
+                  {"handle":"42","parent":"20","element":"TextBlock"}]}
+                """);
+
+        var (jsonExit, jsonOut) = await RunAsync(new DevToolsGetSourceCommand(), agent, ["42", "--json"]);
+
+        Assert.AreEqual(1, jsonExit);
+        using var doc = JsonDocument.Parse(jsonOut);
+        StringAssert.Contains(doc.RootElement.GetProperty("error").GetProperty("message").GetString(), "Hot Reload");
+    }
+
+    [TestMethod]
     public async Task GetSource_ACSharpCallSite_UsesTheSameLocationNames()
     {
         var file = Path.Combine(Path.GetTempPath(), $"winapp-csharp-{Guid.NewGuid():N}.cs");

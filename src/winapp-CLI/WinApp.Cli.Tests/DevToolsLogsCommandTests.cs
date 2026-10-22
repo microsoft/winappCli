@@ -88,6 +88,18 @@ public class DevToolsLogsCommandTests
     }
 
     [TestMethod]
+    public void UnavailableMessage_TellsANativeAotAppToRunWithoutAot_AndOthersToRelaunch()
+    {
+        Assert.AreEqual("Reactor logs are unavailable: the app has no .NET runtime to load the managed DevTools agent into (Native AOT). " +
+            "Logs need the managed DevTools agent: run a build without --aot to read them.",
+            DevToolsLogsCommand.UnavailableMessage("the app has no .NET runtime to load the managed DevTools agent into (Native AOT)"));
+        Assert.AreEqual("Reactor logs are unavailable: no managed DevTools agent is loaded in this app. " +
+            "Launch the app with 'winapp run <project> --devtools on'.",
+            DevToolsLogsCommand.UnavailableMessage("no managed DevTools agent is loaded in this app."));
+        StringAssert.StartsWith(DevToolsLogsCommand.UnavailableMessage(null), "Reactor logs are unavailable. Launch");
+    }
+
+    [TestMethod]
     public void Format_DescribesEachKind()
     {
         string Line(string json) => DevToolsLogsCommand.Format(JsonDocument.Parse(json).RootElement);

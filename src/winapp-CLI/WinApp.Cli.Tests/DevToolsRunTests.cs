@@ -691,6 +691,42 @@ public sealed class DevToolsRunTests() : BaseCommandTests(logLevel: Microsoft.Ex
 
     [TestMethod]
     [DoNotParallelize]
+    public async Task WatchLaunch_StoppedByDotnetWatchForARestart_ExitsCleanly()
+    {
+        var app = Prepare("project", true);
+        GetRequiredService<RunCommand.Handler>().ContainProcess = _ => null;
+        using var process = new RunningProcess(_target);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        _launcher.LaunchOverride = () => process;
+        _attach.OnConnect = () => stop.CancelAfter(TimeSpan.FromMilliseconds(50));
+        using var environment = new EnvironmentScope(
+            (RunCommand.Handler.WatchLaunchVariable, WindowsCommandLine.JoinArguments([app.Input, "--no-build", "--devtools", "on"])),
+            ("DOTNET_WATCH_ITERATION", "1"));
+
+        var exit = await ParseAndInvokeWithCaptureAsync(GetRequiredService<RunCommand>(), ["--devtools-watch-launch"], stop.Token);
+
+        Assert.AreEqual(0, exit, "dotnet watch stopping the step to restart the app is not an error. " + ConsoleStdErr);
+        Assert.IsTrue(process.Killed, "the app goes with the step, so dotnet watch can start the new build");
+    }
+
+    // An app that runs until it is killed.
+    private sealed class RunningProcess(ExecutionAliasResolver.AliasTarget target) : ILaunchedProcess
+    {
+        public uint ProcessId => 12345;
+        public bool Killed { get; private set; }
+        public bool HasExited => Killed;
+        public int ExitCode => Killed ? -1 : 0;
+        public string? PackageFamilyName => target.PackageFamilyName;
+        public string? ApplicationUserModelId => target.ApplicationUserModelId;
+        public string? ExecutablePath => target.TargetExecutable;
+        public Task WaitForExitAsync(CancellationToken cancellationToken) =>
+            Killed ? Task.CompletedTask : Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        public void Kill() => Killed = true;
+        public void Dispose() { }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
     [DataRow("1", false)]
     [DataRow("3", true)]
     public async Task WatchLaunch_RegistersTheBuild_LaunchesThroughTheStagedAlias_AndTiesTheAppToItself(string iteration, bool restart)

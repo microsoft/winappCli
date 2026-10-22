@@ -283,7 +283,9 @@ internal partial class RunCommand
             // dotnet watch meant these for the app. Everything else this step starts (MSBuild evaluations included) is
             // .NET too, and must not load the Hot Reload agent: the first process to connect takes dotnet watch's pipe.
             watchAppEnvironment = TakeHotReloadEnvironment();
-            return await InvokeAsync(launch, cancellationToken);
+            var exit = await InvokeAsync(launch, cancellationToken);
+            // dotnet watch stops this step (Ctrl+C) to restart the app after an edit: that is the loop working, not a failure.
+            return exit == -1 && cancellationToken.IsCancellationRequested ? 0 : exit;
         }
 
         // dotnet watch's Hot Reload environment, held back for the app alone.

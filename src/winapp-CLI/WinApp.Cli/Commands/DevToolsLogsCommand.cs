@@ -77,8 +77,7 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
                     var reason = root.TryGetProperty("reason", out var r) ? r.GetString() : null;
                     return state == "absent"
                         ? Fail(json, target.Pid, "This app does not use Microsoft.UI.Reactor, so it has no Reactor logs.", "reactor-absent")
-                        : Fail(json, target.Pid, "Reactor logs are unavailable" + (reason is { Length: > 0 } ? ": " + reason : ".") +
-                            " Launch the app with 'winapp run <project> --devtools on'.", "reactor-unavailable");
+                        : Fail(json, target.Pid, UnavailableMessage(reason), "reactor-unavailable");
                 }
                 var entries = root.GetProperty("entries");
                 if (json && !follow)
@@ -138,6 +137,18 @@ internal class DevToolsLogsCommand : DevToolsLiveCommand, IHelpExamples
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Why there are no logs, and what to do. A Native AOT app can never load the agent, so relaunching it the same way
+    /// would not help; any other app gets the agent from a DevTools launch.
+    /// </summary>
+    internal static string UnavailableMessage(string? reason)
+    {
+        var why = reason is { Length: > 0 } ? $"Reactor logs are unavailable: {reason.TrimEnd('.', ' ')}." : "Reactor logs are unavailable.";
+        return why + (reason?.Contains("Native AOT", StringComparison.Ordinal) == true
+            ? " Logs need the managed DevTools agent: run a build without --aot to read them."
+            : " Launch the app with 'winapp run <project> --devtools on'.");
     }
 
     /// <summary>One entry as a line: time, level and what happened.</summary>

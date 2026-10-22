@@ -119,6 +119,14 @@ internal class DevToolsGetSourceCommand : DevToolsLiveCommand, IHelpExamples
                     noSourceToken = ReactorDescription.NoSourceMapToken;
                     noSource = missing;
                 }
+                else if (described is { IsReactor: true } && described.ByHandle.TryGetValue(handle, out var reactorNode) &&
+                    reactorNode.File is null)
+                {
+                    // Other elements have call sites, so source mapping is on: Reactor did not stamp this one. A Hot
+                    // Reload edit to the method that creates it does that until the app restarts.
+                    noSource = "Reactor recorded no C# call site for this element. That happens after a Hot Reload edit to " +
+                        "the method that creates it; restart the app to record it again (Ctrl+R under `winapp run --watch`).";
+                }
                 else if (described is { IsReactor: true })
                 {
                     // A Reactor app can have no XAML at all, so missing XAML source information says nothing
