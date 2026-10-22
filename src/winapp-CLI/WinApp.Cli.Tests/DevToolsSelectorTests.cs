@@ -278,6 +278,20 @@ public class DevToolsSelectorTests
     }
 
     [TestMethod]
+    public async Task Search_ComponentWithOfType_SuggestsARootEachInstanceAccepts()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Reactor.describe", CounterInTwoWindows());
+
+        var (exit, output) = await RunAsync(new DevToolsSearchCommand(), agent, ["--component", "Counter", "--of-type", "Button"]);
+
+        Assert.AreNotEqual(0, exit);
+        StringAssert.Contains(output, "--root 21 or --root 31");
+        Assert.IsFalse(output.Contains("selector to --root", StringComparison.Ordinal), "--root takes a handle, not a selector");
+        Assert.IsFalse(agent.ReceivedRequests.Any(request => request.Contains("VisualTree.query", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public async Task Search_ReactorPath_ListsWhatItSelectsInEveryWindow()
     {
         const string described = """

@@ -76,11 +76,6 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
             IReadOnlyList<ReactorNode>? instances = null;
             if (!string.IsNullOrWhiteSpace(component))
             {
-                if (DevToolsQueryOptions.HasReadQuery(parseResult))
-                {
-                    return Task.FromResult(Fail(json, target.Pid,
-                        "--component cannot be combined with --of-type, --with or --fields. Use a text query, or pass a component's selector to --root.", "bad-args"));
-                }
                 component = component.Trim().TrimStart('<').TrimEnd('>');
                 var described = target.Tap!.RequestReactorDescribe(cancellationToken);
                 if (!described.Ok)
@@ -100,6 +95,15 @@ internal class DevToolsSearchCommand : DevToolsLiveCommand, IHelpExamples
                 {
                     return Task.FromResult(Fail(json, target.Pid, new DevToolsProtocolError(0, reactor.Complete ? "no-match" : "reactor-incomplete",
                         reactor.ExplainNoComponent(component))));
+                }
+                if (DevToolsQueryOptions.HasReadQuery(parseResult))
+                {
+                    // --root takes a handle, and only one: name each instance's, so the next command is a copy-paste.
+                    var roots = string.Join(" or ", instances.Take(5).Select(instance => $"--root {instance.Handle}"));
+                    return Task.FromResult(Fail(json, target.Pid,
+                        $"--component cannot be combined with --of-type, --with or --fields. Use a text query, or scope the query to " +
+                        $"{(instances.Count == 1 ? "the" : "one")} <{component}> with --root instead of --component: {roots}.",
+                        "bad-args"));
                 }
                 if (string.IsNullOrWhiteSpace(query))
                 {
