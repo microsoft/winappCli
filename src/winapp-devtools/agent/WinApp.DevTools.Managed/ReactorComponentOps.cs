@@ -93,7 +93,7 @@ internal static class ReactorComponentOps
                     return;
                 }
                 try { start(element, result => done.TrySetResult(result)); }
-                catch (Exception ex) { done.TrySetResult(Unavailable(ex.GetType().Name + ": " + ex.Message)); }
+                catch (Exception ex) { done.TrySetResult(Fault(ex)); }
             });
             if (!enqueued)
             {
@@ -118,23 +118,47 @@ internal static class ReactorComponentOps
         }
     }
 
-    /// <summary>Calls <paramref name="then"/> on the UI thread once the host is idle, or with false when it stays busy.</summary>
-    internal static void WhenIdle(DispatcherQueue queue, Func<bool?> isIdle, int budgetMs, Action<bool> then)
+    /// <summary>
+    /// Calls <paramref name="then"/> on the UI thread once the host is idle, or with false when it stays busy. Every
+    /// check after the first runs in a later dispatcher turn, outside any caller's catch, so a fault in
+    /// <paramref name="isIdle"/> or <paramref name="then"/> completes the request as unavailable through
+    /// <paramref name="done"/> instead of reaching the app's dispatcher.
+    /// </summary>
+    internal static void WhenIdle(Func<Action, bool> enqueueLow, Func<bool?> isIdle, int budgetMs, Action<string> done, Action<bool> then)
     {
         var until = Environment.TickCount64 + budgetMs;
         void Check()
         {
-            if (isIdle() is not false)
+            try
             {
-                then(true);
-                return;
+                if (isIdle() is not false)
+                {
+                    then(true);
+                    return;
+                }
+                if (Environment.TickCount64 > until || !enqueueLow(Check))
+                {
+                    then(false);
+                }
             }
-            if (Environment.TickCount64 > until || !queue.TryEnqueue(DispatcherQueuePriority.Low, Check))
+            catch (Exception ex)
             {
-                then(false);
+                done(Fault(ex));
             }
         }
         Check();
+    }
+
+    /// <summary>Queues work behind the app's own at low priority on the element's UI thread.</summary>
+    private static Func<Action, bool> Low(UIElement element) =>
+        work => element.DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => work());
+
+    /// <summary>A request that failed inside the app, as an unavailable answer; the failure goes to the agent's trace.</summary>
+    internal static string Fault(Exception ex)
+    {
+        var inner = ex is TargetInvocationException { InnerException: { } wrapped } ? wrapped : ex;
+        System.Diagnostics.Trace.TraceWarning("Reactor component operation failed: {0}", inner);
+        return Unavailable(inner.GetType().Name + ": " + inner.Message);
     }
 
     internal static string Describe(UIElement element, ReactorApi api)
@@ -342,7 +366,7 @@ internal static class ReactorComponentOps
             return;
         }
         var host = api.HostFor(element);
-        WhenIdle(element.DispatcherQueue, () => ReactorApi.IsIdle(host), IdleBudgetMs, idleBefore =>
+        WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, idleBefore =>
         {
             var component = api.FindComponent(element, out _);
             if (component is null)
@@ -383,7 +407,7 @@ internal static class ReactorComponentOps
                 return;
             }
             // Let the re-render the write scheduled finish before reading back, so `after` is what the UI shows.
-            WhenIdle(element.DispatcherQueue, () => ReactorApi.IsIdle(host), IdleBudgetMs, idleAfter =>
+            WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, idleAfter =>
             {
                 var current = api.FindComponent(element, out _) ?? component;
                 var after = current.Hooks().FirstOrDefault(h => h.Index == index);
@@ -427,7 +451,7 @@ internal static class ReactorComponentOps
             done(Refused(code, error ?? $"<{component.Name}> refused the value"));
             return;
         }
-        WhenIdle(element.DispatcherQueue, () => ReactorApi.IsIdle(host), IdleBudgetMs, idleAfter =>
+        WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, idleAfter =>
         {
             var current = api.FindComponent(element, out _) as SnapshotReactorComponent ?? component;
             var after = current.Hook(index);
@@ -453,7 +477,7 @@ internal static class ReactorComponentOps
     private static void Rerender(UIElement element, ReactorApi api, Action<string> done)
     {
         var host = api.HostFor(element);
-        WhenIdle(element.DispatcherQueue, () => ReactorApi.IsIdle(host), IdleBudgetMs, _ =>
+        WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, _ =>
         {
             var component = api.FindComponent(element, out _);
             if (component is null)
@@ -466,7 +490,7 @@ internal static class ReactorComponentOps
                 done(Refused("refused", $"<{component.Name}> could not re-render (it has unmounted or never rendered)"));
                 return;
             }
-            WhenIdle(element.DispatcherQueue, () => ReactorApi.IsIdle(host), IdleBudgetMs, rendered => done(Json(w =>
+            WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, rendered => done(Json(w =>
             {
                 w.WriteString("state", "ok");
                 w.WriteString("component", component.Name);
@@ -479,7 +503,7 @@ internal static class ReactorComponentOps
     private static void Invoke(UIElement element, ReactorApi api, string name, string valueText, Action<string> done)
     {
         var host = api.HostFor(element);
-        WhenIdle(element.DispatcherQueue, () => ReactorApi.IsIdle(host), IdleBudgetMs, _ =>
+        WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, _ =>
         {
             var tag = api.GetTag(element);
             var handlers = tag is null ? [] : ReactorHandlers.Read(tag);
@@ -513,7 +537,7 @@ internal static class ReactorComponentOps
                 }));
                 return;
             }
-            WhenIdle(element.DispatcherQueue, () => ReactorApi.IsIdle(host), IdleBudgetMs, rendered => done(Json(w =>
+            WhenIdle(Low(element), () => ReactorApi.IsIdle(host), IdleBudgetMs, done, rendered => done(Json(w =>
             {
                 w.WriteString("state", "ok");
                 w.WriteString("event", handler.Event);

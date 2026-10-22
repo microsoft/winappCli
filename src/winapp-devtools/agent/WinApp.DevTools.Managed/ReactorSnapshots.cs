@@ -154,17 +154,27 @@ internal sealed partial class ReactorApi
         {
             return null;
         }
-        var tag = GetTag(control);
-        var mounted = tag is not null && (componentElement?.IsInstanceOfType(tag) == true || funcElement?.IsInstanceOfType(tag) == true ||
-            memoElement?.IsInstanceOfType(tag) == true);
-        var type = mounted && componentType?.GetValue(tag) is Type declared ? declared
-            : snapshot.Kind == "class" ? ComponentTypeNamed(snapshot.Name) : null;
-        var render = mounted ? tag!.GetType().GetProperty("RenderFunc")?.GetValue(tag) as Delegate : null;
-        var props = mounted && componentElement?.IsInstanceOfType(tag) == true ? componentProps?.GetValue(tag) : null;
-        return new SnapshotReactorComponent(snapshot, type, render, mounted ? tag : null,
+        var (type, render, props, declaring) = MountedBy(GetTag(control), snapshot);
+        return new SnapshotReactorComponent(snapshot, type, render, declaring,
             props is null ? null : ReactorComponents.FriendlyTypeName(props.GetType()),
             (index, text) => SetState(control, index, text),
             () => Rerender(control));
+    }
+
+    /// <summary>
+    /// What the element record that mounted a described component adds: a class component's type and props, a
+    /// function or memo component's render function. Only a <c>ComponentElement</c> has <c>ComponentType</c> and
+    /// <c>Props</c>; a <c>FuncElement</c> or <c>MemoElement</c> has only <c>RenderFunc</c>.
+    /// </summary>
+    internal (Type? Type, Delegate? Render, object? Props, object? Declaring) MountedBy(object? tag, ReactorSnapshot snapshot)
+    {
+        var isClass = tag is not null && componentElement?.IsInstanceOfType(tag) == true;
+        var mounted = isClass || (tag is not null && (funcElement?.IsInstanceOfType(tag) == true || memoElement?.IsInstanceOfType(tag) == true));
+        var type = isClass && Read(tag, componentType) is Type declared ? declared
+            : snapshot.Kind == "class" ? ComponentTypeNamed(snapshot.Name) : null;
+        var render = mounted ? Read(tag, tag!.GetType().GetProperty("RenderFunc", BindingFlags.Public | BindingFlags.Instance)) as Delegate : null;
+        var props = isClass ? Read(tag, componentProps) : null;
+        return (type, render, props, mounted ? tag : null);
     }
 
     /// <summary>Reactor's <c>TrySetState</c>; the error is Reactor's own sentence.</summary>
