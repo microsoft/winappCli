@@ -180,7 +180,7 @@ struct WriteToSourceSink : DevToolsSinkBase
 };
 
 // Unset editors say which value is absent instead of showing runtime sentinel tokens as editable text.
-static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r)
+static void PopulateRowValue(void* fe, const DevToolsCardRow& r, const std::wstring& path)
 {
     std::wstring shown = r.value;
     const bool unset = r.valueState == L"unset";
@@ -191,7 +191,15 @@ static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r)
     const bool noValue = RowValueIsMissing(r);
     if (noValue && shown.size() > 2 && shown.front() == L'{' && shown.back() == L'}')
         shown = shown.substr(1, shown.size() - 2);
+    const std::wstring accessibleName = path + L": " + shown;
+    if (IInspectable* button = FindInRow(fe, L"PValueBtn")) {
+        SetAutomationTextOn(button, accessibleName, path + L" value", L"");
+        button->Release();
+    }
+    IInspectable* v = FindInRow(fe, L"PValue");
+    if (!v) return;
     SetTextOn(v, shown);
+    SetAutomationTextOn(v, accessibleName, path + L" shown", L"");
     void* tb = nullptr;
     if (SUCCEEDED(v->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &tb)) && tb) {
         if (void* brush = noValue ? static_cast<void*>(g_palSecondary) : static_cast<void*>(g_palPrimary))
@@ -199,6 +207,7 @@ static void PopulateRowValue(IInspectable* v, const DevToolsCardRow& r)
         DevToolsPutFontStyle(tb, noValue ? 2 /*Italic*/ : 0 /*Normal*/);
         reinterpret_cast<IUnknown*>(tb)->Release();
     }
+    v->Release();
 }
 
 // Populate top-level and child rows through one path/edit map. Collapsed-state signals use
@@ -223,22 +232,13 @@ static void PopulateRowLine(void* fe, const DevToolsCardRow& r, const std::wstri
         n->Release();
     }
 
-    // Explicit accessible identities follow recycled row data. Property value opens the row;
-// Property editor names its separate input control. Keep names distinct across both inspector views.
-    if (IInspectable* e = FindInRow(fe, L"PValueBtn"))
-        { SetAutomationTextOn(e, path + L" value", path + L" value", L""); e->Release(); }
-    if (IInspectable* e = FindInRow(fe, L"PValue"))
-        { SetAutomationTextOn(e, path + L" shown", path + L" shown", L""); e->Release(); }
+    PopulateRowValue(fe, r, path);
     // The changed MARKER states a fact; it is not an action, and its name must not read as one.
     if (IInspectable* d = FindInRow(fe, L"PDot"))
         { SetAutomationTextOn(d, path + L" changed", L"", L""); d->Release(); }
 
     if (IInspectable* c = FindInRow(fe, L"PChevron"))
         { SetAutomationTextOn(c, L"Expand " + path, L"", L""); c->Release(); }
-    if (IInspectable* v = FindInRow(fe, L"PValue")) {
-        PopulateRowValue(v, r);
-        v->Release();
-    }
 
     if (IInspectable* d = FindInRow(fe, L"PDot")) {
         ShowEl(d, DirtyHas(path));

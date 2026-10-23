@@ -217,11 +217,9 @@
     <Grid Grid.Column="1">
       <Thumb x:Name="PaneSplitter" Background="Transparent" BorderThickness="0"
              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-             IsTabStop="True" UseSystemFocusVisuals="True"
              AutomationProperties.AutomationId="PaneSplitter"
              AutomationProperties.Name="Resize the tree and properties panes"
-             AutomationProperties.HelpText="Use Left and Right arrow keys to resize the panes."
-             ToolTipService.ToolTip="Drag or use Left and Right arrow keys to resize"/>
+             ToolTipService.ToolTip="Drag to resize"/>
     </Grid>
 
     <!-- Collapsed ContentControls expose templates through FindName/ContentTemplate without

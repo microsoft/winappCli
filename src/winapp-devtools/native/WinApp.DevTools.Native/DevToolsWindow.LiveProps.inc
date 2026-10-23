@@ -164,9 +164,9 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
                 for (auto& c : label) if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c + 32);
                 g_propRowLabels[i] = std::move(label);
             }
-            if (void* value = PaneRowChild(row.name, L"PValue")) {
-                PopulateRowValue(static_cast<IInspectable*>(value), row);
-                reinterpret_cast<IUnknown*>(value)->Release();
+            if (void* element = PaneRowChild(row.name, nullptr)) {
+                PopulateRowValue(element, row, row.name);
+                reinterpret_cast<IUnknown*>(element)->Release();
             }
         }
     }

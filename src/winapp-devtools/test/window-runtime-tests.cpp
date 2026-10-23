@@ -7,6 +7,8 @@ static HRESULT FindTestName(void*, HSTRING, IInspectable**);
 static HRESULT PutTestText(void*, HSTRING);
 static HRESULT GetTestElement(void*, int, IInspectable**);
 static HRESULT GetTestToggle(void*, bool*);
+static HRESULT TestAutomationName(void*, void*, HSTRING);
+static HRESULT TestAutomationId(void*, void*, HSTRING);
 static HRESULT PutTestVisibility(void*, int) { return S_OK; }
 static int testFontStyle = -1;
 static HRESULT PutTestFontStyle(void*, int style) { testFontStyle=style; return S_OK; }
@@ -22,18 +24,6 @@ static HRESULT TestAddTheme(void*, void*, __int64*);
 static LRESULT CALLBACK TestNativeClose(HWND, UINT, WPARAM, LPARAM);
 static double testViewport = 0.0;
 static HRESULT TestViewport(void*, double* value) { *value = testViewport; return S_OK; }
-static double splitHostWidth = 1000.0, splitPaneWidth = 420.0;
-static unsigned splitWidthWrites = 0;
-static HRESULT TestActualWidth(void* element, double* value)
-{
-    *value = element == reinterpret_cast<void*>(1) ? splitHostWidth : splitPaneWidth;
-    return S_OK;
-}
-static HRESULT TestPutWidth(void*, double value) { splitPaneWidth = value; ++splitWidthWrites; return S_OK; }
-struct TestKeyArgs { int key; bool handled = false; };
-static HRESULT TestGetKey(void* args, int* key) { *key = static_cast<TestKeyArgs*>(args)->key; return S_OK; }
-static HRESULT TestPutHandled(void* args, bool value) { static_cast<TestKeyArgs*>(args)->handled = value; return S_OK; }
-static HRESULT TestDragChange(void* args, double* dx, double* dy) { *dx = *static_cast<double*>(args); *dy = 0.0; return S_OK; }
 #define DevToolsFindName FindTestName
 #define DevToolsPutText PutTestText
 #define DevToolsRepeaterTryGetElement GetTestElement
@@ -50,16 +40,14 @@ static HRESULT TestDragChange(void* args, double* dx, double* dy) { *dx = *stati
 #define DevToolsAddActualThemeChanged TestAddTheme
 #define DefSubclassProc TestNativeClose
 #define DevToolsScrollGetViewportHeight TestViewport
-#define DevToolsGetActualWidth TestActualWidth
-#define DevToolsPutWidth TestPutWidth
-#define DevToolsGetKey TestGetKey
-#define DevToolsPutHandled TestPutHandled
-#define DevToolsDragDeltaGetChange TestDragChange
+#define DevToolsSetAutomationName TestAutomationName
+#define DevToolsSetAutomationId TestAutomationId
 #include "../native/WinApp.DevTools.Native/DevToolsWindow.cpp"
 
 struct TestElement : IInspectable {
     ULONG refs = 1;
     std::wstring text;
+    std::wstring automationName, automationId;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** value) override {
         *value=static_cast<IInspectable*>(this); AddRef(); return S_OK;
     }
@@ -69,7 +57,17 @@ struct TestElement : IInspectable {
     HRESULT STDMETHODCALLTYPE GetRuntimeClassName(HSTRING* value) override { *value=nullptr; return S_OK; }
     HRESULT STDMETHODCALLTYPE GetTrustLevel(TrustLevel* value) override { *value=BaseTrust; return S_OK; }
 };
-static TestElement testRow, testValue, testStatus, testInput;
+static TestElement testRow, testValue, testValueButton, testStatus, testInput;
+static HRESULT TestAutomationName(void*, void* element, HSTRING value)
+{
+    static_cast<TestElement*>(element)->automationName = WindowsGetStringRawBuffer(value, nullptr);
+    return S_OK;
+}
+static HRESULT TestAutomationId(void*, void* element, HSTRING value)
+{
+    static_cast<TestElement*>(element)->automationId = WindowsGetStringRawBuffer(value, nullptr);
+    return S_OK;
+}
 static TestElement testAppWindow, testCaption;
 static HRESULT appWindowResult = S_OK, captionResult = S_OK, addThemeResult = S_OK, putThemeResult = S_OK;
 static unsigned themeAdds = 0;
@@ -99,6 +97,7 @@ static HRESULT FindTestName(void*, HSTRING name, IInspectable** found)
     const auto* chars=WindowsGetStringRawBuffer(name,&length);
     *found=nullptr;
     if(std::wstring(chars,length)==L"PValue") { *found=&testValue; testValue.AddRef(); }
+    if(std::wstring(chars,length)==L"PValueBtn") { *found=&testValueButton; testValueButton.AddRef(); }
     return S_OK;
 }
 static HRESULT PutTestText(void* element, HSTRING value)
@@ -143,43 +142,25 @@ int main()
 {
     unsigned checks=0, failed=0, writes=0;
     auto check=[&](bool ok,const char* name){++checks;if(!ok){++failed;std::printf("FAIL %s\n",name);}};
+    g_apStatics = reinterpret_cast<void*>(1);
     {
-        g_splitHostFe = reinterpret_cast<void*>(1);
-        g_splitPaneFe = reinterpret_cast<void*>(2);
-        g_splitTarget = 0.0;
-        SplitterKeySink keys; keys.Init();
-        TestKeyArgs right{VK_RIGHT}, left{VK_LEFT}, tab{VK_TAB}, up{VK_UP};
-        keys.Invoke(nullptr, &right);
-        check(right.handled && splitPaneWidth == 430.0,
-            "Right grows the tree pane by 10 from its current width");
-        keys.Invoke(nullptr, &left);
-        check(left.handled && splitPaneWidth == 420.0, "Left shrinks the tree pane by 10");
-        const auto writesBefore = splitWidthWrites;
-        keys.Invoke(nullptr, &tab); keys.Invoke(nullptr, &up);
-        check(!tab.handled && !up.handled && splitWidthWrites == writesBefore,
-            "Tab and unrelated keys are not consumed by the divider");
-        g_splitTarget = splitPaneWidth = 225.0;
-        keys.Invoke(nullptr, &left);
-        check(splitPaneWidth == 220.0, "keyboard resizing preserves the minimum tree width");
-        keys.Invoke(nullptr, &left);
-        check(splitPaneWidth == 220.0, "repeated Left stays at the minimum tree width");
-        g_splitTarget = splitPaneWidth = 690.0;
-        keys.Invoke(nullptr, &right);
-        check(splitPaneWidth == 694.0, "keyboard resizing leaves 300 for properties and 6 for the divider");
-        keys.Invoke(nullptr, &right);
-        check(splitPaneWidth == 694.0, "repeated Right stays at the maximum tree width");
-        SplitterSink drag; drag.Init();
-        double dx = -24.0;
-        drag.Invoke(nullptr, &dx);
-        check(splitPaneWidth == 670.0, "mouse dragging still uses the same resize path");
-        splitHostWidth = 800.0;
-        SplitSizeSink size; size.Init(); size.Invoke(nullptr, nullptr);
-        check(splitPaneWidth == 494.0, "window resizing reclamps the keyboard or mouse split");
-        keys.gen = g_route1Gen - 1; right.handled = false;
-        keys.Invoke(nullptr, &right);
-        check(!right.handled && splitPaneWidth == 494.0, "a stale divider cannot resize a new window");
-        g_splitHostFe = g_splitPaneFe = nullptr; g_splitTarget = 0.0;
+        DevToolsCardRow value;
+        value.name = L"Height"; value.type = L"Double"; value.valueState = L"unset";
+        PopulateRowValue(&testRow, value, value.name);
+        check(testValue.text == L"Auto" && testValueButton.automationName == L"Height: Auto" &&
+            testValue.automationName == L"Height: Auto", "accessible names include the displayed Auto value");
+        check(testValueButton.automationId == L"Height value" && testValue.automationId == L"Height shown",
+            "property value AutomationIds remain stable");
+        value.valueState.clear(); value.value = L"120";
+        PopulateRowValue(&testRow, value, L"Size.Height");
+        check(testValueButton.automationName == L"Size.Height: 120" &&
+            testValue.automationName == L"Size.Height: 120", "recycled nested rows name their current path and value");
+        value.type = L"String"; value.value.clear();
+        PopulateRowValue(&testRow, value, L"Text");
+        check(testValueButton.automationName == L"Text: " && testValue.automationName == L"Text: ",
+            "an empty value clears the previous accessible value");
     }
+    g_apStatics = nullptr;
     {
         // Only open comments are pushed; with none open but some resolved, the pane must not claim there are none.
         size_t open = 0;
@@ -212,12 +193,23 @@ int main()
     bool on=false;
     BoolToggleSink toggle;
     toggle.Init(77,row.name,row.type,L"True",&on);
+    g_apStatics = reinterpret_cast<void*>(1);
     toggle.Invoke(nullptr,nullptr);
     check(values[77]==L"False","boolean commit updates actual target");
     check(testValue.text==L"False","successful commit refreshes shown value in place");
+    check(testValueButton.automationName==L"IsEnabled: False" && testValue.automationName==L"IsEnabled: False",
+        "successful commit refreshes both accessible names in place");
     check(g_propRows[0].value==L"False","recycled row retains committed value");
     check(expansion.ExpansionRow().value==L"False","collapse/reopen resolves the refreshed row instead of captured snapshot");
     check(focusCalls==0,"commit does not move focus");
+    g_live.wire = g_selWire; g_live.gen = g_route1Gen; g_live.changed = {row.name};
+    g_valuesFn = [](InstanceHandle, const std::vector<std::wstring>&, std::vector<DevToolsCardRow>* fresh) {
+        auto updated = g_propRows[0]; updated.value = L"True"; *fresh = {updated}; return true;
+    };
+    LiveRefreshProc(nullptr, 0, 0, 0);
+    check(testValue.text==L"True" && testValueButton.automationName==L"IsEnabled: True" &&
+        testValue.automationName==L"IsEnabled: True", "live property changes refresh both accessible names");
+    g_live = {}; g_valuesFn = nullptr; g_apStatics = nullptr;
     realized=false;on=true;
     toggle.Invoke(nullptr,nullptr);
     check(g_propRows[0].value==L"True","offscreen commit refreshes model without a realized element");

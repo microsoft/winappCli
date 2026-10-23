@@ -319,52 +319,29 @@ struct SplitSizeSink : DevToolsSinkBase
     void Init() { InitSink(DevToolsIid<DevToolsX::SizeChangedEventHandler>(), g_route1Gen); }
 };
 
-static void ResizeInspectorSplit(double dx)
-{
-    if (!g_splitPaneFe || dx == 0.0) return;
-    if (g_splitTarget <= 0.0) {
-        double cur = 0.0;
-        if (FAILED(DevToolsGetActualWidth(g_splitPaneFe, &cur)) || cur <= 0.0) return;
-        g_splitTarget = cur;
-    }
-    g_splitTarget += dx;
-    ClampInspectorSplit();
-}
-
 struct SplitterSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
     {
         if (gen != g_route1Gen) return S_OK;
-        if (!g_splitPaneFe || !args) return S_OK;
+        void* pane = g_splitPaneFe;
+        if (!pane || !args) return S_OK;
         double dx = 0.0, dy = 0.0;
         if (FAILED(DevToolsDragDeltaGetChange(args, &dx, &dy))) return S_OK;
-        ResizeInspectorSplit(dx);
+        if (dx == 0.0) return S_OK;
+        if (g_splitTarget <= 0.0) {
+            double cur = 0.0;
+            if (FAILED(DevToolsGetActualWidth(pane, &cur)) || cur <= 0.0) return S_OK;
+            g_splitTarget = cur;
+        }
+        g_splitTarget += dx;
+        ClampInspectorSplit();
         return S_OK;
     }
     void Init()
     {
         InitSink(IID_DragDeltaEventHandler_Del, g_route1Gen);
     }
-};
-
-struct SplitterKeySink : DevToolsSinkBase
-{
-    virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
-    {
-        if (gen != g_route1Gen || !g_splitPaneFe || !args) return S_OK;
-        int key = 0;
-        const HRESULT hr = DevToolsGetKey(args, &key);
-        if (FAILED(hr)) {
-            DevToolsOverlayLog(L"route1.splitter keyboard read FAILED hr=0x%08X", hr);
-            return S_OK;
-        }
-        if (key != VK_LEFT && key != VK_RIGHT) return S_OK;
-        DevToolsPutHandled(args, true);
-        ResizeInspectorSplit(key == VK_LEFT ? -10.0 : 10.0);
-        return S_OK;
-    }
-    void Init() { InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
 };
 
 // Switch Set/Computed view and rebuild from Click. WinUI retains the sender; the sink's

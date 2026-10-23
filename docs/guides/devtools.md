@@ -31,9 +31,6 @@ and troubleshooting, see [Advanced DevTools](devtools-advanced.md). Every comman
 
    ![The DevTools inspector window with the element tree and properties](../images/devtools-inspector.png)
 
-   To resize the panes with a keyboard, press **Tab** to focus the divider, then
-   use **Left** or **Right** to move it. You can also drag the divider.
-
 5. Ask your agent to read the comments and make the changes:
 
    ```powershell

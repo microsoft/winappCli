@@ -904,7 +904,10 @@ static void* PaneRowChild(const std::wstring& prop, const wchar_t* childName)
                 start = end;
             }
             if (!fe) { el->Release(); return nullptr; }
-            if (IInspectable* c = FindInRowOrExpansion(fe, childName)) {
+            if (!childName) {
+                child = fe;
+                reinterpret_cast<IUnknown*>(child)->AddRef();
+            } else if (IInspectable* c = FindInRowOrExpansion(fe, childName)) {
                 c->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &child);
                 c->Release();
             }
@@ -938,9 +941,9 @@ static bool RefreshCommittedValue(const std::wstring& prop)
         for (auto& c : label) if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c + 32);
         g_propRowLabels[i] = std::move(label);
     }
-    if (void* value = PaneRowChild(prop, L"PValue")) {
-        PopulateRowValue(static_cast<IInspectable*>(value), *current);
-        reinterpret_cast<IUnknown*>(value)->Release();
+    if (void* row = PaneRowChild(prop, nullptr)) {
+        PopulateRowValue(row, *current, prop);
+        reinterpret_cast<IUnknown*>(row)->Release();
     }
     return true;
 }
