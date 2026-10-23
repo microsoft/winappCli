@@ -449,6 +449,30 @@ int main()
             check(BuildLayoutSection(wide,{width,margin}).find(L"larger than the 275 its parent offered inside its Margin")!=std::wstring::npos,
                 "the clipped explanation subtracts the margin from the offered space");
             DevToolsWindowLayout same=box;
+            {
+                // <Border Width="10" Margin="-20,0"/> fits; DesiredSize is floored at zero.
+                DevToolsWindowLayout neg{};
+                neg.haveDesired=neg.haveRender=true;
+                neg.desiredW=0;neg.desiredH=10;neg.renderW=10;neg.renderH=10;
+                DevToolsCardRow negMargin;negMargin.name=L"Margin";negMargin.value=L"-20,0,-20,0";
+                DevToolsCardRow negWidth;negWidth.name=L"Width";negWidth.value=L"10";
+                const auto negSection=BuildLayoutSection(neg,{negMargin,negWidth});
+                check(negSection.find(L"LESS width")==std::wstring::npos && negSection.find(L"clipped")==std::wstring::npos,
+                    "a negative margin is not reported as clipping");
+                // <Border Width="400" Margin="10"/> in a 15 slot: the usable width is zero, not -5.
+                DevToolsWindowLayout tiny{};
+                tiny.haveDesired=tiny.haveRender=true;
+                tiny.desiredW=15;tiny.desiredH=20;tiny.renderW=400;tiny.renderH=20;
+                DevToolsCardRow tenMargin;tenMargin.name=L"Margin";tenMargin.value=L"10,10,10,10";
+                width.value=L"400";
+                const auto tinySection=BuildLayoutSection(tiny,{width,tenMargin});
+                check(tinySection.find(L"larger than the 0 its parent offered inside its Margin")!=std::wstring::npos &&
+                    tinySection.find(L"-5")==std::wstring::npos,
+                    "a margin wider than the slot reports zero offered space, not a negative number");
+            }
+            check(FeedsLayoutSection(L"Margin") && FeedsLayoutSection(L"MaxWidth") &&
+                FeedsLayoutSection(L"HorizontalAlignment") && !FeedsLayoutSection(L"Text"),
+                "changing a property the explanation reads redraws Size & spacing");
             check(SameLayout(box,same),"an unchanged layout does not rebuild the pane");
             same.parentW=560;same.haveParentBox=true;
             check(!SameLayout(box,same),"a changed offered size rebuilds the pane");

@@ -140,6 +140,16 @@ static void LiveUnwatch()
 }
 
 static void UpdateSelectedTreePreview();
+static bool ReplaceLayoutSection(const DevToolsWindowLayout& layout);
+
+// Property rows whose values the Size & spacing section reads.
+static bool FeedsLayoutSection(const std::wstring& name)
+{
+    static const wchar_t* names[] = { L"Width", L"MinWidth", L"MaxWidth", L"Margin", L"Padding",
+                                      L"BorderThickness", L"HorizontalAlignment" };
+    for (const wchar_t* n : names) if (name == n) return true;
+    return false;
+}
 
 static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
 {
@@ -161,8 +171,10 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
     if (plan.action == DevToolsLiveRows::Action::Rebuild) {
         DevToolsWindow_RereadSelection(g_live.wire);
     } else if (plan.action == DevToolsLiveRows::Action::UpdateRows) {
+        bool layoutInputChanged = false;
         for (const auto& [i, k] : plan.changed) {
             DevToolsCardRow& row = g_propRows[i];
+            if (FeedsLayoutSection(row.name)) layoutInputChanged = true;
             row.value = fresh[k].value;
             row.valueState = fresh[k].valueState;
             row.source = fresh[k].source;
@@ -175,6 +187,11 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
                 PopulateRowValue(static_cast<IInspectable*>(value), row);
                 reinterpret_cast<IUnknown*>(value)->Release();
             }
+        }
+        // The explanation is computed from these rows, so redraw it even if the geometry did not change.
+        if (layoutInputChanged && g_paneHaveLayout && g_ctx.layoutFn) {
+            DevToolsWindowLayout now;
+            if (g_ctx.layoutFn(g_live.wire, now) && ReplaceLayoutSection(now)) g_paneLayout = now;
         }
     }
     // The caption can change even when no shown row did (it may come from a property the pane does not list).

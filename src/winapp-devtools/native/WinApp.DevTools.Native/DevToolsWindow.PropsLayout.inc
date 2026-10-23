@@ -549,7 +549,9 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
         // and keeps an explicit Width even when that overflows the slot. Compare like with like.
         const DevToolsRing margin = RingFromRows(rows, L"Margin");
         const double mw = margin.present ? margin.l + margin.r : 0;
-        const double dw = L.desiredW, rw = L.renderW, took = rw + mw;
+        // DesiredSize is floored at zero, so negative margins or a margin wider than the slot must be clamped too.
+        const double dw = L.desiredW, rw = L.renderW, took = (std::max)(0.0, rw + mw);
+        const double inside = (std::max)(0.0, dw - mw);
         double maxW = 0, minW = 0, fixedW = 0;
         const bool hasMax = asNumber(rowValue(L"MaxWidth"), maxW);
         const bool hasMin = asNumber(rowValue(L"MinWidth"), minW);
@@ -558,12 +560,12 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
             why = L"Its width is sitting exactly on MaxWidth (" + LayoutNumW(maxW) +
                   L"). That clamp is what decided this size, not the content and not the parent.";
         else if (hasWidth && fabs(rw - fixedW) < 0.5 && took > dw + 0.5)
-            why = L"Its Width (" + LayoutNumW(fixedW) + L") is larger than the " + LayoutNumW(dw - mw) +
+            why = L"Its Width (" + LayoutNumW(fixedW) + L") is larger than the " + LayoutNumW(inside) +
                   L" its parent offered" + (mw > 0.5 ? std::wstring(L" inside its Margin") : std::wstring()) +
                   L", so it is clipped. Lower Width, or give the parent more room.";
-        else if (hasMin && fabs(rw - minW) < 0.5 && minW > dw - mw + 0.5)
+        else if (hasMin && fabs(rw - minW) < 0.5 && minW > inside + 0.5)
             why = L"Its width is being held up by MinWidth (" + LayoutNumW(minW) +
-                  L"), which is larger than the " + LayoutNumW(dw - mw) + L" the content asked for.";
+                  L"), which is larger than the " + LayoutNumW(inside) + L" the content asked for.";
         else if (took > dw + 0.5 && !rowValue(L"HorizontalAlignment").empty() && rowValue(L"HorizontalAlignment") != L"Stretch")
             why = L"It got MORE width than it asked for even though HorizontalAlignment is " +
                   rowValue(L"HorizontalAlignment") + L". Check the parent's layout.";
