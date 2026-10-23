@@ -593,7 +593,7 @@ class UvExecutableTests(ProjectTest):
             return str(executable) if Path(candidate) == executable else None
 
         with patch.dict(os.environ, {"PATH": path}), patch.object(deps.shutil, "which", side_effect=which):
-            self.assertEqual(deps.uv_executable(), str(executable))
+            self.assertEqual(deps.uv_executable(), str(executable.resolve()))
 
     def test_real_uv_lookup_ignores_cwd_even_when_windows_allows_it(self):
         installed = self.root / "installed uv"
@@ -622,7 +622,7 @@ class UvExecutableTests(ProjectTest):
                 )
                 if available:
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(Path(result.stdout.strip()), installed / "uv.exe")
+                    self.assertEqual(Path(result.stdout.strip()), (installed / "uv.exe").resolve())
                 else:
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("uv is not available", result.stderr)
@@ -635,12 +635,12 @@ class UvExecutableTests(ProjectTest):
         (first / "uv.exe").write_bytes(b"not executed")
         (second / "uv.exe").write_bytes(b"not executed")
         with patch.dict(os.environ, {"PATH": os.pathsep.join((str(first), str(second))), "PATHEXT": ".EXE;.CMD"}):
-            self.assertEqual(Path(deps.uv_executable()), first / "uv.exe")
+            self.assertEqual(Path(deps.uv_executable()), (first / "uv.exe").resolve())
             (first / "uv.exe").unlink()
-            self.assertEqual(Path(deps.uv_executable()), second / "uv.exe")
+            self.assertEqual(Path(deps.uv_executable()), (second / "uv.exe").resolve())
             (second / "uv.exe").unlink()
             (first / "uv.cmd").write_text("@exit /b 0\n", encoding="utf-8")
-            self.assertEqual(Path(deps.uv_executable()), first / "uv.cmd")
+            self.assertEqual(Path(deps.uv_executable()), (first / "uv.cmd").resolve())
 
     def test_uv_lookup_supports_launchers_with_python_311_qualified_lookup(self):
         installed = self.root / "installed uv"
@@ -656,7 +656,7 @@ class UvExecutableTests(ProjectTest):
             patch.dict(os.environ, {"PATH": str(installed), "PATHEXT": ".EXE;.CMD"}),
             patch.object(deps.shutil, "which", side_effect=qualified_lookup),
         ):
-            self.assertEqual(Path(deps.uv_executable()), launcher)
+            self.assertEqual(Path(deps.uv_executable()), launcher.resolve())
 
 
 class InstallerTimeoutTests(ProjectTest):

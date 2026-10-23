@@ -140,7 +140,7 @@ This is a development workflow, not a distributable Python application.
 
 ### Runtime catalog pinning
 
-`run --identity` uses a Python Build Standalone (PBS) download catalog fixed by the installed `microsoft-winappcli` release. It selects the project interpreter's exact Python version, architecture and build variant (regular, free-threaded or debug). It does not create or modify `pyproject.toml`, and uv does not need to be installed.
+`run --identity` uses a Python Build Standalone (PBS) download catalog fixed by the installed `microsoft-winappcli` release. It selects the project interpreter's exact Python version, architecture and build variant (regular, free-threaded or debug), without changing `pyproject.toml`. Downloading this runtime does not require uv; restoring dependencies for a uv-managed project still requires an installed uv.
 
 The first preparation needs network access to download the catalog and runtime. Both downloads are checked against their SHA-256 hashes before use; no GitHub Release API lookup is needed. If the catalog has no exact match, the command stops rather than choosing another Python version. Upgrade `microsoft-winappcli` for a newer catalog, or use a project interpreter covered by the installed release.
 
