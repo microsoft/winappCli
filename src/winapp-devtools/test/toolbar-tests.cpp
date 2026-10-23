@@ -90,7 +90,8 @@ static void TestToolbarContract()
     const size_t splitterAt = windowShell.find("<Thumb x:Name=\"PaneSplitter\"");
     Check(splitterAt != std::string::npos &&
                      windowShell.find("IsTabStop=\"True\"", splitterAt) < windowShell.find("/>", splitterAt) &&
-                     window.find("DevToolsAddPreviewKeyDown(thumb, splitKeys, &ktok)") != std::string::npos,
+                     window.find("DevToolsAddPreviewKeyDown(splitUi, splitKeys, &ktok)") != std::string::npos &&
+                     window.find("DevToolsAddPreviewKeyDown(thumb,") == std::string::npos,
                  "the pane splitter is a tab stop that the arrow keys move");
     Check(windowShell.find("<TextBlock x:Name=\"TreeNoMatches\" Visibility=\"Collapsed\"") != std::string::npos &&
                      window.find("SetTreeNoMatches(queryRaw, shown == 0);") != std::string::npos,

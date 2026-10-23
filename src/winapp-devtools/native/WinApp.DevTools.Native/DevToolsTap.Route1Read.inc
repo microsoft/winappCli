@@ -653,6 +653,22 @@ static bool IsDeclaredElement(InstanceHandle h)
 // content, a UserControl's content, an item in an items panel or ItemsRepeater, a popup's child, or the window's
 // root. A ScrollViewer's content counts only when the ScrollViewer itself was placed: controls such as TextBox put
 // their template parts in a ScrollViewer of their own.
+static bool IsPlacedContent(DevToolsX::DependencyObject const& node, DevToolsX::DependencyObject const& parent);
+
+// A ScrollViewer the app placed, possibly inside its own plain panels: walking up reaches placed content before any
+// control. A template's ScrollViewer reaches the control that owns the template first.
+static bool IsAppPlacedScroller(DevToolsX::DependencyObject const& scroller)
+{
+    DevToolsX::DependencyObject node = scroller;
+    for (int depth = 0; node && depth < 64; ++depth) {
+        const auto parent = DevToolsXM::VisualTreeHelper::GetParent(node);
+        if (IsPlacedContent(node, parent)) return true;
+        if (parent.try_as<DevToolsXC::Control>()) return false;
+        node = parent;
+    }
+    return false;
+}
+
 static bool IsPlacedContent(DevToolsX::DependencyObject const& node, DevToolsX::DependencyObject const& parent)
 {
     if (auto element = node.try_as<DevToolsX::UIElement>()) {
@@ -663,8 +679,7 @@ static bool IsPlacedContent(DevToolsX::DependencyObject const& node, DevToolsX::
         DevToolsX::DependencyObject scroller = parent;
         for (int depth = 0; scroller && depth < 8 && !scroller.try_as<DevToolsXC::ScrollViewer>(); ++depth)
             scroller = DevToolsXM::VisualTreeHelper::GetParent(scroller);
-        return scroller && scroller.try_as<DevToolsXC::ScrollViewer>() &&
-               IsPlacedContent(scroller, DevToolsXM::VisualTreeHelper::GetParent(scroller));
+        return scroller && scroller.try_as<DevToolsXC::ScrollViewer>() && IsAppPlacedScroller(scroller);
     }
     if (auto presenter = parent.try_as<DevToolsXC::ContentPresenter>()) return presenter.Content() == node;
     if (parent.try_as<DevToolsXC::UserControl>() || parent.try_as<DevToolsXCP::Popup>() ||
