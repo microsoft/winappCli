@@ -649,6 +649,71 @@ static bool IsDeclaredElement(InstanceHandle h)
     return !source.empty() && IsAuthoredSource(source) && !DevToolsAuthored_IsControlTemplatePart(source, line, column);
 }
 
+// Whether `node` was placed by whoever built the UI rather than by a control template: a ContentPresenter's
+// content, a UserControl's content, an item in an items panel or ItemsRepeater, a popup's child, or the window's
+// root. A ScrollViewer's content counts only when the ScrollViewer itself was placed: controls such as TextBox put
+// their template parts in a ScrollViewer of their own.
+static bool IsPlacedContent(DevToolsX::DependencyObject const& node, DevToolsX::DependencyObject const& parent);
+
+// A ScrollViewer the app placed, possibly inside its own plain panels: walking up reaches placed content before any
+// control. A template's ScrollViewer reaches the control that owns the template first.
+static bool IsAppPlacedScroller(DevToolsX::DependencyObject const& scroller)
+{
+    DevToolsX::DependencyObject node = scroller;
+    for (int depth = 0; node && depth < 64; ++depth) {
+        const auto parent = DevToolsXM::VisualTreeHelper::GetParent(node);
+        if (IsPlacedContent(node, parent)) return true;
+        if (parent.try_as<DevToolsXC::Control>()) return false;
+        node = parent;
+    }
+    return false;
+}
+
+static bool IsPlacedContent(DevToolsX::DependencyObject const& node, DevToolsX::DependencyObject const& parent)
+{
+    if (auto element = node.try_as<DevToolsX::UIElement>()) {
+        if (auto root = element.XamlRoot(); root && root.Content() == element) return true;
+    }
+    if (!parent) return true;
+    if (parent.try_as<DevToolsXC::ScrollContentPresenter>()) {
+        DevToolsX::DependencyObject scroller = parent;
+        for (int depth = 0; scroller && depth < 8 && !scroller.try_as<DevToolsXC::ScrollViewer>(); ++depth)
+            scroller = DevToolsXM::VisualTreeHelper::GetParent(scroller);
+        return scroller && scroller.try_as<DevToolsXC::ScrollViewer>() && IsAppPlacedScroller(scroller);
+    }
+    if (auto presenter = parent.try_as<DevToolsXC::ContentPresenter>()) return presenter.Content() == node;
+    if (parent.try_as<DevToolsXC::UserControl>() || parent.try_as<DevToolsXCP::Popup>() ||
+        parent.try_as<DevToolsXC::ItemsRepeater>()) return true;
+    if (auto panel = parent.try_as<DevToolsXC::Panel>()) return panel.IsItemsHost();
+    return false;
+}
+
+// UI built in code has no source to tell the app's elements from template parts. A hit in content the app placed
+// is kept (a TextBlock in a dialog's StackPanel). A hit in a control's template selects the outermost control that
+// owns the template (the TextBox, not the ScrollViewer inside it; the ComboBoxItem, not its text).
+static InstanceHandle CodeBuiltPickTarget(InstanceHandle hit)
+{
+    try {
+        winrt::com_ptr<IInspectable> object;
+        if (!g_diag || FAILED(g_diag->GetIInspectableFromHandle(hit, object.put())) || !object) return hit;
+        winrt::Windows::Foundation::IInspectable element{ nullptr };
+        winrt::copy_from_abi(element, object.get());
+        DevToolsX::DependencyObject owner{ nullptr };
+        auto node = element.try_as<DevToolsX::DependencyObject>();
+        for (int depth = 0; node && depth < 256; ++depth) {
+            if (node.try_as<DevToolsXC::Control>()) owner = node;
+            const auto parent = DevToolsXM::VisualTreeHelper::GetParent(node);
+            if (IsPlacedContent(node, parent)) break;
+            node = parent;
+        }
+        InstanceHandle handle = 0;
+        if (owner && SUCCEEDED(g_diag->GetHandleFromIInspectable(
+                         reinterpret_cast<IInspectable*>(winrt::get_abi(owner)), &handle)) && handle)
+            return handle;
+    } catch (const winrt::hresult_error&) {}
+    return hit;
+}
+
 // A pick selects the author's element, not a control template's part or runtime-generated text (a Button's string
 // content, a placeholder): any other hit resolves to its nearest declared ancestor. A hit with no such ancestor is
 // kept.
@@ -668,19 +733,8 @@ static InstanceHandle PickTarget(InstanceHandle hit)
     for (const InstanceHandle ancestor : ancestors) {
         if (IsDeclaredElement(ancestor)) return ancestor;
     }
-    // Nothing declared above it (a generated list item, a menu built in code): select the control the hit belongs
-    // to, such as the ComboBoxItem or MenuFlyoutItem, rather than a part of its template.
-    auto isControl = [](InstanceHandle h) {
-        winrt::com_ptr<IInspectable> object;
-        if (!g_diag || FAILED(g_diag->GetIInspectableFromHandle(h, object.put())) || !object) return false;
-        winrt::com_ptr<IUnknown> control;
-        return SUCCEEDED(object->QueryInterface(DevToolsIid<DevToolsXC::IControl>(), control.put_void()));
-    };
-    if (isControl(hit)) return hit;
-    for (const InstanceHandle ancestor : ancestors) {
-        if (isControl(ancestor)) return ancestor;
-    }
-    return hit;
+    // Nothing declared above it (a generated list item, a menu or dialog built in code).
+    return CodeBuiltPickTarget(hit);
 }
 
 static bool OnOverlayReleasedPick(InstanceHandle h)
