@@ -348,5 +348,11 @@
               HorizontalAlignment="Stretch" Background="#00000000" Foreground="$TEXT$" Content="Don't start DevTools"
               ToolTipService.ToolTip="Turn DevTools back on with: winapp config set run.devtools on"
               AutomationProperties.AutomationId="DevToolsStartOff" />
+      <!-- Visible only while "Don't start DevTools" is the selected start mode: the re-enable hint must not
+           hide in a tooltip, or a user who picks it has no visible way back (issue #1148). -->
+      <TextBlock x:Name="DevToolsStartOffHint" Visibility="Collapsed" Margin="32,0,10,8" FontSize="11"
+                 Foreground="$TEXTDIM$" TextWrapping="WrapWholeWords"
+                 Text="DevTools is off. To turn it back on, run `winapp config set run.devtools on`, or launch with `winapp run . --devtools on`."
+                 AutomationProperties.AutomationId="DevToolsStartOffHint" />
     </StackPanel>
   </Border></Canvas>

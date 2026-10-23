@@ -148,6 +148,15 @@ static void TestToolbarContract()
     Check(xaml.find("<TextBlock Text=\"WHEN THE APP STARTS\"") != std::string::npos &&
                      overlay.find("ProtoSetToggle(name, L\"\", L\"\", true);") != std::string::npos,
                  "the start-mode header is text, and opening the menu re-selects the saved mode");
+    // Choosing "Don't start DevTools" must leave a visible re-enable hint, not just a hover tooltip (#1148).
+    Check(xaml.find("x:Name=\"DevToolsStartOffHint\"") != std::string::npos &&
+                     xaml.find("To turn it back on, run `winapp config set run.devtools on`, or launch with `winapp run . --devtools on`.") != std::string::npos,
+                 "the off-mode hint names both ways to turn DevTools back on");
+    Check(overlay.find("ProtoSetPartVisible(L\"DevToolsStartOffHint\", mode == \"off\")") != std::string::npos,
+                 "the re-enable hint is only visible while the off start mode is selected");
+    Check(overlay.find("OnStartOffClick") != std::string::npos &&
+                     overlay.find("SetDefaultMode(\"off\"); ToggleToolbarMenu(L\"DevToolsMoreMenu\", L\"DevToolsProtoMore\", L\"DevToolsStartOff\")") != std::string::npos,
+                 "choosing \"Don't start DevTools\" reopens the menu so the re-enable hint stays visible");
     Check(xaml.find("<ToggleButton x:Name=\"DevToolsToggleMarkers\"") != std::string::npos &&
                      xaml.find("AutomationProperties.Name=\"Show comment markers\"") != std::string::npos &&
                      overlay.find("DevToolsToggleMarkersText") == std::string::npos,
