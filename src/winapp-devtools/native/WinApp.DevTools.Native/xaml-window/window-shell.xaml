@@ -180,6 +180,10 @@
         <StackPanel Margin="8">
           <TextBlock x:Name="TreeHeader" Margin="4,4,4,10" Text="$TREEHEADER$" Style="{StaticResource CaptionTextBlockStyle}"
                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" CharacterSpacing="60"/>
+          <TextBlock x:Name="TreeNoMatches" Visibility="Collapsed" Margin="4,0,4,0" TextWrapping="Wrap"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                     AutomationProperties.AutomationId="TreeNoMatches"
+                     AutomationProperties.LiveSetting="Polite"/>
           <StackPanel x:Name="TreeRowsHost">
             <StackPanel.Resources>
               <SolidColorBrush x:Key="DevToolsChevronTransparent" Color="Transparent"/>
@@ -217,9 +221,11 @@
     <Grid Grid.Column="1">
       <Thumb x:Name="PaneSplitter" Background="Transparent" BorderThickness="0"
              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+             IsTabStop="True" UseSystemFocusVisuals="True"
              AutomationProperties.AutomationId="PaneSplitter"
              AutomationProperties.Name="Resize the tree and properties panes"
-             ToolTipService.ToolTip="Drag to resize"/>
+             AutomationProperties.HelpText="Use the Left and Right arrow keys to resize"
+             ToolTipService.ToolTip="Drag, or use the arrow keys, to resize"/>
     </Grid>
 
     <!-- Collapsed ContentControls expose templates through FindName/ContentTemplate without
