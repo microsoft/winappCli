@@ -88,6 +88,7 @@ public class DevToolsHelpTests : BaseCommandTests
         StringAssert.Contains(output, "  <selector>");
         StringAssert.Contains(output, "Use 'winapp ui' to click, type, and read values in any app.");
         StringAssert.Contains(output, "Both take an AutomationId.");
+        StringAssert.Contains(output, "--expect-sandbox <guid>");
         foreach (var (category, _) in DevToolsCommand.HelpCategories)
         {
             StringAssert.Contains(output, "\n" + category + "\n");
@@ -106,6 +107,7 @@ public class DevToolsHelpTests : BaseCommandTests
         StringAssert.Contains(output, "\nExamples:\n  winapp devtools set-property <selector> Text \"<text>\" -a <app>\n");
         Assert.AreEqual(1, Regex.Count(output, "^Global options:", RegexOptions.Multiline));
         Assert.DoesNotContain("--verbose", output);
+        StringAssert.Contains(output, "--expect-sandbox <guid>");
     }
 
 
@@ -117,6 +119,7 @@ public class DevToolsHelpTests : BaseCommandTests
     {
         var command = Groups.Last().Subcommands.Single(c => c.Name == verb);
         Assert.AreEqual(shown, CompactHelpRenderer.Render(command).Contains("--on", StringComparison.Ordinal));
+        Assert.AreEqual(shown, CompactHelpRenderer.Render(command).Contains("--expect-sandbox", StringComparison.Ordinal));
     }
 
     [TestMethod]

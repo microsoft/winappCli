@@ -54,6 +54,33 @@ public sealed class GuestDevToolsCommandRequestTests : BaseCommandTests
     }
 
     [TestMethod]
+    [DataRow("--expect-sandbox")]
+    [DataRow("--expect-sandbox=11111111-2222-4333-8444-555555555555")]
+    [DataRow("--expect-sandbox:11111111-2222-4333-8444-555555555555")]
+    public void ForwardedTokens_DropExpectedSandboxInEverySpelling(string option)
+    {
+        var root = GetRequiredService<WinAppRootCommand>();
+        var arguments = new List<string> { "devtools", "inspect", "--on", "sandbox",
+            "--app", Application.Selector, option };
+        if (option == "--expect-sandbox")
+        {
+            arguments.Add("11111111-2222-4333-8444-555555555555");
+        }
+        var parsed = root.Parse(arguments.ToArray());
+        Assert.IsEmpty(parsed.Errors);
+        Assert.IsNull(ExecutionTargetSelection.Validate(parsed));
+
+        var request = GuestDevToolsCommandRequest.Create(parsed, Application);
+        var forwarded = root.Parse(request.Arguments.ToArray());
+
+        Assert.IsEmpty(forwarded.Errors);
+        Assert.IsNull(ExecutionTargetSelection.RawExpectation(forwarded));
+        Assert.IsNull(ExecutionTargetSelection.Validate(forwarded),
+            "The guest must receive a local DevTools command without host routing options.");
+        Assert.IsNotNull(forwarded.GetValue(WinAppRootCommand.GuestInspectionOption));
+    }
+
+    [TestMethod]
     [DataRow("search")]
     [DataRow("get-property")]
     [DataRow("set-property")]
