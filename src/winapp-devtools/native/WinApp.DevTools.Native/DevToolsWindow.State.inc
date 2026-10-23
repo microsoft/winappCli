@@ -226,6 +226,9 @@ static size_t RebuildPaneItems();
 // Following the selected element's property changes (DevToolsWindow.LiveProps.inc).
 static void LiveWatchSelection();
 static void LiveUnwatch();
+// The layout the Size & spacing section was built from, so a layout pass that changes it rebuilds the pane.
+static DevToolsWindowLayout g_paneLayout{};
+static bool g_paneHaveLayout = false;
 
 // Set and Computed views persist across selections, resetting on window teardown.
 // Computed groups effective state by concern; Set groups authored/local values by origin.

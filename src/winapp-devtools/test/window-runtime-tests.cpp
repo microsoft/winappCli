@@ -421,6 +421,40 @@ int main()
         alignment.value=L"Left";
         check(BuildLayoutSection(stretched,{alignment}).find(L"even though HorizontalAlignment is Left")!=std::wstring::npos,
             "extra width despite a non-default alignment is called out");
+        {
+            // <TextBox Width="320" Margin="18,12"/>: DesiredSize includes the margin, RenderSize does not.
+            DevToolsWindowLayout box{};
+            box.haveDesired=box.haveRender=true;
+            box.desiredW=356;box.desiredH=114;box.renderW=320;box.renderH=90;
+            DevToolsCardRow margin;margin.name=L"Margin";margin.value=L"18,12,18,12";
+            DevToolsCardRow width;width.name=L"Width";width.value=L"320";
+            const auto section=BuildLayoutSection(box,{margin,width});
+            check(section.find(L"LESS width")==std::wstring::npos && section.find(L"clipped")==std::wstring::npos,
+                "a margin is not reported as a constraint");
+            check(section.find(L"with margin")!=std::wstring::npos,
+                "the asked-for size says it includes the margin");
+            // <Border Width="400"/> in a 275 column: DesiredSize is clipped to the slot, RenderSize keeps Width.
+            DevToolsWindowLayout wide{};
+            wide.haveDesired=wide.haveRender=true;
+            wide.desiredW=275;wide.desiredH=20;wide.renderW=400;wide.renderH=20;
+            width.value=L"400";
+            for (const wchar_t* align : {L"Stretch", L"Left"}) {
+                alignment.value=align;
+                const auto clipped=BuildLayoutSection(wide,{width,alignment});
+                check(clipped.find(L"Its Width (400) is larger than the 275 its parent offered, so it is clipped")!=std::wstring::npos &&
+                    clipped.find(L"MORE width")==std::wstring::npos,
+                    "a fixed Width larger than its slot is described as clipped");
+            }
+            wide.desiredW=275+36;
+            check(BuildLayoutSection(wide,{width,margin}).find(L"larger than the 275 its parent offered inside its Margin")!=std::wstring::npos,
+                "the clipped explanation subtracts the margin from the offered space");
+            DevToolsWindowLayout same=box;
+            check(SameLayout(box,same),"an unchanged layout does not rebuild the pane");
+            same.parentW=560;same.haveParentBox=true;
+            check(!SameLayout(box,same),"a changed offered size rebuilds the pane");
+            check(!g_layoutBody && !ReplaceLayoutSection(same),
+                "with no Size & spacing section on screen, a layout change falls back to rebuilding the pane");
+        }
         DevToolsCardRow text;text.name=L"Text";text.type=L"String";text.value=L"Hi";text.source=L"Local";
         g_layoutSectionOpen=0;
         const auto pane=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",

@@ -21,9 +21,12 @@ struct LiveWatch
     winrt::weak_ref<DevToolsX::DependencyObject> element;
     std::vector<std::pair<DevToolsX::DependencyProperty, int64_t>> tokens;
     std::vector<std::wstring> changed;   // properties reported since the last read
+    winrt::weak_ref<DevToolsX::FrameworkElement> layoutSource;
+    winrt::event_token layoutToken{};
 };
 static LiveWatch g_live;
 static UINT_PTR  g_liveTimer = 0;
+static UINT_PTR  g_liveLayoutTimer = 0;
 static size_t    g_liveRegistered = 0, g_liveUnregistered = 0;
 
 // The dependency properties apps commonly change from code, for this element's classes.
@@ -119,6 +122,10 @@ static std::vector<std::pair<const wchar_t*, DevToolsX::DependencyProperty>> Liv
 static void LiveUnwatch()
 {
     if (g_liveTimer) { KillTimer(nullptr, g_liveTimer); g_liveTimer = 0; }
+    if (g_liveLayoutTimer) { KillTimer(nullptr, g_liveLayoutTimer); g_liveLayoutTimer = 0; }
+    if (auto source = g_live.layoutSource.get()) {
+        try { source.LayoutUpdated(g_live.layoutToken); } catch (...) {}
+    }
     if (auto element = g_live.element.get()) {
         for (const auto& [dp, token] : g_live.tokens) {
             try { element.UnregisterPropertyChangedCallback(dp, token); ++g_liveUnregistered; } catch (...) {}
@@ -177,6 +184,66 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
         names.size(), plan.changed.size(), (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart);
 }
 
+// Whether two layout reads would draw the same Size & spacing section.
+static bool SameLayout(const DevToolsWindowLayout& a, const DevToolsWindowLayout& b)
+{
+    auto eq = [](double x, double y) { return fabs(x - y) < 0.5; };
+    return a.haveDesired == b.haveDesired && a.haveRender == b.haveRender && a.haveOffset == b.haveOffset &&
+           a.haveParentBox == b.haveParentBox && a.haveInParent == b.haveInParent &&
+           eq(a.desiredW, b.desiredW) && eq(a.desiredH, b.desiredH) &&
+           eq(a.renderW, b.renderW) && eq(a.renderH, b.renderH) &&
+           eq(a.offsetX, b.offsetX) && eq(a.offsetY, b.offsetY) &&
+           eq(a.parentW, b.parentW) && eq(a.parentH, b.parentH) &&
+           eq(a.inParentX, b.inParentX) && eq(a.inParentY, b.inParentY) &&
+           a.childIndex == b.childIndex && a.childCount == b.childCount;
+}
+
+// Replaces only the Size & spacing section's contents, so the property rows, focus and scroll are untouched.
+static bool ReplaceLayoutSection(const DevToolsWindowLayout& layout)
+{
+    if (!g_layoutBody) return false;
+    const std::wstring markup = InlineResourceLiterals(
+        L"<StackPanel xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\""
+        L" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">" + BuildLayoutSection(layout, g_propRows) +
+        L"</StackPanel>", nullptr, nullptr);
+    IInspectable* frag = nullptr;
+    if (FAILED(LoadMarkupWin(markup, &frag)) || !frag) return false;
+    winrt::Windows::Foundation::IInspectable fresh{ nullptr };
+    winrt::attach_abi(fresh, frag);
+    try {
+        winrt::Windows::Foundation::IInspectable body{ nullptr };
+        winrt::copy_from_abi(body, g_layoutBody);
+        auto children = body.as<DevToolsXC::Panel>().Children();
+        children.Clear();
+        children.Append(fresh.as<DevToolsX::UIElement>());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// A layout pass ran (the window resized, a sibling grew): re-read the selected element's layout and redraw
+// Size & spacing only when what it shows has changed.
+static void CALLBACK LiveLayoutProc(HWND, UINT, UINT_PTR id, DWORD)
+{
+    KillTimer(nullptr, id);
+    g_liveLayoutTimer = 0;
+    if (!g_live.wire || g_live.wire != g_selWire || g_live.gen != g_route1Gen || !g_ctx.layoutFn) return;
+    if (g_ctx.wireLiveFn && !g_ctx.wireLiveFn(g_live.wire)) { LiveUnwatch(); return; }
+    DevToolsWindowLayout now;
+    const bool have = g_ctx.layoutFn(g_live.wire, now);
+    if (have == g_paneHaveLayout && (!have || SameLayout(now, g_paneLayout))) return;
+    if (have && g_paneHaveLayout && ReplaceLayoutSection(now)) {
+        g_paneLayout = now;
+        DevToolsOverlayLog(L"route1.live layout changed; redrew Size & spacing");
+        return;
+    }
+    // The section appears or disappears, which only a full rebuild can do.
+    if (!CanRereadSelection(nullptr)) { g_liveLayoutTimer = SetTimer(nullptr, 0, 250, &LiveLayoutProc); return; }
+    DevToolsOverlayLog(L"route1.live layout changed; rebuilding the pane");
+    DevToolsWindow_RereadSelection(g_live.wire);
+}
+
 // Called after the pane shows an element: follow that element, and stop following the previous one.
 static void LiveWatchSelection()
 {
@@ -207,6 +274,15 @@ static void LiveWatchSelection()
                 });
             g_live.tokens.emplace_back(dp, token);
             ++g_liveRegistered;
+        }
+        // Size & spacing follows layout passes, which no dependency property reports (a window resize changes
+        // the space offered, not this element's properties). Bursts are read at most every 250 ms.
+        if (const auto fe = element.try_as<DevToolsX::FrameworkElement>()) {
+            g_live.layoutToken = fe.LayoutUpdated([wire, gen](auto&&, auto&&) {
+                if (wire != g_live.wire || gen != g_route1Gen) return;
+                if (!g_liveLayoutTimer) g_liveLayoutTimer = SetTimer(nullptr, 0, 250, &LiveLayoutProc);
+            });
+            g_live.layoutSource = winrt::make_weak(fe);
         }
         DevToolsOverlayLog(L"route1.live watching %zu properties (registered=%zu unregistered=%zu)",
             g_live.tokens.size(), g_liveRegistered, g_liveUnregistered);
