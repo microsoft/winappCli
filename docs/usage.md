@@ -106,6 +106,7 @@ Generates an identity-only [sparse package](guides/sparse.md) manifest for an ex
 - Uses `--use-defaults`/`--no-prompt` to skip the interactive override prompts (CI-friendly)
 - `--exe` without `--sparse` is an error
 
+> [!IMPORTANT]
 > **Assets are external.** The sparse `.msix` is identity-only: the generated `Assets/` are resolved from the app's install directory (the external content location) at runtime, **not** bundled into the `.msix`. Deploy them alongside your application.
 
 Next steps after `winapp init --exe <exe> --sparse`: [`winapp pack <appxmanifest.xml>`](#pack) to build the identity `.msix`, then [`winapp embed-identity <exe>`](#embed-identity). See the [Sparse Packaging Guide](guides/sparse.md) for the full walkthrough.
@@ -180,6 +181,7 @@ The pack ships two styles of WinUI app. **XAML** templates define the UI in mark
 | `reactor-navview` | **Experimental.** Reactor NavigationView starter app |
 | `reactor-tabview` | **Experimental.** Reactor TabView starter app |
 
+> [!WARNING]
 > **Reactor templates are experimental.** They reference the prerelease `Microsoft.UI.Reactor` packages, whose APIs can change or be removed in a future release. `winapp new` marks them **(Experimental)** in `--list` and in the interactive picker, sets `"Experimental": true` in `--json`, and prints a warning after scaffolding one. They are never chosen as the default template. Reactor also requires the **.NET 10 SDK or newer**; on an older SDK `winapp new` fails up front with the version it needs rather than scaffolding a project you can't build.
 
 Each template's canonical short name is the first alias `dotnet new` lists for it; any listed alias (e.g. `winui3`, `wasdk-single`, `winui-reactor`) is also accepted. If another installed template pack registers the same short name (for example, `reactor` from `Microsoft.UI.Reactor.Templates`), `winapp new` still creates the WinUI pack's template by using one of its other aliases. If another pack registers every alias the template has, `winapp new` stops and names that pack. Remove it with `dotnet new uninstall <package>` and re-run. When run inside an existing WinUI project, `dotnet new` also surfaces **item** templates (e.g. a blank page), which `winapp new` adds into the current project rather than creating a new one.
@@ -188,6 +190,7 @@ Each template's canonical short name is the first alias `dotnet new` lists for i
 
 `winapp new` no longer pins a specific template pack version. If no pack is installed it installs the **latest**. If an older pack is already installed it checks the feed and, when a newer one exists, **prompts** whether to update — except in non-interactive/`--use-defaults` runs, which keep the installed pack. Use `--template-version latest` to always take the newest without prompting (it never replaces an installed pack with an older one, and fails if the feed can't be checked), or `--template-version installed` to always use the downloaded pack without a network check. Passing an **explicit** version (e.g. `--template-version 1.2.3`) always installs exactly that version — reinstalling even when a newer pack is already present — so scaffolding is reproducible across machines.
 
+> [!NOTE]
 > **A first run may take longer:** Installing or updating the template pack, or restoring missing Windows App SDK NuGet packages used by the selected template, can require additional downloads. This can also happen after a new Windows App SDK version is published. If scaffolding is still running after 10 seconds, `winapp new` updates its status message to indicate that packages may be downloading or restoring.
 
 **What it does:**
@@ -351,7 +354,8 @@ winapp pack <input-folder> [input-folder...] [options]
 - `--no-restore` - Skip restoring the project before building
 - `--property <name=value>` (`-p`) - MSBuild property, forwarded to build and evaluation (repeatable)
 
-> **Note:** For a WinUI / `EnableMsixTooling` `.csproj` (MSIX-tooling project mode), the Windows App SDK owns the manifest, the entry point, and PRI generation, so `--manifest`, `--executable`, and `--skip-pri` are rejected — configure `<AppxManifest>`, the project's entry point, and its resource build in the project itself. Those three options still apply to folder inputs and to generic (non-MSIX-tooling) `.csproj` project mode.
+> [!NOTE]
+> For a WinUI / `EnableMsixTooling` `.csproj` (MSIX-tooling project mode), the Windows App SDK owns the manifest, the entry point, and PRI generation, so `--manifest`, `--executable`, and `--skip-pri` are rejected — configure `<AppxManifest>`, the project's entry point, and its resource build in the project itself. Those three options still apply to folder inputs and to generic (non-MSIX-tooling) `.csproj` project mode.
 
 **What it does:**
 
@@ -480,6 +484,7 @@ winapp pack ./publish/x64 ./publish/arm64
 
 Create app identity for debugging using [sparse packaging](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/grant-identity-to-nonpackaged-apps). The exe stays in its original location — Windows associates identity with it via `Add-AppxPackage -ExternalLocation`.
 
+> [!TIP]
 > **When to use this vs `winapp run`:** Use `create-debug-identity` when the exe is **separate from your app code** (e.g., Electron apps where `electron.exe` is in `node_modules`), or when specifically testing sparse package behavior. For most frameworks where the exe is in your build output folder, use [`winapp run`](#run) instead — it registers a full loose layout package and launches the app. See the [Debugging Guide](debugging.md) for a full comparison.
 
 ```bash
@@ -598,7 +603,8 @@ This follows the same convention used by Visual Studio project templates, so man
 - **`winapp create-debug-identity`** — When an entrypoint argument is provided, `$targetnametoken$` is resolved from it. Without an entrypoint, the executable placeholder must already be resolved in the manifest.
 - **`winapp manifest generate --executable`** — When `--executable` is provided, manifest metadata (version, description) and icons are extracted from the executable, but the generated manifest still uses `$targetnametoken$.exe`; this placeholder is resolved later (e.g. `winapp pack` or `winapp create-debug-identity`).
 
-> **PS:** Keeping `$targetnametoken$` in your checked-in manifest avoids hard-coding executable names and works with both `winapp pack` and Visual Studio builds.
+> [!TIP]
+> Keeping `$targetnametoken$` in your checked-in manifest avoids hard-coding executable names and works with both `winapp pack` and Visual Studio builds.
 
 **Examples:**
 
@@ -731,6 +737,7 @@ Create a loose layout package from a build output folder, register it with Windo
 > build-output folder.`). A directory is only built as a project when a `.csproj`/`.vcxproj`/`.sln`/`.slnx`
 > with a runnable app sits at its **top level**; it is not searched recursively.
 
+> [!TIP]
 > **This is the preferred command for debugging with package identity** for most frameworks (.NET, C++, Rust, Flutter, Tauri). Unlike [`create-debug-identity`](#create-debug-identity) which registers a sparse package for a single exe, `winapp run` registers the entire folder as a loose layout package, just like a real MSIX install. See the [Debugging Guide](debugging.md) for common debugging workflows.
 
 ```bash
@@ -1636,6 +1643,7 @@ winapp az-sign <file-path> [options]
 - A machine-wide **x64 .NET 8 (or later) runtime** installed. The Azure signing client library is a managed assembly that `signtool.exe` loads in a separate process; winapp's own self-contained runtime does not satisfy it. Install it from https://dotnet.microsoft.com/download if signing fails with a runtime-load error.
 - The **Microsoft Visual C++ Redistributable (x64)**. The Azure signing client library depends on the VC++ runtime, and because winapp downloads the raw NuGet package rather than the official client-tools installer, this dependency is **not** installed automatically. A clean machine can load-fail even with .NET and SignTool present. Install the latest x64 redistributable from https://aka.ms/vs/17/release/vc_redist.x64.exe if signing fails with a `0xc000007b`, "The application was unable to start correctly", or missing-DLL error from the dlib.
 
+> [!TIP]
 > **Least-privilege CI:** Auto-discovery (listing subscriptions, resource groups, accounts, and profiles) needs read access at a parent scope. To avoid *every* collection-listing call, pass all four of `--subscription`, `--resource-group`, `--account`, and `--profile`: `az-sign` then validates the account and profile with direct resource reads (a GET on each named resource) instead of enumerating the parent collection, so a principal scoped to just that account and profile is sufficient. Omitting any one of them re-introduces a listing call — for example, leaving out `--subscription` makes `az-sign` list the subscriptions your identity can access — which a narrowly-scoped principal may not be permitted to do. A principal scoped only to a single certificate profile can skip validation entirely by passing a pre-generated `--metadata-file` (which specifies the account endpoint and profile directly).
 
 **Examples:**
@@ -1921,6 +1929,7 @@ and capture-readiness failures.
 
 ### find-ui
 
+> [!NOTE]
 > **Agent-first.** `find-ui` is built primarily for AI coding agents — it lets an agent pull real, compiling WinUI markup from the shipping galleries instead of inventing it, and `--json` makes every result (and every failure) machine-readable. It works just as well typed by hand.
 
 Search **WinUI** controls and samples for a working code example. WinUI-only: the corpus is the [WinUI 3 Gallery](https://github.com/microsoft/WinUI-Gallery) and the [Windows Community Toolkit](https://github.com/CommunityToolkit/Windows) (plus a few curated core patterns) — it does **not** cover WPF, WinForms, or other UI frameworks. A third source, the [microsoft-ui-reactor ReactorGallery](https://github.com/microsoft/microsoft-ui-reactor), is **opt-in**: it is excluded from a normal search and only searched when you pass `--source reactor` (its C#-only declarative samples don't paste into a standard XAML app, so reach for it only when building a Reactor/MVU project).
@@ -1986,6 +1995,7 @@ winapp find-ui "navigation view" --refresh
 
 ### find-api
 
+> [!NOTE]
 > **Agent-first.** `find-api` is built primarily for AI coding agents — it grounds generated code in the API surface a project actually references instead of the model's recollection of it, and `--json` plus non-zero exit codes on missing symbols let an agent gate codegen on the answer. It works just as well typed by hand.
 
 Search and inspect the Windows/WinRT API surface (types, members, enums, namespaces) available to a project, resolved from its referenced `.winmd`/`.dll` metadata. The bare form searches; sub-verbs drill into a specific type, namespace, or the index itself.
@@ -2419,6 +2429,8 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.m
 - `-o, --output <path>` - Output `.mp4` path (defaults to `recording-<timestamp>-<guid>.mp4`).
 - `--overwrite` - Replace existing recording outputs after the new take finishes; existing outputs are rejected by default. Previous frame bundles are retained. See [Recording output recovery](ui-automation.md#record).
 - `--frames` - Write timestamped JPEGs, `frames.ndjson`, and `manifest.json` to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280), with a 1 GiB frame-data cap.
+- `--cursor` - Draw the mouse pointer into the video, with a short ring where each click happens. With `--frames`, `frames.ndjson` also records the pointer position and clicks.
+- `--no-click-highlight` - With `--cursor`, draw the pointer but no click rings.
 
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
 stop reason, optional `frameArtifacts`, and warnings.

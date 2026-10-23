@@ -227,6 +227,7 @@ the command takes the turn up front rather than guessing. When it composites sev
 captures them all under one exclusive turn, so the saved image is a single consistent moment rather
 than a mix of before and after. Encoding and writing the file happen after the desktop is released.
 
+> [!NOTE]
 > **`--capture-screen` needs exactly one window.** Live-screen capture records whatever is actually
 > in front, and only one window can be. Selecting a window explicitly with `-w <hwnd>` gives it
 > exactly one region — the pixels inside that window's bounds, including any dialog or overlay
@@ -586,6 +587,9 @@ winapp ui record -a myapp --frames --duration-sec 10 --fps 10 --output evidence.
 
 # Include screen overlays and popups
 winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups.mp4
+
+# Show the mouse pointer and a ring at each click
+winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
 ```
 
 **Options:**
@@ -596,6 +600,8 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 - `--output <path>` — Output MP4 path. Defaults to `recording-<timestamp>-<guid>.mp4`.
 - `--overwrite` — Replace existing recording outputs after the new take finishes. Without it, existing outputs are rejected.
 - `--frames` — Write timestamped JPEG evidence to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280). Frame data is capped at 1 GiB; the MP4 continues if the cap is reached.
+- `--cursor` — Draw the mouse pointer into the video, as the user sees it, with a short colored ring where each click happens (yellow for left, blue for right, purple for other buttons). Off by default.
+- `--no-click-highlight` — With `--cursor`, draw the pointer but no click rings.
 
 **Agent-readable frame artifacts:**
 
@@ -609,6 +615,14 @@ evidence.frames/
 ```
 
 `frames.ndjson` has one line per sample with `sampleIndex`, monotonic `elapsedMs`, MP4-relative `mediaTimeMs`, `imageIndex`, `file`, and `changed`. Consecutive pixel-identical samples reuse the preceding quality-85 JPEG.
+
+With `--cursor`, each line also has the pointer position in image pixels, and the clicks since the previous line:
+
+```json
+{"sampleIndex":4,"elapsedMs":412,...,"cursor":{"x":560,"y":709,"visible":true,"inFrame":true},"clicks":[{"button":"left","kind":"down","elapsedMs":398,"x":560,"y":709}]}
+```
+
+`button` is `left`, `right`, `middle`, `x1`, or `x2`, and `kind` is `down` or `up`. `inFrame` is false when the pointer is outside the recorded area. `visible` is false when Windows hides the pointer, for example during touch or pen input. Clicks are logged even with `--no-click-highlight`.
 
 `manifest.json` records the request, timing, MP4 status, image dimensions, and status (`complete`, `partial`, or `truncated`). Truncated timing covers the retained prefix, while `video` describes the complete MP4.
 
@@ -792,6 +806,7 @@ winapp ui touch img-map-9f8e -a myapp --gesture pinch --distance 300 --angle 45 
 - `--duration-ms <ms>` — Glide time for moving gestures (swipe/pinch/stretch; default 300).
 - `--fingers <n>` — Number of contacts (1–10; default 1). `pinch`/`stretch` always use 2.
 
+> [!NOTE]
 > **Injection safety.** `touch` refuses to inject unless a **non-zero target window handle** resolves and that window holds the foreground — it fails with **`no_target`** when no window can be resolved, **`foreground_not_target`** if focus couldn't be transferred, or **`no_interactive_desktop`** on a locked/secure desktop. Every coordinate (element center, explicit `--at`/`--to-point`, and generated waypoints) is **checked against the target window rectangle**; a point outside the window is surfaced as a **non-fatal warning** (a `warnings[]` entry in `--json`, or a warning line in text mode) and injection still proceeds — matching the mouse verbs (`click`/`drag`/`hover`/`scroll`), which also inject at out-of-window coordinates. `--fingers` above 10 is rejected up front.
 >
 > **Hardware note.** Touch prefers the modern synthetic-pointer device (`CreateSyntheticPointerDevice(PT_TOUCH)`) and falls back to the legacy `InitializeTouchInjection`/`InjectTouchInput` API. If injection is unsupported on the current device/session, the command surfaces the **actual Win32 error code** (e.g. "unsupported") rather than reporting a false success — treat a non-zero exit as "touch not delivered".
@@ -816,6 +831,7 @@ winapp ui pen -a myapp --at 200,200 --tilt-x 30 --tilt-y -15           # tilted 
 - `--eraser` — Use the eraser end of the pen instead of the tip.
 - `--duration-ms <ms>` — Total stroke travel time in milliseconds distributed as interpolated UPDATE frames across the path (default: ~10 ms per waypoint). Use this to control how fast the pen visibly moves from start to end.
 
+> [!NOTE]
 > **Injection safety.** Like `touch`, `pen` refuses to inject without a **non-zero, foregrounded target window** (`no_target` / `foreground_not_target` / `no_interactive_desktop`) and **checks every ink point** against the target window rectangle, surfacing any out-of-window coordinate as a **non-fatal warning** (`warnings[]` in `--json`, or a warning line in text mode) while still injecting — consistent with the mouse verbs. Invalid `--pressure` (outside 0.0–1.0) or tilt (outside ±90°) are rejected up front.
 >
 > **Remote Desktop / VM sessions.** Pen routing is **especially unreliable over Remote Desktop**: the injection call can report success (exit 0) while **no pen input reaches the app**. When a remote session is detected, `pen` appends a **delivery-uncertainty warning** (`warnings[]` in `--json`, or a warning line in text mode) so a ✅ is not mistaken for confirmed delivery. Validate pen-dependent flows on a **local, interactive desktop**.
@@ -889,6 +905,7 @@ winapp ui set-value doc-compose-9f3a "hello" -a myapp        # RichEdit/compose 
 ```
 If none of the three patterns can set the value, `set-value` fails with a clear error pointing at `send-keys` as the last resort.
 
+> [!NOTE]
 > **Not every rich editor supports programmatic set.** The LegacyIAccessible fallback only works on controls whose accessibility implements `IAccessible::put_accValue` — native Win32 rich-edit controls and Chromium/Electron/WebView2 compose surfaces typically do. **WinUI 3 `RichEditBox` and WPF `RichTextBox` don't support programmatic value-setting** — by design they expose their contents to UI Automation as read-only (Text pattern, no settable Value pattern), so `set-value` can't write to them. Use `send-keys` (which needs an unlocked, foregrounded desktop) for those.
 
 
@@ -1229,6 +1246,7 @@ winapp ui wait-for "Dialog Title" -a $pid --gone -t 5000
 ### Assert with JSON output
 Use `--json` with PowerShell or jq for more complex assertions:
 
+> [!NOTE]
 > **Exit-code contract for `search` and `wait-for` in `--json` mode:** when no element matches
 > (`search`) or the wait times out (`wait-for`), the command writes a fully parseable result envelope
 > to **stdout** (`{ "matchCount": 0, ... }` or `{ "found": false, "timedOut": true, ... }`) and

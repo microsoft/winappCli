@@ -174,6 +174,8 @@ internal partial class MsixService
             throw new InvalidOperationException("Developer Mode is not enabled on this machine. Please enable Developer Mode and try again.");
         }
 
+        EnsureLayoutIsNotVirtualized(outputAppXDirectory.FullName, EngineStaging.IsPackaged, GetAppDataFolders(), Path.GetTempPath());
+
         taskContext.AddDebugMessage($"Using AppX manifest: {appxManifestPath}");
 
         var manifestContent = await File.ReadAllTextAsync(appxManifestPath.FullName, Encoding.UTF8, cancellationToken);
@@ -376,10 +378,12 @@ internal partial class MsixService
 
         // If there is a pri file named after the executable, rename it to resources.pri
         var priFilePath = Path.Combine(outputAppXDirectory.FullName, Path.GetFileNameWithoutExtension(executableMatch.Name) + ".pri");
+        var renamedBuildPri = false;
         if (File.Exists(priFilePath))
         {
             var resourcesPriPath = Path.Combine(outputAppXDirectory.FullName, "resources.pri");
             File.Move(priFilePath, resourcesPriPath, overwrite: true);
+            renamedBuildPri = true;
             taskContext.AddDebugMessage($"{UiSymbols.Files} Renamed {Path.GetFileName(priFilePath)} to resources.pri");
         }
 
@@ -453,6 +457,14 @@ internal partial class MsixService
         else
         {
             taskContext.AddDebugMessage($"{UiSymbols.Warning} Manifest directory and target directory are the same, skipping assets copy");
+        }
+
+        // The build's own PRI (e.g. a WinUI app's XAML resources) knows nothing about the manifest's logos.
+        // Without them indexed, the shell can't find the unplated taskbar variant and draws the logo on an
+        // accent-colored plate (#1077).
+        if (renamedBuildPri)
+        {
+            await MergeManifestAssetsIntoPriAsync(outputAppXDirectory, copiedAppxManifestPath, manifestContent, taskContext, cancellationToken);
         }
 
         {
@@ -560,6 +572,59 @@ internal partial class MsixService
 
     /// <summary>One validated recipe entry: an existing source file and where it goes in the layout.</summary>
     private readonly record struct RecipeEntry(string SourcePath, string PackagePath);
+
+    /// <summary>
+    /// Rejects a layout under AppData when winapp itself runs from its MSIX package.
+    /// </summary>
+    /// <remarks>
+    /// Windows redirects a packaged app's new files under AppData into the app's private
+    /// <c>Packages\&lt;family name&gt;\LocalCache</c> folder. Only winapp sees the redirected copy:
+    /// makepri and the deployment service look at the real path, find nothing, and registration
+    /// fails with a "file not found" error that points at the manifest. %TEMP% is not redirected.
+    /// </remarks>
+    internal static void EnsureLayoutIsNotVirtualized(string layoutPath, bool isPackaged, IEnumerable<string?> appDataFolders, string tempPath)
+    {
+        if (!isPackaged ||
+            (!string.IsNullOrEmpty(tempPath) && IsPathInsideDirectory(layoutPath, tempPath)) ||
+            !appDataFolders.Any(folder => !string.IsNullOrEmpty(folder) && IsPathInsideDirectory(layoutPath, folder)))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"The AppX layout directory '{layoutPath}' is under AppData. This winapp is installed as an MSIX " +
+            "package, and Windows redirects its writes under AppData to a private folder, so the app could not " +
+            "be registered from there. Point --output-appx-directory at a folder outside AppData, " +
+            "or move the project out of AppData.");
+    }
+
+    /// <summary>
+    /// The actual Local, Roaming and LocalLow folders. Each can be relocated on its own, so they
+    /// may not share a parent.
+    /// </summary>
+    private static string?[] GetAppDataFolders() =>
+    [
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+        GetLocalLowFolder(),
+    ];
+
+    private static unsafe string? GetLocalLowFolder()
+    {
+        var hr = Windows.Win32.PInvoke.SHGetKnownFolderPath(
+            Windows.Win32.PInvoke.FOLDERID_LocalAppDataLow,
+            Windows.Win32.UI.Shell.KNOWN_FOLDER_FLAG.KF_FLAG_DONT_VERIFY,
+            null,
+            out var path);
+        try
+        {
+            return hr.Succeeded ? path.ToString() : null;
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeCoTaskMem((nint)path.Value);
+        }
+    }
 
     /// <summary>
     /// Rejects a layout path that is, or sits beneath, a reparse point.
@@ -1444,6 +1509,27 @@ internal partial class MsixService
         }
 
         RemoveCompetingLayoutManifests(outputAppXDirectory, taskContext);
+    }
+
+    private async Task MergeManifestAssetsIntoPriAsync(
+        DirectoryInfo layout, FileInfo stagedManifest, string manifestContent, TaskContext taskContext, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var packageName = ParseAppxManifestAsync(manifestContent).PackageName;
+            var assets = MrtAssetHelper.GetExpandedManifestReferencedFiles(stagedManifest, taskContext)
+                .Select(file => file.RelativePath);
+            await priService.MergeAssetsIntoPriAsync(layout, packageName, assets, taskContext, cancellationToken);
+        }
+        // Best effort: a failed merge only costs the unplated taskbar icon, so warn and keep launching.
+        // An untrusted makepri still stops the run.
+        catch (Exception ex) when (ex is not BuildToolSignatureException
+            && ex is IOException or UnauthorizedAccessException or System.Xml.XmlException
+                or System.ComponentModel.Win32Exception or InvalidOperationException or ArgumentException)
+        {
+            logger.LogWarning(ex, "{UISymbol} Could not add the manifest's logos to resources.pri: {Message}. The taskbar and Start icons may show on a colored background. Re-run with --verbose for details.", UiSymbols.Warning, ex.Message);
+            taskContext.AddDebugMessage($"{UiSymbols.Warning} PRI merge error details: {ex}");
+        }
     }
 
     /// <summary>

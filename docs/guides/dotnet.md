@@ -121,6 +121,7 @@ Because we're building a console app, console output needs to stay in the curren
 
 winapp handles this for you: an app with `OutputType=Exe` is launched through an execution alias instead, which inherits your terminal's stdin/stdout/stderr. It adds the required `uap5:ExecutionAlias` to the manifest it stages, so there is nothing to configure.
 
+> [!NOTE]
 > **UI apps** (WPF, WinForms, WinUI) render their own window, so they keep AUMID activation.
 
 To force AUMID for a console app anyway, set the following inside any `<PropertyGroup>` in `dotnet-app.csproj` — the app then runs without a console and prints nothing to the terminal:
@@ -221,6 +222,7 @@ winapp unregister .\dotnet-app.csproj
 See [unique identity for parallel checkouts](../usage.md#unique-identity-for-parallel-checkouts).
 Don't pass `--unique-identity` to `dotnet run`; it would go to your app, not to winapp.
 
+> [!NOTE]
 > **Targeted Windows SDK not installed?** If the Windows SDK version your C#/WinRT project builds against isn't installed, `winapp run` builds against the Windows metadata from the auto-restored `Microsoft.Windows.SDK.NET.Ref` package instead. No action is needed. winapp leaves your setting alone if you pass `-p CsWinRTWindowsMetadata=…` or set it to `local` or a winmd folder.
 
 To add the NuGet package back: `dotnet add package Microsoft.Windows.SDK.BuildTools.WinApp --prerelease`
@@ -259,6 +261,7 @@ With this configuration, `dotnet build` applies the debug identity and you can r
 > [!TIP]
 > For advanced debugging workflows (attaching debuggers, IDE setup, startup debugging), see the [Debugging Guide](../debugging.md).
 
+> [!TIP]
 > **When to skip this**: If you prefer explicit control over when identity is applied, or if you're working on code that doesn't need identity for most of your development cycle, the manual approach above may be simpler.
 
 ## 6. Using Windows App SDK (Optional)
