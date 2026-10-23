@@ -76,6 +76,17 @@ function ConvertTo-Identifier([string]$baseName) {
     }) -join ''
 }
 
+function ConvertTo-CppLiteral([string]$content) {
+    # Keep individual wide literals below MSVC's 16 KB limit. C++ joins adjacent literals.
+    $chunks = [System.Collections.Generic.List[string]]::new()
+    for ($offset = 0; $offset -lt $content.Length; $offset += 4000) {
+        $chunk = $content.Substring($offset, [Math]::Min(4000, $content.Length - $offset))
+        $chunks.Add("LR`"$delim($chunk)$delim`"")
+    }
+    if ($chunks.Count -eq 0) { $chunks.Add("LR`"$delim()$delim`"") }
+    return $chunks -join "`n"
+}
+
 if ($SelfTest) {
     # Cover supported fragment shapes and a mismatched closing-tag negative control.
     $accept = @{
@@ -99,7 +110,16 @@ if ($SelfTest) {
     if ($caught -notmatch 'not well-formed') {
         throw "Well-formedness gate rejected mismatched closing tags with an unexpected message: $caught"
     }
+    $large = '<Grid>' + ('<TextBlock Text="$TOKEN$"/>' * 2000) + '</Grid>'
+    $literal = ConvertTo-CppLiteral $large
+    $chunks = [regex]::Matches($literal, "(?s)LR`"$delim\((.*?)\)$delim`"")
+    $roundTrip = ($chunks | ForEach-Object { $_.Groups[1].Value }) -join ''
+    if ($chunks.Count -lt 2 -or $roundTrip -cne $large -or
+        @($chunks | Where-Object { $_.Groups[1].Value.Length -gt 4000 }).Count) {
+        throw 'Large XAML must round-trip through bounded, adjacent C++ literals.'
+    }
     Write-Host "    XAML gate self-test passed ($($accept.Count) accepted, 1 rejected; C++ delimiter $($delim.Length)/16 characters)." -ForegroundColor Green
+    Write-Host '    Large XAML literal round-trip passed.' -ForegroundColor Green
     exit 0
 }
 
@@ -128,7 +148,7 @@ foreach ($f in $files) {
         throw "Fragment $($f.Name) contains the raw-string delimiter sentinel ')$delim`"'; choose a different delimiter."
     }
     [void]$sb.AppendLine("// ---- $($f.Name) ----")
-    [void]$sb.AppendLine("inline constexpr const wchar_t* $id = LR`"$delim($content)$delim`";")
+    [void]$sb.AppendLine("inline constexpr const wchar_t* $id = $(ConvertTo-CppLiteral $content);")
 }
 [void]$sb.AppendLine('} // namespace DevToolsXaml')
 

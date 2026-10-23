@@ -238,39 +238,37 @@
         </ContentControl.ContentTemplate>
       </ContentControl>
 
-      <!-- THE COLLAPSED ROW. Every property row, whatever its value shape, realizes this one.
-
-           The name column is a FIXED 126px and left-aligned so the values form a straight vertical edge down
-           the pane. A reflowing row is the defect being fixed, so this width is load-bearing rather than
-           taste. Both columns are monospace for the same reason.
-
-           PValueBtn is a flat Button rather than a bare TextBlock for two reasons that are not aesthetic:
-           clicking the value must expand the row AND land in the editor in one action, and the row has to
-           stay reachable as "<Property> value" through UIA so the pane is drivable and screen-readable.
-           Its MinHeight is 22, not the Button style's 32 -- the row's floor is the text. -->
+      <!-- One header owns pointer, keyboard and ExpandCollapse behavior. The fixed name column
+           keeps values aligned. Editors are content, not part of the header's click target. -->
       <ContentControl x:Name="TmplRow">
         <ContentControl.ContentTemplate>
           <DataTemplate>
             <StackPanel x:Name="PRoot" Spacing="0">
-              <Grid ColumnSpacing="8" ColumnDefinitions="14,126,*" MinHeight="22" Padding="4,1,4,1">
-                <Button x:Name="PChevron" Grid.Column="0" Content="&#xE76C;" FontFamily="Segoe Fluent Icons" FontSize="8"
-                        Background="Transparent" BorderThickness="0" Padding="0" MinWidth="0" MinHeight="0"
-                        Width="14" Height="18" VerticalAlignment="Center" Visibility="Collapsed"/>
-                <TextBlock x:Name="PName" Grid.Column="1" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
-                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                <!-- Keep the changed marker outside the value Button so UIA invocation cannot turn status
-                     into the nearest ancestor's action. Both share the value cell without another column. -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
-                  <TextBlock x:Name="PDot" Text="&#x25CF;" FontSize="10" Margin="2,0,5,0" VerticalAlignment="Center"
-                             Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
-                  <Button x:Name="PValueBtn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                          Background="Transparent" BorderThickness="0" Padding="2,0,2,0" MinHeight="22" MinWidth="0">
-                    <TextBlock x:Name="PValue" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
-                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                  </Button>
-                </StackPanel>
-              </Grid>
-              <StackPanel x:Name="PExpand" Visibility="Collapsed" Spacing="0"/>
+              <Expander x:Name="PHeader" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch" Padding="0" MinWidth="0" MinHeight="26">
+                <Expander.Resources>
+                  <Thickness x:Key="ExpanderHeaderPadding">4,1,4,1</Thickness>
+                  <Thickness x:Key="ExpanderChevronMargin">8,0,4,0</Thickness>
+                  <x:Double x:Key="ExpanderChevronButtonSize">18</x:Double>
+                  <x:Double x:Key="ExpanderChevronGlyphSize">8</x:Double>
+                </Expander.Resources>
+                <Expander.Header>
+                  <Grid ColumnSpacing="8" ColumnDefinitions="126,*" MinHeight="22"
+                        Background="Transparent" HorizontalAlignment="Stretch">
+                    <TextBlock x:Name="PName" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
+                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                               AutomationProperties.AccessibilityView="Raw"/>
+                    <Grid Grid.Column="1" ColumnDefinitions="Auto,*">
+                      <TextBlock x:Name="PDot" Text="&#x25CF;" FontSize="10" Margin="2,0,5,0" VerticalAlignment="Center"
+                                 Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                      <TextBlock x:Name="PValue" Grid.Column="1" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center"
+                                 TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                 AutomationProperties.AccessibilityView="Raw"/>
+                    </Grid>
+                  </Grid>
+                </Expander.Header>
+                <StackPanel x:Name="PExpand" Spacing="0"/>
+              </Expander>
             </StackPanel>
           </DataTemplate>
         </ContentControl.ContentTemplate>
@@ -280,9 +278,7 @@
       <ContentControl x:Name="TmplExpRead">
         <ContentControl.ContentTemplate>
           <DataTemplate>
-            <Border x:Name="PExpFrame" Margin="22,1,0,6" Padding="9,7,9,8" CornerRadius="0,4,4,0"
-                    BorderThickness="2,0,0,0" BorderBrush="{ThemeResource AccentFillColorSecondaryBrush}"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <Border x:Name="PExpFrame" Padding="8" Background="Transparent">
               <StackPanel Spacing="0">
                 <TextBlock x:Name="PDerivedHdr" Text="DERIVED FROM" FontSize="10" CharacterSpacing="60" Margin="0,0,0,3" Visibility="Collapsed" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                 <StackPanel x:Name="PWitAuthored" Visibility="Collapsed">
@@ -330,9 +326,7 @@
       <ContentControl x:Name="TmplExpEdit">
         <ContentControl.ContentTemplate>
           <DataTemplate>
-            <Border x:Name="PExpFrame" Margin="22,1,0,6" Padding="9,7,9,8" CornerRadius="0,4,4,0"
-                    BorderThickness="2,0,0,0" BorderBrush="{ThemeResource AccentFillColorSecondaryBrush}"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <Border x:Name="PExpFrame" Padding="8" Background="Transparent">
               <StackPanel Spacing="0">
 
                 <!-- KIND. Selecting stages; it does not apply. Opening this list to see the options must not

@@ -165,8 +165,12 @@ static void CALLBACK LiveRefreshProc(HWND, UINT, UINT_PTR id, DWORD)
                 g_propRowLabels[i] = std::move(label);
             }
             if (void* value = PaneRowChild(row.name, L"PValue")) {
-                PopulateRowValue(static_cast<IInspectable*>(value), row);
+                PopulateRowValue(static_cast<IInspectable*>(value), row, row.name);
                 reinterpret_cast<IUnknown*>(value)->Release();
+            }
+            if (void* header = PaneRowChild(row.name, L"PHeader")) {
+                NamePropertyHeader(static_cast<IInspectable*>(header), row, row.name);
+                reinterpret_cast<IUnknown*>(header)->Release();
             }
         }
     }

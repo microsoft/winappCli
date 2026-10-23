@@ -656,28 +656,29 @@ static void RebuildExpansion(void* rowFe, const DevToolsCardRow& r, const std::w
 
 static bool RefreshCommittedValue(const std::wstring& prop);
 
-static bool FocusExpansionEditor(void* rowFe, const std::wstring& path);
-
 static void ApplyRowExpansionState(void* rowFe, const std::wstring& path, bool open);
 
 struct RowExpandSink : DevToolsSinkBase
 {
+    ~RowExpandSink() { if (rowFe) reinterpret_cast<IUnknown*>(rowFe)->Release(); }
+
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void*)
     {
         if (gen != g_route1Gen || wire != g_selWire || !rowFe || !row) return S_OK;
-        const bool wantOpen = wantsEditor ? true : !PropIsExpanded(row->name);
+        const bool wantOpen = open;
         if (wantOpen) {
             // The row is a snapshot; opening it reads the property live, unless a write is still unconfirmed.
             const bool opening = !PropIsExpanded(row->name);
             if (opening && g_pendingWrites.empty() && g_pendingKind.empty() && RefreshCommittedValue(path)) {
                 RebuildExpansion(rowFe, ExpansionRow(), path, edit);
             } else if (!EnsureExpansion(rowFe, ExpansionRow(), path, edit)) {
+                ApplyRowExpansionState(rowFe, path, false);
+                SetStatusText(L"Couldn't open " + path);
                 return S_OK;
             }
         }
         PropSetExpanded(row->name, wantOpen);
         ApplyRowExpansionState(rowFe, path, wantOpen);
-        if (wantOpen && wantsEditor) FocusExpansionEditor(rowFe, path);
         return S_OK;
     }
     const DevToolsCardRow& ExpansionRow() const
@@ -685,39 +686,37 @@ struct RowExpandSink : DevToolsSinkBase
         const auto* current = wire == g_selWire ? FindPropertyRow(g_propRows, path) : nullptr;
         return current ? *current : *row;
     }
-    void Init(std::shared_ptr<const DevToolsCardRow> r, const std::wstring& p, int e, void* fe, bool editor)
+    void Init(std::shared_ptr<const DevToolsCardRow> r, const std::wstring& p, int e, void* fe, bool expanding)
     {
-        row = std::move(r); path = p; edit = e; rowFe = fe; wantsEditor = editor; wire = g_selWire;
-        InitSink(IID_RoutedEventHandler_Del, g_route1Gen);
+        row = std::move(r); path = p; edit = e; rowFe = fe; open = expanding; wire = g_selWire;
+        if (rowFe) reinterpret_cast<IUnknown*>(rowFe)->AddRef();
+        const auto& iid = expanding
+            ? DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderExpandingEventArgs>>()
+            : DevToolsIid<winrt::Windows::Foundation::TypedEventHandler<DevToolsXC::Expander, DevToolsXC::ExpanderCollapsedEventArgs>>();
+        InitSink(iid, g_route1Gen);
     }
     std::shared_ptr<const DevToolsCardRow> row;
     std::wstring path;
     InstanceHandle wire = 0;
     int edit = -1;
     void* rowFe = nullptr;
-    bool wantsEditor = false;
+    bool open = false;
 };
 
-// Show or hide a realized row's expansion and turn its triangle to match. One function so the three callers
-// (the sink, the initial realize of an already-expanded property, and the rebuild after a commit) cannot
-// disagree about which glyph means open.
+// Keep restored rows and editor rebuilds in sync with the platform's expansion state.
 static void ApplyRowExpansionState(void* rowFe, const std::wstring& path, bool open)
 {
-    if (IInspectable* blk = FindInRow(rowFe, L"PExpand")) {
-        ShowEl(blk, open);
-        blk->Release();
-    }
-    if (IInspectable* ch = FindInRow(rowFe, L"PChevron")) {
-        void* cc = nullptr;
-        if (SUCCEEDED(ch->QueryInterface(DevToolsIid<DevToolsXC::IContentControl>(), &cc)) && cc) {
-            IInspectable* boxed = nullptr;
-            if (SUCCEEDED(BoxString(open ? L"\uE70D" : L"\uE76C", &boxed)) && boxed) {
-                DevToolsPutContent(cc, boxed);
-                boxed->Release();
-            }
-            reinterpret_cast<IUnknown*>(cc)->Release();
+    if (IInspectable* header = FindInRow(rowFe, L"PHeader")) {
+        void* expander = nullptr;
+        if (SUCCEEDED(header->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &expander)) && expander) {
+            bool current = false;
+            HRESULT hr = DevToolsGetIsExpanded(expander, &current);
+            if (SUCCEEDED(hr) && current != open)
+                hr = DevToolsAbi<DevToolsXC::IExpander>(expander)->put_IsExpanded(open);
+            if (FAILED(hr))
+                DevToolsOverlayLog(L"route1.props expansion state failed for '%s' hr=0x%08X", path.c_str(), hr);
+            reinterpret_cast<IUnknown*>(expander)->Release();
         }
-        SetAutomationTextOn(ch, (open ? L"Collapse " : L"Expand ") + path, L"", L"");
-        ch->Release();
+        header->Release();
     }
 }

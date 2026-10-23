@@ -565,6 +565,75 @@ try {
             Check ([double]$scroll.properties.ScrollHorizontalPercent -eq -1) 'a long tree label does not make the tree scroll horizontally'
             [ordered]@{ scroll = $scroll.properties; selectedHandle = [string]$narrow[0].handle } | ConvertTo-Json -Depth 20 |
                 Set-Content (Join-Path $evidence 'tree-scroll-observation.json')
+
+            # A property has one header target; editors are outside its toggle area.
+            $inspectorWindow = [string]$inspector[0].hwnd
+            $null = Invoke-Cli @('ui', 'set-value', 'PropFilter', 'Opacity', '-w', $inspectorWindow)
+            $null = Invoke-Cli @('ui', 'wait-for', 'Opacity value', '-w', $inspectorWindow, '-t', '5000')
+            function Property-State {
+                (Invoke-Cli @('ui', 'get-property', 'Opacity value', '-w', $inspectorWindow)).properties
+            }
+            function Check-PropertyState([string]$Expected) {
+                $null = Invoke-Cli @('ui', 'wait-for', 'Opacity value', '-w', $inspectorWindow,
+                    '-p', 'ExpandCollapseState', '--value', $Expected, '-t', '5000')
+                Check ((Property-State).ExpandCollapseState -eq $Expected) "property header reports $Expected through ExpandCollapse"
+            }
+            $property = Property-State
+            Check ($property.Name -eq 'Opacity, 1') 'the property header names the property and its displayed value'
+            Check-PropertyState 'Collapsed'
+            $null = Invoke-Cli @('ui', 'screenshot', '-w', $inspectorWindow, '-o', (Join-Path $evidence 'property-header-collapsed.png'))
+            $scale = [BindingOwnersGuard]::GetDpiForWindow([IntPtr][long]$inspectorWindow) / 96.0
+            foreach ($part in @('name', 'value', 'empty space', 'chevron')) {
+                $pane = Invoke-Cli @('ui', 'inspect', '-w', $inspectorWindow, '--depth', '40')
+                $headers = @(Nodes $pane.windows[0].elements | Where-Object automationId -eq 'Opacity value')
+                Check ($headers.Count -eq 1) 'one accessible header represents the property'
+                $header = $headers[0]
+                Check ($header.height -le 32 * $scale) 'property headers remain compact'
+                $offset = switch ($part) {
+                    'name' { 24 * $scale }
+                    'value' { 150 * $scale }
+                    'empty space' { $header.width - 48 * $scale }
+                    'chevron' { $header.width - 16 * $scale }
+                }
+                $point = '{0},{1}' -f [int]($header.x + $offset), [int]($header.y + $header.height / 2)
+                $null = Invoke-Cli @('ui', 'click', '--at', $point, '-w', $inspectorWindow)
+                Check-PropertyState 'Expanded'
+                $null = Invoke-Cli @('ui', 'click', '--at', $point, '-w', $inspectorWindow)
+                Check-PropertyState 'Collapsed'
+            }
+            $null = Invoke-Cli @('ui', 'send-keys', 'tab', '-w', $inspectorWindow, '--via', 'send-input')
+            $null = Invoke-Cli @('ui', 'wait-for', 'Opacity value', '-w', $inspectorWindow,
+                '-p', 'HasKeyboardFocus', '--value', 'False', '-t', '5000')
+            $afterHeader = Invoke-Cli @('ui', 'get-focused', '-w', $inspectorWindow)
+            Check ($afterHeader.element.automationId -ne 'Opacity value') 'a collapsed property has no second header Tab stop'
+            $null = Invoke-Cli @('ui', 'send-keys', 'shift+tab', '-w', $inspectorWindow, '--via', 'send-input')
+            $null = Invoke-Cli @('ui', 'wait-for', 'Opacity value', '-w', $inspectorWindow,
+                '-p', 'HasKeyboardFocus', '--value', 'True', '-t', '5000')
+            $onHeader = Invoke-Cli @('ui', 'get-focused', '-w', $inspectorWindow)
+            Check ($onHeader.element.automationId -eq 'Opacity value') 'Shift+Tab returns to the single property header'
+            Check ((Property-State).Name -eq 'Opacity, 1') 'the focused property header includes its current value'
+            $null = Invoke-Cli @('ui', 'send-keys', 'enter', '-w', $inspectorWindow, '--via', 'send-input')
+            Check-PropertyState 'Expanded'
+            $null = Invoke-Cli @('ui', 'send-keys', 'space', '-w', $inspectorWindow, '--via', 'send-input')
+            Check-PropertyState 'Collapsed'
+            $null = Invoke-Cli @('ui', 'send-keys', 'space', '-w', $inspectorWindow, '--via', 'send-input')
+            Check-PropertyState 'Expanded'
+            $null = Invoke-Cli @('ui', 'screenshot', '-w', $inspectorWindow, '-o', (Join-Path $evidence 'property-header-expanded.png'))
+            $null = Invoke-Cli @('ui', 'send-keys', 'tab', '-w', $inspectorWindow, '--via', 'send-input')
+            $null = Invoke-Cli @('ui', 'wait-for', 'Opacity kind', '-w', $inspectorWindow,
+                '-p', 'HasKeyboardFocus', '--value', 'True', '-t', '5000')
+            $inEditor = Invoke-Cli @('ui', 'get-focused', '-w', $inspectorWindow)
+            Check ($inEditor.element.automationId -eq 'Opacity kind') 'Tab from an expanded header reaches its editor controls'
+            $null = Invoke-Cli @('ui', 'click', 'Opacity editor', '-w', $inspectorWindow)
+            Check-PropertyState 'Expanded'
+            $null = Invoke-Cli @('ui', 'set-value', 'Opacity editor', '0.75', '-w', $inspectorWindow)
+            $null = Invoke-Cli @('ui', 'send-keys', 'enter', '-w', $inspectorWindow, '--via', 'send-input')
+            Check-PropertyState 'Expanded'
+            $null = Invoke-Cli @('ui', 'wait-for', 'Opacity value', '-w', $inspectorWindow,
+                '-p', 'Name', '--value', 'Opacity, 0.75', '-t', '5000')
+            Check ((Property-State).Name -eq 'Opacity, 0.75') 'committing an edit refreshes the accessible header value without collapsing it'
+            $null = Invoke-Cli @('ui', 'set-value', 'Opacity editor', '1', '-w', $inspectorWindow)
+            $null = Invoke-Cli @('ui', 'send-keys', 'enter', '-w', $inspectorWindow, '--via', 'send-input')
         }
         finally {
             $null = Invoke-Cli @('devtools', 'call', 'Window.close', '-a', $app)
