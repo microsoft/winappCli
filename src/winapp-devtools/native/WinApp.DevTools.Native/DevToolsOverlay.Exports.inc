@@ -270,6 +270,40 @@ static bool IsInOpenPopup(IXamlDiagnostics* diag, InstanceHandle handle)
     return false;
 }
 
+// The ContentDialog an open popup shows, if any. A dialog built in code is the popup's child; a dialog declared in
+// XAML stays in the page and lends its template root to a popup placed inside its own template.
+static DevToolsXC::ContentDialog PopupDialog(DevToolsXCP::Popup const& popup, DevToolsX::UIElement const& child)
+{
+    if (auto owner = child.try_as<DevToolsXC::ContentDialog>()) return owner;
+    DevToolsX::DependencyObject node = popup;
+    for (int depth = 0; depth < 4; ++depth) {
+        node = DevToolsXM::VisualTreeHelper::GetParent(node);
+        if (!node) break;
+        if (auto owner = node.try_as<DevToolsXC::ContentDialog>()) return owner;
+    }
+    return DevToolsXC::ContentDialog{ nullptr };
+}
+
+// A declared dialog keeps no size of its own while open; its box is the popup surface it lent its template to.
+static winrt::com_ptr<IInspectable> DeclaredDialogSurface(IInspectable* element)
+{
+    try {
+        winrt::Windows::Foundation::IInspectable object{ nullptr };
+        winrt::copy_from_abi(object, element);
+        auto dialog = object.try_as<DevToolsXC::ContentDialog>();
+        if (!dialog || !dialog.XamlRoot() || (dialog.ActualWidth() > 0.5 && dialog.ActualHeight() > 0.5)) return nullptr;
+        for (auto const& popup : DevToolsXM::VisualTreeHelper::GetOpenPopupsForXamlRoot(dialog.XamlRoot())) {
+            auto child = popup.Child();
+            if (child && !child.try_as<DevToolsXC::ContentDialog>() && PopupDialog(popup, child) == dialog) {
+                winrt::com_ptr<IInspectable> surface;
+                surface.copy_from(reinterpret_cast<IInspectable*>(winrt::get_abi(child)));
+                return surface;
+            }
+        }
+    } catch (const winrt::hresult_error&) {}
+    return nullptr;
+}
+
 // Pick what is visible: an open app popup (a menu, a drop-down, a flyout) is drawn above the window content, but the
 // window's hit test does not reach into it. Returns the front-most app element under the content-DIP point inside
 // an open popup; *overPopup reports whether the point is on one at all, so a miss is not taken for what lies
@@ -288,11 +322,19 @@ static InstanceHandle PopupTopHandleAt(IXamlDiagnostics* diag, InstanceHandle ro
                 ? handle : 0;
         };
         const winrt::Windows::Foundation::Point point{ (float)px + 0.5f, (float)py + 0.5f };
+        // An open ContentDialog blocks the window: its surface and the dimming layer around it select the dialog,
+        // never the content underneath.
+        InstanceHandle dialog = 0;
+        bool overDialogLayer = false;
         for (auto const& popup : DevToolsXM::VisualTreeHelper::GetOpenPopupsForXamlRoot(xamlRoot)) {
             auto child = popup.Child().try_as<DevToolsX::FrameworkElement>();
             if (!child) continue;
             const InstanceHandle popupHandle = handleOf(popup), childHandle = handleOf(child);
             if (isOverlay && ((popupHandle && isOverlay(popupHandle)) || (childHandle && isOverlay(childHandle)))) continue;
+            const auto owner = PopupDialog(popup, child);
+            if (!dialog && owner) dialog = handleOf(owner);
+            // The dimming layer is a bare Rectangle in a popup of its own.
+            const bool dialogLayer = owner || winrt::get_class_name(child) == L"Microsoft.UI.Xaml.Shapes.Rectangle";
             const auto bounds = child.TransformToVisual(nullptr).TransformBounds({ 0, 0, (float)child.ActualWidth(), (float)child.ActualHeight() });
             if (point.X < bounds.X || point.Y < bounds.Y || point.X >= bounds.X + bounds.Width || point.Y >= bounds.Y + bounds.Height) continue;
             // A light-dismiss surface spans the window around the menu; only content in the popup counts.
@@ -303,10 +345,14 @@ static InstanceHandle PopupTopHandleAt(IXamlDiagnostics* diag, InstanceHandle ro
                 const InstanceHandle handle = handleOf(element);
                 if (handle && (!isOverlay || !isOverlay(handle))) { *overPopup = true; return handle; }
             }
-            if (!content) continue;
+            if (!content) { overDialogLayer = overDialogLayer || dialogLayer; continue; }
             *overPopup = true;
             DevToolsOverlayLog(L"overlay.pick point is on an open popup, but no element in it could be identified");
             return 0;
+        }
+        if (overDialogLayer && dialog) {
+            *overPopup = true;
+            return dialog;
         }
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"overlay.pick popup hit test failed hr=0x%08X", e.code().value);
@@ -607,6 +653,7 @@ static bool TryElementRootBounds(IXamlDiagnostics* diag, InstanceHandle rootHand
 
     IInspectable* tInsp = nullptr;
     if (FAILED(diag->GetIInspectableFromHandle(target, &tInsp)) || !tInsp) return false;
+    if (auto surface = DeclaredDialogSurface(tInsp)) { tInsp->Release(); tInsp = surface.detach(); }
     bool presented = false;
     const HRESULT presentation = ReadElementPresentation(tInsp, &presented);
     if (FAILED(presentation) || !presented) {
