@@ -528,6 +528,9 @@ static void* g_focusOnUi    = nullptr; // icon-button active indicator (IUIEleme
 // focus notice: the Border as IUIElement (shown/hidden) and its TextBlock (the message). Both AddRef'd.
 static void* g_focusNoticeUi = nullptr;
 static void* g_focusNoticeTb = nullptr;
+// "No elements match" line shown in place of the tree rows when the filter matches nothing.
+static void* g_treeNoMatchUi = nullptr;
+static void* g_treeNoMatchTb = nullptr;
 // Tree-header TextBlock + the census population the current row list was built from. The row list is rebuilt
 // in place on a tree change, so these carry the population of the CURRENT rows -- and when a rebuild
 // fails they are what lets the header admit the list has drifted rather than present it as live.
