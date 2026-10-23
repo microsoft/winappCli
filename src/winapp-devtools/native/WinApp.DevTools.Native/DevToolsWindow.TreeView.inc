@@ -359,29 +359,34 @@ struct JmxSink : DevToolsSinkBase
     void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
 };
 
+// The inspector's Pick button and its Ctrl+Shift+P shortcut.
+static void ToggleWindowPick()
+{
+    if (!g_ctx.writeFn) {
+        DevToolsOverlay_DisarmPick();
+        g_pickRoute.CancelWindowPick();
+        DevToolsOverlayLog(L"route1.pick refused by process posture");
+        return;
+    }
+    if (DevToolsOverlay_IsPickArmed()) {
+        DevToolsOverlay_DisarmPick();
+        g_pickRoute.CancelWindowPick();
+        return;
+    }
+    if (!DevToolsOverlay_ArmPick()) {
+        g_pickRoute.CancelWindowPick();
+        DevToolsOverlayLog(L"route1.pick arm failed: overlay catcher not ready");
+        return;
+    }
+    g_pickRoute.ArmWindowPick();
+    FocusTargetAppForPick();
+}
+
 struct PickSink : DevToolsSinkBase
 {
     virtual HRESULT STDMETHODCALLTYPE Invoke(void* /*sender*/, void* /*args*/)
     {
-        if (gen != g_route1Gen) return S_OK;
-        if (!g_ctx.writeFn) {
-            DevToolsOverlay_DisarmPick();
-            g_pickRoute.CancelWindowPick();
-            DevToolsOverlayLog(L"route1.pick refused by process posture");
-            return S_OK;
-        }
-        if (DevToolsOverlay_IsPickArmed()) {
-            DevToolsOverlay_DisarmPick();
-            g_pickRoute.CancelWindowPick();
-            return S_OK;
-        }
-        if (!DevToolsOverlay_ArmPick()) {
-            g_pickRoute.CancelWindowPick();
-            DevToolsOverlayLog(L"route1.pick arm failed: overlay catcher not ready");
-            return S_OK;
-        }
-        g_pickRoute.ArmWindowPick();
-        FocusTargetAppForPick();
+        if (gen == g_route1Gen) ToggleWindowPick();
         return S_OK;
     }
     void Init() { InitSink(IID_RoutedEventHandler_Del, g_route1Gen); }
@@ -409,6 +414,16 @@ struct FocusSink : DevToolsSinkBase
 // (case-insensitive substring), ignoring collapse state so every match is reachable. The "Just my XAML" gate
 // still applies so a search stays within the active scope. Operates only on the realized (<=
 // node-budget) rows, so a per-keystroke pass is cheap. UI thread only.
+static void SetTreeNoMatches(const std::wstring& query, bool none)
+{
+    if (g_treeNoMatchTb && none) {
+        HSTRING hs = MakeStr((L"No elements match \"" + query + L"\"").c_str());
+        DevToolsPutText(g_treeNoMatchTb, hs);
+        WindowsDeleteString(hs);
+    }
+    if (g_treeNoMatchUi) DevToolsPutVisibility(g_treeNoMatchUi, none ? 0 : 1);
+}
+
 static void ApplyTreeFilter(const std::wstring& queryRaw)
 {
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinTreeFilter);
@@ -416,7 +431,7 @@ static void ApplyTreeFilter(const std::wstring& queryRaw)
     g_treeFilterQuery = q;
     const auto rows = SnapshotLayoutRows();
     const auto viewDepth = DevToolsTreeLayout::ComputeViewDepths(rows, g_jmxActive);
-    if (q.empty()) { ApplyIndent(viewDepth, 0); RecomputeTreeVisibility(); return; }
+    if (q.empty()) { SetTreeNoMatches(q, false); ApplyIndent(viewDepth, 0); RecomputeTreeVisibility(); return; }
     const size_t n = g_treeRows.size();
     std::vector<char> match(n, 0);
     int minDepth = -1;
@@ -437,6 +452,7 @@ static void ApplyTreeFilter(const std::wstring& queryRaw)
     // this the filter would silently drop exactly the results the user could not already see.
     EnsureRowsRealized(match);
     for (size_t j = 0; j < n; ++j) SetRowVisible(j, match[j] != 0);
+    SetTreeNoMatches(queryRaw, shown == 0);
     DevToolsOverlayLog(L"route1.filter q='%s' rows=%zu shown=%zu indentBase=%d", q.c_str(), n, shown, minDepth);
 }
 
