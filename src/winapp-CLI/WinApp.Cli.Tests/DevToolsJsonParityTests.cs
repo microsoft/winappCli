@@ -442,6 +442,19 @@ public class DevToolsJsonParityTests
     }
 
     [TestMethod]
+    public async Task DiagnoseBinding_TextShowsSourceValueAndConverter()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("VisualTree.enumerate", AuthoredTree(), IsAuthored).Answer("VisualTree.enumerate", Tree)
+            .Answer("Binding.diagnose", """{"state":"evaluated","path":"Age","sourceValue":"36","converterEvaluation":"executed","resolvedValue":"36 years","targetValue":"36 years"}""");
+        var (exit, output) = await RunAsync(new DevToolsDiagnoseBindingCommand(), agent, ["42", "Text"]);
+        Assert.AreEqual(0, exit, output);
+        StringAssert.Contains(output, "source value: 36");
+        StringAssert.Contains(output, "converter: executed");
+        StringAssert.Contains(output, "target value: 36 years");
+    }
+
+    [TestMethod]
     public async Task GetProperty_UnknownPropertySaysProperties()
     {
         using var agent = new FakeDevToolsProtocolAgent()

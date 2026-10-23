@@ -100,6 +100,53 @@ int main()
     check(g_validateVerdict.find(L"Proposed replacement") != std::wstring::npos &&
           g_validateVerdict.find(L"not the installed binding") != std::wstring::npos,
           "editor validation identifies new DataContext replacement rather than current explicit source");
+    g_validateFromXBind = true;
+    ApplyValidateAnswer(L"{\"expressionSource\":\"proposed\",\"againstKind\":\"binding\",\"segments\":["
+                        L"{\"path\":\"ViewModel\",\"found\":false,\"hr\":\"0x80070490\",\"isNull\":false}]}");
+    check(g_validateBad && g_validateVerdict.find(L"starts at the DataContext") != std::wstring::npos,
+          "a failing path copied from x:Bind explains that {Binding} starts at the DataContext");
+    g_validateFromXBind = false;
+    ApplyValidateAnswer(L"{\"expressionSource\":\"proposed\",\"againstKind\":\"binding\",\"segments\":["
+                        L"{\"path\":\"ViewModel\",\"found\":false,\"hr\":\"0x80070490\",\"isNull\":false}]}");
+    check(g_validateVerdict.find(L"starts at the DataContext") == std::wstring::npos,
+          "a typed {Binding} path gets no x:Bind hint");
+    check(RestoreLanded(L"{\"state\":\"restored\",\"bound\":\"True\"}"), "a reattached {Binding} counts as restored");
+    check(RestoreLanded(L"{\"state\":\"unavailable\",\"ownerUpdated\":\"True\",\"restoreVerification\":\"unchecked\","
+                        L"\"before\":\"OVERRIDE\",\"after\":\"Hello\"}"),
+          "a compiled refresh that changed the target counts as restored");
+    check(!RestoreLanded(L"{\"state\":\"unavailable\",\"ownerUpdated\":\"True\",\"restoreVerification\":\"unchecked\","
+                         L"\"before\":\"OVERRIDE\",\"after\":\"OVERRIDE\"}"),
+          "a compiled refresh that left the override in place is not restored");
+    check(!RestoreLanded(L"{\"state\":\"unavailable\",\"ownerUpdated\":\"True\",\"before\":\"OVERRIDE\","
+                         L"\"targetUnavailable\":\"gone\"}"),
+          "a compiled refresh whose target could not be reread is not restored");
+    check(!RestoreLanded(L"{\"state\":\"unavailable\",\"reason\":\"nothing was captured\"}"),
+          "an unavailable restore is not restored");
+    check(!RestoreLanded(L"{\"state\":\"restored\",\"bound\":\"False\"}"),
+          "a reattached binding the app dropped again is not restored");
+    row.name = L"Text";
+    row.authoredKind = L"xBind";
+    g_propRows = {row};
+    NoteRestoredBinding(L"Text", L"{\"state\":\"restored\",\"restoreKind\":\"binding\",\"path\":\"Title\","
+                                 L"\"mode\":\"TwoWay\",\"bound\":\"True\"}");
+    const SessionAssign* restoredAssign = SessionAssignFind(L"Text");
+    check(restoredAssign && restoredAssign->kind == DevToolsKind::Binding &&
+          restoredAssign->detail == L"{Binding Title, Mode=TwoWay}",
+          "restoring a panel-applied {Binding} over an x:Bind shows the {Binding}, not the XAML");
+    SessionAssignErase(L"Text");
+    g_propRows[0].authoredKind = L"binding";
+    g_propRows[0].authoredKey = L"Name";
+    NoteRestoredBinding(L"Text", L"{\"state\":\"restored\",\"restoreKind\":\"binding\",\"path\":\"Title\","
+                                 L"\"mode\":\"OneWay\",\"bound\":\"True\"}");
+    restoredAssign = SessionAssignFind(L"Text");
+    check(restoredAssign && restoredAssign->detail == L"{Binding Title, Mode=OneWay}",
+          "restoring a panel-applied {Binding Title} over XAML {Binding Name} shows Title, not the XAML path");
+    SessionAssignErase(L"Text");
+    g_propRows[0].authoredKey = L"Title";
+    NoteRestoredBinding(L"Text", L"{\"state\":\"restored\",\"restoreKind\":\"binding\",\"path\":\"Title\","
+                                 L"\"mode\":\"OneWay\",\"bound\":\"True\"}");
+    check(SessionAssignFind(L"Text") == nullptr, "restoring the XAML's own {Binding} leaves the XAML as the source");
+    g_propRows.clear();
     DevToolsWindowComment comment;
     comment.id = L"host-note";
     g_commentRows = {comment};

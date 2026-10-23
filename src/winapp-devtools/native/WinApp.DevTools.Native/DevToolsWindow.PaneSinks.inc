@@ -108,7 +108,9 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
         // Safe from inside a commit/click handler for the same reason ResetSink's rebuild is (the sinks are
         // process-lifetime and gen-guarded, not owned by the subtree being replaced).
         ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
-        SetStatusText(L"Replaced the binding on " + prop + L" with a literal. That can't be undone");
+        SetStatusText(L"Replaced the binding on " + prop + L" with a literal. " +
+                      (g_ctx.bindFn ? std::wstring(L"Use Restore binding to put it back")
+                                    : std::wstring(L"Restart the app to get it back")));
         return true;
     }
 
@@ -196,7 +198,9 @@ struct ResetSink : DevToolsSinkBase
         if (gen != g_route1Gen) return S_OK;
         if (!g_ctx.clearFn) return S_OK;
         if (BindingLost(prop)) {
-            SetStatusText(L"Clearing " + prop + L" can't bring its binding back. Restart the app");
+            SetStatusText(L"Clearing " + prop + L" can't bring its binding back. " +
+                          (g_ctx.bindFn ? std::wstring(L"Use Restore binding instead")
+                                        : std::wstring(L"Restart the app")));
             return S_OK;
         }
         bool ok = g_ctx.clearFn(selWire, prop);
@@ -224,7 +228,9 @@ struct UndoSink : DevToolsSinkBase
         if (gen != g_route1Gen) return S_OK;
         if (!g_ctx.writeFn) return S_OK;
         if (BindingLost(prop)) {
-            SetStatusText(L"Can't restore " + prop + L" . Its binding was replaced and can't be restored");
+            SetStatusText(L"Undo can't bring back the binding on " + prop + L". " +
+                          (g_ctx.bindFn ? std::wstring(L"Use Restore binding instead")
+                                        : std::wstring(L"Restart the app to get it back")));
             return S_OK;
         }
         std::wstring* seedp = DirtyFind(prop);
