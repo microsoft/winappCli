@@ -63,12 +63,12 @@ namespace DevToolsInspector
         const bool doubleType = type == L"Double" || type == L"System.Double" || type == L"Windows.Foundation.Double";
         if (doubleType && NegativeDimension(property, value))
             return fail(E_INVALIDARG, L"out of range; dimensions must be nonnegative (Width/Height also accept Auto)", true);
-        const HRESULT converted = convert();
-        if (FAILED(converted))
-            return fail(converted, L"conversion to the requested XAML type failed", converted != E_OUTOFMEMORY);
-        const HRESULT written = set();
-        if (FAILED(written))
-            return fail(written, L"the property setter rejected the value; check its allowed range", written == E_INVALIDARG);
-        return written;
+        HRESULT hr = convert();
+        if (FAILED(hr))
+            return fail(hr, L"conversion to the requested XAML type failed", hr != E_OUTOFMEMORY);
+        hr = set();
+        if (FAILED(hr))
+            return fail(hr, L"the property setter rejected the value; check its allowed range", hr == E_INVALIDARG);
+        return hr;
     }
 }

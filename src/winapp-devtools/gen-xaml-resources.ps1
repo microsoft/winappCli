@@ -76,6 +76,15 @@ function ConvertTo-Identifier([string]$baseName) {
     }) -join ''
 }
 
+function ConvertTo-CppLiteral([string]$content) {
+    # Keep each wide literal below MSVC's size limit; adjacent literals preserve the original markup.
+    $chunks = for ($start = 0; $start -lt $content.Length; $start += 4000) {
+        $length = [Math]::Min(4000, $content.Length - $start)
+        "LR`"$delim($($content.Substring($start, $length)))$delim`""
+    }
+    $chunks -join "`n"
+}
+
 if ($SelfTest) {
     # Cover supported fragment shapes and a mismatched closing-tag negative control.
     $accept = @{
@@ -98,6 +107,17 @@ if ($SelfTest) {
     }
     if ($caught -notmatch 'not well-formed') {
         throw "Well-formedness gate rejected mismatched closing tags with an unexpected message: $caught"
+    }
+    foreach ($length in @(1, 3999, 4000, 4001, 36000)) {
+        $content = ('<TextBlock Text="sample"/> ' * 1500).Substring(0, $length)
+        $literal = ConvertTo-CppLiteral $content
+        $pattern = '(?s)LR"' + $delim + '\((.*?)\)' + $delim + '"'
+        $chunks = [regex]::Matches($literal, $pattern)
+        if (($chunks | ForEach-Object { $_.Groups[1].Value }) -join '' -cne $content -or
+            @($chunks | Where-Object { $_.Groups[1].Length -gt 4000 }).Count -or
+            $chunks.Count -ne [Math]::Ceiling($length / 4000.0)) {
+            throw "C++ literal chunking did not preserve $length characters."
+        }
     }
     Write-Host "    XAML gate self-test passed ($($accept.Count) accepted, 1 rejected; C++ delimiter $($delim.Length)/16 characters)." -ForegroundColor Green
     exit 0
@@ -128,7 +148,7 @@ foreach ($f in $files) {
         throw "Fragment $($f.Name) contains the raw-string delimiter sentinel ')$delim`"'; choose a different delimiter."
     }
     [void]$sb.AppendLine("// ---- $($f.Name) ----")
-    [void]$sb.AppendLine("inline constexpr const wchar_t* $id = LR`"$delim($content)$delim`";")
+    [void]$sb.AppendLine("inline constexpr const wchar_t* $id = $(ConvertTo-CppLiteral $content);")
 }
 [void]$sb.AppendLine('} // namespace DevToolsXaml')
 
