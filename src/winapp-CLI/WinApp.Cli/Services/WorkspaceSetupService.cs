@@ -588,7 +588,7 @@ internal class WorkspaceSetupService(
                             return (2, "No .winmd files found for C++/WinRT projection.");
                         }
 
-                        // Cache the WinMD inventory for language wrappers.
+                        // Cache the WinMD inventory for the npm JS-bindings pipeline.
                         var yamlHash = (options.RequireExistingConfig && config?.Packages.Count > 0)
                             ? YamlPackagesHasher.Compute(config.Packages)
                             : YamlPackagesHasher.ComputeFromVersions(usedVersions

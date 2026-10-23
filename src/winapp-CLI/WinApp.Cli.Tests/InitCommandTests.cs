@@ -533,22 +533,6 @@ public class InitCommandTests : BaseCommandTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task InitCommand_PythonProject_RecognizedWithoutUnknownProjectConfirmation(bool explicitDirectory)
-    {
-        File.WriteAllText(Path.Join(_tempDirectory.FullName, "pyproject.toml"),
-            "[project]\nname = \"python-app\"\nversion = \"0.1.0\"\n");
-        var command = GetRequiredService<InitCommand>();
-        string[] args = explicitDirectory
-            ? [_tempDirectory.FullName, "--config-only"]
-            : ["--config-only"];
-        var exitCode = await ParseAndInvokeWithCaptureAsync(command, args);
-        Assert.AreEqual(0, exitCode);
-        Assert.IsTrue(File.Exists(Path.Join(_tempDirectory.FullName, "winapp.yaml")));
-    }
-
-    [TestMethod]
     public async Task InitCommand_NoArgs_SearchLimitReached_Interactive_ShowsHintAndSelects()
     {
         // Arrange — create more nested projects than the internal detection cap (10) so the

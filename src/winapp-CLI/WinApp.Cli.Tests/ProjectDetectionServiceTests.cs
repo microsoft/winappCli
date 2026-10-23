@@ -311,119 +311,45 @@ public class ProjectDetectionServiceTests
     [DataRow("[project]\nname = \"python-app\"\nversion = \"0.1.0\"\n", "pyproject.toml")]
     [DataRow("import setuptools\nsetuptools.setup()\n", "setup.py")]
     [DataRow("[metadata]\nname = python-app\n[options]\npackages = find:\n", "setup.cfg")]
-    public void DetectProject_Python_RecognizesMarkerFiles(string contents, string filename)
+    [DataRow("packaging==26.3\n", "requirements.txt")]
+    public void DetectProject_PythonFiles_AreNotProjectMarkers(string contents, string filename)
     {
         CreateFile(filename, contents);
-        var result = ProjectDetectionService.DetectProject(Root, Root);
-        Assert.IsNotNull(result);
-        Assert.AreEqual(DetectedProjectType.Python, result.Type);
-        Assert.AreEqual(filename, result.ProjectFileName);
-        Assert.AreEqual($"Possible Python project (./{filename})", result.ToDisplayString());
-    }
-
-    [TestMethod]
-    [DataRow("[tool.ruff]\nline-length = 100\n")]
-    [DataRow("[project]\nname = \"python-app\"\ninvalid = [\n")]
-    public void DetectProject_Python_OnlyHintsAtMarkerPresenceWithoutParsingContents(string contents)
-    {
-        CreateFile("pyproject.toml", contents);
-        var result = ProjectDetectionService.DetectProject(Root, Root);
-        Assert.IsNotNull(result);
-        Assert.AreEqual("Possible Python", result.TypeLabel);
-    }
-
-    [TestMethod]
-    public void DetectProject_Python_ScriptNeedsBothRequirementsAndRootSource()
-    {
-        CreateFile("requirements.txt", "packaging==26.3\n");
-        Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
-        CreateFile(Path.Join("scripts", "app.py"), "print('nested')\n");
-        Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
         CreateFile("app.py", "print('hello')\n");
-        Assert.AreEqual(DetectedProjectType.Python, ProjectDetectionService.DetectProject(Root, Root)?.Type);
-        File.Delete(Path.Join(_tempDir, "requirements.txt"));
         Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
     }
 
     [TestMethod]
-    public void DetectProject_Python_DoesNotExecuteSetupCode()
-    {
-        CreateFile("setup.py", "raise RuntimeError('Must never execute during detection')\n");
-        Assert.AreEqual("setup.py", ProjectDetectionService.DetectProject(Root, Root)?.ProjectFileName);
-    }
-
-    [TestMethod]
-    public void DetectProject_Python_DoesNotNeedToReadLargeOrToolOnlyMarkers()
-    {
-        CreateFile("setup.cfg", "[flake8]\nmax-line-length = 100\n");
-        CreateFile("pyproject.toml", "[project]\nname=\"app\"\n#" + new string('x', 512 * 1024));
-        Assert.AreEqual("pyproject.toml", ProjectDetectionService.DetectProject(Root, Root)?.ProjectFileName);
-    }
-
-    [TestMethod]
-    [DataRow("Cargo.toml", "[package]\nname=\"app\"\n", (int)DetectedProjectType.Rust)]
-    [DataRow("CMakeLists.txt", "project(app)\n", (int)DetectedProjectType.CPP)]
-    [DataRow("package.json", "{\"dependencies\":{\"electron\":\"1.0\"}}", (int)DetectedProjectType.Electron)]
-    [DataRow("app.csproj", "<Project><PropertyGroup><OutputType>Exe</OutputType></PropertyGroup></Project>",
-        (int)DetectedProjectType.Dotnet)]
-    public void DetectProject_Python_DoesNotOverrideEstablishedLanguagePriorities(
-        string marker, string contents, int expectedType)
-    {
-        CreateFile("pyproject.toml", "[project]\nname=\"python-tools\"\n");
-        CreateFile(marker, contents);
-        Assert.AreEqual((DetectedProjectType)expectedType, ProjectDetectionService.DetectProject(Root, Root)?.Type);
-    }
-
-    [TestMethod]
-    public async Task DetectProjects_PythonHintsDoNotPruneAndSkipCustomNamedVirtualEnvironments()
+    public async Task DetectProjects_SkipsCustomNamedVirtualEnvironments()
     {
         CreateFile(Path.Join("environment", "pyvenv.cfg"), "home = Python\n");
-        CreateFile(Path.Join("environment", "Lib", "site-packages", "library", "setup.py"), "raise Exception()\n");
-        CreateFile(Path.Join("python-app", "pyproject.toml"), "[project]\nname=\"python-app\"\n");
-        CreateFile(Path.Join("python-app", "nested", "setup.py"), "raise Exception()\n");
+        CreateFile(Path.Join("environment", "library", "Cargo.toml"), "[package]");
+        CreateFile(Path.Join("visible", "Cargo.toml"), "[package]");
         var results = await _sut.DetectProjectsAsync(Root, 5, null, CancellationToken.None);
-        Assert.HasCount(2, results);
-        Assert.AreEqual(DetectedProjectType.Python, results[0].Type);
-        Assert.AreEqual("python-app", results[0].DisplayPath);
-        Assert.AreEqual("python-app/nested", results[1].DisplayPath);
+        Assert.HasCount(1, results);
+        Assert.AreEqual(DetectedProjectType.Rust, results[0].Type);
+        Assert.AreEqual("visible", results[0].DisplayPath);
     }
 
     [TestMethod]
-    public async Task DetectProjects_PythonRootHintDoesNotHideNestedApplications()
+    public async Task DetectProjects_PythonMarkersDoNotHideNestedApplications()
     {
         CreateFile("pyproject.toml", "[tool.ruff]\nline-length=100\n");
         CreateFile(Path.Join("desktop", "package.json"), """{"dependencies":{"electron":"1.0"}}""");
         CreateFile(Path.Join("service", "Service.csproj"),
             "<Project><PropertyGroup><OutputType>Exe</OutputType></PropertyGroup></Project>");
         var results = await _sut.DetectProjectsAsync(Root, 10, null, CancellationToken.None);
-        Assert.HasCount(3, results);
-        Assert.AreEqual(DetectedProjectType.Python, results[0].Type);
+        Assert.HasCount(2, results);
         CollectionAssert.AreEquivalent(
-            new[] { DetectedProjectType.Python, DetectedProjectType.Electron, DetectedProjectType.Dotnet },
+            new[] { DetectedProjectType.Electron, DetectedProjectType.Dotnet },
             results.Select(project => project.Type).ToArray());
     }
 
     [TestMethod]
-    public void DetectProject_Python_VirtualEnvironmentIsNotAProjectEvenWithLibraryMetadata()
+    public void DetectProject_VirtualEnvironmentIsNotAProjectEvenWithProjectMarkers()
     {
         CreateFile("pyvenv.cfg", "home = Python\n");
-        CreateFile("pyproject.toml", "[project]\nname=\"app\"\n");
-        Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
-    }
-
-    [TestMethod]
-    public void DetectProject_Python_RejectsLinkedMetadata()
-    {
-        var external = Path.Join(_tempDir, "external.toml");
-        File.WriteAllText(external, "[project]\nname=\"external\"\n");
-        try
-        {
-            File.CreateSymbolicLink(Path.Join(_tempDir, "pyproject.toml"), external);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            Assert.Inconclusive("Symbolic link creation is unavailable.");
-        }
+        CreateFile("Cargo.toml", "[package]");
         Assert.IsNull(ProjectDetectionService.DetectProject(Root, Root));
     }
 
@@ -578,7 +504,6 @@ public class ProjectDetectionServiceTests
         Assert.AreEqual(".NET", new DetectedProject(DetectedProjectType.Dotnet, Root, ".", "MyApp.csproj").TypeLabel);
         Assert.AreEqual("Rust", new DetectedProject(DetectedProjectType.Rust, Root, ".", "Cargo.toml").TypeLabel);
         Assert.AreEqual("C++", new DetectedProject(DetectedProjectType.CPP, Root, ".", "CMakeLists.txt").TypeLabel);
-        Assert.AreEqual("Possible Python", new DetectedProject(DetectedProjectType.Python, Root, ".", "pyproject.toml").TypeLabel);
     }
 
     // --- Edge cases ---

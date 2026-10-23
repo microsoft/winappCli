@@ -87,10 +87,8 @@ internal sealed class ProjectDetectionService(
                 results.Add(detected);
                 progress?.Report(detected);
                 logger.LogDebug("Detected {Type} project at {Path}", detected.TypeLabel, detected.DisplayPath);
-                if (detected.Type != DetectedProjectType.Python)
-                {
-                    continue;
-                }
+                // Prune: don't search subdirectories of a detected project
+                continue;
             }
 
             // Enqueue subdirectories for further searching
@@ -103,7 +101,7 @@ internal sealed class ProjectDetectionService(
     /// <summary>
     /// Checks a single directory for all known project markers.
     /// Returns the most specific match, or null if no project is detected.
-    /// Detection order follows enum specificity: Tauri > Electron > Flutter > Dotnet > Rust > CPP > Python.
+    /// Detection order follows enum specificity: Tauri > Electron > Flutter > Dotnet > Rust > CPP.
     /// </summary>
     internal static DetectedProject? DetectProject(DirectoryInfo directory, DirectoryInfo searchRoot)
     {
@@ -149,36 +147,6 @@ internal sealed class ProjectDetectionService(
         if (File.Exists(Path.Combine(directory.FullName, "CMakeLists.txt")))
         {
             return new DetectedProject(DetectedProjectType.CPP, directory, displayPath, "CMakeLists.txt");
-        }
-
-        if (directory.Exists && directory.Attributes.HasFlag(FileAttributes.ReparsePoint))
-        {
-            return null;
-        }
-        foreach (var marker in new[] { "pyproject.toml", "setup.cfg", "setup.py" })
-        {
-            var file = new FileInfo(Path.Join(directory.FullName, marker));
-            if (file.Exists && !file.Attributes.HasFlag(FileAttributes.ReparsePoint))
-            {
-                return new DetectedProject(DetectedProjectType.Python, directory, displayPath, marker);
-            }
-        }
-        try
-        {
-            if (File.Exists(Path.Join(directory.FullName, "requirements.txt"))
-                && directory.EnumerateFiles("*.py", SearchOption.TopDirectoryOnly)
-                    .Any(file => !file.Attributes.HasFlag(FileAttributes.ReparsePoint)))
-            {
-                return new DetectedProject(DetectedProjectType.Python, directory, displayPath, "requirements.txt");
-            }
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return null;
-        }
-        catch (IOException)
-        {
-            return null;
         }
 
         return null;

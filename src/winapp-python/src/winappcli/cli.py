@@ -439,10 +439,16 @@ def _initialize(native_args: list[str], override: str | None) -> int:
             raise WinappError("The bindings target cannot be confirmed. Specify a directory or use --use-defaults.")
         candidates = find_init_workspaces(working_directory, config_only=workspace.config_only)
         if not candidates:
-            raise WinappError(
-                "Native init completed, but no usable project-local SDK configuration was found. "
-                "Run 'winapp init <project-directory> --use-defaults --add-python-bindings'."
+            if add:
+                raise WinappError(
+                    "Native init completed, but no usable project-local SDK configuration was found. "
+                    "Run 'winapp init <project-directory> --use-defaults --add-python-bindings'."
+                )
+            print(
+                "Python bindings were not generated: no usable project-local SDK configuration was found.",
+                flush=True,
             )
+            return 0
         print("SDK artifacts identify possible bindings targets, not the project selected by native.", flush=True)
         if len(candidates) == 1:
             project = candidates[0]
@@ -466,6 +472,14 @@ def _initialize(native_args: list[str], override: str | None) -> int:
                 print("Enter one of the listed numbers.", flush=True)
         if not confirmed:
             return 0
+    if any(path.suffix.lower() == ".csproj" and path.is_file() for path in project.iterdir()):
+        if add or confirmed or try_load_config(project) is not None:
+            raise WinappError(
+                "Native init completed, but --add-python-bindings is not supported for .NET projects (.csproj). "
+                "Native initialization changes have been kept; Python files were not changed. "
+                "Initialize Python bindings in a separate directory."
+            )
+        return 0
     if workspace.config_directory is not None and workspace.config_directory != project:
         if add:
             raise WinappError("--add-python-bindings needs project-local winapp.yaml and .winapp metadata.")

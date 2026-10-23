@@ -237,6 +237,7 @@ class NativeInitTests(ProjectTest):
     def test_native_failure_is_returned_before_config_or_dependency_changes(self):
         source = self.project / "pyproject.toml"
         source.write_text("not valid TOML", encoding="utf-8")
+        (self.project / "App.csproj").write_text("<Project />", encoding="utf-8")
         with (
             patch("winappcli.cli.forward_native", return_value=37),
             patch("winappcli.cli._configure_after_init") as setup,
@@ -244,6 +245,109 @@ class NativeInitTests(ProjectTest):
             self.assertEqual(self.invoke("--new-native-option"), 37)
         self.assertEqual(source.read_text(), "not valid TOML")
         setup.assert_not_called()
+
+    def test_dotnet_bindings_fail_after_native_success_without_python_changes(self):
+        csproj = self.project / "App.CSPROJ"
+        csproj.write_text("<Project />", encoding="utf-8")
+        paths = [self.project / name for name in ("pyproject.toml", "requirements.txt", "requirements-dev.txt")]
+        before = {path: path.read_bytes() for path in paths}
+        native_content = '<Project Sdk="Microsoft.NET.Sdk" />'
+
+        def native(executable, arguments, working_directory):
+            csproj.write_text(native_content, encoding="utf-8")
+            return 0
+
+        for config_only in (False, True):
+            for existing_sdk in (True, False):
+                if not existing_sdk:
+                    (self.project / "winapp.yaml").unlink(missing_ok=True)
+                    (self.project / ".winapp" / "winmds.lock.json").unlink(missing_ok=True)
+                else:
+                    (self.project / "winapp.yaml").write_text(
+                        "packages:\n  - name: Microsoft.Windows.SDK.Contracts\n"
+                        "    version: 10.0.26100.1742\n", encoding="utf-8",
+                    )
+                    self.save_inventory()
+                flags = ["--config-only"] if config_only else []
+                with (
+                    self.subTest(config_only=config_only, existing_sdk=existing_sdk),
+                    patch("winappcli.cli.forward_native", side_effect=native) as forwarded,
+                    patch("winappcli.cli._configure_after_init") as setup,
+                ):
+                    self.stderr.seek(0)
+                    self.stderr.truncate()
+                    self.assertEqual(self.invoke("--use-defaults", "--quiet", "--add-python-bindings", *flags), 1)
+                    forwarded.assert_called_once()
+                    setup.assert_not_called()
+                    self.assertEqual(csproj.read_text(encoding="utf-8"), native_content)
+                    self.assertEqual({path: path.read_bytes() for path in paths}, before)
+                    self.assertFalse((self.project / ".venv").exists())
+                    self.assertFalse((self.project / ".winapp" / "python").exists())
+                    self.assertIn("Native init completed", self.stderr.getvalue())
+                    self.assertIn("--add-python-bindings is not supported for .NET projects", self.stderr.getvalue())
+                    self.assertIn("initialization changes have been kept", self.stderr.getvalue())
+
+    def test_dotnet_check_uses_the_explicit_target_not_the_working_directory(self):
+        target = self.project / "C# app"
+        target.mkdir()
+        (target / "App.csproj").write_text("<Project />", encoding="utf-8")
+        with (
+            patch("winappcli.cli.forward_native", side_effect=self.native) as native,
+            patch("winappcli.cli._configure_after_init") as setup,
+        ):
+            self.assertEqual(self.invoke(str(target), "--use-defaults", "--add-python-bindings"), 1)
+        native.assert_called_once()
+        setup.assert_not_called()
+        self.assertIn(".NET projects", self.stderr.getvalue())
+        self.assertFalse((target / "pyproject.toml").exists())
+        self.assertFalse((target / ".venv").exists())
+
+    def test_dotnet_init_without_python_bindings_keeps_native_success(self):
+        (self.project / "App.csproj").write_text("<Project />", encoding="utf-8")
+        for name in ("pyproject.toml", "winapp.yaml", ".winapp\\winmds.lock.json"):
+            (self.project / name).unlink()
+        for interactive, flags in (
+            (False, ["--use-defaults"]),
+            (True, [str(self.project)]),
+            (True, []),
+        ):
+            with (
+                self.subTest(interactive=interactive, flags=flags),
+                patch("winappcli.cli.sys.stdin.isatty", return_value=interactive),
+                patch("winappcli.cli.forward_native", side_effect=self.native) as native,
+                patch("builtins.input", return_value="no") as prompt,
+                patch("winappcli.cli._configure_after_init") as setup,
+            ):
+                self.assertEqual(self.invoke(*flags), 0)
+                native.assert_called_once()
+                prompt.assert_not_called()
+                setup.assert_not_called()
+                self.assertEqual(self.stderr.getvalue(), "")
+                self.assertFalse((self.project / "pyproject.toml").exists())
+                self.assertFalse((self.project / ".venv").exists())
+
+    def test_dotnet_init_does_not_silently_skip_existing_python_bindings(self):
+        (self.project / "App.csproj").write_text("<Project />", encoding="utf-8")
+        with (
+            patch("winappcli.cli.forward_native", side_effect=self.native) as native,
+            patch("winappcli.cli._configure_after_init") as setup,
+        ):
+            self.assertEqual(self.invoke("--use-defaults"), 1)
+        native.assert_called_once()
+        setup.assert_not_called()
+        self.assertIn(".NET projects", self.stderr.getvalue())
+
+    def test_nested_csproj_and_csproj_directory_do_not_block_python_setup(self):
+        nested = self.project / "native host"
+        nested.mkdir()
+        (nested / "App.csproj").write_text("<Project />", encoding="utf-8")
+        (self.project / "not-a-project.csproj").mkdir()
+        with (
+            patch("winappcli.cli.forward_native", side_effect=self.native),
+            patch("winappcli.cli._configure_after_init") as setup,
+        ):
+            self.assertEqual(self.invoke("--use-defaults", "--add-python-bindings"), 0)
+        setup.assert_called_once_with(self.project, reset=False, config_only=False, verbose=False)
 
     def test_setup_uses_the_native_selected_project_not_the_callers_cwd(self):
         selected = self.project / "native-selected project"
@@ -306,7 +410,7 @@ class NativeInitTests(ProjectTest):
         setup.assert_not_called()
         self.assertIn("Input ended", self.stderr.getvalue())
 
-    def test_no_ready_artifacts_do_not_enable_bindings_from_a_stale_configuration(self):
+    def test_no_ready_artifacts_skip_bindings_without_an_explicit_request(self):
         (self.project / ".winapp" / "winmds.lock.json").unlink()
         with (
             patch("winappcli.cli.sys.stdin.isatty", return_value=True),
@@ -314,10 +418,10 @@ class NativeInitTests(ProjectTest):
             patch("builtins.input") as prompt,
             patch("winappcli.cli._configure_after_init") as setup,
         ):
-            self.assertEqual(self.invoke(), 1)
+            self.assertEqual(self.invoke(), 0)
         prompt.assert_not_called()
         setup.assert_not_called()
-        self.assertIn("no usable project-local SDK", self.stderr.getvalue())
+        self.assertIn("no usable project-local SDK", self.stdout.getvalue())
 
     def test_config_only_interactive_target_requires_confirmation_even_without_new_files(self):
         (self.project / ".winapp" / "winmds.lock.json").unlink()

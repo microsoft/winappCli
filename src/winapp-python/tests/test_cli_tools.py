@@ -367,6 +367,28 @@ class CliTests(ProjectTest):
                     self.assertEqual(self.invoke("generate"), 1)
         self.assertIn("pip failed", self.stderr.getvalue())
 
+    def test_uv_binding_rename_reports_failure_instead_of_ready(self):
+        self.write_config(package="renamed_bindings")
+        source = self.project / "pyproject.toml"
+        source.write_text(
+            '[project]\nname="example"\ndependencies=["myapp-winrt"]\n'
+            "[tool.uv.sources]\nmyapp-winrt = { path = '.\\.winapp\\python\\myapp_winrt', editable = true }\n"
+            + source.read_text(), encoding="utf-8",
+        )
+        before = source.read_bytes()
+        with (
+            patch("winappcli.cli._prepare_codegen", return_value=(Path("codegen.exe"), self.project_python, self.codegen_version)),
+            patch("winappcli.cli.generate", return_value=self.config().output),
+            patch("winappcli.dependencies.uv_executable", return_value="uv.exe"),
+            patch("winappcli.dependencies.run_tool") as install,
+        ):
+            self.assertEqual(self.invoke("generate"), 1)
+        install.assert_not_called()
+        self.assertIn("renamed_bindings", self.stderr.getvalue())
+        self.assertIn("does not match", self.stderr.getvalue())
+        self.assertNotIn("Python bindings ready", self.stdout.getvalue())
+        self.assertEqual(source.read_bytes(), before)
+
     def test_prepare_codegen_uses_the_project_pin_and_preserves_configuration(self):
         selected = self.codegen_version
         source = self.project / "pyproject.toml"

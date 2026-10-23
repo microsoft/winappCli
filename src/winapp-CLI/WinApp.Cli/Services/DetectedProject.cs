@@ -35,7 +35,6 @@ internal sealed record DetectedProject(DetectedProjectType Type, DirectoryInfo D
         DetectedProjectType.Dotnet => ".NET",
         DetectedProjectType.Rust => "Rust",
         DetectedProjectType.CPP => "C++",
-        DetectedProjectType.Python => "Possible Python",
         _ => Type.ToString()
     };
 }

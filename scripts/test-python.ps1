@@ -126,11 +126,12 @@ with zipfile.ZipFile(wheel) as archive:
     New-Item -ItemType Directory -Path $detectionProject | Out-Null
     [IO.File]::WriteAllText((Join-Path $detectionProject 'pyproject.toml'),
         "[project]`nname = 'python-detection-project'`nversion = '0.0.0'`n")
-    $detectedOutput = & $cli init $detectionProject --config-only
+    $detectedOutput = & $cli init $detectionProject --config-only --use-defaults 2>&1
     if ($LASTEXITCODE -ne 0 -or
-        @($detectedOutput | Where-Object { $_ -like '*Possible Python project detected*' }).Count -ne 1 -or
-        @($detectedOutput | Where-Object { $_ -like '*No known project type*' }).Count -ne 0) {
-        throw "Bundled native CLI did not show the file-only Python hint: $detectedOutput"
+        @($detectedOutput | Where-Object { $_ -like '*Possible Python project detected*' }).Count -ne 0 -or
+        @($detectedOutput | Where-Object { $_ -like '*No known project type*' }).Count -ne 1 -or
+        -not (Test-Path -LiteralPath (Join-Path $detectionProject 'winapp.yaml'))) {
+        throw "Bundled native CLI did not initialize the explicit directory without Python detection: $detectedOutput"
     }
 
     $sdkProject = Join-Path $temporary 'sdk-project'

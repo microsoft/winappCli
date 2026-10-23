@@ -247,7 +247,7 @@ def development_requirements(project: Path) -> list[str]:
     return resolve("dev") if "dev" in normalized else []
 
 
-def _set_dependency(table, field: str, name: str, replacement: str) -> None:
+def _ensure_dependency(table, field: str, name: str) -> None:
     if field not in table:
         table[field] = []
     values = table[field]
@@ -258,10 +258,10 @@ def _set_dependency(table, field: str, name: str, replacement: str) -> None:
     if len(indices) > 1:
         raise WinappError(f"Duplicate {name} dependency in {field}.")
     if indices:
-        if values[indices[0]] != replacement:
-            values[indices[0]] = replacement
+        if Requirement(values[indices[0]]).url is not None:
+            raise WinappError(f"{name} in {field} uses a direct URL; not replacing it with generated bindings.")
     else:
-        values.append(replacement)
+        values.append(name)
 
 
 def _editable_requirements(project: Path, source: Path) -> None:
@@ -292,11 +292,11 @@ def _requirements_candidate(
         elif old_editable is None or line.strip() != old_editable:
             retained.append(original)
     text = "".join(retained)
-    if text and not text.endswith(("\r", "\n")):
-        text += newline
     pending = [value for value in additions if value not in {
         line.strip() for line, _ in _requirement_lines(text)
     }]
+    if pending and text and not text.endswith(("\r", "\n")):
+        text += newline
     text += "".join(value + newline for value in pending)
     return (b"\xef\xbb\xbf" if before.startswith(b"\xef\xbb\xbf") else b"") + text.encode("utf-8")
 
@@ -346,7 +346,7 @@ def register_dependencies(project: Path, package: str, *, previous_package: str 
             if canonicalize_name(Requirement(values[index]).name) in MANAGED_PACKAGES:
                 del values[index]
         if dependencies.kind == "uv":
-            _set_dependency(settings, "dependencies", canonicalize_name(package), canonicalize_name(package))
+            _ensure_dependency(settings, "dependencies", canonicalize_name(package))
         development_requirements(project)
         for name, values in document.get("dependency-groups", {}).items():
             if not isinstance(values, list):
@@ -380,18 +380,31 @@ def register_dependencies(project: Path, package: str, *, previous_package: str 
                 previous_source = sources.get(previous)
                 if isinstance(previous_source, Mapping) and previous_source.get("path") == f".\\.winapp\\python\\{previous_package}":
                     del sources[previous]
-            entry = tomlkit.inline_table()
-            entry.update({"path": path, "editable": True})
-            sources[source_name] = entry
+            if existing_source is None:
+                entry = tomlkit.inline_table()
+                entry.update({"path": path, "editable": True})
+                sources[source_name] = entry
+            elif existing_source.get("editable") is not True:
+                existing_source["editable"] = True
 
     edit_pyproject(project, update)
 
 
 def uv_executable() -> str:
-    executable = shutil.which("uv.exe") or shutil.which("uv")
-    if not executable:
-        raise WinappError("This is a uv-managed project, but uv is not available. Install uv and rerun; pip was not used.")
-    return executable
+    directories = [Path(value.strip('"')) for value in os.environ.get("PATH", os.defpath).split(os.pathsep) if value]
+    extensions = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(os.pathsep)
+    for names in (("uv.exe",), ("uv", *(f"uv{extension}" for extension in extensions if extension))):
+        for directory in directories:
+            if directory.is_absolute():
+                for name in names:
+                    # Python 3.11 needs explicit extensions for qualified names; none of these search the cwd.
+                    executable = shutil.which(str(directory / name))
+                    if executable:
+                        return str(Path(executable).resolve())
+    raise WinappError(
+        "This is a uv-managed project, but uv is not available in an absolute PATH directory. "
+        "Install uv and add its directory to PATH, then rerun; pip was not used."
+    )
 
 
 def validate_project_python(project: Path, interpreter: Interpreter) -> None:
@@ -490,6 +503,26 @@ def synchronize_project(
     )
     environment = installer_environment(project, executable, uv=dependencies.kind == "uv")
     if dependencies.kind == "uv":
+        if bindings is not None:
+            name = canonicalize_name(bindings.name)
+            requirements = [Requirement(value) for value in application_requirements(project)]
+            matching = [item for item in requirements if canonicalize_name(item.name) == name]
+            sources = read_pyproject(project).get("tool", {}).get("uv", {}).get("sources", {})
+            entries = [entry for key, entry in sources.items() if canonicalize_name(key) == name]
+            if (
+                len(matching) != 1 or matching[0].url is not None
+                or len(entries) != 1 or not isinstance(entries[0], Mapping)
+                or not isinstance(entries[0].get("path"), str)
+                or local_path(project / entries[0]["path"], boundary=project) != local_path(bindings, boundary=project)
+                or entries[0].get("editable") is not True
+            ):
+                raise WinappError(
+                    f"Configured bindings package '{bindings.name}' does not match this uv project's "
+                    "[project].dependencies and [tool.uv.sources]. "
+                    "Restore the previous [tool.winapp.python-bindings].package value, or update the dependency "
+                    f"'{name}' and its editable source to '.\\.winapp\\python\\{bindings.name}', then rerun. "
+                    "Dependencies were not synchronized."
+                )
         arguments = [uv_executable(), "sync", "--python", str(executable)]
         environment["UV_PROJECT_ENVIRONMENT"] = str(executable.parent.parent)
         environment.pop("VIRTUAL_ENV", None)

@@ -89,6 +89,32 @@ class DependencyTests(ProjectTest):
         self.assertIn(development, deps.requirements_files(self.project, source))
         self.assertIn(r"-e '.\.winapp\python\myapp_winrt'", source.read_text())
 
+    def test_unchanged_requirements_without_final_newline_are_preserved(self):
+        source = self.project / "requirements.txt"
+        included = self.project / "application.txt"
+        development = self.project / "requirements-dev.txt"
+        for prefix, newline in ((b"", b"\n"), (b"\xef\xbb\xbf", b"\r\n")):
+            with self.subTest(prefix=prefix, newline=newline):
+                included.write_bytes(prefix + b"# keep" + newline + b"packaging==26.3")
+                source.write_bytes(b"-r application.txt" + newline + b"-e '.\\.winapp\\python\\myapp_winrt'")
+                development.write_bytes(b"-r requirements.txt")
+                before = {path: path.read_bytes() for path in (source, included, development)}
+                with patch.object(deps.os, "replace", wraps=os.replace) as replace:
+                    deps.register_dependencies(self.project, "myapp_winrt")
+                self.assertEqual({path: path.read_bytes() for path in before}, before)
+                replace.assert_not_called()
+
+    def test_requirements_addition_gets_a_separating_newline_only_when_needed(self):
+        source = self.project / "requirements.txt"
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                before = b"# application" + newline + b"packaging==26.3"
+                source.write_bytes(before)
+                deps.register_dependencies(self.project, "myapp_winrt")
+                self.assertEqual(
+                    source.read_bytes(), before + newline + b"-e '.\\.winapp\\python\\myapp_winrt'" + newline,
+                )
+
     def test_registration_removes_managed_declarations_and_preserves_included_comments(self):
         source = self.project / "requirements.txt"
         source.write_text("-r application.txt\n", encoding="utf-8")
@@ -150,6 +176,62 @@ class DependencyTests(ProjectTest):
 
     def test_uv_source_conflict_does_not_modify_project(self):
         self.pyproject(uv=True, extra='[tool.uv.sources]\nmyapp-winrt = { git = "https://example.com/project" }\n')
+        source = self.project / "pyproject.toml"
+        before = source.read_bytes()
+        with self.assertRaisesRegex(WinappError, "different source"):
+            deps.register_dependencies(self.project, "myapp_winrt")
+        self.assertEqual(source.read_bytes(), before)
+
+    def test_uv_registration_preserves_binding_conditions_and_source_settings(self):
+        source = self.project / "pyproject.toml"
+        for table in (
+            "[tool.uv.sources]\n"
+            "myapp_winrt = { path = '.\\.winapp\\python\\myapp_winrt', editable = true, "
+            "marker = \"sys_platform == 'win32'\" } # keep source comment\n",
+            "[tool.uv.sources.myapp_winrt]\n"
+            "path = '.\\.winapp\\python\\myapp_winrt'\n"
+            "editable = true\n"
+            "marker = \"sys_platform == 'win32'\" # keep source comment\n",
+        ):
+            with self.subTest(table=table):
+                source.write_text(
+                    '[project]\nname = "example"\n'
+                    'dependencies = ["myapp_winrt[feature]>=0.1; sys_platform == \'win32\'"] # keep dependency\n'
+                    + table, encoding="utf-8",
+                )
+                before = source.read_bytes()
+                deps.register_dependencies(self.project, "myapp_winrt")
+                deps.register_dependencies(self.project, "myapp_winrt")
+                self.assertEqual(source.read_bytes(), before)
+
+    def test_uv_registration_only_updates_editable_in_an_existing_source(self):
+        self.pyproject(
+            uv=True,
+            extra="[tool.uv.sources]\nmyapp-winrt = { path = '.\\.winapp\\python\\myapp_winrt', "
+            "editable = false, marker = \"sys_platform == 'win32'\" }\n",
+        )
+        deps.register_dependencies(self.project, "myapp_winrt")
+        source = tomllib.loads((self.project / "pyproject.toml").read_text())["tool"]["uv"]["sources"]["myapp-winrt"]
+        self.assertEqual(source["marker"], "sys_platform == 'win32'")
+        self.assertTrue(source["editable"])
+
+    def test_uv_registration_rejects_direct_binding_urls_without_editing(self):
+        source = self.project / "pyproject.toml"
+        source.write_text(
+            '[project]\nname = "example"\n'
+            'dependencies = ["myapp-winrt @ https://example.com/bindings.whl"]\n[tool.uv]\n',
+            encoding="utf-8",
+        )
+        before = source.read_bytes()
+        with self.assertRaisesRegex(WinappError, "direct URL"):
+            deps.register_dependencies(self.project, "myapp_winrt")
+        self.assertEqual(source.read_bytes(), before)
+
+    def test_uv_registration_rejects_multiple_sources_without_editing(self):
+        self.pyproject(
+            uv=True, extra="[tool.uv.sources]\nmyapp-winrt = "
+            "[{ path = '.\\.winapp\\python\\myapp_winrt', marker = \"sys_platform == 'win32'\" }]\n",
+        )
         source = self.project / "pyproject.toml"
         before = source.read_bytes()
         with self.assertRaisesRegex(WinappError, "different source"):
@@ -309,6 +391,57 @@ class DependencyTests(ProjectTest):
         self.assertNotIn("--upgrade", call.args[0])
         self.assertNotIn("--inexact", call.args[0])
 
+    def test_uv_sync_rejects_binding_name_or_source_mismatches_before_installing(self):
+        source = self.project / "pyproject.toml"
+        bindings = self.project / ".winapp" / "python" / "renamed_bindings"
+        for dependency, entry in (
+            ("myapp-winrt", "renamed-bindings = { path = '.\\.winapp\\python\\renamed_bindings', editable = true }"),
+            ("renamed-bindings", "myapp-winrt = { path = '.\\.winapp\\python\\myapp_winrt', editable = true }"),
+            ("renamed-bindings", "renamed-bindings = { path = '.\\.winapp\\python\\myapp_winrt', editable = true }"),
+            ("renamed-bindings", "renamed-bindings = { path = '.\\.winapp\\python\\renamed_bindings', editable = false }"),
+            ("renamed-bindings @ https://example.com/bindings.whl",
+             "renamed-bindings = { path = '.\\.winapp\\python\\renamed_bindings', editable = true }"),
+            ("renamed-bindings", "renamed-bindings = [{ path = '.\\.winapp\\python\\renamed_bindings' }]"),
+        ):
+            source.write_text(
+                f'[project]\nname="example"\ndependencies=["{dependency}"]\n[tool.uv.sources]\n{entry}\n',
+                encoding="utf-8",
+            )
+            before = source.read_bytes()
+            for private in (False, True):
+                with (
+                    self.subTest(dependency=dependency, entry=entry, private=private),
+                    patch.object(deps, "uv_executable", return_value="uv.exe"),
+                    patch.object(deps, "run_tool") as run,
+                ):
+                    with self.assertRaisesRegex(WinappError, "renamed_bindings.*does not match"):
+                        deps.synchronize_project(self.project, Path("python.exe"), bindings, private=private)
+                    run.assert_not_called()
+                    self.assertEqual(source.read_bytes(), before)
+
+    def test_uv_sync_accepts_matching_conditional_bindings_without_rewriting_them(self):
+        source = self.project / "pyproject.toml"
+        source.write_text(
+            '[project]\nname="example"\ndependencies=["myapp_winrt; sys_platform == \'win32\'"]\n'
+            "[tool.uv.sources]\nmyapp_winrt = { path = '.\\.winapp\\python\\myapp_winrt', "
+            "editable = true, marker = \"sys_platform == 'win32'\" }\n", encoding="utf-8",
+        )
+        before = source.read_bytes()
+        (self.project / "uv.lock").write_text("version=1\n", encoding="utf-8")
+        for private in (False, True):
+            with (
+                self.subTest(private=private),
+                patch.object(deps, "uv_executable", return_value="uv.exe"),
+                patch.object(deps, "run_tool") as run,
+            ):
+                deps.synchronize_project(
+                    self.project, Path("python.exe"), self.project / ".winapp" / "python" / "myapp_winrt",
+                    private=private,
+                )
+                self.assertEqual(run.call_args_list[0].args[0][:2], ["uv.exe", "sync"])
+                self.assertEqual("--locked" in run.call_args_list[0].args[0], private)
+                self.assertEqual(source.read_bytes(), before)
+
     def test_uv_synchronization_preserves_the_running_tool_environment(self):
         self.pyproject(uv=True)
         python = self.project / ".venv" / "Scripts" / "python.exe"
@@ -447,6 +580,83 @@ class DependencyTests(ProjectTest):
             deps.synchronize_project(self.project, Path(sys.executable), None)
         run.assert_called_once()
         self.assertEqual(run.call_args.args[0][-1], "check")
+
+
+class UvExecutableTests(ProjectTest):
+    def test_uv_lookup_only_probes_absolute_path_candidates(self):
+        installed = self.root / "installed uv"
+        executable = installed / "uv.exe"
+        path = os.pathsep.join(("", ".", "relative-tools", r"C:tools", r"\tools", f'"{installed}"'))
+
+        def which(candidate):
+            self.assertTrue(Path(candidate).is_absolute(), candidate)
+            return str(executable) if Path(candidate) == executable else None
+
+        with patch.dict(os.environ, {"PATH": path}), patch.object(deps.shutil, "which", side_effect=which):
+            self.assertEqual(deps.uv_executable(), str(executable))
+
+    def test_real_uv_lookup_ignores_cwd_even_when_windows_allows_it(self):
+        installed = self.root / "installed uv"
+        installed.mkdir()
+        (self.project / "uv.exe").write_bytes(b"not executed")
+        (installed / "uv.exe").write_bytes(b"not executed")
+        relative = self.project / "relative-tools"
+        relative.mkdir()
+        (relative / "uv.exe").write_bytes(b"not executed")
+        script = (
+            "import sys; sys.path.insert(0, sys.argv[1]); "
+            "from winappcli.dependencies import uv_executable; "
+            "print(uv_executable())"
+        )
+        environment = {key: value for key, value in os.environ.items()
+                       if key.lower() != "nodefaultcurrentdirectoryinexepath"}
+        environment["PATHEXT"] = ".EXE;.CMD"
+        for available in (True, False):
+            with self.subTest(available=available):
+                environment["PATH"] = os.pathsep.join(
+                    [str(installed)] if available else ["", ".", "relative-tools"],
+                )
+                result = subprocess.run(
+                    [sys.executable, "-I", "-c", script, str(Path(deps.__file__).parents[1])],
+                    cwd=self.project, env=environment, capture_output=True, text=True, timeout=30,
+                )
+                if available:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(Path(result.stdout.strip()), installed / "uv.exe")
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("uv is not available", result.stderr)
+
+    def test_uv_lookup_keeps_path_order_and_supported_launcher_extensions(self):
+        first = self.root / "first"
+        second = self.root / "second"
+        first.mkdir()
+        second.mkdir()
+        (first / "uv.exe").write_bytes(b"not executed")
+        (second / "uv.exe").write_bytes(b"not executed")
+        with patch.dict(os.environ, {"PATH": os.pathsep.join((str(first), str(second))), "PATHEXT": ".EXE;.CMD"}):
+            self.assertEqual(Path(deps.uv_executable()), first / "uv.exe")
+            (first / "uv.exe").unlink()
+            self.assertEqual(Path(deps.uv_executable()), second / "uv.exe")
+            (second / "uv.exe").unlink()
+            (first / "uv.cmd").write_text("@exit /b 0\n", encoding="utf-8")
+            self.assertEqual(Path(deps.uv_executable()), first / "uv.cmd")
+
+    def test_uv_lookup_supports_launchers_with_python_311_qualified_lookup(self):
+        installed = self.root / "installed uv"
+        installed.mkdir()
+        launcher = installed / "uv.cmd"
+        launcher.write_text("@exit /b 0\n", encoding="utf-8")
+
+        def qualified_lookup(candidate):
+            self.assertTrue(Path(candidate).is_absolute(), candidate)
+            return candidate if Path(candidate).is_file() else None
+
+        with (
+            patch.dict(os.environ, {"PATH": str(installed), "PATHEXT": ".EXE;.CMD"}),
+            patch.object(deps.shutil, "which", side_effect=qualified_lookup),
+        ):
+            self.assertEqual(Path(deps.uv_executable()), launcher)
 
 
 class InstallerTimeoutTests(ProjectTest):

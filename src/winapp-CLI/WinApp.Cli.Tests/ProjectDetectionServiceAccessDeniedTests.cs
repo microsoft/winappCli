@@ -13,7 +13,7 @@ namespace WinApp.Cli.Tests;
 /// Verifies <see cref="ProjectDetectionService"/> degrades gracefully when the OS denies
 /// access to directories or files encountered during a scan (permission-restricted folders,
 /// unreadable manifests). These exercise the <see cref="UnauthorizedAccessException"/>
-/// handlers in DetectProject, FindTauriConfFile, IsElectronProject, FindExecutableCsproj and
+/// handlers in FindTauriConfFile, IsElectronProject, FindExecutableCsproj and
 /// EnqueueSubdirectories, which cannot be reached with ordinary temp files.
 ///
 /// Access is denied with a real deny ACL for the current user. Administrators bypass deny
@@ -180,25 +180,6 @@ public class ProjectDetectionServiceAccessDeniedTests
     }
 
     [TestMethod]
-    public void DetectProjectAt_PythonRequirementsDirectoryListingDenied_ReturnsNullWithoutThrowing()
-    {
-        var denied = Path.Join(_tempDir, "restricted-python");
-        Directory.CreateDirectory(denied);
-        var requirements = Path.Join(denied, "requirements.txt");
-        File.WriteAllText(requirements, "");
-        File.WriteAllText(Path.Join(denied, "app.py"), "print('hello')");
-        Assert.AreEqual(DetectedProjectType.Python, _sut.DetectProjectAt(new DirectoryInfo(denied))?.Type);
-
-        if (!TryDenyDirectory(denied, FileSystemRights.ListDirectory))
-        {
-            Assert.Inconclusive("Deny ACL had no effect (test likely running elevated).");
-        }
-        Assert.IsTrue(File.Exists(requirements), "The requirements marker must remain visible to reach the Python file enumeration.");
-
-        Assert.IsNull(_sut.DetectProjectAt(new DirectoryInfo(denied)));
-    }
-
-    [TestMethod]
     public void DetectProjectAt_PackageJsonReadDenied_IsNotDetectedAsElectron()
     {
         // The directory is listable, but package.json itself cannot be read, so File.ReadAllText
@@ -217,25 +198,6 @@ public class ProjectDetectionServiceAccessDeniedTests
         var result = _sut.DetectProjectAt(new DirectoryInfo(projectDir));
 
         Assert.IsNull(result, "An unreadable package.json must not be detected as Electron.");
-    }
-
-    [TestMethod]
-    [DataRow("pyproject.toml", "[project]\nname=\"python-app\"\n")]
-    [DataRow("setup.cfg", "[metadata]\nname=python-app\n")]
-    [DataRow("setup.py", "raise Exception()\n")]
-    public void DetectProjectAt_PythonMarkerReadDenied_StillProvidesAFileHint(string filename, string contents)
-    {
-        Assert.IsFalse(Path.IsPathRooted(filename));
-        var projectDir = Path.Join(_tempDir, "python-app");
-        Directory.CreateDirectory(projectDir);
-        var marker = Path.Join(projectDir, filename);
-        File.WriteAllText(marker, contents);
-        if (!TryDenyFileRead(marker))
-        {
-            Assert.Inconclusive("Deny ACL had no effect (test likely running elevated).");
-        }
-
-        Assert.AreEqual("Possible Python", _sut.DetectProjectAt(new DirectoryInfo(projectDir))?.TypeLabel);
     }
 
     [TestMethod]
@@ -261,31 +223,5 @@ public class ProjectDetectionServiceAccessDeniedTests
 
         Assert.AreEqual(1, results.Count, "Only the accessible sibling project should be found.");
         Assert.AreEqual(DetectedProjectType.Rust, results[0].Type);
-    }
-
-    [TestMethod]
-    public async Task DetectProjectsAsync_PythonRequirementsDirectoryListingDenied_StillFindsSibling()
-    {
-        var denied = Path.Join(_tempDir, "restricted-python");
-        Directory.CreateDirectory(denied);
-        var requirements = Path.Join(denied, "requirements.txt");
-        File.WriteAllText(requirements, "");
-        File.WriteAllText(Path.Join(denied, "app.py"), "print('hello')");
-
-        var visible = Path.Join(_tempDir, "visible");
-        Directory.CreateDirectory(visible);
-        File.WriteAllText(Path.Join(visible, "Cargo.toml"), "[package]");
-
-        if (!TryDenyDirectory(denied, FileSystemRights.ListDirectory))
-        {
-            Assert.Inconclusive("Deny ACL had no effect (test likely running elevated).");
-        }
-        Assert.IsTrue(File.Exists(requirements), "The requirements marker must remain visible to reach the Python file enumeration.");
-
-        var results = await _sut.DetectProjectsAsync(Root, 10, null, CancellationToken.None);
-
-        Assert.HasCount(1, results);
-        Assert.AreEqual(DetectedProjectType.Rust, results[0].Type);
-        Assert.AreEqual(visible, results[0].Directory.FullName);
     }
 }

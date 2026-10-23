@@ -50,7 +50,7 @@ dependencies = []
 winapp init . --use-defaults --add-python-bindings
 ```
 
-This creates or reuses `.venv`, prepares SDKs and projections, creates the manifest and icons, and adds a bindings table to `pyproject.toml`. Continue when it reports **Python bindings ready**.
+This creates or reuses `.venv`, prepares SDKs and projections, creates the manifest and icons, and adds a bindings table to `pyproject.toml`. A `No known project type` warning during the native step does not prevent Python setup; continue when it reports **Python bindings ready**.
 
 The guide uses the Windows SDK's `Package` API. In the table that initialization created, change only these two settings; keep its recorded `codegen-version` and other settings:
 
@@ -69,15 +69,17 @@ No manual `pip install` of DynWinRT or activation of `.venv` is needed.
 
 ### Selecting an initialization directory
 
-An explicit path targets that directory. Without a path, `--use-defaults` targets the current directory:
+Use an explicit path for a Python project, or `--use-defaults` for the current directory. Native project search does not discover Python projects:
 
 ```powershell
 winapp init .\python-identity --use-defaults --add-python-bindings
 ```
 
-Interactive init without a directory asks you to confirm the bindings target from directories with usable SDK configuration after native setup. These include previously prepared projects. Select and confirm the intended target, or decline to leave Python files unchanged. If no usable target is found, rerun with its explicit directory.
+Interactive init without a directory asks you to confirm the bindings target from directories with usable SDK configuration after native setup. These include previously prepared projects. Select and confirm the intended target, or decline to leave Python files unchanged. If no usable target is found and bindings were not explicitly requested, native initialization remains successful and Python setup is skipped. To add bindings, rerun with the Python project's explicit directory and `--add-python-bindings`.
 
-`--config-only` prepares configuration and defers generation until `restore`. Normal generation requires matching project-local `winapp.yaml` and `.winapp\winmds.lock.json`. `--sparse`, `--setup-sdks none` and `--ignore-config` do not enable Python bindings. See the [`init` reference](../usage.md#init) for native project hints and subdirectory searching.
+Use a separate directory from C# projects for Python bindings. In a directory containing a `.csproj` file, `winapp init . --use-defaults --add-python-bindings` completes native initialization, then reports that Python bindings are unsupported and exits with code `1`. Native initialization changes are kept; Python configuration and environments are unchanged. Without requested or already-configured Python bindings, C# initialization succeeds normally.
+
+`--config-only` prepares configuration and defers generation until `restore`. Normal generation requires matching project-local `winapp.yaml` and `.winapp\winmds.lock.json`. `--sparse`, `--setup-sdks none` and `--ignore-config` do not enable Python bindings. See the [`init` reference](../usage.md#init) for other initialization options.
 
 ## 3. Add the identity check
 
@@ -205,6 +207,8 @@ Select `.venv\Scripts\python.exe` as the editor interpreter. Do not edit generat
 | Identity preparation fails | Read the reported cause, verify Developer Mode and the project interpreter, then retry. |
 | Ordinary `run` cannot find `.venv` | Use your chosen interpreter or `uv run`; the wrapper does not create an environment during ordinary execution. |
 | DynWinRT dependency versions conflict | Remove direct generator/runtime declarations from application dependencies, then run `winapp generate`. |
+| uv is not available | Install uv and add its installation directory to `PATH` as an absolute path, such as `C:\Tools\uv`. The current directory is not searched implicitly, and relative `PATH` entries are ignored. |
+| Configured bindings package does not match the uv project | Restore the previous `package` value, or update both the dependency name and its editable source in `pyproject.toml`, then run `winapp generate`. For `package = "renamed_bindings"`, use dependency `renamed-bindings` and source path `.\.winapp\python\renamed_bindings`. Keep any existing platform conditions. |
 | No codegen version is recorded | Run `winapp init . --use-defaults --add-python-bindings` to record a version without resetting API selections, or `winapp update` to choose a new version. |
 | No unique PBS distribution matches the project Python | See [runtime catalog pinning](#runtime-catalog-pinning) for tool upgrades and interpreter selection. |
 
